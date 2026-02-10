@@ -38,11 +38,12 @@ export class ProductsService {
     private whRepo: Repository<WarehouseEntity>
   ) { }
 
-  public canonicalKey(attrs: Record<string, string>) {
-    return Object.keys(attrs)
+  public canonicalKey(attrs: Record<string, string>): any {
+    const key = Object.keys(attrs)
       .sort((a, b) => a.localeCompare(b))
       .map((k) => `${k}=${String(attrs[k])}`)
       .join("|");
+
   }
 
   private async assertOwnedOrNull(

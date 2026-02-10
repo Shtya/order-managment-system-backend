@@ -82,9 +82,9 @@ export class CreateProductDto {
   @IsString()
   storageRack?: string | null;
 
-  @IsNotEmpty()
+  @IsOptional()
   @IsInt()
-  categoryId: number;
+  categoryId?: number;
 
   @IsOptional()
   @IsInt()

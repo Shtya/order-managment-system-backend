@@ -599,21 +599,37 @@ export class EasyOrderService extends BaseStoreService {
 
         if (remoteProduct.variants && remoteProduct.variants.length > 0) {
             // Case A: Variable Product
-            combinations = remoteProduct.variants.map((v: any) => ({
-                sku: v.sku || v.taager_code || null,
-                price: v.price,
-                stockOnHand: v.quantity || 0,
-                attributes: v.variation_props?.reduce((acc, p) => ({ ...acc, [p.variation]: p.variation_prop }), {}) || {},
-            }));
+            combinations = remoteProduct.variants.map((v: any) => {
+                const atts = v.variation_props?.reduce((acc, p) => ({ ...acc, [p.variation]: p.variation_prop }), {}) || {};
+                const sku = v.sku || v.taager_code || null;
+                // Generate key from attributes; if empty, use SKU as fallback key
+                let key = this.productsService.canonicalKey(atts);
+                if (!key && sku) {
+                    key = sku;
+                } else if (!key) {
+                    key = `variant_${remoteProduct.id}_${remoteProduct.variants.indexOf(v)}`;
+                }
+                return {
+                    sku,
+                    price: v.price,
+                    stockOnHand: v.quantity || 0,
+                    attributes: atts,
+                    key
+
+                }
+            });
         } else {
             // Case B: Simple Product (No variants in EasyOrder)
             // ✅ Create one variant using the main product's info
+            const sku = remoteProduct.sku || remoteProduct.taager_code || null;
+            // If no SKU, use product slug as key
+            const key = sku || `simple_${remoteProduct.id}`;
             combinations = [{
-                sku: remoteProduct.sku || remoteProduct.taager_code || null,
+                sku,
                 price: remoteProduct.price,
                 stockOnHand: remoteProduct.quantity || 0,
                 attributes: {},
-                key: 'default'
+                key
             }];
         }
 

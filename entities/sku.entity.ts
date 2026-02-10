@@ -50,7 +50,7 @@ export class ProductEntity {
   @Column({ type: "text", nullable: true })
   storageRack?: string;
 
-  @Column({ type: "int", nullable: false })
+  @Column({ type: "int", nullable: true })
   @Index()
   categoryId?: number | null;
 
