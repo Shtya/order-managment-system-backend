@@ -401,7 +401,7 @@ export class EasyOrderService extends BaseStoreService {
             categories: categoryPayload,
             quantity: productQuantity,
             track_stock: true,
-            disable_orders_for_no_stock: false,
+            disable_orders_for_no_stock: true,
             // buy_now_text: "اضغط هنا للشراء",
             is_reviews_enabled: true,
             taager_code: String(product.id), // Link Main Product ID
