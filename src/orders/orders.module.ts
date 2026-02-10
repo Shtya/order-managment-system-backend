@@ -1,5 +1,5 @@
 // orders/orders.module.ts
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { OrdersController } from "./orders.controller";
 import { OrdersService } from "./orders.service";
@@ -10,9 +10,13 @@ import {
   OrderMessageEntity,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
+import { StoresModule } from "src/stores/stores.module";
+import { OrderSubscriber } from "./order-subscriber";
+import { OrderWebhooksController } from "./webhooks.controller";
 
 @Module({
   imports: [
+    forwardRef(() => StoresModule),
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,
@@ -21,8 +25,8 @@ import { ProductVariantEntity } from "entities/sku.entity";
       ProductVariantEntity,
     ]),
   ],
-  providers: [OrdersService],
-  controllers: [OrdersController],
+  providers: [OrdersService, OrderSubscriber],
+  controllers: [OrdersController, OrderWebhooksController],
   exports: [OrdersService],
 })
-export class OrdersModule {}
+export class OrdersModule { }

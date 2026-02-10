@@ -1,7 +1,7 @@
 // --- File: src/products/products.service.ts ---
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository, Like } from "typeorm";
+import { In, Repository, Like, Not, IsNull } from "typeorm";
 
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { CategoryEntity } from "entities/categories.entity";
@@ -36,9 +36,9 @@ export class ProductsService {
 
     @InjectRepository(WarehouseEntity)
     private whRepo: Repository<WarehouseEntity>
-  ) {}
+  ) { }
 
-  private canonicalKey(attrs: Record<string, string>) {
+  public canonicalKey(attrs: Record<string, string>) {
     return Object.keys(attrs)
       .sort((a, b) => a.localeCompare(b))
       .map((k) => `${k}=${String(attrs[k])}`)
@@ -192,9 +192,9 @@ export class ProductsService {
     const productsBySku =
       productIdsFromSkus.length > 0
         ? await this.prodRepo.find({
-            where: { adminId, id: In(productIdsFromSkus) } as any,
-            relations: ["category", "store", "warehouse"],
-          })
+          where: { adminId, id: In(productIdsFromSkus) } as any,
+          relations: ["category", "store", "warehouse"],
+        })
         : [];
 
     const productMap = new Map();
@@ -393,10 +393,29 @@ export class ProductsService {
     const category = await this.assertOwnedOrNull(this.catRepo, adminId, dto.categoryId ?? null, "category");
     const store = await this.assertOwnedOrNull(this.storeRepo, adminId, dto.storeId ?? null, "store");
     const warehouse = await this.assertOwnedOrNull(this.whRepo, adminId, dto.warehouseId ?? null, "warehouse");
+    const existingSlug = await this.prodRepo.findOne({
+      where: {
+        adminId,
+        slug: dto.slug.trim(),
+        storeId: dto.storeId ?? null
+      }
+    });
 
+    if (existingSlug) {
+      if (store?.name) {
+        throw new BadRequestException(
+          `This slug "${dto.slug}" is already in use for store "${store.name}".`
+        );
+      } else {
+        throw new BadRequestException(
+          `This slug "${dto.slug}" is already in use.`
+        );
+      }
+    }
     const p = this.prodRepo.create({
       adminId,
       name: dto.name,
+      slug: dto.slug,
       wholesalePrice: dto.wholesalePrice ?? null,
       lowestPrice: dto.lowestPrice ?? null,
       storageRack: dto.storageRack ?? null,
@@ -481,6 +500,27 @@ export class ProductsService {
     const p = await CRUD.findOne(this.prodRepo, "products", id, ["category", "store", "warehouse"]);
     if (!p) throw new BadRequestException("product not found");
 
+    if (dto.slug) {
+      const cleanSlug = dto.slug;
+
+      // التحقق من أن الـ Slug غير مستخدم من قبل منتج آخر
+      // (نبحث عن نفس الـ Slug ونستبعد المنتج الحالي باستخدام Not(id))
+      const existingSlug = await this.prodRepo.findOne({
+        where: {
+          adminId,
+          slug: cleanSlug,
+          storeId: dto.storeId !== undefined ? (dto.storeId ?? null) : p.storeId,
+          id: Not(id) // أهم خطوة: استثناء المنتج الحالي من البحث
+        }
+      });
+
+      if (existingSlug) {
+        throw new BadRequestException(`The slug "${cleanSlug}" is already in use by another product.`);
+      }
+
+      p.slug = cleanSlug;
+    }
+
     // ✅ removeImgs
     const removeImgs = (dto as any).removeImgs as string[] | undefined;
     if (removeImgs?.length) {
@@ -525,6 +565,8 @@ export class ProductsService {
       (p as any).warehouse = warehouse ?? null;
     }
 
+
+
     const patch: any = { ...dto };
     delete patch.categoryId;
     delete patch.storeId;
@@ -539,5 +581,28 @@ export class ProductsService {
   async remove(me: any, id: number) {
     await this.get(me, id);
     return CRUD.delete(this.prodRepo, "products", id);
+  }
+
+  async checkSlug(me: any, slug, storeId, productId) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    if (productId) {
+      const entity = await CRUD.findOne(this.prodRepo, "products", productId);
+      if (slug === entity.slug) return {
+        isUnique: true
+      }
+    }
+
+    const exists = await this.prodRepo.findOne({
+      where: {
+        adminId,
+        slug: slug.trim().toLowerCase(),
+        storeId: storeId ? Number(storeId) : IsNull()
+      },
+      select: ["id"] // نختار الـ id فقط لتحسين الأداء
+    });
+
+    return { isUnique: !exists };
   }
 }

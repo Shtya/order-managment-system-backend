@@ -1,7 +1,7 @@
 // orders/orders.service.ts
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, Repository, In } from "typeorm";
+import { DataSource, Repository, In, EntityManager } from "typeorm";
 import {
   OrderEntity,
   OrderItemEntity,
@@ -47,7 +47,7 @@ export class OrdersService {
 
     @InjectRepository(ProductVariantEntity)
     private variantRepo: Repository<ProductVariantEntity>
-  ) {}
+  ) { }
 
   // ✅ Generate unique order number
   private async generateOrderNumber(adminId: string): Promise<string> {
@@ -94,9 +94,12 @@ export class OrdersService {
     toStatus: OrderStatus;
     userId?: number;
     notes?: string;
-    ipAddress?: string;
+    ipAddress?: string,
+    manager?: EntityManager
   }) {
-    const log = this.historyRepo.create({
+
+    const historyRepo = params.manager.getRepository(OrderStatusHistoryEntity)
+    const log = historyRepo.create({
       adminId: params.adminId,
       orderId: params.orderId,
       fromStatus: params.fromStatus,
@@ -106,7 +109,7 @@ export class OrdersService {
       ipAddress: params.ipAddress || null,
     } as any);
 
-    await this.historyRepo.save(log);
+    await params.manager.save(log);
   }
 
   // ========================================
@@ -321,6 +324,7 @@ export class OrdersService {
         userId: me?.id,
         notes: "Order created",
         ipAddress,
+        manager
       });
 
       return saved;
@@ -452,6 +456,7 @@ export class OrdersService {
         userId: me?.id,
         notes: dto.notes,
         ipAddress,
+        manager
       });
 
       return saved;
@@ -544,5 +549,13 @@ export class OrdersService {
 
     await this.orderRepo.delete({ id, adminId } as any);
     return { ok: true };
+  }
+
+  async findByExternalId(externalId: string): Promise<OrderEntity | null> {
+    return this.orderRepo.findOne({ where: { externalId } });
+  }
+
+  async updateExternalId(orderId: number, externalId: string) {
+    await this.orderRepo.update(orderId, { externalId });
   }
 }

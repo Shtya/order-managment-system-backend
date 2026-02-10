@@ -3,12 +3,7 @@ import {
 	PrimaryGeneratedColumn,
 	Column,
 	Index,
-	ManyToOne,
-	OneToMany,
 	CreateDateColumn,
-	UpdateDateColumn,
-	BeforeInsert,
-	BeforeUpdate,
 } from "typeorm";
 
 @Entity({ name: "categories" })
@@ -25,8 +20,8 @@ export class CategoryEntity {
 	@Column({ type: "varchar", length: 160 })
 	name!: string;
 
-	@Column({ type: "varchar", length: 200, nullable: true })
-	slug?: string;
+	@Column({ type: "varchar", length: 200 })
+	slug!: string;
 
 	@Column({ type: "varchar", length: 400, nullable: true })
 	image?: string;
@@ -34,15 +29,15 @@ export class CategoryEntity {
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;
 
-	@BeforeInsert()
-	@BeforeUpdate()
-	generateSlug() {
-		if (!this.name) return;
+	// @BeforeInsert()
+	// @BeforeUpdate()
+	// generateSlug() {
+	// 	if (!this.name) return;
 
-		if (!this.slug || this.slug.trim().length === 0) {
-			this.slug = slugify(this.name).slice(0, 200);
-		}
-	}
+	// 	if (!this.slug || this.slug.trim().length === 0) {
+	// 		this.slug = slugify(this.name).slice(0, 200);
+	// 	}
+	// }
 }
 
 

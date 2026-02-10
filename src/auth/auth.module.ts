@@ -7,8 +7,9 @@ import { JwtStrategy } from './jwt.strategy';
 import { AuthController } from './auth.controller';
 import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
- import { FirebaseService } from './firebase.service';
+import { FirebaseService } from './firebase.service';
 import { MailService } from '../../common/nodemailer';
+import { EncryptionService } from 'common/encryption.service';
 
 @Module({
   imports: [
@@ -29,4 +30,4 @@ import { MailService } from '../../common/nodemailer';
   controllers: [AuthController],
   exports: [JwtModule],
 })
-export class AuthModule {}
+export class AuthModule { }

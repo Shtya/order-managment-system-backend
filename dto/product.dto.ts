@@ -9,6 +9,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   ValidateNested,
 } from "class-validator";
@@ -62,6 +63,14 @@ export class CreateProductDto {
   @IsNotEmpty()
   @MaxLength(200)
   name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(300)
+  @Matches(/^[a-z0-9-]+$/, {
+    message: 'The slug must contain only lowercase English letters, numbers, and dashes (e.g., product-name-101)',
+  })
+  slug!: string;
 
   @IsOptional()
   wholesalePrice?: Money;
