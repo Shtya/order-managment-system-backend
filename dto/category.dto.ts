@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from "class-validator";
+import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from "class-validator";
 
 export class CreateCategoryDto {
   @IsString()
@@ -6,10 +6,13 @@ export class CreateCategoryDto {
   @MaxLength(160)
   name!: string;
 
-  @IsOptional()
+  @IsNotEmpty()
   @IsString()
   @MaxLength(200)
-  slug?: string;
+  @Matches(/^[a-z0-9-]+$/, {
+    message: 'The slug must contain only lowercase English letters, numbers, and dashes (e.g., skin-care)',
+  })
+  slug: string;
 
   @IsOptional()
   @IsString()
@@ -27,6 +30,9 @@ export class UpdateCategoryDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)
+  @Matches(/^[a-z0-9-]+$/, {
+    message: 'The slug must contain only lowercase English letters, numbers, and dashes (e.g., skin-care)',
+  })
   slug?: string;
 
   @IsOptional()

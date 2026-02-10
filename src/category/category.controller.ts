@@ -8,12 +8,22 @@ import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("categories")
 export class CategoriesController {
-  constructor(private cats: CategoriesService) {}
+  constructor(private cats: CategoriesService) { }
 
   @Permissions("categories.read")
   @Get()
   list(@Req() req: any, @Query() q: any) {
     return this.cats.list(req.user, q);
+  }
+
+  @Get("check-slug")
+  async checkSlug(
+    @Req() req: any,
+    @Query("slug") slug: string,
+    @Query("category") category: string,
+  ) {
+
+    return this.cats.checkSlug(req.user, slug, category);
   }
 
   @Permissions("categories.read")
@@ -39,4 +49,5 @@ export class CategoriesController {
   remove(@Req() req: any, @Param("id") id: string) {
     return this.cats.remove(req.user, Number(id));
   }
+
 }
