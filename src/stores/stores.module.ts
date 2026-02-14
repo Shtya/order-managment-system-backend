@@ -10,7 +10,7 @@ import { StoreQueueService } from "./storesIntegrations/queues";
 import { StoreWorkerService } from "./storesIntegrations/workers";
 import { StoreSubscriber } from "./store-subscriber";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
-import { OrderEntity } from "entities/order.entity";
+import { OrderEntity, OrderStatusEntity } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
 import { RedisModule } from "common/redis/redis.module";
 import { OrdersModule } from "src/orders/orders.module";
@@ -27,7 +27,7 @@ import { WooCommerceService } from "./storesIntegrations/WooCommerce";
     forwardRef(() => ProductsModule),
     forwardRef(() => CategoryModule),
 
-    TypeOrmModule.forFeature([StoreEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity]),
+    TypeOrmModule.forFeature([StoreEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity]),
   ],
   providers: [
     StoresService,
@@ -37,9 +37,9 @@ import { WooCommerceService } from "./storesIntegrations/WooCommerce";
     ShopifyService,
     WooCommerceService,
     StoreQueueService, // The Producer
-    StoreWorkerService
+    StoreWorkerService,
   ],
   controllers: [StoresController, StoreWebhooksController],
-  exports: [StoresService, EasyOrderService],
+  exports: [StoresService, EasyOrderService, WooCommerceService],
 })
 export class StoresModule { }

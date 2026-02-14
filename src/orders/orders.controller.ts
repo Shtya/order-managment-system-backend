@@ -22,12 +22,14 @@ import {
   UpdatePaymentStatusDto,
   AddOrderMessageDto,
   MarkMessagesReadDto,
+  CreateStatusDto,
+  UpdateStatusDto,
 } from "dto/order.dto";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("orders")
 export class OrdersController {
-  constructor(private svc: OrdersService) {}
+  constructor(private svc: OrdersService) { }
 
   // ✅ Get order statistics
   @Permissions("orders.read")
@@ -95,7 +97,7 @@ export class OrdersController {
     return this.svc.addMessage(req.user, Number(id), dto);
   }
 
-	
+
   @Permissions("orders.update")
   @Patch(":id/messages/read")
   markMessagesRead(
@@ -111,5 +113,30 @@ export class OrdersController {
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
     return this.svc.remove(req.user, Number(id));
+  }
+
+  // ✅ Create new order status
+  @Permissions("orders.update")
+  @Post("statuses")
+  createStatus(@Req() req: any, @Body() dto: CreateStatusDto) {
+    return this.svc.createStatus(req.user, dto);
+  }
+
+  // ✅ Update order status
+  @Permissions("orders.update")
+  @Patch("statuses/:id")
+  updateStatus(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateStatusDto
+  ) {
+    return this.svc.updateStatus(req.user, Number(id), dto);
+  }
+
+  // ✅ Delete order status
+  @Permissions("orders.update")
+  @Delete("statuses/:id")
+  removeStatus(@Req() req: any, @Param("id") id: string) {
+    return this.svc.removeStatus(req.user, Number(id));
   }
 }

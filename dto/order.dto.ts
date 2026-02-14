@@ -2,10 +2,13 @@
 import { Type } from "class-transformer";
 import {
   IsArray,
+  IsBoolean,
   IsEmail,
   IsEnum,
+  IsHexColor,
   IsInt,
   IsNotEmpty,
+  IsNumber,
   IsOptional,
   IsString,
   MaxLength,
@@ -13,7 +16,32 @@ import {
   ValidateNested,
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
-import { OrderStatus, PaymentStatus, PaymentMethod } from "entities/order.entity";
+import { PaymentStatus, PaymentMethod } from "entities/order.entity";
+
+
+export class CreateStatusDto {
+  @IsString()
+  @MaxLength(50)
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsHexColor()
+  color?: string; // Ensures #000000 format
+}
+export class UpdateStatusDto extends PartialType(CreateStatusDto) {
+  @IsOptional()
+  @IsNumber()
+  statusId?: number;
+}
 
 // ✅ Order Item DTO
 export class OrderItemDto {
@@ -55,6 +83,14 @@ export class CreateOrderDto {
   @IsString()
   @IsNotEmpty()
   address: string;
+
+  @IsString()
+  @IsOptional()
+  landmark?: string;
+
+  @IsNumber()
+  @IsOptional()
+  deposit?: number = 0;
 
   @IsString()
   @IsNotEmpty()
@@ -109,8 +145,8 @@ export class CreateOrderDto {
 // ✅ Update Order DTO
 export class UpdateOrderDto extends PartialType(CreateOrderDto) {
   @IsOptional()
-  @IsEnum(OrderStatus)
-  status?: OrderStatus;
+  @IsNumber()
+  statusId?: number;
 
   @IsOptional()
   @IsString()
@@ -119,8 +155,8 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
 
 // ✅ Change Order Status DTO
 export class ChangeOrderStatusDto {
-  @IsEnum(OrderStatus)
-  status: OrderStatus;
+  @IsNumber()
+  statusId: number;
 
   @IsOptional()
   @IsString()

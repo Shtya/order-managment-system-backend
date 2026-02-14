@@ -26,7 +26,7 @@
     "migration:generate": "npm run typeorm migration:generate -- -n",
     "migration:run": "npm run typeorm migration:run",
     "migration:revert": "npm run typeorm migration:revert",
-    "seed": "ts-node src/seeder.ts"
+    "seed": "ts-node -r tsconfig-paths/register src/seeder.ts"
   },
   "dependencies": {
     "@apollo/client": "^4.1.4",

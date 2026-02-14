@@ -2,10 +2,18 @@ import 'dotenv/config';
 import { DataSource } from 'typeorm';
 
 import { User, Role, Permission } from '../entities/user.entity';
+import { Asset } from '../entities/assets.entity';
 import { CategoryEntity } from '../entities/categories.entity';
 import { StoreEntity } from '../entities/stores.entity';
 import { WarehouseEntity } from '../entities/warehouses.entity';
 import { Plan, Transaction } from '../entities/plans.entity';
+import { OrderEntity, OrderItemEntity, OrderMessageEntity, OrderStatus, OrderStatusEntity, OrderStatusHistoryEntity } from '../entities/order.entity';
+import { BundleEntity, BundleItemEntity } from '../entities/bundle.entity';
+import { PurchaseReturnInvoiceEntity, PurchaseReturnInvoiceItemEntity } from '../entities/purchase_return.entity';
+import { PurchaseInvoiceEntity, PurchaseInvoiceItemEntity } from '../entities/purchase.entity';
+import { SalesInvoiceEntity, SalesInvoiceItemEntity } from '../entities/sales_invoice.entity';
+import { ProductEntity, ProductVariantEntity } from '../entities/sku.entity';
+import { SupplierEntity, SupplierCategoryEntity } from '../entities/supplier.entity';
 
 /**
  * =========================
@@ -21,7 +29,10 @@ const dataSource = new DataSource({
 	database: process.env.DATABASE_NAME,
 
 	// ⚠️ لازم كل الـ entities
-	entities: [User, Role, Permission, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity],
+	entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity, BundleEntity, SalesInvoiceItemEntity, ProductEntity, ProductVariantEntity, SalesInvoiceEntity, PurchaseInvoiceItemEntity, PurchaseReturnInvoiceItemEntity, PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, BundleItemEntity, Asset, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity, OrderEntity, OrderStatusEntity, OrderItemEntity,
+		OrderStatusHistoryEntity,
+		OrderMessageEntity,
+	],
 
 	synchronize: true, // فقط dev
 });
@@ -37,6 +48,87 @@ async function runGlobalSeed() {
 	const categoryRepo = dataSource.getRepository(CategoryEntity);
 	const storeRepo = dataSource.getRepository(StoreEntity);
 	const warehouseRepo = dataSource.getRepository(WarehouseEntity);
+	const statusRepo = dataSource.getRepository(OrderStatusEntity); // Add this
+	const systemStatuses = [
+		{
+			name: 'New',
+			code: OrderStatus.NEW,
+			color: '#2196F3', // Matches stats.new (Blue)
+			isDefault: true,
+			order: 1
+		},
+		{
+			name: 'Under Review',
+			code: OrderStatus.UNDER_REVIEW,
+			color: '#FF9800', // Matches stats.pendingConfirmation (Orange)
+			isDefault: false,
+			order: 2
+		},
+		{
+			name: 'Preparing',
+			code: OrderStatus.PREPARING,
+			color: '#9C27B0', // Matches stats.total/processing (Purple)
+			isDefault: false,
+			order: 3
+		},
+		{
+			name: 'Ready',
+			code: OrderStatus.READY,
+			color: '#009688', // Matches stats.postponed/teal (Teal/Ready)
+			isDefault: false,
+			order: 4
+		},
+		{
+			name: 'Shipped',
+			code: OrderStatus.SHIPPED,
+			color: '#03A9F4', // Matches stats.inShipping (Light Blue)
+			isDefault: false,
+			order: 5
+		},
+		{
+			name: 'Delivered',
+			code: OrderStatus.DELIVERED,
+			color: '#4CAF50', // Matches stats.delivered (Green)
+			isDefault: false,
+			order: 6
+		},
+		{
+			name: 'Cancelled',
+			code: OrderStatus.CANCELLED,
+			color: '#F44336', // Matches stats.cancelledShipping (Red)
+			isDefault: false,
+			order: 7
+		},
+		{
+			name: 'Returned',
+			code: OrderStatus.RETURNED,
+			color: '#607D8B', // Grey (Standard for Returned/Archive)
+			isDefault: false,
+			order: 8
+		},
+	];
+
+	for (const s of systemStatuses) {
+		// [2025-12-24] Trim duplicates by checking name and isSystem
+		const exists = await statusRepo.findOne({
+			where: { name: s.name, system: true },
+		});
+
+		if (!exists) {
+			await statusRepo.save(
+				statusRepo.create({
+					name: s.name,
+					code: s.code,
+					color: s.color,
+					isDefault: s.isDefault,
+					system: true,
+					adminId: null, // Global
+					sortOrder: s.order,
+					description: `System default status for ${s.name}`,
+				}),
+			);
+		}
+	}
 
 	/** =========================
 	 * Global Categories
