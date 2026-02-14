@@ -147,6 +147,10 @@ export class ProductVariantEntity {
   @Column({ type: "int", default: 0 })
   reserved!: number;
 
+  @Column({ type: "varchar", length: 255, nullable: true })
+  externalId?: string | null;
+
+
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
 }

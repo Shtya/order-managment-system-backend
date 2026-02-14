@@ -43,7 +43,7 @@ export class ProductsService {
       .sort((a, b) => a.localeCompare(b))
       .map((k) => `${k}=${String(attrs[k])}`)
       .join("|");
-
+    return key;
   }
 
   private async assertOwnedOrNull(

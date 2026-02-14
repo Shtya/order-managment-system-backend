@@ -41,7 +41,7 @@ export class StoreEntity {
 	@Column({ type: "varchar", length: 120 })
 	name!: string; // e.g., "My EasyOrder Store", "Shopify Main Store"
 
-	@Column({ type: "varchar" })
+	@Column({ type: "varchar", unique: true })
 	storeUrl!: string;
 
 	@Column({ type: "varchar", length: 50 })
@@ -78,6 +78,9 @@ export class StoreEntity {
 
 	@Column({ type: "timestamptz", nullable: true })
 	lastSyncAttemptAt?: Date;
+
+	@Column({ type: "varchar", nullable: true })
+	onlineStorePublicationId?: string;
 
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;

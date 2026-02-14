@@ -8,12 +8,10 @@ import { tenantId } from "src/category/category.service";
 import { plainToInstance } from "class-transformer";
 import { validate } from "class-validator";
 import { CategoryEntity } from "entities/categories.entity";
-import { EasyOrderQueueService } from "./storesIntegrations/queues";
 import { ProductEntity } from "entities/sku.entity";
 import { OrderEntity } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
-import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
-
+import { StoreQueueService } from "./storesIntegrations/queues";
 
 @Injectable()
 export class StoresService {
@@ -22,7 +20,7 @@ export class StoresService {
   constructor(
     private readonly encryptionService: EncryptionService,
     protected readonly redisService: RedisService,
-    protected readonly easyOrderQueueService: EasyOrderQueueService,
+    protected readonly storeQueueService: StoreQueueService,
     @InjectRepository(StoreEntity) private readonly storesRepo: Repository<StoreEntity>,
   ) { }
 
@@ -236,6 +234,32 @@ export class StoresService {
     return this.getMaskedStoreIntegrations(removedStore);
   }
 
+  async updateEncryptedIntegrations(store: StoreEntity, integrations: any): Promise<StoreEntity> {
+
+    const cleanIntegrations = this.trimObjectValues(integrations);
+
+    await this.validateIntegrations(store.provider, cleanIntegrations);
+
+    const { ciphertext, iv, tag } = await this.encryptionService.encrypt(
+      JSON.stringify(cleanIntegrations)
+    );
+
+
+    store.encryptedData = ciphertext;
+    store.iv = iv;
+    store.tag = tag;
+
+    // 5. Persist to database
+    const savedStore = await this.storesRepo.save(store);
+
+
+    await this.removeAuthCashe(savedStore.id);
+
+    this.logger.log(`[StoresService] Encrypted integrations updated and cache cleared for Store ID: ${store.id}`);
+
+    return savedStore;
+  }
+
   private trimObjectValues(obj: any): any {
     if (!obj || typeof obj !== 'object') return obj;
 
@@ -322,10 +346,13 @@ export class StoresService {
     }
     //  Queue the jobs
     const promises = activeStores.map(store => {
-      if (store.provider === StoreProvider.EASYORDER) {
-        // Enqueue to GroupMQ!
-        return this.easyOrderQueueService.enqueueCategorySync(category, store.id, slug);
-      }
+      // We pass store.provider directly to our unified queue service
+      return this.storeQueueService.enqueueCategorySync(
+        category,
+        store.id,
+        store.provider, // Pass the provider (e.g., 'shopify')
+        slug
+      );
     });
 
     await Promise.all(promises);
@@ -350,14 +377,13 @@ export class StoresService {
       return;
     }
     // Route to the correct queue based on Provider
-    if (store.provider === StoreProvider.EASYORDER) {
-      await this.easyOrderQueueService.enqueueProductSync(product.id, product.adminId, store.id, slug);
-      this.logger.log(
-        `[Product Sync] Dispatched sync job for Product: "${name}" (ID: ${id}) ` +
-        `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. ` +
-        `${slug ? `(Slug update detected from: ${slug})` : ''}`
-      );
-    }
+    await this.storeQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider, slug);
+    this.logger.log(
+      `[Product Sync] Dispatched sync job for Product: "${name}" (ID: ${id}) ` +
+      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. ` +
+      `${slug ? `(Slug update detected from: ${slug})` : ''}`
+    );
+
   }
 
   async syncOrderStatus(order: OrderEntity) {
@@ -373,14 +399,14 @@ export class StoresService {
     }
 
     // Route to the correct queue based on Provider
-    if (store.provider === StoreProvider.EASYORDER) {
-      await this.easyOrderQueueService.enqueueOrderStatusSync(order, store.id);
 
-      this.logger.log(
-        `[Order Status Sync] Dispatched status update for Order #${orderNumber} (ID: ${id}) ` +
-        `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`
-      );
-    }
+    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider);
+
+    this.logger.log(
+      `[Order Status Sync] Dispatched status update for Order #${orderNumber} (ID: ${id}) ` +
+      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`
+    );
+
   }
 
   async manualSync(me: any, id: number) {
@@ -393,16 +419,12 @@ export class StoresService {
     if (!store.isActive) throw new BadRequestException("Cannot sync an inactive store");
 
     // Route to the correct queue based on Provider
-    if (store.provider === StoreProvider.EASYORDER) {
-      await this.easyOrderQueueService.enqueueFullStoreSync(store);
+    await this.storeQueueService.enqueueFullStoreSync(store);
 
-      this.logger.log(
-        `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
-        `initiated by Admin: ${adminId}.`
-      );
-    } else {
-      throw new BadRequestException(`Manual sync not implemented for ${store.provider}`);
-    }
+    this.logger.log(
+      `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
+      `initiated by Admin: ${adminId}.`
+    );
 
     return {
       message: `Full synchronization job for "${store.name}" has been queued.`,

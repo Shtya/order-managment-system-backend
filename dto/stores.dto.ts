@@ -101,5 +101,15 @@ export class EasyOrderIntegrationsDto {
 }
 
 export class ShopifyIntegrationsDto {
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => value?.trim())
+  clientKey?: string;
+
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => value?.trim())
+  clientSecret?: string;
 
 }
