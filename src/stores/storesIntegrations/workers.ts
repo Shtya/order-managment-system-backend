@@ -138,7 +138,12 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     break;
 
                 case "sync-order-status":
-                    const order = await this.orderRepo.findOneBy({ id: orderId });
+                    const order = await this.orderRepo.findOne({
+                        where: {
+                            id: orderId,
+                        },
+                        relations: ['status']
+                    });
                     if (order) {
                         await service.syncOrderStatus(order);
                     }

@@ -8,6 +8,7 @@ import {
   OrderItemEntity,
   OrderStatusHistoryEntity,
   OrderMessageEntity,
+  OrderStatusEntity,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
@@ -19,6 +20,7 @@ import { OrderSubscriber } from "./order-subscriber";
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,
+      OrderStatusEntity,
       OrderStatusHistoryEntity,
       OrderMessageEntity,
       ProductVariantEntity,

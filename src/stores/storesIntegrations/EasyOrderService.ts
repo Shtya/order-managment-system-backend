@@ -9,7 +9,7 @@ import { EncryptionService } from "common/encryption.service";
 import { MoreThan, Repository } from "typeorm";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { v4 as uuidv4 } from 'uuid'; // You might need to install uuid: npm i uuid @types/uuid
-import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
+import { OrderEntity, OrderStatus, OrderStatusEntity, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { OrdersService } from "src/orders/orders.service";
 import { CreateOrderDto } from "dto/order.dto";
 import { RedisService } from "common/redis/RedisService";
@@ -22,6 +22,7 @@ export class EasyOrderService extends BaseStoreService {
 
     constructor(
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
+        @InjectRepository(OrderStatusEntity) protected readonly statusRepo: Repository<OrderStatusEntity>,
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
@@ -768,7 +769,7 @@ export class EasyOrderService extends BaseStoreService {
     public async updateOrderStatus(order: OrderEntity, store: StoreEntity) {
         if (!order.externalId) return;
 
-        const remoteStatus = this.mapInternalStatusToExternal[order.status];
+        const remoteStatus = this.mapInternalStatusToExternal[order.status.code];
         if (!remoteStatus) {
             this.logger.warn(`No status mapping found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`);
             return;
@@ -1020,7 +1021,8 @@ export class EasyOrderService extends BaseStoreService {
 
         // 3. Map Status
         const newStatus = this.mapExternalStatusToInternal(payload.new_status);
-        if (order.status === newStatus) return;
+        const statusEntity = await this.ordersService.findStatusByCode(newStatus, adminId.toString())
+        if (order.status.code === newStatus) return;
         if (!newStatus) {
             this.logCtxWarn(`Unknown external status: ${payload.new_status}`, store);
             return;
@@ -1030,7 +1032,7 @@ export class EasyOrderService extends BaseStoreService {
         const User = { id: store.adminId, role: { name: 'admin' } };
 
         await this.ordersService.changeStatus(User, order.id, {
-            status: newStatus,
+            statusId: statusEntity.id,
             notes: `Status updated via Webhook from ${payload.old_status} to ${payload.new_status}`
         });
     }

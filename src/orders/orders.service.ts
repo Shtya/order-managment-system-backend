@@ -1,14 +1,16 @@
 // orders/orders.service.ts
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, Repository, In, EntityManager } from "typeorm";
+import { DataSource, Repository, In, EntityManager, Brackets } from "typeorm";
 import {
   OrderEntity,
   OrderItemEntity,
   OrderStatusHistoryEntity,
   OrderMessageEntity,
-  OrderStatus,
   PaymentStatus,
+  OrderStatusEntity,
+  OrderStatus,
+  slugify,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import {
@@ -18,6 +20,8 @@ import {
   UpdatePaymentStatusDto,
   AddOrderMessageDto,
   MarkMessagesReadDto,
+  UpdateStatusDto,
+  CreateStatusDto,
 } from "dto/order.dto";
 
 export function tenantId(me: any): any | null {
@@ -35,6 +39,9 @@ export class OrdersService {
 
     @InjectRepository(OrderEntity)
     private orderRepo: Repository<OrderEntity>,
+
+    @InjectRepository(OrderStatusEntity)
+    private statusRepo: Repository<OrderStatusEntity>,
 
     @InjectRepository(OrderItemEntity)
     private itemRepo: Repository<OrderItemEntity>,
@@ -90,24 +97,29 @@ export class OrdersService {
   private async logStatusChange(params: {
     adminId: string;
     orderId: number;
-    fromStatus: OrderStatus;
-    toStatus: OrderStatus;
+    fromStatusId: number | null; // Changed from Enum to ID
+    toStatusId: number;         // Changed from Enum to ID
     userId?: number;
     notes?: string;
-    ipAddress?: string,
-    manager?: EntityManager
+    ipAddress?: string;
+    manager: EntityManager;      // Removed optional '?' because getRepository needs it
   }) {
+    // [2025-12-24] Trim string identifiers for clean history
+    const adminId = params.adminId;
+    const notes = params.notes?.trim() || null;
+    const ipAddress = params.ipAddress?.trim() || null;
 
-    const historyRepo = params.manager.getRepository(OrderStatusHistoryEntity)
+    const historyRepo = params.manager.getRepository(OrderStatusHistoryEntity);
+
     const log = historyRepo.create({
-      adminId: params.adminId,
+      adminId,
       orderId: params.orderId,
-      fromStatus: params.fromStatus,
-      toStatus: params.toStatus,
+      fromStatusId: params.fromStatusId,
+      toStatusId: params.toStatusId,
       changedByUserId: params.userId || null,
-      notes: params.notes || null,
-      ipAddress: params.ipAddress || null,
-    } as any);
+      notes,
+      ipAddress,
+    });
 
     await params.manager.save(log);
   }
@@ -119,37 +131,41 @@ export class OrdersService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const [
-      newCount,
-      underReviewCount,
-      preparingCount,
-      readyCount,
-      shippedCount,
-      deliveredCount,
-      cancelledCount,
-      returnedCount,
-    ] = await Promise.all([
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.NEW } as any }),
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.UNDER_REVIEW } as any }),
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.PREPARING } as any }),
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.READY } as any }),
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.SHIPPED } as any }),
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.DELIVERED } as any }),
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.CANCELLED } as any }),
-      this.orderRepo.count({ where: { adminId, status: OrderStatus.RETURNED } as any }),
-    ]);
+    const stats = await this.statusRepo
+      .createQueryBuilder('status')
+      // use relation path only (no join condition)
+      .leftJoin('status.orders', 'o')
+      .select([
+        'status.id AS id',
+        'status.name AS name',
+        'status.code AS code',
+        'status.color  AS color',
+        'status.system AS system',
+        'status.sortOrder AS sortOrder'
+      ])
+      .addSelect('COUNT(o.id)', 'count')
+      .where(new Brackets(qb => {
+        qb.where('status.adminId = :adminId', { adminId })
+          .orWhere('status.system = :system', { system: true });
+      }))
+      // GROUP BY every non-aggregated selected column (Postgres requires this)
+      .groupBy('status.id')
+      .addGroupBy('status.name')
+      .addGroupBy('status.code')
+      .addGroupBy('status.color')
+      .addGroupBy('status.system')
+      .addGroupBy('status.sortOrder')
+      .orderBy('status.sortOrder', 'ASC')
+      .getRawMany();
 
-    return {
-      new: newCount,
-      underReview: underReviewCount,
-      preparing: preparingCount,
-      ready: readyCount,
-      shipped: shippedCount,
-      delivered: deliveredCount,
-      cancelled: cancelledCount,
-      returned: returnedCount,
-    };
+    return stats.map(stat => ({
+      ...stat,
+      id: Number(stat.id),
+      count: Number(stat.count) || 0,
+      system: stat.system || stat.system
+    }));
   }
+
 
   // ========================================
   // ✅ LIST ORDERS
@@ -212,7 +228,7 @@ export class OrdersService {
 
     const order = await this.orderRepo.findOne({
       where: { id, adminId } as any,
-      relations: ["items", "items.variant", "items.variant.product", "statusHistory"],
+      relations: ["items", "items.variant", "items.variant.product", "statusHistory", 'status'],
     });
 
     if (!order) throw new BadRequestException("Order not found");
@@ -280,6 +296,7 @@ export class OrdersService {
         dto.shippingCost ?? 0,
         dto.discount ?? 0
       );
+      const defaultStatus = await this.getDefaultStatus(adminId)
 
       // Create order
       const order = manager.create(OrderEntity, {
@@ -291,6 +308,8 @@ export class OrdersService {
         address: dto.address,
         city: dto.city,
         area: dto.area,
+        landmark: dto.landmark,
+        deposit: dto.deposit,
         paymentMethod: dto.paymentMethod,
         paymentStatus: dto.paymentStatus ?? PaymentStatus.PENDING,
         shippingCompany: dto.shippingCompany,
@@ -301,7 +320,7 @@ export class OrdersService {
         profit,
         notes: dto.notes,
         customerNotes: dto.customerNotes,
-        status: OrderStatus.NEW,
+        status: defaultStatus.id,
         items,
         createdByUserId: me?.id,
       } as any);
@@ -319,8 +338,8 @@ export class OrdersService {
       await this.logStatusChange({
         adminId,
         orderId: saved.id,
-        fromStatus: OrderStatus.NEW,
-        toStatus: OrderStatus.NEW,
+        fromStatusId: defaultStatus.id,
+        toStatusId: defaultStatus.id,
         userId: me?.id,
         notes: "Order created",
         ipAddress,
@@ -340,11 +359,9 @@ export class OrdersService {
 
     const order = await this.get(me, id);
 
-    // Don't allow updates if shipped/delivered
-    if ([OrderStatus.SHIPPED, OrderStatus.DELIVERED].includes(order.status)) {
+    if (order.status?.system && (order.status.code === OrderStatus.SHIPPED || order.status.code === OrderStatus.DELIVERED)) {
       throw new BadRequestException("Cannot update shipped or delivered orders");
     }
-
     // Update basic fields
     Object.assign(order, {
       customerName: dto.customerName ?? order.customerName,
@@ -361,6 +378,8 @@ export class OrdersService {
       customerNotes: dto.customerNotes ?? order.customerNotes,
       trackingNumber: dto.trackingNumber ?? order.trackingNumber,
       updatedByUserId: me?.id,
+      landmark: dto.landmark,
+      deposit: dto.deposit,
     });
 
     // Recalculate if needed
@@ -397,10 +416,14 @@ export class OrdersService {
 
       if (!order) throw new BadRequestException("Order not found");
 
-      const oldStatus = order.status;
-      const newStatus = dto.status;
+      const newStatus = await this.getDefaultStatus(order.adminId)
 
-      if (oldStatus === newStatus) return order;
+      const oldStatusId = order.statusId;
+      const oldStatusCode = order.status.code;
+      const newStatusCode = newStatus.code;
+
+      if (oldStatusId === dto.statusId) return order;
+
 
       // Status transition validation
       const validTransitions: Record<OrderStatus, OrderStatus[]> = {
@@ -414,12 +437,12 @@ export class OrdersService {
         [OrderStatus.RETURNED]: [],
       };
 
-      if (!validTransitions[oldStatus]?.includes(newStatus)) {
-        throw new BadRequestException(`Cannot transition from ${oldStatus} to ${newStatus}`);
+      if (!validTransitions[oldStatusCode]?.includes(newStatusCode)) {
+        throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatusCode}`);
       }
 
       // Handle stock changes
-      if (newStatus === OrderStatus.CANCELLED || newStatus === OrderStatus.RETURNED) {
+      if (newStatusCode === OrderStatus.CANCELLED || newStatusCode === OrderStatus.RETURNED) {
         // Release reserved stock
         for (const item of order.items) {
           const variant = item.variant;
@@ -428,11 +451,11 @@ export class OrdersService {
         }
       }
 
-      if (newStatus === OrderStatus.SHIPPED && !order.shippedAt) {
+      if (newStatusCode === OrderStatus.SHIPPED && !order.shippedAt) {
         order.shippedAt = new Date();
       }
 
-      if (newStatus === OrderStatus.DELIVERED && !order.deliveredAt) {
+      if (newStatusCode === OrderStatus.DELIVERED && !order.deliveredAt) {
         order.deliveredAt = new Date();
         // Deduct from stock & release reserved
         for (const item of order.items) {
@@ -451,8 +474,8 @@ export class OrdersService {
       await this.logStatusChange({
         adminId,
         orderId: saved.id,
-        fromStatus: oldStatus,
-        toStatus: newStatus,
+        fromStatusId: oldStatusId,
+        toStatusId: newStatus.id,
         userId: me?.id,
         notes: dto.notes,
         ipAddress,
@@ -534,7 +557,7 @@ export class OrdersService {
     const order = await this.get(me, id);
 
     // Only allow deleting new/cancelled orders
-    if (![OrderStatus.NEW, OrderStatus.CANCELLED].includes(order.status)) {
+    if (![OrderStatus.NEW, OrderStatus.CANCELLED].includes(order.status.code as OrderStatus)) {
       throw new BadRequestException("Can only delete new or cancelled orders");
     }
 
@@ -557,5 +580,125 @@ export class OrdersService {
 
   async updateExternalId(orderId: number, externalId: string) {
     await this.orderRepo.update(orderId, { externalId });
+  }
+
+  async findStatusByCode(name: string, adminId: string): Promise<OrderStatusEntity> {
+    // [2025-12-24] Trim input and ensure case-insensitive matching if needed
+    const trimmedName = name.trim();
+
+    const status = await this.statusRepo.findOne({
+      where: [
+        { name: trimmedName, system: true },           // Condition 1: Global System Status
+        { name: trimmedName, adminId: adminId }   // Condition 2: Admin-specific Status
+      ],
+    });
+
+    if (!status) {
+      throw new NotFoundException(`Status "${trimmedName}" not found for this account.`);
+    }
+
+    return status;
+  }
+
+  async getDefaultStatus(adminId: string): Promise<OrderStatusEntity> {
+    const status = await this.statusRepo.findOne({
+      where: [
+        { isDefault: true, system: true },           // System-wide default
+        { isDefault: true, adminId: adminId }    // Admin-specific default
+      ],
+      order: { system: 'DESC' } // Prioritize system default if both exist
+    });
+
+    if (!status) {
+      throw new Error("Critical: No order statuses found in system.");
+    }
+
+    return status;
+  }
+
+  async createStatus(me: any, dto: CreateStatusDto) {
+    const adminId = tenantId(me);
+    const name = dto.name.trim(); // [2025-12-24] Trim
+
+
+    const code = slugify(name)
+    await this.validateStatusUniqueness(name, code, adminId);
+    // Check if name already exists for this admin or system
+
+
+    const status = this.statusRepo.create({
+      ...dto,
+      name: dto.name?.trim(),
+      description: dto.description?.trim(),
+      color: dto.color.trim(),
+      sortOrder: dto.sortOrder,
+      adminId: adminId,
+      system: false, // Force false for admin-created statuses
+    });
+
+    return await this.statusRepo.save(status);
+  }
+
+  async updateStatus(me: any, id: number, dto: UpdateStatusDto) {
+    const adminId = tenantId(me);
+    const status = await this.statusRepo.findOneBy({ id, adminId: adminId });
+
+    if (!status) throw new NotFoundException("Status not found or is a protected System Status.");
+
+    // Extra safety: even if adminId matches, block if system is true
+    if (status.system) throw new ForbiddenException("Cannot edit system statuses.");
+    const newName = dto.name?.trim() ?? status.name;
+
+    const code = slugify(newName)
+    await this.validateStatusUniqueness(newName, code, adminId, id);
+
+    Object.assign(status, {
+      ...dto,
+      name: dto.name?.trim() ?? status.name,
+      description: dto.description?.trim(),
+      color: dto.color.trim(),
+      sortOrder: dto.sortOrder,
+    });
+
+    return await this.statusRepo.save(status);
+  }
+
+  private async validateStatusUniqueness(name: string, code: string, adminId: string, excludeId?: number): Promise<void> {
+    const queryBuilder = this.statusRepo.createQueryBuilder('status')
+      .where(new Brackets(qb => {
+        qb.where('status.name = :name', { name })
+          .orWhere('status.code = :code', { code });
+      }))
+      .andWhere(new Brackets(qb => {
+        qb.where('status.adminId = :adminId', { adminId })
+          .orWhere('status.system = :system', { system: true });
+      }));
+
+    if (excludeId) {
+      queryBuilder.andWhere('status.id != :excludeId', { excludeId });
+    }
+
+    const existing = await queryBuilder.getOne();
+
+    if (existing) {
+      const conflictType = existing.code === code ? 'code (slug)' : 'name';
+      throw new BadRequestException(`Status ${conflictType} already exists. Please choose another name.`);
+    }
+  }
+
+  async removeStatus(me: any, id: number) {
+    const adminId = tenantId(me);
+    const status = await this.statusRepo.findOneBy({ id, adminId: adminId });
+
+    if (!status) throw new NotFoundException("Status not found.");
+    if (status.system) throw new ForbiddenException("System statuses cannot be deleted.");
+
+    // [2025-12-24] Trim Risk: Check if orders are using this status
+    const usageCount = await this.orderRepo.countBy({ statusId: id });
+    if (usageCount > 0) {
+      throw new BadRequestException(`Cannot delete: ${usageCount} orders are currently in this status.`);
+    }
+
+    return await this.statusRepo.remove(status);
   }
 }

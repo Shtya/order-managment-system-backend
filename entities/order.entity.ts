@@ -9,6 +9,8 @@ import {
   ManyToOne,
   OneToMany,
   JoinColumn,
+  BeforeInsert,
+  BeforeUpdate,
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
 
@@ -23,6 +25,63 @@ export enum OrderStatus {
   CANCELLED = "cancelled",
   RETURNED = "returned",
 }
+
+@Entity('order_statuses')
+@Index(["adminId", "code"], { unique: true })
+@Index(["adminId", "name"], { unique: true })
+export class OrderStatusEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ type: "varchar", length: 50 })
+  name: string; // e.g., "Ready for Pickup"
+
+  @Column({ type: "varchar", length: 50 })
+  code: string; // as slug e.g., "ready-for-pickup"
+
+  @Column({ nullable: true })
+  @Index()
+  adminId: string | null;
+
+  @Column({ type: "text", nullable: true })
+  description?: string;
+
+  @Column({ type: "boolean", default: false })
+  system: boolean; // If true, Admin cannot delete this
+
+  @Column({ type: "boolean", default: false })
+  isDefault: boolean; // Only one status should have this
+
+  @Column({ type: "int", default: 0 })
+  sortOrder: number; // For "trimming" the UI list order
+
+  @Column({ type: "varchar", length: 7, default: "#000000" })
+  color: string; // Hex code for UI display
+  @OneToMany(() => OrderEntity, order => order.status)
+  orders: OrderEntity[];
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  generateSlug() {
+    if (!this.name) return;
+
+    if (!this.system) {
+      this.code = slugify(this.name).slice(0, 200);
+    }
+  }
+
+}
+export function slugify(value: string): string {
+  return value
+    .toString()
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^\u0600-\u06FFa-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 
 // ✅ Payment Status Enum
 export enum PaymentStatus {
@@ -73,6 +132,12 @@ export class OrderEntity {
   @Column({ type: "text" })
   address!: string;
 
+  @Column({ type: "text", nullable: true })
+  landmark?: string;
+
+  @Column({ type: "int", default: 0, nullable: false, })
+  deposit: number;
+
   @Column({ type: "varchar", length: 100 })
   city!: string;
 
@@ -80,9 +145,16 @@ export class OrderEntity {
   area?: string;
 
   // ✅ Order Status
-  @Column({ type: "varchar", length: 50, default: OrderStatus.NEW })
-  @Index()
-  status!: OrderStatus;
+  // @Column({ type: "varchar", length: 50, default: OrderStatus.NEW })
+  // @Index()
+  // status!: OrderStatus;
+
+  @ManyToOne(() => OrderStatusEntity, { eager: true })
+  @JoinColumn({ name: 'statusId' })
+  status: OrderStatusEntity;
+
+  @Column()
+  statusId: number;
 
   // ✅ Payment Information
   @Column({ type: "varchar", length: 50, default: PaymentMethod.CASH_ON_DELIVERY })
@@ -214,12 +286,20 @@ export class OrderStatusHistoryEntity {
   @ManyToOne(() => OrderEntity, (order) => order.statusHistory, { onDelete: "CASCADE" })
   @JoinColumn({ name: "orderId" })
   order!: OrderEntity;
+  // Change from Enum to Relation
+  @ManyToOne(() => OrderStatusEntity)
+  @JoinColumn({ name: "fromStatusId" })
+  fromStatus: OrderStatusEntity;
 
-  @Column({ type: "varchar", length: 50 })
-  fromStatus!: OrderStatus;
+  @Column()
+  fromStatusId: number;
 
-  @Column({ type: "varchar", length: 50 })
-  toStatus!: OrderStatus;
+  @ManyToOne(() => OrderStatusEntity)
+  @JoinColumn({ name: "toStatusId" })
+  toStatus: OrderStatusEntity;
+
+  @Column()
+  toStatusId: number;
 
   @Column({ type: "int", nullable: true })
   changedByUserId?: number;
