@@ -7,6 +7,7 @@ import {
   Index,
   ManyToOne,
   JoinColumn,
+  OneToMany,
 } from "typeorm";
 
 import { StoreEntity } from "./stores.entity";
@@ -27,6 +28,7 @@ export type UpsellingProduct = {
 
 @Entity({ name: "products" })
 @Index(["adminId", "name"])
+@Index(["adminId", "storeId", "slug"], { unique: true })
 export class ProductEntity {
   @PrimaryGeneratedColumn()
   id: number;
@@ -83,6 +85,12 @@ export class ProductEntity {
 
   @Column({ type: "simple-json", nullable: false, default: "[]" })
   upsellingProducts!: UpsellingProduct[];
+
+  @OneToMany(() => ProductVariantEntity, (variant) => variant.product)
+  variants: ProductVariantEntity[];
+
+  @Column({ type: "varchar", length: 300, nullable: false })
+  slug: string;
 
   @Column({ type: "int", nullable: true })
   createdByUserId?: number;

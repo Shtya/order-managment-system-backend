@@ -67,7 +67,7 @@ function parseNumber(val: any): number | null | undefined {
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("products")
 export class ProductsController {
-  constructor(private products: ProductsService) {}
+  constructor(private products: ProductsService) { }
 
   @Permissions("products.read")
   @Get()
@@ -153,6 +153,7 @@ export class ProductsController {
   ) {
     const dto: CreateProductDto = {
       name: body.name,
+      slug: body.slug,
 
       wholesalePrice: parseNumber(body.wholesalePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
@@ -262,6 +263,24 @@ export class ProductsController {
     }
 
     return this.products.update(req.user, Number(id), dto);
+  }
+
+  @Get("check-slug")
+  async checkSlug(
+    @Req() req: any,
+    @Query("slug") slug: string,
+    @Query("storeId") storeId?: string, // يأتي كـ string من الـ URL
+    @Query("productId") productId?: string, // يأتي كـ string من الـ URL
+  ) {
+
+    const parsedStoreId = storeId ? Number(storeId) : undefined;
+
+    // إذا فشل التحويل (مثلاً أرسل المستخدم نصاً بدلاً من رقم)
+    if (storeId && isNaN(parsedStoreId)) {
+      throw new BadRequestException("Invalid storeId format");
+    }
+
+    return this.products.checkSlug(req.user, slug, parsedStoreId, productId);
   }
 
   @Permissions("products.delete")

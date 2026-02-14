@@ -30,7 +30,9 @@ import { PurchasesReturnModule } from './purchases-return/purchases-return.modul
 import { OrdersModule } from './orders/orders.module';
 import { SalesInvoiceModule } from './sales_invoice/sales_invoice.module';
 import { BundlesModule } from './bundles/bundles.module';
- 
+import { EncryptionService } from "common/encryption.service";
+import { BullModule } from '@nestjs/bull';
+
 @Module({
 	imports: [
 		ConfigModule.forRoot(),
@@ -43,8 +45,9 @@ import { BundlesModule } from './bundles/bundles.module';
 			database: process.env.DATABASE_NAME,
 			entities: [__dirname + '/../**/*.entity{.ts,.js}'],
 			// entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity ,ProductVariantEntity, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity, ProductEntity, Asset],
-			synchronize: true,
+			synchronize: true
 		}),
+		BullModule.registerQueue({ name: 'store-sync' }),
 		AuthModule,
 		RolesModule,
 		PermissionsModule,
@@ -66,7 +69,7 @@ import { BundlesModule } from './bundles/bundles.module';
 		BundlesModule
 	],
 	providers: [
-		QueryFailedErrorFilter,
+		QueryFailedErrorFilter, EncryptionService
 	],
 	exports: [],
 })

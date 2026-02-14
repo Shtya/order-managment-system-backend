@@ -50,6 +50,9 @@ export class OrderEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ type: "varchar", length: 255, nullable: true })
+  externalId?: string | null;
+
   @Column()
   @Index()
   adminId!: string;
