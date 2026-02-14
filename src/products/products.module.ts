@@ -1,5 +1,5 @@
 // --- File: src/products/products.module.ts ---
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 
 import { ProductEntity, ProductVariantEntity } from "../../entities/sku.entity";
@@ -9,9 +9,12 @@ import { WarehouseEntity } from "entities/warehouses.entity";
 
 import { ProductsService } from "./products.service";
 import { ProductsController } from "./products.controller";
+import { ProductSubscriber, VariantSubscriber } from "./product-subscriber";
+import { StoresModule } from "src/stores/stores.module";
 
 @Module({
   imports: [
+    forwardRef(() => StoresModule),
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductVariantEntity,
@@ -20,8 +23,8 @@ import { ProductsController } from "./products.controller";
       WarehouseEntity,
     ]),
   ],
-  providers: [ProductsService],
+  providers: [ProductsService, ProductSubscriber, VariantSubscriber],
   controllers: [ProductsController],
   exports: [ProductsService],
 })
-export class ProductsModule {}
+export class ProductsModule { }
