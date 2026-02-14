@@ -1,7 +1,7 @@
-import { Injectable, forwardRef, Inject, Logger } from "@nestjs/common";
+import { Injectable, forwardRef, Inject, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, Not } from "typeorm";
-import { StoreEntity } from "entities/stores.entity";
+import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
 import { EncryptionService } from "common/encryption.service";
 import { StoresService } from "../stores.service";
 import { CategoryEntity } from "entities/categories.entity";
@@ -12,11 +12,12 @@ import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 
 
 @Injectable()
-export abstract class BaseStoreService {
+export abstract class BaseStoreService implements OnModuleInit {
     protected readonly logger = new Logger(this.constructor.name);
     protected limiters: Map<string, Bottleneck> = new Map();
     protected readonly axiosInstance: AxiosInstance;
     protected readonly limit: number;
+    protected readonly storeProvider: StoreProvider;
     protected readonly baseImg = process.env.IMAGE_BASE_URL;
     constructor(
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
@@ -25,7 +26,8 @@ export abstract class BaseStoreService {
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
         baseUrl,
-        limit: 40
+        limit,
+        storeProvider
     ) {
 
         this.axiosInstance = axios.create({
@@ -33,13 +35,17 @@ export abstract class BaseStoreService {
             timeout: 10000,
         });
         this.limit = limit;
+        this.storeProvider = storeProvider;
+    }
+    onModuleInit() {
+        this.recoverStuckSyncs()
     }
     /* Centralized Error Handling for Axios
        */
     protected handleError(error: any, context: string) {
         // If we exhausted retries and still got a 429
         if (error.response?.status === 429) {
-            this.logger.error(`EasyOrder: Permanent Rate Limit block for ${context}. Please check dashboard.`);
+            this.logger.error(`Permanent Rate Limit block for ${context}. Please check dashboard.`);
         }
         throw error;
     }
@@ -84,16 +90,16 @@ export abstract class BaseStoreService {
     }
     protected getLimiter(adminId: string): Bottleneck {
         let limiter = this.limiters.get(adminId);
-
+        const calculatedMinTime = Math.ceil(60000 / this.limit);
         if (!limiter) {
             limiter = new Bottleneck({
                 id: `limiter_${adminId}`,
-                reservoir: 40,
-                reservoirRefreshAmount: 40,
+                reservoir: this.limit,
+                reservoirRefreshAmount: this.limit,
                 reservoirRefreshInterval: 60 * 1000,
                 // SOLUTION: Use maxConcurrent 1 and 1500ms minTime to strictly obey 40 req/min
                 maxConcurrent: 150,
-                minTime: 1500,
+                minTime: calculatedMinTime,
             });
 
             limiter.on('idle', () => {
@@ -106,61 +112,140 @@ export abstract class BaseStoreService {
         return limiter;
     }
 
-    protected async sendRequest(store: StoreEntity, config: AxiosRequestConfig, attempt = 0): Promise<any> {
-        const cleanAdminId = store?.adminId;
+    /**
+     * Centralized limiter + retry/backoff executor.
+     * - `fn` should perform the actual network call and throw on errors.
+     * - `backoffBase` in ms (used to multiply attempt index)
+     */
+    protected async executeWithLimiter(adminId: string, fn: () => Promise<any>, attempt = 0, backoffBase = 10000, context?: string): Promise<any> {
+        const cleanAdminId = String(adminId || 'global');
         const limiter = this.getLimiter(cleanAdminId);
 
         try {
             return await limiter.schedule(async () => {
-                if (!store) {
-                    this.logger.warn(`[EasyOrder] Sync skipped for Admin ${cleanAdminId}: No active store found or autoSync is disabled.`);
-                    return null;
-                }
-
-                const response = await this.axiosInstance.request({
-                    ...config,
-                });
-
-                return response.data;
+                return await fn();
             });
         } catch (error) {
-            const message = error.response?.data?.message;
             const status = error.response?.status;
-            const url = config.url;
-            const method = config.method?.toUpperCase() || 'GET';
-            // Handle 429 with a complete cooldown
-            if (status === 429 && attempt < 5) {
-                const waitTime = (attempt + 1) * 10000; // 10s, 20s, 30s...
+            const code = error.code || error.cause?.code; // Catch system errors like ETIMEDOUT
+
+            // Define what constitutes a "Retryable Error"
+            const isRateLimit = status === 429;
+            const isNetworkError = ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EAI_AGAIN'].includes(code);
+            // Handle throttling centrally
+            if ((isRateLimit || isNetworkError) && attempt < 5) {
+                const waitTime = (attempt + 1) * backoffBase;
 
                 // Stop all other outgoing requests for this admin immediately
-                const currentRes = await limiter.currentReservoir();
-                if (currentRes > 0) {
-                    await limiter.incrementReservoir(-currentRes);
+                try {
+                    const currentRes = await limiter.currentReservoir();
+                    if (currentRes > 0) {
+                        await limiter.incrementReservoir(-currentRes);
+                    }
+                } catch (e) {
+                    this.logger.debug(`Failed to clear reservoir for ${cleanAdminId}: ${e?.message}`);
+                }
+                const errorType = isRateLimit ? 'Rate Limit (429)' : `Network Error (${code || 'ETIMEDOUT'})`;
+                if (isRateLimit) {
+                    this.logger.warn(
+                        `${context ?? '[Limiter]'} ${errorType} hit for Admin ${cleanAdminId}. ` +
+                        `Reservoir cleared. Cooling down for ${waitTime}ms (Attempt ${attempt + 1}/5)...`
+                    );
+                } else {
+                    this.logger.warn(
+                        `${context ?? '[Limiter]'} ${errorType} detected for Admin ${cleanAdminId}. ` +
+                        `Retrying in ${waitTime}ms (Attempt ${attempt + 1}/5)...`
+                    );
                 }
 
-                this.logger.warn(`429 Hit for Admin ${cleanAdminId}. Reservoir cleared. Cooling down for ${waitTime}ms...`);
-
-                // Wait for the backoff period
                 await new Promise((resolve) => setTimeout(resolve, waitTime));
 
                 // Refill only 1 slot to allow the retry attempt to proceed
-                await limiter.incrementReservoir(1);
+                try {
+                    await limiter.incrementReservoir(1);
+                } catch (e) {
+                    this.logger.debug(`Failed to increment reservoir for ${cleanAdminId}: ${e?.message}`);
+                }
 
-                // Recursive call is now safe because the previous .schedule() has resolved/rejected
-                return this.sendRequest(store, config, attempt + 1);
+                return this.executeWithLimiter(adminId, fn, attempt + 1, backoffBase, context);
             }
-            this.logger.error(`External API Failed: ${method} ${url} - Status ${status}: ${JSON.stringify(message)}`);
-            this.handleError(error, config.url);
+
+            // Re-throw for upstream handling
+            throw error;
         }
+    }
+
+    /**
+     * Reusable axios call that leverages the centralized limiter/retry logic.
+     */
+    protected async sendRequest(store: StoreEntity, config: AxiosRequestConfig, attempt = 0): Promise<any> {
+        const cleanAdminId = String(store?.adminId || 'global');
+        const method = (config.method || 'GET').toUpperCase();
+        const url = config.url || config.baseURL || '';
+
+        return this.executeWithLimiter(cleanAdminId, async () => {
+            if (!store) {
+                this.logger.warn(`Sync skipped for Admin ${cleanAdminId}: No active store found or autoSync is disabled.`);
+                return null;
+            }
+
+            const response = await this.axiosInstance.request({ ...config });
+            return response.data;
+        }, attempt, 10000, `${method} ${url}`);
     }
 
     getImageUrl = (url) => {
         return url.startsWith('http') ? url : this.baseImg + url;
 
     };
+
+    /**
+          * RECOVERY: Clean up stores stuck in SYNCING status (useful when app crashes)
+          * Should be called on app startup to prevent indefinite locks
+          */
+    public async recoverStuckSyncs(): Promise<number> {
+        this.logger.warn(`[Recovery] Scanning for stores stuck in SYNCING status...`);
+
+        try {
+            const stuckStores = await this.storesRepo.find({
+                where: {
+                    provider: this.storeProvider,
+                    syncStatus: SyncStatus.SYNCING
+                }
+            });
+
+            if (stuckStores.length === 0) {
+                this.logger.log(`[Recovery] ✓ No stores stuck in SYNCING status`);
+                return 0;
+            }
+
+            for (const store of stuckStores) {
+                this.logCtxWarn(
+                    `[Recovery] Found store stuck in SYNCING for ${Math.floor((Date.now() - store.lastSyncAttemptAt.getTime()) / 1000)}s. Resetting to FAILED status...`,
+                    store
+                );
+
+                await this.storesRepo.update(store.id, {
+                    syncStatus: SyncStatus.FAILED,
+                });
+            }
+
+            this.logger.log(`[Recovery] ✓ Successfully recovered ${stuckStores.length} stuck store(s)`);
+            return stuckStores.length;
+        } catch (error) {
+            this.logger.error(`[Recovery] ✗ Failed to recover stuck syncs: ${error.message}`);
+            return 0;
+        }
+    }
+
+
+    // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
+    // usage of the `@shopify/shopify-api` client and provider-specific behavior.
     public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
     public abstract syncProduct({ product, variants, slug }: { product: ProductEntity, variants: ProductVariantEntity[], slug?: string })
     public abstract syncOrderStatus(order: OrderEntity)
     public abstract syncFullStore(store: StoreEntity)
-    public abstract recoverStuckSyncs()
+
 }
+
+

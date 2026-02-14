@@ -24,6 +24,7 @@ export class EasyOrderService extends BaseStoreService {
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
+        @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
 
         protected readonly mainStoresService: StoresService,
         @Inject(forwardRef(() => OrdersService))
@@ -34,7 +35,7 @@ export class EasyOrderService extends BaseStoreService {
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
     ) {
-        super(storesRepo, categoryRepo, encryptionService, mainStoresService, process.env.EASY_ORDER_BASE_URL, 40)
+        super(storesRepo, categoryRepo, encryptionService, mainStoresService, process.env.EASY_ORDER_BASE_URL, 40, StoreProvider.EASYORDER)
     }
 
 
@@ -42,24 +43,24 @@ export class EasyOrderService extends BaseStoreService {
      * Helpers
      */
     private async getHeaders(store: StoreEntity) {
-        const cacheKey = `store_auth:${store.id}`;
+        // const cacheKey = `store_auth:${store.id}`;
 
         // 1. Try to get from Redis
-        let apiKey = await this.redisService.get(cacheKey);
+        // let apiKey = await this.redisService.get(cacheKey);
 
-        if (!apiKey) {
-            // 2. Cache miss: Decrypt and save to Redis with a TTL (e.g., 1 hour)
-            const keys = await this.mainStoresService.getDecryptedIntegrations(store);
+        // if (!apiKey) {
+        // 2. Cache miss: Decrypt and save to Redis with a TTL (e.g., 1 hour)
+        const keys = await this.mainStoresService.getDecryptedIntegrations(store);
 
-            if (!keys.apiKey) {
-                throw new InternalServerErrorException(`Missing API Key for store ${store.name}`);
-            }
-
-            apiKey = keys.apiKey.trim(); // Applying your trim preference
-
-            // Save to Redis for 3600 seconds (1 hour)
-            await this.redisService.set(cacheKey, apiKey, 3600);
+        if (!keys.apiKey) {
+            throw new InternalServerErrorException(`Missing API Key for store ${store.name}`);
         }
+
+        const apiKey = keys.apiKey.trim(); // Applying your trim preference
+
+        // Save to Redis for 3600 seconds (1 hour)
+        //     await this.redisService.set(cacheKey, apiKey, 3600);
+        // }
 
         return {
             "Api-Key": apiKey,
@@ -94,12 +95,6 @@ export class EasyOrderService extends BaseStoreService {
                 autoSync: true, // Check if the user enabled automatic sync
             },
         });
-
-        if (!store) {
-            this.logger.debug(`Skipping sync for admin ${cleanAdminId}: No active EasyOrder store with autoSync enabled.`);
-            return null;
-        }
-
         return store;
     }
 
@@ -226,7 +221,8 @@ export class EasyOrderService extends BaseStoreService {
         const activeStore = await this.getStoreForSync(finalAdmin)
 
         if (!activeStore) {
-            throw new BadRequestException(`No active store found for admin ${finalAdmin}`)
+            this.logger.debug(`[EasyOrder Sync] Skipping: No active EasyOrder store for admin ${adminId}`);
+            return;
         }
         const checkSlug = slug ? slug : category.slug;
         const searchFilters = [`slug||eq||${checkSlug.trim()}`];
@@ -411,6 +407,63 @@ export class EasyOrderService extends BaseStoreService {
         };
     }
 
+    private async syncVariantsBySku(
+        localVariants: ProductVariantEntity[],
+        remoteVariants: any[],
+        store: StoreEntity,
+    ): Promise<void> {
+        if (!remoteVariants?.length) return;
+
+        // 1️⃣ Build local map by SKU
+        const localMap = new Map<string, ProductVariantEntity>();
+
+        for (const local of localVariants) {
+            if (!local.sku) continue;
+            localMap.set(local.sku.trim(), local);
+        }
+
+        const variantsToSave: ProductVariantEntity[] = [];
+
+        // 2️⃣ Match remote → local
+        for (const remote of remoteVariants) {
+            const sku = remote.taager_code?.trim();
+
+            if (!sku) {
+                this.logCtxError(
+                    `[Variants Sync] Remote variant missing taager_code`,
+                    store,
+                );
+                continue;
+            }
+
+            const localVariant = localMap.get(sku);
+
+            if (!localVariant) {
+                this.logCtxError(
+                    `[Variants Sync] No local variant found for SKU ${sku}`,
+                    store,
+                );
+                continue;
+            }
+
+            // 3️⃣ Update external ID
+            localVariant.externalId = remote.id;
+
+            variantsToSave.push(localVariant);
+        }
+
+        // 4️⃣ Save in one DB call (important)
+        if (variantsToSave.length) {
+            await this.pvRepo.save(variantsToSave);
+
+            this.logCtx(
+                `[Variants Sync] ✓ Synced ${variantsToSave.length} variant(s) external IDs`,
+                store,
+            );
+        }
+    }
+
+
     private async createProduct(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externalCategoryId: string) {
         this.logCtx(`[Product] Creating product: ${product.name} (slug: ${product.slug}) with ${variants.length} variant(s)`, store);
 
@@ -422,7 +475,12 @@ export class EasyOrderService extends BaseStoreService {
                 url: '/products',
                 data: payload
             });
-
+            const remoteVariants = response.variants;
+            await this.syncVariantsBySku(
+                variants,
+                remoteVariants,
+                store
+            );
             this.logCtx(`[Product] ✓ Successfully created product with external ID: ${response?.id}`, store);
             return response;
         } catch (error) {
@@ -442,7 +500,12 @@ export class EasyOrderService extends BaseStoreService {
                 url: `/products/${externalId}`,
                 data: payload
             });
-
+            const remoteVariants = response.variants;
+            await this.syncVariantsBySku(
+                variants,
+                remoteVariants,
+                store
+            );
             this.logCtx(`[Product] ✓ Successfully updated product ${externalId}`, store);
             return response;
         } catch (error) {
@@ -996,44 +1059,7 @@ export class EasyOrderService extends BaseStoreService {
 
         return store;
     }
-    /**
-      * RECOVERY: Clean up stores stuck in SYNCING status (useful when app crashes)
-      * Should be called on app startup to prevent indefinite locks
-      */
-    public async recoverStuckSyncs(): Promise<number> {
-        this.logger.warn(`[Recovery] Scanning for stores stuck in SYNCING status...`);
 
-        try {
-            const stuckStores = await this.storesRepo.find({
-                where: {
-                    provider: StoreProvider.EASYORDER,
-                    syncStatus: SyncStatus.SYNCING
-                }
-            });
-
-            if (stuckStores.length === 0) {
-                this.logger.log(`[Recovery] ✓ No stores stuck in SYNCING status`);
-                return 0;
-            }
-
-            for (const store of stuckStores) {
-                this.logCtxWarn(
-                    `[Recovery] Found store stuck in SYNCING for ${Math.floor((Date.now() - store.lastSyncAttemptAt.getTime()) / 1000)}s. Resetting to FAILED status...`,
-                    store
-                );
-
-                await this.storesRepo.update(store.id, {
-                    syncStatus: SyncStatus.FAILED,
-                });
-            }
-
-            this.logger.log(`[Recovery] ✓ Successfully recovered ${stuckStores.length} stuck store(s)`);
-            return stuckStores.length;
-        } catch (error) {
-            this.logger.error(`[Recovery] ✗ Failed to recover stuck syncs: ${error.message}`);
-            return 0;
-        }
-    }
     private mapPaymentMethod(method: string): PaymentMethod {
         switch (method?.toLowerCase()) {
             case 'cod': return PaymentMethod.CASH_ON_DELIVERY;

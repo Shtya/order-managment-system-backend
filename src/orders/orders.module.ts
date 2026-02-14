@@ -12,7 +12,6 @@ import {
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
 import { OrderSubscriber } from "./order-subscriber";
-import { OrderWebhooksController } from "./webhooks.controller";
 
 @Module({
   imports: [
@@ -26,7 +25,7 @@ import { OrderWebhooksController } from "./webhooks.controller";
     ]),
   ],
   providers: [OrdersService, OrderSubscriber],
-  controllers: [OrdersController, OrderWebhooksController],
+  controllers: [OrdersController],
   exports: [OrdersService],
 })
 export class OrdersModule { }

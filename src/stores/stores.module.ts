@@ -6,8 +6,8 @@ import { StoresController } from "./stores.controller";
 import { EncryptionService } from "common/encryption.service";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import { CategoryEntity } from "entities/categories.entity";
-import { EasyOrderQueueService } from "./storesIntegrations/queues";
-import { EasyOrderWorkerService } from "./storesIntegrations/workers";
+import { StoreQueueService } from "./storesIntegrations/queues";
+import { StoreWorkerService } from "./storesIntegrations/workers";
 import { StoreSubscriber } from "./store-subscriber";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { OrderEntity } from "entities/order.entity";
@@ -16,6 +16,9 @@ import { RedisModule } from "common/redis/redis.module";
 import { OrdersModule } from "src/orders/orders.module";
 import { ProductsModule } from "src/products/products.module";
 import { CategoryModule } from "src/category/category.module";
+import { ShopifyService } from "./storesIntegrations/ShopifyService";
+import { StoreWebhooksController } from "./webhooks.controller";
+import { WooCommerceService } from "./storesIntegrations/WooCommerce";
 
 @Module({
   imports: [
@@ -31,9 +34,12 @@ import { CategoryModule } from "src/category/category.module";
     StoreSubscriber,
     EncryptionService,
     EasyOrderService,      // The API Logic + Bottleneck
-    EasyOrderQueueService, // The Producer
-    EasyOrderWorkerService],
-  controllers: [StoresController],
+    ShopifyService,
+    WooCommerceService,
+    StoreQueueService, // The Producer
+    StoreWorkerService
+  ],
+  controllers: [StoresController, StoreWebhooksController],
   exports: [StoresService, EasyOrderService],
 })
 export class StoresModule { }

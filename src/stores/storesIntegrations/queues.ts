@@ -4,7 +4,7 @@ import { Injectable } from "@nestjs/common";
 import { CategoryEntity } from "entities/categories.entity";
 import { ProductEntity } from "entities/sku.entity";
 import { OrderEntity } from "entities/order.entity";
-import { StoreEntity } from "entities/stores.entity";
+import { StoreEntity, StoreProvider } from "entities/stores.entity";
 
 
 
@@ -12,103 +12,67 @@ const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
 
 const redis = new Redis(redisUrl);
 
-export const easyOrderQueue = new Queue({
+export const storeSyncQueue = new Queue({
     redis,
-    namespace: "easyorder", // prefix keys in Redis
-    jobTimeoutMs: 30_000,   // optional timeout
+    namespace: "store-sync", // prefix keys in Redis
+    jobTimeoutMs: 300_000,   // optional timeout 5m
     maxAttempts: 0,         // max 1 retry per job
 });
 
 
 @Injectable()
-export class EasyOrderQueueService {
-    async enqueueCategorySync(
-        category: CategoryEntity,
-        storeId: number,
-        slug?: string
-    ) {
-        const adminId = category.adminId;
+export class StoreQueueService {
+    //
+    private async addJob(adminId: string, type: string, storeType: StoreProvider, data: any, options: any = {}) {
         if (!adminId) return;
 
-        // GroupMQ automatically serializes jobs within this groupId
-        await easyOrderQueue.add({
-            groupId: `admin:${adminId}`, // THIS is the "Virtual Queue" per admin
+        return await storeSyncQueue.add({
+            groupId: `admin:${adminId}`,
             data: {
-                type: "sync-category",
-                category: category,
-                storeId,
-                slug,
-                adminId
+                ...data,
+                type,
+                storeType,
+                adminId,
             },
             orderMs: Date.now(),
-            maxAttempts: 0,
+            maxAttempts: options.maxAttempts ?? 0,
+            jobId: options.jobId,
+            delay: options.delay,
         });
     }
 
+    async enqueueCategorySync(category: CategoryEntity, storeId: number, storeType: StoreProvider, slug?: string) {
 
-    async enqueueProductSync(
-        productId: number,
-        adminId: string,
-        storeId: number,
-        slug?: string,
-    ) {
-
-        if (!adminId) return;
-        const jobId = `product:${productId}`
-        await easyOrderQueue.remove(jobId);
-
-        await easyOrderQueue.add({
-            groupId: `admin:${adminId}`,
-            data: {
-                type: "sync-product",
-                productId,
-                storeId,
-                slug,
-                adminId
-            },
-            orderMs: Date.now(),
-            delay: 3000,
-            maxAttempts: 0,
-            jobId
+        const cleanSlug = slug?.trim();
+        await this.addJob(category.adminId, "sync-category", storeType, {
+            category,
+            storeId,
+            slug: cleanSlug,
         });
-
     }
 
+    async enqueueProductSync(productId: number, adminId: string, storeId: number, storeType: StoreProvider, slug?: string) {
+        const jobId = `product:${storeType}:${productId}`;
+        await storeSyncQueue.remove(jobId);
 
-    async enqueueOrderStatusSync(
-        order: OrderEntity,
-        storeId: number,
-    ) {
-        const adminId = order.adminId;
-        if (!adminId) return;
+        await this.addJob(adminId, "sync-product", storeType, {
+            productId,
+            storeId,
+            slug: slug?.trim(),
+        }, { jobId, delay: 3000 });
+    }
 
-        await easyOrderQueue.add({
-            groupId: `admin:${adminId}`,
-            data: {
-                type: "sync-order-status",
-                orderId: order.id,
-                storeId,
-                adminId
-            },
-            orderMs: Date.now(),
-            maxAttempts: 0,
+    async enqueueOrderStatusSync(order: OrderEntity, storeId: number, storeType: StoreProvider) {
+        await this.addJob(order.adminId, "sync-order-status", storeType, {
+            orderId: order.id,
+            storeId,
         });
     }
 
     async enqueueFullStoreSync(store: StoreEntity) {
-        const adminId = store.adminId;
-        if (!adminId) return;
-        const jobId = `syncFullStore`
-        await easyOrderQueue.add({
-            groupId: `admin:${adminId}`,
-            data: {
-                type: "sync-full-store",
-                storeId: store.id,
-                adminId
-            },
-            orderMs: Date.now(),
-            maxAttempts: 0,
-            jobId
-        });
+        const jobId = `fullSync:${store.provider}:${store.id}`;
+        await this.addJob(store.adminId, "sync-full-store", store.provider, {
+            storeId: store.id,
+        }, { jobId });
     }
 }

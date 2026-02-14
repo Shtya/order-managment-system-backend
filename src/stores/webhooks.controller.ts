@@ -1,18 +1,48 @@
 // webhooks.controller.ts
-import { Controller, Post, Body, Headers, Param, HttpCode, BadRequestException, Logger } from "@nestjs/common";
+import { Controller, Post, Body, Headers, Param, HttpCode, BadRequestException, Logger, Req, Get, Query, Res } from "@nestjs/common";
+import { Request, Response } from "express";
 import { EasyOrderService } from "src/stores/storesIntegrations/EasyOrderService";
+import { ShopifyService } from "src/stores/storesIntegrations/ShopifyService";
 
+@Controller("webhooks")
+export class StoreWebhooksController {
+    private readonly logger = new Logger(StoreWebhooksController.name);
 
-@Controller("webhooks/:adminId/:provider")
-export class OrderWebhooksController {
-    private readonly logger = new Logger(OrderWebhooksController.name);
+    constructor(
+        private readonly easyOrderService: EasyOrderService,
+        private readonly shopifyService: ShopifyService
+    ) { }
 
-    constructor(private readonly easyOrderService: EasyOrderService) { }
+    @Get('shopify/init')
+    async handleInit(
+        @Query() query: Record<string, any>,
+        @Res() res: Response
+    ) {
+        const result = await this.shopifyService.Init(query);
 
+        // This tells the browser to go to your React Dashboard
+        return res.redirect(result.url);
+    }
+
+    @Post('shopify/order-create')
+    async handleCreate(
+        @Query() query: Record<string, any>,
+        @Body() Body,
+        @Res() res: Response
+    ) {
+        console.log()
+    }
+    @Post('shopify/order-status')
+    async handleStatus(
+        @Query() query: Record<string, any>,
+        @Res() res: Response
+    ) {
+
+    }
     /**
      * Endpoint for New Order Webhook
      */
-    @Post("orders/create")
+    @Post(":adminId/:provider/orders/create")
     @HttpCode(200)
     async handleOrderCreate(
         @Param("adminId") adminId: string,
@@ -35,7 +65,7 @@ export class OrderWebhooksController {
     /**
      * Endpoint for Order Status Update Webhook
      */
-    @Post("orders/status")
+    @Post(":adminId/:provider/orders/status")
     @HttpCode(200)
     async handleOrderStatusUpdate(
         @Param("adminId") adminId: string,
@@ -56,3 +86,5 @@ export class OrderWebhooksController {
         return { success: true };
     }
 }
+
+
