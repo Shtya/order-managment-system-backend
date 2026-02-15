@@ -2,6 +2,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, Repository, In, EntityManager, Brackets } from "typeorm";
+import * as ExcelJS from "exceljs";
 import {
   OrderEntity,
   OrderItemEntity,
@@ -23,6 +24,7 @@ import {
   UpdateStatusDto,
   CreateStatusDto,
 } from "dto/order.dto";
+import { ShippingCompanyEntity } from "entities/shipping.entity";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -42,6 +44,9 @@ export class OrdersService {
 
     @InjectRepository(OrderStatusEntity)
     private statusRepo: Repository<OrderStatusEntity>,
+
+    @InjectRepository(ShippingCompanyEntity)
+    private shippingRepo: Repository<ShippingCompanyEntity>,
 
     @InjectRepository(OrderItemEntity)
     private itemRepo: Repository<OrderItemEntity>,
@@ -183,13 +188,25 @@ export class OrdersService {
       .where("order.adminId = :adminId", { adminId })
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
-      .leftJoinAndSelect("variant.product", "product");
+      .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.shippingCompany", "shipping")
+      .leftJoinAndSelect("order.store", "store");
 
     // Filters
-    if (q?.status) qb.andWhere("order.status = :status", { status: q.status });
+    // Status: accept numeric id or status code string
+    if (q?.status) {
+      const statusParam = q.status;
+      if (!isNaN(Number(statusParam))) {
+        qb.andWhere("order.statusId = :statusId", { statusId: Number(statusParam) });
+      } else {
+        qb.andWhere("status.code = :statusCode", { statusCode: String(statusParam).trim() });
+      }
+    }
     if (q?.paymentStatus) qb.andWhere("order.paymentStatus = :paymentStatus", { paymentStatus: q.paymentStatus });
     if (q?.paymentMethod) qb.andWhere("order.paymentMethod = :paymentMethod", { paymentMethod: q.paymentMethod });
-    if (q?.shippingCompany) qb.andWhere("order.shippingCompany = :shippingCompany", { shippingCompany: q.shippingCompany });
+    if (q?.shippingCompanyId) qb.andWhere("order.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: Number(q.shippingCompanyId) });
+    if (q?.storeId) qb.andWhere("order.storeId = :storeId", { storeId: Number(q.storeId) });
 
     // Date range
     if (q?.startDate) qb.andWhere("order.created_at >= :startDate", { startDate: `${q.startDate}T00:00:00.000Z` });
@@ -198,8 +215,11 @@ export class OrdersService {
     // Search
     if (search) {
       qb.andWhere(
-        "(order.orderNumber ILIKE :s OR order.customerName ILIKE :s OR order.phoneNumber ILIKE :s)",
-        { s: `%${search}%` }
+        new Brackets((sq) => {
+          sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.customerName ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.phoneNumber ILIKE :s", { s: `%${search}%` });
+        }),
       );
     }
 
@@ -228,7 +248,7 @@ export class OrdersService {
 
     const order = await this.orderRepo.findOne({
       where: { id, adminId } as any,
-      relations: ["items", "items.variant", "items.variant.product", "statusHistory", 'status'],
+      relations: ["items", "items.variant", "items.variant.product", "statusHistory", 'status', 'shippingCompany', "store"],
     });
 
     if (!order) throw new BadRequestException("Order not found");
@@ -298,6 +318,15 @@ export class OrdersService {
       );
       const defaultStatus = await this.getDefaultStatus(adminId)
 
+      if (dto.shippingCompanyId) {
+        const shippingCompany = await manager.findOne(ShippingCompanyEntity, {
+          where: { id: Number(dto.shippingCompanyId), adminId }
+        });
+
+        if (!shippingCompany) {
+          throw new BadRequestException("The selected shipping company is invalid or does not belong to your account.");
+        }
+      }
       // Create order
       const order = manager.create(OrderEntity, {
         adminId,
@@ -312,7 +341,7 @@ export class OrdersService {
         deposit: dto.deposit,
         paymentMethod: dto.paymentMethod,
         paymentStatus: dto.paymentStatus ?? PaymentStatus.PENDING,
-        shippingCompany: dto.shippingCompany,
+        shippingCompanyId: dto.shippingCompanyId ? dto.shippingCompanyId : null,
         shippingCost: dto.shippingCost ?? 0,
         discount: dto.discount ?? 0,
         productsTotal,
@@ -320,7 +349,7 @@ export class OrdersService {
         profit,
         notes: dto.notes,
         customerNotes: dto.customerNotes,
-        status: defaultStatus.id,
+        statusId: defaultStatus.id,
         items,
         createdByUserId: me?.id,
       } as any);
@@ -362,6 +391,16 @@ export class OrdersService {
     if (order.status?.system && (order.status.code === OrderStatus.SHIPPED || order.status.code === OrderStatus.DELIVERED)) {
       throw new BadRequestException("Cannot update shipped or delivered orders");
     }
+    if (dto.shippingCompanyId) {
+      const shippingCompany = await this.shippingRepo.findOne({
+        where: { id: Number(dto.shippingCompanyId), adminId }
+      });
+
+      if (!shippingCompany) {
+        throw new BadRequestException("The selected shipping company is invalid or does not belong to your account.");
+      }
+    }
+
     // Update basic fields
     Object.assign(order, {
       customerName: dto.customerName ?? order.customerName,
@@ -371,7 +410,7 @@ export class OrdersService {
       city: dto.city ?? order.city,
       area: dto.area ?? order.area,
       paymentMethod: dto.paymentMethod ?? order.paymentMethod,
-      shippingCompany: dto.shippingCompany ?? order.shippingCompany,
+      shippingCompanyId: dto.shippingCompanyId ?? order.shippingCompanyId,
       shippingCost: dto.shippingCost ?? order.shippingCost,
       discount: dto.discount ?? order.discount,
       notes: dto.notes ?? order.notes,
@@ -416,7 +455,7 @@ export class OrdersService {
 
       if (!order) throw new BadRequestException("Order not found");
 
-      const newStatus = await this.getDefaultStatus(order.adminId)
+      const newStatus = await this.findStatusById(dto.statusId, order.adminId)
 
       const oldStatusId = order.statusId;
       const oldStatusCode = order.status.code;
@@ -437,7 +476,8 @@ export class OrdersService {
         [OrderStatus.RETURNED]: [],
       };
 
-      if (!validTransitions[oldStatusCode]?.includes(newStatusCode)) {
+      //validate only for moving between system statuses
+      if (newStatus.system && order.status.system && !validTransitions[oldStatusCode]?.includes(newStatusCode)) {
         throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatusCode}`);
       }
 
@@ -582,19 +622,35 @@ export class OrdersService {
     await this.orderRepo.update(orderId, { externalId });
   }
 
-  async findStatusByCode(name: string, adminId: string): Promise<OrderStatusEntity> {
+  async findStatusByCode(code: string, adminId: string): Promise<OrderStatusEntity> {
     // [2025-12-24] Trim input and ensure case-insensitive matching if needed
-    const trimmedName = name.trim();
+    const trimmedCode = code.trim();
 
     const status = await this.statusRepo.findOne({
       where: [
-        { name: trimmedName, system: true },           // Condition 1: Global System Status
-        { name: trimmedName, adminId: adminId }   // Condition 2: Admin-specific Status
+        { code: trimmedCode, system: true },           // Condition 1: Global System Status
+        { code: trimmedCode, adminId: adminId }   // Condition 2: Admin-specific Status
       ],
     });
 
     if (!status) {
-      throw new NotFoundException(`Status "${trimmedName}" not found for this account.`);
+      throw new NotFoundException(`Status "${trimmedCode}" not found for this account.`);
+    }
+
+    return status;
+  }
+  async findStatusById(id: number, adminId: string): Promise<OrderStatusEntity> {
+    // [2025-12-24] Trim input and ensure case-insensitive matching if needed
+
+    const status = await this.statusRepo.findOne({
+      where: [
+        { id: id, system: true },           // Condition 1: Global System Status
+        { id: id, adminId: adminId }   // Condition 2: Admin-specific Status
+      ],
+    });
+
+    if (!status) {
+      throw new NotFoundException(`Status "${id}" not found for this account.`);
     }
 
     return status;
@@ -700,5 +756,386 @@ export class OrdersService {
     }
 
     return await this.statusRepo.remove(status);
+  }
+
+  // ========================================
+  // ✅ EXPORT ORDERS TO EXCEL
+  // ========================================
+  async exportOrders(me: any, q?: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const search = String(q?.search ?? "").trim();
+
+    const qb = this.orderRepo
+      .createQueryBuilder("order")
+      .where("order.adminId = :adminId", { adminId })
+      .leftJoinAndSelect("order.items", "items")
+      .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.shippingCompany", "shipping")
+      .leftJoinAndSelect("order.store", "store");
+
+    // Apply same filters as list method
+    if (q?.status) {
+      const statusParam = q.status;
+      if (!isNaN(Number(statusParam))) {
+        qb.andWhere("order.statusId = :statusId", { statusId: Number(statusParam) });
+      } else {
+        qb.andWhere("status.code = :statusCode", { statusCode: String(statusParam).trim() });
+      }
+    }
+    if (q?.paymentStatus) qb.andWhere("order.paymentStatus = :paymentStatus", { paymentStatus: q.paymentStatus });
+    if (q?.paymentMethod) qb.andWhere("order.paymentMethod = :paymentMethod", { paymentMethod: q.paymentMethod });
+    if (q?.shippingCompanyId) qb.andWhere("order.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: Number(q.shippingCompanyId) });
+    if (q?.storeId) qb.andWhere("order.storeId = :storeId", { storeId: Number(q.storeId) });
+
+    // Date range
+    if (q?.startDate) qb.andWhere("order.created_at >= :startDate", { startDate: `${q.startDate}T00:00:00.000Z` });
+    if (q?.endDate) qb.andWhere("order.created_at <= :endDate", { endDate: `${q.endDate}T23:59:59.999Z` });
+
+    // Search
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.customerName ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.phoneNumber ILIKE :s", { s: `%${search}%` });
+        }),
+      );
+    }
+
+    qb.orderBy("order.created_at", "DESC");
+
+    // Get all records (no pagination for export)
+    const orders = await qb.getMany();
+
+    // Prepare Excel data
+    const exportData = orders.map((order) => {
+      const productsList = order.items
+        ?.map((item) => `${item.variant?.product?.name || "N/A"} (x${item.quantity})`)
+        .join("; ") || "N/A";
+
+      return {
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        phoneNumber: order.phoneNumber || "N/A",
+        email: order.email || "N/A",
+        address: order.address || "N/A",
+        city: order.city || "N/A",
+        area: order.area || "N/A",
+        landmark: order.landmark || "N/A",
+        products: productsList,
+        status: order.status?.system ? order.status.code : (order.status?.name || "N/A"),
+        paymentMethod: order.paymentMethod || "N/A",
+        paymentStatus: order.paymentStatus || "N/A",
+        shippingCompany: order.shippingCompany?.name || "N/A",
+        shippingCost: order.shippingCost || 0,
+        discount: order.discount || 0,
+        deposit: order.deposit || 0,
+        finalTotal: (order.items?.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0) || 0) + (order.shippingCost || 0) - (order.discount || 0),
+        notes: order.notes || "N/A",
+        customerNotes: order.customerNotes || "N/A",
+        createdAt: order.created_at ? new Date(order.created_at).toLocaleDateString() : "N/A",
+        updatedAt: order.updated_at ? new Date(order.updated_at).toLocaleDateString() : "N/A",
+      };
+    });
+
+    // Create workbook and worksheet
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Orders");
+
+    // Define columns
+    const columns = [
+      { header: "Order Number", key: "orderNumber", width: 18 },
+      { header: "Customer Name", key: "customerName", width: 25 },
+      { header: "Phone Number", key: "phoneNumber", width: 18 },
+      // { header: "Alternative Phone", key: "alternativePhone", width: 18 },
+      { header: "Email", key: "email", width: 30 },
+      { header: "Address", key: "address", width: 35 },
+      { header: "City", key: "city", width: 15 },
+      { header: "Area", key: "area", width: 15 },
+      { header: "Landmark", key: "landmark", width: 20 },
+      { header: "Products", key: "products", width: 40 },
+      { header: "Status", key: "status", width: 20 },
+      { header: "Payment Method", key: "paymentMethod", width: 18 },
+      { header: "Payment Status", key: "paymentStatus", width: 18 },
+      { header: "Shipping Company", key: "shippingCompany", width: 20 },
+      { header: "Shipping Cost", key: "shippingCost", width: 15 },
+      { header: "Discount", key: "discount", width: 15 },
+      { header: "Deposit", key: "deposit", width: 15 },
+      { header: "Final Total", key: "finalTotal", width: 15 },
+      { header: "Notes", key: "notes", width: 30 },
+      { header: "Customer Notes", key: "customerNotes", width: 30 },
+      { header: "Created At", key: "createdAt", width: 15 },
+      { header: "Updated At", key: "updatedAt", width: 15 },
+    ];
+
+    worksheet.columns = columns;
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    // Add data rows
+    exportData.forEach((row) => {
+      worksheet.addRow(row);
+    });
+
+    // Generate buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    return buffer;
+  }
+
+  // ========================================
+  // ✅ BULK UPLOAD: TEMPLATE (matches CreateOrderDto, comma-separated arrays)
+  // ========================================
+  async getBulkTemplate(me: any): Promise<Buffer> {
+    tenantId(me);
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet("Orders", { views: [{ state: "frozen", ySplit: 1 }] });
+
+    const columns = [
+      { header: "Customer Name", key: "customerName", width: 22 },
+      { header: "Phone Number", key: "phoneNumber", width: 16 },
+      { header: "Email", key: "email", width: 28 },
+      { header: "Address", key: "address", width: 32 },
+      { header: "City", key: "city", width: 14 },
+      { header: "Area", key: "area", width: 14 },
+      { header: "Landmark", key: "landmark", width: 18 },
+      { header: "Payment Method", key: "paymentMethod", width: 18 },
+      { header: "Payment Status", key: "paymentStatus", width: 16 },
+      { header: "Shipping Company Name", key: "shippingCompanyName", width: 22 },
+      { header: "Shipping Cost", key: "shippingCost", width: 14 },
+      { header: "Discount", key: "discount", width: 12 },
+      { header: "Deposit", key: "deposit", width: 12 },
+      { header: "Notes", key: "notes", width: 24 },
+      { header: "Customer Notes", key: "customerNotes", width: 24 },
+      { header: "Product SKUs (comma-separated)", key: "productSkus", width: 30 },
+      { header: "Quantities (comma-separated)", key: "quantities", width: 25 },
+      { header: "Unit Prices (comma-separated)", key: "unitPrices", width: 28 },
+    ];
+    sheet.columns = columns;
+    sheet.getRow(1).font = { bold: true };
+    sheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE0E0E0" } };
+    // Example order with two products
+    sheet.addRow({
+      customerName: "أحمد محمد",
+      phoneNumber: "01234567890",
+      email: "examble@gmail.com",
+      address: "شارع 9 - مبنى 15",
+      city: "القاهرة",
+      area: "المعادي",
+      landmark: "بجوار مسجد النور",
+      paymentMethod: "cod",
+      paymentStatus: "pending",
+      shippingCompanyName: "شركة أرامكس",
+      shippingCost: 50,
+      discount: 0,
+      deposit: 0,
+      notes: "",
+      customerNotes: "يفضل التواصل مساءً",
+      productSkus: "SKU-001, SKU-002",
+      quantities: "2, 1",
+      unitPrices: "350, 200",
+    });
+    const buffer = await workbook.xlsx.writeBuffer();
+    return buffer as unknown as Buffer;
+  }
+
+  // ========================================
+  // ✅ BULK CREATE ORDERS FROM EXCEL
+  // ========================================
+  async bulkCreateOrders(me: any, file: Express.Multer.File): Promise<{ created: number; failed: number; errors: { rowNumber: number; message: string }[] }> {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!file?.buffer) throw new BadRequestException("No file uploaded");
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file.buffer as any);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) throw new BadRequestException("Excel file has no sheet");
+
+    const rows: Record<string, string | number>[] = [];
+    const headerRow = sheet.getRow(1);
+    const keys: string[] = [];
+    headerRow.eachCell((cell, colNumber) => {
+      const val = String(cell.value ?? "").trim();
+      keys[colNumber - 1] = val ? val.toLowerCase().replace(/\s+/g, "") : "";
+    });
+
+    //extract values of rows
+    for (let i = 2; i <= sheet.rowCount; i++) {
+      const row = sheet.getRow(i);
+      const obj: Record<string, string | number> = {};
+      row.eachCell((cell, colNumber) => {
+        const key = keys[colNumber - 1];
+        if (!key) return;
+        const v = cell.value;
+        if (v === null || v === undefined) obj[key] = "";
+        else if (typeof v === "number") obj[key] = v;
+        else obj[key] = String(v).trim();
+      });
+      rows.push(obj);
+    }
+
+    const col = (obj: Record<string, string | number>, ...names: string[]) => {
+      for (const n of names) {
+        const k = n.replace(/\s+/g, "").toLowerCase();
+        if (obj[k] !== undefined && obj[k] !== "") return String(obj[k]).trim();
+      }
+      return "";
+    };
+    const num = (obj: Record<string, string | number>, key: string, def = 0) => {
+      const k = key.replace(/\s+/g, "").toLowerCase();
+      const v = obj[k];
+      if (v === undefined || v === "") return def;
+      const n = Number(v);
+      return isNaN(n) ? def : n;
+    };
+
+    const shippingCompanies = await this.shippingRepo.find({ where: { adminId } as any });
+    const shippingByName = new Map<string, number>();
+    shippingCompanies.forEach((s) => shippingByName.set(s.name.trim().toLowerCase(), s.id));
+
+    const paymentMethods = ["cash", "card", "bank_transfer", "cod"];
+    const paymentStatuses = ["pending", "paid", "partial"];
+
+    let created = 0;
+    const errors: { rowNumber: number; message: string }[] = [];
+
+    //Add each order by inner create method
+    for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
+      const row = rows[rowIdx];
+      const rowNumber = rowIdx + 2; // +2 because excel rows start at 1 and data starts at row 2
+
+      const customerName = col(row, "Customer Name", "customername");
+      const phoneNumber = col(row, "Phone Number", "phonenumber");
+      const address = col(row, "Address", "address");
+      const city = col(row, "City", "city");
+      if (!customerName || !phoneNumber || !address || !city) {
+        errors.push({ rowNumber, message: "Missing required: Customer Name, Phone Number, Address, or City" });
+        continue;
+      }
+
+      // Parse comma-separated arrays
+      const skusStr = col(row, "Product SKUs (comma-separated)", "productskus");
+      const quantitiesStr = col(row, "Quantities (comma-separated)", "quantities");
+      const unitPricesStr = col(row, "Unit Prices (comma-separated)", "unitprices");
+
+      if (!skusStr || !quantitiesStr || !unitPricesStr) {
+        errors.push({ rowNumber, message: "Missing required: Product SKUs, Quantities, or Unit Prices" });
+        continue;
+      }
+
+      const skus = skusStr.split(",").map(s => s.trim()).filter(s => s);
+      const quantities = quantitiesStr.split(",").map(q => {
+        const num = Number(q.trim());
+        return isNaN(num) ? null : num;
+      });
+      const unitPrices = unitPricesStr.split(",").map(p => {
+        const num = Number(p.trim());
+        return isNaN(num) ? null : num;
+      });
+
+      // Validate array lengths match
+      if (skus.length !== quantities.length || skus.length !== unitPrices.length) {
+        errors.push({
+          rowNumber,
+          message: `Array length mismatch: ${skus.length} SKUs, ${quantities.length} quantities, ${unitPrices.length} prices. All must be equal.`
+        });
+        continue;
+      }
+
+      // Validate no null values
+      if (quantities.includes(null) || unitPrices.includes(null)) {
+        errors.push({ rowNumber, message: "Invalid quantities or unit prices (must be numbers)" });
+        continue;
+      }
+
+      // Collect unique SKUs for targeted fetch
+      const uniqueSkus = [...new Set(skus.map(s => s))];
+      const variants = await this.variantRepo.find({
+        where: {
+          adminId,
+          sku: In(uniqueSkus)
+        } as any,
+        relations: ["product"]
+      });
+      const variantBySku = new Map<string, { id: number; price: number }>();
+      variants.forEach((v) => {
+        if (v.sku) variantBySku.set(String(v.sku).trim().toLowerCase(), { id: v.id, price: v.price ?? 0 });
+      });
+
+      const paymentMethodRaw = col(row, "Payment Method", "paymentmethod") || "cod";
+      const paymentMethod = paymentMethods.includes(paymentMethodRaw) ? paymentMethodRaw : "cod";
+      const paymentStatusRaw = col(row, "Payment Status", "paymentstatus") || "pending";
+      const paymentStatus = paymentStatuses.includes(paymentStatusRaw) ? paymentStatusRaw : "pending";
+
+      let shippingCompanyId: string | undefined;
+      const shippingName = col(row, "Shipping Company Name", "shippingcompanyname");
+      if (shippingName) {
+        const sid = shippingByName.get(shippingName.toLowerCase());
+        if (sid != null) shippingCompanyId = String(sid);
+      }
+
+      // Build items array
+      const items: { variantId: number; quantity: number; unitPrice: number; unitCost?: number }[] = [];
+      for (let i = 0; i < skus.length; i++) {
+        const sku = skus[i];
+        const qty = quantities[i] as number;
+        const unitPrice = unitPrices[i] as number;
+
+        if (qty < 1) {
+          errors.push({ rowNumber, message: `Invalid quantity for SKU ${sku}: must be >= 1` });
+          continue;
+        }
+
+        const variant = variantBySku.get(sku.toLowerCase());
+        if (!variant) {
+          errors.push({ rowNumber, message: `Product SKU not found: ${sku}` });
+          break;
+        }
+        items.push({ variantId: variant.id, quantity: qty, unitPrice, unitCost: variant.price });
+      }
+
+      if (items.length === 0) {
+        errors.push({ rowNumber, message: "No valid items processed" });
+        continue;
+      }
+
+      const dto: CreateOrderDto = {
+        customerName,
+        phoneNumber,
+        email: col(row, "Email", "email") || undefined,
+        address,
+        city,
+        area: col(row, "Area", "area") || undefined,
+        landmark: col(row, "Landmark", "landmark") || undefined,
+        paymentMethod: paymentMethod as any,
+        paymentStatus: paymentStatus as any,
+        shippingCompanyId: shippingCompanyId ?? "",
+        shippingCost: num(row, "Shipping Cost", 0),
+        discount: num(row, "Discount", 0),
+        deposit: num(row, "Deposit", 0),
+        notes: col(row, "Notes", "notes") || undefined,
+        customerNotes: col(row, "Customer Notes", "customernotes") || undefined,
+        items,
+      };
+
+      try {
+        await this.create(me, dto, undefined);
+        created++;
+      } catch (err: any) {
+        errors.push({ rowNumber, message: err?.message || "Create failed" });
+      }
+    }
+
+    return { created, failed: errors.length, errors };
   }
 }

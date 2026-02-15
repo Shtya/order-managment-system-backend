@@ -32,6 +32,7 @@ import { SalesInvoiceModule } from './sales_invoice/sales_invoice.module';
 import { BundlesModule } from './bundles/bundles.module';
 import { EncryptionService } from "common/encryption.service";
 import { BullModule } from '@nestjs/bull';
+import { ShippingCompaniesModule } from "./shipping/shipping.module";
 
 @Module({
 	imports: [
@@ -66,7 +67,8 @@ import { BullModule } from '@nestjs/bull';
 		PurchasesReturnModule,
 		OrdersModule,
 		SalesInvoiceModule,
-		BundlesModule
+		BundlesModule,
+		ShippingCompaniesModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

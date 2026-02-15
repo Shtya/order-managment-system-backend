@@ -12,7 +12,7 @@ export class PermissionsService implements OnModuleInit {
 		await this.seed();
 	}
 
- 
+
 	private async seed() {
 		const keys = [
 			'users.read', 'users.create', 'users.update', 'users.deactivate', 'users.create_admin', 'users.view_credentials',
@@ -29,6 +29,8 @@ export class PermissionsService implements OnModuleInit {
 			"warehouses.read", "warehouses.create", "warehouses.update", "warehouses.delete",
 			"categories.read", "categories.create", "categories.update", "categories.delete",
 			"products.read", "products.create", "products.update", "products.delete",
+
+			"shipping-companies.create", "shipping-companies.read", "shipping-companies.update", "shipping-companies.delete"
 		];
 
 		for (const name of keys) {

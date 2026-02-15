@@ -113,8 +113,7 @@ export class CreateOrderDto {
   // Shipping
   @IsOptional()
   @IsString()
-  @MaxLength(100)
-  shippingCompany?: string;
+  shippingCompanyId: string;
 
   @IsOptional()
   @IsInt()
