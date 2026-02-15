@@ -9,8 +9,13 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
@@ -43,6 +48,39 @@ export class OrdersController {
   @Get()
   list(@Req() req: any, @Query() q: any) {
     return this.svc.list(req.user, q);
+  }
+
+  // ✅ Export orders to Excel
+  @Permissions("orders.read")
+  @Get("export")
+  async export(@Req() req: any, @Query() q: any, @Res() res: Response) {
+    const buffer = await this.svc.exportOrders(req.user, q);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=orders_export_${Date.now()}.xlsx`);
+
+    return res.send(buffer);
+  }
+
+  // ✅ Bulk upload: download template (matches CreateOrderDto, no IDs)
+  @Permissions("orders.read")
+  @Get("bulk/template")
+  async bulkTemplate(@Req() req: any, @Res() res: Response) {
+    const buffer = await this.svc.getBulkTemplate(req.user);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", "attachment; filename=orders_bulk_template.xlsx");
+    return res.send(buffer);
+  }
+
+  // ✅ Bulk create orders from Excel file
+  @Permissions("orders.create")
+  @Post("bulk")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
+  async bulkCreate(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.svc.bulkCreateOrders(req.user, file);
   }
 
   // ✅ Get single order

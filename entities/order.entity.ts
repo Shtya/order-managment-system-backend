@@ -13,6 +13,8 @@ import {
   BeforeUpdate,
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
+import { ShippingCompanyEntity } from "./shipping.entity";
+import { StoreEntity } from "./stores.entity";
 
 // ✅ Order Status Enum
 export enum OrderStatus {
@@ -165,8 +167,21 @@ export class OrderEntity {
   paymentStatus!: PaymentStatus;
 
   // ✅ Shipping Information
-  @Column({ type: "varchar", length: 100, nullable: true })
-  shippingCompany?: string; // DHL, Aramex, etc.
+  @ManyToOne(() => ShippingCompanyEntity, { nullable: true, eager: false })
+  @JoinColumn({ name: 'shippingCompanyId' })
+  shippingCompany?: ShippingCompanyEntity | null;
+
+  @Column({ type: "int", nullable: true })
+  shippingCompanyId?: number | null;
+
+
+  @Column({ type: "int", nullable: true })
+  @Index()
+  storeId?: number | null;
+
+  @ManyToOne(() => StoreEntity, { nullable: true, onDelete: "SET NULL" })
+  @JoinColumn({ name: "storeId" })
+  store?: StoreEntity | null;
 
   @Column({ type: "varchar", length: 100, nullable: true })
   trackingNumber?: string;

@@ -13,6 +13,7 @@ import {
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
 import { OrderSubscriber } from "./order-subscriber";
+import { ShippingCompanyEntity } from "entities/shipping.entity";
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { OrderSubscriber } from "./order-subscriber";
       OrderStatusHistoryEntity,
       OrderMessageEntity,
       ProductVariantEntity,
+      ShippingCompanyEntity
     ]),
   ],
   providers: [OrdersService, OrderSubscriber],

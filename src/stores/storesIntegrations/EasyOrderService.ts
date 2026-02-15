@@ -992,6 +992,7 @@ export class EasyOrderService extends BaseStoreService {
             paymentMethod: this.mapPaymentMethod(payload.payment_method),
             paymentStatus: payload.status === 'paid' ? PaymentStatus.PAID : PaymentStatus.PENDING,
             shippingCost: payload.shipping_cost || 0,
+            shippingCompanyId: null,
             discount: 0,
             items: items,
             notes: `Imported from EasyOrder (Store: ${store.name})`,
