@@ -1,4 +1,4 @@
-import { IsEmail, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
 
 export class AdminCreateUserDto {
 	@IsString() name: string;
@@ -29,3 +29,5 @@ export class UpdateUserDto {
 	@IsOptional() @IsString() phone?: string;
 	@IsOptional() @IsString() employeeType?: string;
 }
+
+

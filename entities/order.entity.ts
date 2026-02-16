@@ -15,11 +15,20 @@ import {
 import { ProductVariantEntity } from "./sku.entity";
 import { ShippingCompanyEntity } from "./shipping.entity";
 import { StoreEntity } from "./stores.entity";
+import { User } from "./user.entity";
 
 // ✅ Order Status Enum
 export enum OrderStatus {
   NEW = "new",
   UNDER_REVIEW = "under_review",
+  // ✅ حالات مرحلة التأكيد الجديدة
+  CONFIRMED = "confirmed",           // مؤكد
+  POSTPONED = "postponed",           // مؤجل
+  NO_ANSWER = "no_answer",           // لا يوجد رد
+  WRONG_NUMBER = "wrong_number",     // الرقم غلط
+  OUT_OF_DELIVERY_AREA = "out_of_area", // خارج نطاق التوصيل
+  DUPLICATE = "duplicate",           // طلب مكرر
+  //
   PREPARING = "preparing",
   READY = "ready",
   SHIPPED = "shipped",
@@ -174,7 +183,6 @@ export class OrderEntity {
   @Column({ type: "int", nullable: true })
   shippingCompanyId?: number | null;
 
-
   @Column({ type: "int", nullable: true })
   @Index()
   storeId?: number | null;
@@ -228,6 +236,9 @@ export class OrderEntity {
 
   @Column({ type: "int", nullable: true })
   updatedByUserId?: number;
+
+  @OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.order)
+  assignments: OrderAssignmentEntity[];
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
@@ -362,4 +373,95 @@ export class OrderMessageEntity {
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
+}
+
+
+@Entity({ name: "order_retry_settings" })
+export class OrderRetrySettingsEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  @Index({ unique: true }) // One setting record per admin
+  adminId!: string;
+
+  @Column({ type: "boolean", default: true })
+  enabled: boolean;
+
+  @Column({ type: "int", default: 3 })
+  maxRetries: number;
+
+  @Column({ type: "int", default: 30 }) // in minutes
+  retryInterval: number;
+
+  @Column({ type: "varchar", length: 50, default: "cancelled" })
+  autoMoveStatus: string;
+
+  @Column({ type: "jsonb", default: [] })
+  retryStatuses: string[]; // e.g., ["pending_confirmation", "no_answer_shipping"]
+
+  @Column({ type: "boolean", default: true })
+  notifyEmployee: boolean;
+
+  @Column({ type: "boolean", default: false })
+  notifyAdmin: boolean;
+
+  @Column({ type: "jsonb", default: { enabled: true, start: "09:00", end: "18:00" } })
+  workingHours: {
+    enabled: boolean;
+    start: string;
+    end: string;
+  };
+
+  @UpdateDateColumn()
+  updated_at: Date;
+}
+
+
+@Entity("order_assignments")
+@Index(["orderId", "isAssignmentActive"]) // Fast lookup to see if an order is "taken"
+export class OrderAssignmentEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  orderId: number;
+
+  @ManyToOne(() => OrderEntity)
+  @JoinColumn({ name: "orderId" })
+  order: OrderEntity;
+
+  @Column()
+  employeeId: number;
+
+  @ManyToOne(() => User)
+  @JoinColumn({ name: "employeeId" })
+  employee: User;
+
+  @Column()
+  assignedByAdminId: number;
+
+  // ✅ Tracking the Work
+  @Column({ type: "int", default: 0 })
+  retriesUsed: number;
+
+  @Column({ type: "int", default: 3 })
+  maxRetriesAtAssignment: number; // Snapshot of global settings at time of assign
+
+  @Column({ type: "boolean", default: true })
+  @Index()
+  isAssignmentActive: boolean; // TRUE = Order is "Taken". FALSE = Order is "Free"
+
+  // ✅ Timing & Locking
+  @CreateDateColumn({ type: "timestamptz" })
+  assignedAt: Date;
+
+  @Column({ type: "timestamptz", nullable: true })
+  lastActionAt?: Date; // Automatically updates whenever the employee hits 'Retry' or 'Confirm'
+
+  @Column({ type: "timestamptz", nullable: true })
+  lockedUntil?: Date | null; // If now < lockedUntil, employee can see it but can't click it
+
+  @Column({ type: "timestamptz", nullable: true })
+  finishedAt?: Date;
 }

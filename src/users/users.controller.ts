@@ -3,7 +3,7 @@ import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
-import { AdminCreateUserDto, UpdateUserDto } from 'dto/user.dto';
+import { UpdateUserDto } from 'dto/user.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile } from '@nestjs/common';
 import { diskStorage } from 'multer';
@@ -89,7 +89,7 @@ export class UsersController {
 
 	@Permissions('users.read')
 	@Get()
-	list(
+	listForTable(
 		@Req() req: any,
 		@Query('page') page?: string,
 		@Query('limit') limit?: string,
@@ -103,6 +103,17 @@ export class UsersController {
 			type: type ?? 'all',
 		});
 	}
+
+	@Permissions('users.read')
+	@Get("list")
+	list(
+		@Req() req: any,
+		@Query('cursor') cursor?: string,
+		@Query('limit') limit?: string,
+	) {
+		return this.users.list(req.user, Number(limit ?? 10), cursor ? Number(cursor) : null);
+	}
+
 
 
 	@Permissions('users.read')

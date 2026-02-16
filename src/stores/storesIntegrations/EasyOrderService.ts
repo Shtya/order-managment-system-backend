@@ -1098,16 +1098,30 @@ export class EasyOrderService extends BaseStoreService {
      */
     private mapInternalStatusToExternal(internalStatus: OrderStatus): string | null {
         const map: Record<OrderStatus, string> = {
+            // المرحلة الابتدائية والتدقيق (تعتبر pending خارجياً)
             [OrderStatus.NEW]: "pending",
-            [OrderStatus.UNDER_REVIEW]: "confirmed",
+            [OrderStatus.UNDER_REVIEW]: "pending",
+            [OrderStatus.POSTPONED]: "pending",
+            [OrderStatus.NO_ANSWER]: "pending",
+
+            // مرحلة النجاح في التأكيد
+            [OrderStatus.CONFIRMED]: "confirmed",
+
+            // حالات الفشل في التأكيد (تعتبر إلغاء للطلب خارجياً)
+            [OrderStatus.WRONG_NUMBER]: "canceled",
+            [OrderStatus.OUT_OF_DELIVERY_AREA]: "canceled",
+            [OrderStatus.DUPLICATE]: "canceled",
+
+            // مرحلة التنفيذ والتوصيل
             [OrderStatus.PREPARING]: "processing",
             [OrderStatus.READY]: "waiting_for_pickup",
             [OrderStatus.SHIPPED]: "in_delivery",
             [OrderStatus.DELIVERED]: "delivered",
+
+            // حالات الإغلاق
             [OrderStatus.CANCELLED]: "canceled",
             [OrderStatus.RETURNED]: "returning_from_delivery",
         };
-
         return map[internalStatus] || null;
     }
 

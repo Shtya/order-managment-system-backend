@@ -1,14 +1,17 @@
 // dto/order.dto.ts
 import { Type } from "class-transformer";
 import {
+  ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsEmail,
   IsEnum,
   IsHexColor,
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -17,6 +20,7 @@ import {
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
 import { PaymentStatus, PaymentMethod } from "entities/order.entity";
+import { OrderStatus } from "common/enums";
 
 
 export class CreateStatusDto {
@@ -184,3 +188,92 @@ export class MarkMessagesReadDto {
   @IsInt({ each: true })
   messageIds: number[];
 }
+
+export class UpsertOrderRetrySettingsDto {
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  maxRetries?: number;
+
+  @IsNumber()
+  @IsOptional()
+  retryInterval?: number;
+
+  @IsString()
+  @IsOptional()
+  autoMoveStatus?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  retryStatuses?: string[];
+
+  @IsBoolean()
+  @IsOptional()
+  notifyEmployee?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  notifyAdmin?: boolean;
+
+  @IsObject()
+  @IsOptional()
+  workingHours?: {
+    enabled: boolean;
+    start: string;
+    end: string;
+  };
+}
+
+export class ManualAssignDto {
+  @IsNotEmpty()
+  @IsInt()
+  userId: number;
+
+  @IsNotEmpty()
+  @IsArray()
+  @ArrayMinSize(1, { message: "You must select at least one order" })
+  @IsInt({ each: true })
+  orderIds: number[];
+}
+
+export class AutoAssignDto {
+  @IsNotEmpty()
+  @IsEnum(OrderStatus)
+  status: OrderStatus; // e.g., distribute all 'NEW' orders
+
+  @IsNotEmpty()
+  @IsInt()
+  @Min(1)
+  employeeCount: number; // How many employees should participate (e.g., 5)
+}
+
+
+export class GetFreeOrdersDto {
+
+  @IsEnum(OrderStatus)
+  status: OrderStatus;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
+  // cursor = created_at of last item from previous page
+  @IsOptional()
+  @IsDateString()
+  cursor?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number = 20;
+}
+
