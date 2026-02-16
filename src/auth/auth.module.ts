@@ -9,7 +9,7 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { FirebaseService } from './firebase.service';
 import { MailService } from '../../common/nodemailer';
-import { EncryptionService } from 'common/encryption.service';
+
 
 @Module({
   imports: [
@@ -28,6 +28,6 @@ import { EncryptionService } from 'common/encryption.service';
   ],
   providers: [AuthService, JwtStrategy, MailService, FirebaseService],
   controllers: [AuthController],
-  exports: [JwtModule],
+  exports: [JwtModule, AuthService, MailService],
 })
 export class AuthModule { }

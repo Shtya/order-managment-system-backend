@@ -264,29 +264,47 @@ export class UsersService {
 		};
 	}
 	// ✅ UPDATED: Include plan relation
-	async list(me: User) {
-		const relations = { role: true, plan: true }; // ✅ Include plan
+	async list(me: User, limit: number, cursor: number) {
+		const fetchLimit = Number(limit) || 20;
+		const qb = this.usersRepo
+			.createQueryBuilder("user")
+			.leftJoinAndSelect("user.role", "role")
+			.leftJoinAndSelect("user.plan", "plan")
+			.orderBy("user.id", "DESC")
+			.take(fetchLimit + 1);
 
+		// Apply cursor (id-based)
+		if (cursor) {
+			qb.andWhere("user.id < :cursor", { cursor: cursor });
+		}
+
+		// Access control
 		if (this.isSuperAdmin(me)) {
-			return this.usersRepo.find({
-				order: { id: 'DESC' },
-				relations,
-			});
+			// no extra filter
+		} else if (me.role?.name === SystemRole.ADMIN) {
+			qb.andWhere("user.adminId = :adminId", { adminId: me.id });
+		} else {
+			qb.andWhere("user.id = :id", { id: me.id });
+		}
+		const users = await qb.getMany();
+
+		const hasMore = users.length > fetchLimit;
+
+		if (hasMore) {
+			users.pop(); // Remove the extra (+1) record from the results
 		}
 
-		if (me.role?.name === SystemRole.ADMIN) {
-			return this.usersRepo.find({
-				where: { adminId: me.id },
-				order: { id: 'DESC' },
-				relations,
-			});
-		}
+		const nextCursor = hasMore && users.length > 0
+			? users[users.length - 1].id
+			: null;
 
-		return this.usersRepo.find({
-			where: { id: me.id },
-			relations,
-		});
+		return {
+			data: users,
+			nextCursor,
+			hasMore,
+		};
 	}
+
 
 	async listForTable(
 		me: User,
@@ -296,14 +314,14 @@ export class UsersService {
 		const limit = Math.min(100, Math.max(1, Number(opts.limit || 6)));
 		const skip = (page - 1) * limit;
 
-		const baseWhere: any = {};
-		if (!this.isSuperAdmin(me)) {
-			if (me.role?.name !== SystemRole.ADMIN) {
-				baseWhere.id = me.id;
-			} else {
-				baseWhere.adminId = me.id;
-			}
-		}
+		// const baseWhere: any = {};
+		// if (!this.isSuperAdmin(me)) {
+		// 	if (me.role?.name !== SystemRole.ADMIN) {
+		// 		baseWhere.id = me.id;
+		// 	} else {
+		// 		baseWhere.adminId = me.id;
+		// 	}
+		// }
 
 		// Search by name/email/phone
 		// TypeORM OR conditions

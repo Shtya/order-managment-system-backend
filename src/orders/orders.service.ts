@@ -12,6 +12,8 @@ import {
   OrderStatusEntity,
   OrderStatus,
   slugify,
+  OrderRetrySettingsEntity,
+  OrderAssignmentEntity,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import {
@@ -23,8 +25,13 @@ import {
   MarkMessagesReadDto,
   UpdateStatusDto,
   CreateStatusDto,
+  UpsertOrderRetrySettingsDto,
+  ManualAssignDto,
+  AutoAssignDto,
+  GetFreeOrdersDto,
 } from "dto/order.dto";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { User } from "entities/user.entity";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -44,6 +51,12 @@ export class OrdersService {
 
     @InjectRepository(OrderStatusEntity)
     private statusRepo: Repository<OrderStatusEntity>,
+
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
+
+    @InjectRepository(OrderRetrySettingsEntity)
+    private retryRepo: Repository<OrderRetrySettingsEntity>,
 
     @InjectRepository(ShippingCompanyEntity)
     private shippingRepo: Repository<ShippingCompanyEntity>,
@@ -183,6 +196,10 @@ export class OrdersService {
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
 
+    const sortBy = String(q?.sortBy ?? "createdAt");
+    const sortDir: "ASC" | "DESC" =
+      String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+
     const qb = this.orderRepo
       .createQueryBuilder("order")
       .where("order.adminId = :adminId", { adminId })
@@ -191,7 +208,23 @@ export class OrdersService {
       .leftJoinAndSelect("variant.product", "product")
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shipping")
-      .leftJoinAndSelect("order.store", "store");
+      .leftJoinAndSelect("order.store", "store")
+      .leftJoinAndSelect(
+        "order.assignments",
+        "assignment",
+        "assignment.isAssignmentActive = true"
+      ).leftJoinAndSelect("assignment.employee", "employee");
+    // Allowed columns mapping
+    const sortColumns: Record<string, string> = {
+      createdAt: "order.created_at",
+      orderNumber: "order.orderNumber",
+    };
+
+
+    if (q?.userId) {
+      qb.andWhere("assignment.employeeId = :userId", { userId: Number(q.userId) });
+    }
+
 
     // Filters
     // Status: accept numeric id or status code string
@@ -223,13 +256,20 @@ export class OrdersService {
       );
     }
 
-    qb.orderBy("order.created_at", "DESC");
+    if (sortColumns[sortBy]) {
+      qb.orderBy(sortColumns[sortBy], sortDir);
+    } else {
+      qb.orderBy("order.created_at", "DESC"); // fallback
+    }
 
     const total = await qb.getCount();
     const records = await qb
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
+
+
+
 
     return {
       total_records: total,
@@ -239,22 +279,67 @@ export class OrdersService {
     };
   }
 
+  async listMyAssignedOrders(me: any, limit: number = 50) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    // Assuming 'me' contains the logged-in user's ID (adjust to me.sub or me.userId if needed)
+    const myUserId = me.id;
+    if (!myUserId) throw new BadRequestException("Missing user ID");
+
+    const fetchLimit = Number(limit) || 50;
+
+    const records = await this.orderRepo
+      .createQueryBuilder("order")
+      .where("order.adminId = :adminId", { adminId })
+      // INNER JOIN guarantees we only fetch orders actively assigned to THIS specific user
+      .innerJoinAndSelect(
+        "order.assignments",
+        "assignment",
+        "assignment.isAssignmentActive = true AND assignment.employeeId = :myUserId",
+        { myUserId }
+      )
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.shippingCompany", "shipping")
+      .orderBy("order.created_at", "DESC")
+      .take(fetchLimit)
+      .getMany();
+
+    return {
+      per_page: fetchLimit,
+      records,
+    };
+  }
+
   // ========================================
   // ✅ GET ORDER BY ID
   // ========================================
+
   async get(me: any, id: number) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const order = await this.orderRepo.findOne({
-      where: { id, adminId } as any,
-      relations: ["items", "items.variant", "items.variant.product", "statusHistory", 'status', 'shippingCompany', "store"],
-    });
+    const order = await this.orderRepo.createQueryBuilder("order")
+      .leftJoinAndSelect("order.items", "items")
+      .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.statusHistory", "statusHistory")
+      .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
+      .leftJoinAndSelect("statusHistory.toStatus", "toStatus")
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
+      .leftJoinAndSelect("order.store", "store")
+      // Filter assignments to only include the active one
+      .leftJoinAndSelect("order.assignments", "assignments", "assignments.isAssignmentActive = :active", { active: true })
+      .leftJoinAndSelect("assignments.employee", "employee") // Optional: load the employee details
+      .where("order.id = :id", { id })
+      .andWhere("order.adminId = :adminId", { adminId })
+      .getOne();
 
     if (!order) throw new BadRequestException("Order not found");
+
     return order;
   }
-
   // ========================================
   // ✅ CREATE ORDER
   // ========================================
@@ -439,7 +524,80 @@ export class OrdersService {
 
     return this.orderRepo.save(order);
   }
+  validTransitions: Record<OrderStatus, OrderStatus[]> = {
+    [OrderStatus.NEW]: [
+      OrderStatus.UNDER_REVIEW,
+      OrderStatus.CANCELLED,
+      OrderStatus.CONFIRMED,    // النجاح
+      OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
+      OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
+      OrderStatus.WRONG_NUMBER, // فشل نهائي
+      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
+      OrderStatus.DUPLICATE,    // فشل نهائي
+      OrderStatus.CANCELLED
+    ],
 
+    [OrderStatus.UNDER_REVIEW]: [
+      OrderStatus.CONFIRMED,    // النجاح
+      OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
+      OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
+      OrderStatus.WRONG_NUMBER, // فشل نهائي
+      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
+      OrderStatus.DUPLICATE,    // فشل نهائي
+      OrderStatus.CANCELLED
+    ],
+
+    // الحالات الفرعية للمراجعة تسمح بالعودة للمراجعة أو الانتقال للتجهيز
+    [OrderStatus.POSTPONED]: [
+      OrderStatus.UNDER_REVIEW,
+      OrderStatus.CONFIRMED,
+      OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
+      OrderStatus.WRONG_NUMBER, // فشل نهائي
+      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
+      OrderStatus.DUPLICATE,
+      OrderStatus.CANCELLED
+    ],
+    [OrderStatus.NO_ANSWER]: [
+      OrderStatus.UNDER_REVIEW,
+      OrderStatus.CONFIRMED,
+      OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
+      OrderStatus.WRONG_NUMBER, // فشل نهائي
+      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
+      OrderStatus.DUPLICATE,
+      OrderStatus.CANCELLED
+    ],
+
+    [OrderStatus.CONFIRMED]: [
+      OrderStatus.PREPARING,
+      OrderStatus.CANCELLED
+    ],
+
+    [OrderStatus.PREPARING]: [
+      OrderStatus.READY,
+      OrderStatus.CANCELLED
+    ],
+
+    [OrderStatus.READY]: [
+      OrderStatus.SHIPPED,
+      OrderStatus.CANCELLED
+    ],
+
+    [OrderStatus.SHIPPED]: [
+      OrderStatus.DELIVERED,
+      OrderStatus.RETURNED
+    ],
+
+    [OrderStatus.DELIVERED]: [
+      OrderStatus.RETURNED
+    ],
+
+    // حالات الفشل النهائي عادة لا تسمح بانتقالات أخرى إلا بواسطة الأدمن
+    [OrderStatus.WRONG_NUMBER]: [],
+    [OrderStatus.OUT_OF_DELIVERY_AREA]: [],
+    [OrderStatus.DUPLICATE]: [],
+    [OrderStatus.CANCELLED]: [], // للسماح بإعادة فتح الطلب إذا لزم الأمر
+    [OrderStatus.RETURNED]: [],
+  };
   // ========================================
   // ✅ CHANGE ORDER STATUS
   // ========================================
@@ -465,19 +623,10 @@ export class OrdersService {
 
 
       // Status transition validation
-      const validTransitions: Record<OrderStatus, OrderStatus[]> = {
-        [OrderStatus.NEW]: [OrderStatus.UNDER_REVIEW, OrderStatus.CANCELLED],
-        [OrderStatus.UNDER_REVIEW]: [OrderStatus.PREPARING, OrderStatus.CANCELLED],
-        [OrderStatus.PREPARING]: [OrderStatus.READY, OrderStatus.CANCELLED],
-        [OrderStatus.READY]: [OrderStatus.SHIPPED, OrderStatus.CANCELLED],
-        [OrderStatus.SHIPPED]: [OrderStatus.DELIVERED, OrderStatus.RETURNED],
-        [OrderStatus.DELIVERED]: [OrderStatus.RETURNED],
-        [OrderStatus.CANCELLED]: [],
-        [OrderStatus.RETURNED]: [],
-      };
+
 
       //validate only for moving between system statuses
-      if (newStatus.system && order.status.system && !validTransitions[oldStatusCode]?.includes(newStatusCode)) {
+      if (newStatus.system && order.status.system && !this.validTransitions[oldStatusCode]?.includes(newStatusCode as OrderStatus)) {
         throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatusCode}`);
       }
 
@@ -523,6 +672,133 @@ export class OrdersService {
       });
 
       return saved;
+    });
+  }
+
+  // ========================================
+  // ✅ CONFIRMATION TEAM: CHANGE ORDER STATUS
+  // ========================================
+  async changeConfirmationStatus(me: any, id: number, dto: ChangeOrderStatusDto, ipAddress?: string) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+    const employeeId = me.id;
+
+    return this.dataSource.transaction(async (manager) => {
+      // 1. Fetch Order and its Active Assignment for this employee
+      const order = await manager.findOne(OrderEntity, {
+        where: { id, adminId } as any,
+        relations: ["status", "items", "items.variant", "assignments"],
+      });
+
+      if (!order) throw new BadRequestException("Order not found");
+
+      // Validate Active Assignment
+      const activeAssignment = order.assignments.find(
+        (a) => a.isAssignmentActive && a.employeeId === employeeId
+      );
+      if (!activeAssignment) {
+        throw new BadRequestException("You do not have an active assignment for this order.");
+      }
+
+      // 2. Fetch Statuses & Settings
+      let newStatus = await this.findStatusById(dto.statusId, adminId);
+      const oldStatusId = order.statusId;
+      const oldStatusCode = order.status.code;
+
+      if (oldStatusId === newStatus.id) return order;
+
+      const allowed = [
+        OrderStatus.UNDER_REVIEW,
+        OrderStatus.CANCELLED,
+        OrderStatus.CONFIRMED,    // النجاح
+        OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
+        OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
+        OrderStatus.WRONG_NUMBER, // فشل نهائي
+        OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
+        OrderStatus.DUPLICATE,    // فشل نهائي
+        OrderStatus.CANCELLED
+      ]
+
+      if (newStatus.system && !allowed.includes(newStatus.code as OrderStatus)) {
+        throw new BadRequestException(`Confirmation team is not allowed to set status to ${newStatus.code}`);
+      }
+
+      if (newStatus.system && order.status.system && !this.validTransitions[oldStatusCode]?.includes(newStatus.code)) {
+        throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatus.code}`);
+      }
+
+      if (newStatus.system && order.status.system && !this.validTransitions[oldStatusCode]?.includes(newStatus.code)) {
+        throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatus.code}`);
+      }
+
+      // Fetch Retry Settings
+      const settings = await this.getSettings(me);
+
+      const now = new Date();
+      activeAssignment.lastActionAt = now;
+
+      // 3. Handle Retry & Assignment Logic
+      const isRetryStatus = settings.retryStatuses.includes(newStatus.code);
+
+      if (isRetryStatus && settings.enabled) {
+        activeAssignment.retriesUsed += 1;
+
+        if (activeAssignment.retriesUsed >= activeAssignment.maxRetriesAtAssignment) {
+          // Max retries hit: Force auto-move status and finish assignment
+          newStatus = await manager.findOne(OrderStatusEntity, {
+            where: { code: settings.autoMoveStatus, adminId }
+          });
+          if (!newStatus) throw new BadRequestException("Auto-move status is not configured correctly.");
+
+          activeAssignment.isAssignmentActive = false;
+          activeAssignment.finishedAt = now;
+          activeAssignment.lockedUntil = null;
+        } else {
+          // Lock for the retry interval
+          activeAssignment.lockedUntil = new Date(now.getTime() + settings.retryInterval * 60000);
+        }
+      } else {
+        // Success or Terminal Failure (Not a retry state): Finish assignment
+        activeAssignment.isAssignmentActive = false;
+        activeAssignment.finishedAt = now;
+        activeAssignment.lockedUntil = null;
+      }
+
+      // 4. Update Order (Stock logic included for terminal states)
+      if (newStatus.code === OrderStatus.CANCELLED || newStatus.code === OrderStatus.RETURNED) {
+        for (const item of order.items) {
+          item.variant.reserved = Math.max(0, (item.variant.reserved || 0) - item.quantity);
+          await manager.save(ProductVariantEntity, item.variant);
+        }
+      }
+
+      order.status = newStatus;
+      order.updatedByUserId = employeeId;
+
+      // Save Entities
+      await manager.save(OrderAssignmentEntity, activeAssignment);
+      const savedOrder = await manager.save(OrderEntity, order);
+
+      if (settings.notifyAdmin) {
+        console.log("notify admin here")
+      }
+
+      if (settings.notifyEmployee) {
+        console.log("notify employee here")
+      }
+      // Log History
+      await this.logStatusChange({
+        adminId,
+        orderId: savedOrder.id,
+        fromStatusId: oldStatusId,
+        toStatusId: newStatus.id,
+        userId: employeeId,
+        notes: dto.notes,
+        ipAddress,
+        manager,
+      });
+
+      return savedOrder;
     });
   }
 
@@ -775,7 +1051,14 @@ export class OrdersService {
       .leftJoinAndSelect("variant.product", "product")
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shipping")
-      .leftJoinAndSelect("order.store", "store");
+      .leftJoinAndSelect("order.store", "store")
+      .leftJoinAndSelect("order.assignments", "assignment", "assignment.isAssignmentActive = true")
+      .leftJoinAndSelect("assignment.employee", "employee");
+
+    // Filter by assigned employee (userId)
+    if (q?.userId) {
+      qb.andWhere("assignment.employeeId = :userId", { userId: Number(q.userId) });
+    }
 
     // Apply same filters as list method
     if (q?.status) {
@@ -816,10 +1099,14 @@ export class OrdersService {
       const productsList = order.items
         ?.map((item) => `${item.variant?.product?.name || "N/A"} (x${item.quantity})`)
         .join("; ") || "N/A";
-
+      const activeAssignment = order.assignments?.find(a => a.isAssignmentActive);
+      const assignedTo = activeAssignment?.employee
+        ? `${activeAssignment.employee.name || "N/A"} (ID: ${activeAssignment.employee.id || "N/A"})`
+        : "Unassigned";
       return {
         orderNumber: order.orderNumber,
         customerName: order.customerName,
+        assignedTo: assignedTo,
         phoneNumber: order.phoneNumber || "N/A",
         email: order.email || "N/A",
         address: order.address || "N/A",
@@ -850,6 +1137,7 @@ export class OrdersService {
     const columns = [
       { header: "Order Number", key: "orderNumber", width: 18 },
       { header: "Customer Name", key: "customerName", width: 25 },
+      { header: "Assigned To", key: "assignedTo", width: 25 },
       { header: "Phone Number", key: "phoneNumber", width: 18 },
       // { header: "Alternative Phone", key: "alternativePhone", width: 18 },
       { header: "Email", key: "email", width: 30 },
@@ -1138,4 +1426,384 @@ export class OrdersService {
 
     return { created, failed: errors.length, errors };
   }
-}
+
+  async getSettings(me: any): Promise<OrderRetrySettingsEntity> {
+    const adminId = tenantId(me);
+    let settings = await this.retryRepo.findOneBy({ adminId: adminId });
+
+    if (!settings) {
+      settings = await this.retryRepo.create({ adminId })
+    }
+
+    // Return existing or a default object to keep frontend stable
+    return settings;
+  }
+
+  async upsertSettings(me: any, dto: UpsertOrderRetrySettingsDto): Promise<OrderRetrySettingsEntity> {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    let settings = await this.retryRepo.findOneBy({ adminId });
+
+    if (settings) {
+      // Update existing record
+      this.retryRepo.merge(settings, dto);
+    } else {
+      // Create new record for this admin
+      settings = this.retryRepo.create({ ...dto, adminId });
+    }
+
+    return await this.retryRepo.save(settings);
+  }
+
+  async getFreeOrders(me: any, q: GetFreeOrdersDto) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+    const fetchLimit = Number(q.limit) || 20;
+    const qb = this.orderRepo.createQueryBuilder("order")
+      .innerJoin("order.status", "status")
+      .where("order.adminId = :adminId", { adminId })
+      .andWhere("status.code = :statusCode", { statusCode: q.status })
+      .andWhere(qb => {
+        const subQuery = qb.subQuery()
+          .select("1")
+          .from("order_assignments", "assignment")
+          .where("assignment.orderId = order.id")
+          .andWhere("assignment.isAssignmentActive = true")
+          .getQuery();
+        return `NOT EXISTS ${subQuery}`;
+      });
+
+    // Date filters
+    if (q?.startDate)
+      qb.andWhere("order.created_at >= :startDate", {
+        startDate: `${q.startDate}T00:00:00.000Z`,
+      });
+
+    if (q?.endDate)
+      qb.andWhere("order.created_at <= :endDate", {
+        endDate: `${q.endDate}T23:59:59.999Z`,
+      });
+
+    // Cursor pagination (based on created_at)
+    if (q.cursor) {
+      qb.andWhere("order.created_at < :cursor", { cursor: q.cursor });
+    }
+
+    qb.orderBy("order.created_at", "DESC")
+      .limit(q.limit || 20);
+
+    const orders = await qb.getMany();
+    const hasMore = orders.length > fetchLimit;
+    if (hasMore) {
+      orders.pop(); // Remove the extra (+1) record from the results
+    }
+
+    const nextCursor = hasMore && orders.length > 0
+      ? orders[orders.length - 1].created_at
+      : null;
+
+    return {
+      data: orders,
+      nextCursor,
+      hasMore
+    };
+  }
+
+  /** Get count of free (unassigned) orders by status and optional date range. */
+  async getFreeOrdersCount(me: any, q: { status: string; startDate?: string; endDate?: string }) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const qb = this.orderRepo
+      .createQueryBuilder("order")
+      .innerJoin("order.status", "status")
+      .where("order.adminId = :adminId", { adminId })
+      .andWhere("status.code = :statusCode", { statusCode: q.status })
+      .andWhere((qb) => {
+        const subQuery = qb
+          .subQuery()
+          .select("1")
+          .from("order_assignments", "assignment")
+          .where("assignment.orderId = order.id")
+          .andWhere("assignment.isAssignmentActive = true")
+          .getQuery();
+        return `NOT EXISTS ${subQuery}`;
+      });
+
+    if (q?.startDate) {
+      qb.andWhere("order.created_at >= :startDate", {
+        startDate: `${q.startDate}T00:00:00.000Z`,
+      });
+    }
+    if (q?.endDate) {
+      qb.andWhere("order.created_at <= :endDate", {
+        endDate: `${q.endDate}T23:59:59.999Z`,
+      });
+    }
+
+    const count = await qb.getCount();
+    return { count };
+  }
+
+  async getEmployeesByLoad(me: any, limit: number = 20, cursor: number | null) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const fetchLimit = Number(limit) || 20;
+
+    const qb = this.userRepo.createQueryBuilder("user")
+      .leftJoin("user.assignments", "assignment", "assignment.isAssignmentActive = true")
+      .where("user.adminId = :adminId", { adminId })
+      .select([
+        "user.id",
+        "user.name",
+        "user.email",
+        "user.avatarUrl",
+        "user.employeeType"
+      ])
+      .addSelect("COUNT(assignment.id)", "activeCount")
+      .groupBy("user.id")
+      .addGroupBy("user.name")
+      .addGroupBy("user.email")
+      .addGroupBy("user.avatarUrl")
+      .addGroupBy("user.employeeType");
+
+    // Filter by cursor (count)
+    if (cursor !== null && cursor !== undefined) {
+      qb.having("COUNT(assignment.id) >= :cursor", { cursor });
+    }
+
+    // Order by count (primary) and ID (secondary tie-breaker)
+    qb.orderBy("COUNT(assignment.id)", "ASC")
+      .addOrderBy("user.id", "ASC")
+      .limit(fetchLimit + 1);
+
+    const { entities, raw } = await qb.getRawAndEntities();
+
+    const result = entities.map((u, i) => ({
+      user: u,
+      activeCount: parseInt(raw[i].activeCount, 10) || 0,
+    }));
+
+    const hasMore = result.length > fetchLimit;
+
+    if (hasMore) {
+      result.pop();
+    }
+
+    // Next cursor is the count of the last item
+    const nextCursor = hasMore && result.length > 0
+      ? result[result.length - 1].activeCount
+      : null;
+
+    return {
+      data: result,
+      nextCursor,
+      hasMore,
+    };
+  }
+
+  async manualAssignOrders(me: any, dto: ManualAssignDto) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    return this.dataSource.transaction(async (manager) => {
+      // 1. Ensure the employee exists and belongs to this admin
+      const employee = await manager.findOne("User", {
+        where: { id: dto.userId, adminId } as any
+      });
+
+      if (!employee) {
+        throw new NotFoundException("Employee not found or does not belong to your account");
+      }
+
+      // 2. Bulk fetch all requested orders to verify existence and ownership
+      const orders = await manager.createQueryBuilder(OrderEntity, "order")
+        .select(["order.id", "order.orderNumber"])
+        .leftJoinAndSelect(
+          "order_assignments", // The table name or entity property
+          "assignment",
+          "assignment.orderId = order.id AND assignment.isAssignmentActive = :isActive",
+          { isActive: true }
+        )
+        .where("order.id IN (:...ids)", { ids: dto.orderIds })
+        .andWhere("order.adminId = :adminId", { adminId })
+        .getMany();
+
+      // If the count doesn't match, some orders are invalid or belong to another admin
+      if (orders.length !== dto.orderIds.length) {
+        throw new BadRequestException(`Some orders were not found or do not belong to you`);
+      }
+
+      // 3. Bulk check for any existing active assignments for these orders
+      const busyOrders = orders.filter(o => {
+        return o.assignments?.some(a => a.isAssignmentActive);
+      });
+
+      if (busyOrders.length > 0) {
+        const busyNumbers = busyOrders.map(a => a.orderNumber).join(", ");
+        throw new BadRequestException(`Operation failed: The following orders are already actively assigned: [${busyNumbers}]`);
+      }
+
+      // 4. Fetch global retry settings (or fallback to defaults)
+      const settings = await this.getSettings(me);
+      const maxRetries = settings?.maxRetries || 3;
+
+      // 5. Prepare entities for bulk insert
+      const assignments = dto.orderIds.map(orderId => {
+        return manager.create(OrderAssignmentEntity, {
+          orderId,
+          employeeId: dto.userId,
+          assignedByAdminId: Number(me.id),
+          maxRetriesAtAssignment: maxRetries,
+          isAssignmentActive: true,
+        });
+      });
+
+      // 6. Save all new assignments in a single query
+      await manager.save(OrderAssignmentEntity, assignments);
+      return { success: true, count: assignments.length, user: employee };
+    });
+  }
+
+  async autoAssignOrders(me: any, dto: AutoAssignDto) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    return this.dataSource.transaction(async (manager) => {
+      // 1. Fetch available orders (Target status + No active assignments)
+      const availableOrders = await manager.createQueryBuilder(OrderEntity, "order")
+        .innerJoin("order.status", "status")
+        .where("status.code = :statusCode", { statusCode: dto.status })
+        .andWhere("order.adminId = :adminId", { adminId })
+        .andWhere(qb => {
+          const subQuery = qb
+            .subQuery()
+            .select("1")
+            .from("order_assignments", "assignment")
+            .where("assignment.orderId = order.id")
+            .andWhere("assignment.isAssignmentActive = :isActive")
+            .getQuery();
+          return `NOT EXISTS ${subQuery}`;
+        })
+        .setParameter("isActive", true)
+        .select(["order.id"])
+        .getMany();
+
+      if (availableOrders.length === 0) {
+        return {
+          success: false,
+          message: `No unassigned orders found for status: ${dto.status}`,
+        };
+      }
+
+      // 2. Find the top N employees with the lowest active workload
+      // We use a subquery/join to count active assignments per user
+      const { entities: employeeEntities, raw: employeeRaw } = await manager.getRepository(User).createQueryBuilder("user")
+        .leftJoin("user.assignments", "assignment", "assignment.isAssignmentActive = :isActive", { isActive: true })
+        .select(["user.id", "user.name", "user.email", "user.avatarUrl", "user.employeeType"])
+        .addSelect("COUNT(assignment.id)", "activeCount")
+        .where("user.adminId = :adminId", { adminId })
+        .groupBy("user.id")
+        .orderBy("COUNT(assignment.id)", "ASC")
+        .limit(dto.employeeCount)
+        .getRawAndEntities();
+
+
+      if (employeeEntities.length === 0) {
+        return {
+          success: false,
+          message: `No employees found to receive assignments`,
+        };
+      }
+
+      // Prepare worker pool from the raw counts
+      const workerPool = employeeEntities.map((emp, index) => ({
+        user: emp,
+        activeCount: parseInt(employeeRaw[index].activeCount, 10) || 0,
+        newlyAssigned: 0,
+      }));
+
+      workerPool.sort((a, b) => a.activeCount - b.activeCount);
+
+      // 3. Distribution Loop (Prioritize lowest combined workload)
+      const settings = await this.getSettings(me);
+      const maxRetries = settings?.maxRetries || 3;
+      const newAssignments: OrderAssignmentEntity[] = [];
+
+      let currentIndex = 0;
+      const totalWorkers = workerPool.length;
+
+      for (const order of availableOrders) {
+        const targetWorker = workerPool[currentIndex];
+
+        newAssignments.push(
+          manager.create(OrderAssignmentEntity, {
+            orderId: order.id,
+            employeeId: targetWorker.user.id,
+            assignedByAdminId: Number(me.id),
+            maxRetriesAtAssignment: maxRetries,
+            isAssignmentActive: true,
+          })
+        );
+
+        targetWorker.newlyAssigned++;
+
+        // move to next worker (round robin)
+        currentIndex = (currentIndex + 1) % totalWorkers;
+      }
+      // 4. Bulk Save
+      await manager.save(OrderAssignmentEntity, newAssignments);
+
+      // 5. Return summary
+      const result = workerPool.map(w => ({
+        user: w.user,
+        assignedThisBatch: w.newlyAssigned,
+        totalActiveNow: w.activeCount + w.newlyAssigned
+      }));
+
+      return {
+        success: true,
+        result
+      }
+    });
+  }
+
+  async getNextAssignedOrder(me: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const orders = await this.orderRepo
+      .createQueryBuilder("order")
+      .innerJoin(
+        "order.assignments",
+        "assignment",
+        `
+        assignment.employeeId = :userId
+        AND assignment.isAssignmentActive = true
+        AND assignment.finishedAt IS NULL
+        AND (
+          assignment.lockedUntil IS NULL
+          OR assignment.lockedUntil <= NOW()
+        )
+      `,
+        { userId: me.id }
+      )
+      .where("order.adminId = :adminId", { adminId })
+      .leftJoinAndSelect("order.items", "items")
+      .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.statusHistory", "statusHistory")
+      .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
+      .leftJoinAndSelect("statusHistory.toStatus", "toStatus")
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
+      .leftJoinAndSelect("order.store", "store")
+      .orderBy("assignment.assignedAt", "ASC") // 🔥 Old → New
+      .getOne();
+
+    return orders;
+  }
+
+} 

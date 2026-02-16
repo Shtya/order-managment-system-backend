@@ -9,15 +9,19 @@ import {
   OrderStatusHistoryEntity,
   OrderMessageEntity,
   OrderStatusEntity,
+  OrderRetrySettingsEntity,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
 import { OrderSubscriber } from "./order-subscriber";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { User } from "entities/user.entity";
+import { AuthModule } from "src/auth/auth.module";
 
 @Module({
   imports: [
     forwardRef(() => StoresModule),
+    forwardRef(() => AuthModule),
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,
@@ -25,7 +29,9 @@ import { ShippingCompanyEntity } from "entities/shipping.entity";
       OrderStatusHistoryEntity,
       OrderMessageEntity,
       ProductVariantEntity,
-      ShippingCompanyEntity
+      ShippingCompanyEntity,
+      OrderRetrySettingsEntity,
+      User,
     ]),
   ],
   providers: [OrdersService, OrderSubscriber],

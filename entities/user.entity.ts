@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { Plan } from './plans.entity';
 import { Asset } from './assets.entity';
+import { OrderAssignmentEntity } from './order.entity';
 
 /* =========================
  * Roles
@@ -42,8 +43,6 @@ export class Role {
 	@ManyToOne(() => User, { nullable: true })
 	@JoinColumn({ name: 'adminId' })
 	admin?: Relation<User> | null;     // ✅ changed
-
-
 
 	@Column({ default: false })
 	isGlobal: boolean;
@@ -81,7 +80,6 @@ export class User {
 	@Column({ type: 'varchar', nullable: true })
 	employeeType?: string;
 
-
 	@Column({ nullable: true })
 	passwordHash?: string;
 
@@ -115,7 +113,6 @@ export class User {
 	@Column({ type: 'bigint', nullable: true })
 	resetPasswordExpiresAt?: number | null;
 
-
 	@Column({ type: 'varchar', nullable: true })
 	otpCodeHash: string | null;
 
@@ -128,9 +125,12 @@ export class User {
 	@Column({ type: 'int', default: 0 })
 	otpAttempts: number;
 
-
 	@OneToMany(() => Asset, upload => upload.user)
 	uploads: Asset[];
+
+	// Inside User Entity
+	@OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.employee)
+	assignments: OrderAssignmentEntity[];
 
 	@CreateDateColumn()
 	createdAt: Date;

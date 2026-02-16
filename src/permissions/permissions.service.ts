@@ -26,11 +26,14 @@ export class PermissionsService implements OnModuleInit {
 			'transactions.read', 'transactions.create', 'transactions.update', 'transactions.cancel',
 
 			"stores.read", "stores.create", "stores.update", "stores.delete",
+			"order.read", "order.create", "order.update", "order.delete", "order.updateSettings", "order.readSettings", "order.assign",
 			"warehouses.read", "warehouses.create", "warehouses.update", "warehouses.delete",
 			"categories.read", "categories.create", "categories.update", "categories.delete",
 			"products.read", "products.create", "products.update", "products.delete",
 
-			"shipping-companies.create", "shipping-companies.read", "shipping-companies.update", "shipping-companies.delete"
+			"shipping-companies.create", "shipping-companies.read", "shipping-companies.update", "shipping-companies.delete",
+
+
 		];
 
 		for (const name of keys) {

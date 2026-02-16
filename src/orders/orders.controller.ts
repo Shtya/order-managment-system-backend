@@ -4,9 +4,11 @@ import {
   Controller,
   Delete,
   Get,
+  Ip,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -29,7 +31,13 @@ import {
   MarkMessagesReadDto,
   CreateStatusDto,
   UpdateStatusDto,
+  UpsertOrderRetrySettingsDto,
+  ManualAssignDto,
+  AutoAssignDto,
+  GetFreeOrdersDto,
 } from "dto/order.dto";
+import { AuthGuard } from "@nestjs/passport";
+import { OrderStatus } from "common/enums";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("orders")
@@ -37,10 +45,93 @@ export class OrdersController {
   constructor(private svc: OrdersService) { }
 
   // ✅ Get order statistics
-  @Permissions("orders.read")
+  // @Permissions("orders.read")
   @Get("stats")
   stats(@Req() req: any) {
     return this.svc.getStats(req.user);
+  }
+
+  // employee-orders.controller.ts
+
+  @Get("employee/orders/next")
+  async getNextOrder(@Req() req: any) {
+    return this.svc.getNextAssignedOrder(req.user);
+  }
+
+
+  @Permissions("orders.assign")
+  @Post("assign-manual")
+  async manualAssignOrders(@Req() req: any, @Body() dto: ManualAssignDto) {
+    return this.svc.manualAssignOrders(req.user, dto);
+  }
+
+  @Permissions("orders.assign")
+  @Post("assign-auto")
+  async assignAuto(@Req() req: any, @Body() dto: AutoAssignDto) {
+    return this.svc.autoAssignOrders(req.user, dto);
+  }
+
+
+  @Permissions("orders.assign")
+  @Get("free-orders/count")
+  async getFreeOrdersCount(
+    @Req() req: any,
+    @Query("status") status?: string,
+    @Query("startDate") startDate?: string,
+    @Query("endDate") endDate?: string,
+  ) {
+    return this.svc.getFreeOrdersCount(req.user, {
+      status: status ?? "",
+      startDate: startDate ?? undefined,
+      endDate: endDate ?? undefined,
+    });
+  }
+
+  // @Permissions("orders.read")
+  @Get('assigned')
+  listMyAssigned(@Req() req: any, @Query('limit') limit: number) {
+    return this.svc.listMyAssignedOrders(req.user, limit);
+  }
+
+  @Permissions("orders.assign")
+  @Get("free-orders")
+  async getFreeOrders(
+    @Req() req: any,
+    @Query('status') status?: string,
+    @Query('startDate') startDate?: string,
+    @Query('endDate') endDate?: string,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.getFreeOrders(req.user, {
+      status: status as OrderStatus,
+      startDate: startDate ? startDate : undefined,
+      endDate: endDate ? endDate : undefined,
+      cursor: cursor ? cursor : undefined,
+      limit: Number(limit ?? 20),
+    });
+  }
+
+  // ✅ Get Employees Ordered By Lowest Active Assignments
+  @Permissions("orders.assign")
+  @Get("employees-by-load")
+  async getEmployeesByLoad(
+    @Req() req: any,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.svc.getEmployeesByLoad(req.user, Number(limit ?? 20), cursor ? Number(cursor) : null);
+  }
+
+  // @Permissions("orders.confirm") // Adjust permission as needed
+  @Put(':id/confirm-status')
+  changeConfirmationStatus(
+    @Req() req: any,
+    @Param('id') id: number,
+    @Body() dto: ChangeOrderStatusDto,
+    @Ip() ipAddress: string
+  ) {
+    return this.svc.changeConfirmationStatus(req.user, id, dto, ipAddress);
   }
 
   // ✅ List orders with filters
@@ -83,8 +174,22 @@ export class OrdersController {
     return this.svc.bulkCreateOrders(req.user, file);
   }
 
+  @Get("retry-settings")
+  @Permissions("orders.readSettings")
+  getRetry(@Req() req: any) {
+    return this.svc.getSettings(req.user);
+  }
+
+  @Post("retry-settings")
+  @Permissions("orders.updateSettings")
+  upsertRetry(@Req() req: any, @Body() dto: UpsertOrderRetrySettingsDto) {
+    return this.svc.upsertSettings(req.user, dto);
+  }
+
+
+
   // ✅ Get single order
-  @Permissions("orders.read")
+  // @Permissions("orders.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
     return this.svc.get(req.user, Number(id));
@@ -177,4 +282,6 @@ export class OrdersController {
   removeStatus(@Req() req: any, @Param("id") id: string) {
     return this.svc.removeStatus(req.user, Number(id));
   }
+
+
 }
