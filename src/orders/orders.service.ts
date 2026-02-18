@@ -26,9 +26,10 @@ import {
   UpdateStatusDto,
   CreateStatusDto,
   UpsertOrderRetrySettingsDto,
-  ManualAssignDto,
   AutoAssignDto,
   GetFreeOrdersDto,
+  ManualAssignManyDto,
+  AutoPreviewDto,
 } from "dto/order.dto";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { User } from "entities/user.entity";
@@ -1456,14 +1457,17 @@ export class OrdersService {
     return await this.retryRepo.save(settings);
   }
 
+
+
   async getFreeOrders(me: any, q: GetFreeOrdersDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
+
     const fetchLimit = Number(q.limit) || 20;
+
     const qb = this.orderRepo.createQueryBuilder("order")
       .innerJoin("order.status", "status")
       .where("order.adminId = :adminId", { adminId })
-      .andWhere("status.code = :statusCode", { statusCode: q.status })
       .andWhere(qb => {
         const subQuery = qb.subQuery()
           .select("1")
@@ -1473,6 +1477,13 @@ export class OrdersService {
           .getQuery();
         return `NOT EXISTS ${subQuery}`;
       });
+
+    // ✅ Multiple statuses filter
+    if (q.statusIds?.length) {
+      qb.andWhere("status.id IN (:...statusIds)", {
+        statusIds: q.statusIds
+      });
+    }
 
     // Date filters
     if (q?.startDate)
@@ -1485,19 +1496,18 @@ export class OrdersService {
         endDate: `${q.endDate}T23:59:59.999Z`,
       });
 
-    // Cursor pagination (based on created_at)
+    // Cursor pagination
     if (q.cursor) {
       qb.andWhere("order.created_at < :cursor", { cursor: q.cursor });
     }
 
     qb.orderBy("order.created_at", "DESC")
-      .limit(q.limit || 20);
+      .limit(fetchLimit + 1); // fetch one extra to check hasMore
 
     const orders = await qb.getMany();
+
     const hasMore = orders.length > fetchLimit;
-    if (hasMore) {
-      orders.pop(); // Remove the extra (+1) record from the results
-    }
+    if (hasMore) orders.pop();
 
     const nextCursor = hasMore && orders.length > 0
       ? orders[orders.length - 1].created_at
@@ -1510,8 +1520,9 @@ export class OrdersService {
     };
   }
 
+
   /** Get count of free (unassigned) orders by status and optional date range. */
-  async getFreeOrdersCount(me: any, q: { status: string; startDate?: string; endDate?: string }) {
+  async getFreeOrdersCount(me: any, q: { statusIds: number[]; startDate?: string; endDate?: string }) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -1519,7 +1530,6 @@ export class OrdersService {
       .createQueryBuilder("order")
       .innerJoin("order.status", "status")
       .where("order.adminId = :adminId", { adminId })
-      .andWhere("status.code = :statusCode", { statusCode: q.status })
       .andWhere((qb) => {
         const subQuery = qb
           .subQuery()
@@ -1530,6 +1540,13 @@ export class OrdersService {
           .getQuery();
         return `NOT EXISTS ${subQuery}`;
       });
+
+
+    if (q.statusIds?.length) {
+      qb.andWhere("status.id IN (:...statusIds)", {
+        statusIds: q.statusIds
+      });
+    }
 
     if (q?.startDate) {
       qb.andWhere("order.created_at >= :startDate", {
@@ -1604,170 +1621,245 @@ export class OrdersService {
     };
   }
 
-  async manualAssignOrders(me: any, dto: ManualAssignDto) {
+
+  async manualAssignMany(me: any, dto: ManualAssignManyDto) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    // collect all employee ids and all order ids from payload
+    const employeeIds = [...new Set(dto.assignments.map(a => a.userId))];
+    const allOrderIds = [
+      ...new Set(dto.assignments.flatMap(a => a.orderIds))
+    ];
+
+    // validate no duplicate order across different employees (already deduped above, but check in payload)
+    const payloadOrderCount = dto.assignments.reduce((sum, a) => sum + a.orderIds.length, 0);
+    if (allOrderIds.length !== payloadOrderCount) {
+      throw new BadRequestException("Each order may only be assigned to a single employee in the same request");
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      // 1) verify employees exist & belong to admin
+      const employees = await manager.find(User, {
+        where: { id: In(employeeIds), adminId } as any
+      });
+
+      if (employees.length !== employeeIds.length) {
+        throw new NotFoundException(`Employees not found or not belonging to admin`);
+      }
+
+      // 2) verify orders exist & belong to admin
+      const freeOrders = await manager.createQueryBuilder(OrderEntity, "order")
+        .leftJoin(
+          "order.assignments",
+          "assignment",
+          "assignment.isAssignmentActive = :isActive",
+          { isActive: true }
+        )
+        .where("order.id IN (:...allOrderIds)", { allOrderIds })
+        .andWhere("order.adminId = :adminId", { adminId })
+        .andWhere("assignment.id IS NULL") // This ensures the order is "free"
+        .select(["order.id", "order.orderNumber"])
+        .getMany();
+
+      if (freeOrders.length !== allOrderIds.length) {
+        throw new BadRequestException(`Some orders are either invalid, restricted, or already actively assigned.`)
+      }
+      // 4) fetch settings
+      const settings = await this.getSettings(me);
+      const maxRetries = settings?.maxRetries || 3;
+
+      // 5) create assignment entities in bulk
+      const assignmentsToSave: OrderAssignmentEntity[] = [];
+
+      for (const item of dto.assignments) {
+        for (const orderId of item.orderIds) {
+          const assignment = manager.create(OrderAssignmentEntity, {
+            orderId,
+            employeeId: item.userId,
+            assignedByAdminId: Number(me.id),
+            maxRetriesAtAssignment: maxRetries,
+            isAssignmentActive: true,
+          });
+          assignmentsToSave.push(assignment);
+        }
+      }
+
+      // 6) save all assignments
+      const saved = await manager.save(OrderAssignmentEntity, assignmentsToSave);
+
+      // return helpful summary
+      const summary = {
+        success: true,
+        totalAssigned: saved.length,
+        byEmployee: employees.map(emp => {
+          const count = saved.filter(s => s.employeeId === emp.id).length;
+          return { userId: emp.id, name: emp.name || null, assignedCount: count };
+        })
+      };
+
+      return summary;
+    });
+  }
+
+  async autoAssign(me: any, dto: AutoAssignDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     return this.dataSource.transaction(async (manager) => {
-      // 1. Ensure the employee exists and belongs to this admin
-      const employee = await manager.findOne("User", {
-        where: { id: dto.userId, adminId } as any
-      });
-
-      if (!employee) {
-        throw new NotFoundException("Employee not found or does not belong to your account");
-      }
-
-      // 2. Bulk fetch all requested orders to verify existence and ownership
-      const orders = await manager.createQueryBuilder(OrderEntity, "order")
+      // 1. Find 'Free' Orders (No active assignments)
+      const q = manager.createQueryBuilder(OrderEntity, "order")
+        .leftJoin("order.assignments", "assignment", "assignment.isAssignmentActive = :isActive", { isActive: true })
+        .where("order.adminId = :adminId", { adminId })
+        .andWhere("order.statusId IN (:...statusIds)", { statusIds: dto.statusIds })
+        .andWhere("assignment.id IS NULL") // Only orders with NO active assignments
         .select(["order.id", "order.orderNumber"])
-        .leftJoinAndSelect(
-          "order_assignments", // The table name or entity property
-          "assignment",
-          "assignment.orderId = order.id AND assignment.isAssignmentActive = :isActive",
-          { isActive: true }
-        )
-        .where("order.id IN (:...ids)", { ids: dto.orderIds })
-        .andWhere("order.adminId = :adminId", { adminId })
-        .getMany();
 
-      // If the count doesn't match, some orders are invalid or belong to another admin
-      if (orders.length !== dto.orderIds.length) {
-        throw new BadRequestException(`Some orders were not found or do not belong to you`);
+
+      if (dto?.startDate) q.andWhere("order.created_at >= :startDate", { startDate: `${dto.startDate}T00:00:00.000Z` });
+      if (dto?.endDate) q.andWhere("order.created_at <= :endDate", { endDate: `${dto.endDate}T23:59:59.999Z` });
+
+      const freeOrders = await q.limit(dto.orderCount).getMany();
+
+      if (freeOrders.length === 0) {
+        throw new NotFoundException("No free orders found matching these criteria");
+      }
+      if (freeOrders.length !== dto.orderCount) {
+        throw new BadRequestException(
+          `Cannot fulfill request. You requested ${dto.orderCount} orders, but only ${freeOrders.length} unassigned orders were found for the selected statuses.`
+        );
       }
 
-      // 3. Bulk check for any existing active assignments for these orders
-      const busyOrders = orders.filter(o => {
-        return o.assignments?.some(a => a.isAssignmentActive);
-      });
+      // 2. Find 'Least Busy' Employees
+      // We count active assignments for each employee and sort ASC
+      const employees = await manager.createQueryBuilder(User, "user")
+        .leftJoin("order_assignments", "oa", "oa.employeeId = user.id AND oa.isAssignmentActive = true")
+        .where("user.adminId = :adminId", { adminId })
+        // Add a role check here if necessary (e.g., .andWhere("user.role = 'employee'"))
+        .select("user.id", "id")
+        .addSelect("user.name", "name")
+        .addSelect("COUNT(oa.id)", "activeCount")
+        .groupBy("user.id")
+        .orderBy("COUNT(oa.id)", "ASC")
+        .limit(dto.employeeCount)
+        .getRawMany();
 
-      if (busyOrders.length > 0) {
-        const busyNumbers = busyOrders.map(a => a.orderNumber).join(", ");
-        throw new BadRequestException(`Operation failed: The following orders are already actively assigned: [${busyNumbers}]`);
+      if (employees.length === 0) {
+        throw new NotFoundException("No eligible employees found");
       }
 
-      // 4. Fetch global retry settings (or fallback to defaults)
+      if (employees.length < dto.employeeCount) {
+        throw new BadRequestException(
+          `Insufficient employees. You requested assignment to ${dto.employeeCount} employees, but only ${employees.length} are available.`
+        );
+      }
+
+      // 3. Fetch Settings
       const settings = await this.getSettings(me);
       const maxRetries = settings?.maxRetries || 3;
 
-      // 5. Prepare entities for bulk insert
-      const assignments = dto.orderIds.map(orderId => {
-        return manager.create(OrderAssignmentEntity, {
-          orderId,
-          employeeId: dto.userId,
+      const assignmentsToSave: OrderAssignmentEntity[] = [];
+
+      freeOrders.forEach((order, index) => {
+        const employee = employees[index % employees.length]; // Cycle through employees
+
+        const assignment = manager.create(OrderAssignmentEntity, {
+          orderId: order.id,
+          employeeId: employee.id,
           assignedByAdminId: Number(me.id),
           maxRetriesAtAssignment: maxRetries,
           isAssignmentActive: true,
         });
+        assignmentsToSave.push(assignment);
       });
 
-      // 6. Save all new assignments in a single query
-      await manager.save(OrderAssignmentEntity, assignments);
-      return { success: true, count: assignments.length, user: employee };
-    });
-  }
-
-  async autoAssignOrders(me: any, dto: AutoAssignDto) {
-    const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
-
-    return this.dataSource.transaction(async (manager) => {
-      // 1. Fetch available orders (Target status + No active assignments)
-      const availableOrders = await manager.createQueryBuilder(OrderEntity, "order")
-        .innerJoin("order.status", "status")
-        .where("status.code = :statusCode", { statusCode: dto.status })
-        .andWhere("order.adminId = :adminId", { adminId })
-        .andWhere(qb => {
-          const subQuery = qb
-            .subQuery()
-            .select("1")
-            .from("order_assignments", "assignment")
-            .where("assignment.orderId = order.id")
-            .andWhere("assignment.isAssignmentActive = :isActive")
-            .getQuery();
-          return `NOT EXISTS ${subQuery}`;
-        })
-        .setParameter("isActive", true)
-        .select(["order.id"])
-        .getMany();
-
-      if (availableOrders.length === 0) {
-        return {
-          success: false,
-          message: `No unassigned orders found for status: ${dto.status}`,
-        };
-      }
-
-      // 2. Find the top N employees with the lowest active workload
-      // We use a subquery/join to count active assignments per user
-      const { entities: employeeEntities, raw: employeeRaw } = await manager.getRepository(User).createQueryBuilder("user")
-        .leftJoin("user.assignments", "assignment", "assignment.isAssignmentActive = :isActive", { isActive: true })
-        .select(["user.id", "user.name", "user.email", "user.avatarUrl", "user.employeeType"])
-        .addSelect("COUNT(assignment.id)", "activeCount")
-        .where("user.adminId = :adminId", { adminId })
-        .groupBy("user.id")
-        .orderBy("COUNT(assignment.id)", "ASC")
-        .limit(dto.employeeCount)
-        .getRawAndEntities();
-
-
-      if (employeeEntities.length === 0) {
-        return {
-          success: false,
-          message: `No employees found to receive assignments`,
-        };
-      }
-
-      // Prepare worker pool from the raw counts
-      const workerPool = employeeEntities.map((emp, index) => ({
-        user: emp,
-        activeCount: parseInt(employeeRaw[index].activeCount, 10) || 0,
-        newlyAssigned: 0,
-      }));
-
-      workerPool.sort((a, b) => a.activeCount - b.activeCount);
-
-      // 3. Distribution Loop (Prioritize lowest combined workload)
-      const settings = await this.getSettings(me);
-      const maxRetries = settings?.maxRetries || 3;
-      const newAssignments: OrderAssignmentEntity[] = [];
-
-      let currentIndex = 0;
-      const totalWorkers = workerPool.length;
-
-      for (const order of availableOrders) {
-        const targetWorker = workerPool[currentIndex];
-
-        newAssignments.push(
-          manager.create(OrderAssignmentEntity, {
-            orderId: order.id,
-            employeeId: targetWorker.user.id,
-            assignedByAdminId: Number(me.id),
-            maxRetriesAtAssignment: maxRetries,
-            isAssignmentActive: true,
-          })
-        );
-
-        targetWorker.newlyAssigned++;
-
-        // move to next worker (round robin)
-        currentIndex = (currentIndex + 1) % totalWorkers;
-      }
-      // 4. Bulk Save
-      await manager.save(OrderAssignmentEntity, newAssignments);
-
-      // 5. Return summary
-      const result = workerPool.map(w => ({
-        user: w.user,
-        assignedThisBatch: w.newlyAssigned,
-        totalActiveNow: w.activeCount + w.newlyAssigned
-      }));
+      // 5. Save and Summary
+      const saved = await manager.save(OrderAssignmentEntity, assignmentsToSave);
 
       return {
         success: true,
-        result
-      }
+        totalAssigned: saved.length,
+        employeesParticipating: employees.length,
+        byEmployee: employees.map(emp => ({
+          userId: emp.id,
+          name: emp.name,
+          previouslyActive: parseInt(emp.activeCount),
+          newlyAssigned: saved.filter(s => s.employeeId === emp.id).length
+        }))
+      };
     });
+  }
+
+  async getAutoPreview(me: any, dto: AutoPreviewDto) {
+    const adminId = tenantId(me);
+
+    // 1. Fetch TOTAL Max Limits (Ceilings) in Parallel
+    const orderCountQuery = this.orderRepo.createQueryBuilder("order")
+      .leftJoin("order.assignments", "oa", "oa.isAssignmentActive = true")
+      .where("order.adminId = :adminId", { adminId })
+      .andWhere("order.statusId IN (:...statusIds)", { statusIds: dto.statusIds })
+      .andWhere("oa.id IS NULL");
+
+    if (dto?.startDate) {
+      orderCountQuery.andWhere("order.created_at >= :startDate", { startDate: `${dto.startDate}T00:00:00.000Z` });
+    }
+    if (dto?.endDate) {
+      orderCountQuery.andWhere("order.created_at <= :endDate", { endDate: `${dto.endDate}T23:59:59.999Z` });
+    }
+
+    const [maxOrdersCount, maxEmployeesCount] = await Promise.all([
+      orderCountQuery.getCount(),
+      this.userRepo.count({ where: { adminId } as any })
+    ]);
+
+    // 2. Cap the requested counts to the Max Limits
+    const effectiveOrderCount = Math.min(dto.requestedOrderCount, maxOrdersCount);
+    const effectiveEmployeeCount = Math.min(dto.requestedEmployeeCount, maxEmployeesCount);
+
+    // If there's nothing to assign, return early
+    if (effectiveOrderCount === 0 || effectiveEmployeeCount === 0) {
+      return { maxOrders: maxOrdersCount, maxEmployees: maxEmployeesCount, assignments: [] };
+    }
+    // 3. Fetch specific Orders and Employees for the preview
+    const [freeOrders, leastBusyEmployees] = await Promise.all([
+      this.orderRepo.createQueryBuilder("order")
+        .leftJoin("order.assignments", "oa", "oa.isAssignmentActive = true")
+        .where("order.adminId = :adminId", { adminId })
+        .andWhere("order.statusId IN (:...statusIds)", { statusIds: dto.statusIds })
+        .andWhere("oa.id IS NULL")
+        .select(["order.id", "order.orderNumber"])
+        .limit(effectiveOrderCount)
+        .getMany(),
+
+      this.userRepo.createQueryBuilder("user")
+        .leftJoin("order_assignments", "oa", "oa.employeeId = user.id AND oa.isAssignmentActive = true")
+        .where("user.adminId = :adminId", { adminId })
+        .select(["user.id", "user.name"])
+        .addSelect("COUNT(oa.id)", "activeCount")
+        .groupBy("user.id")
+        .orderBy("COUNT(oa.id)", "ASC")
+        .limit(effectiveEmployeeCount)
+        .getMany()
+    ]);
+    // 4. In-Memory Round-Robin Assignment
+    const assignmentMap = new Map<number, { name: string; orderNumbers: string[] }>();
+
+    // Initialize map with selected employees
+    leastBusyEmployees.forEach(emp => {
+      assignmentMap.set(emp.id, { name: emp.name, orderNumbers: [] });
+    });
+
+    // Distribute orders
+    freeOrders.forEach((order, index) => {
+      const employee = leastBusyEmployees[index % leastBusyEmployees.length];
+      assignmentMap.get(employee.id).orderNumbers.push(order.orderNumber);
+    });
+
+    return {
+      maxOrders: maxOrdersCount,
+      maxEmployees: maxEmployeesCount,
+      assignments: Array.from(assignmentMap.values())
+    };
   }
 
   async getNextAssignedOrder(me: any) {
