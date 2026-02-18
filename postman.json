@@ -1,199 +1,303 @@
 {
   "info": {
-    "_postman_id": "b2b2a94f-0e7d-4b9d-8b73-2c6f7d7d6f11",
-    "name": "Products (No Product SKU) + Combinations + Upselling",
+    "name": "Shipping Module - Unified Providers (Test)",
+    "_postman_id": "9b8a3d2f-7c10-4e3a-ae47-2b6d7a0e0001",
+    "description": "Unified shipping endpoints. Use provider codes like bosta/dhl/aramex. Includes webhook test.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3000" },
-    { "key": "token", "value": "PASTE_YOUR_JWT_HERE" },
-    { "key": "productId", "value": "101" },
-    { "key": "variantId", "value": "1" },
-    { "key": "comboSku", "value": "TSHIRT-RED-M" }
+    { "key": "baseUrl", "value": "http://localhost:8081" },
+    { "key": "jwt", "value": "PUT_JWT_HERE" },
+    { "key": "provider", "value": "bosta" },
+    { "key": "countryId", "value": "1" },
+    { "key": "orderId", "value": "123" },
+    { "key": "shipmentId", "value": "1" },
+    { "key": "webhookAuth", "value": "Basic abc123" }
   ],
   "item": [
     {
-      "name": "Products - List (optional skusSummary)",
-      "request": {
-        "method": "GET",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-        "url": {
-          "raw": "{{baseUrl}}/products?includeSkusSummary=1&page=1&limit=10",
-          "host": ["{{baseUrl}}"],
-          "path": ["products"],
-          "query": [
-            { "key": "includeSkusSummary", "value": "1" },
-            { "key": "page", "value": "1" },
-            { "key": "limit", "value": "10" }
-          ]
+      "name": "Meta",
+      "item": [
+        {
+          "name": "List Providers",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+            ],
+            "url": { "raw": "{{baseUrl}}/shipping/providers", "host": ["{{baseUrl}}"], "path": ["shipping", "providers"] }
+          }
+        },
+        {
+          "name": "Unified Statuses",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+            ],
+            "url": { "raw": "{{baseUrl}}/shipping/statuses", "host": ["{{baseUrl}}"], "path": ["shipping", "statuses"] }
+          }
         }
-      }
+      ]
     },
     {
-      "name": "Products - Get by ID",
-      "request": {
-        "method": "GET",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-        "url": {
-          "raw": "{{baseUrl}}/products/{{productId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["products", "{{productId}}"]
-        }
-      }
-    },
-    {
-      "name": "Products - Search by Combination SKU",
-      "request": {
-        "method": "GET",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-        "url": {
-          "raw": "{{baseUrl}}/products/by-sku/{{comboSku}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["products", "by-sku", "{{comboSku}}"]
-        }
-      }
-    },
-    {
-      "name": "Products - Create (multipart/form-data) WITH combinations",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-        "body": {
-          "mode": "formdata",
-          "formdata": [
-            { "key": "name", "value": "T-Shirt", "type": "text" },
-            { "key": "wholesalePrice", "value": "120", "type": "text" },
-            { "key": "lowestPrice", "value": "199", "type": "text" },
-            { "key": "storageRack", "value": "A-12", "type": "text" },
-            { "key": "categoryId", "value": "5", "type": "text" },
-            { "key": "storeId", "value": "2", "type": "text" },
-            { "key": "warehouseId", "value": "1", "type": "text" },
-            { "key": "description", "value": "Cotton tee", "type": "text" },
-            {
-              "key": "callCenterProductDescription",
-              "value": "قطن 100%، مريح، متاح مقاسات وألوان.",
-              "type": "text"
-            },
-            { "key": "upsellingEnabled", "value": "true", "type": "text" },
-            {
-              "key": "upsellingProducts",
-              "value": "[{\"productId\":\"205\",\"label\":\"Cap\",\"callCenterDescription\":\"رشّح كاب مطابق بسعر مخفّض\"},{\"productId\":\"301\",\"label\":\"Socks\",\"callCenterDescription\":\"جوارب قطنية ممتازة تكمل اللوك\"}]",
-              "type": "text"
-            },
-            {
-              "key": "mainImage",
-              "value": "https://cdn.example.com/main.jpg",
-              "type": "text"
-            },
-            {
-              "key": "imagesMeta",
-              "value": "[{\"url\":\"https://cdn.example.com/1.jpg\"},{\"url\":\"https://cdn.example.com/2.jpg\"}]",
-              "type": "text"
-            },
-            {
-              "key": "combinations",
-              "value": "[{\"key\":\"color=red|size=m\",\"sku\":\"TSHIRT-RED-M\",\"attributes\":{\"color\":\"red\",\"size\":\"m\"},\"stockOnHand\":30,\"reserved\":0},{\"key\":\"color=red|size=l\",\"sku\":\"TSHIRT-RED-L\",\"attributes\":{\"color\":\"red\",\"size\":\"l\"},\"stockOnHand\":20,\"reserved\":2}]",
-              "type": "text"
+      "name": "Provider Config",
+      "item": [
+        {
+          "name": "Get Provider Config",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/config",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "config"]
             }
-          ]
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/products",
-          "host": ["{{baseUrl}}"],
-          "path": ["products"]
-        }
-      }
-    },
-    {
-      "name": "Products - Update (PATCH, multipart/form-data)",
-      "request": {
-        "method": "PATCH",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-        "body": {
-          "mode": "formdata",
-          "formdata": [
-            { "key": "name", "value": "T-Shirt Updated", "type": "text" },
-            { "key": "upsellingEnabled", "value": "true", "type": "text" },
-            {
-              "key": "upsellingProducts",
-              "value": "[{\"productId\":\"205\",\"label\":\"Cap\",\"callCenterDescription\":\"نسخة محدثة للنص\"}]",
-              "type": "text"
-            },
-            {
-              "key": "callCenterProductDescription",
-              "value": "وصف محدث للكول سنتر",
-              "type": "text"
+        {
+          "name": "Set Provider Active",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"isActive\": true\n}" },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/active",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "active"]
             }
-          ]
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/products/{{productId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["products", "{{productId}}"]
-        }
-      }
-    },
-    {
-      "name": "Products - Delete",
-      "request": {
-        "method": "DELETE",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-        "url": {
-          "raw": "{{baseUrl}}/products/{{productId}}",
-          "host": ["{{baseUrl}}"],
-          "path": ["products", "{{productId}}"]
-        }
-      }
-    },
-    {
-      "name": "Combinations - Get SKUs for Product",
-      "request": {
-        "method": "GET",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }],
-        "url": {
-          "raw": "{{baseUrl}}/products/{{productId}}/skus",
-          "host": ["{{baseUrl}}"],
-          "path": ["products", "{{productId}}", "skus"]
-        }
-      }
-    },
-    {
-      "name": "Combinations - Upsert SKUs (create/update rows)",
-      "request": {
-        "method": "PUT",
-        "header": [
-          { "key": "Authorization", "value": "Bearer {{token}}" },
-          { "key": "Content-Type", "value": "application/json" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"items\": [\n    {\n      \"key\": \"color=blue|size=m\",\n      \"sku\": \"TSHIRT-BLUE-M\",\n      \"attributes\": { \"color\": \"blue\", \"size\": \"m\" },\n      \"stockOnHand\": 15,\n      \"reserved\": 0\n    }\n  ]\n}\n"
+        {
+          "name": "Set Coverage (supportedAreas)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"supportedAreas\": [\n    \"Cairo\",\n    \"Cairo:Nasr City\",\n    \"Giza\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/coverage",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "coverage"]
+            }
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/products/{{productId}}/skus",
-          "host": ["{{baseUrl}}"],
-          "path": ["products", "{{productId}}", "skus"]
+        {
+          "name": "Set Pricing",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pricing\": {\n    \"currency\": \"EGP\",\n    \"default\": { \"base\": 45, \"perKg\": 10, \"codFee\": 5 },\n    \"byArea\": {\n      \"Cairo\": { \"base\": 50, \"perKg\": 12, \"codFee\": 6 },\n      \"Cairo:Nasr City\": { \"base\": 55, \"perKg\": 12, \"codFee\": 6 }\n    },\n    \"minWeightKg\": 0,\n    \"maxWeightKg\": 50\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/pricing",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "pricing"]
+            }
+          }
+        },
+        {
+          "name": "Set Limits",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"limits\": {\n    \"maxActiveOrders\": 50,\n    \"maxWeightKg\": 25,\n    \"allowedSizes\": [\"Small\", \"Medium\", \"Large\"]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/limits",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "limits"]
+            }
+          }
         }
-      }
+      ]
     },
     {
-      "name": "Combinations - Adjust Stock by Variant Row ID",
-      "request": {
-        "method": "POST",
-        "header": [
-          { "key": "Authorization", "value": "Bearer {{token}}" },
-          { "key": "Content-Type", "value": "application/json" }
-        ],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"delta\": 5\n}\n"
+      "name": "Provider Data & Actions",
+      "item": [
+        {
+          "name": "Get Areas/Cities (providerRaw + allowedKeys)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/areas?countryId={{countryId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "areas"],
+              "query": [{ "key": "countryId", "value": "{{countryId}}" }]
+            }
+          }
         },
-        "url": {
-          "raw": "{{baseUrl}}/products/{{productId}}/skus/{{variantId}}/adjust-stock",
-          "host": ["{{baseUrl}}"],
-          "path": ["products", "{{productId}}", "skus", "{{variantId}}", "adjust-stock"]
+        {
+          "name": "Quote (price by place)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"city\": \"Cairo\",\n  \"area\": \"Nasr City\",\n  \"weightKg\": 2,\n  \"codAmount\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/quote",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "quote"]
+            }
+          }
+        },
+        {
+          "name": "Create Shipment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Test Customer\",\n  \"phoneNumber\": \"01000000000\",\n  \"address\": \"123 Test St\",\n  \"city\": \"Cairo\",\n  \"area\": \"Nasr City\",\n  \"codAmount\": 0,\n  \"notes\": \"test\",\n  \"weightKg\": 1,\n  \"size\": \"Small\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/shipments/create",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "shipments", "create"]
+            }
+          }
+        },
+        {
+          "name": "Assign Order -> Provider (creates shipment linked to order)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerName\": \"Order Customer\",\n  \"phoneNumber\": \"01000000000\",\n  \"address\": \"123 Test St\",\n  \"city\": \"Cairo\",\n  \"area\": \"Nasr City\",\n  \"codAmount\": 0,\n  \"notes\": \"assign order\",\n  \"weightKg\": 1,\n  \"size\": \"Small\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/orders/{{orderId}}/assign",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "orders", "{{orderId}}", "assign"]
+            }
+          }
         }
-      }
+      ]
+    },
+    {
+      "name": "Shipments View",
+      "item": [
+        {
+          "name": "List Shipments",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shipping/shipments",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "shipments"]
+            }
+          }
+        },
+        {
+          "name": "Get Shipment Details",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shipping/shipments/{{shipmentId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "shipments", "{{shipmentId}}"]
+            }
+          }
+        },
+        {
+          "name": "Get Shipment Events",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shipping/shipments/{{shipmentId}}/events",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "shipments", "{{shipmentId}}", "events"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Webhook Tests",
+      "item": [
+        {
+          "name": "Webhook: Bosta (DELIVERED example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "{{webhookAuth}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"_id\": \"providerShipmentId_example\",\n  \"trackingNumber\": \"TRK123456\",\n  \"state\": 45,\n  \"type\": 10\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/webhooks/{{provider}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "webhooks", "{{provider}}"]
+            }
+          }
+        },
+        {
+          "name": "Webhook: Bosta (IN_TRANSIT example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "{{webhookAuth}}", "type": "text" },
+              { "key": "Content-Type", "value": "application/json", "type": "text" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"_id\": \"providerShipmentId_example\",\n  \"trackingNumber\": \"TRK123456\",\n  \"state\": 22,\n  \"type\": 10\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/webhooks/{{provider}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "webhooks", "{{provider}}"]
+            }
+          }
+        }
+      ]
     }
   ]
 }
