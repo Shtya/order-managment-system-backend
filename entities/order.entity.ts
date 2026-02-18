@@ -400,6 +400,9 @@ export class OrderRetrySettingsEntity {
   @Column({ type: "jsonb", default: [] })
   retryStatuses: string[]; // e.g., ["pending_confirmation", "no_answer_shipping"]
 
+  @Column({ type: "jsonb", default: [] })
+  confirmationStatuses: string[]; // e.g., ["pending_confirmation", "no_answer_shipping"]
+
   @Column({ type: "boolean", default: true })
   notifyEmployee: boolean;
 

@@ -212,6 +212,11 @@ export class UpsertOrderRetrySettingsDto {
   @IsOptional()
   retryStatuses?: string[];
 
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  confirmationStatuses?: string[];
+
   @IsBoolean()
   @IsOptional()
   notifyEmployee?: boolean;

@@ -33,6 +33,7 @@ import {
 } from "dto/order.dto";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { User } from "entities/user.entity";
+import { BulkUploadUsage } from "dto/plans.dto";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -55,6 +56,9 @@ export class OrdersService {
 
     @InjectRepository(User)
     private userRepo: Repository<User>,
+
+    @InjectRepository(BulkUploadUsage)
+    private usageRepo: Repository<BulkUploadUsage>,
 
     @InjectRepository(OrderRetrySettingsEntity)
     private retryRepo: Repository<OrderRetrySettingsEntity>,
@@ -525,80 +529,6 @@ export class OrdersService {
 
     return this.orderRepo.save(order);
   }
-  validTransitions: Record<OrderStatus, OrderStatus[]> = {
-    [OrderStatus.NEW]: [
-      OrderStatus.UNDER_REVIEW,
-      OrderStatus.CANCELLED,
-      OrderStatus.CONFIRMED,    // النجاح
-      OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
-      OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
-      OrderStatus.WRONG_NUMBER, // فشل نهائي
-      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
-      OrderStatus.DUPLICATE,    // فشل نهائي
-      OrderStatus.CANCELLED
-    ],
-
-    [OrderStatus.UNDER_REVIEW]: [
-      OrderStatus.CONFIRMED,    // النجاح
-      OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
-      OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
-      OrderStatus.WRONG_NUMBER, // فشل نهائي
-      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
-      OrderStatus.DUPLICATE,    // فشل نهائي
-      OrderStatus.CANCELLED
-    ],
-
-    // الحالات الفرعية للمراجعة تسمح بالعودة للمراجعة أو الانتقال للتجهيز
-    [OrderStatus.POSTPONED]: [
-      OrderStatus.UNDER_REVIEW,
-      OrderStatus.CONFIRMED,
-      OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
-      OrderStatus.WRONG_NUMBER, // فشل نهائي
-      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
-      OrderStatus.DUPLICATE,
-      OrderStatus.CANCELLED
-    ],
-    [OrderStatus.NO_ANSWER]: [
-      OrderStatus.UNDER_REVIEW,
-      OrderStatus.CONFIRMED,
-      OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
-      OrderStatus.WRONG_NUMBER, // فشل نهائي
-      OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
-      OrderStatus.DUPLICATE,
-      OrderStatus.CANCELLED
-    ],
-
-    [OrderStatus.CONFIRMED]: [
-      OrderStatus.PREPARING,
-      OrderStatus.CANCELLED
-    ],
-
-    [OrderStatus.PREPARING]: [
-      OrderStatus.READY,
-      OrderStatus.CANCELLED
-    ],
-
-    [OrderStatus.READY]: [
-      OrderStatus.SHIPPED,
-      OrderStatus.CANCELLED
-    ],
-
-    [OrderStatus.SHIPPED]: [
-      OrderStatus.DELIVERED,
-      OrderStatus.RETURNED
-    ],
-
-    [OrderStatus.DELIVERED]: [
-      OrderStatus.RETURNED
-    ],
-
-    // حالات الفشل النهائي عادة لا تسمح بانتقالات أخرى إلا بواسطة الأدمن
-    [OrderStatus.WRONG_NUMBER]: [],
-    [OrderStatus.OUT_OF_DELIVERY_AREA]: [],
-    [OrderStatus.DUPLICATE]: [],
-    [OrderStatus.CANCELLED]: [], // للسماح بإعادة فتح الطلب إذا لزم الأمر
-    [OrderStatus.RETURNED]: [],
-  };
   // ========================================
   // ✅ CHANGE ORDER STATUS
   // ========================================
@@ -623,13 +553,6 @@ export class OrdersService {
       if (oldStatusId === dto.statusId) return order;
 
 
-      // Status transition validation
-
-
-      //validate only for moving between system statuses
-      if (newStatus.system && order.status.system && !this.validTransitions[oldStatusCode]?.includes(newStatusCode as OrderStatus)) {
-        throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatusCode}`);
-      }
 
       // Handle stock changes
       if (newStatusCode === OrderStatus.CANCELLED || newStatusCode === OrderStatus.RETURNED) {
@@ -722,14 +645,6 @@ export class OrdersService {
 
       if (newStatus.system && !allowed.includes(newStatus.code as OrderStatus)) {
         throw new BadRequestException(`Confirmation team is not allowed to set status to ${newStatus.code}`);
-      }
-
-      if (newStatus.system && order.status.system && !this.validTransitions[oldStatusCode]?.includes(newStatus.code)) {
-        throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatus.code}`);
-      }
-
-      if (newStatus.system && order.status.system && !this.validTransitions[oldStatusCode]?.includes(newStatus.code)) {
-        throw new BadRequestException(`Cannot transition from ${oldStatusCode} to ${newStatus.code}`);
       }
 
       // Fetch Retry Settings
@@ -1237,6 +1152,19 @@ export class OrdersService {
     return buffer as unknown as Buffer;
   }
 
+  private async getUsageTracker(adminId: number): Promise<BulkUploadUsage> {
+    const currentMonth = new Date().toISOString().slice(0, 7); // "2026-02"
+
+    let usage = await this.usageRepo.findOne({ where: { adminId, month: currentMonth } });
+
+    if (!usage) {
+      usage = this.usageRepo.create({ adminId, month: currentMonth, count: 0 });
+      await this.usageRepo.save(usage);
+    }
+
+    return usage;
+  }
+
   // ========================================
   // ✅ BULK CREATE ORDERS FROM EXCEL
   // ========================================
@@ -1245,9 +1173,27 @@ export class OrdersService {
     if (!adminId) throw new BadRequestException("Missing adminId");
     if (!file?.buffer) throw new BadRequestException("No file uploaded");
 
+    const admin = await this.userRepo.findOne({
+      where: { id: adminId },
+      relations: ['plan']
+    });
+
+    if (!admin?.plan) throw new ForbiddenException("No active plan found");
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as any);
     const sheet = workbook.worksheets[0];
+    const rowCount = sheet.rowCount - 1; // Subtract header
+
+    const usage = await this.getUsageTracker(adminId);
+    const limit = admin.plan.bulkUploadPerMonth;
+
+    if (usage.count + rowCount > limit) {
+      throw new BadRequestException(
+        `Plan limit exceeded. You have ${limit - usage.count} slots left this month, but the file has ${rowCount} rows.`
+      );
+    }
+
     if (!sheet) throw new BadRequestException("Excel file has no sheet");
 
     const rows: Record<string, string | number>[] = [];

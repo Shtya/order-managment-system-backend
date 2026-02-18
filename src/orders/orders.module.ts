@@ -17,6 +17,7 @@ import { OrderSubscriber } from "./order-subscriber";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { User } from "entities/user.entity";
 import { AuthModule } from "src/auth/auth.module";
+import { BulkUploadUsage } from "dto/plans.dto";
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { AuthModule } from "src/auth/auth.module";
       ShippingCompanyEntity,
       OrderRetrySettingsEntity,
       User,
+      BulkUploadUsage,
     ]),
   ],
   providers: [OrdersService, OrderSubscriber],
