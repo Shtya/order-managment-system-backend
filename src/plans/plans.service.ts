@@ -97,6 +97,7 @@ export class PlansService {
 			isPopular: dto.isPopular,
 			usersLimit: dto.usersLimit ?? 1,
 			shippingCompaniesLimit: dto.shippingCompaniesLimit ?? 0,
+			bulkUploadPerMonth: dto.bulkUploadPerMonth ?? 0,
 			adminId: this.isSuperAdmin(me) ? null : me.id,
 		});
 
@@ -128,6 +129,7 @@ export class PlansService {
 		if (dto.isActive !== undefined) plan.isActive = dto.isActive;
 		if (dto.isPopular !== undefined) plan.isPopular = dto.isPopular;
 		if (dto.usersLimit !== undefined) plan.usersLimit = dto.usersLimit;
+		if (dto.bulkUploadPerMonth !== undefined) plan.bulkUploadPerMonth = dto.bulkUploadPerMonth;
 		if (dto.shippingCompaniesLimit !== undefined)
 			plan.shippingCompaniesLimit = dto.shippingCompaniesLimit;
 

@@ -72,6 +72,8 @@ export class Plan {
 	@Column({ type: 'int', default: 0 })
 	shippingCompaniesLimit: number;
 
+	@Column({ type: 'int', default: 0 })
+	bulkUploadPerMonth: number;
 
 	@Column({ type: 'int', nullable: true })
 	adminId?: number | null;

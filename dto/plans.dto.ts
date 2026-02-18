@@ -1,5 +1,6 @@
 import { IsString, IsNumber, IsArray, IsEnum, IsBoolean, IsOptional, Min, IsInt } from 'class-validator';
 import { PlanDuration, TransactionStatus } from 'entities/plans.entity';
+import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 /* =========================
  * Plan DTOs
@@ -47,6 +48,11 @@ export class CreatePlanDto {
 
 	@IsOptional()
 	@IsInt()
+	@Min(1)
+	bulkUploadPerMonth?: number;
+
+	@IsOptional()
+	@IsInt()
 	@Min(0)
 	shippingCompaniesLimit?: number;
 }
@@ -85,6 +91,12 @@ export class UpdatePlanDto {
 	@IsBoolean()
 	@IsOptional()
 	isPopular?: boolean;
+
+
+	@IsOptional()
+	@IsInt()
+	@Min(1)
+	bulkUploadPerMonth?: number;
 
 	@IsOptional()
 	@IsInt()
@@ -154,4 +166,19 @@ export class FilterTransactionsDto {
 	@Min(0)
 	@IsOptional()
 	maxAmount?: number;
+}
+
+@Entity('bulk_upload_usage')
+export class BulkUploadUsage {
+	@PrimaryGeneratedColumn()
+	id: number;
+
+	@Column()
+	adminId: number;
+
+	@Column()
+	month: string; // Format: "YYYY-MM"
+
+	@Column({ default: 0 })
+	count: number;
 }
