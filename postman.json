@@ -1,185 +1,208 @@
 {
   "info": {
-    "name": "Shipping Module - Unified Providers (Test)",
-    "_postman_id": "9b8a3d2f-7c10-4e3a-ae47-2b6d7a0e0001",
-    "description": "Unified shipping endpoints. Use provider codes like bosta/dhl/aramex. Includes webhook test.",
-    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "_postman_id": "7fdbf20f-0d3a-4d52-a8d0-7f4a7250b9d2",
+    "name": "Shipping Integration API (Bosta/JT/Turbo) - Test Collection",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Endpoints to test shipping integrations (credentials, activation, services/capabilities/areas, create/assign shipments, list shipments/events, and webhook handling).\n\nVariables expected in environment:\n- baseUrl: e.g. http://localhost:8081\n- token: JWT Bearer token (without 'Bearer ')\n- provider: bosta | jt | turbo\n- countryId: e.g. 1\n- orderId: numeric\n- shipmentId: numeric\n- webhookHeaderName: e.g. Authorization (or your custom name)\n- webhookHeaderValue: secret value\n- trackingNumber: if you want to search/use\n- providerShipmentId: if you want to use it\n\nNotes:\n- Most endpoints require Authorization: Bearer {{token}}.\n- Webhook endpoint does NOT require JWT, but it may require your custom header (depends if you configured webhookSecret).\n"
   },
-  "variable": [
-    { "key": "baseUrl", "value": "http://localhost:8081" },
-    { "key": "jwt", "value": "PUT_JWT_HERE" },
-    { "key": "provider", "value": "bosta" },
-    { "key": "countryId", "value": "1" },
-    { "key": "orderId", "value": "123" },
-    { "key": "shipmentId", "value": "1" },
-    { "key": "webhookAuth", "value": "Basic abc123" }
-  ],
   "item": [
     {
-      "name": "Meta",
+      "name": "01) Providers & Statuses",
       "item": [
         {
-          "name": "List Providers",
+          "name": "Shipping - List Providers",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
-            "url": { "raw": "{{baseUrl}}/shipping/providers", "host": ["{{baseUrl}}"], "path": ["shipping", "providers"] }
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers"]
+            }
           }
         },
         {
-          "name": "Unified Statuses",
+          "name": "Shipping - List Unified Statuses",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
-            "url": { "raw": "{{baseUrl}}/shipping/statuses", "host": ["{{baseUrl}}"], "path": ["shipping", "statuses"] }
+            "url": {
+              "raw": "{{baseUrl}}/shipping/statuses",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "statuses"]
+            }
           }
         }
       ]
     },
     {
-      "name": "Provider Config",
+      "name": "02) Integration Status (Admin)",
       "item": [
         {
-          "name": "Get Provider Config",
+          "name": "Shipping - Integrations Status (Configured/Active per Provider)",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "url": {
-              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/config",
+              "raw": "{{baseUrl}}/shipping/integrations/status",
               "host": ["{{baseUrl}}"],
-              "path": ["shipping", "providers", "{{provider}}", "config"]
+              "path": ["shipping", "integrations", "status"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03) Provider Credentials & Activation",
+      "item": [
+        {
+          "name": "Shipping - Set Provider Credentials (Bosta example)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"credentials\": {\n    \"apiKey\": \"YOUR_BOSTA_API_KEY_HERE\",\n    \"accountId\": \"\",\n    \"webhookHeaderName\": \"Authorization\",\n    \"webhookSecret\": \"\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/credentials",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "credentials"]
             }
           }
         },
         {
-          "name": "Set Provider Active",
+          "name": "Shipping - Enable/Disable Provider (toggle isActive)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
-            "body": { "mode": "raw", "raw": "{\n  \"isActive\": true\n}" },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": true\n}"
+            },
             "url": {
               "raw": "{{baseUrl}}/shipping/providers/{{provider}}/active",
               "host": ["{{baseUrl}}"],
               "path": ["shipping", "providers", "{{provider}}", "active"]
             }
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "04) Webhook Setup (Admin copies into Bosta Dashboard)",
+      "item": [
         {
-          "name": "Set Coverage (supportedAreas)",
+          "name": "Shipping - Get Webhook Setup (URL + Header Name/Value)",
           "request": {
-            "method": "POST",
+            "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"supportedAreas\": [\n    \"Cairo\",\n    \"Cairo:Nasr City\",\n    \"Giza\"\n  ]\n}"
-            },
             "url": {
-              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/coverage",
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/webhook-setup",
               "host": ["{{baseUrl}}"],
-              "path": ["shipping", "providers", "{{provider}}", "coverage"]
+              "path": ["shipping", "providers", "{{provider}}", "webhook-setup"]
             }
           }
         },
         {
-          "name": "Set Pricing",
+          "name": "Shipping - Rotate Webhook Secret (regenerate header value)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"pricing\": {\n    \"currency\": \"EGP\",\n    \"default\": { \"base\": 45, \"perKg\": 10, \"codFee\": 5 },\n    \"byArea\": {\n      \"Cairo\": { \"base\": 50, \"perKg\": 12, \"codFee\": 6 },\n      \"Cairo:Nasr City\": { \"base\": 55, \"perKg\": 12, \"codFee\": 6 }\n    },\n    \"minWeightKg\": 0,\n    \"maxWeightKg\": 50\n  }\n}"
+              "raw": "{}"
             },
             "url": {
-              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/pricing",
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/webhook-setup/rotate-secret",
               "host": ["{{baseUrl}}"],
-              "path": ["shipping", "providers", "{{provider}}", "pricing"]
-            }
-          }
-        },
-        {
-          "name": "Set Limits",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"limits\": {\n    \"maxActiveOrders\": 50,\n    \"maxWeightKg\": 25,\n    \"allowedSizes\": [\"Small\", \"Medium\", \"Large\"]\n  }\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/limits",
-              "host": ["{{baseUrl}}"],
-              "path": ["shipping", "providers", "{{provider}}", "limits"]
+              "path": ["shipping", "providers", "{{provider}}", "webhook-setup", "rotate-secret"]
             }
           }
         }
       ]
     },
     {
-      "name": "Provider Data & Actions",
+      "name": "05) Provider Info (Services / Capabilities / Areas)",
       "item": [
         {
-          "name": "Get Areas/Cities (providerRaw + allowedKeys)",
+          "name": "Shipping - Get Provider Services",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "services"]
+            }
+          }
+        },
+        {
+          "name": "Shipping - Get Provider Capabilities",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/capabilities",
+              "host": ["{{baseUrl}}"],
+              "path": ["shipping", "providers", "{{provider}}", "capabilities"]
+            }
+          }
+        },
+        {
+          "name": "Shipping - Get Provider Areas (by countryId)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "url": {
               "raw": "{{baseUrl}}/shipping/providers/{{provider}}/areas?countryId={{countryId}}",
               "host": ["{{baseUrl}}"],
               "path": ["shipping", "providers", "{{provider}}", "areas"],
-              "query": [{ "key": "countryId", "value": "{{countryId}}" }]
+              "query": [
+                { "key": "countryId", "value": "{{countryId}}" }
+              ]
             }
           }
-        },
+        }
+      ]
+    },
+    {
+      "name": "06) Shipments (Create / Assign / List / Details / Events)",
+      "item": [
         {
-          "name": "Quote (price by place)",
+          "name": "Shipping - Create Shipment (no orderId) [Bosta payload fields]",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"city\": \"Cairo\",\n  \"area\": \"Nasr City\",\n  \"weightKg\": 2,\n  \"codAmount\": 0\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/shipping/providers/{{provider}}/quote",
-              "host": ["{{baseUrl}}"],
-              "path": ["shipping", "providers", "{{provider}}", "quote"]
-            }
-          }
-        },
-        {
-          "name": "Create Shipment",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"customerName\": \"Test Customer\",\n  \"phoneNumber\": \"01000000000\",\n  \"address\": \"123 Test St\",\n  \"city\": \"Cairo\",\n  \"area\": \"Nasr City\",\n  \"codAmount\": 0,\n  \"notes\": \"test\",\n  \"weightKg\": 1,\n  \"size\": \"Small\"\n}"
+              "raw": "{\n  \"customerName\": \"Test Customer\",\n  \"phoneNumber\": \"+201000000000\",\n  \"address\": \"Test Address\",\n  \"city\": \"Cairo\",\n  \"area\": \"Nasr City\",\n  \"codAmount\": 0,\n  \"notes\": \"Test shipment\",\n  \"weightKg\": 1,\n  \"size\": \"Small\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/shipping/providers/{{provider}}/shipments/create",
@@ -189,16 +212,16 @@
           }
         },
         {
-          "name": "Assign Order -> Provider (creates shipment linked to order)",
+          "name": "Shipping - Assign Order to Shipment (create + link to orderId)",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"customerName\": \"Order Customer\",\n  \"phoneNumber\": \"01000000000\",\n  \"address\": \"123 Test St\",\n  \"city\": \"Cairo\",\n  \"area\": \"Nasr City\",\n  \"codAmount\": 0,\n  \"notes\": \"assign order\",\n  \"weightKg\": 1,\n  \"size\": \"Small\"\n}"
+              "raw": "{\n  \"customerName\": \"Order Customer\",\n  \"phoneNumber\": \"+201000000000\",\n  \"address\": \"Order Address\",\n  \"city\": \"Giza\",\n  \"area\": \"Dokki\",\n  \"codAmount\": 150,\n  \"notes\": \"Assign order test\",\n  \"weightKg\": 2,\n  \"size\": \"Medium\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/shipping/providers/{{provider}}/orders/{{orderId}}/assign",
@@ -206,18 +229,13 @@
               "path": ["shipping", "providers", "{{provider}}", "orders", "{{orderId}}", "assign"]
             }
           }
-        }
-      ]
-    },
-    {
-      "name": "Shipments View",
-      "item": [
+        },
         {
-          "name": "List Shipments",
+          "name": "Shipping - List Shipments (admin)",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "url": {
               "raw": "{{baseUrl}}/shipping/shipments",
@@ -227,11 +245,11 @@
           }
         },
         {
-          "name": "Get Shipment Details",
+          "name": "Shipping - Get Shipment Details by shipmentId",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "url": {
               "raw": "{{baseUrl}}/shipping/shipments/{{shipmentId}}",
@@ -241,11 +259,11 @@
           }
         },
         {
-          "name": "Get Shipment Events",
+          "name": "Shipping - Get Shipment Events Timeline",
           "request": {
             "method": "GET",
             "header": [
-              { "key": "Authorization", "value": "Bearer {{jwt}}", "type": "text" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "url": {
               "raw": "{{baseUrl}}/shipping/shipments/{{shipmentId}}/events",
@@ -257,47 +275,55 @@
       ]
     },
     {
-      "name": "Webhook Tests",
+      "name": "07) Webhooks (Public) - Simulate provider callback",
       "item": [
         {
-          "name": "Webhook: Bosta (DELIVERED example)",
+          "name": "Webhook - Bosta Status Update (POST /shipping/webhooks/{{provider}})",
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Authorization", "value": "{{webhookAuth}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
+              { "key": "{{webhookHeaderName}}", "value": "{{webhookHeaderValue}}", "description": "Optional. Required only if you configured webhookSecret for this provider/admin." },
+              { "key": "Content-Type", "value": "application/json" }
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"_id\": \"providerShipmentId_example\",\n  \"trackingNumber\": \"TRK123456\",\n  \"state\": 45,\n  \"type\": 10\n}"
+              "raw": "{\n  \"_id\": \"{{providerShipmentId}}\",\n  \"trackingNumber\": \"{{trackingNumber}}\",\n  \"state\": 45,\n  \"timeStamp\": \"2026-02-18T12:00:00.000Z\"\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/shipping/webhooks/{{provider}}",
               "host": ["{{baseUrl}}"],
               "path": ["shipping", "webhooks", "{{provider}}"]
             }
-          }
-        },
-        {
-          "name": "Webhook: Bosta (IN_TRANSIT example)",
-          "request": {
-            "method": "POST",
-            "header": [
-              { "key": "Authorization", "value": "{{webhookAuth}}", "type": "text" },
-              { "key": "Content-Type", "value": "application/json", "type": "text" }
-            ],
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"_id\": \"providerShipmentId_example\",\n  \"trackingNumber\": \"TRK123456\",\n  \"state\": 22,\n  \"type\": 10\n}"
-            },
-            "url": {
-              "raw": "{{baseUrl}}/shipping/webhooks/{{provider}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["shipping", "webhooks", "{{provider}}"]
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "// Tip: After webhook call, re-check shipment details/events."
+                ]
+              }
             }
-          }
+          ]
         }
       ]
     }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8081" },
+    { "key": "token", "value": "" },
+    { "key": "provider", "value": "bosta" },
+    { "key": "countryId", "value": "1" },
+    { "key": "orderId", "value": "1" },
+    { "key": "shipmentId", "value": "1" },
+    { "key": "webhookHeaderName", "value": "Authorization" },
+    { "key": "webhookHeaderValue", "value": "" },
+    { "key": "trackingNumber", "value": "" },
+    { "key": "providerShipmentId", "value": "" }
   ]
 }

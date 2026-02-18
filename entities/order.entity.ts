@@ -13,7 +13,7 @@ import {
   BeforeUpdate,
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
-import { ShippingCompanyEntity } from "./shipping.entity";
+import { ShippingCompanyEntity } from "src/shipping/shipping.entity";
 import { StoreEntity } from "./stores.entity";
 
 // ✅ Order Status Enum

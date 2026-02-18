@@ -24,7 +24,7 @@ import {
   UpdateStatusDto,
   CreateStatusDto,
 } from "dto/order.dto";
-import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { ShippingCompanyEntity } from "src/shipping/shipping.entity";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -320,7 +320,7 @@ export class OrdersService {
 
       if (dto.shippingCompanyId) {
         const shippingCompany = await manager.findOne(ShippingCompanyEntity, {
-          where: { id: Number(dto.shippingCompanyId), adminId }
+          where: { id: Number(dto.shippingCompanyId) }
         });
 
         if (!shippingCompany) {
@@ -393,7 +393,7 @@ export class OrdersService {
     }
     if (dto.shippingCompanyId) {
       const shippingCompany = await this.shippingRepo.findOne({
-        where: { id: Number(dto.shippingCompanyId), adminId }
+        where: { id: Number(dto.shippingCompanyId) }
       });
 
       if (!shippingCompany) {

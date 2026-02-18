@@ -1,3 +1,4 @@
+// --- File: backend/src/shipping/shipping.module.ts ---
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -7,10 +8,12 @@ import { ShippingController } from './shipping.controller';
 import { ShippingWebhookController } from './shipping.webhook.controller';
 import { ShippingService } from './shipping.service';
 
-import { ShippingCompanyEntity } from '../../entities/shipping.entity';
+import { ShippingCompanyEntity } from '../../src/shipping/shipping.entity';
 import { ShipmentEntity, ShippingIntegrationEntity, ShipmentEventEntity } from './shipping.entity';
 
 import { BostaProvider } from './providers/bosta.provider';
+import { JtProvider } from './providers/jt.provider';
+import { TurboProvider } from './providers/turbo.provider';
 
 @Module({
   imports: [
@@ -19,6 +22,6 @@ import { BostaProvider } from './providers/bosta.provider';
     TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity]),
   ],
   controllers: [ShippingController, ShippingWebhookController],
-  providers: [ShippingService, BostaProvider],
+  providers: [ShippingService, BostaProvider, JtProvider, TurboProvider],
 })
 export class ShippingModule {}

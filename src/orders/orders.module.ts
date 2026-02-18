@@ -13,7 +13,8 @@ import {
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
 import { OrderSubscriber } from "./order-subscriber";
-import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { ShippingCompanyEntity } from "src/shipping/shipping.entity";
+import { ShippingSeedService } from "../shipping/shipping.seed";
 
 @Module({
   imports: [
@@ -28,7 +29,7 @@ import { ShippingCompanyEntity } from "entities/shipping.entity";
       ShippingCompanyEntity
     ]),
   ],
-  providers: [OrdersService, OrderSubscriber],
+  providers: [OrdersService, OrderSubscriber , ShippingSeedService],
   controllers: [OrdersController],
   exports: [OrdersService],
 })
