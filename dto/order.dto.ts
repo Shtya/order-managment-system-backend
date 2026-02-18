@@ -2,6 +2,7 @@
 import { Type } from "class-transformer";
 import {
   ArrayMinSize,
+  ArrayNotEmpty,
   IsArray,
   IsBoolean,
   IsDateString,
@@ -227,35 +228,88 @@ export class UpsertOrderRetrySettingsDto {
     end: string;
   };
 }
-
-export class ManualAssignDto {
+export class ManualAssignItemDto {
   @IsNotEmpty()
   @IsInt()
   userId: number;
 
   @IsNotEmpty()
   @IsArray()
-  @ArrayMinSize(1, { message: "You must select at least one order" })
+  @ArrayMinSize(1, { message: "You must select at least one order for each employee" })
   @IsInt({ each: true })
   orderIds: number[];
 }
 
-export class AutoAssignDto {
+export class ManualAssignManyDto {
   @IsNotEmpty()
-  @IsEnum(OrderStatus)
-  status: OrderStatus; // e.g., distribute all 'NEW' orders
+  @IsArray()
+  @ArrayMinSize(1, { message: "You must provide at least one assignment block" })
+  @ValidateNested({ each: true })
+  @Type(() => ManualAssignItemDto)
+  assignments: ManualAssignItemDto[];
+}
+
+export class AutoAssignDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  statusIds?: number[];
 
   @IsNotEmpty()
   @IsInt()
   @Min(1)
   employeeCount: number; // How many employees should participate (e.g., 5)
+
+  @IsNotEmpty()
+  @IsInt()
+  @Min(1)
+  orderCount: number; // How many employees should participate (e.g., 5)
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+}
+
+export class AutoPreviewDto {
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  statusIds: number[];
+
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  requestedOrderCount: number;
+
+  @IsInt()
+  @Min(1)
+  @Type(() => Number)
+  requestedEmployeeCount: number;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
+
 }
 
 
 export class GetFreeOrdersDto {
 
-  @IsEnum(OrderStatus)
-  status: OrderStatus;
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsInt({ each: true })
+  @Type(() => Number)
+  statusIds?: number[];
 
   @IsOptional()
   @IsDateString()

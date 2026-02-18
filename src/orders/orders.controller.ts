@@ -32,9 +32,9 @@ import {
   CreateStatusDto,
   UpdateStatusDto,
   UpsertOrderRetrySettingsDto,
-  ManualAssignDto,
   AutoAssignDto,
-  GetFreeOrdersDto,
+  ManualAssignManyDto,
+  AutoPreviewDto,
 } from "dto/order.dto";
 import { AuthGuard } from "@nestjs/passport";
 import { OrderStatus } from "common/enums";
@@ -61,14 +61,23 @@ export class OrdersController {
 
   @Permissions("orders.assign")
   @Post("assign-manual")
-  async manualAssignOrders(@Req() req: any, @Body() dto: ManualAssignDto) {
-    return this.svc.manualAssignOrders(req.user, dto);
+  async manualAssignOrders(@Req() req: any, @Body() dto: ManualAssignManyDto) {
+    return this.svc.manualAssignMany(req.user, dto);
   }
 
   @Permissions("orders.assign")
   @Post("assign-auto")
   async assignAuto(@Req() req: any, @Body() dto: AutoAssignDto) {
-    return this.svc.autoAssignOrders(req.user, dto);
+    return this.svc.autoAssign(req.user, dto);
+  }
+
+  @Permissions("orders.assign")
+  @Post('auto-assign-preview')
+  async getAutoAssignPreview(
+    @Req() req: any,
+    @Body() dto: AutoPreviewDto
+  ) {
+    return await this.svc.getAutoPreview(req.user, dto);
   }
 
 
@@ -76,12 +85,14 @@ export class OrdersController {
   @Get("free-orders/count")
   async getFreeOrdersCount(
     @Req() req: any,
-    @Query("status") status?: string,
+    @Query('statusIds') statusIds?: string,
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
   ) {
     return this.svc.getFreeOrdersCount(req.user, {
-      status: status ?? "",
+      statusIds: statusIds
+        ? statusIds.split(',').map(id => Number(id))
+        : undefined,
       startDate: startDate ?? undefined,
       endDate: endDate ?? undefined,
     });
@@ -97,20 +108,23 @@ export class OrdersController {
   @Get("free-orders")
   async getFreeOrders(
     @Req() req: any,
-    @Query('status') status?: string,
+    @Query('statusIds') statusIds?: string, // comma separated
     @Query('startDate') startDate?: string,
     @Query('endDate') endDate?: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
   ) {
     return this.svc.getFreeOrders(req.user, {
-      status: status as OrderStatus,
-      startDate: startDate ? startDate : undefined,
-      endDate: endDate ? endDate : undefined,
-      cursor: cursor ? cursor : undefined,
+      statusIds: statusIds
+        ? statusIds.split(',').map(id => Number(id))
+        : undefined,
+      startDate: startDate || undefined,
+      endDate: endDate || undefined,
+      cursor: cursor || undefined,
       limit: Number(limit ?? 20),
     });
   }
+
 
   // ✅ Get Employees Ordered By Lowest Active Assignments
   @Permissions("orders.assign")
