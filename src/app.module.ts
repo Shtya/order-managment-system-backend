@@ -32,7 +32,9 @@ import { SalesInvoiceModule } from './sales_invoice/sales_invoice.module';
 import { BundlesModule } from './bundles/bundles.module';
 import { EncryptionService } from "common/encryption.service";
 import { BullModule } from '@nestjs/bull';
-import { ShippingCompaniesModule } from "./shipping/shipping.module";
+import { ShippingCompaniesModule } from "./shipping-copy/shipping.module";
+import { ShippingModule } from "./shipping/shipping.module";
+import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "./shipping/shipping.entity";
 
 @Module({
 	imports: [
@@ -44,7 +46,7 @@ import { ShippingCompaniesModule } from "./shipping/shipping.module";
 			username: process.env.DATABASE_USER,
 			password: process.env.DATABASE_PASSWORD,
 			database: process.env.DATABASE_NAME,
-			entities: [__dirname + '/../**/*.entity{.ts,.js}'],
+			entities: [__dirname + '/../**/*.entity{.ts,.js}' , ShippingIntegrationEntity , ShipmentEntity , ShipmentEventEntity],
 			// entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity ,ProductVariantEntity, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity, ProductEntity, Asset],
 			synchronize: true
 		}),
@@ -68,7 +70,8 @@ import { ShippingCompaniesModule } from "./shipping/shipping.module";
 		OrdersModule,
 		SalesInvoiceModule,
 		BundlesModule,
-		ShippingCompaniesModule
+		// ShippingCompaniesModule
+		ShippingModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService
