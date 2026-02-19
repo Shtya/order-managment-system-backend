@@ -32,9 +32,9 @@ import { SalesInvoiceModule } from './sales_invoice/sales_invoice.module';
 import { BundlesModule } from './bundles/bundles.module';
 import { EncryptionService } from "common/encryption.service";
 import { BullModule } from '@nestjs/bull';
-import { ShippingCompaniesModule } from "./shipping-copy/shipping.module";
 import { ShippingModule } from "./shipping/shipping.module";
-import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "./shipping/shipping.entity";
+import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "../entities/shipping.entity";
+import { NotificationModule } from "./notifications/notification.module";
 
 @Module({
 	imports: [
@@ -46,9 +46,9 @@ import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "
 			username: process.env.DATABASE_USER,
 			password: process.env.DATABASE_PASSWORD,
 			database: process.env.DATABASE_NAME,
-			entities: [__dirname + '/../**/*.entity{.ts,.js}' , ShippingIntegrationEntity , ShipmentEntity , ShipmentEventEntity],
+			entities: [__dirname + '/../**/*.entity{.ts,.js}', ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity],
 			// entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity ,ProductVariantEntity, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity, ProductEntity, Asset],
-			synchronize: true
+			synchronize: false
 		}),
 		BullModule.registerQueue({ name: 'store-sync' }),
 		AuthModule,
@@ -71,7 +71,8 @@ import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "
 		SalesInvoiceModule,
 		BundlesModule,
 		// ShippingCompaniesModule
-		ShippingModule
+		ShippingModule,
+		NotificationModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

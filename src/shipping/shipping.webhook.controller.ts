@@ -3,20 +3,17 @@ import { ShippingService } from './shipping.service';
 
 @Controller('shipping/webhooks')
 export class ShippingWebhookController {
-  constructor(private shipping: ShippingService) {}
+	constructor(private shipping: ShippingService) { }
 
-  @Post(':provider')
-  @HttpCode(200)
-  async webhook(
-    @Param('provider') provider: string,
-    @Headers('authorization') auth: string | undefined,
-    @Body() body: any,
-  ) {
-    // simple shared auth check (you can enhance per provider)
-    const expected = process.env.BOSTA_WEBHOOK_AUTH;
-    if (expected && auth !== expected) return { ok: true, ignored: true };
-
-    await this.shipping.handleWebhook(provider, body);
-    return { ok: true };
-  }
+	@Post(':provider')
+	@HttpCode(200)
+	async webhook(
+		@Param('provider') provider: string,
+		@Headers() headers: Record<string, any>,
+		@Body() body: any,
+	) {
+		// shipping service will validate per-admin secret based on the shipment found
+		await this.shipping.handleWebhook(provider, body, headers);
+		return { ok: true };
+	}
 }

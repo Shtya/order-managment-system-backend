@@ -200,7 +200,15 @@ export class OrdersController {
     return this.svc.upsertSettings(req.user, dto);
   }
 
+  @Get('allowed-confirmation')
+  async getAllowedConfirmation(@Req() req: any) {
+    return this.svc.getAllowedConfirmationStatuses(req.user);
+  }
 
+  @Get('confirmation-counts')
+  async getCounts(@Req() req: any) {
+    return this.svc.getConfirmationStatusCounts(req.user);
+  }
 
   // ✅ Get single order
   // @Permissions("orders.read")

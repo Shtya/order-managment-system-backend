@@ -996,6 +996,8 @@ export class EasyOrderService extends BaseStoreService {
             discount: 0,
             items: items,
             notes: `Imported from EasyOrder (Store: ${store.name})`,
+            storeId: String(store.id),
+
         };
 
         const User = { id: store.adminId, role: { name: 'admin' } };
