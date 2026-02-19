@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from "@nestjs/common";
+import { AppGateway } from "common/app.gateway";
 import { Notification } from "entities/notifications.entity";
 
 import {
@@ -12,7 +13,7 @@ export class NotificationSubscriber
     implements EntitySubscriberInterface<Notification>, OnModuleInit {
     constructor(
         private readonly dataSource: DataSource,
-        // private readonly chatGateway: ChatGateway,
+        private readonly appGateway: AppGateway,
     ) { }
 
     // Tell TypeORM which entity we listen to
@@ -25,12 +26,12 @@ export class NotificationSubscriber
         const notif = event.entity;
         if (!notif || !notif.userId) return;
 
-        // try {
-        //     this.chatGateway.emitNewNotification(notif.userId, notif);
-        // } catch (err) {
-        //     // log but don't crash DB operation
-        //     console.error('NotificationSubscriber emit error', err);
-        // }
+        try {
+            this.appGateway.emitNewNotification(String(notif.userId), notif);
+        } catch (err) {
+            // log but don't crash DB operation
+            console.error('NotificationSubscriber emit error', err);
+        }
     }
 
     // Register this instance with TypeORM's DataSource so it actually receives events

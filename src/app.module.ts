@@ -35,6 +35,8 @@ import { BullModule } from '@nestjs/bull';
 import { ShippingModule } from "./shipping/shipping.module";
 import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "../entities/shipping.entity";
 import { NotificationModule } from "./notifications/notification.module";
+import { AppGateway } from "common/app.gateway";
+import { WebSocketModule } from "common/websocket.module";
 
 @Module({
 	imports: [
@@ -71,6 +73,7 @@ import { NotificationModule } from "./notifications/notification.module";
 		SalesInvoiceModule,
 		BundlesModule,
 		// ShippingCompaniesModule
+		WebSocketModule,
 		ShippingModule,
 		NotificationModule
 	],
