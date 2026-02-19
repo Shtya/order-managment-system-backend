@@ -295,7 +295,7 @@ export class OrdersService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const myUserId = 13;
+    const myUserId = me?.id;
     if (!myUserId) throw new BadRequestException("Missing user ID");
 
     const page = Number(q?.page ?? 1);
@@ -734,7 +734,7 @@ export class OrdersService {
   async changeConfirmationStatus(me: any, id: number, dto: ChangeOrderStatusDto, ipAddress?: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
-    const employeeId = 13;
+    const employeeId = me?.id;
 
     return this.dataSource.transaction(async (manager) => {
       // 1. Fetch Order and its Active Assignment for this employee
@@ -1600,7 +1600,7 @@ export class OrdersService {
 
   async getConfirmationStatusCounts(me: any) {
     const adminId = tenantId(me);
-    const employeeId = 13;
+    const employeeId = me?.id;
 
     // 2. Query statuses and count active assignments
     const results = await this.statusRepo
@@ -2060,7 +2060,7 @@ export class OrdersService {
           OR assignment.lockedUntil <= NOW()
         )
       `,
-        { userId: 13 }
+        { userId: me?.id }
       )
       .where("order.adminId = :adminId", { adminId })
       .leftJoinAndSelect("order.items", "items")
