@@ -28,4 +28,9 @@ export class NotificationController {
     async markAllRead(@Req() req: any) {
         return this.svc.markAllAsRead(Number(req.user?.id));
     }
+
+    @Get('unread-count')
+    async getUnreadCount(@Req() req: any) {
+        return this.svc.getUnreadCount(Number(req.user?.id));
+    }
 }

@@ -75,4 +75,15 @@ export class NotificationService {
             { isRead: true }           // Action: mark as read
         );
     }
+    async getUnreadCount(userId: number) {
+        // Fetch the user directly to get the cached count
+        const count = await this.notificationRepo.count({
+            where: { userId: Number(userId), isRead: false },
+        });
+
+        return {
+            unreadCount: count || 0
+        };
+    }
+
 }

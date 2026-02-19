@@ -283,6 +283,16 @@ export class OrdersService {
       .take(limit)
       .getMany();
 
+    const notification = await this.notificationRepo.save({
+      userId: 4,
+      type: 'ORDER_STATUS_UPDATE',
+      title: `Test Order`,
+      message: `Test NOtification`,
+      relatedEntityType: 'User',
+      relatedEntityId: String(1),
+    });
+
+
     return {
       total_records: total,
       current_page: page,

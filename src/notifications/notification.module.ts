@@ -5,10 +5,13 @@ import { NotificationController } from "./notification.controller";
 import { NotificationService } from "./notification.service";
 import { NotificationSubscriber } from "./NotificationSubscriber";
 import { Notification } from "entities/notifications.entity";
+import { WebSocketModule } from "common/websocket.module";
+
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Notification, User]),
+    WebSocketModule
   ],
   controllers: [NotificationController],
   providers: [NotificationService, NotificationSubscriber],
