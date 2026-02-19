@@ -13,9 +13,9 @@ import {
   BeforeUpdate,
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
-import { ShippingCompanyEntity } from "./shipping.entity";
 import { StoreEntity } from "./stores.entity";
 import { User } from "./user.entity";
+import { ShippingCompanyEntity } from "./shipping.entity";
 
 // ✅ Order Status Enum
 export enum OrderStatus {

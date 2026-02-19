@@ -1,6 +1,7 @@
-import { UnifiedShippingStatus } from '../shipping.entity';
+// --- File: backend/src/shipping/providers/shipping-provider.interface.ts ---
+import { UnifiedShippingStatus } from '../../../entities/shipping.entity';
 
-export type ProviderCode = 'bosta' | 'aramex' | 'dhl';
+export type ProviderCode = 'bosta' | 'jt' | 'turbo' | 'aramex' | 'dhl';
 
 export type ProviderAreasResponse = {
 	provider: ProviderCode;
@@ -23,7 +24,6 @@ export type ProviderWebhookResult = {
 	providerShipmentId?: string | null;
 };
 
-
 export type ProviderCapability<T = any> = {
 	available: boolean;
 	data?: T;
@@ -32,12 +32,12 @@ export type ProviderCapability<T = any> = {
 
 export type ProviderCapabilitiesResponse = {
 	provider: ProviderCode;
-	services: ProviderCapability<string[]>; // array of text
+	services: ProviderCapability<string[]>;
 	coverage: ProviderCapability<any>;
 	pricing: ProviderCapability<any>;
 	limits: ProviderCapability<any>;
 	quote: ProviderCapability<any>;
-	raw?: any; // optional raw diagnostic
+	raw?: any;
 };
 
 export interface ShippingProvider {
@@ -45,12 +45,9 @@ export interface ShippingProvider {
 	displayName: string;
 
 	getAreas(countryId: number): Promise<ProviderAreasResponse>;
-
 	createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult>;
-
 	mapWebhookToUnified(body: any): ProviderWebhookResult;
 
 	getServices(apiKey: string): Promise<string[]>;
-
 	getCapabilities(apiKey: string): Promise<ProviderCapabilitiesResponse>;
 }

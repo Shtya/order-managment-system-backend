@@ -14,7 +14,8 @@ import { PurchaseInvoiceEntity, PurchaseInvoiceItemEntity } from '../entities/pu
 import { SalesInvoiceEntity, SalesInvoiceItemEntity } from '../entities/sales_invoice.entity';
 import { ProductEntity, ProductVariantEntity } from '../entities/sku.entity';
 import { SupplierEntity, SupplierCategoryEntity } from '../entities/supplier.entity';
-import { ShippingCompanyEntity } from 'entities/shipping.entity';
+import { ShippingCompanyEntity } from '../entities/shipping.entity';
+
 
 /**
  * =========================

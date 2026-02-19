@@ -21,7 +21,6 @@ import {
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
 import { PaymentStatus, PaymentMethod } from "entities/order.entity";
-import { OrderStatus } from "common/enums";
 
 
 export class CreateStatusDto {
@@ -119,6 +118,11 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   shippingCompanyId: string;
+
+  // Shipping
+  @IsOptional()
+  @IsString()
+  storeId: string;
 
   @IsOptional()
   @IsInt()
@@ -288,12 +292,10 @@ export class AutoPreviewDto {
   statusIds: number[];
 
   @IsInt()
-  @Min(1)
   @Type(() => Number)
   requestedOrderCount: number;
 
   @IsInt()
-  @Min(1)
   @Type(() => Number)
   requestedEmployeeCount: number;
 

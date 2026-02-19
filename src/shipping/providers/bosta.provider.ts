@@ -9,7 +9,7 @@ import {
   ProviderWebhookResult,
   ShippingProvider,
 } from './shipping-provider.interface';
-import { UnifiedShippingStatus } from '../shipping.entity';
+import { UnifiedShippingStatus } from '../../../entities/shipping.entity';
 
 type BostaEnv = 'stg' | 'prod';
 

@@ -31,9 +31,13 @@ import {
   ManualAssignManyDto,
   AutoPreviewDto,
 } from "dto/order.dto";
-import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { User } from "entities/user.entity";
 import { BulkUploadUsage } from "dto/plans.dto";
+
+import { Notification } from "entities/notifications.entity";
+import { StoreEntity } from "entities/stores.entity";
+import { ShippingCompanyEntity } from "entities/shipping.entity";
+
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -54,6 +58,9 @@ export class OrdersService {
     @InjectRepository(OrderStatusEntity)
     private statusRepo: Repository<OrderStatusEntity>,
 
+    @InjectRepository(Notification)
+    private notificationRepo: Repository<Notification>,
+
     @InjectRepository(User)
     private userRepo: Repository<User>,
 
@@ -65,6 +72,9 @@ export class OrdersService {
 
     @InjectRepository(ShippingCompanyEntity)
     private shippingRepo: Repository<ShippingCompanyEntity>,
+
+    @InjectRepository(StoreEntity)
+    private storeRepo: Repository<StoreEntity>,
 
     @InjectRepository(OrderItemEntity)
     private itemRepo: Repository<OrderItemEntity>,
@@ -273,8 +283,124 @@ export class OrdersService {
       .take(limit)
       .getMany();
 
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
 
+  async listMyAssignedOrders(me: any, q?: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
 
+    const myUserId = 13;
+    if (!myUserId) throw new BadRequestException("Missing user ID");
+
+    const page = Number(q?.page ?? 1);
+    const limit = Number(q?.limit ?? 10);
+    const search = String(q?.search ?? "").trim();
+
+    const sortBy = String(q?.sortBy ?? "createdAt");
+    const sortDir: "ASC" | "DESC" =
+      String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+    const qb = this.orderRepo
+      .createQueryBuilder("order")
+      .where("order.adminId = :adminId", { adminId })
+
+      // 🔥 IMPORTANT: only my active assignments
+      .innerJoinAndSelect(
+        "order.assignments",
+        "assignment",
+        "assignment.isAssignmentActive = true AND assignment.employeeId = :myUserId",
+        { myUserId }
+      )
+
+      .leftJoinAndSelect("order.items", "items")
+      .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.shippingCompany", "shipping")
+      .leftJoinAndSelect("order.store", "store")
+      .leftJoinAndSelect("assignment.employee", "employee");
+
+    // Allowed sorting columns
+    const sortColumns: Record<string, string> = {
+      createdAt: "order.created_at",
+      orderNumber: "order.orderNumber",
+    };
+
+    // Filters
+    if (q?.status) {
+      const statusParam = q.status;
+      if (!isNaN(Number(statusParam))) {
+        qb.andWhere("order.statusId = :statusId", {
+          statusId: Number(statusParam),
+        });
+      } else {
+        qb.andWhere("status.code = :statusCode", {
+          statusCode: String(statusParam).trim(),
+        });
+      }
+    }
+
+    if (q?.paymentStatus)
+      qb.andWhere("order.paymentStatus = :paymentStatus", {
+        paymentStatus: q.paymentStatus,
+      });
+
+    if (q?.paymentMethod)
+      qb.andWhere("order.paymentMethod = :paymentMethod", {
+        paymentMethod: q.paymentMethod,
+      });
+
+    if (q?.shippingCompanyId)
+      qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
+        shippingCompanyId: Number(q.shippingCompanyId),
+      });
+
+    if (q?.storeId)
+      qb.andWhere("order.storeId = :storeId", {
+        storeId: Number(q.storeId),
+      });
+
+    // Date range
+    if (q?.startDate)
+      qb.andWhere("order.created_at >= :startDate", {
+        startDate: `${q.startDate}T00:00:00.000Z`,
+      });
+
+    if (q?.endDate)
+      qb.andWhere("order.created_at <= :endDate", {
+        endDate: `${q.endDate}T23:59:59.999Z`,
+      });
+
+    // Search
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.customerName ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.phoneNumber ILIKE :s", { s: `%${search}%` });
+        })
+      );
+    }
+
+    // Sorting
+    if (sortColumns[sortBy]) {
+      qb.orderBy(sortColumns[sortBy], sortDir);
+    } else {
+      qb.orderBy("order.created_at", "DESC");
+    }
+
+    const total = await qb.getCount();
+
+    const records = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getMany();
 
     return {
       total_records: total,
@@ -284,37 +410,6 @@ export class OrdersService {
     };
   }
 
-  async listMyAssignedOrders(me: any, limit: number = 50) {
-    const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
-
-    // Assuming 'me' contains the logged-in user's ID (adjust to me.sub or me.userId if needed)
-    const myUserId = me.id;
-    if (!myUserId) throw new BadRequestException("Missing user ID");
-
-    const fetchLimit = Number(limit) || 50;
-
-    const records = await this.orderRepo
-      .createQueryBuilder("order")
-      .where("order.adminId = :adminId", { adminId })
-      // INNER JOIN guarantees we only fetch orders actively assigned to THIS specific user
-      .innerJoinAndSelect(
-        "order.assignments",
-        "assignment",
-        "assignment.isAssignmentActive = true AND assignment.employeeId = :myUserId",
-        { myUserId }
-      )
-      .leftJoinAndSelect("order.status", "status")
-      .leftJoinAndSelect("order.shippingCompany", "shipping")
-      .orderBy("order.created_at", "DESC")
-      .take(fetchLimit)
-      .getMany();
-
-    return {
-      per_page: fetchLimit,
-      records,
-    };
-  }
 
   // ========================================
   // ✅ GET ORDER BY ID
@@ -353,120 +448,143 @@ export class OrdersService {
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     return this.dataSource.transaction(async (manager) => {
-      // Generate order number
-      const orderNumber = await this.generateOrderNumber(adminId);
-
-      // Get variants
-      const variantIds = dto.items.map((it) => it.variantId);
-      const variants = await manager.find(ProductVariantEntity, {
-        where: { adminId, id: In(variantIds) } as any,
-      });
-
-      const variantMap = new Map(variants.map((v) => [v.id, v]));
-
-      // Check stock availability
-      for (const item of dto.items) {
-        const variant = variantMap.get(item.variantId);
-        if (!variant) throw new BadRequestException(`Variant ${item.variantId} not found`);
-
-        const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
-        if (available < item.quantity) {
-          throw new BadRequestException(
-            `Insufficient stock for variant ${variant.sku}. Available: ${available}, Requested: ${item.quantity}`
-          );
-        }
-      }
-
-      // Create order items
-      const items = dto.items.map((it) => {
-        const variant = variantMap.get(it.variantId)!;
-        const unitPrice = it.unitPrice;
-        const unitCost = it.unitCost ?? variant.price ?? 0;
-        const lineTotal = unitPrice * it.quantity;
-        const lineProfit = (unitPrice - unitCost) * it.quantity;
-
-        return manager.create(OrderItemEntity, {
-          adminId,
-          variantId: it.variantId,
-          quantity: it.quantity,
-          unitPrice,
-          unitCost,
-          lineTotal,
-          lineProfit,
-        } as any);
-      });
-
-      // Calculate totals
-      const { productsTotal, finalTotal, profit } = this.calculateTotals(
-        dto.items.map((it, i) => ({
-          unitPrice: it.unitPrice,
-          unitCost: it.unitCost ?? variantMap.get(it.variantId)!.price ?? 0,
-          quantity: it.quantity,
-        })),
-        dto.shippingCost ?? 0,
-        dto.discount ?? 0
-      );
-      const defaultStatus = await this.getDefaultStatus(adminId)
-
-      if (dto.shippingCompanyId) {
-        const shippingCompany = await manager.findOne(ShippingCompanyEntity, {
-          where: { id: Number(dto.shippingCompanyId), adminId }
-        });
-
-        if (!shippingCompany) {
-          throw new BadRequestException("The selected shipping company is invalid or does not belong to your account.");
-        }
-      }
-      // Create order
-      const order = manager.create(OrderEntity, {
-        adminId,
-        orderNumber,
-        customerName: dto.customerName,
-        phoneNumber: dto.phoneNumber,
-        email: dto.email,
-        address: dto.address,
-        city: dto.city,
-        area: dto.area,
-        landmark: dto.landmark,
-        deposit: dto.deposit,
-        paymentMethod: dto.paymentMethod,
-        paymentStatus: dto.paymentStatus ?? PaymentStatus.PENDING,
-        shippingCompanyId: dto.shippingCompanyId ? dto.shippingCompanyId : null,
-        shippingCost: dto.shippingCost ?? 0,
-        discount: dto.discount ?? 0,
-        productsTotal,
-        finalTotal,
-        profit,
-        notes: dto.notes,
-        customerNotes: dto.customerNotes,
-        statusId: defaultStatus.id,
-        items,
-        createdByUserId: me?.id,
-      } as any);
-
-      const saved = await manager.save(OrderEntity, order);
-
-      // Reserve stock
-      for (const item of dto.items) {
-        const variant = variantMap.get(item.variantId)!;
-        variant.reserved = (variant.reserved || 0) + item.quantity;
-        await manager.save(ProductVariantEntity, variant);
-      }
-
-      // Log initial status
-      await this.logStatusChange({
-        adminId,
-        orderId: saved.id,
-        fromStatusId: defaultStatus.id,
-        toStatusId: defaultStatus.id,
-        userId: me?.id,
-        notes: "Order created",
-        ipAddress,
-        manager
-      });
-
-      return saved;
+      return this.createWithManager(manager, adminId, me, dto, ipAddress);
     });
+  }
+
+  // Helper that performs order creation logic using an existing transaction manager
+  private async createWithManager(
+    manager: EntityManager,
+    adminId: string,
+    me: any,
+    dto: CreateOrderDto,
+    ipAddress?: string
+  ) {
+    // Generate order number
+    const orderNumber = await this.generateOrderNumber(adminId);
+
+    // Get variants
+    const variantIds = dto.items.map((it) => it.variantId);
+    const variants = await manager.find(ProductVariantEntity, {
+      where: { adminId, id: In(variantIds) } as any,
+    });
+
+    const variantMap = new Map(variants.map((v) => [v.id, v]));
+
+    // Check stock availability
+    for (const item of dto.items) {
+      const variant = variantMap.get(item.variantId);
+      if (!variant) throw new BadRequestException(`Variant ${item.variantId} not found`);
+
+      const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
+      if (available < item.quantity) {
+        throw new BadRequestException(
+          `Insufficient stock for variant ${variant.sku}. Available: ${available}, Requested: ${item.quantity}`
+        );
+      }
+    }
+
+    // Create order items
+    const items = dto.items.map((it) => {
+      const variant = variantMap.get(it.variantId)!;
+      const unitPrice = it.unitPrice;
+      const unitCost = it.unitCost ?? variant.price ?? 0;
+      const lineTotal = unitPrice * it.quantity;
+      const lineProfit = (unitPrice - unitCost) * it.quantity;
+
+      return manager.create(OrderItemEntity, {
+        adminId,
+        variantId: it.variantId,
+        quantity: it.quantity,
+        unitPrice,
+        unitCost,
+        lineTotal,
+        lineProfit,
+      } as any);
+    });
+
+    // Calculate totals
+    const { productsTotal, finalTotal, profit } = this.calculateTotals(
+      dto.items.map((it) => ({
+        unitPrice: it.unitPrice,
+        unitCost: it.unitCost ?? variantMap.get(it.variantId)!.price ?? 0,
+        quantity: it.quantity,
+      })),
+      dto.shippingCost ?? 0,
+      dto.discount ?? 0
+    );
+    const defaultStatus = await this.getDefaultStatus(adminId);
+
+    if (dto.shippingCompanyId) {
+      const shippingCompany = await manager.findOne(ShippingCompanyEntity, {
+        where: { id: Number(dto.shippingCompanyId) },
+      });
+
+      if (!shippingCompany) {
+        throw new BadRequestException("The selected shipping company is invalid or does not belong to your account.");
+      }
+    }
+
+    if (dto.storeId) {
+      const store = await manager.findOne(StoreEntity, {
+        where: { id: Number(dto.storeId), adminId },
+      });
+
+      if (!store) {
+        throw new BadRequestException("The selected store is invalid or does not belong to your account.");
+      }
+    }
+
+    // Create order
+    const order = manager.create(OrderEntity, {
+      adminId,
+      orderNumber,
+      customerName: dto.customerName,
+      phoneNumber: dto.phoneNumber,
+      email: dto.email,
+      address: dto.address,
+      city: dto.city,
+      area: dto.area,
+      landmark: dto.landmark,
+      deposit: dto.deposit,
+      paymentMethod: dto.paymentMethod,
+      paymentStatus: dto.paymentStatus ?? PaymentStatus.PENDING,
+      shippingCompanyId: dto.shippingCompanyId ? dto.shippingCompanyId : null,
+      storeId: dto.storeId ? dto.storeId : null,
+      shippingCost: dto.shippingCost ?? 0,
+      discount: dto.discount ?? 0,
+      productsTotal,
+      finalTotal,
+      profit,
+      notes: dto.notes,
+      customerNotes: dto.customerNotes,
+      statusId: defaultStatus.id,
+      items,
+      createdByUserId: me?.id,
+    } as any);
+
+    const saved = await manager.save(OrderEntity, order);
+
+    // Reserve stock
+    for (const item of dto.items) {
+      const variant = variantMap.get(item.variantId)!;
+      variant.reserved = (variant.reserved || 0) + item.quantity;
+      await manager.save(ProductVariantEntity, variant);
+    }
+
+    // Log initial status
+    await this.logStatusChange({
+      adminId,
+      orderId: saved.id,
+      fromStatusId: defaultStatus.id,
+      toStatusId: defaultStatus.id,
+      userId: me?.id,
+      notes: "Order created",
+      ipAddress,
+      manager,
+    });
+
+    return saved;
   }
 
   // ========================================
@@ -483,11 +601,21 @@ export class OrdersService {
     }
     if (dto.shippingCompanyId) {
       const shippingCompany = await this.shippingRepo.findOne({
-        where: { id: Number(dto.shippingCompanyId), adminId }
+        where: { id: Number(dto.shippingCompanyId) }
       });
 
       if (!shippingCompany) {
         throw new BadRequestException("The selected shipping company is invalid or does not belong to your account.");
+      }
+    }
+
+    if (dto.storeId) {
+      const store = await this.storeRepo.findOne({
+        where: { id: Number(dto.storeId), adminId },
+      });
+
+      if (!store) {
+        throw new BadRequestException("The selected store is invalid or does not belong to your account.");
       }
     }
 
@@ -501,6 +629,7 @@ export class OrdersService {
       area: dto.area ?? order.area,
       paymentMethod: dto.paymentMethod ?? order.paymentMethod,
       shippingCompanyId: dto.shippingCompanyId ?? order.shippingCompanyId,
+      storeId: dto.storeId ?? order.storeId,
       shippingCost: dto.shippingCost ?? order.shippingCost,
       discount: dto.discount ?? order.discount,
       notes: dto.notes ?? order.notes,
@@ -605,7 +734,7 @@ export class OrdersService {
   async changeConfirmationStatus(me: any, id: number, dto: ChangeOrderStatusDto, ipAddress?: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
-    const employeeId = me.id;
+    const employeeId = 13;
 
     return this.dataSource.transaction(async (manager) => {
       // 1. Fetch Order and its Active Assignment for this employee
@@ -627,28 +756,17 @@ export class OrdersService {
       // 2. Fetch Statuses & Settings
       let newStatus = await this.findStatusById(dto.statusId, adminId);
       const oldStatusId = order.statusId;
-      const oldStatusCode = order.status.code;
 
       if (oldStatusId === newStatus.id) return order;
 
-      const allowed = [
-        OrderStatus.UNDER_REVIEW,
-        OrderStatus.CANCELLED,
-        OrderStatus.CONFIRMED,    // النجاح
-        OrderStatus.POSTPONED,    // محاولة (إعادة محاولة)
-        OrderStatus.NO_ANSWER,    // محاولة (إعادة محاولة)
-        OrderStatus.WRONG_NUMBER, // فشل نهائي
-        OrderStatus.OUT_OF_DELIVERY_AREA, // فشل نهائي
-        OrderStatus.DUPLICATE,    // فشل نهائي
-        OrderStatus.CANCELLED
-      ]
+      const settings = await this.getSettings(me);
+      const allowed = settings.confirmationStatuses
 
       if (newStatus.system && !allowed.includes(newStatus.code as OrderStatus)) {
         throw new BadRequestException(`Confirmation team is not allowed to set status to ${newStatus.code}`);
       }
 
       // Fetch Retry Settings
-      const settings = await this.getSettings(me);
 
       const now = new Date();
       activeAssignment.lastActionAt = now;
@@ -662,7 +780,7 @@ export class OrdersService {
         if (activeAssignment.retriesUsed >= activeAssignment.maxRetriesAtAssignment) {
           // Max retries hit: Force auto-move status and finish assignment
           newStatus = await manager.findOne(OrderStatusEntity, {
-            where: { code: settings.autoMoveStatus, adminId }
+            where: [{ code: settings.autoMoveStatus, adminId }, { code: settings.autoMoveStatus, system: true }]
           });
           if (!newStatus) throw new BadRequestException("Auto-move status is not configured correctly.");
 
@@ -713,6 +831,39 @@ export class OrdersService {
         ipAddress,
         manager,
       });
+
+      const notificationPromises = [];
+
+      // 1. Notify Admin (The tenant owner/manager)
+      if (settings.notifyAdmin) {
+        notificationPromises.push(
+          manager.save(Notification, {
+            userId: adminId, // Ensure this maps to the actual Admin User ID
+            type: 'ORDER_STATUS_UPDATE',
+            title: `Order #${savedOrder.orderNumber} Updated`,
+            message: `Status changed to "${newStatus.name}" by ${me.name || 'Staff'}.`,
+            relatedEntityType: 'Order',
+            relatedEntityId: String(savedOrder.id),
+          })
+        );
+      }
+
+      // 2. Notify Employee (The one assigned to the order)
+      // We notify the employee only if someone else (like a manager) changed the status
+      if (settings.notifyEmployee && activeAssignment.employeeId !== employeeId) {
+        notificationPromises.push(
+          manager.save(Notification, {
+            userId: activeAssignment.employeeId,
+            type: 'ORDER_STATUS_UPDATE',
+            title: `Assignment Updated`,
+            message: `Your assigned order #${savedOrder.orderNumber} is now "${newStatus.name}".`,
+            relatedEntityType: 'Order',
+            relatedEntityId: String(savedOrder.id),
+          })
+        );
+      }
+
+      await Promise.all(notificationPromises);
 
       return savedOrder;
     });
@@ -1243,8 +1394,9 @@ export class OrdersService {
 
     let created = 0;
     const errors: { rowNumber: number; message: string }[] = [];
+    const orderDtos: { dto: CreateOrderDto; rowNumber: number }[] = [];
 
-    //Add each order by inner create method
+    // Build DTOs for all valid rows first
     for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
       const row = rows[rowIdx];
       const rowNumber = rowIdx + 2; // +2 because excel rows start at 1 and data starts at row 2
@@ -1361,14 +1513,32 @@ export class OrdersService {
         notes: col(row, "Notes", "notes") || undefined,
         customerNotes: col(row, "Customer Notes", "customernotes") || undefined,
         items,
+        storeId: null
       };
 
-      try {
-        await this.create(me, dto, undefined);
-        created++;
-      } catch (err: any) {
-        errors.push({ rowNumber, message: err?.message || "Create failed" });
-      }
+      orderDtos.push({ dto, rowNumber });
+    }
+
+    if (orderDtos.length === 0) {
+      return { created: 0, failed: errors.length, errors };
+    }
+
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        for (const { dto, rowNumber } of orderDtos) {
+          try {
+            await this.createWithManager(manager, adminId, me, dto, undefined);
+            created++;
+          } catch (err: any) {
+            errors.push({ rowNumber, message: err?.message || "Create failed" });
+            // Re-throw to ensure the whole batch is rolled back
+            throw err;
+          }
+        }
+      });
+    } catch {
+      // If transaction fails, ensure no orders are reported as created
+      created = 0;
     }
 
     return { created, failed: errors.length, errors };
@@ -1379,7 +1549,12 @@ export class OrdersService {
     let settings = await this.retryRepo.findOneBy({ adminId: adminId });
 
     if (!settings) {
-      settings = await this.retryRepo.create({ adminId })
+      settings = await this.retryRepo.create({
+        adminId,
+        confirmationStatuses: [OrderStatus.CANCELLED, OrderStatus.CONFIRMED, OrderStatus.NO_ANSWER, OrderStatus.OUT_OF_DELIVERY_AREA, OrderStatus.POSTPONED, OrderStatus.WRONG_NUMBER, OrderStatus.UNDER_REVIEW],
+        autoMoveStatus: OrderStatus.CANCELLED,
+        retryStatuses: [OrderStatus.OUT_OF_DELIVERY_AREA, OrderStatus.UNDER_REVIEW]
+      })
     }
 
     // Return existing or a default object to keep frontend stable
@@ -1403,7 +1578,64 @@ export class OrdersService {
     return await this.retryRepo.save(settings);
   }
 
+  async getAllowedConfirmationStatuses(me: any): Promise<OrderStatusEntity[]> {
+    const adminId = tenantId(me);
 
+    // 1. Get the codes from settings
+    const settings = await this.getSettings(me);
+    const codes = settings.confirmationStatuses || [];
+
+    if (codes.length === 0) return [];
+
+    // 2. Fetch full objects for these codes
+    return this.statusRepo.find({
+      where: [
+        { code: In(codes), adminId: adminId }, // Custom statuses
+        { code: In(codes), system: true }      // System statuses
+      ],
+      order: { sortOrder: 'ASC' }
+    });
+  }
+
+
+  async getConfirmationStatusCounts(me: any) {
+    const adminId = tenantId(me);
+    const employeeId = 13;
+
+    // 2. Query statuses and count active assignments
+    const results = await this.statusRepo
+      .createQueryBuilder("status")
+      .leftJoin("status.orders", "order", "order.adminId = :adminId", { adminId })
+      .leftJoin("order.assignments", "assignment",
+        "assignment.employeeId = :employeeId AND assignment.isAssignmentActive = true",
+        { employeeId }
+      )
+      .select([
+        "status.id",
+        "status.name",
+        "status.code",
+        "status.color",
+        "status.system"
+      ])
+      .addSelect("COUNT(assignment.id)", "count")
+      .where(new Brackets(qb => {
+        qb.where("status.adminId = :adminId", { adminId })
+          .orWhere("status.system = true");
+      }))
+      .groupBy("status.id")
+      .orderBy("status.sortOrder", "ASC")
+      .getRawMany();
+
+    // Map raw results to clean objects
+    return results.map(r => ({
+      id: r.status_id,
+      name: r.status_name,
+      code: r.status_code,
+      color: r.status_color,
+      system: r.status_system,
+      count: Number(r.count)
+    }));
+  }
 
   async getFreeOrders(me: any, q: GetFreeOrdersDto) {
     const adminId = tenantId(me);
@@ -1759,8 +1991,8 @@ export class OrdersService {
     ]);
 
     // 2. Cap the requested counts to the Max Limits
-    const effectiveOrderCount = Math.min(dto.requestedOrderCount, maxOrdersCount);
-    const effectiveEmployeeCount = Math.min(dto.requestedEmployeeCount, maxEmployeesCount);
+    const effectiveOrderCount = Math.min(dto.requestedOrderCount || maxOrdersCount, maxOrdersCount);
+    const effectiveEmployeeCount = Math.min(dto.requestedEmployeeCount || maxEmployeesCount, maxEmployeesCount);
 
     // If there's nothing to assign, return early
     if (effectiveOrderCount === 0 || effectiveEmployeeCount === 0) {
@@ -1804,6 +2036,8 @@ export class OrdersService {
     return {
       maxOrders: maxOrdersCount,
       maxEmployees: maxEmployeesCount,
+      effectiveEmployeeCount,
+      effectiveOrderCount,
       assignments: Array.from(assignmentMap.values())
     };
   }
@@ -1826,7 +2060,7 @@ export class OrdersService {
           OR assignment.lockedUntil <= NOW()
         )
       `,
-        { userId: me.id }
+        { userId: 13 }
       )
       .where("order.adminId = :adminId", { adminId })
       .leftJoinAndSelect("order.items", "items")

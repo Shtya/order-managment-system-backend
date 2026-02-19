@@ -14,10 +14,17 @@ import {
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
 import { OrderSubscriber } from "./order-subscriber";
-import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { User } from "entities/user.entity";
 import { AuthModule } from "src/auth/auth.module";
 import { BulkUploadUsage } from "dto/plans.dto";
+
+import { ShippingSeedService } from "../shipping/shipping.seed";
+import { Notification } from "entities/notifications.entity";
+import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { StoreEntity } from "entities/stores.entity";
+
+
+
 
 @Module({
   imports: [
@@ -34,9 +41,11 @@ import { BulkUploadUsage } from "dto/plans.dto";
       OrderRetrySettingsEntity,
       User,
       BulkUploadUsage,
+      Notification,
+      StoreEntity,
     ]),
   ],
-  providers: [OrdersService, OrderSubscriber],
+  providers: [OrdersService, OrderSubscriber, ShippingSeedService],
   controllers: [OrdersController],
   exports: [OrdersService],
 })
