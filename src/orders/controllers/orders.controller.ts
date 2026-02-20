@@ -1,5 +1,6 @@
 // orders/orders.controller.ts
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -13,15 +14,16 @@ import {
   Req,
   Res,
   UploadedFile,
+  UploadedFiles,
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
-import { FileInterceptor } from "@nestjs/platform-express";
+import { FileFieldsInterceptor, FileInterceptor } from "@nestjs/platform-express";
 import { Response } from "express";
-import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
-import { OrdersService } from "./orders.service";
+import { OrdersService } from "../services/orders.service";
 import {
   CreateOrderDto,
   UpdateOrderDto,
@@ -35,9 +37,11 @@ import {
   AutoAssignDto,
   ManualAssignManyDto,
   AutoPreviewDto,
+  CreateReplacementDto,
 } from "dto/order.dto";
-import { AuthGuard } from "@nestjs/passport";
-import { OrderStatus } from "common/enums";
+import { extname } from "path";
+import { diskStorage } from "multer";
+
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("orders")
@@ -166,6 +170,7 @@ export class OrdersController {
 
     return res.send(buffer);
   }
+
 
   // ✅ Bulk upload: download template (matches CreateOrderDto, no IDs)
   @Permissions("orders.read")
@@ -304,6 +309,7 @@ export class OrdersController {
   removeStatus(@Req() req: any, @Param("id") id: string) {
     return this.svc.removeStatus(req.user, Number(id));
   }
+
 
 
 }

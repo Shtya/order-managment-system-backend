@@ -1,8 +1,8 @@
 // orders/orders.module.ts
 import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { OrdersController } from "./orders.controller";
-import { OrdersService } from "./orders.service";
+import { OrdersController } from "./controllers/orders.controller";
+import { OrdersService } from "./services/orders.service";
 import {
   OrderEntity,
   OrderItemEntity,
@@ -10,6 +10,7 @@ import {
   OrderMessageEntity,
   OrderStatusEntity,
   OrderRetrySettingsEntity,
+  OrderReplacementEntity,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
@@ -22,6 +23,8 @@ import { ShippingSeedService } from "../shipping/shipping.seed";
 import { Notification } from "entities/notifications.entity";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { StoreEntity } from "entities/stores.entity";
+import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
+import { OrderReplacementService } from "./services/order-replacements.service";
 
 
 
@@ -43,10 +46,11 @@ import { StoreEntity } from "entities/stores.entity";
       BulkUploadUsage,
       Notification,
       StoreEntity,
+      OrderReplacementEntity
     ]),
   ],
-  providers: [OrdersService, OrderSubscriber, ShippingSeedService],
-  controllers: [OrdersController],
+  providers: [OrdersService, OrderSubscriber, ShippingSeedService, OrderReplacementService],
+  controllers: [OrdersController, OrderReplacemetsController],
   exports: [OrdersService],
 })
 export class OrdersModule { }
