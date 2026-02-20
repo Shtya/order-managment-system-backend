@@ -2,12 +2,26 @@
 import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { QueryFailedError } from 'typeorm';
 import { Response } from 'express';
+import * as fs from 'fs';
 
 @Catch(QueryFailedError)
 export class QueryFailedErrorFilter implements ExceptionFilter {
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+
+    const req = ctx.getRequest<any>();
+
+    const files = req.files as any;
+    if (files) {
+      const allFiles = [...(files.images || []), ...(files.documentImage || [])];
+      allFiles.forEach(file => {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
+    }
+
 
     const code = exception?.driverError?.code as string | undefined;
     const detail = exception?.driverError?.detail ?? exception?.message;
