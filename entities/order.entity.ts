@@ -11,6 +11,8 @@ import {
   JoinColumn,
   BeforeInsert,
   BeforeUpdate,
+  OneToOne,
+  Relation,
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
 import { StoreEntity } from "./stores.entity";
@@ -245,6 +247,14 @@ export class OrderEntity {
 
   @UpdateDateColumn({ type: "timestamptz" })
   updated_at!: Date;
+
+  @OneToOne('OrderReplacementEntity', 'originalOrder', { nullable: true })
+  replacementRequest: Relation<OrderReplacementEntity>;
+
+  @OneToOne('OrderReplacementEntity', 'replacementOrder', { nullable: true })
+  replacementResult: Relation<OrderReplacementEntity>;
+
+
 }
 
 // ✅ Order Items Entity
@@ -468,3 +478,102 @@ export class OrderAssignmentEntity {
   @Column({ type: "timestamptz", nullable: true })
   finishedAt?: Date;
 }
+
+export enum ReplacementReason {
+  WRONG_SIZE = 'wrong_size',
+  DAMAGED = 'damaged',
+  WRONG_ITEM = 'wrong_item',
+  COLOR_ISSUE = 'color_issue',
+  QUALITY = 'quality',
+  NOT_AS_DESCRIBED = 'not_as_described', // New: Mismatch with website photos/text
+  MISSING_PARTS = 'missing_parts',      // New: Item arrived incomplete
+  CHANGE_OF_MIND = 'change_of_mind',    // New: Customer just doesn't want it
+  LATE_DELIVERY = 'late_delivery',      // New: Arrived too late for an event
+  FAULTY = 'faulty',                    // New: Works, but has a functional defect
+  OTHER = 'other',
+}
+
+
+@Entity({ name: "order_replacements" })
+export class OrderReplacementEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  // Reasons
+  @Column({
+    type: "enum",
+    enum: ReplacementReason,
+    default: ReplacementReason.OTHER
+  })
+  reason: ReplacementReason;
+
+  @Column({ type: "text", nullable: true })
+  anotherReason?: string; // Customer's reason (e.g., "Wrong Size")
+
+  @Column({ type: "text", nullable: true })
+  internalNotes?: string; // Admin's "another reason" or internal notes
+
+  // Evidence
+  @Column({ type: "jsonb", nullable: true })
+  returnImages: string[]; // Array of URLs showing the products to return
+
+  @OneToOne(() => OrderEntity)
+  @JoinColumn({ name: "originalOrderId" })
+  originalOrder: OrderEntity;
+
+  @Column()
+  originalOrderId: number;
+
+  // Replacement order
+  @OneToOne(() => OrderEntity)
+  @JoinColumn({ name: "replacementOrderId" })
+  replacementOrder: OrderEntity;
+
+  @Column()
+  replacementOrderId: number;
+
+  @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
+  @JoinColumn({ name: "shippingCompanyId" })
+  shippingCompany: ShippingCompanyEntity;
+
+  @Column({ nullable: true })
+  shippingCompanyId: number;
+
+  @OneToMany(() => OrderReplacementItemEntity, (item) => item.replacement, { cascade: true })
+  items: OrderReplacementItemEntity[];
+
+  @CreateDateColumn()
+  createdAt: Date;
+}
+
+@Entity({ name: "order_replacement_items" })
+export class OrderReplacementItemEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @ManyToOne(() => OrderReplacementEntity, (replacement) => replacement.items)
+  @JoinColumn({ name: "replacementId" })
+  replacement: OrderReplacementEntity;
+
+  @Column()
+  replacementId: number;
+
+  // Connection to the specific item being replaced from the original order
+  @ManyToOne(() => OrderItemEntity)
+  @JoinColumn({ name: "originalOrderItemId" })
+  originalOrderItem: OrderItemEntity;
+
+  @Column()
+  originalOrderItemId: number;
+
+  @Column({ type: "int" })
+  quantityToReplace: number;
+
+  // Connection to the new Product Variant being sent instead
+  @ManyToOne(() => ProductVariantEntity)
+  @JoinColumn({ name: "newVariantId" })
+  newVariant: ProductVariantEntity;
+  @Column()
+  newVariantId: number;
+}
+

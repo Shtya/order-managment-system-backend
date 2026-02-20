@@ -1,5 +1,5 @@
 // dto/order.dto.ts
-import { Type } from "class-transformer";
+import { plainToInstance, Transform, Type } from "class-transformer";
 import {
   ArrayMinSize,
   ArrayNotEmpty,
@@ -20,7 +20,7 @@ import {
   ValidateNested,
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
-import { PaymentStatus, PaymentMethod } from "entities/order.entity";
+import { PaymentStatus, PaymentMethod, ReplacementReason } from "entities/order.entity";
 
 
 export class CreateStatusDto {
@@ -118,6 +118,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   shippingCompanyId: string;
+
 
   // Shipping
   @IsOptional()
@@ -338,3 +339,88 @@ export class GetFreeOrdersDto {
   limit?: number = 20;
 }
 
+
+
+
+export class ReplacementItemDto {
+  @IsInt()
+  @Type(() => Number)
+  originalOrderItemId: number;
+
+  @IsInt()
+  @Type(() => Number)
+  quantityToReplace: number;
+
+  @IsInt()
+  @Type(() => Number)
+  newVariantId: number;
+
+  @IsInt()
+  @Type(() => Number)
+  @Min(0)
+  newUnitPrice: number;
+}
+
+export class CreateReplacementDto {
+  @IsEnum(ReplacementReason)
+  reason: ReplacementReason;
+
+  @IsString()
+  @IsOptional()
+  anotherReason?: string;
+
+  @IsInt()
+  @Type(() => Number)
+  originalOrderId: number;
+
+  @IsOptional()
+  @IsString()
+  internalNotes?: string;
+
+  @IsOptional()
+  @IsString()
+  customerNotes?: string;
+
+  @IsOptional()
+  @IsArray()
+  returnImages?: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  shippingCompanyId?: number;
+
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(0)
+  discount?: number;
+
+  // Payment
+  @IsEnum(PaymentMethod)
+  paymentMethod: PaymentMethod;
+
+  @IsOptional()
+  @IsInt()
+  @Type(() => Number)
+  @Min(0)
+  shippingCost?: number;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Transform(({ value }) => {
+    if (typeof value === 'string') {
+      try {
+        const parsedArray = JSON.parse(value);
+        // 👈 CRITICAL: Convert the plain objects into actual DTO instances!
+        return plainToInstance(ReplacementItemDto, parsedArray);
+      } catch (e) {
+        return value;
+      }
+    }
+    // If it's already an array (e.g., in a normal JSON request), still convert it
+    return Array.isArray(value) ? plainToInstance(ReplacementItemDto, value) : value;
+  })
+  items: ReplacementItemDto[];
+}

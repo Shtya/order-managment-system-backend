@@ -14,6 +14,8 @@ import {
   slugify,
   OrderRetrySettingsEntity,
   OrderAssignmentEntity,
+  OrderReplacementEntity,
+  OrderReplacementItemEntity,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import {
@@ -30,6 +32,7 @@ import {
   GetFreeOrdersDto,
   ManualAssignManyDto,
   AutoPreviewDto,
+  CreateReplacementDto,
 } from "dto/order.dto";
 import { User } from "entities/user.entity";
 import { BulkUploadUsage } from "dto/plans.dto";
@@ -57,10 +60,6 @@ export class OrdersService {
 
     @InjectRepository(OrderStatusEntity)
     private statusRepo: Repository<OrderStatusEntity>,
-
-    @InjectRepository(Notification)
-    private notificationRepo: Repository<Notification>,
-
     @InjectRepository(User)
     private userRepo: Repository<User>,
 
@@ -271,6 +270,17 @@ export class OrdersService {
       );
     }
 
+
+    if (q?.hasReplacement !== undefined) {
+      qb.leftJoin("order.replacementRequest", "replacementRequest");
+
+      if (q.hasReplacement === 'false' || q.hasReplacement === false) {
+        qb.andWhere("replacementRequest.id IS NULL");
+      } else if (q.hasReplacement === 'true' || q.hasReplacement === true) {
+        qb.andWhere("replacementRequest.id IS NOT NULL");
+      }
+    }
+
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
     } else {
@@ -282,16 +292,6 @@ export class OrdersService {
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
-
-    const notification = await this.notificationRepo.save({
-      userId: 4,
-      type: 'ORDER_STATUS_UPDATE',
-      title: `Test Order`,
-      message: `Test NOtification`,
-      relatedEntityType: 'User',
-      relatedEntityId: String(1),
-    });
-
 
     return {
       total_records: total,
@@ -442,6 +442,18 @@ export class OrdersService {
       // Filter assignments to only include the active one
       .leftJoinAndSelect("order.assignments", "assignments", "assignments.isAssignmentActive = :active", { active: true })
       .leftJoinAndSelect("assignments.employee", "employee") // Optional: load the employee details
+
+      // 🔥 Replacement Data
+      .leftJoinAndSelect("order.replacementResult", "replacementResult")
+
+      // Join the Replacement Order (The result) and ITS items to get NEW prices
+      .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
+      // 3. Link Bridge Items back to Original Prices
+      .leftJoinAndSelect("replacementResult.items", "bridgeItems")
+      .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem") // Gets old unitPrice/quantity
+      .leftJoinAndSelect("origItem.variant", "bridgeVar")
+      .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
+
       .where("order.id = :id", { id })
       .andWhere("order.adminId = :adminId", { adminId })
       .getOne();
@@ -463,7 +475,7 @@ export class OrdersService {
   }
 
   // Helper that performs order creation logic using an existing transaction manager
-  private async createWithManager(
+  public async createWithManager(
     manager: EntityManager,
     adminId: string,
     me: any,
@@ -523,6 +535,7 @@ export class OrdersService {
       dto.shippingCost ?? 0,
       dto.discount ?? 0
     );
+
     const defaultStatus = await this.getDefaultStatus(adminId);
 
     if (dto.shippingCompanyId) {
@@ -544,7 +557,6 @@ export class OrdersService {
         throw new BadRequestException("The selected store is invalid or does not belong to your account.");
       }
     }
-
     // Create order
     const order = manager.create(OrderEntity, {
       adminId,
@@ -2087,5 +2099,8 @@ export class OrdersService {
 
     return orders;
   }
+
+
+
 
 } 

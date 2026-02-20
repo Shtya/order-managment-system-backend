@@ -10,7 +10,7 @@ import { MoreThan, Repository } from "typeorm";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { v4 as uuidv4 } from 'uuid'; // You might need to install uuid: npm i uuid @types/uuid
 import { OrderEntity, OrderStatus, OrderStatusEntity, PaymentMethod, PaymentStatus } from "entities/order.entity";
-import { OrdersService } from "src/orders/orders.service";
+import { OrdersService } from "src/orders/services/orders.service";
 import { CreateOrderDto } from "dto/order.dto";
 import { RedisService } from "common/redis/RedisService";
 import { CreateProductDto, CreateSkuItemDto, UpdateProductDto, UpsertProductSkusDto } from "dto/product.dto";

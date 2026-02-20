@@ -5,7 +5,7 @@ import { CategoryEntity } from "entities/categories.entity";
 import { StoreEntity, StoreProvider } from "entities/stores.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
-import { OrdersService } from "src/orders/orders.service";
+import { OrdersService } from "src/orders/services/orders.service";
 import { ProductsService } from "src/products/products.service";
 import { CategoriesService } from "src/category/category.service";
 import { RedisService } from "common/redis/RedisService";
