@@ -67,6 +67,7 @@ export class ShippingService {
 				name: company.name,
 				isActive: integ?.isActive ?? false,
 				credentialsConfigured: !!(integ?.credentials?.apiKey),
+				credentials: this.maskCredentials(integ?.credentials),
 				// optional UI info if you want to return it here
 				logo: company.logo,
 				website: company.website,
@@ -76,6 +77,24 @@ export class ShippingService {
 		});
 
 		return { ok: true, integrations: result };
+	}
+
+	private maskCredentials(credentials: any) {
+		if (!credentials) return null;
+
+		const masked = { ...credentials };
+		const sensitiveKeys = ['apiKey', 'webhookSecret'];
+
+		sensitiveKeys.forEach((key) => {
+			const value = masked[key];
+			if (value && typeof value === 'string') {
+				masked[key] = value.length > 8
+					? `${value.substring(0, 4)}****************${value.slice(-4)}`
+					: "****************";
+			}
+		});
+
+		return masked;
 	}
 
 
@@ -112,7 +131,7 @@ export class ShippingService {
 				this.integrationsRepo.create({
 					adminId,
 					shippingCompanyId: companyId,
-					isActive: true,
+					isActive: false,
 					credentials: null,
 				}),
 			);
@@ -132,6 +151,19 @@ export class ShippingService {
 		return { apiKey, companyId: company.id, integId: integ.id };
 	}
 
+	private async validateProviderConnection(provider, apiKey: string): Promise<void> {
+		const p = this.getProvider(provider);
+
+		const isValid = await p.verifyCredentials(apiKey);
+		if (!isValid) {
+			throw new BadRequestException(
+				`Unable to validate the integration to ${p.displayName}. This could be due to an invalid API key, or incorrect provider settings.`
+			);
+		}
+
+
+	}
+
 	async setCredentials(adminId: string, provider: string, credentials: any) {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
 		console.log(credentials);
@@ -146,8 +178,10 @@ export class ShippingService {
 			webhookHeaderName: credentials.webhookHeaderName ? String(credentials.webhookHeaderName).trim() : (integ.credentials?.webhookHeaderName || undefined),
 			webhookSecret: credentials.webhookSecret ? String(credentials.webhookSecret).trim() : (integ.credentials?.webhookSecret || undefined),
 		};
-
 		if (!next.apiKey) throw new BadRequestException('Missing apiKey');
+
+
+		await this.validateProviderConnection(provider, next.apiKey);
 
 		integ.credentials = next;
 		await this.integrationsRepo.save(integ);
@@ -162,7 +196,18 @@ export class ShippingService {
 
 	async setActive(adminId: string, provider: string, isActive: boolean) {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
+		const p = this.getProvider(provider);
 		const integ = await this.getOrCreateIntegration(adminId, company.id);
+		if (isActive) {
+			const apiKey = integ.credentials?.apiKey;
+			if (!apiKey) {
+				throw new BadRequestException(`Cannot activate: No API key found for ${provider}.`);
+			}
+
+
+			await this.validateProviderConnection(provider, apiKey);
+
+		}
 		integ.isActive = isActive;
 		await this.integrationsRepo.save(integ);
 		return { ok: true, provider, isActive };
@@ -171,6 +216,7 @@ export class ShippingService {
 	async getServices(adminId: string, provider: string) {
 		const p = this.getProvider(provider);
 		const { apiKey } = await this.requireApiKey(adminId, provider);
+
 		const services = await p.getServices(apiKey);
 		return { ok: true, provider: p.code, services };
 	}
@@ -249,7 +295,6 @@ export class ShippingService {
 
 			shipment.trackingNumber = res.trackingNumber || null;
 			shipment.providerShipmentId = res.providerShipmentId || null;
-			shipment.labelUrl = res.labelUrl || null;
 
 			shipment.status = ShipmentStatus.CREATED;
 			shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
@@ -320,7 +365,6 @@ export class ShippingService {
 			status: s.unifiedStatus,
 			created_at: s.created_at,
 			updated_at: s.updated_at,
-			labelUrl: s.labelUrl,
 		};
 	}
 
