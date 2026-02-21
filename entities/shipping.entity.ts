@@ -153,9 +153,6 @@ export class ShipmentEntity {
 	@Column({ type: 'enum', enum: UnifiedShippingStatus, default: UnifiedShippingStatus.NEW })
 	unifiedStatus: UnifiedShippingStatus;
 
-	@Column({ type: 'text', nullable: true })
-	labelUrl?: string | null;
-
 	@Column({ type: 'jsonb', nullable: true })
 	providerRaw?: any;
 

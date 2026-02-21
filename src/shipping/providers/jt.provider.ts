@@ -41,4 +41,8 @@ export class JtProvider implements ShippingProvider {
       quote: { available: false, reason: 'Not implemented yet.' },
     };
   }
+
+  async verifyCredentials(apiKey: string): Promise<boolean> {
+    return true;
+  }
 }

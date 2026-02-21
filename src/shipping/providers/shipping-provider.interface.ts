@@ -50,4 +50,5 @@ export interface ShippingProvider {
 
 	getServices(apiKey: string): Promise<string[]>;
 	getCapabilities(apiKey: string): Promise<ProviderCapabilitiesResponse>;
+	verifyCredentials(apiKey: string): Promise<boolean>;
 }

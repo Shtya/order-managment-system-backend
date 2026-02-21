@@ -26,7 +26,7 @@ export class BostaProvider implements ShippingProvider {
   private baseUrl: string;
 
   constructor(private http: HttpService) {
-    const env = (process.env.BOSTA_ENV as BostaEnv) || 'stg';
+    const env = (process.env.BOSTA_ENV as BostaEnv) || 'prod';
     this.baseUrl = getBostaBaseUrl(env);
   }
 
@@ -126,6 +126,25 @@ export class BostaProvider implements ShippingProvider {
         reason: 'Provider does not expose quote API (not implemented).',
       },
     };
+  }
+
+  async verifyCredentials(apiKey: string): Promise<boolean> {
+    try {
+      // We call a profile endpoint to check if the key is authorized.
+      const url = `${this.baseUrl}/users/fullData`;
+      await firstValueFrom(
+        this.http.get(url, {
+          headers: {
+            Authorization: apiKey,
+            'Content-Type': 'application/json'
+          },
+        }),
+      );
+      return true;
+    } catch (error) {
+      // If the status is 401 (Unauthorized), the key is definitely wrong
+      return false;
+    }
   }
 
   private mapBostaStateToUnified(state: number): UnifiedShippingStatus {
