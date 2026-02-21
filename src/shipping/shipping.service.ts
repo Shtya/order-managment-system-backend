@@ -126,7 +126,6 @@ export class ShippingService {
 	private async getOrCreateIntegration(adminId: string, companyId: number) {
 		let integ = await this.integrationsRepo.findOne({ where: { adminId, shippingCompanyId: companyId } });
 		if (!integ) {
-			console.log(adminId, companyId);
 			integ = await this.integrationsRepo.save(
 				this.integrationsRepo.create({
 					adminId,
@@ -399,8 +398,7 @@ export class ShippingService {
 	// Webhook setup helpers (NEW)
 	// -----------------------
 	private buildPublicWebhookUrl(provider: string) {
-		// set this in env to your backend public base url, e.g. https://api.yourdomain.com
-		const base = process.env.PUBLIC_API_BASE_URL || process.env.APP_URL || 'http://localhost:3000';
+		const base = process.env.PUBLIC_API_BASE_URL || 'http://localhost:3000';
 		return `${base.replace(/\/$/, '')}/shipping/webhooks/${provider}`;
 	}
 
