@@ -14,12 +14,13 @@ import { ShipmentEntity, ShippingIntegrationEntity, ShipmentEventEntity } from '
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
+import { OrderEntity } from 'entities/order.entity';
 
 @Module({
   imports: [
     HttpModule,
     AuthModule,
-    TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity]),
+    TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity]),
   ],
   controllers: [ShippingController, ShippingWebhookController],
   providers: [ShippingService, BostaProvider, JtProvider, TurboProvider],

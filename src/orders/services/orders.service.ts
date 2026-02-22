@@ -39,7 +39,7 @@ import { BulkUploadUsage } from "dto/plans.dto";
 
 import { Notification } from "entities/notifications.entity";
 import { StoreEntity } from "entities/stores.entity";
-import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { ShippingCompanyEntity, ShippingIntegrationEntity } from "entities/shipping.entity";
 
 
 export function tenantId(me: any): any | null {
@@ -71,6 +71,9 @@ export class OrdersService {
 
     @InjectRepository(ShippingCompanyEntity)
     private shippingRepo: Repository<ShippingCompanyEntity>,
+
+    @InjectRepository(ShippingIntegrationEntity)
+    private shippingIntegrationRepo: Repository<ShippingIntegrationEntity>,
 
     @InjectRepository(StoreEntity)
     private storeRepo: Repository<StoreEntity>,
@@ -538,13 +541,25 @@ export class OrdersService {
 
     const defaultStatus = await this.getDefaultStatus(adminId);
 
+
     if (dto.shippingCompanyId) {
-      const shippingCompany = await manager.findOne(ShippingCompanyEntity, {
-        where: { id: Number(dto.shippingCompanyId) },
+      const companyId = Number(dto.shippingCompanyId);
+      const company = await this.shippingRepo.findOne({ where: { id: companyId } });
+      if (!company) {
+        throw new BadRequestException("Invalid shipping company selected.");
+      }
+
+      const integration = await this.shippingIntegrationRepo.findOne({
+        where: {
+          shippingCompanyId: companyId,
+          adminId
+        }
       });
 
-      if (!shippingCompany) {
-        throw new BadRequestException("The selected shipping company is invalid or does not belong to your account.");
+      if (!integration || !integration.isActive) {
+        throw new BadRequestException(
+          `${company.name} is not currently active.`
+        );
       }
     }
 
@@ -583,6 +598,7 @@ export class OrdersService {
       statusId: defaultStatus.id,
       items,
       createdByUserId: me?.id,
+      shippingMetadata: dto.shippingMetadata,
     } as any);
 
     const saved = await manager.save(OrderEntity, order);
@@ -622,13 +638,25 @@ export class OrdersService {
       throw new BadRequestException("Cannot update shipped or delivered orders");
     }
     if (dto.shippingCompanyId) {
-      const shippingCompany = await this.shippingRepo.findOne({
-        where: { id: Number(dto.shippingCompanyId) }
+      const companyId = Number(dto.shippingCompanyId);
+      const company = await this.shippingRepo.findOne({ where: { id: companyId } });
+      if (!company) {
+        throw new BadRequestException("Invalid shipping company selected.");
+      }
+
+      const integration = await this.shippingIntegrationRepo.findOne({
+        where: {
+          shippingCompanyId: companyId,
+          adminId
+        }
       });
 
-      if (!shippingCompany) {
-        throw new BadRequestException("The selected shipping company is invalid or does not belong to your account.");
+      if (!integration || !integration.isActive) {
+        throw new BadRequestException(
+          `${company.name} is not currently active.`
+        );
       }
+      order.shippingCompanyId = companyId;
     }
 
     if (dto.storeId) {
@@ -650,7 +678,6 @@ export class OrdersService {
       city: dto.city ?? order.city,
       area: dto.area ?? order.area,
       paymentMethod: dto.paymentMethod ?? order.paymentMethod,
-      shippingCompanyId: dto.shippingCompanyId ?? order.shippingCompanyId,
       storeId: dto.storeId ?? order.storeId,
       shippingCost: dto.shippingCost ?? order.shippingCost,
       discount: dto.discount ?? order.discount,
@@ -660,6 +687,9 @@ export class OrdersService {
       updatedByUserId: me?.id,
       landmark: dto.landmark,
       deposit: dto.deposit,
+      shippingMetadata: dto.shippingMetadata
+        ? { ...order.shippingMetadata, ...dto.shippingMetadata }
+        : order.shippingMetadata,
     });
 
     // Recalculate if needed
@@ -698,7 +728,6 @@ export class OrdersService {
       const newStatus = await this.findStatusById(dto.statusId, order.adminId)
 
       const oldStatusId = order.statusId;
-      const oldStatusCode = order.status.code;
       const newStatusCode = newStatus.code;
 
       if (oldStatusId === dto.statusId) return order;
@@ -719,7 +748,8 @@ export class OrdersService {
         order.shippedAt = new Date();
       }
 
-      if (newStatusCode === OrderStatus.DELIVERED && !order.deliveredAt) {
+      //only decrease stock when order hasn't shipping 
+      if (newStatusCode === OrderStatus.DELIVERED && !order.deliveredAt && !order.shippingCompanyId) {
         order.deliveredAt = new Date();
         // Deduct from stock & release reserved
         for (const item of order.items) {

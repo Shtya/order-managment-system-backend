@@ -254,6 +254,13 @@ export class OrderEntity {
   @OneToOne('OrderReplacementEntity', 'replacementOrder', { nullable: true })
   replacementResult: Relation<OrderReplacementEntity>;
 
+  @Column({ type: 'jsonb', nullable: true })
+  shippingMetadata?: {
+    cityId?: string; //For Bosta
+    districtId?: string; //For Bosta
+    zoneId?: string; //For Bosta 
+    locationId?: string;  //For Bosta
+  };
 
 }
 

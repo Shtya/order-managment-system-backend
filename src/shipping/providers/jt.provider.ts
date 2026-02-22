@@ -1,23 +1,25 @@
 // --- File: backend/src/shipping/providers/jt.provider.ts ---
 import { Injectable } from '@nestjs/common';
 import {
-  ProviderAreasResponse,
   ProviderCapabilitiesResponse,
   ProviderCode,
   ProviderCreateResult,
   ProviderWebhookResult,
   ShippingProvider,
+  UnifiedGeography,
 } from './shipping-provider.interface';
-import { UnifiedShippingStatus } from '../../../entities/shipping.entity';
+import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
+import { OrderEntity } from 'entities/order.entity';
+import { CreateShipmentDto } from '../shipping.dto';
 
 @Injectable()
-export class JtProvider implements ShippingProvider {
+export class JtProvider extends ShippingProvider {
+  getPickupLocations(apiKey: string): Promise<any[]> {
+    throw new Error('Method not implemented.');
+  }
   code: ProviderCode = 'jt';
   displayName = 'J&T Express';
 
-  async getAreas(_countryId: number): Promise<ProviderAreasResponse> {
-    return { provider: 'jt', providerRaw: null, normalized: null };
-  }
 
   async createShipment(_apiKey: string, _payload: any): Promise<ProviderCreateResult> {
     throw new Error('J&T provider not implemented yet');
@@ -30,7 +32,19 @@ export class JtProvider implements ShippingProvider {
   async getServices(_apiKey: string): Promise<string[]> {
     return [];
   }
+  getCities(apiKey: string): Promise<UnifiedGeography[]> {
+    throw new Error('Method not implemented.');
+  }
+  getDistricts(apiKey: string, cityId: string): Promise<UnifiedGeography[]> {
+    throw new Error('Method not implemented.');
+  }
+  getZones(apiKey: string, districtId: string): Promise<UnifiedGeography[]> {
+    throw new Error('Method not implemented.');
+  }
 
+  buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any> {
+    throw new Error('Method not implemented.');
+  }
   async getCapabilities(_apiKey: string): Promise<ProviderCapabilitiesResponse> {
     return {
       provider: 'jt',

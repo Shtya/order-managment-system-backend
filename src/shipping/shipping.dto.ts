@@ -21,29 +21,6 @@ export class SetProviderCredentialsDto {
 }
 
 export class CreateShipmentDto {
-	@IsString()
-	@MinLength(1)
-	customerName: string;
-
-	@IsString()
-	@MinLength(6)
-	phoneNumber: string;
-
-	@IsString()
-	@MinLength(5)
-	address: string;
-
-	@IsString()
-	@MinLength(2)
-	city: string;
-
-	@IsOptional()
-	@IsString()
-	area?: string;
-
-	@IsOptional()
-	codAmount?: number;
-
 	@IsOptional()
 	@IsString()
 	notes?: string;
@@ -56,4 +33,4 @@ export class CreateShipmentDto {
 	size?: 'Small' | 'Medium' | 'Large';
 }
 
-export class AssignOrderDto extends CreateShipmentDto {}
+export class AssignOrderDto extends CreateShipmentDto { }

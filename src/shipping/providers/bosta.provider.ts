@@ -1,15 +1,18 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import {
-  ProviderAreasResponse,
   ProviderCapabilitiesResponse,
   ProviderCode,
   ProviderCreateResult,
   ProviderWebhookResult,
   ShippingProvider,
+  UnifiedGeography,
+  UnifiedPickupLocation,
 } from './shipping-provider.interface';
-import { UnifiedShippingStatus } from '../../../entities/shipping.entity';
+import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
+import { OrderEntity, PaymentMethod } from 'entities/order.entity';
+import { CreateShipmentDto } from '../shipping.dto';
 
 type BostaEnv = 'stg' | 'prod';
 
@@ -18,32 +21,110 @@ function getBostaBaseUrl(env: BostaEnv) {
   return 'https://app.bosta.co/api/v2';
 }
 
+export enum BostaDeliveryType {
+  Deliver = 10,
+  CashCollection = 15,
+  CustomerReturnPickup = 25,
+  Exchange = 30,
+}
+
+
 @Injectable()
-export class BostaProvider implements ShippingProvider {
+export class BostaProvider extends ShippingProvider {
   code: ProviderCode = 'bosta';
   displayName = 'Bosta';
 
   private baseUrl: string;
-
+  private EGYPT_ID: string;
   constructor(private http: HttpService) {
+    super();
     const env = (process.env.BOSTA_ENV as BostaEnv) || 'prod';
     this.baseUrl = getBostaBaseUrl(env);
+    this.EGYPT_ID = (process.env.EGYPT_ID_ENV as BostaEnv) || '60e4482c7cb7d4bc4849c4d5';
   }
 
-  async getAreas(countryId: number): Promise<ProviderAreasResponse> {
-    const url = `${this.baseUrl}/cities/getAllDistricts?countryId=${countryId}`;
-    const { data } = await firstValueFrom(this.http.get(url));
+  async getCities(apiKey: string, countryId: string = this.EGYPT_ID): Promise<UnifiedGeography[]> {
+    const url = `${this.baseUrl}/cities`;
 
-    return {
-      provider: 'bosta',
-      countryId,
-      providerRaw: data,
-      normalized: data,
-    };
+
+    const { data } = await firstValueFrom(
+      this.http.get(url, {
+        params: { countryId },
+        headers: { Authorization: apiKey }
+      })
+    );
+
+    const res = data.data.list.map(city => ({
+      id: city._id,
+      nameEn: city.name,
+      nameAr: city.nameAr,
+      dropOff: city.dropOffAvailability,
+      pickup: city.pickupAvailability
+    }));
+
+    return res;
+
   }
 
+  /**
+   * Fetch zones for a specific city code
+   */
+  async getZones(apiKey: string, cityCode: string): Promise<UnifiedGeography[]> {
+    const url = `${this.baseUrl}/cities/${cityCode}/zones`;
+    const { data } = await firstValueFrom(
+      this.http.get(url, {
+        headers: { Authorization: apiKey }
+      })
+    );
+    return data.data.map(z => ({
+      id: z._id,
+      nameEn: z.name,
+      nameAr: z.nameAr,
+      dropOff: z.dropOffAvailability,
+      pickup: z.pickupAvailability
+    }));
+  }
+
+  /**
+   * Fetch districts for a specific city code
+   */
+  async getDistricts(apiKey: string, cityCode: string): Promise<UnifiedGeography[]> {
+    const url = `${this.baseUrl}/cities/${cityCode}/districts`;
+    const { data } = await firstValueFrom(
+      this.http.get(url, {
+        headers: { Authorization: apiKey }
+      })
+    );
+    return data.data.map(area => ({
+      id: area.districtId,
+      nameAr: area.districtOtherName,
+      nameEn: area.districtName,
+      parentId: area.zoneId,
+      dropOff: area.dropOffAvailability,
+      pickup: area.pickupAvailability
+    }));
+  }
+
+
+  // backend/src/shipping/providers/bosta.provider.ts
+
+  async getPickupLocations(apiKey: string): Promise<UnifiedPickupLocation[]> {
+    const url = `${this.baseUrl}/pickup-locations`;
+
+    const { data } = await firstValueFrom(
+      this.http.get(url, {
+        headers: { Authorization: apiKey }
+      })
+    );
+    return data.data.list.map(l => ({
+      id: l._id,
+      nameAr: l.locationName,
+      namEn: l.locationName,
+    }));
+  }
   async createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult> {
     const url = `${this.baseUrl}/deliveries?apiVersion=1`;
+
 
     const { data } = await firstValueFrom(
       this.http.post(url, payload, {
@@ -56,14 +137,71 @@ export class BostaProvider implements ShippingProvider {
 
     const trackingNumber = data?.trackingNumber || data?.data?.trackingNumber || null;
     const providerShipmentId = data?._id || data?.data?._id || null;
+    const providerRaw = data?.data || data || null;
 
     return {
       trackingNumber,
       providerShipmentId,
-      labelUrl: data?.labelUrl || data?.data?.labelUrl || null,
-      providerRaw: { trackingNumber, providerShipmentId },
+      providerRaw,
     };
   }
+
+
+
+  async buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any> {
+    const itemsCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+
+    const headerName = integartion.credentials?.webhookHeaderName || 'Authorization';
+    const secretValue = integartion.credentials?.webhookSecret || '';
+    const webhookUrl = this.buildPublicWebhookUrl(this.code)
+
+    const webhookCustomHeaders: Record<string, string> = {
+      [headerName]: secretValue
+    };
+    const meta = order.shippingMetadata;
+
+    if (!meta?.cityId || !meta?.districtId || !meta?.zoneId) {
+      throw new BadRequestException(
+        "Missing required shipping geography (City, District, or Zone). Please update the order details."
+      );
+    }
+    return {
+      type: BostaDeliveryType.Deliver, // or dynamically set based on order type
+      businessReference: order.orderNumber,
+      uniqueBusinessReference: order.orderNumber,
+      notes: [dto.notes, order.customerNotes].filter(Boolean).join(" |\n "),
+      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? order.finalTotal - order.shippingCost : 0,
+      specs: {
+        packageType: "Parcel",
+        size: dto.size || "SMALL",
+        packageDetails: {
+          itemsCount: itemsCount,
+        },
+      },
+      dropOffAddress: {
+        city: order.shippingMetadata?.cityId,
+        districtId: order?.shippingMetadata?.districtId,
+        zoneId: order?.shippingMetadata?.zoneId,
+        firstLine: order.address,
+        secondLine: order.area || "",
+      },
+      receiver: {
+        firstName: order.customerName.split(" ")[0],
+        lastName: order.customerName.split(" ").slice(1).join(" ") || "",
+        phone: order.phoneNumber,
+        email: order.email,
+      },
+
+      // IMPORTANT:
+      // Bosta docs: if webhook configured in dashboard, no need to include webhookUrl in creation. :contentReference[oaicite:6]{index=6}
+      // So we do NOT inject env webhook by default anymore.
+      // If you still want fallback per-admin (optional), you can add it later.
+      webhookUrl,
+      webhookCustomHeaders,
+      businessLocationId: order?.shippingMetadata?.locationId
+    };
+  }
+
 
   mapWebhookToUnified(body: any): ProviderWebhookResult {
     const providerShipmentId = body?._id ?? null;
