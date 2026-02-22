@@ -66,6 +66,33 @@ export class OrderItemDto {
   unitCost?: number; // optional, can be calculated from variant
 }
 
+
+export class ShippingMetadataDto {
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
+  @IsOptional()
+  @IsString()
+  districtId?: string;
+
+  @IsOptional()
+  @IsString()
+  zoneId?: string;
+
+  @IsOptional()
+  @IsString()
+  locationId?: string;
+
+  @IsOptional()
+  @IsString()
+  buildingNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  secondPhone?: string;
+}
+
 // ✅ Create Order DTO
 export class CreateOrderDto {
   // Customer Info
@@ -149,6 +176,12 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)
   items: OrderItemDto[];
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => ShippingMetadataDto)
+  shippingMetadata?: ShippingMetadataDto;
 }
 
 // ✅ Update Order DTO

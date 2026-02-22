@@ -125,13 +125,13 @@ export class ShipmentEntity {
 	@Index()
 	adminId: string;
 
-	@Column({ type: 'int', nullable: true })
+	@Column({ type: 'int', nullable: false })
 	@Index()
-	orderId?: number | null;
+	orderId: number;
 
-	@ManyToOne(() => OrderEntity, { nullable: true, onDelete: 'SET NULL' })
+	@ManyToOne(() => OrderEntity, { nullable: false, onDelete: 'SET NULL' })
 	@JoinColumn({ name: 'orderId' })
-	order?: OrderEntity | null;
+	order: OrderEntity;
 
 	@Column({ type: 'int' })
 	@Index()

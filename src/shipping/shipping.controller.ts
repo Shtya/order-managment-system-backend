@@ -3,6 +3,7 @@ import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nest
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ShippingService } from './shipping.service';
 import { AssignOrderDto, CreateShipmentDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
+import { tenantId } from 'src/category/category.service';
 
 @Controller('shipping')
 export class ShippingController {
@@ -44,17 +45,18 @@ export class ShippingController {
 		return this.shipping.getCapabilities(req.user.id, provider);
 	}
 
-	@UseGuards(JwtAuthGuard)
-	@Get('providers/:provider/areas')
-	areas(@Req() req: any, @Param('provider') provider: string, @Query('countryId') countryId?: string) {
-		const cid = countryId ? Number(countryId) : 1;
-		return this.shipping.getAreas(req.user.id, provider, cid);
-	}
+	// @UseGuards(JwtAuthGuard)
+	// @Get('providers/:provider/areas')
+	// areas(@Req() req: any, @Param('provider') provider: string, @Query('countryId') countryId?: string) {
+	// 	const cid = countryId ? Number(countryId) : 1;
+	// 	return this.shipping.getAreas(req.user.id, provider, cid);
+	// }
 
 	@UseGuards(JwtAuthGuard)
-	@Post('providers/:provider/shipments/create')
-	createShipment(@Req() req: any, @Param('provider') provider: string, @Body() dto: CreateShipmentDto) {
-		return this.shipping.createShipment(req.user.id, provider, dto);
+	@Post('providers/:provider/shipments/create/:orderId')
+	createShipment(@Req() req: any, @Param('provider') provider: string, @Param('orderId') orderId: string, @Body() dto: CreateShipmentDto) {
+		const order = orderId ? Number(orderId) : null;
+		return this.shipping.createShipment(req.user, provider, dto, order);
 	}
 
 	@UseGuards(JwtAuthGuard)
@@ -87,6 +89,12 @@ export class ShippingController {
 		return this.shipping.getIntegrationsStatus(req.user.id);
 	}
 
+	@UseGuards(JwtAuthGuard)
+	@Get('integrations/active')
+	activeIntegrations(@Req() req: any) {
+		return this.shipping.activeIntegrations(req.user);
+	}
+
 	// NEW: Webhook setup
 	@UseGuards(JwtAuthGuard)
 	@Get('providers/:provider/webhook-setup')
@@ -98,5 +106,40 @@ export class ShippingController {
 	@Post('providers/:provider/webhook-setup/rotate-secret')
 	rotateWebhook(@Req() req: any, @Param('provider') provider: string) {
 		return this.shipping.rotateWebhookSecret(req.user.id, provider);
+	}
+
+	// backend/src/shipping/shipping.controller.ts
+
+	@Get('cities/:provider')
+	async getCities(@Req() req: any, @Param('provider') provider: string) {
+		return this.shipping.getCities(tenantId(req.user), provider);
+	}
+
+	@Get('districts/:provider/:cityId')
+	async getDistricts(
+		@Req() req: any,
+		@Param('provider') provider: string,
+		@Param('cityId') cityId: string
+	) {
+		return this.shipping.getDistricts(tenantId(req.user), provider, cityId);
+	}
+
+	@Get('zones/:provider/:cityId')
+	async getZones(
+		@Req() req: any,
+		@Param('provider') provider: string,
+		@Param('cityId') cityId: string
+	) {
+		return this.shipping.getZones(tenantId(req.user), provider, cityId);
+	}
+
+	@Get('pickup-locations/:provider')
+	async getPickupLocations(
+		@Req() req: any,
+		@Param('provider') provider: string
+	) {
+		// tenantId هو helper لجلب الـ adminId من التوكن
+		const adminId = tenantId(req.user);
+		return this.shipping.getPickupLocations(adminId, provider);
 	}
 }

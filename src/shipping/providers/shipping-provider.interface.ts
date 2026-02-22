@@ -1,19 +1,29 @@
 // --- File: backend/src/shipping/providers/shipping-provider.interface.ts ---
-import { UnifiedShippingStatus } from '../../../entities/shipping.entity';
+import { OrderEntity } from 'entities/order.entity';
+import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
+import { CreateShipmentDto } from '../shipping.dto';
 
 export type ProviderCode = 'bosta' | 'jt' | 'turbo' | 'aramex' | 'dhl';
 
-export type ProviderAreasResponse = {
-	provider: ProviderCode;
-	countryId?: number;
-	providerRaw: any;
-	normalized?: any;
-};
+export interface UnifiedGeography {
+	id: string;
+	nameEn: string;
+	nameAr: string;
+	dropOff: boolean
+	pickup: boolean
+	parentId?: string // as zoneid for distinct
+}
+
+export interface UnifiedPickupLocation {
+	id: string;
+	nameAr: string;
+	nameEn: string;
+	isDefault: boolean;
+}
 
 export type ProviderCreateResult = {
 	providerShipmentId?: string | null;
 	trackingNumber?: string | null;
-	labelUrl?: string | null;
 	providerRaw?: any;
 };
 
@@ -40,15 +50,39 @@ export type ProviderCapabilitiesResponse = {
 	raw?: any;
 };
 
-export interface ShippingProvider {
-	code: ProviderCode;
-	displayName: string;
+export abstract class ShippingProvider {
+	abstract readonly code: ProviderCode;
+	abstract readonly displayName: string;
 
-	getAreas(countryId: number): Promise<ProviderAreasResponse>;
-	createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult>;
-	mapWebhookToUnified(body: any): ProviderWebhookResult;
+	// Geography & Capabilities
+	// abstract getAreas(countryId: number): Promise<UnifiedGeography[]>;
 
-	getServices(apiKey: string): Promise<string[]>;
-	getCapabilities(apiKey: string): Promise<ProviderCapabilitiesResponse>;
-	verifyCredentials(apiKey: string): Promise<boolean>;
+	abstract getCities(apiKey: string): Promise<UnifiedGeography[]>;
+	abstract getDistricts(apiKey: string, cityId: string): Promise<UnifiedGeography[]>;
+	abstract getZones(apiKey: string, districtId: string): Promise<UnifiedGeography[]>;
+	abstract getPickupLocations(apiKey: string): Promise<UnifiedPickupLocation[]>;
+
+	abstract getCapabilities(apiKey: string): Promise<ProviderCapabilitiesResponse>;
+	abstract getServices(apiKey: string): Promise<string[]>;
+
+	abstract verifyCredentials(apiKey: string): Promise<boolean>;
+
+	// Shipment Creation
+	abstract createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult>;
+	abstract buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any>;
+
+	// Webhooks
+	abstract mapWebhookToUnified(body: any): ProviderWebhookResult;
+	/**
+	 * Common helper to format display names or clean strings
+	 */
+
+	protected buildPublicWebhookUrl(provider: string) {
+		const base = process.env.PUBLIC_API_BASE_URL || 'http://localhost:3000';
+		return `${base.replace(/\/$/, '')}/shipping/webhooks/${provider}`;
+	}
+
+	protected formatName(first: string, last?: string): string {
+		return `${first} ${last || '.'}`.trim();
+	}
 }

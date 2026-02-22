@@ -21,7 +21,7 @@ import { BulkUploadUsage } from "dto/plans.dto";
 
 import { ShippingSeedService } from "../shipping/shipping.seed";
 import { Notification } from "entities/notifications.entity";
-import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { ShippingCompanyEntity, ShippingIntegrationEntity } from "entities/shipping.entity";
 import { StoreEntity } from "entities/stores.entity";
 import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
 import { OrderReplacementService } from "./services/order-replacements.service";
@@ -46,7 +46,8 @@ import { OrderReplacementService } from "./services/order-replacements.service";
       BulkUploadUsage,
       Notification,
       StoreEntity,
-      OrderReplacementEntity
+      OrderReplacementEntity,
+      ShippingIntegrationEntity
     ]),
   ],
   providers: [OrdersService, OrderSubscriber, ShippingSeedService, OrderReplacementService],

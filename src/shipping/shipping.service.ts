@@ -1,7 +1,7 @@
 // --- File: backend/src/shipping/shipping.service.ts ---
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 
 
@@ -19,6 +19,9 @@ import { ShippingProvider } from './providers/shipping-provider.interface';
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
+import { tenantId } from 'src/category/category.service';
+import { OrderEntity } from 'entities/order.entity';
+import { ProductVariantEntity } from 'entities/sku.entity';
 
 @Injectable()
 export class ShippingService {
@@ -28,9 +31,12 @@ export class ShippingService {
 		private bostaProvider: BostaProvider,
 		private jtProvider: JtProvider,
 		private turboProvider: TurboProvider,
-
+		private dataSource: DataSource,
 		@InjectRepository(ShippingCompanyEntity)
 		private companiesRepo: Repository<ShippingCompanyEntity>,
+
+		@InjectRepository(OrderEntity)
+		private ordersRepo: Repository<OrderEntity>,
 
 		@InjectRepository(ShippingIntegrationEntity)
 		private integrationsRepo: Repository<ShippingIntegrationEntity>,
@@ -79,11 +85,39 @@ export class ShippingService {
 		return { ok: true, integrations: result };
 	}
 
+	async activeIntegrations(user: any) {
+		const adminId = tenantId(user)
+		const integrations = await this.integrationsRepo.find({
+			where: {
+				adminId,
+				isActive: true
+			},
+			relations: ['shippingCompany'] // Ensure we have company details like code/name
+		});
+
+		// 3. Filter and format the result
+		// We only return those that actually have an API key configured
+		const result = integrations
+			.filter(integ => !!integ.credentials?.apiKey)
+			.map((integ) => ({
+				id: integ.id,
+				provider: integ.shippingCompany.code,
+				providerId: integ.shippingCompany.id,
+				name: integ.shippingCompany.name,
+				logo: integ.shippingCompany.logo,
+			}));
+
+		return {
+			ok: true,
+			integrations: result
+		};
+	}
+
 	private maskCredentials(credentials: any) {
 		if (!credentials) return null;
 
 		const masked = { ...credentials };
-		const sensitiveKeys = ['apiKey', 'webhookSecret'];
+		const sensitiveKeys = ['apiKey'];
 
 		sensitiveKeys.forEach((key) => {
 			const value = masked[key];
@@ -138,7 +172,7 @@ export class ShippingService {
 		return integ;
 	}
 
-	private async requireApiKey(adminId: string, provider: string): Promise<{ apiKey: string; companyId: number; integId: number }> {
+	private async requireApiKey(adminId: string, provider: string): Promise<{ apiKey: string; companyId: number; integId: number, integ: ShippingIntegrationEntity }> {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
 		const integ = await this.getOrCreateIntegration(adminId, company.id);
 
@@ -147,7 +181,7 @@ export class ShippingService {
 		const apiKey = integ.credentials?.apiKey;
 		if (!apiKey) throw new BadRequestException('Provider credentials not configured (missing apiKey)');
 
-		return { apiKey, companyId: company.id, integId: integ.id };
+		return { apiKey, companyId: company.id, integId: integ.id, integ };
 	}
 
 	private async validateProviderConnection(provider, apiKey: string): Promise<void> {
@@ -183,6 +217,8 @@ export class ShippingService {
 		await this.validateProviderConnection(provider, next.apiKey);
 
 		integ.credentials = next;
+		integ.isActive = true;
+
 		await this.integrationsRepo.save(integ);
 
 		return {
@@ -227,101 +263,148 @@ export class ShippingService {
 		return { ok: true, provider: p.code, capabilities: caps };
 	}
 
-	async getAreas(adminId: string, provider: string, countryId: number) {
+	// async getAreas(adminId: string, provider: string, countryId: number) {
+	// 	const p = this.getProvider(provider);
+	// 	await this.requireApiKey(adminId, provider);
+	// 	const areas = await p.getAreas(countryId);
+
+	// 	return {
+	// 		ok: true,
+	// 		provider: p.code,
+	// 		records: areas,
+	// 	};
+	// }
+
+	async getCities(adminId: string, provider: string) {
 		const p = this.getProvider(provider);
-		await this.requireApiKey(adminId, provider);
-		const areas = await p.getAreas(countryId);
+		const { apiKey } = await this.requireApiKey(adminId, provider);
+		const cities = await p.getCities(apiKey);
 
 		return {
 			ok: true,
 			provider: p.code,
-			providerAreas: areas,
+			records: cities,
 		};
 	}
 
-	async createShipment(adminId: string, provider: string, dto: CreateShipmentDto, orderId?: number) {
+	async getDistricts(adminId: string, provider: string, cityId: string) {
 		const p = this.getProvider(provider);
-		const { apiKey, companyId } = await this.requireApiKey(adminId, provider);
+		const { apiKey } = await this.requireApiKey(adminId, provider);
+		const districts = await p.getDistricts(apiKey, cityId);
 
-		const weight = dto.weightKg ?? 1;
+		return {
+			ok: true,
+			provider: p.code,
+			records: districts,
+		};
+	}
 
-		const shipment = await this.shipmentsRepo.save(
-			this.shipmentsRepo.create({
-				adminId,
-				orderId: orderId ?? null,
-				shippingCompanyId: companyId,
-				status: ShipmentStatus.SUBMITTED,
-				unifiedStatus: UnifiedShippingStatus.NEW,
-				providerRaw: {
-					request: {
-						provider,
-						receiver: { name: dto.customerName, phone: dto.phoneNumber, address: dto.address },
-						city: dto.city,
-						area: dto.area || '',
-						weight,
-						size: dto.size || 'Small',
-						cod: dto.codAmount || 0,
-					},
-				},
-			}),
-		);
+	async getZones(adminId: string, provider: string, cityId: string) {
+		const p = this.getProvider(provider);
+		const { apiKey } = await this.requireApiKey(adminId, provider);
+		const zones = await p.getZones(apiKey, cityId);
 
-		// IMPORTANT:
-		// Bosta docs: if webhook configured in dashboard, no need to include webhookUrl in creation. :contentReference[oaicite:6]{index=6}
-		// So we do NOT inject env webhook by default anymore.
-		// If you still want fallback per-admin (optional), you can add it later.
+		return {
+			ok: true,
+			provider: p.code,
+			records: zones,
+		};
+	}
 
-		const providerPayload =
-			provider === 'bosta'
-				? {
-					type: 10,
-					specs: { packageType: 'Parcel', size: dto.size || 'Small', actualWeight: weight },
-					receiver: {
-						firstName: dto.customerName,
-						lastName: '',
-						phone: dto.phoneNumber,
-						address: dto.address,
-						city: dto.city,
-						zone: dto.area || '',
-					},
-					cod: dto.codAmount || 0,
-					notes: dto.notes || '',
-				}
-				: dto;
+	async getPickupLocations(adminId: string, providerCode: string) {
+		const provider = this.getProvider(providerCode);
+		const { apiKey } = await this.requireApiKey(adminId, providerCode);
 
-		try {
-			const res = await p.createShipment(apiKey, providerPayload);
+		const location = await provider.getPickupLocations(apiKey);
 
-			shipment.trackingNumber = res.trackingNumber || null;
-			shipment.providerShipmentId = res.providerShipmentId || null;
+		return {
+			ok: true,
+			provider: provider,
+			records: location,
+		};
+	}
 
-			shipment.status = ShipmentStatus.CREATED;
-			shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
+	async createShipment(me, provider: string, dto: CreateShipmentDto, orderId: number) {
+		const adminId = tenantId(me);
+		const p = this.getProvider(provider);
+		const { apiKey, companyId, integ } = await this.requireApiKey(adminId, provider);
 
-			shipment.providerRaw = {
-				request: shipment.providerRaw?.request,
-				response: res.providerRaw || { trackingNumber: shipment.trackingNumber, providerShipmentId: shipment.providerShipmentId },
-			};
 
-			await this.shipmentsRepo.save(shipment);
-
-			return {
-				ok: true,
-				shipmentId: shipment.id,
-				orderId: shipment.orderId,
-				provider,
-				trackingNumber: shipment.trackingNumber,
-				providerShipmentId: shipment.providerShipmentId,
-				status: shipment.unifiedStatus,
-			};
-		} catch (e: any) {
-			shipment.status = ShipmentStatus.FAILED;
-			shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
-			shipment.failureReason = e?.message || 'Create shipment failed';
-			shipment.providerRaw = { ...shipment.providerRaw, error: e?.response?.data || e?.message || 'unknown' };
-			await this.shipmentsRepo.save(shipment);
-			throw new BadRequestException(shipment.failureReason);
+		if (!orderId) {
+			throw new BadRequestException("Order is required to create a shipment.");
 		}
+		const order = await this.ordersRepo.findOne({
+			where: { id: orderId, adminId },
+			relations: ['items']
+		});
+
+		if (!order) throw new BadRequestException("Order not found.");
+
+		return await this.dataSource.transaction(async (manager) => {
+			const shipment = await manager.save(
+				manager.create(ShipmentEntity, {
+					adminId,
+					orderId: orderId,
+					shippingCompanyId: companyId,
+					status: ShipmentStatus.SUBMITTED,
+					unifiedStatus: UnifiedShippingStatus.NEW,
+				}),
+			);
+
+
+			const payload = p.buildDeliveryPayload(order, dto, integ)
+			try {
+				const res = await p.createShipment(apiKey, payload);
+
+				shipment.trackingNumber = res.trackingNumber || null;
+				shipment.providerShipmentId = res.providerShipmentId || null;
+
+				shipment.status = ShipmentStatus.CREATED;
+				shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
+
+				shipment.providerRaw = {
+					request: payload,
+					response: res.providerRaw || { trackingNumber: shipment.trackingNumber, providerShipmentId: shipment.providerShipmentId },
+				};
+
+				await manager.save(shipment);
+
+
+				for (const item of order.items) {
+					await manager.decrement(
+						ProductVariantEntity,
+						{ id: item.variantId, adminId },
+						"stockOnHand", // Physical deduction
+						item.quantity
+					);
+
+					await manager.decrement(
+						ProductVariantEntity,
+						{ id: item.variantId, adminId },
+						"reserved", // Remove from reservation
+						item.quantity
+					);
+				}
+
+				return {
+					ok: true,
+					shipmentId: shipment.id,
+					orderId: shipment.orderId,
+					provider,
+					trackingNumber: shipment.trackingNumber,
+					providerShipmentId: shipment.providerShipmentId,
+					status: shipment.unifiedStatus,
+				};
+			} catch (e: any) {
+				shipment.status = ShipmentStatus.FAILED;
+				shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
+				shipment.failureReason = e?.message || 'Create shipment failed';
+				shipment.providerRaw = { request: payload, error: e?.response?.data || e?.message || 'unknown' };
+				await manager.save(shipment);
+				throw new BadRequestException(shipment.failureReason);
+			}
+
+		});
 	}
 
 	async assignOrder(adminId: string, provider: string, orderId: number, dto: AssignOrderDto) {
