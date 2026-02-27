@@ -282,13 +282,13 @@ export class OrderReplacementService {
                 )!;
 
                 // if want to prevent repalce to has aditional items
-                // if (item.quantityToReplace > originalItem.quantity) {
-                //   throw new BadRequestException(
-                //     `Quantity to replace exceeds original quantity for item ${originalItem.id}`,
-                //   );
-                // }
+                if (item.quantityToReplace > originalItem.quantity) {
+                    deposit += originalItem.unitPrice * originalItem.quantity;
+                } else {
 
-                deposit += originalItem.unitPrice * item.quantityToReplace;
+                    deposit += originalItem.unitPrice * item.quantityToReplace;
+                }
+
             }
 
             // 2️⃣ Create new order based on items in dto
@@ -335,6 +335,8 @@ export class OrderReplacementService {
                 })),
             });
 
+            newOrder.isReplacement = true;
+            await manager.save(OrderEntity, newOrder);
             await manager.save(OrderReplacementEntity, replacement);
 
             return {

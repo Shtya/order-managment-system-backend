@@ -28,6 +28,7 @@ export type UpsellingProduct = {
 
 @Entity({ name: "products" })
 @Index(["adminId", "name"])
+@Index(["adminId", "slug"])
 @Index(["adminId", "storeId", "slug"], { unique: true })
 export class ProductEntity {
   @PrimaryGeneratedColumn()

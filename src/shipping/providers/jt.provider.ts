@@ -14,9 +14,8 @@ import { CreateShipmentDto } from '../shipping.dto';
 
 @Injectable()
 export class JtProvider extends ShippingProvider {
-  getPickupLocations(apiKey: string): Promise<any[]> {
-    throw new Error('Method not implemented.');
-  }
+
+
   code: ProviderCode = 'jt';
   displayName = 'J&T Express';
 
@@ -45,6 +44,21 @@ export class JtProvider extends ShippingProvider {
   buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any> {
     throw new Error('Method not implemented.');
   }
+
+  cancelShipment(apiKey: string, providerShipmentId: string): Promise<boolean> {
+    throw new Error('Method not implemented.');
+  }
+  getShipmentStatus(apiKey: string, trackingNumber: string, accountId?: string): Promise<ProviderWebhookResult> {
+    throw new Error('Method not implemented.');
+  }
+  getPickupLocations(apiKey: string): Promise<any[]> {
+    throw new Error('Method not implemented.');
+  }
+
+  verifyWebhookAuth(headers: any, body: any, secret: string, headerName?: string): boolean {
+    throw new Error('Method not implemented.');
+  }
+
   async getCapabilities(_apiKey: string): Promise<ProviderCapabilitiesResponse> {
     return {
       provider: 'jt',

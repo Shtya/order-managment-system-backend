@@ -9,7 +9,7 @@ export class SetActiveDto {
 export class SetProviderCredentialsDto {
 	@IsObject()
 	credentials: {
-		apiKey: string;
+		apiKey?: string;
 
 		// optional (not required in current integration)
 		accountId?: string;

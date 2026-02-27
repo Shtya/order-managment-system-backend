@@ -4,7 +4,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { QueryFailedErrorFilter } from 'common/QueryFailedErrorFilter';
-
+import * as bodyParser from 'body-parser';
 async function bootstrap() {
 	const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
@@ -27,6 +27,14 @@ async function bootstrap() {
 	);
 
 	const port = process.env.PORT || 3030;
+
+	app.use(
+		bodyParser.json({
+			verify: (req: any, res, buf) => {
+				req.rawBody = buf;
+			},
+		}),
+	);
 
 	// VPS / PM2: we ALWAYS listen here
 	await app.listen(port as number, '0.0.0.0');

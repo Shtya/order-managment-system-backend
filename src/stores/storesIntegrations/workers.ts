@@ -9,8 +9,9 @@ import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from "@nestjs/commo
 import { Worker, Queue, ReservedJob } from "groupmq";
 import { ShopifyService } from "./ShopifyService";
 import { EasyOrderService } from "./EasyOrderService";
-import { BaseStoreService } from "./BaseStoreService";
+import { BaseStoreProvider } from "./BaseStoreProvider";
 import { WooCommerceService } from "./WooCommerce";
+import { StoresService } from "../stores.service";
 
 
 @Injectable()
@@ -23,6 +24,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
         private readonly shopifyService: ShopifyService,
         private readonly easyOrderService: EasyOrderService,
         private readonly woocommerceService: WooCommerceService,
+        private readonly storesService: StoresService, // StoresService injected for retry handler
 
         @InjectRepository(StoreEntity)
         private readonly storesRepo: Repository<StoreEntity>,
@@ -40,7 +42,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
      * Private Strategy Selector
      * Returns the service instance based on the provider
      */
-    private getService(provider: string | StoreProvider): BaseStoreService {
+    private getService(provider: string | StoreProvider): BaseStoreProvider {
         switch (provider) {
             case StoreProvider.SHOPIFY:
                 return this.shopifyService;
@@ -133,7 +135,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
 
                     const variants = await this.pvRepo.find({ where: { productId: product.id } });
 
-                    // All services share this method signature via BaseStoreService
+                    // All services share this method signature via BaseStoreProvider
                     await service.syncProduct({ product, variants, slug });
                     break;
 
@@ -153,6 +155,15 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     const store = await this.storesRepo.findOneBy({ id: storeId });
                     if (store) {
                         await service.syncFullStore(store);
+                    }
+                    break;
+
+                case "retry-failed-order":
+                    const { failureId, adminId } = payload;
+                    if (failureId && adminId) {
+                        const mockUser = { id: adminId, role: { name: 'admin' } };
+                        const result = await this.storesService.retryFailedOrder(mockUser, failureId);
+                        this.logger.log(`[Retry Failed Order] Processed failureId=${failureId}, result=${JSON.stringify(result)}`);
                     }
                     break;
 

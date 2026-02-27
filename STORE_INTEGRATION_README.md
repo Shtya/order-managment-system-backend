@@ -125,9 +125,6 @@ export class StoreEntity {
 	@Column({ type: "text", nullable: true })
 	lastSyncError?: string;
 
-	@Column({ type: "boolean", default: true })
-	autoSync!: boolean;
-
 	@Column({ type: "int", default: 0 })
 	syncRetryCount!: number; // Number of failed sync attempts
 

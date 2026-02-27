@@ -31,6 +31,7 @@ export enum BostaDeliveryType {
 
 @Injectable()
 export class BostaProvider extends ShippingProvider {
+
   code: ProviderCode = 'bosta';
   displayName = 'Bosta';
 
@@ -65,7 +66,26 @@ export class BostaProvider extends ShippingProvider {
     return res;
 
   }
+  async cancelShipment(apiKey: string, trackingNumber: string): Promise<boolean> {
+    // Use the dynamic baseUrl which handles stg/prod environments
+    const url = `${this.baseUrl}/deliveries/business/${trackingNumber}/terminate`;
 
+    try {
+      const { data } = await firstValueFrom(
+        this.http.delete(url, {
+          headers: {
+            Authorization: apiKey,
+            'Content-Type': 'application/json'
+          },
+        }),
+      );
+
+
+      return !!data;
+    } catch (error) {
+      return false;
+    }
+  }
   /**
    * Fetch zones for a specific city code
    */
@@ -150,6 +170,8 @@ export class BostaProvider extends ShippingProvider {
 
   async buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any> {
     const itemsCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+    // ✅ Check if this order is a replacement for another order
+    const isExchange = order.isReplacement;
 
     const headerName = integartion.credentials?.webhookHeaderName || 'Authorization';
     const secretValue = integartion.credentials?.webhookSecret || '';
@@ -165,8 +187,8 @@ export class BostaProvider extends ShippingProvider {
         "Missing required shipping geography (City, District, or Zone). Please update the order details."
       );
     }
-    return {
-      type: BostaDeliveryType.Deliver, // or dynamically set based on order type
+    const payload = {
+      type: isExchange ? BostaDeliveryType.Exchange : BostaDeliveryType.Deliver,
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
       notes: [dto.notes, order.customerNotes].filter(Boolean).join(" |\n "),
@@ -198,8 +220,49 @@ export class BostaProvider extends ShippingProvider {
       // If you still want fallback per-admin (optional), you can add it later.
       webhookUrl,
       webhookCustomHeaders,
-      businessLocationId: order?.shippingMetadata?.locationId
+      businessLocationId: order?.shippingMetadata?.locationId,
+      returnSpecs: null,
     };
+
+
+    if (isExchange) {
+      let returnItemsCount = 0;
+      let totalReturnAmount;
+      let returnInstructions = "The Package details:\n";
+
+      if (order?.replacementResult?.items?.length) {
+        const itemLines = order?.replacementResult?.items.map(ri => {
+          returnItemsCount += ri.quantityToReplace;//Error
+          const originalItem = ri?.originalOrderItem;
+
+          if (originalItem) {
+            const qtyToCalc = Math.min(ri.quantityToReplace, originalItem.quantity);
+            totalReturnAmount += (Number(originalItem.unitPrice) || 0) * qtyToCalc;
+          }
+          const productName = ri.originalOrderItem?.variant?.product?.name || "Product";
+          const sku = ri.originalOrderItem?.variant?.sku;
+
+          return `- ${ri.quantityToReplace}x ${productName} (SKU: ${sku})`.trim();
+        });
+
+        returnInstructions += itemLines.join("\n");
+      } else {
+        returnItemsCount = itemsCount;
+        returnInstructions += `- ${returnItemsCount} item(s)`;
+      }
+
+      payload.returnSpecs = {
+        packageType: "Parcel",
+        size: dto.size || "SMALL",
+        packageDetails: {
+          itemsCount: returnItemsCount,
+          description: returnInstructions
+
+        }
+      };
+    }
+
+    return payload;
   }
 
 
@@ -217,6 +280,20 @@ export class BostaProvider extends ShippingProvider {
     };
   }
 
+  // --- File: backend/src/shipping/providers/bosta.provider.ts ---
+
+  verifyWebhookAuth(headers: any, _body: any, secret: string, headerName?: string): boolean {
+    // Fallback to 'x-bosta-signature' if no custom name is provided in credentials
+    const key = (headerName || 'Authorization').toLowerCase();
+
+    // Look up the header (case-insensitive check)
+    const incomingSecret = headers?.[key] ?? headers?.[key.toLowerCase()];
+
+    if (!incomingSecret) return false;
+
+    return String(incomingSecret).trim() === String(secret).trim();
+  }
+
   /**
    * ✅ Array of text describing what Bosta integration supports in YOUR system.
    * (Not “business features”, but integration capabilities your backend can do)
@@ -231,6 +308,8 @@ export class BostaProvider extends ShippingProvider {
       // later you can add: 'cancel_shipment', 'pickup_request', ...
     ];
   }
+
+
 
   /**
    * ✅ Dynamic capabilities endpoint.
@@ -266,7 +345,9 @@ export class BostaProvider extends ShippingProvider {
     };
   }
 
-  async verifyCredentials(apiKey: string): Promise<boolean> {
+  async verifyCredentials(apiKey: string, accountId: string): Promise<boolean> {
+    if (!apiKey) throw new BadRequestException('Missing apiKey');
+
     try {
       // We call a profile endpoint to check if the key is authorized.
       const url = `${this.baseUrl}/users/fullData`;
@@ -283,6 +364,29 @@ export class BostaProvider extends ShippingProvider {
       // If the status is 401 (Unauthorized), the key is definitely wrong
       return false;
     }
+  }
+
+  async getShipmentStatus(apiKey: string, trackingNumber: string): Promise<ProviderWebhookResult> {
+    const url = `${this.baseUrl}/deliveries/business/${trackingNumber}`;
+
+    const { data } = await firstValueFrom(
+      this.http.get(url, {
+        headers: { Authorization: apiKey }
+      })
+    );
+
+    if (!data.success || !data.data) {
+      throw new Error('Shipment not found in Bosta');
+    }
+
+    const shipment = data.data;
+
+    return {
+      unifiedStatus: this.mapBostaStateToUnified(Number(shipment.state.code)),
+      rawState: shipment.state.code,
+      trackingNumber: shipment.trackingNumber,
+      providerShipmentId: shipment._id,
+    };
   }
 
   private mapBostaStateToUnified(state: number): UnifiedShippingStatus {

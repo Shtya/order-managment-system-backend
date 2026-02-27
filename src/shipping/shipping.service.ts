@@ -1,5 +1,5 @@
 // --- File: backend/src/shipping/shipping.service.ts ---
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import * as crypto from 'crypto';
@@ -20,7 +20,7 @@ import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
 import { tenantId } from 'src/category/category.service';
-import { OrderEntity } from 'entities/order.entity';
+import { OrderEntity, OrderReplacementEntity } from 'entities/order.entity';
 import { ProductVariantEntity } from 'entities/sku.entity';
 
 @Injectable()
@@ -179,15 +179,19 @@ export class ShippingService {
 		if (!integ.isActive) throw new BadRequestException('Shipping company is disabled');
 
 		const apiKey = integ.credentials?.apiKey;
+
 		if (!apiKey) throw new BadRequestException('Provider credentials not configured (missing apiKey)');
 
 		return { apiKey, companyId: company.id, integId: integ.id, integ };
 	}
 
-	private async validateProviderConnection(provider, apiKey: string): Promise<void> {
+	private async validateProviderConnection(provider, integ: ShippingIntegrationEntity): Promise<void> {
 		const p = this.getProvider(provider);
 
-		const isValid = await p.verifyCredentials(apiKey);
+		const accountId = integ?.credentials?.accountId ? String(integ?.credentials?.accountId).trim() : (integ?.credentials?.accountId || undefined)
+		const apiKey = integ?.credentials?.apiKey;
+
+		const isValid = await p.verifyCredentials(apiKey, accountId);
 		if (!isValid) {
 			throw new BadRequestException(
 				`Unable to validate the integration to ${p.displayName}. This could be due to an invalid API key, or incorrect provider settings.`
@@ -204,22 +208,27 @@ export class ShippingService {
 
 		const next = {
 			...(integ.credentials || {}),
-			apiKey: String(credentials.apiKey || '').trim(),
+			apiKey: credentials.apiKey ? String(credentials.apiKey).trim() : (integ.credentials?.apiKey || undefined),
 			accountId: credentials.accountId ? String(credentials.accountId).trim() : (integ.credentials?.accountId || undefined),
 
 			// optional webhook config persistence
 			webhookHeaderName: credentials.webhookHeaderName ? String(credentials.webhookHeaderName).trim() : (integ.credentials?.webhookHeaderName || undefined),
 			webhookSecret: credentials.webhookSecret ? String(credentials.webhookSecret).trim() : (integ.credentials?.webhookSecret || undefined),
 		};
+
 		if (!next.apiKey) throw new BadRequestException('Missing apiKey');
 
+		await this.dataSource.transaction(async (manager) => {
 
-		await this.validateProviderConnection(provider, next.apiKey);
+			integ.credentials = next;
+			integ.isActive = true;
 
-		integ.credentials = next;
-		integ.isActive = true;
+			await manager.save(integ);
 
-		await this.integrationsRepo.save(integ);
+
+			await this.validateProviderConnection(provider, integ);
+
+		});
 
 		return {
 			ok: true,
@@ -233,6 +242,7 @@ export class ShippingService {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
 		const p = this.getProvider(provider);
 		const integ = await this.getOrCreateIntegration(adminId, company.id);
+
 		if (isActive) {
 			const apiKey = integ.credentials?.apiKey;
 			if (!apiKey) {
@@ -240,7 +250,7 @@ export class ShippingService {
 			}
 
 
-			await this.validateProviderConnection(provider, apiKey);
+			await this.validateProviderConnection(provider, integ);
 
 		}
 		integ.isActive = isActive;
@@ -335,7 +345,17 @@ export class ShippingService {
 		}
 		const order = await this.ordersRepo.findOne({
 			where: { id: orderId, adminId },
-			relations: ['items']
+			relations: [
+				'items',
+				'items.variant',
+				'items.variant.product',
+				'replacementResult',
+
+				'replacementResult.items',
+				'replacementResult.items.originalOrderItem',
+				'replacementResult.items.originalOrderItem.variant',
+				'replacementResult.items.originalOrderItem.variant.product'
+			]
 		});
 
 		if (!order) throw new BadRequestException("Order not found.");
@@ -404,6 +424,59 @@ export class ShippingService {
 				throw new BadRequestException(shipment.failureReason);
 			}
 
+		});
+	}
+
+	async cancelShipment(me, provider: string, shipmentId: number) {
+		const adminId = tenantId(me);
+		const p = this.getProvider(provider);
+		const { apiKey } = await this.requireApiKey(adminId, provider);
+
+		const shipment = await this.shipmentsRepo.findOne({
+			where: { id: shipmentId, adminId },
+			relations: ['order', 'order.items']
+		});
+
+		if (!shipment) throw new NotFoundException("Shipment not found.");
+		if (shipment.status === ShipmentStatus.CANCELLED) {
+			throw new BadRequestException("Shipment is already cancelled.");
+		}
+
+		return await this.dataSource.transaction(async (manager) => {
+			try {
+				const isCancelled = await p.cancelShipment(apiKey, shipment.providerShipmentId || shipment.trackingNumber);
+
+				if (!isCancelled) {
+					throw new Error("Provider refused to cancel the shipment.");
+				}
+
+				shipment.status = ShipmentStatus.CANCELLED;
+				shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
+				await manager.save(shipment);
+
+				for (const item of shipment.order.items) {
+					await manager.increment(
+						ProductVariantEntity,
+						{ id: item.variantId, adminId },
+						"stockOnHand",
+						item.quantity
+					);
+
+				}
+
+				return {
+					ok: true,
+					message: "Shipment cancelled successfully and stock restored.",
+					shipmentId: shipment.id,
+					status: shipment.unifiedStatus
+				};
+
+			} catch (e: any) {
+				shipment.failureReason = e?.message || 'Cancel shipment failed';
+				await manager.save(shipment);
+
+				throw new BadRequestException(`Cancellation Failed: ${shipment.failureReason}`);
+			}
 		});
 	}
 
@@ -534,51 +607,83 @@ export class ShippingService {
 	// Webhook processing (UPDATED multi-tenant auth)
 	// -----------------------
 	async handleWebhook(provider: string, body: any, headers?: Record<string, any>) {
-		const p = this.getProvider(provider);
-		const mapped = p.mapWebhookToUnified(body);
-
-		const shipment = await this.shipmentsRepo.findOne({
-			where: mapped.providerShipmentId
-				? { providerShipmentId: mapped.providerShipmentId }
-				: mapped.trackingNumber
-					? { trackingNumber: mapped.trackingNumber }
-					: ({} as any),
-		});
-
-		if (!shipment) return { ok: true, ignored: true, reason: 'shipment_not_found' };
+		try {
 
 
-		// Validate header per shipment.adminId + provider integration
-		const company = await this.companiesRepo.findOne({ where: { code: provider } });
-		if (!company) return { ok: true, ignored: true, reason: 'company_not_found' };
+			const p = this.getProvider(provider);
+			const mapped = p.mapWebhookToUnified(body);
 
-		const integ = await this.integrationsRepo.findOne({ where: { adminId: shipment.adminId, shippingCompanyId: company.id } });
+			const shipment = await this.shipmentsRepo.findOne({
+				where: mapped.providerShipmentId
+					? { providerShipmentId: mapped.providerShipmentId }
+					: mapped.trackingNumber
+						? { trackingNumber: mapped.trackingNumber }
+						: ({} as any),
+				relations: ['order', 'order.items']
+			});
 
-		const expectedName = (integ?.credentials?.webhookHeaderName || 'Authorization').toLowerCase();
-		const expectedValue = integ?.credentials?.webhookSecret;
+			if (!shipment) return { ok: true, ignored: true, reason: 'shipment_not_found' };
 
-		// If secret exists, require it
-		if (expectedValue) {
-			const incoming = headers?.[expectedName] ?? headers?.[expectedName.toLowerCase()];
-			if (!incoming || String(incoming) !== String(expectedValue)) {
-				return { ok: true, ignored: true, reason: 'auth_failed' };
+
+			// Validate header per shipment.adminId + provider integration
+			const company = await this.companiesRepo.findOne({ where: { code: provider } });
+			if (!company) return { ok: true, ignored: true, reason: 'company_not_found' };
+
+			const integ = await this.integrationsRepo.findOne({ where: { adminId: shipment.adminId, shippingCompanyId: company.id } });
+
+			// If secret exists, require it
+			const savedSecret = integ?.credentials?.webhookSecret;
+			const customHeaderName = integ?.credentials?.webhookHeaderName; // <--- Pull from DB
+
+			if (savedSecret) {
+				// Pass the custom header name to the provider
+				const isAuthed = p.verifyWebhookAuth(headers, body, savedSecret, customHeaderName);
+				if (!isAuthed) {
+					return { ok: true, ignored: true, reason: 'auth_failed' };
+				}
 			}
+			// تشغيل كل شيء داخل Transaction واحدة
+			await this.dataSource.transaction(async (manager) => {
+
+				if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
+					// 1. تحديث الحالات في حالة الإلغاء
+					shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
+					shipment.status = ShipmentStatus.CANCELLED;
+
+					// 2. إعادة المخزون
+					for (const item of shipment.order.items) {
+						await manager.increment(
+							ProductVariantEntity,
+							{ id: item.variantId, adminId: shipment.adminId },
+							"stockOnHand",
+							item.quantity
+						);
+					}
+				} else {
+					// تحديث طبيعي للحالات الأخرى
+					shipment.unifiedStatus = mapped.unifiedStatus;
+					shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
+				}
+
+				// 3. حفظ الشحنة (سواء كانت ملغاة أو حالة أخرى)
+				await manager.save(shipment);
+
+				// 4. تسجيل الحدث (Event) داخل نفس الـ Transaction
+				await manager.save(
+					manager.create(ShipmentEventEntity, {
+						shipmentId: shipment.id,
+						source: provider as any,
+						eventType: 'status_changed',
+						payload: body,
+					}),
+				);
+			});
+
+
+			return { ok: true };
+		} catch (e) {
+			console.log(e)
 		}
-
-		shipment.unifiedStatus = mapped.unifiedStatus;
-		shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
-		await this.shipmentsRepo.save(shipment);
-
-		await this.eventsRepo.save(
-			this.eventsRepo.create({
-				shipmentId: shipment.id,
-				source: provider as any,
-				eventType: 'status_changed',
-				payload: body,
-			}),
-		);
-
-		return { ok: true };
 	}
 
 	private mapUnifiedToLegacy(u: UnifiedShippingStatus): ShipmentStatus {

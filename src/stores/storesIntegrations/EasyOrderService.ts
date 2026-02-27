@@ -1,25 +1,28 @@
 import { Injectable, InternalServerErrorException, forwardRef, Inject, NotFoundException, UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
-import { AxiosRequestConfig } from "axios";
-import { BaseStoreService } from "./BaseStoreService";
+import axios, { AxiosRequestConfig } from "axios";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto } from "./BaseStoreProvider";
 import { CategoryEntity } from "entities/categories.entity";
 import { InjectRepository } from "@nestjs/typeorm";
 import { StoresService } from "../stores.service";
 import { EncryptionService } from "common/encryption.service";
-import { MoreThan, Repository } from "typeorm";
+import { EntityManager, MoreThan, Repository } from "typeorm";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { v4 as uuidv4 } from 'uuid'; // You might need to install uuid: npm i uuid @types/uuid
 import { OrderEntity, OrderStatus, OrderStatusEntity, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { OrdersService } from "src/orders/services/orders.service";
-import { CreateOrderDto } from "dto/order.dto";
 import { RedisService } from "common/redis/RedisService";
-import { CreateProductDto, CreateSkuItemDto, UpdateProductDto, UpsertProductSkusDto } from "dto/product.dto";
 import { ProductsService } from "src/products/products.service";
 import { CategoriesService } from "src/category/category.service";
+import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
+import { AppGateway } from "common/app.gateway";
 
 @Injectable()
-export class EasyOrderService extends BaseStoreService {
+export class EasyOrderService extends BaseStoreProvider {
 
+    code: StoreProvider = StoreProvider.EASYORDER;
+    displayName: string = "EasyOrder";
+    baseUrl: string = process.env.EASY_ORDER_BASE_URL || "https://api.easy-orders.net/api/v1";
     constructor(
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(OrderStatusEntity) protected readonly statusRepo: Repository<OrderStatusEntity>,
@@ -27,16 +30,19 @@ export class EasyOrderService extends BaseStoreService {
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
 
+        @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
         @Inject(forwardRef(() => OrdersService))
         protected readonly ordersService: OrdersService,
-        @Inject(forwardRef(() => ProductsService)) private readonly productsService: ProductsService,
+        @Inject(forwardRef(() => ProductsService))
+        private readonly productsService: ProductsService,
         @Inject(forwardRef(() => CategoriesService))
         private readonly categoriesService: CategoriesService,
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
+        private readonly appGateway: AppGateway,
     ) {
-        super(storesRepo, categoryRepo, encryptionService, mainStoresService, process.env.EASY_ORDER_BASE_URL, 40, StoreProvider.EASYORDER)
+        super(storesRepo, categoryRepo, encryptionService, mainStoresService, 40, StoreProvider.EASYORDER)
     }
 
 
@@ -51,7 +57,7 @@ export class EasyOrderService extends BaseStoreService {
 
         // if (!apiKey) {
         // 2. Cache miss: Decrypt and save to Redis with a TTL (e.g., 1 hour)
-        const keys = await this.mainStoresService.getDecryptedIntegrations(store);
+        const keys = store?.credentials;
 
         if (!keys.apiKey) {
             throw new InternalServerErrorException(`Missing API Key for store ${store.name}`);
@@ -92,8 +98,7 @@ export class EasyOrderService extends BaseStoreService {
             where: {
                 adminId: cleanAdminId,
                 provider: StoreProvider.EASYORDER,
-                isActive: true, // Only sync to active stores
-                autoSync: true, // Check if the user enabled automatic sync
+                isActive: true // Only sync to active store
             },
         });
         return store;
@@ -229,7 +234,6 @@ export class EasyOrderService extends BaseStoreService {
         const searchFilters = [`slug||eq||${checkSlug.trim()}`];
         const existingCategories = await this.getAllCategories(activeStore, searchFilters);
 
-
         const remoteCategory = existingCategories?.length > 0 ? existingCategories[0] : null;
 
         if (remoteCategory) {
@@ -303,11 +307,12 @@ export class EasyOrderService extends BaseStoreService {
         return categoryMap;
     }
 
-    public async syncExternalCategory(user: any, remoteCategory: any): Promise<number | null> {
+    public async syncExternalCategory(user: any, remoteCategory: any, manager?: EntityManager): Promise<number | null> {
         if (!remoteCategory || !remoteCategory.slug) return null;
 
         // Check if category exists locally by slug
-        let category = await this.categoryRepo.findOne({
+        const categoryRepo = manager ? manager.getRepository(CategoryEntity) : this.categoryRepo;
+        let category = await categoryRepo.findOne({
             where: { adminId: user.adminId, slug: remoteCategory.slug }
         });
 
@@ -323,8 +328,6 @@ export class EasyOrderService extends BaseStoreService {
         }
         return category.id;
     }
-
-
 
 
     // ===========================================================================
@@ -629,12 +632,12 @@ export class EasyOrderService extends BaseStoreService {
                         await this.createProduct(product, product.variants, store, extCatId);
                         totalCreated++;
                     }
+                    totalProcessed++;
                 } catch (error) {
                     this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${error.message}`, store);
                     totalErrors++;
                 }
 
-                totalProcessed++;
             }
 
             lastId = localBatch[localBatch.length - 1].id;
@@ -642,16 +645,9 @@ export class EasyOrderService extends BaseStoreService {
 
         this.logCtx(`[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
     }
-    private async syncExternalProductToLocal(adminId: string, store: StoreEntity, externalProductId: string): Promise<ProductEntity> {
+    private async syncExternalProductToLocal(adminId: string, store: StoreEntity, remoteProduct: any, manager: EntityManager): Promise<ProductEntity> {
 
         // A. Fetch Full Details from External API
-        let remoteProduct;
-
-        const response = await this.sendRequest(store, {
-            method: 'GET',
-            url: `/products/${externalProductId}`
-        });
-        remoteProduct = response;
 
         const userContext = {
             id: store.adminId, // Owner ID
@@ -697,7 +693,7 @@ export class EasyOrderService extends BaseStoreService {
             }];
         }
 
-        const localCategoryId = await this.syncExternalCategory(userContext, remoteProduct.category);
+        const localCategoryId = await this.syncExternalCategory(userContext, remoteProduct.category, manager);
         // B. Map Remote Data to DTO
         const productDto: CreateProductDto = {
             name: remoteProduct.name,
@@ -714,7 +710,8 @@ export class EasyOrderService extends BaseStoreService {
 
         };
 
-        const existingProduct = await this.productsRepo.findOne({
+        const productsRepository = manager.getRepository(ProductEntity);
+        const existingProduct = await productsRepository.findOne({
             where: { adminId, slug: productDto.slug }
         });
 
@@ -723,8 +720,18 @@ export class EasyOrderService extends BaseStoreService {
         if (existingProduct) {
             this.logger.log(`[Reverse Sync] Updating existing product: ${existingProduct.slug}`);
 
-            const updateDto: UpdateProductDto = { ...productDto };
-            savedProduct = await this.productsService.update(userContext, existingProduct.id, updateDto);
+            // Merge updated data using manager
+            manager.merge(ProductEntity, existingProduct, {
+                name: productDto.name,
+                slug: productDto.slug,
+                description: productDto.description,
+                wholesalePrice: productDto.wholesalePrice,
+                lowestPrice: productDto.lowestPrice,
+                storeId: productDto.storeId,
+                categoryId: productDto.categoryId,
+                mainImage: productDto.mainImage
+            });
+            savedProduct = await productsRepository.save(existingProduct);
 
 
             if (productDto.combinations && productDto.combinations.length > 0) {
@@ -735,15 +742,95 @@ export class EasyOrderService extends BaseStoreService {
                     })) as any
                 };
 
-                await this.productsService.upsertSkus(userContext, existingProduct.id, upsertDto);
+                await this.productsService.upsertSkus(userContext, savedProduct.id, upsertDto);
             }
 
         } else {
             this.logger.log(`[Reverse Sync] Creating new product: ${productDto.slug}`);
-            savedProduct = await this.productsService.create(userContext, productDto);
+            // Create product entity using manager
+            const newProduct = manager.create(ProductEntity, {
+                name: productDto.name,
+                slug: productDto.slug,
+                description: productDto.description,
+                wholesalePrice: productDto.wholesalePrice,
+                lowestPrice: productDto.lowestPrice,
+                storeId: productDto.storeId,
+                categoryId: productDto.categoryId,
+                mainImage: productDto.mainImage,
+                adminId: adminId
+            });
+            savedProduct = await productsRepository.save(newProduct);
         }
 
-        return await this.productsService.get(userContext, savedProduct.id);
+        return savedProduct;
+    }
+
+    private mapRemoteProductToUnified(remoteProduct: any): UnifiedProductDto {
+        let variants: UnifiedProductVariantDto[] = [];
+
+        if (remoteProduct.variants && remoteProduct.variants.length > 0) {
+            variants = remoteProduct.variants.map((v: any, index: number) => {
+                const attributes =
+                    v.variation_props?.reduce(
+                        (acc: Record<string, string>, p: any) => ({
+                            ...acc,
+                            [p.variation]: p.variation_prop,
+                        }),
+                        {},
+                    ) || {};
+
+                const sku = v.sku || v.taager_code || null;
+                let key = this.productsService.canonicalKey(attributes);
+                if (!key && sku) {
+                    key = sku;
+                } else if (!key) {
+                    key = `variant_${remoteProduct.slug}_${index}`;
+                }
+
+                return {
+                    sku,
+                    price: v.price,
+                    stockOnHand: v.quantity || 0,
+                    attributes,
+                    key,
+                };
+            });
+        } else {
+            const sku = remoteProduct.sku || remoteProduct.taager_code || null;
+            const key = sku || `simple_${remoteProduct.slug}`;
+
+            variants = [
+                {
+                    sku,
+                    price: remoteProduct.price,
+                    stockOnHand: remoteProduct.quantity || 0,
+                    attributes: {},
+                    key,
+                },
+            ];
+        }
+
+        const images: string[] = (remoteProduct.images || []).map((url: string) => url);
+
+        const category = remoteProduct.category
+            ? {
+                slug: remoteProduct.category.slug,
+                name: remoteProduct.category.name || remoteProduct.category.slug,
+                thumb: remoteProduct.category.thumb || null,
+            }
+            : null;
+
+        return {
+            externalId: remoteProduct.id ? String(remoteProduct.id) : undefined,
+            name: remoteProduct.name,
+            slug: remoteProduct.slug,
+            description: remoteProduct.description,
+            basePrice: remoteProduct.price,
+            mainImage: remoteProduct.thumb || images[0] || "",
+            images,
+            category,
+            variants,
+        };
     }
 
     // ===========================================================================
@@ -801,7 +888,7 @@ export class EasyOrderService extends BaseStoreService {
         const activeStore = await this.getStoreForSync(product.adminId);
 
         if (!activeStore) {
-            this.logCtxWarn(`[Sync] Skipping sync: No active store with autoSync enabled`, activeStore, product.adminId);
+            this.logCtxWarn(`[Sync] Skipping sync: No active store enabled`, activeStore, product.adminId);
             return;
         }
 
@@ -815,10 +902,7 @@ export class EasyOrderService extends BaseStoreService {
 
             // ⚡ REQUIREMENT 1: Check existence by Slug
             const checkSlug = slug ? slug : product.slug;
-            this.logCtx(`[Sync] Checking if product exists with slug: ${checkSlug}`, activeStore);
-            const searchFilters = [`slug||eq||${checkSlug.trim()}`];
-            const existingProducts = await this.getAllProducts(activeStore, searchFilters);
-            const remoteProduct = existingProducts?.length > 0 ? existingProducts[0] : null;
+            const remoteProduct = await this.fetchRemoteProductBySlug(activeStore, checkSlug);
 
             if (remoteProduct) {
                 this.logCtx(`[Sync] Product already exists externally (ID: ${remoteProduct.id}), updating...`, activeStore);
@@ -832,7 +916,21 @@ export class EasyOrderService extends BaseStoreService {
             throw error;
         }
     }
+    /**
+     * Reusable helper to fetch a single remote product from Easy Order using filters.
+     */
+    private async fetchRemoteProductBySlug(store: StoreEntity, slug: string): Promise<any | null> {
+        const cleanSlug = slug.trim();
+        const searchFilters = [`slug||eq||${cleanSlug}`];
 
+        try {
+            const existingProducts = await this.getAllProducts(store, searchFilters);
+            return existingProducts?.length > 0 ? existingProducts[0] : null;
+        } catch (error) {
+            this.logger.error(`[EasyOrder] Failed to fetch product by slug ${cleanSlug}: ${error.message}`);
+            return null;
+        }
+    }
 
     /**
      * Main entry point for syncing order status to all applicable stores
@@ -843,7 +941,7 @@ export class EasyOrderService extends BaseStoreService {
         try {
             const store = await this.getStoreForSync(order.adminId);
             if (!store) {
-                this.logCtxWarn(`[Sync] Skipping order status sync: No active store with autoSync enabled`, null, order.adminId);
+                this.logCtxWarn(`[Sync] Skipping order status sync: No active store enabled`, null, order.adminId);
                 return;
             }
 
@@ -898,6 +996,15 @@ export class EasyOrderService extends BaseStoreService {
             this.logCtx(`[Sync] ========================================`, store);
             this.logCtx(`[Sync] ✓ FULL STORE SYNC COMPLETED in ${(syncDuration / 1000).toFixed(2)}s`, store);
             this.logCtx(`[Sync] ========================================`, store);
+
+            // Notify admin via websocket about the new sync status
+            if (store.adminId) {
+                this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+                    storeId: store.id,
+                    provider: store.provider,
+                    status: SyncStatus.SYNCED,
+                });
+            }
         } catch (error) {
             this.logCtxError(`[Sync] ========================================`, store);
             this.logCtxError(`[Sync] ✗ FULL STORE SYNC FAILED`, store);
@@ -907,170 +1014,27 @@ export class EasyOrderService extends BaseStoreService {
             await this.storesRepo.update(store.id, {
                 syncStatus: SyncStatus.FAILED,
             });
-        }
-    }
 
-
-    // ===========================================================================
-    // WEBHOOK: HANDLE NEW ORDER
-    // ===========================================================================
-    public async handleWebhookOrderCreate(adminId: number, secret: string, payload: any) {
-        // Validate Security
-        const store = await this.validateWebhookSecret(adminId, secret, "CREATE_ORDER");
-
-        const existingOrder = await this.ordersService.findByExternalId(payload.id);
-        if (existingOrder) return;
-        const uniqueExternalIds = [...new Set(payload.cart_items.map((item: any) => item.product_id))];
-
-        this.logCtx(`[Webhook] Syncing ${uniqueExternalIds.length} unique products for Order ${payload.id}...`, store);
-
-        // We create a Map: External_ID -> Local_Product_Entity
-        const productMap = new Map<string, any>();
-
-
-        await Promise.all(
-            uniqueExternalIds.map(async (extId) => {
-                try {
-                    const localProd = await this.syncExternalProductToLocal(
-                        String(adminId),
-                        store,
-                        String(extId)
-                    );
-                    productMap.set(String(extId), localProd);
-                } catch (error) {
-                    this.logCtxError(`Failed to sync product ${extId} for order: ${error.message}`, store);
-                    throw new Error(error.message)
-                }
-            })
-        );
-
-        const items = [];
-
-        for (const item of payload.cart_items) {
-
-            const localProduct = productMap.get(String(item.product_id));
-
-            let matchedVariant = null;
-
-            if (item.variant) {
-                const payloadAttrs: Record<string, string> = {};
-                if (item.variant?.variation_props) {
-                    item.variant.variation_props.forEach(p => payloadAttrs[p.variation] = p.variation_prop);
-                }
-                const payloadKey = this.productsService.canonicalKey(payloadAttrs); // Reuse helper
-
-                matchedVariant = localProduct.skus.find(v => v.key === payloadKey);
-            }
-
-            // Fallback: If no variant found (or simple product), take the first variant (default)
-            if (!matchedVariant && localProduct.skus?.length > 0) {
-                matchedVariant = localProduct.skus.find(v => v.key === 'default') || localProduct.skus[0];
-            }
-
-            if (!matchedVariant && localProduct.skus?.length === 0) {
-                throw new BadRequestException(`Failed to map variant for product ${localProduct.name}`);
-            }
-
-            if (matchedVariant) {
-                items.push({
-                    variantId: matchedVariant.id, // Internal Database ID
-                    quantity: item.quantity,
-                    unitPrice: item.price,
-                    unitCost: 0
+            if (store.adminId) {
+                this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+                    storeId: store.id,
+                    provider: store.provider,
+                    status: SyncStatus.FAILED,
                 });
-            } else {
-                this.logCtxWarn(`Could not resolve variant for product ID: ${item.product_id}`, store);
             }
         }
-
-        // 4. Create Order
-        const createOrderDto: CreateOrderDto = {
-            customerName: payload.full_name,
-            phoneNumber: payload.phone,
-            address: payload.address,
-            city: payload.government || "Unknown",
-            paymentMethod: this.mapPaymentMethod(payload.payment_method),
-            paymentStatus: payload.status === 'paid' ? PaymentStatus.PAID : PaymentStatus.PENDING,
-            shippingCost: payload.shipping_cost || 0,
-            shippingCompanyId: null,
-            discount: 0,
-            items: items,
-            notes: `Imported from EasyOrder (Store: ${store.name})`,
-            storeId: String(store.id),
-
-        };
-
-        const User = { id: store.adminId, role: { name: 'admin' } };
-        const newOrder = await this.ordersService.create(User, createOrderDto);
-        await this.ordersService.updateExternalId(newOrder.id, payload.id);
-
-        this.logCtx(`Successfully imported Order ${newOrder.orderNumber}`, store);
     }
 
+
     // ===========================================================================
-    // WEBHOOK: HANDLE STATUS UPDATE
+    // WEBHOOK
     // ===========================================================================
-    public async handleWebhookStatusUpdate(adminId: number, secret: string, payload: any) {
-        // Validate Security
-        const store = await this.validateWebhookSecret(adminId, secret, "UPDATE_ORDER_STATUS");
-
-        const externalOrderId = payload.order_id;
-        const order = await this.ordersService.findByExternalId(externalOrderId);
-
-        if (!order) {
-            this.logCtxWarn(`Received status update for unknown order ${externalOrderId}`, store);
-            return;
-        }
-
-        // 3. Map Status
-        const newStatus = this.mapExternalStatusToInternal(payload.new_status);
-        const statusEntity = await this.ordersService.findStatusByCode(newStatus, adminId.toString())
-        if (order.status.code === newStatus) return;
-        if (!newStatus) {
-            this.logCtxWarn(`Unknown external status: ${payload.new_status}`, store);
-            return;
-        }
-
-        // 4. Update Status
-        const User = { id: store.adminId, role: { name: 'admin' } };
-
-        await this.ordersService.changeStatus(User, order.id, {
-            statusId: statusEntity.id,
-            notes: `Status updated via Webhook from ${payload.old_status} to ${payload.new_status}`
-        });
-    }
-    // ===========================================================================
-    // HELPERS
-    // ===========================================================================
-
-    private async validateWebhookSecret(adminId: number, incomingSecret: string, action: "CREATE_ORDER" | "UPDATE_ORDER_STATUS"): Promise<StoreEntity> {
-        const store = await this.storesRepo.findOne({ where: { adminId: adminId.toString(), provider: StoreProvider.EASYORDER } });
-
-        if (!store) {
-            throw new NotFoundException(`Store not found`);
-        }
-
-        const credentials = await this.mainStoresService.getDecryptedIntegrations(store);
-
-        if (!credentials) {
-            throw new NotFoundException(`Cannot find store credentials for ${store.id}`);
-        }
-        const storedSecret = action === 'CREATE_ORDER' ? credentials.webhookCreateOrderSecret : credentials.webhookUpdateStatusSecret;
-
-        if (storedSecret !== incomingSecret) {
-            this.logger.error(`Webhook signature mismatch for store ${store.id}`);
-            throw new UnauthorizedException("Invalid Webhook Secret");
-        }
-
-        return store;
-    }
-
     private mapPaymentMethod(method: string): PaymentMethod {
         switch (method?.toLowerCase()) {
             case 'cod': return PaymentMethod.CASH_ON_DELIVERY;
             case 'card': return PaymentMethod.CARD;
             case 'cash': return PaymentMethod.CASH;
-            default: return PaymentMethod.CASH_ON_DELIVERY;
+            default: return PaymentMethod.UNKNOWN;
         }
     }
 
@@ -1127,5 +1091,108 @@ export class EasyOrderService extends BaseStoreService {
         return map[internalStatus] || null;
     }
 
+    public verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any): boolean {
+        const incomingSecret = headers['secret'];
+        const savedSecret = store?.credentials?.webhookUpdateStatusSecret;
+        if (!incomingSecret || incomingSecret !== savedSecret) {
+            return false;
+        }
+        return true;
+    }
+    public mapWebhookUpdate(body: any): WebhookOrderUpdatePayload {
+        const externalStatus = body.new_status;
+        const internalStatus = this.mapExternalStatusToInternal(externalStatus);
+        if (!internalStatus) {
+            return null;
+        }
+        return {
+            externalId: body.order_id,
+            remoteStatus: externalStatus,
+            mappedStatus: internalStatus
+        };
+    }
+    public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
+        return {
+            externalId: String(body.id),
+            full_name: body.full_name,
+            phone: body.phone,
+            address: body.address,
+            government: body.government || "Unknown",
+            // Reuse your existing internal mapping logic for payment
+            payment_method: this.mapPaymentMethod(body.payment_method),
+            status: body.status === 'paid' ? PaymentStatus.PAID : PaymentStatus.PENDING,
+            shipping_cost: body.shipping_cost || 0,
+
+            cart_items: (body.cart_items || []).map((item: any) => ({
+                product_slug: String(item.product?.slug),
+                quantity: Number(item.quantity),
+                price: Number(item.price),
+                variant: item.variant ? {
+                    variation_props: (item.variant.variation_props || []).map((p: any) => ({
+                        // Mapping legacy "variation/variation_prop" to new "name/value"
+                        name: p.variation,
+                        value: p.variation_prop
+                    }))
+                } : undefined
+            }))
+        };
+    }
+
+    async validateProviderConnection(store: StoreEntity): Promise<boolean> {
+        const apiKey = store?.credentials?.apiKey;
+        if (!apiKey) return false;
+
+        try {
+            const response = await axios.get(`${this.baseUrl}/categories/`, {
+                headers: {
+                    "Api-Key": apiKey,
+                    'Accept': 'application/json',
+                },
+                timeout: 5000, // 5 second timeout to keep the transaction fast
+            });
+
+            // If we get a 200-299 status, the key is valid
+            return response.status >= 200 && response.status < 300;
+        } catch (error) {
+            // If the error is 401 (Unauthorized) or 403 (Forbidden), the credentials are wrong
+            if (error.response?.status === 401 || error.response?.status === 403) {
+                return false;
+            }
+            // For other errors (network, 500), you might want to throw or log
+            this.logger.error(`EasyOrder connection check failed: ${error.message}`);
+            return false;
+        }
+    }
+
+
+    public async syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void> {
+        const adminId = store.adminId;
+
+        if (!slugs || slugs.length === 0) {
+            this.logger.warn(`[Reverse Sync] No slugs provided to sync for store: ${store.storeUrl}`);
+            return;
+        }
+
+        for (const slug of slugs) {
+            try {
+                // 1. Fetch one by one using our helper
+                const remoteProduct = await this.fetchRemoteProductBySlug(store, slug);
+
+                if (!remoteProduct) {
+                    this.logger.warn(`[Reverse Sync] Product with slug ${slug} not found on provider.`);
+                    continue;
+                }
+
+                // 2. Map to unified payload and delegate to shared sync logic
+                const unified = this.mapRemoteProductToUnified(remoteProduct);
+                await this.mainStoresService.syncExternalProductPayloadToLocal(adminId, store, unified, manager);
+
+                this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
+            } catch (error) {
+                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${error.message}`);
+            }
+        }
+    }
 }
+
 
