@@ -75,4 +75,11 @@ export class StoreQueueService {
             storeId: store.id,
         }, { jobId });
     }
+
+    async enqueueRetryFailedOrder(adminId: string, failureId: number, provider: StoreProvider) {
+        const jobId = `retry-failed-order:${failureId}`;
+        await this.addJob(adminId, "retry-failed-order", provider, {
+            failureId,
+        }, { jobId });
+    }
 }

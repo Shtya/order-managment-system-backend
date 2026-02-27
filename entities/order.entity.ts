@@ -110,6 +110,9 @@ export enum PaymentMethod {
   CARD = "card",
   BANK_TRANSFER = "bank_transfer",
   CASH_ON_DELIVERY = "cod",
+  OTHER = "other",
+  WALLET = "wallet",
+  UNKNOWN = "unknown",
 }
 
 // ✅ Main Order Entity
@@ -247,6 +250,9 @@ export class OrderEntity {
 
   @UpdateDateColumn({ type: "timestamptz" })
   updated_at!: Date;
+
+  @Column({ default: false })
+  isReplacement: boolean;
 
   @OneToOne('OrderReplacementEntity', 'originalOrder', { nullable: true })
   replacementRequest: Relation<OrderReplacementEntity>;

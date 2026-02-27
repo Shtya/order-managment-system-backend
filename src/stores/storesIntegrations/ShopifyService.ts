@@ -1,5 +1,9 @@
+/**
+ * Fetch a Shopify product by slug (handle) with all details needed for local sync
+ */
+
 import { forwardRef, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { BaseStoreService } from "./BaseStoreService";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
@@ -11,21 +15,26 @@ import { CategoriesService } from "src/category/category.service";
 import { RedisService } from "common/redis/RedisService";
 import { EncryptionService } from "common/encryption.service";
 import { MoreThan, Repository } from "typeorm";
-import { OrderEntity } from "entities/order.entity";
+import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import * as crypto from 'crypto';
 import { ApolloClient, InMemoryCache, HttpLink, gql, ObservableQuery } from '@apollo/client/core';
 import fetch from 'cross-fetch';
+import axios from "axios";
+import { AppGateway } from "common/app.gateway";
 
 @Injectable()
-export class ShopifyService extends BaseStoreService {
+export class ShopifyService extends BaseStoreProvider {
 
+    code: StoreProvider = StoreProvider.SHOPIFY;
+    displayName: string = "Shopify";
+    baseUrl: string = process.env.SHOPIFY_BASE_URL || "https://api.easy-orders.net/api/v1";
 
     constructor(
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
-
+        @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
         @Inject(forwardRef(() => OrdersService))
         protected readonly ordersService: OrdersService,
@@ -35,8 +44,9 @@ export class ShopifyService extends BaseStoreService {
 
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
+        private readonly appGateway: AppGateway,
     ) {
-        super(storesRepo, categoryRepo, encryptionService, mainStoresService, process.env.EASY_ORDER_BASE_URL, 400, StoreProvider.SHOPIFY)
+        super(storesRepo, categoryRepo, encryptionService, mainStoresService, 400, StoreProvider.SHOPIFY)
 
     }
 
@@ -67,12 +77,11 @@ export class ShopifyService extends BaseStoreService {
             where: {
                 adminId: cleanAdminId,
                 provider: StoreProvider.SHOPIFY,
-                isActive: true,
-                autoSync: true,
+                isActive: true
             },
         });
         if (!store) {
-            this.logger.debug(`Skipping sync for admin ${cleanAdminId}: No active Shopify store with autoSync enabled.`);
+            this.logger.debug(`Skipping sync for admin ${cleanAdminId}: No active Shopify store enabled.`);
             return null;
         }
 
@@ -96,7 +105,7 @@ export class ShopifyService extends BaseStoreService {
                 url: `${frontendBaseUrl}/store-integration?error=shopify_store_not_found&shop=${encodeURIComponent(shop)}`
             };
         }
-        const keys = await this.mainStoresService.getDecryptedIntegrations(store);
+        const keys = store?.credentials;
 
         const message = Object.keys(params)
             .sort()
@@ -129,14 +138,14 @@ export class ShopifyService extends BaseStoreService {
         if (!accessToken) {
             this.logCtx(`[Shopify] No access token found for ${store.id}. Generating new one...`, store);
         }
-        const keys = await this.mainStoresService.getDecryptedIntegrations(store);
+        const keys = store?.credentials;
         // Note: Using storeUrl as the base for the token request
         const tokenUrl = `https://${store.storeUrl}/admin/oauth/access_token`;
 
 
         const body = new URLSearchParams({
             grant_type: 'client_credentials',
-            client_id: keys.clientKey, // client_id
+            client_id: keys.apiKey, // client_id
             client_secret: keys.clientSecret // client_secret
         }).toString();
 
@@ -166,12 +175,20 @@ export class ShopifyService extends BaseStoreService {
     /**
      * Run a Shopify GraphQL query using the official client and centralized limiter.
      */
+    protected getShopifyGraphQLEndpoint(storeUrl: string): string {
+        const shopHost = storeUrl
+            .trim()
+            .replace(/^https?:\/\//, '') // Remove http:// or https://
+            .replace(/\/$/, '');         // Remove trailing slash /
+
+        return `https://${shopHost}/admin/api/2026-01/graphql.json`;
+    }
+
     protected async runGraphQL(store: StoreEntity, isMutation = false, query: string, variables?: Record<string, any>, attempt = 0): Promise<any> {
         if (!store) throw new Error('Store is required for runGraphQL');
 
         const accessToken = await this.getAccessToken(store);
-        const shopHost = store.storeUrl.replace(/^https?:\/\//, '').replace(/\/$/, '');
-        const url = `https://${shopHost}/admin/api/2026-01/graphql.json`;
+        const url = this.getShopifyGraphQLEndpoint(store.storeUrl);
 
         // 1. Configure the Apollo Client for this specific store
         const client = new ApolloClient({
@@ -191,7 +208,7 @@ export class ShopifyService extends BaseStoreService {
             },
         });
 
-        // 2. Execute with your BaseStoreService Limiter
+        // 2. Execute with your BaseStoreProvider Limiter
         return this.executeWithLimiter(String(store.adminId), async () => {
             try {
                 // Detect if this is a mutation or query
@@ -1067,12 +1084,12 @@ export class ShopifyService extends BaseStoreService {
                 try {
 
                     await this.syncProduct({ product, variants: product.variants, slug: product.slug })
+                    totalProcessed++;
                 } catch (error) {
                     this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${error.message}`, store);
                     totalErrors++;
                 }
 
-                totalProcessed++;
             }
 
             lastId = localBatch[localBatch.length - 1].id;
@@ -1119,7 +1136,7 @@ export class ShopifyService extends BaseStoreService {
         const activeStore = await this.getStoreForSync(product.adminId);
 
         if (!activeStore) {
-            this.logCtxWarn(`[Sync] Skipping sync: No active store with autoSync enabled`, activeStore, product.adminId);
+            this.logCtxWarn(`[Sync] Skipping sync: No active store enabled`, activeStore, product.adminId);
             return;
         }
 
@@ -1225,6 +1242,14 @@ export class ShopifyService extends BaseStoreService {
             this.logCtx(`[Sync] ========================================`, store);
             this.logCtx(`[Sync] ✓ FULL STORE SYNC COMPLETED in ${(syncDuration / 1000).toFixed(2)}s`, store);
             this.logCtx(`[Sync] ========================================`, store);
+
+            if (store.adminId) {
+                this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+                    storeId: store.id,
+                    provider: store.provider,
+                    status: SyncStatus.SYNCED,
+                });
+            }
         } catch (error) {
             this.logCtxError(`[Sync] ========================================`, store);
             this.logCtxError(`[Sync] ✗ FULL STORE SYNC FAILED`, store);
@@ -1234,7 +1259,525 @@ export class ShopifyService extends BaseStoreService {
             await this.storesRepo.update(store.id, {
                 syncStatus: SyncStatus.FAILED,
             });
+
+            if (store.adminId) {
+                this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+                    storeId: store.id,
+                    provider: store.provider,
+                    status: SyncStatus.FAILED,
+                });
+            }
         }
     }
 
+    // ===========================================================================
+    // WEBHOOK
+    // ===========================================================================
+
+    private mapExternalStatusToInternal(financial: string, fulfillment: string | null, confirmed: boolean): OrderStatus | null {
+        // Normalize null fulfillment to 'unfulfilled'
+        const fulfillStatus = fulfillment || 'unfulfilled';
+
+        // 1. Terminal / Cancellation States
+        if (fulfillStatus === 'request_declined') {
+            return OrderStatus.CANCELLED;
+        }
+        if (['refunded', 'partially_refunded'].includes(financial)) {
+            return OrderStatus.RETURNED;
+        }
+
+        // 2. Fulfillment Progression (Overrides financial status)
+        if (fulfillStatus === 'fulfilled') return OrderStatus.DELIVERED;
+        if (fulfillStatus === 'shipped') return OrderStatus.SHIPPED;
+        if (['partial', 'scheduled'].includes(fulfillStatus)) return OrderStatus.PREPARING;
+        if (fulfillStatus === 'on_hold') return OrderStatus.POSTPONED;
+
+        // 3. Initial / Financial Stages (When unfulfilled/unshipped)
+
+        return confirmed ? OrderStatus.CONFIRMED : OrderStatus.CONFIRMED;
+
+        if (financial === 'pending') {
+            return OrderStatus.NEW;
+        }
+
+        return null;
+    }
+
+    public verifyWebhookAuth(
+        headers: Record<string, any>,
+        body: any,
+        store: StoreEntity,
+        req?: any
+    ): boolean {
+
+        const savedSecret = store?.credentials?.webhookSecret;
+        if (!savedSecret) return false;
+
+        const shopifyHmac = headers['x-shopify-hmac-sha256'];
+        if (!shopifyHmac) return false;
+
+        // MUST use raw body buffer
+        const rawBody = req?.rawBody;
+
+        if (!rawBody) return false;
+
+        const generatedHash = crypto
+            .createHmac('sha256', savedSecret)
+            .update(rawBody, 'utf8')
+            .digest('base64');
+
+        return crypto.timingSafeEqual(
+            Buffer.from(generatedHash),
+            Buffer.from(shopifyHmac)
+        );
+    }
+    public mapWebhookUpdate(body: any): WebhookOrderUpdatePayload | null {
+        const financialStatus = body.financial_status; // e.g., 'paid', 'pending'
+        const fulfillmentStatus = body.fulfillment_status; // e.g., 'fulfilled', null
+
+        const internalStatus = this.mapExternalStatusToInternal(financialStatus, fulfillmentStatus, body?.confirmed);
+
+        if (!internalStatus) {
+            return null;
+        }
+
+        return {
+            externalId: String(body.id),
+            // Store both as a combined string so you know exactly what happened on Shopify's end
+            remoteStatus: `${financialStatus}/${fulfillmentStatus || 'null'}`,
+            mappedStatus: internalStatus
+        };
+    }
+
+    public async fetchRemoteProducts(store: StoreEntity, ids: string[]): Promise<any[]> {
+        if (!ids || ids.length === 0) return [];
+
+        const gids = ids.map(id => id.startsWith('gid://') ? id : `gid://shopify/Product/${id}`);
+
+        const query = `
+        query getProductsByIds($ids: [ID!]!) {
+            nodes(ids: $ids) {
+                ... on Product {
+                    id
+                    handle
+                    title
+                    variants(first: 100) {
+                        nodes {
+                            id
+                            selectedOptions {
+                                name
+                                value
+                            }
+                        }
+                    }
+                }
+            }
+        }`;
+
+        try {
+            const response = await this.runGraphQL(store, false, query, { ids: gids });
+            return (response?.nodes || []).filter(n => n !== null);
+        } catch (error) {
+            this.logger.error(`[Shopify] Batch fetch failed: ${error.message}`);
+            return [];
+        }
+    }
+
+    private mapPaymentMethod(gateway: string): PaymentMethod {
+        const method = gateway.toLowerCase();
+        if (method.includes('cod') || method.includes('cash')) {
+            return PaymentMethod.CASH_ON_DELIVERY;
+        }
+        if (method.includes('bogus') || method.includes('manual')) {
+            return PaymentMethod.CASH_ON_DELIVERY; // Often used for testing or manual COD
+        }
+        if (method.includes('stripe') || method.includes('visa') || method.includes('mastercard')) {
+            return PaymentMethod.CARD;
+        }
+        if (method.includes('paypal')) {
+            return PaymentMethod.WALLET;
+        }
+        return PaymentMethod.UNKNOWN;
+    }
+
+    public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
+        const paymentMethod = this.mapPaymentMethod(body.payment_gateway_names?.[0] || "");
+
+        // 1. Group unique Product IDs (Filter out nulls for custom items)
+        const lineItems = body.line_items || [];
+        const uniqueIds = [...new Set(
+            lineItems
+                .filter((item: any) => item.product_id)
+                .map((item: any) => String(item.product_id))
+        )];
+
+        // 2. Fetch actual handles (slugs) from Shopify
+        const remoteProducts = await this.fetchRemoteProducts(store, uniqueIds as string[]);
+        const idToSlugMap = new Map<string, string>();
+        remoteProducts.forEach(p => idToSlugMap.set(p.externalId, p.slug));
+
+        // 3. Address & Name Formatting
+        const billing = body.billing_address || {};
+        const fullName = `${billing.first_name || ""} ${billing.last_name || ""}`.trim();
+        const address = `${billing.address1 || ""} ${billing.address2 || ""}`.trim();
+
+        const variantIdToOptionsMap = new Map<string, { name: string, value: string }[]>();
+
+        remoteProducts.forEach(product => {
+            const numericProdId = product.id.split('/').pop();
+            idToSlugMap.set(numericProdId, product.handle);
+
+            // Map every variant's options for this product
+            product.variants?.nodes?.forEach((v: any) => {
+                const numericVarId = v.id.split('/').pop();
+                variantIdToOptionsMap.set(numericVarId, v.selectedOptions);
+            });
+        });
+
+        return {
+            externalId: String(body.id),
+            full_name: fullName || "Guest Customer",
+            phone: billing.phone || body.customer?.phone || "",
+            address: address || "No Address Provided",
+            government: billing.city || "Unknown",
+            payment_method: paymentMethod,
+
+            // Status logic: Shopify 'paid' or 'partially_paid' means PAID
+            status: ['paid', 'partially_paid'].includes(body.financial_status)
+                ? PaymentStatus.PAID
+                : PaymentStatus.PENDING,
+
+            shipping_cost: Number(body.total_shipping_price_set?.shop_money?.amount || 0),
+
+            cart_items: lineItems.map((item: any) => {
+                const prodId = String(item.product_id);
+                const varId = item.variant_id ? String(item.variant_id) : null;
+
+                // Get the real properties from our map
+                const realProps = varId ? variantIdToOptionsMap.get(varId) || [] : [];
+
+                return {
+                    product_slug: idToSlugMap.get(prodId) || item.sku || prodId,
+                    quantity: item.quantity,
+                    price: Number(item.price),
+                    variant: item.variant_id ? {
+                        // Filter out Shopify's "Default Title" for simple products
+                        variation_props: realProps.filter(p => p.value).map(p => ({
+                            name: p.name,
+                            value: p.value
+                        }))
+                    } : undefined
+                };
+            })
+        };
+    }
+
+    public async getFullProductBySlug(store: StoreEntity, slug: string): Promise<any> {
+        const cleanSlug = slug?.trim();
+        this.logCtxDebug(`[Product] Fetching FULL product with slug: ${cleanSlug}`, store);
+        const query = `
+        query getProductByHandle($handle: String!) {
+            productByHandle(handle: $handle) {
+                id
+                handle
+                title
+                descriptionHtml
+                productType
+                vendor
+                images(first: 20) {
+                    nodes {
+                        id
+                        url
+                        altText
+                    }
+                }
+                variants(first: 100) {
+                    nodes {
+                        id
+                        sku
+                        title
+                        price
+                        inventoryQuantity
+                        selectedOptions {
+                            name
+                            value
+                        }
+                    }
+                }
+                collections(first: 5) {
+                    nodes {
+                        id
+                        handle
+                        title
+                    }
+                }
+            }
+        }
+        `;
+        try {
+            const response = await this.runGraphQL(store, false, query, { handle: cleanSlug });
+            const product = response?.productByHandle || null;
+            if (product) {
+                this.logCtxDebug(`[Product] ✓ Found FULL product: ${product.title} (${product.id})`, store);
+            } else {
+                this.logCtxDebug(`[Product] ℹ No product found with slug: ${cleanSlug}`, store);
+            }
+            return product;
+        } catch (error) {
+            this.logCtxError(`[Product] ✗ Failed to fetch FULL product by handle ${cleanSlug}: ${error.message}`, store);
+            throw error;
+        }
+    }
+
+    public async syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void> {
+        const adminId = store.adminId;
+        if (!slugs || slugs.length === 0) {
+            this.logger.warn(`[Reverse Sync] No slugs provided to sync for store: ${store.storeUrl}`);
+            return;
+        }
+
+        for (const slug of slugs) {
+            try {
+                // 1. Fetch remote product by slug (handle)
+                const remoteProduct = await this.getFullProductBySlug(store, slug);
+                if (!remoteProduct) {
+                    this.logger.warn(`[Reverse Sync] Product with slug ${slug} not found on provider.`);
+                    continue;
+                }
+
+                // 2. Map to unified payload and delegate to shared sync logic
+                const unified = this.mapRemoteProductToUnified(remoteProduct);
+                await this.mainStoresService.syncExternalProductPayloadToLocal(adminId, store, unified, manager);
+
+                this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
+            } catch (error) {
+                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${error.message}`);
+            }
+        }
+    }
+
+    /**
+     * Sync a remote Shopify product and its variants to local DB using manager
+     */
+    private async syncExternalProductToLocal(adminId: string, store: StoreEntity, remoteProduct: any, manager: any): Promise<ProductEntity> {
+        // Map remote product and variants to local DTOs
+        const userContext = {
+            id: store.adminId,
+            adminId: store.adminId,
+            role: { name: 'admin' }
+        };
+
+        // Map category: use productType as category name if available
+        let localCategoryId: number | null = null;
+        const categoryName = remoteProduct.productType || 'Shopify';
+        const categorySlug = remoteProduct.handle || remoteProduct.id;
+        const categoryRepo = manager.getRepository(CategoryEntity);
+        let category = await categoryRepo.findOne({ where: { adminId: userContext.adminId, slug: categorySlug } });
+        if (!category) {
+            category = categoryRepo.create({
+                adminId: userContext.adminId,
+                name: categoryName,
+                slug: categorySlug
+            });
+            category = await categoryRepo.save(category);
+        }
+        localCategoryId = category.id;
+
+        // Map images
+        const images: { url: string }[] =
+            remoteProduct.images?.nodes?.map((img: any) => ({ url: img.url })) || [];
+
+        // Map variants
+        let combinations: any[] = [];
+        const variantNodes = remoteProduct.variants?.nodes || [];
+        if (variantNodes.length > 0) {
+            combinations = variantNodes.map((v: any) => {
+                return {
+                    sku: v.sku || null,
+                    price: parseFloat(v.price) || 0,
+                    stockOnHand: v.inventoryQuantity ?? 0,
+                    attributes: {}, // You can map selectedOptions if needed
+                    key: v.sku || v.id || `variant_${remoteProduct.id}_${v.id}`
+                };
+            });
+        } else {
+            // Simple product (no variants)
+            combinations = [{
+                sku: null,
+                price: 0,
+                stockOnHand: 0,
+                attributes: {},
+                key: `simple_${remoteProduct.id}`
+            }];
+        }
+
+        // Build product DTO
+        const productDto = {
+            name: remoteProduct.title,
+            slug: remoteProduct.handle,
+            description: remoteProduct.descriptionHtml || '',
+            wholesalePrice: 0,
+            lowestPrice: 0,
+            storeId: store.id,
+            categoryId: localCategoryId,
+            mainImage: images[0]?.url || '',
+            images,
+            combinations,
+            upsellingEnabled: false,
+        };
+
+        // Upsert product
+        const productsRepository = manager.getRepository(ProductEntity);
+        let existingProduct = await productsRepository.findOne({ where: { adminId, slug: productDto.slug } });
+        let savedProduct: ProductEntity;
+        if (existingProduct) {
+            manager.merge(ProductEntity, existingProduct, {
+                name: productDto.name,
+                slug: productDto.slug,
+                description: productDto.description,
+                wholesalePrice: productDto.wholesalePrice,
+                lowestPrice: productDto.lowestPrice,
+                storeId: productDto.storeId,
+                categoryId: productDto.categoryId,
+                mainImage: productDto.mainImage
+            });
+            savedProduct = await productsRepository.save(existingProduct);
+        } else {
+            const newProduct = manager.create(ProductEntity, {
+                name: productDto.name,
+                slug: productDto.slug,
+                description: productDto.description,
+                wholesalePrice: productDto.wholesalePrice,
+                lowestPrice: productDto.lowestPrice,
+                storeId: productDto.storeId,
+                categoryId: productDto.categoryId,
+                mainImage: productDto.mainImage,
+                adminId: adminId
+            });
+            savedProduct = await productsRepository.save(newProduct);
+        }
+        // Note: You may want to upsert variants/SKUs as well, similar to EasyOrder, if you have a service for that.
+        return savedProduct;
+    }
+
+    private mapRemoteProductToUnified(remoteProduct: any): UnifiedProductDto {
+        const images: string[] =
+            remoteProduct.images?.nodes?.map((img: any) => img.url) || [];
+
+        const variantNodes = remoteProduct.variants?.nodes || [];
+        let variants: UnifiedProductVariantDto[] = [];
+
+        if (variantNodes.length > 0) {
+            variants = variantNodes.map((v: any, index: number) => {
+                const attributes = (v.selectedOptions || []).reduce(
+                    (acc: Record<string, string>, opt: any) => {
+                        if (opt.name && opt.value) {
+                            acc[opt.name.trim()] = String(opt.value).trim();
+                        }
+                        return acc;
+                    },
+                    {} as Record<string, string>,
+                );
+
+                const sku = v.sku || null;
+                const price = parseFloat(v.price) || 0;
+                const stockOnHand = v.inventoryQuantity ?? 0;
+
+                // Let shared logic finalize key if needed; provide a good candidate
+                const key = sku || `variant_${remoteProduct.id}_${v.id || index}`;
+
+                return {
+                    sku,
+                    price,
+                    stockOnHand,
+                    attributes,
+                    key,
+                };
+            });
+        } else {
+            variants = [
+                {
+                    sku: null,
+                    price: 0,
+                    stockOnHand: 0,
+                    attributes: {},
+                    key: `simple_${remoteProduct.id}`,
+                },
+            ];
+        }
+
+        // Prefer first collection as category, otherwise fall back to productType
+        let category = null;
+        const collection = remoteProduct.collections?.nodes?.[0];
+        if (collection) {
+            category = {
+                slug: collection.handle || collection.id,
+                name: collection.title || collection.handle || collection.id,
+                thumb: null,
+            };
+        } else if (remoteProduct.productType) {
+            const slug = String(remoteProduct.productType)
+                .toLowerCase()
+                .replace(/\s+/g, '-');
+            category = {
+                slug,
+                name: remoteProduct.productType,
+                thumb: null,
+            };
+        }
+
+        const firstVariantPrice =
+            variants.length > 0 ? variants[0].price : 0;
+
+        return {
+            externalId: remoteProduct.id ? String(remoteProduct.id) : undefined,
+            name: remoteProduct.title,
+            slug: remoteProduct.handle,
+            description: remoteProduct.descriptionHtml || '',
+            basePrice: firstVariantPrice,
+            mainImage: images[0] || '',
+            images,
+            category,
+            variants,
+        };
+    }
+
+    async validateProviderConnection(store: StoreEntity): Promise<boolean> {
+        const { storeUrl, credentials } = store;
+        const apiKey = credentials?.apiKey;
+
+        if (!storeUrl || !apiKey) {
+            this.logger.error(`[Shopify] Validation skipped: Missing storeUrl or apiKey`);
+            return false;
+        }
+
+        // Ensure the URL is clean and formatted for the request
+        const url = this.getShopifyGraphQLEndpoint(store.storeUrl);
+
+        try {
+            const response = await axios.post(
+                url,
+                { query: '{ shop { name } }' },
+                {
+                    headers: {
+                        'X-Shopify-Access-Token': apiKey.trim(),
+                        'Content-Type': 'application/json',
+                    },
+                    timeout: 5000, // Keep it fast for the transaction
+                }
+            );
+
+            // Shopify returns errors inside a 200 response sometimes
+            if (response.data?.errors) {
+                this.logger.error(`Shopify validation error: ${JSON.stringify(response.data.errors)}`);
+                return false;
+            }
+
+            return !!response.data?.data?.shop?.name;
+        } catch (error) {
+            this.logger.error(`[Shopify] Connection check failed: ${error.message}`);
+            // 401 Unauthorized or 404 Not Found (Invalid URL) returns false
+            return false;
+        }
+    }
 }

@@ -1,43 +1,100 @@
 import { Injectable, forwardRef, Inject, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Not } from "typeorm";
+import { Repository } from "typeorm";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
 import { EncryptionService } from "common/encryption.service";
 import { StoresService } from "../stores.service";
 import { CategoryEntity } from "entities/categories.entity";
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import Bottleneck from "bottleneck";
-import { OrderEntity } from "entities/order.entity";
+import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 
 
+export interface WebhookOrderPayload {
+    externalId: string;
+    full_name: string;
+    phone: string;
+    address: string;
+    government?: string;
+    payment_method: PaymentMethod;
+    status: PaymentStatus;
+    shipping_cost?: number;
+    cart_items: {
+        product_slug: string;
+        quantity: number;
+        price: number;
+        variant?: {
+            variation_props?: { name: string; value: string }[];
+        };
+    }[];
+}
+
+
+export interface WebhookOrderUpdatePayload {
+    externalId: string;
+    remoteStatus: string;
+    mappedStatus: OrderStatus;
+}
+
+export interface UnifiedProductVariantDto {
+    sku: string | null;
+    price: number;
+    stockOnHand: number;
+    attributes: Record<string, string>;
+    key?: string;
+}
+
+export interface UnifiedProductCategoryDto {
+    slug: string;
+    name: string;
+    thumb?: string | null;
+}
+
+export interface UnifiedProductDto {
+    externalId?: string;
+    name: string;
+    slug: string;
+    description?: string | null;
+    basePrice: number;
+    mainImage?: string | null;
+    images: string[];
+    category?: UnifiedProductCategoryDto | null;
+    variants: UnifiedProductVariantDto[];
+}
+
 @Injectable()
-export abstract class BaseStoreService implements OnModuleInit {
+export abstract class BaseStoreProvider implements OnModuleInit {
+    abstract readonly code: StoreProvider;
+    abstract readonly displayName: string;
+    abstract readonly baseUrl: string;
+
     protected readonly logger = new Logger(this.constructor.name);
     protected limiters: Map<string, Bottleneck> = new Map();
-    protected readonly axiosInstance: AxiosInstance;
+    protected axiosInstance: AxiosInstance;
     protected readonly limit: number;
     protected readonly storeProvider: StoreProvider;
     protected readonly baseImg = process.env.IMAGE_BASE_URL;
+
+    public customWebhookName = 'secret';
     constructor(
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
         protected readonly encryptionService: EncryptionService,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
-        baseUrl,
         limit,
         storeProvider
     ) {
-
-        this.axiosInstance = axios.create({
-            baseURL: baseUrl,
-            timeout: 10000,
-        });
         this.limit = limit;
         this.storeProvider = storeProvider;
     }
     onModuleInit() {
+        this.axiosInstance = axios.create({
+            baseURL: this.baseUrl, // Safe to access now
+            timeout: 10000,
+        });
+
         this.recoverStuckSyncs()
     }
     /* Centralized Error Handling for Axios
@@ -185,7 +242,7 @@ export abstract class BaseStoreService implements OnModuleInit {
 
         return this.executeWithLimiter(cleanAdminId, async () => {
             if (!store) {
-                this.logger.warn(`Sync skipped for Admin ${cleanAdminId}: No active store found or autoSync is disabled.`);
+                this.logger.warn(`Sync skipped for Admin ${cleanAdminId}: No active store found is disabled.`);
                 return null;
             }
 
@@ -245,6 +302,11 @@ export abstract class BaseStoreService implements OnModuleInit {
     public abstract syncProduct({ product, variants, slug }: { product: ProductEntity, variants: ProductVariantEntity[], slug?: string })
     public abstract syncOrderStatus(order: OrderEntity)
     public abstract syncFullStore(store: StoreEntity)
+    public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any): boolean;
+    public abstract mapWebhookUpdate(body: any): WebhookOrderUpdatePayload;
+    public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;
+    public abstract syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void>;
+    public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
 
 }
 

@@ -76,6 +76,29 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
 
+    emitStoreSyncStatus(userId: string, payload: { storeId: number; provider: string; status: string }) {
+        this.server.to(`user_${userId}`).emit("store:sync-status", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
+    emitWebhookRetryStatus(
+        userId: string,
+        payload: {
+            failureId: number;
+            status: string;
+            orderId?: number | null;
+            message?: string;
+            attempts?: number
+        }
+    ) {
+        this.server.to(`user_${userId}`).emit("webhook:retry-status", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
     emitNewNotification(userId: string, notification: Notification) {
         this.server.to(`user_${userId}`).emit("new_notification", notification);
     }

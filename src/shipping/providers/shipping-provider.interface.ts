@@ -65,7 +65,7 @@ export abstract class ShippingProvider {
 	abstract getCapabilities(apiKey: string): Promise<ProviderCapabilitiesResponse>;
 	abstract getServices(apiKey: string): Promise<string[]>;
 
-	abstract verifyCredentials(apiKey: string): Promise<boolean>;
+	abstract verifyCredentials(apiKey: string, accountId?: string): Promise<boolean>;
 
 	// Shipment Creation
 	abstract createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult>;
@@ -73,9 +73,12 @@ export abstract class ShippingProvider {
 
 	// Webhooks
 	abstract mapWebhookToUnified(body: any): ProviderWebhookResult;
+	abstract verifyWebhookAuth(headers: any, body: any, secret: string, headerName?: string): boolean;
 	/**
 	 * Common helper to format display names or clean strings
 	 */
+	abstract cancelShipment(apiKey: string, providerShipmentId: string, accountId?: string): Promise<boolean>;
+	abstract getShipmentStatus(apiKey: string, trackingNumber: string, accountId?: string): Promise<ProviderWebhookResult>;
 
 	protected buildPublicWebhookUrl(provider: string) {
 		const base = process.env.PUBLIC_API_BASE_URL || 'http://localhost:3000';
