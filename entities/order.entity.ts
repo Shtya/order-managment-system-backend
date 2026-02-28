@@ -18,6 +18,7 @@ import { ProductVariantEntity } from "./sku.entity";
 import { StoreEntity } from "./stores.entity";
 import { User } from "./user.entity";
 import { ShippingCompanyEntity } from "./shipping.entity";
+import { OrderCollectionEntity } from "./order-collection.entity";
 
 // ✅ Order Status Enum
 export enum OrderStatus {
@@ -259,6 +260,12 @@ export class OrderEntity {
 
   @OneToOne('OrderReplacementEntity', 'replacementOrder', { nullable: true })
   replacementResult: Relation<OrderReplacementEntity>;
+
+  @OneToMany(() => OrderCollectionEntity, (collection) => collection.order)
+  collections: Relation<OrderCollectionEntity[]>;
+
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+  collectedAmount: number;
 
   @Column({ type: 'jsonb', nullable: true })
   shippingMetadata?: {
