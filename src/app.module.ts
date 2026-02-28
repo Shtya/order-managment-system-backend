@@ -37,6 +37,7 @@ import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "
 import { NotificationModule } from "./notifications/notification.module";
 import { AppGateway } from "common/app.gateway";
 import { WebSocketModule } from "common/websocket.module";
+import { CollectionModule } from "./order-collections/collection.module";
 
 @Module({
 	imports: [
@@ -75,7 +76,8 @@ import { WebSocketModule } from "common/websocket.module";
 		// ShippingCompaniesModule
 		WebSocketModule,
 		ShippingModule,
-		NotificationModule
+		NotificationModule,
+		CollectionModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

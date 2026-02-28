@@ -25,6 +25,7 @@ import { ShippingCompanyEntity, ShippingIntegrationEntity } from "entities/shipp
 import { StoreEntity } from "entities/stores.entity";
 import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
 import { OrderReplacementService } from "./services/order-replacements.service";
+import { OrderCollectionEntity } from "entities/order-collection.entity";
 
 
 
@@ -47,7 +48,8 @@ import { OrderReplacementService } from "./services/order-replacements.service";
       Notification,
       StoreEntity,
       OrderReplacementEntity,
-      ShippingIntegrationEntity
+      ShippingIntegrationEntity,
+      OrderCollectionEntity
     ]),
   ],
   providers: [OrdersService, OrderSubscriber, ShippingSeedService, OrderReplacementService],
