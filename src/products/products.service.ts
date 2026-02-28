@@ -1,7 +1,7 @@
 // --- File: src/products/products.service.ts ---
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository, Like, Not, IsNull } from "typeorm";
+import { In, Repository, Like, Not, IsNull, EntityManager } from "typeorm";
 
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { CategoryEntity } from "entities/categories.entity";
@@ -94,10 +94,11 @@ export class ProductsService {
     return products;
   }
 
-  private async attachSkusToProduct(me: any, product: any) {
+  private async attachSkusToProduct(me: any, product: any, manager?: EntityManager) {
     if (!product?.id) return product;
 
-    const rows = await this.pvRepo.find({
+    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.pvRepo;
+    const rows = await repo.find({
       where: { adminId: me.adminId, productId: product.id } as any,
       order: { id: "ASC" },
     });
@@ -264,14 +265,16 @@ export class ProductsService {
     return result;
   }
 
-  async get(me: any, id: number) {
-    const p = await CRUD.findOne(this.prodRepo, "products", id, [
+  async get(me: any, id: number, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(ProductEntity) : this.prodRepo;
+
+    const p = await CRUD.findOne(repo, "products", id, [
       "category",
       "store",
       "warehouse",
     ]);
 
-    return this.attachSkusToProduct(me, p as any);
+    return this.attachSkusToProduct(me, p as any, manager);
   }
 
   async getBySku(me: any, sku: string) {
@@ -304,9 +307,14 @@ export class ProductsService {
     };
   }
 
-  async upsertSkus(me: any, productId: number, body: UpsertProductSkusDto) {
+  async upsertSkus(
+    me: any,
+    productId: number,
+    body: UpsertProductSkusDto,
+    manager?: EntityManager
+  ) {
     const adminId = tenantId(me);
-    await this.get(me, productId);
+    await this.get(me, productId, manager);
 
     const items = Array.isArray(body?.items) ? body.items : [];
     if (!items.length) throw new BadRequestException("items is required");
@@ -321,7 +329,12 @@ export class ProductsService {
       }
     }
 
-    const existing = await this.pvRepo.find({ where: { adminId, productId } as any });
+    // Use the provided manager or the default repository
+    const pvRepo = manager
+      ? manager.getRepository(ProductVariantEntity)
+      : this.pvRepo;
+
+    const existing = await pvRepo.find({ where: { adminId, productId } as any });
     const byKey = new Map(existing.map((e) => [e.key, e]));
 
     const toSave: ProductVariantEntity[] = [];
@@ -339,7 +352,7 @@ export class ProductsService {
         if (it.attributes !== undefined) row.attributes = it.attributes;
         toSave.push(row);
       } else {
-        const created = this.pvRepo.create({
+        const created = pvRepo.create({
           adminId,
           productId,
           key,
@@ -359,7 +372,7 @@ export class ProductsService {
       if (r.reserved > r.stockOnHand) throw new BadRequestException("reserved cannot exceed stockOnHand");
     }
 
-    const saved = await this.pvRepo.save(toSave);
+    const saved = await pvRepo.save(toSave);
     return { updated: saved.length };
   }
 

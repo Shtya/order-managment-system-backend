@@ -97,7 +97,7 @@ export class WooCommerceService extends BaseStoreProvider {
         // read decrypted keys (clientKey, clientSecret, baseUrl)
         const keys = await this.getAuthParams(store); // reuses getAuthParams from earlier
 
-        const baseApiUrl = `${keys.baseUrl}/wp-json/wc/v3`;
+        const baseApiUrl = `${keys.baseUrl}`;
 
         // build Authorization header
         const authHeader = this.buildBasicAuthHeader(keys.clientKey, keys.clientSecret);
@@ -231,7 +231,8 @@ export class WooCommerceService extends BaseStoreProvider {
     private async syncWooVariations(
         productId: number,
         variants: ProductVariantEntity[],
-        store: StoreEntity
+        store: StoreEntity,
+        attrMap?: Map<string, number>
     ) {
         this.logCtx(`[Variation] Sync started for product ${productId}`, store);
 
@@ -250,7 +251,7 @@ export class WooCommerceService extends BaseStoreProvider {
         });
 
         // 2️⃣ Map local variations
-        const mappedVariants = this.mapWooVariationsPayload(variants);
+        const mappedVariants = this.mapWooVariationsPayload(variants, attrMap || new Map());
 
         const createVariant: any[] = [];
         const updateVariant: any[] = [];
@@ -336,6 +337,10 @@ export class WooCommerceService extends BaseStoreProvider {
 
             const sku = remote?.sku?.trim();
 
+            if (remote?.error) {
+                this.logCtxError("[Woo Variations Sync] Error syncing variation: " + remote.error?.message);
+                return;
+            }
             if (!sku) {
                 this.logCtxError(
                     `[Woo Variants Sync] Remote variation missing SKU`,
@@ -370,6 +375,96 @@ export class WooCommerceService extends BaseStoreProvider {
             );
         }
     }
+    // Ensure attribute exists globally and return its ID (create if missing)
+    private async getOrCreateWooAttribute(store: StoreEntity, attributeName: string): Promise<number> {
+        // 1) Try to find attribute by name (or slug)
+        const searchResp = await this.sendRequest(store, {
+            method: 'GET',
+            url: '/products/attributes',
+            params: { search: attributeName }
+        });
+
+        const attributes = searchResp?.data ?? searchResp ?? [];
+        const match = attributes.find((a: any) => a.name.toLowerCase() === attributeName.toLowerCase());
+        if (match) return match.id;
+
+        // 2) Create global attribute
+        const createResp = await this.sendRequest(store, {
+            method: 'POST',
+            url: '/products/attributes',
+            data: {
+                name: attributeName,
+                slug: attributeName.toLowerCase().replace(/\s+/g, '-'),
+                type: 'select',
+                order_by: 'menu_order',
+                has_archives: false
+            }
+        });
+
+        const created = createResp?.data ?? createResp;
+        return created.id;
+    }
+
+    /**
+    * Efficiently ensures all attributes and terms exist globally.
+    * Returns a Map of Attribute Name -> Attribute ID.
+    */
+    private async ensureAttributesForVariants(store: StoreEntity, variants: ProductVariantEntity[]): Promise<Map<string, number>> {
+        const attrMap = new Map<string, number>();
+        const attrOptionsMap = new Map<string, Set<string>>();
+
+        // 1. Collect all names and values from local variants
+        for (const v of variants) {
+            for (const [name, val] of Object.entries(v.attributes || {})) {
+                const n = name.trim();
+                const value = String(val).trim();
+                if (!attrOptionsMap.has(n)) attrOptionsMap.set(n, new Set());
+                attrOptionsMap.get(n)!.add(value);
+            }
+        }
+
+        // 2. Process each attribute name
+        for (const [attrName, options] of attrOptionsMap.entries()) {
+            const attrId = await this.getOrCreateWooAttribute(store, attrName);
+
+            // 3. Optimized: Sync all terms (options) for this attribute in one batch
+            await this.syncAttributeTermsInBatch(store, attrId, Array.from(options));
+
+            attrMap.set(attrName, attrId);
+        }
+
+        return attrMap;
+    }
+
+    /**
+     * Fetches all existing terms for an attribute and creates only the missing ones.
+     */
+    private async syncAttributeTermsInBatch(store: StoreEntity, attributeId: number, neededOptions: string[]) {
+        // Fetch existing terms (limit 100 for performance)
+        const response = await this.sendRequest(store, {
+            method: 'GET',
+            url: `/products/attributes/${attributeId}/terms`,
+            params: { per_page: 100 }
+        });
+
+        const existingTerms = response?.data ?? response ?? [];
+        const existingNames = new Set(existingTerms.map((t: any) => t.name.toLowerCase().trim()));
+
+        // Find options that don't exist yet
+        const missingOptions = neededOptions.filter(opt => !existingNames.has(opt.toLowerCase().trim()));
+
+        // Create missing terms one by one (WooCommerce doesn't have a batch endpoint for terms)
+        for (const option of missingOptions) {
+            await this.sendRequest(store, {
+                method: 'POST',
+                url: `/products/attributes/${attributeId}/terms`,
+                data: {
+                    name: option.trim(),
+                    slug: option.toLowerCase().trim().replace(/\s+/g, '-')
+                }
+            });
+        }
+    }
     /**
      * Search single category by slug (returns the first match or null)
      */
@@ -385,7 +480,7 @@ export class WooCommerceService extends BaseStoreProvider {
         const response = await this.sendRequest(store, {
             method: 'GET',
             url: '/products',
-            params: { slug: slug.trim(), per_page: 100 },
+            params: { slug: slug.trim(), status: 'publish,draft,private', per_page: 100 },
         });
 
         const products = response?.data ?? response;
@@ -394,8 +489,9 @@ export class WooCommerceService extends BaseStoreProvider {
 
     private async createProduct(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externalCategoryId: string) {
         this.logCtx(`[Product] Creating product: ${product.name}`, store);
+        const attrMap = await this.ensureAttributesForVariants(store, variants);
 
-        const payload = this.mapWooProductPayload(product, variants, externalCategoryId);
+        const payload = await this.mapWooProductPayload(product, variants, externalCategoryId, attrMap);
 
         try {
             const response = await this.sendRequest(store, {
@@ -406,13 +502,13 @@ export class WooCommerceService extends BaseStoreProvider {
 
             const created = response?.data ?? response;
             if (variants.length > 1) {
-                await this.syncWooVariations(created?.id, variants, store);
+                await this.syncWooVariations(created?.id, variants, store, attrMap);
             }
             this.logCtx(`[Product] ✓ Created with external ID: ${created?.id}`, store);
             return created;
 
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to create: ${error?.message}`, store);
+            this.logCtxError(`[Product] ✗ Failed to create: ${error?.response?.data?.message || error?.message}`, store);
             throw error;
         }
     }
@@ -422,8 +518,9 @@ export class WooCommerceService extends BaseStoreProvider {
         if (!externalId) return;
 
         this.logCtx(`[Product] Updating product ${externalId}`, store);
+        const attrMap = await this.ensureAttributesForVariants(store, variants);
 
-        const payload = this.mapWooProductPayload(product, variants, externalCategoryId);
+        const payload = this.mapWooProductPayload(product, variants, externalCategoryId, attrMap);
 
         try {
             const response = await this.sendRequest(store, {
@@ -434,7 +531,7 @@ export class WooCommerceService extends BaseStoreProvider {
 
             const updated = response?.data ?? response;
             if (variants.length > 1) {
-                await this.syncWooVariations(updated?.id || externalId, variants, store);
+                await this.syncWooVariations(updated?.id || externalId, variants, store, attrMap);
             }
 
             this.logCtx(`[Product] ✓ Updated product ${externalId}`, store);
@@ -477,80 +574,83 @@ export class WooCommerceService extends BaseStoreProvider {
     private async mapWooProductPayload(
         product: ProductEntity,
         variants: ProductVariantEntity[],
-        externalCategoryId?: string
+        externalCategoryId?: string,
+        attrMap?: Map<string, number>
     ) {
-        // 1. Extract Unique Attributes (Color, Size, etc.)
-        const attributeMap = new Map<string, Set<string>>();
+        const isVariable = variants.length > 1;
 
-        variants.forEach(v => {
-            if (v.attributes) {
-                Object.entries(v.attributes).forEach(([key, value]) => {
-                    if (!attributeMap.has(key)) attributeMap.set(key, new Set());
-                    attributeMap.get(key)?.add(String(value));
+        // 1. Map WooCommerce Attributes Definition
+        // We use the attrMap provided by ensureAttributesForVariants
+        const attributes = [];
+        if (attrMap) {
+            let index = 0;
+            for (const [name, attrId] of attrMap.entries()) {
+                // Collect unique options for this specific attribute from all variants
+                const options = new Set<string>();
+                variants.forEach(v => {
+                    if (v.attributes && v.attributes[name]) {
+                        options.add(String(v.attributes[name]).trim());
+                    }
+                });
+
+                attributes.push({
+                    id: attrId, // Links to Global Attribute
+                    name: name.trim(),
+                    position: index++,
+                    visible: true,
+                    variation: isVariable, // Only TRUE if it's a Variable product
+                    options: Array.from(options)
                 });
             }
-        });
-
-        // 2. Build WooCommerce Attributes Definition
-        const attributes = Array.from(attributeMap.entries()).map(
-            ([name, values], index) => ({
-                name: name.trim(),
-                position: index,
-                visible: true,
-                variation: true,
-                options: Array.from(values).map(v => v.trim())
-            })
-        );
-
-        // 3. Calculate Total Stock
-        let totalQuantity = 0;
-        variants.forEach(v => {
-            totalQuantity += (v.stockOnHand - v.reserved);
-        });
+        }
 
         return {
             name: product.name.trim(),
-            slug: product.slug,
-            type: variants.length > 1 ? "variable" : "simple",
+            slug: product.slug?.trim(),
+            type: isVariable ? "variable" : "simple",
             description: product.description || "",
             short_description: product.description || "",
-            sku: `SKU-${product.slug.toUpperCase().replace(/-/g, '').substring(0, 8)}-${product.id}`.trim(),
-            manage_stock: true,
-            stock_quantity: variants.length === 1
-                ? (variants[0].stockOnHand - variants[0].reserved)
+            // [2025-12-24] Generate clean SKU
+            sku: `SKU-${product.slug?.toUpperCase().replace(/-/g, '').substring(0, 8)}-${product.id}`.trim(),
+
+            // STOCK LOGIC: 
+            // If variable, we don't manage stock at parent level (variants handle it)
+            manage_stock: !isVariable,
+            stock_quantity: !isVariable
+                ? Math.max(0, (variants[0]?.stockOnHand || 0) - (variants[0]?.reserved || 0))
                 : undefined,
+
             regular_price: String(product.wholesalePrice || 0),
-            sale_price: String(product.wholesalePrice || 0),
-            categories: externalCategoryId
-                ? [{ id: externalCategoryId }]
-                : [],
+            categories: externalCategoryId ? [{ id: externalCategoryId }] : [],
+            attributes: attributes,
             images: [
-                ...(product.mainImage
-                    ? [{ src: this.getImageUrl(product.mainImage) }]
-                    : []),
-                ...(product.images?.map(img => ({
-                    src: this.getImageUrl(img.url)
-                })) || [])
-            ],
-            attributes: attributes
+                ...(product.mainImage ? [{ src: this.getImageUrl(product.mainImage) }] : []),
+                ...(product.images?.map(img => ({ src: this.getImageUrl(img.url) })) || [])
+            ]
         };
     }
 
     private mapWooVariationsPayload(
-        variants: ProductVariantEntity[]
+        variants: ProductVariantEntity[],
+        attrMap: Map<string, number>
     ) {
         return variants.map(v => ({
             regular_price: String(v.price || 0),
             sale_price: String(v.price || 0),
-            sku: String(v.sku),
+            sku: String(v.sku ?? ''),
             manage_stock: true,
             stock_quantity: v.stockOnHand - v.reserved,
-            attributes: Object.entries(v.attributes || {}).map(
-                ([key, value]) => ({
-                    name: key.trim(),
-                    option: String(value).trim()
-                })
-            )
+            attributes: Object.entries(v.attributes || {}).map(([key, value]) => {
+                const name = key.trim();
+                const option = String(value).trim();
+                const id = attrMap.get(name);
+                if (id) {
+                    return { id, option };
+                } else {
+                    // Fall back to using name if attribute is not global (rare)
+                    return { name, option };
+                }
+            })
         }));
     }
 
@@ -857,7 +957,7 @@ export class WooCommerceService extends BaseStoreProvider {
         while (hasMore) {
             // 1. Fetch local batch using cursor pagination
             const localBatch = await this.productsRepo.find({
-                where: { adminId: store.adminId, id: MoreThan(lastId) },
+                where: { storeId: store.id, adminId: store.adminId, id: MoreThan(lastId) },
                 relations: ['variants', 'category'], // Load category to get the local ID for mapping
                 order: { id: 'ASC' } as any,
                 take: 20 // Smaller batch size because products have variants and images
@@ -1008,10 +1108,10 @@ export class WooCommerceService extends BaseStoreProvider {
         return map[externalStatus] || null;
     }
 
-    public verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any): boolean {
+    public verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean {
         const signature = headers['x-wc-webhook-signature'];
-        const type = headers['x-wc-webhook-type'];
-        const savedSecret = type === 'order.update' ? store?.credentials?.webhookUpdateStatusSecret : type === 'order.create' ? store?.credentials?.webhookCreateOrderSecret : null;
+        const type = headers['x-wc-webhook-topic'];
+        const savedSecret = type === 'order.update' ? store?.credentials?.webhookUpdateStatusSecret : type === 'order.created' ? store?.credentials?.webhookCreateOrderSecret : null;
 
         if (!signature || !savedSecret) return false;
 
