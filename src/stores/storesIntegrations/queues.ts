@@ -15,19 +15,26 @@ const redis = new Redis(redisUrl);
 export const storeSyncQueue = new Queue({
     redis,
     namespace: "store-sync", // prefix keys in Redis
-    jobTimeoutMs: 300_000,   // optional timeout 5m
-    maxAttempts: 0,         // max 1 retry per job
+    jobTimeoutMs: 300000,   // optional timeout 5m
+    maxAttempts: 3,         // max 1 retry per job
+    autoBatch: {
+        maxWaitMs: 100, // wait up to 100ms to batch jobs
+        size: 10,    // batch up to 10 jobs together
+    }
 });
 
 
 @Injectable()
 export class StoreQueueService {
-    //
+    // Map to track timeouts for product sync jobs
+    private productSyncTimeouts: Map<string, NodeJS.Timeout> = new Map();
+
     private async addJob(adminId: string, type: string, storeType: StoreProvider, data: any, options: any = {}) {
         if (!adminId) return;
 
+        const groupId = options.groupId ?? `admin:${adminId}`;
         return await storeSyncQueue.add({
-            groupId: `admin:${adminId}`,
+            groupId,
             data: {
                 ...data,
                 type,
@@ -35,9 +42,8 @@ export class StoreQueueService {
                 adminId,
             },
             orderMs: Date.now(),
-            maxAttempts: options.maxAttempts ?? 0,
+            maxAttempts: options.maxAttempts ?? 3,
             jobId: options.jobId,
-            delay: options.delay,
         });
     }
 
@@ -51,15 +57,39 @@ export class StoreQueueService {
         });
     }
 
+    /** Product sync uses its own group (admin:${adminId}:product) so it is not blocked by full-store sync or other admin jobs. */
+    // queues.ts
+
     async enqueueProductSync(productId: number, adminId: string, storeId: number, storeType: StoreProvider, slug?: string) {
         const jobId = `product:${storeType}:${productId}`;
-        await storeSyncQueue.remove(jobId);
+        const cleanSlug = slug?.trim(); // [2025-12-24] Trim slug
 
-        await this.addJob(adminId, "sync-product", storeType, {
-            productId,
-            storeId,
-            slug: slug?.trim(),
-        }, { jobId, delay: 3000 });
+        // STOP: Don't call storeSyncQueue.remove(jobId) here. 
+        // If it's active, remove() will break the group lock.
+
+        if (this.productSyncTimeouts.has(jobId)) {
+            clearTimeout(this.productSyncTimeouts.get(jobId));
+        }
+
+        const timeout = setTimeout(async () => {
+            try {
+                this.productSyncTimeouts.delete(jobId);
+
+                await this.addJob(adminId, "sync-product", storeType, {
+                    productId,
+                    storeId,
+                    slug: cleanSlug,
+                }, {
+                    jobId,
+                    groupId: `admin:${adminId}:product`, // Using a specific sub-group
+                    maxAttempts: 3
+                });
+            } catch (err) {
+                console.error(`Failed to add job: ${err.message}`);
+            }
+        }, 3000);
+
+        this.productSyncTimeouts.set(jobId, timeout);
     }
 
     async enqueueOrderStatusSync(order: OrderEntity, storeId: number, storeType: StoreProvider) {

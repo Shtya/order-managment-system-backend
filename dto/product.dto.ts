@@ -148,7 +148,8 @@ export class UpsertSkuItemDto {
   sku?: string | null;
 
   @IsOptional()
-  @IsNumber()
+  @Type(() => Number)
+  @IsNumber({}, { message: "price must be a number" })
   price?: Money; // ✅ NEW: price per variant
 
   @IsOptional()

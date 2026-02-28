@@ -135,43 +135,53 @@ export class ShopifyService extends BaseStoreProvider {
         let accessToken = await this.redisService.get(cacheKey);
         if (accessToken) return accessToken;
 
-        if (!accessToken) {
-            this.logCtx(`[Shopify] No access token found for ${store.id}. Generating new one...`, store);
-        }
-        const keys = store?.credentials;
-        // Note: Using storeUrl as the base for the token request
-        const tokenUrl = `https://${store.storeUrl}/admin/oauth/access_token`;
+        this.logCtx(`[Shopify] No access token found. Generating new one...`, store);
 
+        const keys = store?.credentials;
+
+        // 1. [2025-12-24] Trim and Clean the URL
+        // Remove any existing "https://" or "http://" to prevent the "ENOTFOUND https" error
+        let cleanStoreUrl = store.storeUrl.trim().replace(/^https?:\/\//, '');
+
+        // Ensure it doesn't end with a slash before building the path
+        cleanStoreUrl = cleanStoreUrl.replace(/\/$/, '');
+
+        const tokenUrl = `https://${cleanStoreUrl}/admin/oauth/access_token`;
 
         const body = new URLSearchParams({
-            grant_type: 'client_credentials',
-            client_id: keys.apiKey, // client_id
-            client_secret: keys.clientSecret // client_secret
+            grant_type: 'client_credentials', // Note: Shopify typically uses this for specific flows
+            client_id: keys.apiKey.trim(),
+            client_secret: keys.clientSecret.trim()
         }).toString();
 
         try {
-            // Using super.sendRequest directly to bypass standard Shopify headers (which require a token we don't have yet)
+            // [2025-12-24] Use super.sendRequest but ensure the URL is handled correctly
             const response = await super.sendRequest(store, {
                 method: 'POST',
-                url: tokenUrl,
+                url: tokenUrl, // Full URL provided here
                 data: body,
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
                 }
             });
 
-            if (!response.access_token) {
+            // Some implementations of sendRequest return the data object directly
+            const data = response?.data ?? response;
+
+            if (!data.access_token) {
                 throw new Error('Access token missing in Shopify response');
             }
-            await this.redisService.set(cacheKey, response.access_token, 82800);
-            this.logCtx(`[Shopify] Access token saved successfully for ${store.id}.`, store);
 
-            return response.access_token;
+            // Cache the token (82800 seconds = 23 hours)
+            await this.redisService.set(cacheKey, data.access_token, 82800);
+
+            return data.access_token;
         } catch (error) {
             this.logCtxError(`[Shopify] Token Generation Failed: ${error.message}`, store);
             throw new UnauthorizedException('Failed to authenticate with Shopify');
         }
     }
+
     /**
      * Run a Shopify GraphQL query using the official client and centralized limiter.
      */
@@ -1307,7 +1317,8 @@ export class ShopifyService extends BaseStoreProvider {
         headers: Record<string, any>,
         body: any,
         store: StoreEntity,
-        req?: any
+        req?: any,
+        action?: "create" | "update"
     ): boolean {
 
         const savedSecret = store?.credentials?.webhookSecret;
@@ -1744,6 +1755,7 @@ export class ShopifyService extends BaseStoreProvider {
 
     async validateProviderConnection(store: StoreEntity): Promise<boolean> {
         const { storeUrl, credentials } = store;
+        const accessToken = await this.getAccessToken(store);
         const apiKey = credentials?.apiKey;
 
         if (!storeUrl || !apiKey) {
@@ -1760,7 +1772,7 @@ export class ShopifyService extends BaseStoreProvider {
                 { query: '{ shop { name } }' },
                 {
                     headers: {
-                        'X-Shopify-Access-Token': apiKey.trim(),
+                        'X-Shopify-Access-Token': accessToken,
                         'Content-Type': 'application/json',
                     },
                     timeout: 5000, // Keep it fast for the transaction

@@ -796,12 +796,13 @@ export class EasyOrderService extends BaseStoreProvider {
                 };
             });
         } else {
-            const sku = remoteProduct.sku || remoteProduct.taager_code || null;
-            const key = sku || `simple_${remoteProduct.slug}`;
+            const rawSku = remoteProduct.sku || remoteProduct.taager_code || null;
+            const cleanSlug = remoteProduct.slug.trim();
+            const key = cleanSlug || `simple_${remoteProduct.slug}`;
 
             variants = [
                 {
-                    sku,
+                    sku: cleanSlug,
                     price: remoteProduct.price,
                     stockOnHand: remoteProduct.quantity || 0,
                     attributes: {},
@@ -1091,9 +1092,9 @@ export class EasyOrderService extends BaseStoreProvider {
         return map[internalStatus] || null;
     }
 
-    public verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any): boolean {
+    public verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean {
         const incomingSecret = headers['secret'];
-        const savedSecret = store?.credentials?.webhookUpdateStatusSecret;
+        const savedSecret = action === "create" ? store?.credentials?.webhookCreateOrderSecret : store?.credentials?.webhookUpdateStatusSecret;
         if (!incomingSecret || incomingSecret !== savedSecret) {
             return false;
         }

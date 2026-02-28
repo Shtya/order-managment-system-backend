@@ -199,7 +199,10 @@ export class StoresService {
       // 4. Validate Provider Connection
       // If the API key is wrong, this throws and rolls back the save
       try {
-        await p.validateProviderConnection(savedStore);
+        const isAuth = await p.validateProviderConnection(savedStore);
+        if (!isAuth) {
+          throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
+        }
       } catch (error) {
         this.logger.error(`Validation failed for ${dto.provider}: ${error.message}`);
         throw new BadRequestException(`Unable to validate the integration to ${p.displayName}. This could be due to an invalid key, or incorrect provider settings.`);
@@ -502,6 +505,21 @@ export class StoresService {
     customerName?: string,
     phoneNumber?: string,
   ) {
+
+    const existingFailure = await this.failureRepo.findOne({
+      where: {
+        adminId,
+        storeId: store?.id,
+        externalOrderId: externalOrderId || null,
+      }
+    })
+
+    if (existingFailure) {
+      existingFailure.attempts += 1;
+      await this.failureRepo.save(existingFailure);
+      return existingFailure;
+    }
+
     const record = this.failureRepo.create({
       adminId,
       storeId: store?.id,
@@ -533,23 +551,15 @@ export class StoresService {
       };
 
       return runInTransaction(async (manager) => {
-        if (failureLog && failureLog.status !== OrderFailStatus.RETRYING) {
-          failureLog.status = OrderFailStatus.RETRYING;
-          await manager.save(failureLog);
-        }
         const p = this.getProvider(store?.provider);
         const existingOrder = await this.ordersService.findByExternalId(payload.externalId);
         if (existingOrder) {
-          if (failureLog) {
-            failureLog.status = OrderFailStatus.SUCCESS;
-            await manager.save(failureLog);
-          }
           return { ok: true, ignored: true, reason: 'order_exists' };
         }
 
         const slugs = payload.cart_items.map(item => item.product_slug);
 
-        const localProducts = await this.productsRepo.find({
+        const localProducts = await manager.getRepository(ProductEntity).find({
           where: { adminId, slug: In(slugs) },
           relations: ['variants'],
         });
@@ -561,31 +571,27 @@ export class StoresService {
           const localProduct = productMap.get(item.product_slug);
           if (!localProduct) {
             const reason = `Missing product for slug ${item.product_slug}`;
-            if (failureLog) {
-              failureLog.status = OrderFailStatus.FAILED;
-              failureLog.reason = reason;
-              await manager.save(failureLog);
-            } else {
-              await this.logFailedWebhookOrder(adminId, store, rawBody, reason, payload.externalId, payload.full_name, payload.phone);
-            }
-            return { ok: false, reason: 'missing_product' };
+            throw new BadRequestException(reason);
           }
 
           let matchedVariant = null;
-
-          if (item.variant) {
+          if (item.variant && item.variant.variation_props && item.variant.variation_props.length > 0) {
             const payloadAttrs: Record<string, string> = {};
-            if (item.variant?.variation_props) {
-              item.variant.variation_props.forEach(prop => (payloadAttrs[prop.name] = prop.value));
-            }
+
+            // [2025-12-24] Remember to trim values for accurate key matching
+            item.variant.variation_props.forEach(prop => {
+              const key = prop.name.trim();
+              const val = prop.value.trim();
+              payloadAttrs[key] = val;
+            });
+
             const payloadKey = this.productsService.canonicalKey(payloadAttrs);
-
             matchedVariant = localProduct.variants.find(v => v.key === payloadKey);
+          }
 
-            if (!matchedVariant) {
-              await this.logFailedWebhookOrder(adminId, store, rawBody, `Missing variant for product ${item.product_slug} with attributes ${Object.values(payloadAttrs).join(',')}`, payload.externalId, payload.full_name, payload.phone);
-              return { ok: true, ignored: true, reason: 'missing_variant' };
-            }
+          if (!matchedVariant) {
+            const reason = `No valid variant found for product ${item.product_slug}`;
+            throw new BadRequestException(reason);
           }
 
           items.push({
@@ -619,10 +625,6 @@ export class StoresService {
         await this.ordersService.updateExternalId(newOrder.id, payload.externalId);
         await manager.update(OrderEntity, newOrder.id, { externalId: payload.externalId });
 
-        if (failureLog) {
-          failureLog.status = OrderFailStatus.SUCCESS;
-          await this.failureRepo.save(failureLog);
-        }
 
         this.logger.log(`[Webhook Order Create] Created new order from webhook with External ID ${payload.externalId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`);
         return { ok: true, orderId: newOrder.id };
@@ -633,8 +635,20 @@ export class StoresService {
         failureLog.status = OrderFailStatus.FAILED;
         failureLog.reason = error.message;
         await this.failureRepo.save(failureLog);
+      } else {
+        const externalId = payload?.externalId || 'UNKNOWN';
+        const customerName = payload?.full_name?.trim() || 'N/A';
+        await this.logFailedWebhookOrder(
+          adminId,
+          store,
+          rawBody,
+          `${error.message}`,
+          externalId,
+          customerName,
+          payload?.phone
+        );
       }
-      return { ok: true, ignored: true, reason: 'processing_error' };
+      return { ok: false, ignored: true, reason: 'processing_error' };
     }
   }
 
@@ -655,7 +669,7 @@ export class StoresService {
       return;
     }
 
-    const isAuthed = p.verifyWebhookAuth(headers, body, store, req);
+    const isAuthed = p.verifyWebhookAuth(headers, body, store, req, "create");
     if (!isAuthed) {
       return { ok: true, ignored: true, reason: 'auth_failed' };
     }
@@ -667,7 +681,7 @@ export class StoresService {
   async handleWebhookOrderUpdate(provider: string, body: any, headers: Record<string, any>, req: any) {
     const p = this.getProvider(provider);
     const payload = p.mapWebhookUpdate(body);
-    const externalOrderId = payload.externalId;
+    const externalOrderId = payload?.externalId;
     const order = await this.ordersService.findByExternalId(externalOrderId);
 
     if (!order) {
@@ -698,7 +712,7 @@ export class StoresService {
 
     const creds = store.credentials || {};
 
-    const isAuthed = p.verifyWebhookAuth(headers, body, store, req);
+    const isAuthed = p.verifyWebhookAuth(headers, body, store, req, "update");
 
     if (!isAuthed) {
       this.logger.warn(`[Webhook Order Update] Authentication failed for webhook status update on Order #${order.orderNumber}. Invalid signature.`);
@@ -808,75 +822,87 @@ export class StoresService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    return await this.dataSource.transaction(async (manager) => {
 
+    return await this.dataSource.transaction(async (manager) => {
       const failureLog = await manager.findOne(WebhookOrderFailureEntity, {
         where: { id: failureId, adminId },
         relations: ['store'],
       });
+      try {
 
-      if (!failureLog || !failureLog.store) {
-        throw new NotFoundException("Failure log or associated store not found");
-      }
 
-      if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
-        throw new BadRequestException(`Cannot retry. Current status is: ${failureLog.status}`);
-      }
 
-      const store = failureLog.store;
+        if (!failureLog || !failureLog.store) {
+          throw new NotFoundException("Failure log or associated store not found");
+        }
 
-      // 🔔 Emit retry started
-      this.appGateway.emitWebhookRetryStatus(String(adminId), {
-        failureId,
-        status: OrderFailStatus.RETRYING,
-        message: "Retry started",
-      });
+        if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
+          throw new BadRequestException(`Cannot retry. Current status is: ${failureLog.status}`);
+        }
 
-      const p = this.getProvider(store.provider);
-      const payload = await p.mapWebhookCreate(failureLog.payload, store);
+        const store = failureLog.store;
 
-      failureLog.status = OrderFailStatus.RETRYING;
-      failureLog.attempts += 1;
-      await manager.save(failureLog);
-
-      const slugsToSync = payload.cart_items.map(item => item.product_slug);
-      await p.syncProductsFromProvider(store, slugsToSync, manager);
-
-      const result = await this.processMappedWebhookOrder(
-        adminId,
-        store,
-        payload,
-        failureLog.payload,
-        failureLog,
-        manager
-      );
-
-      if (!result.ok) {
-
-        // 🔴 Emit failed again
+        // 🔔 Emit retry started
         this.appGateway.emitWebhookRetryStatus(String(adminId), {
           failureId,
-          status: OrderFailStatus.FAILED,
-          attempts: failureLog.attempts,
-          message: result.reason,
+          status: OrderFailStatus.RETRYING,
+          message: "Retry started",
         });
 
-        throw new BadRequestException(`Retry failed again: ${result.reason}`);
+        const p = this.getProvider(store.provider);
+        const payload = await p.mapWebhookCreate(failureLog.payload, store);
+
+        failureLog.status = OrderFailStatus.RETRYING;
+        failureLog.attempts += 1;
+        await manager.save(failureLog);
+
+        const slugsToSync = payload.cart_items.map(item => item.product_slug);
+        await p.syncProductsFromProvider(store, slugsToSync, manager);
+
+        const result = await this.processMappedWebhookOrder(
+          adminId,
+          store,
+          payload,
+          failureLog.payload,
+          failureLog,
+          manager
+        );
+
+        if (!result.ok) {
+
+          // 🔴 Emit failed again
+          this.appGateway.emitWebhookRetryStatus(String(adminId), {
+            failureId,
+            status: OrderFailStatus.FAILED,
+            attempts: failureLog.attempts,
+            message: result.reason,
+          });
+
+          throw new BadRequestException(`Retry failed again: ${result.reason}`);
+        } else {
+          failureLog.status = OrderFailStatus.SUCCESS;
+          await manager.save(failureLog);
+        }
+
+        // 🟢 Emit success
+        this.appGateway.emitWebhookRetryStatus(String(adminId), {
+          failureId,
+          status: OrderFailStatus.SUCCESS,
+          orderId: result.orderId || null,
+          attempts: failureLog.attempts,
+          message: "Order successfully retried",
+        });
+
+        return {
+          message: "Order successfully retried and created",
+          orderId: result.orderId || null,
+        };
+      } catch (error) {
+        failureLog.status = OrderFailStatus.FAILED;
+        failureLog.reason = error.message || "Unknown error";
+        await manager.save(failureLog);
+        throw error;
       }
-
-      // 🟢 Emit success
-      this.appGateway.emitWebhookRetryStatus(String(adminId), {
-        failureId,
-        status: OrderFailStatus.SUCCESS,
-        orderId: result.orderId || null,
-        attempts: failureLog.attempts,
-        message: "Order successfully retried",
-      });
-
-      return {
-        message: "Order successfully retried and created",
-        orderId: result.orderId || null,
-      };
     });
   }
 
@@ -1102,7 +1128,8 @@ export class StoresService {
           }),
         };
 
-        await this.productsService.upsertSkus(userContext, savedProduct.id, upsertDto);
+        // Pass manager if available to upsertSkus
+        await this.productsService.upsertSkus(userContext, savedProduct.id, upsertDto, em);
       }
 
       return savedProduct;

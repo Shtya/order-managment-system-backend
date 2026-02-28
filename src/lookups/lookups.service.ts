@@ -113,7 +113,7 @@ export class LookupsService {
 
 		if (params.productId) {
 			qb.andWhere('v.productId = :productId', { productId: params.productId });
-		} 
+		}
 
 		if (params.q?.trim()) {
 			const tokens = params.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -361,7 +361,7 @@ export class LookupsService {
 	async stores(me: User, params: ActiveLookupParams) {
 		const qb = this.storesRepo
 			.createQueryBuilder('s')
-			.select(['s.id AS id', 's.name AS name', 's.code AS code', 's.isActive AS "isActive"'])
+			.select(['s.id AS id', 's.name AS name', 's.isActive AS "isActive"'])
 			.orderBy('s.id', 'DESC')
 			.limit(params.limit);
 
@@ -371,13 +371,13 @@ export class LookupsService {
 
 		if (params.q?.trim()) {
 			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.code) LIKE :q)', { q });
+			qb.andWhere('(LOWER(s.name) LIKE :q', { q });
 		}
 
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
 			id: Number(x.id),
-			label: `${x.name} (${x.code})`,
+			label: `${x.name}`,
 			name: x.name,
 			code: x.code,
 			isActive: x.isActive,

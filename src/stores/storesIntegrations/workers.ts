@@ -55,33 +55,42 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
+    // workers.ts
+
     private async cleanupStalledLocks() {
         try {
             const redis = storeSyncQueue.redis;
             const namespace = storeSyncQueue.namespace || 'groupmq';
 
-            const pattern = `${namespace}:g:*:active`;
+            // We need to clean Group locks, Processing locks, and Unique locks
+            const patterns = [
+                `${namespace}:g:*:active`,    // Group locks (Sequential blocking)
+                `${namespace}:processing:*`,  // Job-level active markers
+                `${namespace}:unique:*`       // Duplicate prevention markers
+            ];
 
-            this.logger.log(`Scanning for stalled locks with pattern: ${pattern}`);
+            let totalDeleted = 0;
 
-            let cursor = '0';
-            let deletedCount = 0;
+            for (const pattern of patterns) {
+                let cursor = '0';
+                this.logger.log(`[Recovery] Scanning: ${pattern}`);
 
-            do {
-                const [newCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-                cursor = newCursor;
+                do {
+                    const [newCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+                    cursor = newCursor;
 
-                if (keys.length > 0) {
-                    await redis.del(...keys);
-                    deletedCount += keys.length;
-                }
-            } while (cursor !== '0');
+                    if (keys.length > 0) {
+                        await redis.del(...keys);
+                        totalDeleted += keys.length;
+                    }
+                } while (cursor !== '0');
+            }
 
-            if (deletedCount > 0) {
-                this.logger.warn(`Successfully cleared ${deletedCount} stalled group locks.`);
+            if (totalDeleted > 0) {
+                this.logger.warn(`[Recovery] ✓ Cleared ${totalDeleted} orphaned locks/markers.`);
             }
         } catch (error) {
-            this.logger.error("Failed to cleanup stalled locks:", error);
+            this.logger.error("[Recovery] ✗ Failed to cleanup stalled locks:", error);
         }
     }
 
@@ -91,9 +100,11 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
         this.worker = new Worker({
             queue: storeSyncQueue,
             concurrency: 4,
-            maxAttempts: 0, // Default to 0 retries for API calls
+            maxAttempts: 3, // Default to 0 retries for API calls
             blockingTimeoutSec: 10,
-
+            stalledInterval: 30000,
+            maxStalledCount: 1,          // Fail after 1 stall
+            stalledGracePeriod: 0,
 
             // 2. The logic wrapper
             handler: async (job: ReservedJob) => {
@@ -109,6 +120,14 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                 );
             },
         });
+
+        this.worker.on('stalled', (jobId, groupId) => {
+            console.warn(`Job ${jobId} from group ${groupId} was stalled`)
+
+            this.logger.warn(`Job ${jobId} from group ${groupId} was stalled`);
+
+            // Note: Job has already been recovered automatically
+        })
 
         this.worker.run();
     }
@@ -157,6 +176,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                         await service.syncFullStore(store);
                     }
                     break;
+
 
                 case "retry-failed-order":
                     const { failureId, adminId } = payload;
