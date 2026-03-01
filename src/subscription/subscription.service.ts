@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { CreateSubscriptionDto } from "dto/subscriptions.dto";
+import { CreateSubscriptionDto, UpdateSubscriptionDto } from "dto/subscriptions.dto";
 import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionStatus } from "entities/plans.entity";
 import { SystemRole, User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
@@ -137,7 +137,7 @@ export class SubscriptionsService {
         return this.subscriptionsRepo.save(subscription);
     }
 
-    async createSuperAdminSubscription(me: User, dto: CreateSubscriptionDto) {
+    async createSubscription(me: User, dto: CreateSubscriptionDto) {
         if (!this.isSuperAdmin(me)) {
             throw new ForbiddenException('You do not have permission');
         }
@@ -146,6 +146,14 @@ export class SubscriptionsService {
             // 1️⃣ Find user & plan
             const user = await manager.findOne(User, { where: { id: dto.userId } });
             if (!user) throw new NotFoundException('User not found');
+
+            // 2️⃣ Prevent duplicate active subscription
+            const existing = await manager.findOne(Subscription, {
+                where: { userId: user.id, status: SubscriptionStatus.ACTIVE },
+            });
+            if (existing) {
+                throw new BadRequestException('User already has an active subscription');
+            }
 
             const plan = await manager.findOne(Plan, { where: { id: dto.planId } });
             if (!plan) throw new NotFoundException('Plan not found');
@@ -159,7 +167,7 @@ export class SubscriptionsService {
                 userId: user.id,
                 planId: plan.id,
                 adminId: user.adminId,
-                price: plan.price,
+                price: dto.price || plan.price,
                 status: dto.status,
                 startDate: new Date(),
                 endDate: null, // can calculate endDate based on plan.duration if needed
@@ -191,6 +199,42 @@ export class SubscriptionsService {
                 subscription: savedSubscription,
                 transaction,
             };
+        });
+    }
+
+    async updateSubscription(me: User, subscriptionId: number, dto: UpdateSubscriptionDto) {
+        if (!this.isSuperAdmin(me)) {
+            throw new ForbiddenException('You do not have permission');
+        }
+
+        return await this.dataSource.transaction(async (manager) => {
+            const subscription = await manager.findOne(Subscription, {
+                where: { id: subscriptionId },
+            });
+
+            if (!subscription) throw new NotFoundException('Subscription not found');
+
+            // Update plan if provided
+            if (dto.planId) {
+                const plan = await manager.findOne(Plan, { where: { id: dto.planId } });
+                if (!plan) throw new NotFoundException('Plan not found');
+                if (!plan.isActive) throw new BadRequestException('Plan is not active');
+
+                subscription.planId = plan.id;
+                subscription.price = plan.price;
+            }
+
+            // Update status if provided
+            if (dto.status) {
+                subscription.status = dto.status;
+            }
+
+            if (dto.price) {
+                subscription.price = dto.price;
+            }
+
+            const updated = await manager.save(subscription);
+            return updated;
         });
     }
 

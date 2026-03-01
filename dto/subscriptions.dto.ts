@@ -14,6 +14,10 @@ export class CreateSubscriptionDto {
     status: SubscriptionStatus;
 
     @IsOptional()
+    @IsNumber()
+    price?: number; // amount actually paid
+
+    @IsOptional()
     payed?: boolean; // true if already paid
 
     @IsOptional()
@@ -23,4 +27,19 @@ export class CreateSubscriptionDto {
     @IsOptional()
     @IsNumber()
     amount?: number; // amount actually paid
+}
+
+
+export class UpdateSubscriptionDto {
+    @IsOptional()
+    @IsInt({ message: 'planId must be an integer' })
+    planId?: number;
+
+    @IsOptional()
+    @IsNumber()
+    price?: number; // amount actually paid
+
+    @IsOptional()
+    @IsEnum(SubscriptionStatus, { message: 'status must be a valid SubscriptionStatus' })
+    status?: SubscriptionStatus;
 }
