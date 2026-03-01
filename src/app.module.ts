@@ -38,6 +38,7 @@ import { NotificationModule } from "./notifications/notification.module";
 import { AppGateway } from "common/app.gateway";
 import { WebSocketModule } from "common/websocket.module";
 import { CollectionModule } from "./order-collections/collection.module";
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
 	imports: [
@@ -77,7 +78,8 @@ import { CollectionModule } from "./order-collections/collection.module";
 		WebSocketModule,
 		ShippingModule,
 		NotificationModule,
-		CollectionModule
+		CollectionModule,
+		DashboardModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService
