@@ -122,6 +122,8 @@ export enum PaymentMethod {
 @Index(["adminId", "status"])
 @Index(["adminId", "paymentStatus"])
 @Index(["adminId", "created_at"])
+@Index(['adminId', 'storeId', 'created_at'])
+@Index(["adminId", "city", "area"])
 export class OrderEntity {
   @PrimaryGeneratedColumn()
   id: number;
@@ -473,6 +475,13 @@ export class OrderAssignmentEntity {
 
   @Column()
   assignedByAdminId: number;
+
+  @ManyToOne(() => OrderStatusEntity, { eager: true, nullable: true })
+  @JoinColumn({ name: 'lastStatusId' })
+  lastStatus: OrderStatusEntity;
+
+  @Column({ nullable: true })
+  lastStatusId: number;
 
   // ✅ Tracking the Work
   @Column({ type: "int", default: 0 })

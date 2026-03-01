@@ -849,6 +849,7 @@ export class OrdersService {
         activeAssignment.finishedAt = now;
         activeAssignment.lockedUntil = null;
       }
+      activeAssignment.lastStatusId = newStatus.id;
 
       // 4. Update Order (Stock logic included for terminal states)
       if (newStatus.code === OrderStatus.CANCELLED || newStatus.code === OrderStatus.RETURNED) {
@@ -1907,7 +1908,7 @@ export class OrdersService {
           const assignment = manager.create(OrderAssignmentEntity, {
             orderId,
             employeeId: item.userId,
-            assignedByAdminId: Number(me.id),
+            assignedByAdminId: Number(adminId),
             maxRetriesAtAssignment: maxRetries,
             isAssignmentActive: true,
           });
@@ -1996,7 +1997,7 @@ export class OrdersService {
         const assignment = manager.create(OrderAssignmentEntity, {
           orderId: order.id,
           employeeId: employee.id,
-          assignedByAdminId: Number(me.id),
+          assignedByAdminId: Number(adminId),
           maxRetriesAtAssignment: maxRetries,
           isAssignmentActive: true,
         });
