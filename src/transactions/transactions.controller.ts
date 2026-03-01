@@ -4,6 +4,7 @@ import {
 	Delete,
 	Get,
 	Param,
+	ParseIntPipe,
 	Patch,
 	Post,
 	Query,
@@ -14,66 +15,51 @@ import { TransactionsService } from './transactions.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { PermissionsGuard } from 'common/permissions.guard';
-import {
-	CreateTransactionDto,
-	FilterTransactionsDto,
-	UpdateTransactionStatusDto,
-} from 'dto/plans.dto';
+import { ManualCreateTransactionDto } from 'dto/plans.dto';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('transactions')
 export class TransactionsController {
 	constructor(private transactions: TransactionsService) { }
 
-	// ✅ List all transactions (filtered by user role)
+	// ✅ List (with filters)
 	@Permissions('transactions.read')
 	@Get()
-	list(@Req() req: any, @Query() filters: FilterTransactionsDto) {
+	list(@Req() req: any, @Query() filters: any) {
 		return this.transactions.list(req.user, filters);
 	}
 
-	// ✅ Get transaction statistics (admin only)
+	// ✅ Get single transaction by id
 	@Permissions('transactions.read')
-	@Get('statistics')
+	@Get(':id')
+	get(@Req() req: any, @Param('id') id: string) {
+		return this.transactions.get(req.user, Number(id))
+	}
+
+	// ✅ Get statistics
+	@Permissions('transactions.read')
+	@Get('statistics/overview')
 	getStatistics(@Req() req: any) {
 		return this.transactions.getStatistics(req.user);
 	}
 
-	// ✅ Get user's active subscription
-	@Get('my-subscription')
-	getMySubscription(@Req() req: any) {
-		return this.transactions.getActiveSubscription(req.user.id);
-	}
-
-	// ✅ Get single transaction
-	@Permissions('transactions.read')
-	@Get(':id')
-	get(@Req() req: any, @Param('id') id: string) {
-		return this.transactions.get(req.user, Number(id));
-	}
-
-	// ✅ Create transaction (subscribe to plan)
-	@Permissions('transactions.create')
-	@Post()
-	create(@Req() req: any, @Body() dto: CreateTransactionDto) {
-		return this.transactions.create(req.user, dto);
-	}
-
-	// ✅ Update transaction status (admin only)
+	// ✅ Cancel transaction
 	@Permissions('transactions.update')
-	@Patch(':id/status')
-	updateStatus(
-		@Req() req: any,
-		@Param('id') id: string,
-		@Body() dto: UpdateTransactionStatusDto,
-	) {
-		return this.transactions.updateStatus(req.user, Number(id), dto);
+	@Patch(':id/cancel')
+	cancel(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+		return this.transactions.cancel(req.user, id);
 	}
 
-	// ✅ Cancel transaction (user or admin)
-	@Permissions('transactions.cancel')
-	@Post(':id/cancel')
-	cancel(@Req() req: any, @Param('id') id: string) {
-		return this.transactions.cancel(req.user, Number(id));
+	// ✅ Super Admin: Manual Create Completed Transaction
+	@Permissions('transactions.create')
+	@Post('manual')
+	manualCreateCompletedTransaction(
+		@Req() req: any,
+		@Body() dto: ManualCreateTransactionDto,
+	) {
+		return this.transactions.manualCreateCompletedTransaction(
+			req.user,
+			dto,
+		);
 	}
 }

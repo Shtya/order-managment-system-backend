@@ -1,5 +1,6 @@
+import { Type } from 'class-transformer';
 import { IsString, IsNumber, IsArray, IsEnum, IsBoolean, IsOptional, Min, IsInt } from 'class-validator';
-import { PlanDuration, TransactionStatus } from 'entities/plans.entity';
+import { TransactionPaymentMethod, PlanDuration, TransactionStatus } from 'entities/plans.entity';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 /* =========================
@@ -110,63 +111,6 @@ export class UpdatePlanDto {
 
 }
 
-/* =========================
- * Transaction DTOs
- * ========================= */
-
-export class CreateTransactionDto {
-	@IsNumber()
-	planId: number;
-
-	@IsNumber()
-	@IsOptional()
-	userId?: number; // If admin creates for specific user
-
-	@IsString()
-	@IsOptional()
-	paymentMethod?: string;
-
-	@IsString()
-	@IsOptional()
-	paymentProof?: string;
-}
-
-export class UpdateTransactionStatusDto {
-	@IsEnum(TransactionStatus)
-	status: TransactionStatus;
-}
-
-export class FilterTransactionsDto {
-	@IsEnum(TransactionStatus)
-	@IsOptional()
-	status?: TransactionStatus;
-
-	@IsNumber()
-	@IsOptional()
-	userId?: number;
-
-	@IsNumber()
-	@IsOptional()
-	planId?: number;
-
-	@IsString()
-	@IsOptional()
-	dateFrom?: string; // ISO string
-
-	@IsString()
-	@IsOptional()
-	dateTo?: string; // ISO string
-
-	@IsNumber()
-	@Min(0)
-	@IsOptional()
-	minAmount?: number;
-
-	@IsNumber()
-	@Min(0)
-	@IsOptional()
-	maxAmount?: number;
-}
 
 @Entity('bulk_upload_usage')
 export class BulkUploadUsage {
@@ -181,4 +125,17 @@ export class BulkUploadUsage {
 
 	@Column({ default: 0 })
 	count: number;
+}
+
+export class ManualCreateTransactionDto {
+	@IsNumber()
+	@Type(() => Number)
+	subscriptionId: number;
+
+	@IsEnum(TransactionPaymentMethod)
+	paymentMethod: TransactionPaymentMethod;
+
+	@IsOptional()
+	@IsString()
+	paymentProof?: string;
 }

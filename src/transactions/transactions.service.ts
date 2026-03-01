@@ -6,19 +6,17 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SystemRole, User } from 'entities/user.entity';
-import { Between, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
-import {
-	CreateTransactionDto,
-	FilterTransactionsDto,
-	UpdateTransactionStatusDto,
-} from 'dto/plans.dto';
-import { Plan, Transaction, TransactionStatus } from 'entities/plans.entity';
+import { DataSource, Repository } from 'typeorm';
+
+import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionStatus } from 'entities/plans.entity';
+import { ManualCreateTransactionDto } from 'dto/plans.dto';
+
 
 @Injectable()
 export class TransactionsService {
 	constructor(
+		private dataSource: DataSource,
 		@InjectRepository(Transaction) private transactionsRepo: Repository<Transaction>,
-		@InjectRepository(Plan) private plansRepo: Repository<Plan>,
 		@InjectRepository(User) private usersRepo: Repository<User>,
 	) { }
 
@@ -32,163 +30,105 @@ export class TransactionsService {
 		return me.role?.name === SystemRole.ADMIN;
 	}
 
-	// ✅ List Transactions (filtered by user role)
-	async list(me: User, filters?: FilterTransactionsDto) {
+
+	async list(me: User, q?: any) {
+		const page = Number(q?.page ?? 1);
+		const limit = Number(q?.limit ?? 10);
+		const search = String(q?.search ?? '').trim();
+
+		const sortBy = String(q?.sortBy ?? 'createdAt');
+		const sortDir: 'ASC' | 'DESC' =
+			String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
 		const qb = this.transactionsRepo
 			.createQueryBuilder('t')
 			.leftJoinAndSelect('t.user', 'user')
-			.leftJoinAndSelect('t.plan', 'plan')
-			.orderBy('t.id', 'DESC');
+			.leftJoinAndSelect('t.subscription', 'sub')
+			.leftJoinAndSelect('sub.plan', 'plan');
 
-		// Super admin: sees all transactions
-		if (this.isSuperAdmin(me)) {
-			qb.where('t.adminId IS NULL');
+		// --- Role-based access ---
+		if (this.isAdmin(me)) {
+			qb.where(
+				'(sub.adminId = :meId OR sub.userId IN (SELECT id FROM users WHERE adminId = :meId))',
+				{ meId: me.id },
+			);
+		} else if (!this.isSuperAdmin(me)) {
+			qb.where('sub.userId = :meId', { meId: me.id });
 		}
-		// Admin: sees transactions for his users
-		else if (this.isAdmin(me)) {
-			qb.where('(t.adminId = :meId OR t.userId IN (SELECT id FROM users WHERE adminId = :meId))', {
-				meId: me.id,
+
+		// --- Filters ---
+		if (q?.status) qb.andWhere('t.status = :status', { status: q.status });
+		if (q?.userId) qb.andWhere('t.userId = :userId', { userId: q.userId });
+		if (q?.planId) qb.andWhere('sub.planId = :planId', { planId: q.planId });
+
+		// Search by user name/email or plan name
+		if (search) {
+			qb.andWhere(
+				`(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s)`,
+				{ s: `%${search}%` },
+			);
+		}
+
+		// Date filters on transaction creation
+		if (q?.startDate) {
+			qb.andWhere('t.createdAt >= :startDate', {
+				startDate: `${q.startDate}T00:00:00.000Z`,
 			});
 		}
-		// Regular user: sees only his own transactions
-		else {
-			qb.where('t.userId = :meId', { meId: me.id });
+		if (q?.endDate) {
+			qb.andWhere('t.createdAt <= :endDate', {
+				endDate: `${q.endDate}T23:59:59.999Z`,
+			});
 		}
 
-		// Apply filters
-		if (filters) {
-			if (filters.status) {
-				qb.andWhere('t.status = :status', { status: filters.status });
-			}
-
-			if (filters.userId) {
-				qb.andWhere('t.userId = :userId', { userId: filters.userId });
-			}
-
-			if (filters.planId) {
-				qb.andWhere('t.planId = :planId', { planId: filters.planId });
-			}
-
-			if (filters.dateFrom) {
-				qb.andWhere('t.createdAt >= :dateFrom', { dateFrom: new Date(filters.dateFrom) });
-			}
-
-			if (filters.dateTo) {
-				qb.andWhere('t.createdAt <= :dateTo', { dateTo: new Date(filters.dateTo) });
-			}
-
-			if (filters.minAmount !== undefined) {
-				qb.andWhere('t.amount >= :minAmount', { minAmount: filters.minAmount });
-			}
-
-			if (filters.maxAmount !== undefined) {
-				qb.andWhere('t.amount <= :maxAmount', { maxAmount: filters.maxAmount });
-			}
+		if (q?.subscriptionId) {
+			qb.andWhere('t.subscriptionId = :subscriptionId', {
+				subscriptionId: q?.subscriptionId,
+			});
 		}
 
-		const transactions = await qb.getMany();
+		// --- Sorting ---
+		qb.orderBy(`t.${sortBy}`, sortDir);
 
-		// Format response with user and plan names
-		return transactions.map((t) => ({
-			id: t.id,
-			userId: t.userId,
-			userName: t.user?.name || 'Unknown',
-			userEmail: t.user?.email || 'Unknown',
-			planId: t.planId,
-			planName: t.plan?.name || 'Unknown',
-			amount: Number(t.amount),
-			status: t.status,
-			paymentMethod: t.paymentMethod,
-			paymentProof: t.paymentProof,
-			date: t.createdAt.toLocaleDateString('ar-EG'),
-			createdAt: t.createdAt,
-			updatedAt: t.updatedAt,
-		}));
+		// --- Pagination ---
+		const [transactions, total] = await qb
+			.skip((page - 1) * limit)
+			.take(limit)
+			.getManyAndCount();
+
+		// Return as-is with relations
+		return {
+			total_records: total,
+			current_page: page,
+			per_page: limit,
+			records: transactions,
+		};
 	}
 
-	// ✅ Get Single Transaction
 	async get(me: User, id: number) {
 		const transaction = await this.transactionsRepo.findOne({
 			where: { id },
-			relations: ['user', 'plan'],
+			relations: ['user', 'subscription', 'subscription.plan'],
 		});
 
 		if (!transaction) throw new NotFoundException('Transaction not found');
 
-		// Super admin: only transactions with adminId null
+		// Super admin: can see all
 		if (this.isSuperAdmin(me)) {
-			if (transaction.adminId === null) return transaction;
-			throw new ForbiddenException('Not allowed');
+			return transaction;
 		}
 
-		// Admin: transactions for his users
+		// Admin: can see transactions where transaction.adminId === adminId
 		if (this.isAdmin(me)) {
 			const user = await this.usersRepo.findOne({ where: { id: transaction.userId } });
 			if (user && user.adminId === me.id) return transaction;
 			throw new ForbiddenException('Not your transaction');
 		}
 
-		// Regular user: only his own transactions
+		// Regular user: only their own transactions
 		if (transaction.userId === me.id) return transaction;
 
 		throw new ForbiddenException('Not allowed');
-	}
-
-	// ✅ Create Transaction (Subscribe to Plan)
-	async create(me: User, dto: CreateTransactionDto) {
-		// Find the plan
-		const plan = await this.plansRepo.findOne({ where: { id: dto.planId } });
-		if (!plan) throw new NotFoundException('Plan not found');
-
-		// Check if plan is active
-		if (!plan.isActive) {
-			throw new BadRequestException('Plan is not active');
-		}
-
-		// Determine userId (admin can create for specific user)
-		let userId = me.id;
-		if (dto.userId && (this.isSuperAdmin(me) || this.isAdmin(me))) {
-			// Admin can only create for his users
-			if (this.isAdmin(me)) {
-				const targetUser = await this.usersRepo.findOne({ where: { id: dto.userId } });
-				if (!targetUser || targetUser.adminId !== me.id) {
-					throw new ForbiddenException('Not your user');
-				}
-			}
-			userId = dto.userId;
-		}
-
-		// Create transaction
-		const transaction = this.transactionsRepo.create({
-			userId,
-			planId: plan.id,
-			amount: plan.price,
-			status: TransactionStatus.PROCESSING,
-			paymentMethod: dto.paymentMethod,
-			paymentProof: dto.paymentProof,
-			adminId: this.isSuperAdmin(me) ? null : this.isAdmin(me) ? me.id : me.adminId,
-		});
-
-		const saved = await this.transactionsRepo.save(transaction);
-
-		// Return full transaction with relations
-		return this.transactionsRepo.findOne({
-			where: { id: saved.id },
-			relations: ['user', 'plan'],
-		});
-	}
-
-	// ✅ Update Transaction Status (Admin only)
-	async updateStatus(me: User, id: number, dto: UpdateTransactionStatusDto) {
-		if (!(this.isSuperAdmin(me) || this.isAdmin(me))) {
-			throw new ForbiddenException('Only admins can update transaction status');
-		}
-
-		const transaction = await this.get(me, id);
-
-		transaction.status = dto.status;
-
-		return this.transactionsRepo.save(transaction);
 	}
 
 	// ✅ Get Transaction Statistics (for admin)
@@ -205,55 +145,31 @@ export class TransactionsService {
 			qb.where('t.adminId = :meId', { meId: me.id });
 		}
 
-		const total = await qb.getCount();
-
-		const active = await qb
-			.clone()
-			.andWhere('t.status = :status', { status: TransactionStatus.ACTIVE })
-			.getCount();
-
-		const processing = await qb
-			.clone()
-			.andWhere('t.status = :status', { status: TransactionStatus.PROCESSING })
-			.getCount();
-
-		const completed = await qb
-			.clone()
-			.andWhere('t.status = :status', { status: TransactionStatus.COMPLETED })
-			.getCount();
-
-		const cancelled = await qb
-			.clone()
-			.andWhere('t.status = :status', { status: TransactionStatus.CANCELLED })
-			.getCount();
-
-		// Calculate total revenue
 		const result = await qb
-			.select('SUM(t.amount)', 'total')
+			.select([
+				'COUNT(*) as total',
+				`COUNT(CASE WHEN t.status = :active THEN 1 END) as active`,
+				`COUNT(CASE WHEN t.status = :processing THEN 1 END) as processing`,
+				`COUNT(CASE WHEN t.status = :completed THEN 1 END) as completed`,
+				`COUNT(CASE WHEN t.status = :cancelled THEN 1 END) as cancelled`,
+				'COALESCE(SUM(t.amount), 0) as totalRevenue',
+			])
+			.setParameters({
+				active: TransactionStatus.ACTIVE,
+				processing: TransactionStatus.PROCESSING,
+				completed: TransactionStatus.COMPLETED,
+				cancelled: TransactionStatus.CANCELLED,
+			})
 			.getRawOne();
 
 		return {
-			total,
-			active,
-			processing,
-			completed,
-			cancelled,
-			totalRevenue: Number(result?.total || 0),
+			total: Number(result.total),
+			active: Number(result.active),
+			processing: Number(result.processing),
+			completed: Number(result.completed),
+			cancelled: Number(result.cancelled),
+			totalRevenue: Number(result.totalRevenue),
 		};
-	}
-
-	// ✅ Get User's Active Subscription
-	async getActiveSubscription(userId: number) {
-		const transaction = await this.transactionsRepo.findOne({
-			where: {
-				userId,
-				status: TransactionStatus.ACTIVE,
-			},
-			relations: ['plan'],
-			order: { createdAt: 'DESC' },
-		});
-
-		return transaction;
 	}
 
 	// ✅ Cancel Transaction (by user or admin)
@@ -268,5 +184,46 @@ export class TransactionsService {
 		transaction.status = TransactionStatus.CANCELLED;
 
 		return this.transactionsRepo.save(transaction);
+	}
+
+	async manualCreateCompletedTransaction(
+		me: User,
+		dto: ManualCreateTransactionDto,
+	) {
+		if (!this.isSuperAdmin(me)) {
+			throw new ForbiddenException(
+				'Only super admin can manually create completed transactions',
+			);
+		}
+
+		return this.dataSource.transaction(async (manager) => {
+			// ✅ Ensure subscription exists
+			const subscription = await manager.findOne(Subscription, {
+				where: { id: dto.subscriptionId },
+			});
+
+			if (!subscription) {
+				throw new NotFoundException('Subscription not found');
+			}
+
+			// ✅ Create new transaction
+			const transaction = manager.create(Transaction, {
+				subscriptionId: dto.subscriptionId,
+				amount: subscription.price,
+				paymentMethod: dto.paymentMethod,
+				paymentProof: dto.paymentProof ?? null,
+				status: TransactionStatus.COMPLETED,
+			});
+
+			await manager.save(Transaction, transaction);
+
+			// ✅ Optional: activate subscription if not active
+			if (subscription.status !== SubscriptionStatus.ACTIVE) {
+				subscription.status = SubscriptionStatus.ACTIVE;
+				await manager.save(Subscription, subscription);
+			}
+
+			return transaction;
+		});
 	}
 }
