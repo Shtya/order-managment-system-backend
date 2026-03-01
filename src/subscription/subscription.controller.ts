@@ -9,12 +9,13 @@ import {
     Req,
     UseGuards,
     ParseIntPipe,
+    Put,
 } from '@nestjs/common';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { SubscriptionsService } from './subscription.service';
 import { Permissions } from 'common/permissions.decorator';
-import { CreateSubscriptionDto } from 'dto/subscriptions.dto';
+import { CreateSubscriptionDto, UpdateSubscriptionDto } from 'dto/subscriptions.dto';
 import { SubscriptionStatus } from 'entities/plans.entity';
 
 
@@ -39,15 +40,25 @@ export class SubscriptionsController {
 
     // ✅ Super Admin create subscription
     @Permissions('subscriptions.create')
-    @Post('super-admin')
-    createSuperAdminSubscription(
+    @Post()
+    createSubscription(
         @Req() req: any,
         @Body() dto: CreateSubscriptionDto,
     ) {
-        return this.subscriptions.createSuperAdminSubscription(
+        return this.subscriptions.createSubscription(
             req.user,
             dto,
         );
+    }
+
+    @Permissions('subscriptions.update')
+    @Put(':id') // subscription ID in URL
+    updateSubscription(
+        @Req() req: any,
+        @Param('id') id: string,
+        @Body() dto: UpdateSubscriptionDto,
+    ) {
+        return this.subscriptions.updateSubscription(req.user, Number(id), dto);
     }
 
     // ✅ Update subscription status
