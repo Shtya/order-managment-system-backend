@@ -3,7 +3,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { CreateOrderCollectionDto } from 'dto/order-collection.dto';
 import { OrderCollectionEntity } from 'entities/order-collection.entity';
-import { OrderEntity } from 'entities/order.entity';
+import { OrderEntity, OrderStatus } from 'entities/order.entity';
 import { ShippingIntegrationEntity } from 'entities/shipping.entity';
 import { tenantId } from 'src/category/category.service';
 import { Brackets, DataSource, Repository } from 'typeorm';
@@ -25,7 +25,9 @@ export class CollectionService {
 
     // collection.service.ts
 
-    async getCollectionStatistics(adminId: string) {
+    async getCollectionStatistics(me: any) {
+        const adminId = tenantId(me)
+        if (!adminId) throw new BadRequestException("Missing adminId");
         // shipping breakdown unchanged
         const shippingBreakdown = await this.repo
             .createQueryBuilder('col')
@@ -61,7 +63,9 @@ export class CollectionService {
         return stats;
     }
 
-    async addCollection(adminId: string, dto: CreateOrderCollectionDto) {
+    async addCollection(me: any, dto: CreateOrderCollectionDto) {
+        const adminId = tenantId(me)
+        if (!adminId) throw new BadRequestException("Missing adminId");
         // validate order exists — but do this inside transaction to lock it
         return await this.dataSource.transaction(async (manager) => {
             // 1. Lock the order row
@@ -96,7 +100,7 @@ export class CollectionService {
             const saved = await manager.save(collection);
 
             // 3. update order.collectedAmount atomically
-            order.collectedAmount = (order.collectedAmount || 0) + Number(dto.amount);
+            order.collectedAmount = (Number(order.collectedAmount) || 0) + Number(dto.amount);
             await manager.save(order);
 
             // 4. return saved (optionally return order too)
@@ -120,6 +124,7 @@ export class CollectionService {
         const qb = this.ordersRepo.createQueryBuilder("order")
             .leftJoinAndSelect("order.collections", "col") // Ensure OrderEntity has @OneToMany to OrderCollectionEntity
             .leftJoinAndSelect("order.shippingCompany", "shipping")
+            .leftJoin("order.status", "st")
             .where("order.adminId = :adminId", { adminId });
 
         // --- 1. Filter by Shipping Company (From Order Entity) ---
@@ -130,10 +135,25 @@ export class CollectionService {
         // --- 2. Collection Status Logic ---
         if (q?.collectionStatus) {
             const amt = "COALESCE(order.collectedAmount, 0)";
-            if (q.collectionStatus === 'not_collected') qb.andWhere(`${amt} = 0`);
-            else if (q.collectionStatus === 'partial') qb.andWhere(`${amt} > 0 AND ${amt} < order.finalTotal`);
-            else if (q.collectionStatus === 'fully_collected') qb.andWhere(`${amt} >= order.finalTotal`);
-            else if (q.collectionStatus === 'pending') qb.andWhere(`${amt} < order.finalTotal`);
+            const deliveredCondition = `st.code = '${OrderStatus.DELIVERED}'`;
+
+            if (q.collectionStatus === 'not_collected') {
+                qb.andWhere(`${amt} = 0`);
+            }
+            else if (q.collectionStatus === 'partial') {
+                // تحصيل جزئي + يجب أن يكون مستلم
+                qb.andWhere(`${amt} > 0 AND ${amt} < order.finalTotal`)
+                    .andWhere(deliveredCondition);
+            }
+            else if (q.collectionStatus === 'fully_collected') {
+                qb.andWhere(`${amt} >= order.finalTotal`)
+                    .andWhere(deliveredCondition);
+            }
+            else if (q.collectionStatus === 'pending') {
+                // لم يكتمل التحصيل + يجب أن يكون مستلم
+                qb.andWhere(`${amt} < order.finalTotal`)
+                    .andWhere(deliveredCondition);
+            }
         }
 
         // --- 3. Search (Order Number / Customer / Phone) ---
@@ -175,6 +195,8 @@ export class CollectionService {
             }
 
             return {
+
+                orderId: order.id,
                 orderNumber: order.orderNumber,
                 deliveredAt: order.deliveredAt, // تاریخ التوصيل
                 shippingCompany: order.shippingCompany || 'N/A',
@@ -200,112 +222,113 @@ export class CollectionService {
         if (!adminId) throw new BadRequestException("Missing adminId");
 
         const search = String(q?.search ?? "").trim();
+        const statusFilter = q?.collectionStatus;
 
-        // Primary query is now on OrderEntity to get the full picture
+        // 1. الاستعلام الأساسي (بدون تغيير في منطق الفلترة)
         const qb = this.ordersRepo.createQueryBuilder("order")
             .leftJoinAndSelect("order.collections", "col")
             .leftJoinAndSelect("order.shippingCompany", "shipping")
+            .leftJoin("order.status", "st")
             .where("order.adminId = :adminId", { adminId });
 
-        // --- 1. Apply Filters (Same as list method) ---
-        if (q?.shippingCompanyId) {
-            qb.andWhere("order.shippingCompanyId = :shippingId", { shippingId: Number(q.shippingCompanyId) });
-        }
-
-        if (q?.collectionStatus) {
-            const amt = "COALESCE(order.collectedAmount, 0)";
-            if (q.collectionStatus === 'not_collected') qb.andWhere(`${amt} = 0`);
-            else if (q.collectionStatus === 'partial') qb.andWhere(`${amt} > 0 AND ${amt} < order.finalTotal`);
-            else if (q.collectionStatus === 'fully_collected') qb.andWhere(`${amt} >= order.finalTotal`);
-            else if (q.collectionStatus === 'pending') qb.andWhere(`${amt} < order.finalTotal`);
-        }
-
+        // تطبيق نفس فلاتر البحث والشركة والحالة...
+        if (q?.shippingCompanyId) qb.andWhere("order.shippingCompanyId = :shippingId", { shippingId: Number(q.shippingCompanyId) });
         if (search) {
-            qb.andWhere(new Brackets((sq) => {
-                sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` })
-                    .orWhere("order.customerName ILIKE :s", { s: `%${search}%` });
+            qb.andWhere(new Brackets(sq => {
+                sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` }).orWhere("order.customerName ILIKE :s", { s: `%${search}%` });
             }));
+        }
+
+        if (q?.startDate) qb.andWhere("order.created_at >= :startDate", { startDate: `${q.startDate}T00:00:00.000Z` });
+        if (q?.endDate) qb.andWhere("order.created_at <= :endDate", { endDate: `${q.endDate}T23:59:59.999Z` });
+
+
+        // منطق فلترة الحالة (نفس الـ listCollections)
+        if (statusFilter) {
+            const amt = "COALESCE(order.collectedAmount, 0)";
+            const deliveredCondition = `st.code = '${OrderStatus.DELIVERED}'`;
+            if (statusFilter === 'not_collected') qb.andWhere(`${amt} = 0`).andWhere(deliveredCondition);
+            else if (statusFilter === 'partial') qb.andWhere(`${amt} > 0 AND ${amt} < order.finalTotal`).andWhere(deliveredCondition);
+            else if (statusFilter === 'fully_collected') qb.andWhere(`${amt} >= order.finalTotal`);
+            else if (statusFilter === 'pending') qb.andWhere(`${amt} < order.finalTotal`).andWhere(deliveredCondition);
         }
 
         const orders = await qb.orderBy("order.created_at", "DESC").getMany();
 
-        // --- 2. Transform Data for Excel ---
-        const exportData = orders.map((order) => {
+        // 2. تحديد الأعمدة بناءً على الحالة (Dynamic Columns)
+        let columns = [];
+        const isFullyCollected = statusFilter === 'fully_collected';
+
+        if (isFullyCollected) {
+            // أعمدة الـ collectedColumns
+            columns = [
+                { header: "Order Number", key: "orderNumber", width: 15 },
+                { header: "Shipping Company", key: "shippingCompany", width: 20 },
+                { header: "Last Collection Date", key: "lastCollectionDate", width: 20 },
+                { header: "Shipping Cost", key: "shippingCost", width: 15 },
+                { header: "Total Amount", key: "finalTotal", width: 15 },
+                { header: "Collected Amount", key: "collectedAmount", width: 15 },
+                { header: "Remaining Balance", key: "remainingBalance", width: 15 },
+                { header: "Status", key: "collectionStatus", width: 15 },
+            ];
+        } else {
+            // أعمدة الـ notCollectedColumns (تستخدم للـ partial, pending, not_collected)
+            columns = [
+                { header: "Order Number", key: "orderNumber", width: 15 },
+                { header: "Shipping Company", key: "shippingCompany", width: 20 },
+                { header: "Collected Amount", key: "collectedAmount", width: 15 },
+                { header: "Remaining Balance", key: "remainingBalance", width: 15 },
+                { header: "Shipping Cost", key: "shippingCost", width: 15 },
+                { header: "Collection Method", key: "collectionMethod", width: 25 },
+                { header: "Delivered At", key: "deliveredAt", width: 18 },
+                { header: "Status", key: "collectionStatus", width: 15 },
+                { header: "Delay Days", key: "delayDays", width: 12 },
+            ];
+        }
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("Collections");
+        worksheet.columns = columns;
+
+        // 3. تحويل البيانات (Transform)
+        const rows = orders.map(order => {
             const total = Number(order.finalTotal || 0);
             const collected = Number(order.collectedAmount || 0);
             const remaining = Math.max(0, total - collected);
-            const isFullyCollected = collected >= total && total > 0;
 
-            // Collection Status Logic
-            let status = 'Not Collected';
-            if (isFullyCollected) status = 'Fully Collected';
-            else if (collected > 0) status = 'Partial';
+            // حساب تاريخ آخر تحصيل (لـ Fully Collected)
+            const lastCol = order.collections?.length > 0
+                ? new Date(Math.max(...order.collections.map(c => new Date(c.collectedAt).getTime()))).toLocaleDateString()
+                : "—";
 
-            // Calculate Delay Days (Difference between Delivery and Last Payment)
-            let delayDays = 0;
-            if (isFullyCollected && order.deliveredAt && order.collections?.length > 0) {
-                const lastPayment = order.collections.reduce((prev, curr) =>
-                    (prev.collectedAt > curr.collectedAt) ? prev : curr
-                );
-                const start = new Date(order.deliveredAt);
-                const end = new Date(lastPayment.collectedAt);
-                delayDays = Math.max(0, Math.floor((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+            // حساب طرق التحصيل (لـ Not Collected)
+            const methods = [...new Set(order.collections?.map(c => c.source))].join(", ") || "—";
+
+            // حساب أيام التأخير
+            let delay = 0;
+            if (order.deliveredAt) {
+                const end = remaining === 0 ? new Date(lastCol) : new Date();
+                delay = Math.floor((end.getTime() - new Date(order.deliveredAt).getTime()) / (86400000));
             }
 
-            // Get unique collection methods used
-            const methods = [...new Set(order.collections?.map(c => c.source))].join(", ") || "N/A";
-
             return {
-                orderNumber: order.orderNumber || 'N/A',
-                shippingCompany: order.shippingCompany?.name || 'N/A',
-                deliveredDate: order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString() : 'N/A',
+                orderNumber: order.orderNumber,
+                shippingCompany: order.shippingCompany?.name || "—",
                 collectedAmount: collected,
                 remainingBalance: remaining,
-                collectionMethods: methods,
                 shippingCost: Number(order.shippingCost || 0),
-                delayDays: delayDays,
-                collectionStatus: status,
                 finalTotal: total,
+                collectionMethod: methods,
+                deliveredAt: order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString() : "—",
+                lastCollectionDate: lastCol,
+                collectionStatus: remaining > 0 ? "Pending" : "Fully Collected",
+                delayDays: Math.max(0, delay)
             };
         });
 
-        const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Order Collections");
-
-        // --- 3. Define Columns ---
-        worksheet.columns = [
-            { header: "Order Number", key: "orderNumber", width: 15 },
-            { header: "Shipping Company", key: "shippingCompany", width: 20 },
-            { header: "Delivered Date", key: "deliveredDate", width: 15 },
-            { header: "Collected Amount", key: "collectedAmount", width: 18 },
-            { header: "Remaining Balance", key: "remainingBalance", width: 18 },
-            { header: "Collection Methods", key: "collectionMethods", width: 20 },
-            { header: "Shipping Cost", key: "shippingCost", width: 15 },
-            { header: "Delay Days", key: "delayDays", width: 12 },
-            { header: "Collection Status", key: "collectionStatus", width: 18 },
-            { header: "Order Total", key: "finalTotal", width: 15 },
-        ];
-
-        // --- 4. Styling & Formatting ---
+        // 4. إضافة البيانات وتنسيق الألوان
+        worksheet.addRows(rows);
         worksheet.getRow(1).font = { bold: true };
-        worksheet.getRow(1).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FFE0E0E0" },
-        };
-
-        exportData.forEach((row) => {
-            const newRow = worksheet.addRow(row);
-            const statusCell = newRow.getCell(9); // Status Column
-
-            if (row.collectionStatus === 'Fully Collected') {
-                statusCell.font = { color: { argb: 'FF006400' }, bold: true }; // Green
-            } else if (row.collectionStatus === 'Partial') {
-                statusCell.font = { color: { argb: 'FFFF8C00' }, bold: true }; // Orange
-            } else {
-                statusCell.font = { color: { argb: 'FFFF0000' }, bold: true }; // Red
-            }
-        });
 
         return await workbook.xlsx.writeBuffer();
     }
