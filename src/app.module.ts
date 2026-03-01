@@ -39,6 +39,7 @@ import { AppGateway } from "common/app.gateway";
 import { WebSocketModule } from "common/websocket.module";
 import { CollectionModule } from "./order-collections/collection.module";
 import { DashboardModule } from './dashboard/dashboard.module';
+import { SubscriptionsModule } from "./subscription/subscription.module";
 
 @Module({
 	imports: [
@@ -79,7 +80,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
 		ShippingModule,
 		NotificationModule,
 		CollectionModule,
-		DashboardModule
+		DashboardModule,
+		SubscriptionsModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

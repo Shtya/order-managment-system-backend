@@ -85,8 +85,8 @@ export class Plan {
 	@OneToMany(() => User, (user) => user.plan)
 	users: Relation<User>[];
 
-	@OneToMany(() => Transaction, (transaction) => transaction.plan)
-	transactions: Relation<Transaction>[];
+	@OneToMany(() => Subscription, (sub) => sub.plan)
+	subscriptions: Relation<Subscription>[];
 
 	@CreateDateColumn()
 	createdAt: Date;
@@ -95,15 +95,15 @@ export class Plan {
 	updatedAt: Date;
 }
 
-export enum TransactionStatus {
-	ACTIVE = 'نشط',
-	PROCESSING = 'تحويل جاري',
-	COMPLETED = 'مكتمل',
-	CANCELLED = 'ملغى',
+
+export enum SubscriptionStatus {
+	ACTIVE = 'active',
+	CANCELLED = 'cancelled',
+	EXPIRED = 'expired',
 }
 
-@Entity('transactions')
-export class Transaction {
+@Entity('subscriptions')
+export class Subscription {
 	@PrimaryGeneratedColumn()
 	id: number;
 
@@ -117,25 +117,29 @@ export class Transaction {
 	@Column()
 	planId: number;
 
-	@ManyToOne(() => Plan, (plan) => plan.transactions, { eager: true })
+	@ManyToOne(() => Plan, (plan) => plan.subscriptions, { eager: true })
 	@JoinColumn({ name: 'planId' })
 	plan: Relation<Plan>;
 
+
 	@Column({ type: 'decimal', precision: 10, scale: 2 })
-	amount: number;
+	price: number;
 
 	@Column({
 		type: 'enum',
-		enum: TransactionStatus,
-		default: TransactionStatus.PROCESSING,
+		enum: SubscriptionStatus,
+		default: SubscriptionStatus.ACTIVE,
 	})
-	status: TransactionStatus;
+	status: SubscriptionStatus;
 
-	@Column({ type: 'varchar', nullable: true })
-	paymentMethod?: string;
+	@Column({ type: 'timestamptz' })
+	startDate: Date;
 
-	@Column({ type: 'text', nullable: true })
-	paymentProof?: string; // URL or filename
+	@Column({ type: 'timestamptz', nullable: true })
+	endDate: Date;
+
+	@OneToMany(() => Transaction, (transaction) => transaction.subscription)
+	transactions: Relation<Transaction>[];
 
 	@Column({ type: 'int', nullable: true })
 	adminId?: number | null;
@@ -151,3 +155,89 @@ export class Transaction {
 	updatedAt: Date;
 }
 
+
+export enum TransactionStatus {
+	ACTIVE = 'نشط',
+	PROCESSING = 'تحويل جاري',
+	COMPLETED = 'مكتمل',
+	CANCELLED = 'ملغى',
+}
+
+
+export enum TransactionPaymentMethod {
+	CASH = 'cash',
+	VISA = "visa",
+	BANK = "bank",
+	OTHER = "other",
+
+	// Mobile Wallets & Instant Transfers
+	VODAFONE_CASH = "vodafone_cash",
+	ORANGE_CASH = "orange_cash",
+	ETISALAT_CASH = "etisalat_cash",
+	WE_PAY = "we_pay",
+	INSTA = "insta",
+
+	// Payment Aggregators & Points
+	FAWRY = "fawry",
+	AMAN = "aman",
+	MEEZA = "meeza",
+
+	// Buy Now Pay Later (BNPL)
+	VALU = "valu",
+	SYMPL = "sympl",
+	TABBY = "tabby",
+	TAMARA = "tamara",
+
+}
+
+
+@Entity('transactions')
+export class Transaction {
+	@PrimaryGeneratedColumn()
+	id: number;
+
+	@Column() // just for simeple filtering
+	userId: number;
+
+
+	@ManyToOne(() => User, { eager: true })
+	@JoinColumn({ name: 'userId' })
+	user: Relation<User>;
+
+	@Column({ type: 'int', nullable: true }) // just for simeple filtering
+	adminId?: number | null;
+
+	@ManyToOne(() => User, { nullable: true })
+	@JoinColumn({ name: 'adminId' })
+	admin?: Relation<User> | null;
+
+
+	@Column()
+	subscriptionId: number;
+
+	@ManyToOne(() => Subscription, (sub) => sub.transactions, { eager: true })
+	@JoinColumn({ name: 'subscriptionId' })
+	subscription: Relation<Subscription>;
+
+	@Column({ type: 'decimal', precision: 10, scale: 2 })
+	amount: number;
+
+	@Column({
+		type: 'enum',
+		enum: TransactionStatus,
+		default: TransactionStatus.PROCESSING,
+	})
+	status: TransactionStatus;
+
+	@Column({ type: 'enum', enum: TransactionPaymentMethod, nullable: true })
+	paymentMethod?: TransactionPaymentMethod;
+
+	@Column({ type: 'text', nullable: true })
+	paymentProof?: string; // URL or filename
+
+	@CreateDateColumn()
+	createdAt: Date;
+
+	@UpdateDateColumn()
+	updatedAt: Date;
+}
