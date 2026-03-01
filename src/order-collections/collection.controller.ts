@@ -19,14 +19,14 @@ export class CollectionController {
         @Body() createDto: CreateOrderCollectionDto
     ) {
         // req.user.adminId should be populated by your AuthGuard
-        return this.collectionService.addCollection(req.user.adminId, createDto);
+        return this.collectionService.addCollection(req.user, createDto);
     }
 
     @Permissions("orders-collect.read")
     @Get('statistics')
     async getStats(@Req() req) {
         // [2025-12-24] Ensure statistics are trimmed to the active admin session
-        return this.collectionService.getCollectionStatistics(req.user.adminId);
+        return this.collectionService.getCollectionStatistics(req.user);
     }
 
 
