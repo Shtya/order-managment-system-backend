@@ -8,8 +8,9 @@ import {
 	CreateDateColumn,
 	UpdateDateColumn,
 	Relation,
+	OneToOne,
 } from 'typeorm';
-import { Plan } from './plans.entity';
+import { Plan, Subscription } from './plans.entity';
 import { Asset } from './assets.entity';
 import { OrderAssignmentEntity } from './order.entity';
 
@@ -97,12 +98,12 @@ export class User {
 	@JoinColumn({ name: 'adminId' })
 	admin?: User | null;
 
-	@Column({ type: 'int', nullable: true })
-	planId?: number | null;
+	// @Column({ type: 'int', nullable: true })
+	// planId?: number | null;
 
-	@ManyToOne(() => Plan, (plan) => plan.users, { nullable: true })
-	@JoinColumn({ name: 'planId' })
-	plan?: Relation<Plan> | null;
+	// @ManyToOne(() => Plan, (plan) => plan.users, { nullable: true })
+	// @JoinColumn({ name: 'planId' })
+	// plan?: Relation<Plan> | null;
 
 	@Column({ default: true })
 	isActive: boolean;
@@ -131,6 +132,14 @@ export class User {
 	// Inside User Entity
 	@OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.employee)
 	assignments: OrderAssignmentEntity[];
+
+	@OneToOne(() => Subscription, (subscription) => subscription.user, {
+		nullable: true,
+		cascade: true, // optional: allow automatic insert/update
+		onDelete: 'SET NULL',
+	})
+	subscription?: Relation<Subscription>;
+
 
 	@CreateDateColumn()
 	createdAt: Date;

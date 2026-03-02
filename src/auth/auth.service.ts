@@ -19,7 +19,11 @@ export class AuthService {
 	) { }
 
 	// ✅ UPDATED: Include plan in JWT response
-	private sign(user: User) {
+	// ✅ UPDATED: Include plan in JWT response
+	private async sign(user: User) {
+
+		const plan = user?.subscription?.plan ?? null;
+
 		return {
 			accessToken: this.jwt.sign({ sub: user.id }),
 			user: {
@@ -27,19 +31,21 @@ export class AuthService {
 				name: user.name,
 				email: user.email,
 				role: user.role?.name,
-				// ✅ NEW: Include plan info
-				plan: user.plan ? {
-					id: user.plan.id,
-					name: user.plan.name,
-					price: Number(user.plan.price),
-					duration: user.plan.duration,
-					features: user.plan.features,
-					color: user.plan.color,
-				} : null,
+
+				plan: plan
+					? {
+						id: plan.id,
+						name: plan.name,
+						price: Number(plan.price),
+						duration: plan.duration,
+						features: plan.features,
+						color: plan.color,
+						status: user?.subscription?.status ?? null
+					}
+					: null,
 			},
 		};
 	}
-
 	private generateOtp(len = 6) {
 		const n = crypto.randomInt(0, 10 ** len);
 		return n.toString().padStart(len, '0');
@@ -64,7 +70,6 @@ export class AuthService {
 			passwordHash,
 			roleId: userRole.id,
 			adminId: null,
-			planId: null, // ✅ NEW: No plan on self-registration
 			isActive: true,
 			otpCodeHash: null,
 			otpExpiresAt: null,
@@ -77,7 +82,11 @@ export class AuthService {
 		// ✅ UPDATED: Include plan relation
 		const full = await this.usersRepo.findOneOrFail({
 			where: { id: user.id },
-			relations: { role: true, plan: true },
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			},
 		});
 
 		return this.sign(full);
@@ -87,7 +96,11 @@ export class AuthService {
 	async login(email: string, password: string) {
 		const user = await this.usersRepo.findOne({
 			where: { email },
-			relations: { role: true, plan: true }, // ✅ Include plan
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			}, // ✅ Include plan
 		});
 
 		if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
@@ -176,7 +189,11 @@ export class AuthService {
 		// ✅ UPDATED: Include plan
 		const full = await this.usersRepo.findOneOrFail({
 			where: { id: user.id },
-			relations: { role: true, plan: true },
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			},
 		});
 
 		return {
@@ -194,7 +211,11 @@ export class AuthService {
 
 		let user = await this.usersRepo.findOne({
 			where: { email },
-			relations: { role: true, plan: true }, // ✅ Include plan
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			}, // ✅ Include plan
 		});
 
 		if (!user) {
@@ -207,7 +228,6 @@ export class AuthService {
 				passwordHash: null,
 				roleId: userRole.id,
 				adminId: null,
-				planId: null, // ✅ NEW: No plan on Google signup
 				isActive: true,
 				otpCodeHash: null,
 				otpExpiresAt: null,
@@ -219,7 +239,11 @@ export class AuthService {
 
 			user = await this.usersRepo.findOneOrFail({
 				where: { id: user.id },
-				relations: { role: true, plan: true },
+				relations: {
+					role: true, subscription: {
+						plan: true
+					}
+				},
 			});
 		}
 

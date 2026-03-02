@@ -24,9 +24,6 @@ export class CreateSubscriptionDto {
     @IsEnum(TransactionPaymentMethod)
     paymentMethod?: TransactionPaymentMethod;
 
-    @IsOptional()
-    @IsNumber()
-    amount?: number; // amount actually paid
 }
 
 

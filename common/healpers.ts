@@ -25,3 +25,10 @@ export function calculateRange(range?: string): { start?: Date; end?: Date } {
             return {};
     }
 }
+
+export function imageSrc(url) {
+    if (!url) return "";
+    if (url.startsWith("http")) return url;
+    const base = process.env.IMAGE_BASE_URL || "";
+    return `${base.replace(/\/+$/, "")}/${url.replace(/^\/+/, "")}`;
+}

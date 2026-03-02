@@ -1,10 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from "dto/subscriptions.dto";
 import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionStatus } from "entities/plans.entity";
 import { SystemRole, User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
+import { TransactionsService } from "src/transactions/transactions.service";
 import { DataSource, Repository } from "typeorm";
+import * as ExcelJS from "exceljs";
 
 @Injectable()
 export class SubscriptionsService {
@@ -12,8 +14,15 @@ export class SubscriptionsService {
         private dataSource: DataSource,
         @InjectRepository(Subscription)
         private subscriptionsRepo: Repository<Subscription>,
+
         @InjectRepository(User)
         private usersRepo: Repository<User>,
+
+        @InjectRepository(Plan)
+        private plansRepo: Repository<Plan>,
+
+        @Inject(forwardRef(() => TransactionsService))
+        private transactionsService: TransactionsService,
     ) { }
 
     // ✅ Check if user is super admin
@@ -142,6 +151,7 @@ export class SubscriptionsService {
             throw new ForbiddenException('You do not have permission');
         }
 
+        const id = me?.id;
         return await this.dataSource.transaction(async (manager) => {
             // 1️⃣ Find user & plan
             const user = await manager.findOne(User, { where: { id: dto.userId } });
@@ -173,12 +183,13 @@ export class SubscriptionsService {
                 endDate: null, // can calculate endDate based on plan.duration if needed
             });
 
+            const number = await this.transactionsService.generateTransactionNumber(id?.toString())
             const savedSubscription = await manager.save(subscription);
 
             // 3️⃣ Optionally create transaction if payed
             let transaction: Transaction | null = null;
             if (dto.payed) {
-                if (!dto.paymentMethod || !dto.amount) {
+                if (!dto.paymentMethod || !dto.price) {
                     throw new BadRequestException('Payment method and amount are required if subscription is paid');
                 }
 
@@ -186,7 +197,8 @@ export class SubscriptionsService {
                     userId: user.id,
                     adminId: user.adminId,
                     subscriptionId: savedSubscription.id,
-                    amount: dto.amount,
+                    amount: dto.price,
+                    number,
                     status: TransactionStatus.COMPLETED,
                     paymentMethod: dto.paymentMethod,
                 });
@@ -207,35 +219,37 @@ export class SubscriptionsService {
             throw new ForbiddenException('You do not have permission');
         }
 
-        return await this.dataSource.transaction(async (manager) => {
-            const subscription = await manager.findOne(Subscription, {
-                where: { id: subscriptionId },
-            });
-
-            if (!subscription) throw new NotFoundException('Subscription not found');
-
-            // Update plan if provided
-            if (dto.planId) {
-                const plan = await manager.findOne(Plan, { where: { id: dto.planId } });
-                if (!plan) throw new NotFoundException('Plan not found');
-                if (!plan.isActive) throw new BadRequestException('Plan is not active');
-
-                subscription.planId = plan.id;
-                subscription.price = plan.price;
-            }
-
-            // Update status if provided
-            if (dto.status) {
-                subscription.status = dto.status;
-            }
-
-            if (dto.price) {
-                subscription.price = dto.price;
-            }
-
-            const updated = await manager.save(subscription);
-            return updated;
+        // Fetch subscription with user relation
+        const subscription = await this.subscriptionsRepo.findOne({
+            where: { id: subscriptionId },
+            relations: ['user'],
         });
+
+        if (!subscription) throw new NotFoundException('Subscription not found');
+
+        // Update plan if provided
+        if (dto.planId !== undefined) {
+            const plan = await this.plansRepo.findOne({ where: { id: dto.planId } });
+            if (!plan) throw new NotFoundException('Plan not found');
+            if (!plan.isActive) throw new BadRequestException('Plan is not active');
+
+            subscription.planId = plan.id;
+            subscription.price = plan.price;
+        }
+
+        // Update status if provided
+        if (dto.status) {
+            subscription.status = dto.status;
+        }
+
+        // Update price if explicitly provided
+        if (dto.price !== undefined) {
+            subscription.price = dto.price;
+        }
+
+        // Save changes
+        const updated = await this.subscriptionsRepo.save(subscription);
+        return updated;
     }
 
     async getActiveSubscriptionForAdmin(admin: User, userId: number) {
@@ -312,5 +326,137 @@ export class SubscriptionsService {
             cancelled: Number(result.cancelled),
             totalRevenue: Number(result.totalRevenue),
         };
+    }
+
+    async exportSubscriptions(me: User, q?: any) {
+        const search = String(q?.search ?? '').trim();
+        const sortBy = String(q?.sortBy ?? 'createdAt');
+        const sortDir: 'ASC' | 'DESC' = String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+        const qb = this.subscriptionsRepo
+            .createQueryBuilder('sub')
+            .leftJoinAndSelect('sub.user', 'user')
+            .leftJoinAndSelect('sub.plan', 'plan');
+
+        // --- منطق الصلاحيات (Role-based access) ---
+        if (this.isAdmin(me)) {
+            qb.where(
+                '(sub.adminId = :meId OR sub.userId IN (SELECT id FROM users WHERE adminId = :meId))',
+                { meId: me.id },
+            );
+        } else if (!this.isSuperAdmin(me)) {
+            qb.where('sub.userId = :meId', { meId: me.id });
+        }
+
+        // --- الفلاتر (Filters) ---
+        if (q?.status) qb.andWhere('sub.status = :status', { status: q.status });
+        if (q?.userId) qb.andWhere('sub.userId = :userId', { userId: q.userId });
+        if (q?.planId) qb.andWhere('sub.planId = :planId', { planId: q.planId });
+
+        // البحث (Search)
+        if (search) {
+            qb.andWhere(
+                `(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s)`,
+                { s: `%${search}%` },
+            );
+        }
+
+        // فلاتر التاريخ (Date filters)
+        if (q?.startDate) {
+            qb.andWhere('sub.startDate >= :startDate', {
+                startDate: `${q.startDate}T00:00:00.000Z`,
+            });
+        }
+        if (q?.endDate) {
+            qb.andWhere('sub.endDate <= :endDate', {
+                endDate: `${q.endDate}T23:59:59.999Z`,
+            });
+        }
+
+        // جلب جميع البيانات بدون Pagination للتصدير
+        const subscriptions = await qb.orderBy(`sub.${sortBy}`, sortDir).getMany();
+
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("Subscriptions");
+
+        // 1. تحديد الأعمدة بناءً على الـ Front-end المذكور
+        worksheet.columns = [
+            { header: "User", key: "userName", width: 25 },
+            { header: "Plan", key: "planName", width: 20 },
+            { header: "Price", key: "price", width: 15 },
+            { header: "Status", key: "status", width: 15 },
+            { header: "Start Date", key: "startDate", width: 20 },
+            { header: "End Date", key: "endDate", width: 20 },
+        ];
+
+        // 2. تحويل البيانات وتجهيزها (Transform)
+        const rows = subscriptions.map(sub => {
+            return {
+                userName: sub.user?.name?.trim() || '—',
+                planName: sub.plan?.name?.trim() || '—',
+                price: Number(sub.price || 0),
+                status: sub.status?.toUpperCase() || '—',
+                startDate: sub.startDate ? new Date(sub.startDate).toLocaleDateString() : '—',
+                endDate: sub.endDate ? new Date(sub.endDate).toLocaleDateString() : '—',
+            };
+        });
+
+        worksheet.addRows(rows);
+
+        // تنسيق الصف الأول (Header)
+        worksheet.getRow(1).font = { bold: true };
+        worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+        // إضافة تنسيق العملة لعمود السعر (العمود الثالث)
+        worksheet.getColumn('price').numFmt = '#,##0.00 "EGP"';
+
+        return await workbook.xlsx.writeBuffer();
+    }
+
+    public async upsertUserSubscription(
+        me: User,
+        userId: number,
+        planId: number | null,
+    ) {
+
+
+        if (!planId) return;
+        // 🔎 Validate plan
+        const plan = await this.plansRepo.findOne({
+            where: { id: planId },
+        });
+
+        if (!plan) throw new BadRequestException('Plan not found');
+        if (!plan.isActive)
+            throw new BadRequestException('Selected plan is not active');
+
+        // 🔎 Check active subscription
+        const activeSubscription = await this.subscriptionsRepo.findOne({
+            where: {
+                userId,
+            },
+        });
+
+        if (activeSubscription) {
+            // 🔁 Update existing subscription
+            activeSubscription.planId = plan.id;
+            activeSubscription.price = plan.price;
+            activeSubscription.startDate = new Date();
+            activeSubscription.endDate = null;
+
+            await this.subscriptionsRepo.save(activeSubscription);
+        } else {
+            // ➕ Create new subscription
+            const subscription = this.subscriptionsRepo.create({
+                userId,
+                planId: plan.id,
+                price: plan.price,
+                status: SubscriptionStatus.ACTIVE,
+                startDate: new Date(),
+                adminId: this.isSuperAdmin(me) ? null : me.id,
+            });
+
+            await this.subscriptionsRepo.save(subscription);
+        }
     }
 }

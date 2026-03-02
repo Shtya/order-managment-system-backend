@@ -7,9 +7,10 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { SystemRole, User } from 'entities/user.entity';
 import { DataSource, Repository } from 'typeorm';
-
+import * as ExcelJS from "exceljs";
 import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionStatus } from 'entities/plans.entity';
 import { ManualCreateTransactionDto } from 'dto/plans.dto';
+import { imageSrc } from 'common/healpers';
 
 
 @Injectable()
@@ -30,6 +31,29 @@ export class TransactionsService {
 		return me.role?.name === SystemRole.ADMIN;
 	}
 
+	public async generateTransactionNumber(adminId: string): Promise<string> {
+		const date = new Date();
+		const dateStr = date.toISOString().split("T")[0].replace(/-/g, ""); // YYYYMMDD
+		const prefix = `TRX-${dateStr}`;
+
+		//
+		const lastTransaction = await this.transactionsRepo
+			.createQueryBuilder("t")
+			.where("t.adminId = :adminId", { adminId })
+			.andWhere("t.number LIKE :prefix", { prefix: `${prefix}%` })
+			.orderBy("t.id", "DESC")
+			.getOne();
+
+		let sequence = 1;
+		if (lastTransaction?.number) {
+
+			const lastNum = lastTransaction.number.split("-").pop();
+			sequence = parseInt(lastNum || "0") + 1;
+		}
+
+
+		return `${prefix}-${String(sequence).padStart(3, "0")}`.trim();
+	}
 
 	async list(me: User, q?: any) {
 		const page = Number(q?.page ?? 1);
@@ -49,7 +73,7 @@ export class TransactionsService {
 		// --- Role-based access ---
 		if (this.isAdmin(me)) {
 			qb.where(
-				'(sub.adminId = :meId OR sub.userId IN (SELECT id FROM users WHERE adminId = :meId))',
+				'(sub."adminId" = :meId OR sub."userId" IN (SELECT id FROM users WHERE "adminId" = :meId))',
 				{ meId: me.id },
 			);
 		} else if (!this.isSuperAdmin(me)) {
@@ -196,6 +220,8 @@ export class TransactionsService {
 			);
 		}
 
+		const id = me?.id
+
 		return this.dataSource.transaction(async (manager) => {
 			// ✅ Ensure subscription exists
 			const subscription = await manager.findOne(Subscription, {
@@ -206,12 +232,14 @@ export class TransactionsService {
 				throw new NotFoundException('Subscription not found');
 			}
 
+			const number = await this.generateTransactionNumber(id?.toString())
 			// ✅ Create new transaction
 			const transaction = manager.create(Transaction, {
 				subscriptionId: dto.subscriptionId,
 				amount: subscription.price,
 				paymentMethod: dto.paymentMethod,
 				paymentProof: dto.paymentProof ?? null,
+				number,
 				status: TransactionStatus.COMPLETED,
 			});
 
@@ -225,5 +253,81 @@ export class TransactionsService {
 
 			return transaction;
 		});
+	}
+
+	async exportTransactions(me: User, q?: any) {
+		const search = String(q?.search ?? '').trim();
+		const sortBy = String(q?.sortBy ?? 'createdAt');
+		const sortDir: 'ASC' | 'DESC' = String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+		const qb = this.transactionsRepo
+			.createQueryBuilder('t')
+			.leftJoinAndSelect('t.user', 'user')
+			.leftJoinAndSelect('t.subscription', 'sub')
+			.leftJoinAndSelect('sub.plan', 'plan');
+
+		// --- منطق الصلاحيات (Role-based access) ---
+		if (this.isAdmin(me)) {
+			qb.where(
+				'(sub.adminId = :meId OR sub.userId IN (SELECT id FROM users WHERE adminId = :meId))',
+				{ meId: me.id },
+			);
+		} else if (!this.isSuperAdmin(me)) {
+			qb.where('sub.userId = :meId', { meId: me.id });
+		}
+
+		// --- الفلاتر ---
+		if (q?.status) qb.andWhere('t.status = :status', { status: q.status });
+		if (q?.userId) qb.andWhere('t.userId = :userId', { userId: q.userId });
+		if (q?.planId) qb.andWhere('sub.planId = :planId', { planId: q.planId });
+
+		if (search) {
+			qb.andWhere(
+				`(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s OR t.number ILIKE :s)`,
+				{ s: `%${search}%` },
+			);
+		}
+
+		const transactions = await qb.orderBy(`t.${sortBy}`, sortDir).getMany();
+
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet("Transactions");
+
+		// 1. تحديد الأعمدة بنفس ترتيب الـ Front-end
+		worksheet.columns = [
+			{ header: "Transaction ID", key: "number", width: 20 },
+			{ header: "User", key: "userName", width: 25 },
+			{ header: "Subscription", key: "planName", width: 20 },
+			{ header: "Amount", key: "amount", width: 15 },
+			{ header: "Status", key: "status", width: 15 },
+			{ header: "Payment Method", key: "paymentMethod", width: 20 },
+			{ header: "Payment Proof (URL)", key: "paymentProof", width: 40 },
+			{ header: "Created At", key: "createdAt", width: 20 },
+			{ header: "Last Update", key: "updatedAt", width: 20 },
+		];
+
+		// 2. تحويل البيانات وتجهيزها (Transform)
+		const rows = transactions.map(t => {
+			return {
+				number: t.number?.trim() || '—',
+				userName: t.user?.name?.trim() || '—',
+				planName: t.subscription?.plan?.name?.trim() || '—',
+				amount: Number(t.amount || 0),
+				status: t.status?.toUpperCase() || '—',
+				paymentMethod: t.paymentMethod || '—',
+				// إرسال الرابط المباشر للملف إذا وجد
+				paymentProof: t.paymentProof ? imageSrc(t.paymentProof) : '—',
+				createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '—',
+				updatedAt: t.updatedAt ? new Date(t.updatedAt).toLocaleDateString() : '—',
+			};
+		});
+
+		worksheet.addRows(rows);
+
+		// تنسيق الصف الأول (Header)
+		worksheet.getRow(1).font = { bold: true };
+		worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+		return await workbook.xlsx.writeBuffer();
 	}
 }

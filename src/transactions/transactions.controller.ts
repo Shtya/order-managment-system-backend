@@ -9,6 +9,7 @@ import {
 	Post,
 	Query,
 	Req,
+	Res,
 	UseGuards,
 } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
@@ -16,6 +17,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { ManualCreateTransactionDto } from 'dto/plans.dto';
+import { Response } from 'express';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('transactions')
@@ -30,11 +32,6 @@ export class TransactionsController {
 	}
 
 	// ✅ Get single transaction by id
-	@Permissions('transactions.read')
-	@Get(':id')
-	get(@Req() req: any, @Param('id') id: string) {
-		return this.transactions.get(req.user, Number(id))
-	}
 
 	// ✅ Get statistics
 	@Permissions('transactions.read')
@@ -62,4 +59,25 @@ export class TransactionsController {
 			dto,
 		);
 	}
+
+	@Permissions("transactions.read") // تأكد من مطابقة اسم الصلاحية لديك
+	@Get("export")
+	async export(@Req() req: any, @Query() q: any, @Res() res: Response) {
+		// استدعاء دالة التصدير الجديدة
+		const buffer = await this.transactions.exportTransactions(req.user, q);
+
+		const filename = `transactions_report_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+		res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+		res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+
+		return res.send(buffer);
+	}
+
+	@Permissions('transactions.read')
+	@Get(':id')
+	get(@Req() req: any, @Param('id') id: string) {
+		return this.transactions.get(req.user, Number(id))
+	}
+
 }

@@ -131,7 +131,7 @@ export class StoreEventEntity {
 
 
 @Entity({ name: "webhook_order_failures" })
-@Index(["adminId", "storeId", "externalOrderId"], { unique: true })
+// @Index(["adminId", "storeId", "externalOrderId"], { unique: true })
 export class WebhookOrderFailureEntity {
 	@PrimaryGeneratedColumn()
 	id: number;

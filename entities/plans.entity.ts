@@ -8,6 +8,9 @@ import {
 	CreateDateColumn,
 	UpdateDateColumn,
 	Relation,
+	BeforeInsert,
+	Index,
+	OneToOne,
 } from 'typeorm';
 import { User } from './user.entity';
 
@@ -82,9 +85,6 @@ export class Plan {
 	@JoinColumn({ name: 'adminId' })
 	admin?: Relation<User> | null;
 
-	@OneToMany(() => User, (user) => user.plan)
-	users: Relation<User>[];
-
 	@OneToMany(() => Subscription, (sub) => sub.plan)
 	subscriptions: Relation<Subscription>[];
 
@@ -102,22 +102,24 @@ export enum SubscriptionStatus {
 	EXPIRED = 'expired',
 }
 
+
 @Entity('subscriptions')
 export class Subscription {
 	@PrimaryGeneratedColumn()
 	id: number;
 
-	@Column()
-	userId: number;
+	@Column({ nullable: true })
+	userId: number; // FK column
 
-	@ManyToOne(() => User, { eager: true })
+	// Owning side with JoinColumn
+	@OneToOne(() => User, (user) => user.subscription, { nullable: true })
 	@JoinColumn({ name: 'userId' })
 	user: Relation<User>;
 
 	@Column()
 	planId: number;
 
-	@ManyToOne(() => Plan, (plan) => plan.subscriptions, { eager: true })
+	@ManyToOne(() => Plan, (plan) => plan.subscriptions)
 	@JoinColumn({ name: 'planId' })
 	plan: Relation<Plan>;
 
@@ -157,10 +159,10 @@ export class Subscription {
 
 
 export enum TransactionStatus {
-	ACTIVE = 'نشط',
-	PROCESSING = 'تحويل جاري',
-	COMPLETED = 'مكتمل',
-	CANCELLED = 'ملغى',
+	ACTIVE = 'active',
+	PROCESSING = 'processing',
+	COMPLETED = 'completed',
+	CANCELLED = 'concelled'
 }
 
 
@@ -190,18 +192,20 @@ export enum TransactionPaymentMethod {
 
 }
 
-
+@Index(["adminId", "number"], { unique: true })
 @Entity('transactions')
 export class Transaction {
 	@PrimaryGeneratedColumn()
 	id: number;
 
-	@Column() // just for simeple filtering
+	@Column({ type: "varchar", length: 100 })
+	number!: string; // e.g., ORD-20250124-001
+
+	@Column({ nullable: true })
 	userId: number;
 
-
-	@ManyToOne(() => User, { eager: true })
-	@JoinColumn({ name: 'userId' })
+	@OneToOne(() => User, (user) => user.subscription, { nullable: false })
+	@JoinColumn({ name: 'userId' }) // User owns the FK column
 	user: Relation<User>;
 
 	@Column({ type: 'int', nullable: true }) // just for simeple filtering
@@ -211,11 +215,10 @@ export class Transaction {
 	@JoinColumn({ name: 'adminId' })
 	admin?: Relation<User> | null;
 
-
 	@Column()
 	subscriptionId: number;
 
-	@ManyToOne(() => Subscription, (sub) => sub.transactions, { eager: true })
+	@ManyToOne(() => Subscription, (sub) => sub.transactions)
 	@JoinColumn({ name: 'subscriptionId' })
 	subscription: Relation<Subscription>;
 
@@ -240,4 +243,5 @@ export class Transaction {
 
 	@UpdateDateColumn()
 	updatedAt: Date;
+
 }
