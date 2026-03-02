@@ -189,7 +189,7 @@ export class UsersController {
 	@Permissions('users.update')
 	@Patch('me')
 	updateMe(@Req() req: any, @Body() dto: UpdateUserDto) {
-		return this.users.update(req.user, Number(req.user.id), dto as any);
+		return this.users.update(req.user, Number(req.user.id), dto);
 	}
 
 	@Permissions('users.update')

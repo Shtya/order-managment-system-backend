@@ -10,6 +10,7 @@ import { TransactionsModule } from 'src/transactions/transactions.module';
 
 @Module({
     imports: [
+        forwardRef(() => TransactionsModule),
         TypeOrmModule.forFeature([
             Subscription,
             User,

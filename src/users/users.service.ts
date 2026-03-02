@@ -1,10 +1,12 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Role, SystemRole, User } from 'entities/user.entity';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { Plan } from 'entities/plans.entity';
+import { Plan, Subscription, SubscriptionStatus } from 'entities/plans.entity';
+import { UpdateUserDto } from 'dto/user.dto';
+import { SubscriptionsService } from 'src/subscription/subscription.service';
 
 @Injectable()
 export class UsersService {
@@ -12,6 +14,10 @@ export class UsersService {
 		@InjectRepository(User) private usersRepo: Repository<User>,
 		@InjectRepository(Role) private rolesRepo: Repository<Role>,
 		@InjectRepository(Plan) private plansRepo: Repository<Plan>, // ✅ NEW
+		@InjectRepository(Subscription) private subscriptionsRepo: Repository<Subscription>, // ✅ NEW
+
+		@Inject(forwardRef(() => SubscriptionsService))
+		private readonly subscriptionsService: SubscriptionsService,
 	) { }
 
 	private isSuperAdmin(me: User) {
@@ -48,7 +54,8 @@ export class UsersService {
 		const qb = this.usersRepo
 			.createQueryBuilder('u')
 			.leftJoinAndSelect('u.role', 'role')
-			.leftJoinAndSelect('u.plan', 'plan')
+			.leftJoinAndSelect('u.subscription', 'subscription')
+			.leftJoinAndSelect('subscription.plan', 'plan')
 			// ✅ self join to get admin info (owner)
 			.leftJoin(User, 'admin', 'admin.id = u.adminId')
 			.addSelect(['admin.id', 'admin.name', 'admin.email'])
@@ -90,10 +97,12 @@ export class UsersService {
 				email: u.email,
 				isActive: u.isActive,
 				adminId: u.adminId ?? null,
+				subscription: u.subscription ?? null,
+				// subscriptionId: u.subscriptionId ?? null,
 
 				// extra info
 				role: u.role ? { id: u.role.id, name: u.role.name } : null,
-				plan: u.plan ? { id: u.plan.id, name: u.plan.name } : null,
+				plan: u.subscription ? { id: u.subscription.id, name: u.subscription.plan?.name } : null,
 
 				admin: raw?.admin_id
 					? { id: raw.admin_id, name: raw.admin_name, email: raw.admin_email }
@@ -147,7 +156,8 @@ export class UsersService {
 		const qb = this.usersRepo
 			.createQueryBuilder('u')
 			.leftJoinAndSelect('u.role', 'role')
-			.leftJoinAndSelect('u.plan', 'plan')
+			.leftJoinAndSelect('u.subscription', 'subscription')
+			.leftJoinAndSelect('subscription.plan', 'plan')
 			.leftJoin(User, 'admin', 'admin.id = u.adminId')
 			.addSelect(['admin.id', 'admin.name', 'admin.email'])
 			.orderBy('u.id', 'DESC');
@@ -185,7 +195,7 @@ export class UsersService {
 				u.name ?? '',
 				u.email ?? '',
 				u.role?.name ?? '',
-				u.plan?.name ?? '',
+				u.subscription?.plan?.name ?? '',
 				u.adminId ?? '',
 				raw.admin_name ?? '',
 				raw.admin_email ?? '',
@@ -252,7 +262,13 @@ export class UsersService {
 	async updateMyAvatar(me: User, avatar?: Express.Multer.File) {
 		if (!avatar) throw new BadRequestException('Avatar file is required');
 
-		const user = await this.usersRepo.findOne({ where: { id: me.id }, relations: { role: true, plan: true } });
+		const user = await this.usersRepo.findOne({
+			where: { id: me.id }, relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			}
+		});
 		if (!user) throw new BadRequestException('User not found');
 
 		user.avatarUrl = `/uploads/avatars/${avatar.filename}`;
@@ -269,7 +285,8 @@ export class UsersService {
 		const qb = this.usersRepo
 			.createQueryBuilder("user")
 			.leftJoinAndSelect("user.role", "role")
-			.leftJoinAndSelect("user.plan", "plan")
+			.leftJoinAndSelect("user.subscription", "subscription")
+			.leftJoinAndSelect("subscription.plan", "plan")
 			.orderBy("user.id", "DESC")
 			.take(fetchLimit + 1);
 
@@ -342,7 +359,8 @@ export class UsersService {
 		const qb = this.usersRepo
 			.createQueryBuilder('u')
 			.leftJoinAndSelect('u.role', 'role')
-			.leftJoinAndSelect('u.plan', 'plan')
+			.leftJoinAndSelect('u.subscription', 'subscription')
+			.leftJoinAndSelect('subscription.plan', 'plan')
 			.orderBy('u.id', 'DESC');
 
 		// ownership
@@ -413,6 +431,7 @@ export class UsersService {
 				email: u.email,
 				phone: u.phone,
 				employeeType: u.employeeType,
+				subscription: u.subscription?.plan,
 				type: u.employeeType, // للـ frontend
 				typeLabel: u.employeeType, // لو عندك mapping ترجمة اعمله في FE
 				isActive: u.isActive,
@@ -501,7 +520,11 @@ export class UsersService {
 	async get(me: User, id: number) {
 		const user = await this.usersRepo.findOne({
 			where: { id },
-			relations: { role: true, plan: true }, // ✅ Include plan
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			}, // ✅ Include plan
 		});
 
 		if (!user) throw new NotFoundException('User not found');
@@ -520,7 +543,11 @@ export class UsersService {
 	async getMe(id: number) {
 		const user = await this.usersRepo.findOne({
 			where: { id },
-			relations: { role: true, plan: true }, // ✅ Include plan
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			}, // ✅ Include plan
 		});
 
 		if (!user) throw new NotFoundException('User not found');
@@ -577,17 +604,23 @@ export class UsersService {
 			email,
 			passwordHash,
 			roleId,
-			planId: planId || null, // ✅ NEW: Assign plan
 			adminId: this.isSuperAdmin(me) ? null : me.id,
 			isActive: true,
 		});
 
 		const saved = await this.usersRepo.save(user);
+		if (planId) {
+			await this.subscriptionsService.upsertUserSubscription(me, saved.id, planId)
+		}
 
 		// ✅ UPDATED: Include plan relation
 		const fullUser = await this.usersRepo.findOneOrFail({
 			where: { id: saved.id },
-			relations: { role: true, plan: true },
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			},
 		});
 
 		return {
@@ -604,22 +637,18 @@ export class UsersService {
 		if (this.isSuperAdmin(me)) return;
 		if (me.role?.name !== SystemRole.ADMIN) return;
 
-		if (!me.planId) {
-			throw new BadRequestException('No plan assigned to this admin');
-		}
-
-		const plan = await this.plansRepo.findOne({ where: { id: me.planId } });
-		if (!plan) throw new BadRequestException('Plan not found');
-		if (!plan.isActive) throw new BadRequestException('Your plan is not active');
+		const subscription =
+			await this.subscriptionsService.getMyActiveSubscription(me);
 
 		const currentCount = await this.usersRepo.count({
 			where: { adminId: me.id },
 		});
 
-		if (currentCount >= plan.usersLimit) {
+		if (currentCount >= subscription.plan.usersLimit) {
 			throw new BadRequestException('Users limit reached');
 		}
 	}
+
 
 
 	async adminCreateAvatar(
@@ -676,7 +705,6 @@ export class UsersService {
 			email,
 			passwordHash,
 			roleId,
-			planId: planId || null,
 			phone: phone || null,
 			employeeType: employeeType || null,
 			avatarUrl: avatarUrl,
@@ -685,10 +713,17 @@ export class UsersService {
 		});
 
 		const saved = await this.usersRepo.save(user);
+		if (planId) {
+			await this.subscriptionsService.upsertUserSubscription(me, saved?.id, planId)
+		}
 
 		const fullUser = await this.usersRepo.findOneOrFail({
 			where: { id: saved.id },
-			relations: { role: true, plan: true },
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			},
 		});
 
 		return {
@@ -702,7 +737,7 @@ export class UsersService {
 	}
 
 	// ✅ UPDATED: Handle planId in updates
-	async update(me: User, id: number, patch: Partial<User>) {
+	async update(me: User, id: number, patch: UpdateUserDto) {
 		const user = await this.get(me, id);
 
 		if (!this.isSuperAdmin(me) && user.role?.name === SystemRole.SUPER_ADMIN) {
@@ -725,16 +760,6 @@ export class UsersService {
 			user.roleId = patch.roleId;
 		}
 
-		if (patch.planId === null) {
-			user.planId = null;
-		} else if (patch.planId !== undefined) {
-			const plan = await this.plansRepo.findOne({ where: { id: patch.planId } });
-			if (!plan) throw new BadRequestException("Plan not found");
-			if (!plan.isActive) throw new BadRequestException("Selected plan is not active");
-			user.planId = patch.planId;
-			user.plan = plan
-		}
-
 		if (typeof patch.name === 'string') user.name = patch.name;
 		if (typeof patch.email === 'string') user.email = patch.email;
 		if (typeof patch.isActive === 'boolean') user.isActive = patch.isActive;
@@ -742,11 +767,18 @@ export class UsersService {
 		if (typeof (patch as any).employeeType === 'string') user.employeeType = (patch as any).employeeType;
 
 		const saved = await this.usersRepo.save(user);
+		if (patch.planId !== undefined) {
+			await this.subscriptionsService?.upsertUserSubscription(me, saved?.id, patch?.planId)
+		}
 
 		// ✅ Return with plan relation
 		return this.usersRepo.findOne({
 			where: { id: saved.id },
-			relations: { role: true, plan: true },
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			},
 		});
 	}
 

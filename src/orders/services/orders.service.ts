@@ -40,6 +40,7 @@ import { BulkUploadUsage } from "dto/plans.dto";
 import { Notification } from "entities/notifications.entity";
 import { StoreEntity } from "entities/stores.entity";
 import { ShippingCompanyEntity, ShippingIntegrationEntity } from "entities/shipping.entity";
+import { SubscriptionStatus } from "entities/plans.entity";
 
 
 export function tenantId(me: any): any | null {
@@ -1377,12 +1378,19 @@ export class OrdersService {
     if (!adminId) throw new BadRequestException("Missing adminId");
     if (!file?.buffer) throw new BadRequestException("No file uploaded");
 
-    const admin = await this.userRepo.findOne({
-      where: { id: adminId },
-      relations: ['plan']
-    });
+    const admin = await this.userRepo
+      .createQueryBuilder('user')
+      .leftJoinAndSelect(
+        'user.subscriptions',
+        'subscription',
+        'subscription.status = :status',
+        { status: SubscriptionStatus.ACTIVE },
+      )
+      .leftJoinAndSelect('subscription.plan', 'plan')
+      .where('user.id = :id', { id: adminId })
+      .getOne();
 
-    if (!admin?.plan) throw new ForbiddenException("No active plan found");
+    if (!admin?.subscription) throw new ForbiddenException("No active plan found");
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as any);
@@ -1390,7 +1398,7 @@ export class OrdersService {
     const rowCount = sheet.rowCount - 1; // Subtract header
 
     const usage = await this.getUsageTracker(adminId);
-    const limit = admin.plan.bulkUploadPerMonth;
+    const limit = admin.subscription?.plan.bulkUploadPerMonth;
 
     if (usage.count + rowCount > limit) {
       throw new BadRequestException(
