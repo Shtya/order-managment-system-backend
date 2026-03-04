@@ -685,11 +685,11 @@ export class EasyOrderService extends BaseStoreProvider {
             // If no SKU, use product slug as key
             const key = sku || `simple_${remoteProduct.id}`;
             combinations = [{
-                sku,
+                // sku,
                 price: remoteProduct.price,
                 stockOnHand: remoteProduct.quantity || 0,
                 attributes: {},
-                key
+                // key
             }];
         }
 
@@ -738,7 +738,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 const upsertDto: UpsertProductSkusDto = {
                     items: productDto.combinations.map(c => ({
                         ...c,
-                        key: c.key || this.productsService.canonicalKey(c.attributes || {}) // Access private helper or rely on logic
+                        // key: c.key || this.productsService.canonicalKey(c.attributes || {}) // Access private helper or rely on logic
                     })) as any
                 };
 

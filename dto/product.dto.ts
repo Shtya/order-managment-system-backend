@@ -11,6 +11,7 @@ import {
   IsString,
   Matches,
   MaxLength,
+  Min,
   ValidateNested,
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
@@ -27,22 +28,24 @@ export class UpsellingProductDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
   callCenterDescription?: string;
 }
 
 export class CreateSkuItemDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  key?: string; // allow generating from attributes
+  // @IsOptional()
+  // @IsString()
+  // @MaxLength(500)
+  // key?: string; // allow generating from attributes
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  sku?: string | null;
+  // @IsOptional()
+  // @IsString()
+  // @MaxLength(120)
+  // sku?: string | null;
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   price?: Money; // ✅ NEW: price per variant
 
   @IsOptional()
@@ -73,9 +76,11 @@ export class CreateProductDto {
   slug!: string;
 
   @IsOptional()
+  @Min(0)
   wholesalePrice?: Money;
 
   @IsOptional()
+  @Min(0)
   lowestPrice?: Money;
 
   @IsOptional()
@@ -91,15 +96,18 @@ export class CreateProductDto {
   storeId?: number | null;
 
   @IsOptional()
+  @Min(0)
   @IsInt()
   warehouseId?: number | null;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string | null;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   callCenterProductDescription?: string | null;
 
   @IsOptional()
@@ -138,18 +146,19 @@ export class UpdateProductDto extends PartialType(CreateProductDto) {
 }
 
 export class UpsertSkuItemDto {
-  @IsString()
-  @IsNotEmpty()
-  key!: string;
+  // @IsString()
+  // @IsNotEmpty()
+  // key!: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  sku?: string | null;
+  // @IsOptional()
+  // @IsString()
+  // @MaxLength(120)
+  // sku?: string | null;
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber({}, { message: "price must be a number" })
+  @Min(0)
   price?: Money; // ✅ NEW: price per variant
 
   @IsOptional()

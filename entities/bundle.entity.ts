@@ -28,7 +28,7 @@ export class BundleEntity {
 	@Column({ type: "text", nullable: true })
 	description?: string;
 
-	@Column({ type: "int", default: 0 })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	price!: number;
 
 	@Column({ type: "varchar", length: 120 })
