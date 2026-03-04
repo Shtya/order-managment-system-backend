@@ -9,6 +9,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -16,17 +17,41 @@ import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
 import { BundlesService } from "./bundles.service";
 import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
+import { Response } from "express";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("bundles")
 export class BundlesController {
-  constructor(private bundles: BundlesService) {}
+  constructor(private bundles: BundlesService) { }
 
   @Permissions("products.read")
   @Get()
   list(@Req() req: any, @Query() q: any) {
     return this.bundles.list(req.user, q);
   }
+
+
+  @Permissions("products.read")
+  @Get("export")
+  async exportProducts(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response
+  ) {
+    const buffer = await this.bundles.exportBundles(req.user, q);
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=Bundles_export_${Date.now()}.xlsx`
+    );
+
+    return res.send(buffer);
+  }
+
 
   @Permissions("products.read")
   @Get("by-sku/:sku")

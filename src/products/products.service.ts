@@ -18,6 +18,7 @@ import {
 import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import * as ExcelJS from "exceljs";
+import { OrderItemEntity, OrderStatus } from "entities/order.entity";
 
 @Injectable()
 export class ProductsService {
@@ -35,7 +36,10 @@ export class ProductsService {
     private storeRepo: Repository<StoreEntity>,
 
     @InjectRepository(WarehouseEntity)
-    private whRepo: Repository<WarehouseEntity>
+    private whRepo: Repository<WarehouseEntity>,
+
+    @InjectRepository(OrderItemEntity)
+    private orderItemRepo: Repository<OrderItemEntity>
   ) { }
 
   public canonicalKey(attrs: Record<string, string>): any {
@@ -107,7 +111,96 @@ export class ProductsService {
     return product;
   }
 
-  async export(me: any, q: any, res: any) {
+  async getAdminSummary(me: any) {
+
+    const adminId = tenantId(me);
+
+    // Run all queries in parallel for better performance
+    const [totalProducts, inventoryStats, orderStats] = await Promise.all([
+      // 1. Total Products Count
+      this.prodRepo.count({ where: { adminId } }),
+
+      // 2. Inventory Stats (Reserved & Available)
+      this.pvRepo
+        .createQueryBuilder('pv')
+        .select('SUM(pv.reserved)', 'totalReserved')
+        .addSelect('SUM(pv.stockOnHand - pv.reserved)', 'totalAvailable')
+        .where('pv.adminId = :adminId', { adminId })
+        .getRawOne(),
+
+      // 3. Order Item Stats using Enums
+      this.orderItemRepo
+        .createQueryBuilder('oi')
+        .leftJoin('oi.order', 'order')
+        .leftJoin('order.status', 'status')
+        .select(
+          `SUM(CASE WHEN status.code = :delivered THEN oi.quantity ELSE 0 END)`,
+          'totalDelivered'
+        )
+        .addSelect(
+          `SUM(CASE WHEN status.code = :shipped THEN oi.quantity ELSE 0 END)`,
+          'totalShipped'
+        )
+        .setParameters({
+          adminId,
+          delivered: OrderStatus.DELIVERED,
+          shipped: OrderStatus.SHIPPED,
+        })
+        .where('oi.adminId = :adminId')
+        .getRawOne(),
+    ]);
+
+    return {
+      productCount: Number(totalProducts),
+      inventory: {
+        reserved: Number(inventoryStats?.totalReserved || 0),
+        available: Number(inventoryStats?.totalAvailable || 0),
+      },
+      orders: {
+        soldQuantity: Number(orderStats?.totalDelivered || 0),
+        inTransitQuantity: Number(orderStats?.totalShipped || 0),
+      },
+    };
+  }
+
+  async exportProducts(me: any, q?: any) {
+    const filters: Record<string, any> = {};
+
+    if (q?.categoryId && q?.categoryId != "none")
+      filters.categoryId = q.categoryId;
+
+    if (q?.storeId && q?.storeId != "none")
+      filters.storeId = q.storeId;
+
+    if (q?.warehouseId && q?.warehouseId != "none")
+      filters.warehouseId = q.warehouseId;
+
+    const rackSearch = q?.["storageRack.ilike"];
+    if (rackSearch && rackSearch.trim() !== "") {
+      filters.storageRack = {};
+      filters.storageRack.ilike = rackSearch;
+    }
+
+    if (q?.["wholesalePrice.gte"] || q?.["wholesalePrice.lte"]) {
+      const gte = q["wholesalePrice.gte"];
+      const lte = q["wholesalePrice.lte"];
+
+      if (gte !== undefined && gte !== "" && !Number.isNaN(Number(gte))) {
+        filters.wholesalePrice = filters.wholesalePrice ?? {};
+        filters.wholesalePrice.gte = Number(gte);
+      }
+
+      if (lte !== undefined && lte !== "" && !Number.isNaN(Number(lte))) {
+        filters.wholesalePrice = filters.wholesalePrice ?? {};
+        filters.wholesalePrice.lte = Number(lte);
+      }
+
+      if (filters.wholesalePrice && Object.keys(filters.wholesalePrice).length === 0) {
+        delete filters.wholesalePrice;
+      }
+    }
+
+    // 🔎 Use SAME findAll config as list()
     const result = await CRUD.findAll(
       this.prodRepo,
       "products",
@@ -119,50 +212,89 @@ export class ProductsService {
       ["category", "store", "warehouse"],
       ["name", "category.name", "store.name", "warehouse.name"],
       {
-        ...q,
-        __tenant: { role: me?.role?.name, userId: me?.id, adminId: me?.adminId },
+        __tenant: {
+          role: me?.role?.name,
+          userId: me?.id,
+          adminId: me?.adminId,
+        },
+        filters,
       } as any
     );
 
-    const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet("Products");
+    // ✅ Attach SKUs like list()
+    const records = await this.attachSkusToProducts(
+      me,
+      result.records ?? []
+    );
 
-    ws.columns = [
-      { header: "ID", key: "id", width: 10 },
-      { header: "Name", key: "name", width: 30 },
-      { header: "Wholesale Price", key: "wholesalePrice", width: 16 },
-      { header: "Lowest Price", key: "lowestPrice", width: 16 },
-      { header: "Storage Rack", key: "storageRack", width: 18 },
-      { header: "Category", key: "category", width: 20 },
-      { header: "Store", key: "store", width: 20 },
-      { header: "Warehouse", key: "warehouse", width: 20 },
-      { header: "Upselling Enabled", key: "upsellingEnabled", width: 18 },
-      { header: "Created At", key: "created_at", width: 24 },
-    ];
+    // =============================
+    // 📊 Prepare Excel Data
+    // =============================
+    const exportData = records.map((p: any) => {
+      const skus = p?.skus ?? [];
 
-    (result.records ?? []).forEach((p: any) => {
-      ws.addRow({
+      const firstSku = skus?.[0]?.sku ?? "";
+      const skuCount = skus.length;
+
+      const totalStock = skus.reduce(
+        (sum: number, s: any) => sum + (s.stockOnHand || 0),
+        0
+      );
+
+      return {
         id: p.id,
-        name: p.name,
-        wholesalePrice: p.wholesalePrice ?? "",
-        lowestPrice: p.lowestPrice ?? "",
-        storageRack: p.storageRack ?? "",
+        name: p.name ?? "",
+        sku: firstSku,
+        skuCount: skuCount > 1 ? `+${skuCount - 1}` : "",
         category: p.category?.name ?? "",
         store: p.store?.name ?? "",
         warehouse: p.warehouse?.name ?? "",
-        upsellingEnabled: p.upsellingEnabled ? "Yes" : "No",
-        created_at: p.created_at ? new Date(p.created_at).toISOString() : "",
-      });
+        storageRack: p.storageRack ?? "",
+        wholesalePrice: p.wholesalePrice ?? "",
+        lowestPrice: p.lowestPrice ?? "",
+        totalStock: totalStock,
+        created_at: p.created_at
+          ? new Date(p.created_at).toLocaleDateString("en-US")
+          : "",
+      };
     });
 
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    );
-    res.setHeader("Content-Disposition", `attachment; filename="products.xlsx"`);
+    // =============================
+    // 📦 Excel Generation
+    // =============================
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Products");
 
-    await wb.xlsx.write(res);
-    res.end();
+    worksheet.columns = [
+      { header: "ID", key: "id", width: 10 },
+      { header: "Name", key: "name", width: 30 },
+      { header: "SKU", key: "sku", width: 20 },
+      { header: "Extra SKUs", key: "skuCount", width: 12 },
+      { header: "Category", key: "category", width: 20 },
+      { header: "Store", key: "store", width: 20 },
+      { header: "Warehouse", key: "warehouse", width: 20 },
+      { header: "Storage Rack", key: "storageRack", width: 18 },
+      { header: "Wholesale Price", key: "wholesalePrice", width: 16 },
+      { header: "Lowest Price", key: "lowestPrice", width: 16 },
+      { header: "Total Stock", key: "totalStock", width: 14 },
+      { header: "Created At", key: "created_at", width: 18 },
+    ];
+
+    // 🎨 Header Styling (same style you use)
+    worksheet.getRow(1).font = {
+      bold: true,
+      color: { argb: "FFFFFFFF" },
+    };
+
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF6C5CE7" },
+    };
+
+    exportData.forEach((row) => worksheet.addRow(row));
+
+    return await workbook.xlsx.writeBuffer();
   }
 
   async searchWithSkus(me: any, q?: any) {
@@ -221,6 +353,12 @@ export class ProductsService {
     if (q?.categoryId && q?.categoryId != "none") filters.categoryId = q.categoryId;
     if (q?.storeId && q?.storeId != "none") filters.storeId = q.storeId;
     if (q?.warehouseId && q?.warehouseId != "none") filters.warehouseId = q.warehouseId;
+
+    const rackSearch = q?.["storageRack.ilike"];
+    if (rackSearch && rackSearch.trim() !== "") {
+      filters.storageRack = {};
+      filters.storageRack.ilike = rackSearch;
+    }
 
     if (q?.["wholesalePrice.gte"] || q?.["wholesalePrice.lte"]) {
       const gte = q["wholesalePrice.gte"];
