@@ -25,9 +25,11 @@ export class BundleEntity {
 	@Column({ type: "varchar", length: 200 })
 	name!: string;
 
+	@Column({ type: "text", nullable: true })
+	description?: string;
 
-	@Column({ type: "varchar", length: 200 })
-	price!: string;
+	@Column({ type: "int", default: 0 })
+	price!: number;
 
 	@Column({ type: "varchar", length: 120 })
 	@Index()
@@ -36,7 +38,7 @@ export class BundleEntity {
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;
 
-  @OneToMany(() => BundleItemEntity, (it) => it.bundle, { cascade: ["insert", "update"] })
+	@OneToMany(() => BundleItemEntity, (it) => it.bundle, { cascade: ["insert", "update"] })
 	items!: BundleItemEntity[];
 
 }

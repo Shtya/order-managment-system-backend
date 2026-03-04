@@ -31,6 +31,7 @@ import {
 import { diskStorage } from "multer";
 import { extname } from "path";
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
+import { Response } from "express";
 
 const productsStorage = diskStorage({
   destination: "./uploads/products",
@@ -77,8 +78,29 @@ export class ProductsController {
 
   @Permissions("products.read")
   @Get("export")
-  exportExport(@Req() req: any, @Query() q: any, @Res() res: Response) {
-    return this.products.export(req.user, q, res);
+  async exportProducts(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response
+  ) {
+    const buffer = await this.products.exportProducts(req.user, q);
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=Products_export_${Date.now()}.xlsx`
+    );
+
+    return res.send(buffer);
+  }
+
+  @Permissions("products.read")
+  @Get("summary")
+  getSummary(@Req() req: any) {
+    return this.products.getAdminSummary(req.user);
   }
 
   @Permissions("products.read")

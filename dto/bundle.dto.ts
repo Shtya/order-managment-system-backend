@@ -1,12 +1,14 @@
 // --- File: src/dto/bundle.dto.ts ---
 import { Type } from "class-transformer";
 import {
+  ArrayMinSize,
   IsArray,
   IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
+  Min,
   ValidateNested,
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
@@ -25,10 +27,14 @@ export class CreateBundleDto {
   @MaxLength(200)
   name!: string;
 
-
   @IsString()
-  @IsNotEmpty()
-  price!: string;
+  @IsOptional() // Description is usually optional
+  @MaxLength(2000) // Matches your Yup schema
+  description?: string;
+
+  @IsInt()
+  @Min(1)
+  price!: number;
 
   @IsString()
   @IsNotEmpty()
@@ -36,6 +42,7 @@ export class CreateBundleDto {
   sku!: string;
 
   @IsArray()
+  @ArrayMinSize(1, { message: 'At least one item is required' })
   @ValidateNested({ each: true })
   @Type(() => BundleItemDto)
   items!: BundleItemDto[];
