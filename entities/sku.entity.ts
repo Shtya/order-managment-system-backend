@@ -42,11 +42,11 @@ export class ProductEntity {
   @Index()
   name!: string;
 
-  @Column({ type: "int", nullable: true })
-  wholesalePrice?: Money;
+  @Column({ type: "decimal", precision: 12, scale: 2, nullable: true })
+  wholesalePrice?: number;
 
-  @Column({ type: "int", nullable: true })
-  lowestPrice?: Money;
+  @Column({ type: "decimal", precision: 12, scale: 2, nullable: true })
+  lowestPrice?: number;
 
   @Column({ type: "text", nullable: true })
   storageRack?: string;
@@ -136,8 +136,8 @@ export class ProductVariantEntity {
   sku?: string | null;
 
   // ✅ NEW: price per variant SKU
-  @Column({ type: "int", nullable: true })
-  price?: Money;
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+  price!: number;
 
   @Column({ type: "simple-json", nullable: false, default: "{}" })
   attributes!: Record<string, string>;
@@ -153,4 +153,5 @@ export class ProductVariantEntity {
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
+
 }

@@ -3,6 +3,8 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository, Like, Not, IsNull, EntityManager } from "typeorm";
 
+import { unlink } from 'fs/promises';
+import { join } from 'path';
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { CategoryEntity } from "entities/categories.entity";
 import { StoreEntity } from "entities/stores.entity";
@@ -19,6 +21,7 @@ import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import * as ExcelJS from "exceljs";
 import { OrderItemEntity, OrderStatus } from "entities/order.entity";
+import { deletePhysicalFiles } from "common/healpers";
 
 @Injectable()
 export class ProductsService {
@@ -42,12 +45,57 @@ export class ProductsService {
     private orderItemRepo: Repository<OrderItemEntity>
   ) { }
 
+  public async handleImageCleanup(
+    currentData: { mainImage?: string; images?: { url: string }[] },
+    urlsToRemove: string[] | undefined,
+    newMainImageProvided: boolean
+  ) {
+    if (!urlsToRemove || urlsToRemove.length === 0) return;
+
+    // 1. Validation: Prevent removing main image without a replacement
+    const mainWillBeRemoved = urlsToRemove.includes(currentData.mainImage);
+    if (mainWillBeRemoved && !newMainImageProvided) {
+      throw new BadRequestException("Cannot remove mainImage without providing a new one");
+    }
+
+    // 2. Physical Deletion from Disk
+    for (const url of urlsToRemove) {
+      try {
+
+        const filePath = join(process.cwd(), url);
+        await unlink(filePath);
+      } catch (err) {
+        // Log error but don't stop the process if one file is already missing
+        console.error(`Failed to delete file at ${url}:`, err.message);
+      }
+    }
+
+    // 3. Return the filtered gallery images
+    return (currentData.images ?? []).filter(
+      (img) => img?.url && !urlsToRemove.includes(img.url)
+    );
+  }
+
   public canonicalKey(attrs: Record<string, string>): any {
     const key = Object.keys(attrs)
       .sort((a, b) => a.localeCompare(b))
       .map((k) => `${k}=${String(attrs[k])}`)
       .join("|");
     return key;
+  }
+
+  private generateSku(product: ProductEntity, attrs: Record<string, any>, nextNumber: number) {
+    const base = (product.name || "PRD")
+      .toString()
+      .replace(/\s+/g, "")
+      .toUpperCase()
+      .substring(0, 10);
+
+    const attrPart = Object.values(attrs)
+      .map(v => String(v).replace(/\s+/g, "").toUpperCase())
+      .join("-");
+
+    return `${base}-${attrPart}-${nextNumber}`;
   }
 
   private async assertOwnedOrNull(
@@ -164,7 +212,9 @@ export class ProductsService {
   }
 
   async exportProducts(me: any, q?: any) {
+    const adminId = tenantId(me);
     const filters: Record<string, any> = {};
+    const type = q?.type ?? "PRODUCT";
 
     if (q?.categoryId && q?.categoryId != "none")
       filters.categoryId = q.categoryId;
@@ -176,56 +226,92 @@ export class ProductsService {
       filters.warehouseId = q.warehouseId;
 
     const rackSearch = q?.["storageRack.ilike"];
-    if (rackSearch && rackSearch.trim() !== "") {
-      filters.storageRack = {};
-      filters.storageRack.ilike = rackSearch;
+    if (rackSearch?.trim()) {
+      filters.storageRack = { ilike: rackSearch };
     }
 
     if (q?.["wholesalePrice.gte"] || q?.["wholesalePrice.lte"]) {
       const gte = q["wholesalePrice.gte"];
       const lte = q["wholesalePrice.lte"];
 
-      if (gte !== undefined && gte !== "" && !Number.isNaN(Number(gte))) {
-        filters.wholesalePrice = filters.wholesalePrice ?? {};
-        filters.wholesalePrice.gte = Number(gte);
-      }
+      if (!Number.isNaN(Number(gte)))
+        filters.wholesalePrice = { ...filters.wholesalePrice, gte: Number(gte) };
 
-      if (lte !== undefined && lte !== "" && !Number.isNaN(Number(lte))) {
-        filters.wholesalePrice = filters.wholesalePrice ?? {};
-        filters.wholesalePrice.lte = Number(lte);
-      }
-
-      if (filters.wholesalePrice && Object.keys(filters.wholesalePrice).length === 0) {
-        delete filters.wholesalePrice;
-      }
+      if (!Number.isNaN(Number(lte)))
+        filters.wholesalePrice = { ...filters.wholesalePrice, lte: Number(lte) };
     }
 
-    // 🔎 Use SAME findAll config as list()
-    const result = await CRUD.findAll(
-      this.prodRepo,
-      "products",
-      q?.search,
-      1,
-      q?.limit ?? 1000000,
-      q?.sortBy ?? "created_at",
-      (q?.sortOrder ?? "DESC") as any,
-      ["category", "store", "warehouse"],
-      ["name", "category.name", "store.name", "warehouse.name"],
-      {
-        __tenant: {
-          role: me?.role?.name,
-          userId: me?.id,
-          adminId: me?.adminId,
-        },
-        filters,
-      } as any
+    let idleDate: Date | null = null;
+    if (type === "PRODUCT_IDLE" && q?.["created_at.lte"]) {
+      idleDate = new Date(q["created_at.lte"]);
+    }
+
+    // =====================================
+    // 🔎 Build Query
+    // =====================================
+    const qb = this.prodRepo
+      .createQueryBuilder("product")
+      .leftJoinAndSelect("product.category", "category")
+      .leftJoinAndSelect("product.store", "store")
+      .leftJoinAndSelect("product.warehouse", "warehouse")
+      .where("product.adminId = :adminId", { adminId });
+
+    // Normal Filters
+    if (filters.categoryId)
+      qb.andWhere("product.categoryId = :categoryId", {
+        categoryId: filters.categoryId,
+      });
+
+    if (filters.storeId)
+      qb.andWhere("product.storeId = :storeId", {
+        storeId: filters.storeId,
+      });
+
+    if (filters.warehouseId)
+      qb.andWhere("product.warehouseId = :warehouseId", {
+        warehouseId: filters.warehouseId,
+      });
+
+    if (filters.storageRack?.ilike)
+      qb.andWhere("product.storageRack ILIKE :rack", {
+        rack: `%${filters.storageRack.ilike}%`,
+      });
+
+    if (filters.wholesalePrice?.gte)
+      qb.andWhere("product.wholesalePrice >= :gte", {
+        gte: filters.wholesalePrice.gte,
+      });
+
+    if (filters.wholesalePrice?.lte)
+      qb.andWhere("product.wholesalePrice <= :lte", {
+        lte: filters.wholesalePrice.lte,
+      });
+
+    // =====================================
+    // 🟣 PRODUCT_IDLE LOGIC
+    // =====================================
+    if (type === "PRODUCT_IDLE" && idleDate) {
+      qb.andWhere(
+        `
+      NOT EXISTS (
+        SELECT 1
+        FROM order_items oi
+        INNER JOIN product_variants pv ON pv.id = oi."variantId"
+        WHERE pv."productId" = product.id
+        AND oi."created_at" > :idleDate
+      )
+      `,
+        { idleDate }
+      );
+    }
+
+    qb.orderBy(
+      `product.${q?.sortBy ?? "created_at"}`,
+      (q?.sortOrder ?? "DESC") as any
     );
 
-    // ✅ Attach SKUs like list()
-    const records = await this.attachSkusToProducts(
-      me,
-      result.records ?? []
-    );
+    // ⚠️ No pagination for export
+    const records = await qb.getMany();
 
     // =============================
     // 📊 Prepare Excel Data
@@ -348,59 +434,105 @@ export class ProductsService {
   }
 
   async list(me: any, q?: any) {
+    const adminId = tenantId(me);
     const filters: Record<string, any> = {};
+    const type = q?.type ?? "PRODUCT";
 
-    if (q?.categoryId && q?.categoryId != "none") filters.categoryId = q.categoryId;
-    if (q?.storeId && q?.storeId != "none") filters.storeId = q.storeId;
-    if (q?.warehouseId && q?.warehouseId != "none") filters.warehouseId = q.warehouseId;
+    if (q?.categoryId && q?.categoryId != "none")
+      filters.categoryId = q.categoryId;
+
+    if (q?.storeId && q?.storeId != "none")
+      filters.storeId = q.storeId;
+
+    if (q?.warehouseId && q?.warehouseId != "none")
+      filters.warehouseId = q.warehouseId;
 
     const rackSearch = q?.["storageRack.ilike"];
-    if (rackSearch && rackSearch.trim() !== "") {
-      filters.storageRack = {};
-      filters.storageRack.ilike = rackSearch;
+    if (rackSearch?.trim()) {
+      filters.storageRack = { ilike: rackSearch };
     }
 
     if (q?.["wholesalePrice.gte"] || q?.["wholesalePrice.lte"]) {
       const gte = q["wholesalePrice.gte"];
       const lte = q["wholesalePrice.lte"];
 
-      if (gte !== undefined && gte !== "" && !Number.isNaN(Number(gte))) {
-        filters.wholesalePrice = filters.wholesalePrice ?? {};
-        filters.wholesalePrice.gte = Number(gte);
+      if (!Number.isNaN(Number(gte))) {
+        filters.wholesalePrice = { ...filters.wholesalePrice, gte: Number(gte) };
       }
 
-      if (lte !== undefined && lte !== "" && !Number.isNaN(Number(lte))) {
-        filters.wholesalePrice = filters.wholesalePrice ?? {};
-        filters.wholesalePrice.lte = Number(lte);
-      }
-
-      if (filters.wholesalePrice && Object.keys(filters.wholesalePrice).length === 0) {
-        delete filters.wholesalePrice;
+      if (!Number.isNaN(Number(lte))) {
+        filters.wholesalePrice = { ...filters.wholesalePrice, lte: Number(lte) };
       }
     }
 
-    const result = await CRUD.findAll(
-      this.prodRepo,
-      "products",
-      q?.search,
-      q?.page ?? 1,
-      q?.limit ?? 10,
-      q?.sortBy ?? "created_at",
-      (q?.sortOrder ?? "DESC") as any,
-      ["category", "store", "warehouse"],
-      ["name", "category.name", "store.name", "warehouse.name"],
-      {
-        __tenant: {
-          role: me?.role?.name,
-          userId: me?.id,
-          adminId: me?.adminId,
-        },
-        filters,
-      } as any
+    // =========================================
+    // 🟣 PRODUCT_IDLE LOGIC
+    // =========================================
+    let idleDate: Date | null = null;
+
+    if (type === "PRODUCT_IDLE" && q?.["created_at.lte"]) {
+      idleDate = new Date(q["created_at.lte"]);
+    }
+
+    const qb = this.prodRepo
+      .createQueryBuilder("product")
+      .leftJoinAndSelect("product.category", "category")
+      .leftJoinAndSelect("product.store", "store")
+      .leftJoinAndSelect("product.warehouse", "warehouse")
+      .where("product.adminId = :adminId", { adminId });
+
+    // Apply normal filters manually (since we use QueryBuilder now)
+    if (filters.categoryId)
+      qb.andWhere("product.categoryId = :categoryId", { categoryId: filters.categoryId });
+
+    if (filters.storeId)
+      qb.andWhere("product.storeId = :storeId", { storeId: filters.storeId });
+
+    if (filters.warehouseId)
+      qb.andWhere("product.warehouseId = :warehouseId", { warehouseId: filters.warehouseId });
+
+    if (filters.storageRack?.ilike)
+      qb.andWhere("product.storageRack ILIKE :rack", { rack: `%${filters.storageRack.ilike}%` });
+
+    if (filters.wholesalePrice?.gte)
+      qb.andWhere("product.wholesalePrice >= :gte", { gte: filters.wholesalePrice.gte });
+
+    if (filters.wholesalePrice?.lte)
+      qb.andWhere("product.wholesalePrice <= :lte", { lte: filters.wholesalePrice.lte });
+
+    // =========================================
+    // 🔥 Idle Products Filter
+    // =========================================
+    if (type === "PRODUCT_IDLE" && idleDate) {
+      qb.andWhere(`
+      NOT EXISTS (
+        SELECT 1
+        FROM order_items oi
+        INNER JOIN product_variants pv ON pv.id = oi."variantId"
+        WHERE pv."productId" = product.id
+        AND oi."created_at" > :idleDate
+      )
+    `, { idleDate });
+    }
+
+    qb.orderBy(
+      `product.${q?.sortBy ?? "created_at"}`,
+      (q?.sortOrder ?? "DESC") as any
     );
 
-    result.records = await this.attachSkusToProducts(me, result.records ?? []);
-    return result;
+    qb.skip(((q?.page ?? 1) - 1) * (q?.limit ?? 10));
+    qb.take(q?.limit ?? 10);
+
+    const [records, total] = await qb.getManyAndCount();
+
+    const enriched = await this.attachSkusToProducts(me, records);
+
+    return {
+      records: enriched,
+      total_records: total,
+      current_page: q?.page ?? 1,
+      per_page: q?.limit ?? 10,
+    };
   }
 
   async get(me: any, id: number, manager?: EntityManager) {
@@ -452,66 +584,109 @@ export class ProductsService {
     manager?: EntityManager
   ) {
     const adminId = tenantId(me);
-    await this.get(me, productId, manager);
+    const product = await this.get(me, productId, manager);
 
     const items = Array.isArray(body?.items) ? body.items : [];
     if (!items.length) throw new BadRequestException("items is required");
 
-    {
-      const seen = new Set<string>();
-      for (const it of items) {
-        const key = it?.key;
-        if (!key) continue;
-        if (seen.has(key)) throw new BadRequestException(`Duplicate combination key in request: ${key}`);
-        seen.add(key);
-      }
-    }
-
-    // Use the provided manager or the default repository
     const pvRepo = manager
       ? manager.getRepository(ProductVariantEntity)
       : this.pvRepo;
 
-    const existing = await pvRepo.find({ where: { adminId, productId } as any });
-    const byKey = new Map(existing.map((e) => [e.key, e]));
+    const existing = await pvRepo.find({
+      where: { adminId, productId } as any,
+    });
+
+    const existingByKey = new Map(existing.map((e) => [e.key, e]));
 
     const toSave: ProductVariantEntity[] = [];
+    const incomingKeys = new Set<string>();
+
+    // Used to generate incremental number safely
+    let count = existing.length;
 
     for (const it of items as any[]) {
-      const key = it.key;
-      if (!key) throw new BadRequestException("item.key required");
+      const attrs = it.attributes ?? {};
+      if (!Object.keys(attrs).length) {
+        throw new BadRequestException("Each item must have attributes");
+      }
 
-      const row = byKey.get(key);
+      const key = this.canonicalKey(attrs);
+
+      incomingKeys.add(key);
+
+      let row = existingByKey.get(key);
+
       if (row) {
-        if (it.sku !== undefined) row.sku = it.sku;
-        if (it.price !== undefined) (row as any).price = it.price; // ✅ NEW
-        if (it.stockOnHand !== undefined) row.stockOnHand = Number(it.stockOnHand) || 0;
-        if (it.reserved !== undefined) row.reserved = Number(it.reserved) || 0;
-        if (it.attributes !== undefined) row.attributes = it.attributes;
+        // 🔄 UPDATE EXISTING
+        row.attributes = attrs;
+        row.price =
+          it.price !== undefined && it.price !== null
+            ? Number(it.price)
+            : null;
+
+        if (it.stockOnHand !== undefined)
+          row.stockOnHand = Number(it.stockOnHand) || 0;
+
+        if (it.reserved !== undefined)
+          row.reserved = Number(it.reserved) || 0;
+
         toSave.push(row);
       } else {
+        // ➕ CREATE NEW
+        count++;
+
+        const sku = await this.generateSku(product, attrs, adminId);
+
         const created = pvRepo.create({
           adminId,
           productId,
           key,
-          sku: it.sku ?? null,
-          price: it.price !== undefined && it.price !== null ? Number(it.price) : null, // ✅ NEW
-          attributes: it.attributes ?? {},
-          stockOnHand: Number(it.stockOnHand) || 0,
-          reserved: Number(it.reserved) || 0,
-        } as any);
-        toSave.push(created as any);
+          sku,
+          price:
+            it.price !== undefined && it.price !== null
+              ? Number(it.price)
+              : null,
+          attributes: attrs,
+          stockOnHand: 0,
+          reserved: 0,
+        });
+
+        toSave.push(created);
       }
     }
 
+    // ==========================
+    // 🗑 DELETE REMOVED VARIANTS
+    // ==========================
+    // const toDelete = existing.filter((e) => !incomingKeys.has(e.key));
+
+    // if (toDelete.length) {
+    //   await pvRepo.remove(toDelete);
+    // }
+
+    // ==========================
+    // 🔒 VALIDATIONS
+    // ==========================
     for (const r of toSave) {
-      if (r.stockOnHand < 0) throw new BadRequestException("stockOnHand cannot be negative");
-      if (r.reserved < 0) throw new BadRequestException("reserved cannot be negative");
-      if (r.reserved > r.stockOnHand) throw new BadRequestException("reserved cannot exceed stockOnHand");
+      if (r.stockOnHand < 0)
+        throw new BadRequestException("stockOnHand cannot be negative");
+
+      if (r.reserved < 0)
+        throw new BadRequestException("reserved cannot be negative");
+
+      if (r.reserved > r.stockOnHand)
+        throw new BadRequestException(
+          "reserved cannot exceed stockOnHand"
+        );
     }
 
-    const saved = await pvRepo.save(toSave);
-    return { updated: saved.length };
+    await pvRepo.save(toSave);
+
+    return {
+      updated: toSave.length,
+      // deleted: toDelete.length,
+    };
   }
 
   async adjustVariantStock(me: any, productId: number, variantId: number, body: AdjustVariantStockDto) {
@@ -537,6 +712,7 @@ export class ProductsService {
       productId,
     };
   }
+
 
   async create(me: any, dto: CreateProductDto) {
     const adminId = tenantId(me);
@@ -595,14 +771,21 @@ export class ProductsService {
 
     const combos = Array.isArray((dto as any).combinations) ? (dto as any).combinations : [];
     if (combos.length) {
+
       const rows: ProductVariantEntity[] = combos.map((c: any) => {
         const attrs = c.attributes ?? {};
-        const key = c.key || (Object.keys(attrs).length ? this.canonicalKey(attrs) : null);
+
+        if (!Object.keys(attrs).length) {
+          throw new BadRequestException("Each combination must have attributes");
+        }
+
+        const key = this.canonicalKey(attrs); // ✅ Always generated
+        const sku = this.generateSku(savedProduct, attrs, adminId); // ✅ Always generated
 
         if (!key) throw new BadRequestException("Each combination must have key or attributes");
 
-        const stockOnHand = Number(c.stockOnHand) || 0;
-        const reserved = Number(c.reserved) || 0;
+        const stockOnHand = 0;
+        const reserved = 0;
 
         if (stockOnHand < 0) throw new BadRequestException("stockOnHand cannot be negative");
         if (reserved < 0) throw new BadRequestException("reserved cannot be negative");
@@ -612,7 +795,7 @@ export class ProductsService {
           adminId,
           productId: savedProduct.id,
           key,
-          sku: c.sku ?? null,
+          sku: sku ?? null,
           price: c.price !== undefined && c.price !== null ? Number(c.price) : null, // ✅ NEW
           attributes: attrs,
           stockOnHand,
@@ -687,6 +870,16 @@ export class ProductsService {
         throw new BadRequestException("Cannot remove mainImage without providing a new mainImage");
       }
     }
+    const removeUrls = dto.removeImgs as string[] | undefined;
+
+    if (removeUrls?.length) {
+      p.images = await this.handleImageCleanup(
+        p,
+        removeUrls,
+        Boolean(dto.mainImage) // Check if a new main image was uploaded in this request
+      );
+    }
+
     delete (dto as any).removeImgs;
 
     if ((dto as any).mainImage) {
@@ -718,7 +911,6 @@ export class ProductsService {
     }
 
 
-
     const patch: any = { ...dto };
     delete patch.categoryId;
     delete patch.storeId;
@@ -731,8 +923,24 @@ export class ProductsService {
   }
 
   async remove(me: any, id: number) {
-    await this.get(me, id);
-    return CRUD.delete(this.prodRepo, "products", id);
+    // 1. Fetch the product first to get the image paths
+    const product = await this.get(me, id);
+
+    // 2. Perform the database deletion
+    const result = await CRUD.delete(this.prodRepo, "products", id);
+
+    // 3. If DB deletion was successful, clean up the files
+    if (result) {
+      const imagesToDelete = [
+        product.mainImage,
+        ...(product.images?.map(img => img.url) ?? [])
+      ].filter(Boolean); // Remove null/undefined
+
+      // Fire and forget deletion (or await if you want to ensure it finishes)
+      deletePhysicalFiles(imagesToDelete);
+    }
+
+    return result;
   }
 
   async checkSlug(me: any, slug, storeId, productId) {

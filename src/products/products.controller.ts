@@ -41,6 +41,20 @@ const productsStorage = diskStorage({
   },
 });
 
+
+export const multerOptions = {
+  storage: productsStorage,
+  fileFilter: (req, file, cb) => {
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new BadRequestException('Only image files are allowed!'), false);
+    }
+    cb(null, true);
+  },
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB
+  },
+};
+
 function parseJsonField<T>(val: any, fallback: T): T {
   if (val === undefined || val === null || val === "") return fallback;
   if (typeof val !== "string") return val as T;
@@ -103,6 +117,30 @@ export class ProductsController {
     return this.products.getAdminSummary(req.user);
   }
 
+  @Get("check-slug")
+  async checkSlug(
+    @Req() req: any,
+    @Query("slug") slug: string,
+    @Query("storeId") storeId?: string, // يأتي كـ string من الـ URL
+    @Query("productId") productId?: string, // يأتي كـ string من الـ URL
+  ) {
+
+    const parsedStoreId = storeId ? Number(storeId) : undefined;
+
+    // إذا فشل التحويل (مثلاً أرسل المستخدم نصاً بدلاً من رقم)
+    if (storeId && isNaN(parsedStoreId)) {
+      throw new BadRequestException("Invalid storeId format");
+    }
+
+    return this.products.checkSlug(req.user, slug, parsedStoreId, productId);
+  }
+
+  @Permissions("products.delete")
+  @Delete(":id")
+  remove(@Req() req: any, @Param("id") id: string) {
+    return this.products.remove(req.user, Number(id));
+  }
+
   @Permissions("products.read")
   @Get("search")
   searchProducts(@Req() req: any, @Query() q: any) {
@@ -161,7 +199,7 @@ export class ProductsController {
         { name: "mainImage", maxCount: 1 },
         { name: "images", maxCount: 20 },
       ],
-      { storage: productsStorage }
+      multerOptions
     )
   )
   create(
@@ -223,7 +261,7 @@ export class ProductsController {
         { name: "mainImage", maxCount: 1 },
         { name: "images", maxCount: 20 },
       ],
-      { storage: productsStorage }
+      multerOptions
     )
   )
   update(
@@ -238,7 +276,7 @@ export class ProductsController {
   ) {
     const dto: UpdateProductDto = {
       name: body.name,
-
+      slug: body.slug,
       wholesalePrice: parseNumber(body.wholesalePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack,
@@ -269,7 +307,9 @@ export class ProductsController {
 
       // ✅ NEW
       removeImgs:
-        body.removeImgs !== undefined ? parseJsonField(body.removeImgs, []) : undefined,
+        body.
+          removedImages !== undefined ? parseJsonField(body.
+            removedImages, []) : undefined,
     } as any;
 
     const main = files?.mainImage?.[0];
@@ -287,27 +327,5 @@ export class ProductsController {
     return this.products.update(req.user, Number(id), dto);
   }
 
-  @Get("check-slug")
-  async checkSlug(
-    @Req() req: any,
-    @Query("slug") slug: string,
-    @Query("storeId") storeId?: string, // يأتي كـ string من الـ URL
-    @Query("productId") productId?: string, // يأتي كـ string من الـ URL
-  ) {
 
-    const parsedStoreId = storeId ? Number(storeId) : undefined;
-
-    // إذا فشل التحويل (مثلاً أرسل المستخدم نصاً بدلاً من رقم)
-    if (storeId && isNaN(parsedStoreId)) {
-      throw new BadRequestException("Invalid storeId format");
-    }
-
-    return this.products.checkSlug(req.user, slug, parsedStoreId, productId);
-  }
-
-  @Permissions("products.delete")
-  @Delete(":id")
-  remove(@Req() req: any, @Param("id") id: string) {
-    return this.products.remove(req.user, Number(id));
-  }
 }
