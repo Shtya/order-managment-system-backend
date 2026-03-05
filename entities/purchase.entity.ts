@@ -22,7 +22,7 @@ export class PurchaseInvoiceEntity {
 	@Index()
 	supplierId?: number | null;
 
-	@ManyToOne(() => SupplierEntity, { nullable: true, eager: false, onDelete: "SET NULL" })
+	@ManyToOne(() => SupplierEntity, { nullable: true, eager: false })
 	@JoinColumn({ name: "supplierId" })
 	supplier?: SupplierEntity | null;
 

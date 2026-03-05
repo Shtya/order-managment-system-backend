@@ -1,7 +1,8 @@
+
 // purchases/purchases.service.ts
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, In, Repository } from "typeorm";
+import { DataSource, EntityManager, In, Repository } from "typeorm";
 import { PurchaseInvoiceEntity, PurchaseInvoiceItemEntity, PurchaseAuditAction, PurchaseAuditLogEntity } from "entities/purchase.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import { CreatePurchaseDto, UpdatePurchaseDto, UpdatePaidAmountDto } from "dto/purchase.dto";
@@ -41,26 +42,33 @@ export class PurchasesService {
 		adminId: string;
 		invoiceId: number;
 		userId?: number | null;
-		action: PurchaseAuditAction;
+		action: PurchaseAuditAction | string;
 		oldData?: any;
 		newData?: any;
 		changes?: any;
 		description?: string;
 		ipAddress?: string;
+		manager?: EntityManager; // <--- ADD THIS
 	}) {
 		const row = this.auditRepo.create({
 			adminId: params.adminId,
 			invoiceId: params.invoiceId,
 			userId: params.userId ?? null,
-			action: params.action,
+			action: params.action as any,
 			oldData: params.oldData ?? null,
 			newData: params.newData ?? null,
 			changes: params.changes ?? null,
 			description: params.description ?? null,
 			ipAddress: params.ipAddress ?? null,
-		} as any);
+		});
 
-		await this.auditRepo.save(row);
+		// --- USE MANAGER IF PROVIDED, OTHERWISE USE REPO ---
+		if (params.manager) {
+			// Replace 'PurchaseAuditLogEntity' with your actual entity class name
+			await params.manager.save(row);
+		} else {
+			await this.auditRepo.save(row);
+		}
 	}
 
 	async stats(me: any) {
@@ -275,7 +283,6 @@ export class PurchasesService {
 		const paidAmount = dto.paidAmount ?? 0;
 		const remainingAmount = Math.max(total - paidAmount, 0);
 
-		console.log(dto);
 
 		const inv = this.invRepo.create({
 			adminId,
@@ -293,6 +300,7 @@ export class PurchasesService {
 		} as any);
 
 		const saved: any = await this.invRepo.save(inv);
+
 
 		await this.log({
 			adminId,
@@ -312,6 +320,11 @@ export class PurchasesService {
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
 		const inv = await this.get(me, id);
+		// Save old values for financial sync
+		const oldTotal = inv.total ?? 0;
+		const oldRemaining = inv.remainingAmount ?? 0;
+		const oldSupplierId = inv.supplierId;
+		const oldStatus = inv.status;
 
 		if (dto.receiptNumber && dto.receiptNumber !== inv.receiptNumber) {
 			const exists = await this.invRepo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
@@ -322,6 +335,7 @@ export class PurchasesService {
 			throw new BadRequestException("Cannot modify items of an ACCEPTED purchase. Change status first.");
 		}
 
+		let saved;
 		if (dto.items) {
 			await this.itemRepo.delete({ invoiceId: id } as any);
 
@@ -347,27 +361,27 @@ export class PurchasesService {
 			const remainingAmount = Math.max(total - paidAmount, 0);
 
 			Object.assign(inv as any, dto, { subtotal, total, paidAmount, remainingAmount, items });
-			const saved = await this.invRepo.save(inv as any);
-
-			await this.log({
-				adminId,
-				invoiceId: saved.id,
-				userId: me?.id ?? null,
-				action: PurchaseAuditAction.UPDATED,
-				description: `Purchase invoice updated`,
-				ipAddress,
-			});
-
-			return saved;
+			saved = await this.invRepo.save(inv as any);
+		} else {
+			Object.assign(inv as any, dto);
+			if (typeof dto.paidAmount === "number") {
+				(inv as any).remainingAmount = Math.max(((inv as any).total ?? 0) - dto.paidAmount, 0);
+			}
+			saved = await this.invRepo.save(inv as any);
 		}
 
-		Object.assign(inv as any, dto);
+		// --- Sync supplier financials only if status is ACCEPTED ---
+		const newSupplierId = saved.supplierId;
+		const newStatus = saved.status;
+		await this.syncSupplierFinancials({
+			oldStatus: oldStatus,
+			newStatus: saved.status,
+			oldSupplierId: oldSupplierId,
+			newSupplierId: saved.supplierId,
+			total: saved.total ?? 0,
+			remainingAmount: saved.remainingAmount ?? 0,
+		});
 
-		if (typeof dto.paidAmount === "number") {
-			(inv as any).remainingAmount = Math.max(((inv as any).total ?? 0) - dto.paidAmount, 0);
-		}
-
-		const saved = await this.invRepo.save(inv as any);
 
 		await this.log({
 			adminId,
@@ -387,10 +401,25 @@ export class PurchasesService {
 
 		const inv = await this.get(me, id);
 		const total = (inv as any).total ?? 0;
+		const oldRemaining = inv.remainingAmount ?? 0;
+		const oldStatus = inv.status;
 		(inv as any).paidAmount = dto.paidAmount;
 		(inv as any).remainingAmount = Math.max(total - dto.paidAmount, 0);
 
 		const saved = await this.invRepo.save(inv as any);
+
+		// Only update supplier financials if status is ACCEPTED
+		if (oldStatus === ApprovalStatus.ACCEPTED) {
+			// Remove old value
+			await this.syncSupplierFinancials({
+				oldStatus: ApprovalStatus.ACCEPTED,
+				newStatus: ApprovalStatus.ACCEPTED,
+				oldSupplierId: inv.supplierId,
+				newSupplierId: inv.supplierId,
+				total: 0, // Keep purchaseValue stable
+				remainingAmount: saved.remainingAmount - oldRemaining,
+			});
+		}
 
 		await this.log({
 			adminId,
@@ -507,6 +536,7 @@ export class PurchasesService {
 					changes: stockChanges,
 					description: `Stock applied (status -> ACCEPTED)`,
 					ipAddress,
+					manager
 				});
 
 				if (priceChanges.length) {
@@ -518,6 +548,7 @@ export class PurchasesService {
 						changes: priceChanges,
 						description: `Variant price updated by weighted average`,
 						ipAddress,
+						manager
 					});
 				}
 			}
@@ -647,8 +678,19 @@ export class PurchasesService {
 				newData: { status },
 				description: `Status changed from ${oldStatus} to ${status}`,
 				ipAddress,
+				manager
 			});
 
+
+			await this.syncSupplierFinancials({
+				oldStatus: oldStatus,
+				newStatus: status,
+				oldSupplierId: inv.supplierId,
+				newSupplierId: inv.supplierId, // Supplier doesn't change on status update
+				total: inv.total ?? 0,
+				remainingAmount: inv.remainingAmount ?? 0,
+				manager
+			});
 			return saved;
 		});
 	}
@@ -661,8 +703,17 @@ export class PurchasesService {
 
 		const inv = await this.get(me, id);
 
+
+		// Rollback supplier financials if invoice was ACCEPTED before deletion
 		if (inv.status === ApprovalStatus.ACCEPTED) {
-			throw new BadRequestException("Cannot delete ACCEPTED invoice. Change status first.");
+			await this.syncSupplierFinancials({
+				oldStatus: inv.status,
+				newStatus: undefined, // It's being deleted
+				oldSupplierId: inv.supplierId,
+				newSupplierId: null,
+				total: inv.total ?? 0,
+				remainingAmount: inv.remainingAmount ?? 0,
+			});
 		}
 
 		await this.invRepo.delete({ id, adminId } as any);
@@ -678,4 +729,87 @@ export class PurchasesService {
 
 		return { ok: true };
 	}
+
+	/**
+	 * Sync supplier financials based on invoice status transition.
+	 * Handles:
+	 * - entering ACCEPTED  → add values
+	 * - leaving ACCEPTED   → subtract values
+	 * - supplier change    → subtract from old + add to new
+	 * - delete             → subtract if was ACCEPTED
+	 */
+	private async syncSupplierFinancials(params: {
+		oldStatus?: ApprovalStatus;
+		newStatus?: ApprovalStatus;
+		oldSupplierId?: number | null;
+		newSupplierId?: number | null;
+		total: number;
+		remainingAmount: number;
+		manager?: EntityManager;
+	}) {
+		const {
+			oldStatus,
+			newStatus,
+			oldSupplierId,
+			newSupplierId,
+			total,
+			remainingAmount,
+		} = params;
+
+		const wasAccepted = oldStatus === ApprovalStatus.ACCEPTED;
+		const isAccepted = newStatus === ApprovalStatus.ACCEPTED;
+		const repo = params?.manager ? params?.manager.getRepository(SupplierEntity) : this.supplierRepo;
+		// Helper to update supplier safely
+		const updateSupplier = async (
+			supplierId: number | null | undefined,
+			op: "add" | "subtract"
+		) => {
+			if (!supplierId) return;
+
+			const supplier = await repo.findOne({
+				where: { id: supplierId },
+			});
+
+			if (!supplier) return;
+
+			const currentPurchase = Number(supplier.purchaseValue || 0);
+			const currentDue = Number(supplier.dueBalance || 0);
+
+			if (op === "add") {
+				supplier.purchaseValue = currentPurchase + total;
+				supplier.dueBalance = currentDue + remainingAmount;
+			} else {
+				supplier.purchaseValue = currentPurchase - total;
+				supplier.dueBalance = currentDue - remainingAmount;
+			}
+
+			await repo.save(supplier);
+		};
+
+		// CASE 1: entering ACCEPTED
+		if (!wasAccepted && isAccepted) {
+			await updateSupplier(newSupplierId, "add");
+		}
+
+		// CASE 2: leaving ACCEPTED
+		if (wasAccepted && !isAccepted) {
+			await updateSupplier(oldSupplierId, "subtract");
+		}
+
+		// CASE 3: supplier changed while ACCEPTED
+		if (
+			wasAccepted &&
+			isAccepted &&
+			oldSupplierId &&
+			newSupplierId &&
+			oldSupplierId !== newSupplierId
+		) {
+			await updateSupplier(oldSupplierId, "subtract");
+			await updateSupplier(newSupplierId, "add");
+		}
+	}
 }
+
+
+
+
