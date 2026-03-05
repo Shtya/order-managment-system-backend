@@ -69,15 +69,8 @@ export class SupplierEntity {
 }
 
 
-
-
-
-
-
-
-
 @Entity({ name: "supplier_categories" })
-@Index(["adminId", "name"])
+@Index(["adminId", "name"], { unique: true })
 export class SupplierCategoryEntity {
 	@PrimaryGeneratedColumn()
 	id: number;
