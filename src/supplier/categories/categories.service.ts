@@ -1,16 +1,16 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
- import { CreateSupplierCategoryDto, UpdateSupplierCategoryDto } from "dto/supplier.dto";
+import { CreateSupplierCategoryDto, UpdateSupplierCategoryDto } from "dto/supplier.dto";
 import { SupplierCategoryEntity } from "../../../entities/supplier.entity";
 import { CRUD } from "../../../common/crud.service";
 import { tenantId } from "../../category/category.service";
- 
+
 @Injectable()
 export class SupplierCategoriesService {
   constructor(
     @InjectRepository(SupplierCategoryEntity) private categoryRepo: Repository<SupplierCategoryEntity>,
-  ) {}
+  ) { }
 
   async list(me: any, q?: any) {
     return CRUD.findAll(
@@ -36,12 +36,21 @@ export class SupplierCategoriesService {
   async get(me: any, id: number) {
     const adminId = tenantId(me);
     const entity = await CRUD.findOne(this.categoryRepo, "supplier_categories", id, []);
-     return entity;
+    return entity;
   }
 
   async create(me: any, dto: CreateSupplierCategoryDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
+
+    // Check if name already exists for this admin
+    const existing = await this.categoryRepo.findOne({
+      where: { adminId, name: dto.name }
+    });
+
+    if (existing) {
+      throw new BadRequestException("Category name already exists");
+    }
 
     const category = this.categoryRepo.create({
       adminId,
@@ -54,11 +63,25 @@ export class SupplierCategoriesService {
 
   async update(me: any, id: number, dto: UpdateSupplierCategoryDto) {
     const category = await this.get(me, id);
+    const adminId = tenantId(me);
 
-    if (dto.name !== undefined) (category as any).name = dto.name;
-    if (dto.description !== undefined) (category as any).description = dto.description;
+    // If name is being changed, check if the new name is taken by ANOTHER record
+    if (dto.name !== undefined && dto.name !== category.name) {
+      const existing = await this.categoryRepo.findOne({
+        where: { adminId, name: dto.name }
+      });
 
-    return this.categoryRepo.save(category as any);
+      if (existing) {
+        throw new BadRequestException("Category name already exists");
+      }
+      category.name = dto.name;
+    }
+
+    if (dto.description !== undefined) {
+      category.description = dto.description;
+    }
+
+    return this.categoryRepo.save(category);
   }
 
   async remove(me: any, id: number) {

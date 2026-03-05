@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, In } from "typeorm";
+import { Repository, In, Brackets } from "typeorm";
 import { SupplierEntity } from "entities/supplier.entity";
 import { SupplierCategoryEntity } from "entities/supplier.entity";
 import { CreateSupplierDto, UpdateSupplierDto, UpdateSupplierFinancialsDto } from "dto/supplier.dto";
@@ -15,38 +15,69 @@ export class SuppliersService {
 	) { }
 
 	async list(me: any, q?: any) {
-  const filters: Record<string, any> = {};
+		const pageNumber = Number(q?.page) || 1;
+		const limitNumber = Number(q?.limit) || 10;
+		const skip = (pageNumber - 1) * limitNumber;
+		const adminId = tenantId(me)
+		const query = this.supplierRepo.createQueryBuilder("suppliers")
+			.leftJoinAndSelect("suppliers.categories", "category")
+			// 1. Mandatory Tenant Isolation
+			.where("suppliers.adminId = :adminId", { adminId: adminId });
 
-  if (q?.categoryId && q?.categoryId !== "none") {
-    filters.categories = { id: Number(q.categoryId) }; // مهم تتحول لرقم
-  }
+		// 2. Specific Filters (Exact or Partial)
+		if (q?.categoryId && q?.categoryId !== "none") {
+			query.andWhere("category.id = :categoryId", { categoryId: Number(q.categoryId) });
+		}
 
-  return CRUD.findAll(
-    this.supplierRepo,
-    "suppliers",
-    q?.search,
-    q?.page ?? 1,
-    q?.limit ?? 10,
-    q?.sortBy ?? "created_at",
-    (q?.sortOrder ?? "DESC") as any,
-    ["categories"],
-    ["name", "phone", "email", "address"],
-    {
-      __tenant: {
-        role: me?.role?.name,
-        userId: me?.id,
-        adminId: me?.adminId,
-      },
-      filters
-    }
-  );
-}
+		if (q?.name) {
+			query.andWhere("suppliers.name LIKE :name", { name: `%${q.name}%` });
+		}
+
+		if (q?.phone) {
+			query.andWhere("suppliers.phone LIKE :phone", { phone: `%${q.phone}%` })
+				.andWhere("suppliers.secondPhone LIKE :phone", { phone: `%${q.phone}%` })
+		}
+
+		// 3. General Search (Across multiple fields)
+		if (q?.search) {
+			query.andWhere(
+				new Brackets((qb) => {
+					qb.where("suppliers.name ILIKE :search", { search: `%${q.search}%` })
+						.orWhere("suppliers.phone ILIKE :search", { search: `%${q.search}%` })
+						.orWhere("suppliers.secondPhone ILIKE :search", { search: `%${q.search}%` })
+						.orWhere("suppliers.email ILIKE :search", { search: `%${q.search}%` })
+						.orWhere("suppliers.address ILIKE :search", { search: `%${q.search}%` });
+				})
+			);
+		}
+
+		// 4. Sorting & Pagination
+		const sortBy = q?.sortBy || "created_at";
+		const sortOrder = q?.sortOrder?.toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+		// Ensure sortBy has the alias prefix to avoid ambiguity
+		const finalSortBy = sortBy.includes(".") ? sortBy : `suppliers.${sortBy}`;
+
+		const [data, total] = await query
+			.orderBy(finalSortBy, sortOrder)
+			.skip(skip)
+			.take(limitNumber)
+			.getManyAndCount();
+
+		// 5. Final Trimmed Response
+		return {
+			total_records: total,
+			current_page: pageNumber,
+			per_page: limitNumber,
+			records: data,
+		};
+	}
 
 
 	async get(me: any, id: number) {
 		const adminId = tenantId(me);
 		const entity = await CRUD.findOne(this.supplierRepo, "suppliers", id, ["categories"]);
- 		return entity;
+		return entity;
 	}
 
 	private async validateCategories(me: any, categoryIds: number[]) {
