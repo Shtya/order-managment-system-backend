@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
   ForgotPasswordDto,
@@ -8,6 +8,10 @@ import {
   ResetPasswordDto,
   VerifyOtpDto,
 } from 'dto/auth.dto';
+import axios from 'axios';
+import { Response } from 'express';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { PermissionsGuard } from 'common/permissions.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -17,7 +21,17 @@ export class AuthController {
 
   @Post('register')
   register(@Body() dto: RegisterDto) {
-    return this.auth.register(dto.name, dto.email, dto.password);
+    return this.auth.register(dto);
+  }
+
+  @Post('verify-registration')
+  async verifyRegistration(@Body() dto: VerifyOtpDto) {
+    return await this.auth.verifyRegisterOtp(dto.email, dto.otp);
+  }
+
+  @Post('resend-registration-otp')
+  async resendOtp(@Body() dto: { email: string }) {
+    return await this.auth.resendRegisterOtp(dto.email);
   }
 
   @Post('login')
@@ -25,7 +39,44 @@ export class AuthController {
     return this.auth.login(dto.email, dto.password);
   }
 
+  @Get('google')
+  googleAuth(@Query('redirect') redirect?: string) {
+    const backendRedirectUri = `${process.env.BACKEND_URL}/auth/google/callback`;
+    const state = this.auth.createOAuthState(redirect || process.env.FRONTEND_URL);
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(backendRedirectUri)}&response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&scope=email%20profile&state=${encodeURIComponent(state)}&access_type=offline`;
+    return { redirectUrl: url.replace(/\s+/g, '') };
+  }
+
+  @Get('google/callback')
+  async googleCallback(@Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
+    try {
+      const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+        code,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: `${process.env.BACKEND_URL}/auth/google/callback`,
+        grant_type: 'authorization_code',
+      });
+
+      const userInfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+        headers: { Authorization: `Bearer ${tokenResponse.data.access_token}` },
+      });
+
+      const result = await this.auth.handleGoogleCallback(userInfoResponse.data, state);
+
+      return res.redirect(`${process.env.FRONTEND_URL}/auth/success?accessToken=${result?.accessToken}&${result?.redirectPath ? 'redirect=' + encodeURIComponent(result.redirectPath) : ''}`);
+    } catch (e) {
+      return res.redirect(`${process.env.FRONTEND_URL}/auth?tab=login&error=google_failed`);
+    }
+  }
+
   // Step 1: send OTP
+  @Get('sign')
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  sign(@Req() req: any) {
+    return this.auth.signUser(req.user?.id);
+
+  }
   @Post('forgot-password')
   forgot(@Body() dto: ForgotPasswordDto) {
     return this.auth.sendResetOtp(dto.email);

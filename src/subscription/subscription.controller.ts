@@ -53,6 +53,18 @@ export class SubscriptionsController {
         );
     }
 
+    @Permissions('subscriptions.create')
+    @Post("mock")
+    createMockSubscription(
+        @Req() req: any,
+        @Body() dto: { planId },
+    ) {
+        return this.subscriptions.createMockSubscription(
+            req.user,
+            dto,
+        );
+    }
+
     @Permissions("subscriptions.read") // تأكد من مطابقة اسم الصلاحية لديك
     @Get("export")
     async export(@Req() req: any, @Query() q: any, @Res() res: Response) {

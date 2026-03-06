@@ -103,6 +103,7 @@ export enum SubscriptionStatus {
 }
 
 
+@Index(["userId", "status"])
 @Entity('subscriptions')
 export class Subscription {
 	@PrimaryGeneratedColumn()
@@ -204,8 +205,8 @@ export class Transaction {
 	@Column({ nullable: true })
 	userId: number;
 
-	@OneToOne(() => User, (user) => user.subscription, { nullable: false })
-	@JoinColumn({ name: 'userId' }) // User owns the FK column
+	@ManyToOne(() => User, { nullable: true, })
+	@JoinColumn({ name: 'userId' })
 	user: Relation<User>;
 
 	@Column({ type: 'int', nullable: true }) // just for simeple filtering

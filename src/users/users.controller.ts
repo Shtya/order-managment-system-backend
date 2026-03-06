@@ -3,7 +3,7 @@ import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
-import { UpdateUserDto } from 'dto/user.dto';
+import { UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile } from '@nestjs/common';
 import { diskStorage } from 'multer';
@@ -36,6 +36,24 @@ export class UsersController {
 	@Get('stats/types')
 	getEmployeeTypesStats(@Req() req: any) {
 		return this.users.getEmployeeTypesStats(req.user);
+	}
+
+
+	@Post('onboarding/next')
+	async moveToNextStep(@Req() req: any) {
+		return this.users.processNextOnboardingStep(req.user.id);
+	}
+
+	@Post('company')
+	async upsertCompany(@Req() req: any, @Body() dto: UpsertCompanyDto) {
+		// me: req.user is passed to service to handle tenantId logic
+		return this.users.upsertCompany(req.user, dto);
+	}
+
+	@Get('company')
+	async getCompany(@Req() req: any) {
+		// me: req.user is passed to service to handle tenantId logic
+		return this.users.getCompany(req.user);
 	}
 
 	@Permissions('users.read')

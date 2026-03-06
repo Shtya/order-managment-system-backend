@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from "dto/subscriptions.dto";
-import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionStatus } from "entities/plans.entity";
+import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionPaymentMethod, TransactionStatus } from "entities/plans.entity";
 import { SystemRole, User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
 import { TransactionsService } from "src/transactions/transactions.service";
@@ -183,7 +183,7 @@ export class SubscriptionsService {
                 endDate: null, // can calculate endDate based on plan.duration if needed
             });
 
-            const number = await this.transactionsService.generateTransactionNumber(id?.toString())
+            const number = `TX-${Math.random().toString(36).toUpperCase().substring(2, 12)}`;
             const savedSubscription = await manager.save(subscription);
 
             // 3️⃣ Optionally create transaction if payed
@@ -207,6 +207,62 @@ export class SubscriptionsService {
             }
 
             // 4️⃣ Return result
+            return {
+                subscription: savedSubscription,
+                transaction,
+            };
+        });
+    }
+
+    async createMockSubscription(me: User, dto: { planId: number }) {
+        const adminId = tenantId(me);
+        return await this.dataSource.transaction(async (manager) => {
+            // 1️⃣ Get real User & Plan
+            const user = await manager.findOne(User, { where: { id: me?.id } });
+            if (!user) throw new NotFoundException(`User not found`);
+
+            const plan = await manager.findOne(Plan, { where: { id: dto.planId } });
+            if (!plan) throw new NotFoundException('Plan not found');
+
+            // 2️⃣ Check for existing active subscription
+            let subscription = await manager.findOne(Subscription, {
+                where: { userId: user.id },
+                lock: { mode: 'pessimistic_write' },
+            });
+
+            if (subscription) {
+                // UPDATE: Change the plan and price on the current active subscription
+                subscription.planId = plan.id;
+                subscription.price = plan.price;
+                subscription.updatedAt = new Date(); // Ensure refresh timestamp
+            } else {
+                // CREATE: New subscription if none exists
+                subscription = manager.create(Subscription, {
+                    userId: user.id,
+                    planId: plan.id,
+                    adminId: adminId || user.adminId,
+                    price: plan.price,
+                    status: SubscriptionStatus.ACTIVE,
+                    startDate: new Date(),
+                });
+            }
+
+            const savedSubscription = await manager.save(subscription);
+
+            const number = `TX-${Math.random().toString(36).toUpperCase().substring(2, 12)}`;
+
+            const transaction = manager.create(Transaction, {
+                userId: user.id,
+                adminId: user.adminId || adminId,
+                subscriptionId: savedSubscription.id,
+                amount: plan.price,
+                number,
+                status: TransactionStatus.COMPLETED,
+                paymentMethod: TransactionPaymentMethod.CASH,
+            });
+
+            await manager.save(transaction);
+
             return {
                 subscription: savedSubscription,
                 transaction,
