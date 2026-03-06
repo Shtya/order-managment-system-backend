@@ -1,16 +1,17 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Role, SystemRole, User } from 'entities/user.entity';
-import { Repository } from 'typeorm';
+import { Company, OnboardingStatus, OnboardingStep, Role, SystemRole, User } from 'entities/user.entity';
+import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Plan, Subscription, SubscriptionStatus } from 'entities/plans.entity';
-import { UpdateUserDto } from 'dto/user.dto';
+import { UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { SubscriptionsService } from 'src/subscription/subscription.service';
 
 @Injectable()
 export class UsersService {
 	constructor(
+		private dataSource: DataSource,
 		@InjectRepository(User) private usersRepo: Repository<User>,
 		@InjectRepository(Role) private rolesRepo: Repository<Role>,
 		@InjectRepository(Plan) private plansRepo: Repository<Plan>, // ✅ NEW
@@ -801,5 +802,96 @@ export class UsersService {
 			email: user.email,
 			password: plain,
 		};
+	}
+
+	async processNextOnboardingStep(userId: number) {
+		const user = await this.usersRepo.findOne({
+			where: { id: userId },
+			relations: ['company', 'subscription']
+		});
+
+		if (!user) throw new NotFoundException('User not found');
+
+		let nextStep: OnboardingStep;
+
+		switch (user.currentOnboardingStep) {
+			case OnboardingStep.WELCOME:
+				nextStep = OnboardingStep.PLAN;
+				break;
+
+			case OnboardingStep.PLAN:
+				// Requirement: Must have a subscription/plan
+				if (!user.subscription) {
+					throw new BadRequestException('Please select a plan to continue.');
+				}
+				nextStep = OnboardingStep.COMPANY;
+				break;
+
+			case OnboardingStep.COMPANY:
+				// Requirement: Must have company details saved
+				if (!user.company) {
+					throw new BadRequestException('Please complete your company profile.');
+				}
+				nextStep = OnboardingStep.STORE;
+				break;
+
+			case OnboardingStep.STORE:
+				nextStep = OnboardingStep.SHIPPING;
+				break;
+
+			case OnboardingStep.SHIPPING:
+				nextStep = OnboardingStep.FINISHED;
+				user.onboardingStatus = OnboardingStatus.COMPLETED;
+				break;
+
+			default:
+				return { message: 'Onboarding already completed', step: user.currentOnboardingStep };
+		}
+
+		user.currentOnboardingStep = nextStep;
+		await this.usersRepo.save(user);
+
+		return { nextStep };
+	}
+
+	// users.service.ts
+	async upsertCompany(me: User, dto: UpsertCompanyDto) {
+		return await this.dataSource.transaction(async (manager) => {
+			// Fetch user with existing company relation
+			const user = await manager.findOne(User, {
+				where: { id: me.id },
+				relations: ['company'],
+			});
+
+			if (!user) throw new NotFoundException('User not found');
+
+			let company = user.company;
+
+			if (company) {
+				// Update existing
+				manager.merge(Company, company, dto);
+			} else {
+				// Create new
+				company = manager.create(Company, {
+					...dto,
+					user: user,
+				});
+			}
+
+			const savedCompany = await manager.save(company);
+
+			return savedCompany;
+		});
+	}
+
+	async getCompany(me: User) {
+		const user = await this.usersRepo.findOne({
+			where: { id: me.id },
+			relations: ['company'],
+		});
+
+		if (!user) throw new NotFoundException('User not found');
+
+		return user.company || null;
 	}
 }

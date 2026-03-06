@@ -61,6 +61,20 @@ export class Permission {
 	name: string; // ex: 'users.read', 'roles.update'
 }
 
+export enum OnboardingStatus {
+	PENDING = 'pending',
+	COMPLETED = 'completed',
+}
+
+export enum OnboardingStep {
+	WELCOME = 'welcome',           // Step 0
+	PLAN = 'plan',           // Step 1
+	COMPANY = 'company',     // Step 2
+	STORE = 'store',         // Step 3
+	SHIPPING = 'shipping',   // Step 4
+	FINISHED = 'finished',   // Final state
+}
+
 @Entity('users')
 export class User {
 	@PrimaryGeneratedColumn()
@@ -74,6 +88,9 @@ export class User {
 
 	@Column({ type: 'varchar', nullable: true })
 	phone?: string;
+
+	@Column({ nullable: true })
+	googleId: string;
 
 	@Column({ type: 'varchar', nullable: true })
 	avatarUrl?: string;
@@ -126,6 +143,12 @@ export class User {
 	@Column({ type: 'int', default: 0 })
 	otpAttempts: number;
 
+	@Column({ nullable: true })
+	companyName: string;
+
+	@Column({ type: 'varchar', nullable: true })
+	businessType: string;
+
 	@OneToMany(() => Asset, upload => upload.user)
 	uploads: Asset[];
 
@@ -139,6 +162,122 @@ export class User {
 		onDelete: 'SET NULL',
 	})
 	subscription?: Relation<Subscription>;
+
+	@Column({
+		type: 'enum',
+		enum: OnboardingStatus,
+		default: OnboardingStatus.PENDING,
+	})
+	onboardingStatus: OnboardingStatus;
+
+	@Column({
+		type: 'enum',
+		enum: OnboardingStep,
+		default: OnboardingStep.WELCOME,
+	})
+	currentOnboardingStep: OnboardingStep;
+
+
+	@OneToOne(() => Company, (company) => company.user, {
+		cascade: true,
+		nullable: true,
+	})
+	company: Relation<Company>;
+
+	@CreateDateColumn()
+	createdAt: Date;
+
+	@UpdateDateColumn()
+	updatedAt: Date;
+}
+
+@Entity('pending_users')
+export class PendingUser {
+	@PrimaryGeneratedColumn()
+	id: number;
+
+	@Column()
+	name: string;
+
+	@Column({ unique: true })
+	email: string;
+
+	@Column()
+	passwordHash: string;
+
+	@Column({ nullable: true })
+	phone: string;
+
+	@Column({ nullable: true })
+	companyName: string;
+
+	@Column({ type: 'varchar', nullable: true })
+	businessType: string;
+
+	// --- OTP & Security Logic (Aligned with User Entity) ---
+
+	@Column({ type: 'varchar', nullable: true })
+	otpCodeHash: string | null;
+
+	@Column({ type: 'bigint', nullable: true })
+	otpExpiresAt: number | null; // Using bigint/number to match your Date.now() logic
+
+	@Column({ type: 'int', default: 0 })
+	otpAttempts: number;
+
+	// --- Lifecycle & Cooldown ---
+
+	@Column({ type: 'bigint', nullable: true })
+	lastSentAt: number;
+
+	// --- Roles ---
+
+	@Column()
+	roleId: number;
+
+	@ManyToOne(() => Role, { eager: true })
+	@JoinColumn({ name: 'roleId' })
+	role: Role;
+
+	@CreateDateColumn()
+	createdAt: Date;
+
+	@UpdateDateColumn()
+	updatedAt: Date;
+}
+
+@Entity('companies')
+export class Company {
+	@PrimaryGeneratedColumn()
+	id: number;
+
+	@Column()
+	name: string;
+
+	@Column()
+	country: string;
+
+	@Column()
+	currency: string;
+
+	@Column({ nullable: true })
+	tax: string;
+
+	@Column({ nullable: true })
+	commercial: string;
+
+	@Column({ nullable: true })
+	phone: string;
+
+	@Column({ nullable: true })
+	website: string;
+
+	@Column({ type: "text", nullable: true })
+	address: string;
+
+	@OneToOne(() => User, (user) => user.company)
+	@JoinColumn()
+	user: User;
 
 
 	@CreateDateColumn()

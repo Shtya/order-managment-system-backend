@@ -1,4 +1,4 @@
-import { IsEmail, IsInt, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, Min, MinLength } from 'class-validator';
 
 export class AdminCreateUserDto {
 	@IsString() name: string;
@@ -31,3 +31,37 @@ export class UpdateUserDto {
 }
 
 
+
+export class UpsertCompanyDto {
+	@IsString()
+	@IsNotEmpty()
+	name: string;
+
+	@IsString()
+	@IsNotEmpty()
+	country: string;
+
+	@IsString()
+	@IsNotEmpty()
+	currency: string;
+
+	@IsOptional()
+	@IsString()
+	tax?: string;
+
+	@IsOptional()
+	@IsString()
+	commercial?: string;
+
+	@IsString()
+	@IsOptional()
+	phone: string;
+
+	@IsOptional()
+	@IsUrl()
+	website?: string;
+
+	@IsString()
+	@IsOptional()
+	address: string;
+}
