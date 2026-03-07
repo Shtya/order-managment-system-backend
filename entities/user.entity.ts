@@ -279,7 +279,6 @@ export class Company {
 	@JoinColumn()
 	user: User;
 
-
 	@CreateDateColumn()
 	createdAt: Date;
 
