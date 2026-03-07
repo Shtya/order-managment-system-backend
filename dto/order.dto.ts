@@ -47,7 +47,6 @@ export class UpdateStatusDto extends PartialType(CreateStatusDto) {
   statusId?: number;
 }
 
-// ✅ Order Item DTO
 export class OrderItemDto {
   @IsInt()
   variantId: number;
@@ -56,18 +55,26 @@ export class OrderItemDto {
   @Min(1)
   quantity: number;
 
-  @IsInt()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   unitPrice: number;
 
   @IsOptional()
-  @IsInt()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  unitCost?: number; // optional, can be calculated from variant
+  unitCost?: number;
 
   @IsOptional()
   @IsBoolean()
   isAdditional?: boolean;
+
+}
+// ✅ Order Item DTO
+export class RemovedOrderItemDto {
+  @IsInt()
+  variantId: number;
 }
 
 
@@ -205,6 +212,13 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
   @IsOptional()
   @IsString()
   trackingNumber?: string;
+
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RemovedOrderItemDto)
+  removedItems?: RemovedOrderItemDto[]; // Items explicitly removed
 }
 
 // ✅ Change Order Status DTO

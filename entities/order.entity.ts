@@ -315,16 +315,16 @@ export class OrderItemEntity {
   @Column({ type: "int" })
   quantity!: number;
 
-  @Column({ type: "int" })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   unitPrice!: number; // Price at time of order
 
-  @Column({ type: "int" })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   unitCost!: number; // Cost at time of order (for profit calculation)
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   lineTotal!: number; // unitPrice * quantity
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   lineProfit!: number; // (unitPrice - unitCost) * quantity
 
   @Column({ default: false })
