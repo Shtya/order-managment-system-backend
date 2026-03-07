@@ -645,7 +645,7 @@ export class UsersService {
 			where: { adminId: me.id },
 		});
 
-		if (currentCount >= subscription.plan.usersLimit) {
+		if (currentCount >= subscription?.plan?.usersLimit) {
 			throw new BadRequestException('Users limit reached');
 		}
 	}
@@ -666,6 +666,7 @@ export class UsersService {
 		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
 			throw new ForbiddenException('Not allowed');
 		}
+
 		await this.ensureUsersLimit(me);
 
 		const exists = await this.usersRepo.findOne({ where: { email } });
@@ -676,6 +677,11 @@ export class UsersService {
 
 		if (!this.isSuperAdmin(me) && role.name === SystemRole.SUPER_ADMIN) {
 			throw new ForbiddenException('Admin cannot create super admin');
+		}
+
+		if (!this.isSuperAdmin(me) && role.name === SystemRole.ADMIN) {
+			// If the logged-in user is only ADMIN, they cannot create another ADMIN
+			throw new ForbiddenException('Admin cannot create admin');
 		}
 
 		// ✅ NEW: Validate plan if provided
@@ -804,13 +810,22 @@ export class UsersService {
 		};
 	}
 
-	async processNextOnboardingStep(userId: number) {
+	async processNextOnboardingStep(userId: number, me: any) {
+		if (me.role?.name !== 'admin') {
+			throw new ForbiddenException('Only admins can complete onboarding');
+		}
+
+
 		const user = await this.usersRepo.findOne({
 			where: { id: userId },
-			relations: ['company', 'subscription']
+			relations: ['company', 'subscription', 'role']
 		});
 
 		if (!user) throw new NotFoundException('User not found');
+
+		if (user.role.name !== 'admin') {
+			throw new ForbiddenException('Only admins can complete onboarding');
+		}
 
 		let nextStep: OnboardingStep;
 

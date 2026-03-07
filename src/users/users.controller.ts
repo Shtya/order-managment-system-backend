@@ -41,7 +41,7 @@ export class UsersController {
 
 	@Post('onboarding/next')
 	async moveToNextStep(@Req() req: any) {
-		return this.users.processNextOnboardingStep(req.user.id);
+		return this.users.processNextOnboardingStep(req.user.id, req.user);
 	}
 
 	@Post('company')
@@ -154,7 +154,7 @@ export class UsersController {
 
 
 
-	@Permissions('users.read')
+	// @Permissions('users.read')
 	@Get('me')
 	getMe(@Req() req: any) {
 		return this.users.getMe(req.user?.id);
