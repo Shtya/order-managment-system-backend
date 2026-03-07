@@ -145,6 +145,9 @@ export class OrderEntity {
   @Column({ type: "varchar", length: 50 })
   phoneNumber!: string;
 
+  @Column({ type: "varchar", length: 50, nullable: true })
+  secondPhoneNumber?: string;
+
   @Column({ type: "varchar", length: 200, nullable: true })
   email?: string;
 
@@ -257,6 +260,9 @@ export class OrderEntity {
   @Column({ default: false })
   isReplacement: boolean;
 
+  @Column({ default: false })
+  allowOpenPackage: boolean;
+
   @OneToOne('OrderReplacementEntity', 'originalOrder', { nullable: true })
   replacementRequest: Relation<OrderReplacementEntity>;
 
@@ -320,6 +326,9 @@ export class OrderItemEntity {
 
   @Column({ type: "int", default: 0 })
   lineProfit!: number; // (unitPrice - unitCost) * quantity
+
+  @Column({ default: false })
+  isAdditional: boolean;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;

@@ -674,6 +674,7 @@ export class OrdersService {
     Object.assign(order, {
       customerName: dto.customerName ?? order.customerName,
       phoneNumber: dto.phoneNumber ?? order.phoneNumber,
+      secondPhoneNumber: dto.secondPhoneNumber ?? order.secondPhoneNumber,
       email: dto.email ?? order.email,
       address: dto.address ?? order.address,
       city: dto.city ?? order.city,
