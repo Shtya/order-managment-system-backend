@@ -429,11 +429,12 @@ export class OrdersService {
   // ✅ GET ORDER BY ID
   // ========================================
 
-  async get(me: any, id: number) {
+  async get(me: any, id: number, manager?: EntityManager) {
     const adminId = tenantId(me);
+    const repo = manager ? manager.getRepository(OrderEntity) : this.orderRepo;
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const order = await this.orderRepo.createQueryBuilder("order")
+    const order = await repo.createQueryBuilder("order")
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("variant.product", "product")
@@ -522,6 +523,7 @@ export class OrdersService {
         adminId,
         variantId: it.variantId,
         quantity: it.quantity,
+        isAdditional: it.isAdditional !== undefined ? false : it.isAdditional,
         unitPrice,
         unitCost,
         lineTotal,
@@ -573,6 +575,8 @@ export class OrdersService {
         throw new BadRequestException("The selected store is invalid or does not belong to your account.");
       }
     }
+
+
     // Create order
     const order = manager.create(OrderEntity, {
       adminId,
@@ -586,6 +590,8 @@ export class OrdersService {
       landmark: dto.landmark,
       deposit: dto.deposit,
       paymentMethod: dto.paymentMethod,
+      secondPhoneNumber: dto.secondPhoneNumber ?? null,
+      allowOpenPackage: dto.allowOpenPackage ?? false,
       paymentStatus: dto.paymentStatus ?? PaymentStatus.PENDING,
       shippingCompanyId: dto.shippingCompanyId ? dto.shippingCompanyId : null,
       storeId: dto.storeId ? dto.storeId : null,
@@ -633,84 +639,218 @@ export class OrdersService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const order = await this.get(me, id);
+    return this.dataSource.transaction(async (manager) => {
+      const order = await this.get(me, id, manager);
+      const shippingRepo = manager.getRepository(ShippingCompanyEntity);
+      const storeRepo = manager.getRepository(StoreEntity);
+      const integrationRepo = manager.getRepository(ShippingIntegrationEntity);
 
-    if (order.status?.system && (order.status.code === OrderStatus.SHIPPED || order.status.code === OrderStatus.DELIVERED)) {
-      throw new BadRequestException("Cannot update shipped or delivered orders");
-    }
-    if (dto.shippingCompanyId) {
-      const companyId = Number(dto.shippingCompanyId);
-      const company = await this.shippingRepo.findOne({ where: { id: companyId } });
-      if (!company) {
-        throw new BadRequestException("Invalid shipping company selected.");
+      if (order.status?.system && (order.status.code === OrderStatus.SHIPPED || order.status.code === OrderStatus.DELIVERED)) {
+        throw new BadRequestException("Cannot update shipped or delivered orders");
       }
-
-      const integration = await this.shippingIntegrationRepo.findOne({
-        where: {
-          shippingCompanyId: companyId,
-          adminId
+      if (dto.shippingCompanyId) {
+        const companyId = Number(dto.shippingCompanyId);
+        const company = await shippingRepo.findOne({ where: { id: companyId } });
+        if (!company) {
+          throw new BadRequestException("Invalid shipping company selected.");
         }
-      });
 
-      if (!integration || !integration.isActive) {
-        throw new BadRequestException(
-          `${company.name} is not currently active.`
+        const integration = await integrationRepo.findOne({
+          where: {
+            shippingCompanyId: companyId,
+            adminId
+          }
+        });
+
+        if (!integration || !integration.isActive) {
+          throw new BadRequestException(
+            `${company.name} is not currently active.`
+          );
+        }
+        order.shippingCompanyId = companyId;
+      }
+
+      if (dto.storeId) {
+        const store = await storeRepo.findOne({
+          where: { id: Number(dto.storeId), adminId },
+        });
+
+        if (!store) {
+          throw new BadRequestException("The selected store is invalid or does not belong to your account.");
+        }
+      }
+      let currentOrderItems = [...order.items];
+      // --- 1. PROCESS REMOVED ITEMS ---
+      if (dto.removedItems && dto.removedItems.length > 0) {
+        const removedVariantIds = dto.removedItems.map(i => i.variantId);
+
+        // Find the entities that belong to this order to remove them
+        const itemsToRemove = currentOrderItems.filter(i =>
+          removedVariantIds.includes(i.variantId)
         );
-      }
-      order.shippingCompanyId = companyId;
-    }
 
-    if (dto.storeId) {
-      const store = await this.storeRepo.findOne({
-        where: { id: Number(dto.storeId), adminId },
+        if (itemsToRemove.length > 0) {
+          // 1. Fetch all variants at once
+          const variantsToUpdate = await manager.find(ProductVariantEntity, {
+            where: {
+              adminId,
+              id: In(itemsToRemove.map(i => i.variantId))
+            } as any,
+          });
+
+          const variantMap = new Map(variantsToUpdate.map(v => [v.id, v]));
+
+          // 2. Update stock in memory only
+          for (const item of itemsToRemove) {
+            const variant = variantMap.get(item.variantId);
+            if (variant) {
+              // Release the reserved stock safely in the object
+              variant.reserved = Math.max(0, (variant.reserved || 0) - item.quantity);
+            }
+          }
+
+          // 3. Batch Save all variants in ONE query
+          await manager.save(ProductVariantEntity, variantsToUpdate);
+
+          // 4. Batch Remove the items from the order
+          await manager.remove(OrderItemEntity, itemsToRemove);
+
+          // Update the running array for totals calculation
+          currentOrderItems = currentOrderItems.filter(i =>
+            !removedVariantIds.includes(i.variantId)
+          );
+        }
+      }
+
+      if (dto.items && dto.items.length > 0) {
+        const newVariantIds = dto.items.map(i => i.variantId);
+
+        const variants = await manager.find(ProductVariantEntity, {
+          where: { adminId, id: In(newVariantIds) } as any,
+        });
+        const variantMap = new Map(variants.map((v) => [v.id, v]));
+
+        const itemsToSave = [];
+        const modifiedVariants = new Set<ProductVariantEntity>(); // Use a Set to avoid duplicate saves
+
+        for (const dtoItem of dto.items) {
+          const variant = variantMap.get(dtoItem.variantId);
+          if (!variant) throw new BadRequestException(`Variant ID ${dtoItem.variantId} not found`);
+
+          const existingItemIndex = currentOrderItems.findIndex(i => i.variantId === dtoItem.variantId);
+          const existingItem = existingItemIndex > -1 ? currentOrderItems[existingItemIndex] : null;
+
+          const oldQty = existingItem ? existingItem.quantity : 0;
+          const qtyDiff = dtoItem.quantity - oldQty;
+
+          // 1. Stock Validation
+          if (qtyDiff > 0) {
+            const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
+            if (available < qtyDiff) {
+              throw new BadRequestException(`Insufficient stock for variant ${variant.sku}. Available: ${available}, Requested Increase: ${qtyDiff}`);
+            }
+          }
+
+          // 2. Update variant in memory
+          if (qtyDiff !== 0) {
+            variant.reserved = Math.max(0, (variant.reserved || 0) + qtyDiff);
+            modifiedVariants.add(variant);
+          }
+
+          // 3. Prepare OrderItemEntity
+          if (existingItem) {
+            // Update existing
+            existingItem.quantity = dtoItem.quantity;
+            existingItem.unitPrice = dtoItem.unitPrice;
+            if (dtoItem.isAdditional !== undefined) existingItem.isAdditional = dtoItem.isAdditional;
+
+            existingItem.lineTotal = dtoItem.quantity * dtoItem.unitPrice;
+            existingItem.lineProfit = (dtoItem.unitPrice - existingItem.unitCost) * dtoItem.quantity;
+
+            currentOrderItems[existingItemIndex] = existingItem;
+            itemsToSave.push(existingItem);
+          } else {
+            // Create new
+            const unitCost = dtoItem.unitCost ?? variant.price ?? 0;
+            const newItem = manager.create(OrderItemEntity, {
+              adminId,
+              orderId: order.id,
+              variantId: dtoItem.variantId,
+              quantity: dtoItem.quantity,
+              unitPrice: dtoItem.unitPrice,
+              unitCost: unitCost,
+              isAdditional: dtoItem.isAdditional ?? false,
+              lineTotal: dtoItem.quantity * dtoItem.unitPrice,
+              lineProfit: (dtoItem.unitPrice - unitCost) * dtoItem.quantity,
+            } as any);
+
+            currentOrderItems.push(newItem);
+            itemsToSave.push(newItem);
+          }
+        }
+
+        // --- BATCH SAVES ---
+        // Save all modified variants at once
+        if (modifiedVariants.size > 0) {
+          await manager.save(ProductVariantEntity, Array.from(modifiedVariants));
+        }
+
+        // Save all new/updated order items at once
+        if (itemsToSave.length > 0) {
+          await manager.save(OrderItemEntity, itemsToSave);
+        }
+      }
+
+
+
+      // Attach final items list so calculateTotals uses the exact latest state
+      order.items = currentOrderItems;
+
+
+
+      // Update basic fields
+      Object.assign(order, {
+        customerName: dto.customerName ?? order.customerName,
+        phoneNumber: dto.phoneNumber ?? order.phoneNumber,
+        secondPhoneNumber: dto.secondPhoneNumber ?? order.secondPhoneNumber,
+        allowOpenPackage: dto.allowOpenPackage ?? order.allowOpenPackage,
+        email: dto.email ?? order.email,
+        address: dto.address ?? order.address,
+        city: dto.city ?? order.city,
+        area: dto.area ?? order.area,
+        paymentMethod: dto.paymentMethod ?? order.paymentMethod,
+        storeId: dto.storeId ?? order.storeId,
+        shippingCost: dto.shippingCost ?? order.shippingCost,
+        discount: dto.discount ?? order.discount,
+        notes: dto.notes ?? order.notes,
+        customerNotes: dto.customerNotes ?? order.customerNotes,
+        trackingNumber: dto.trackingNumber ?? order.trackingNumber,
+        updatedByUserId: me?.id,
+        landmark: dto.landmark,
+        deposit: dto.deposit,
+        shippingMetadata: dto.shippingMetadata
+          ? { ...order.shippingMetadata, ...dto.shippingMetadata }
+          : order.shippingMetadata,
       });
 
-      if (!store) {
-        throw new BadRequestException("The selected store is invalid or does not belong to your account.");
+      // Recalculate if needed
+      if (dto.shippingCost !== undefined || dto.discount !== undefined) {
+        const { productsTotal, finalTotal, profit } = this.calculateTotals(
+          order.items.map((it: any) => ({
+            unitPrice: it.unitPrice,
+            unitCost: it.unitCost,
+            quantity: it.quantity,
+          })),
+          order.shippingCost,
+          order.discount
+        );
+        order.productsTotal = productsTotal;
+        order.finalTotal = finalTotal;
+        order.profit = profit;
       }
-    }
 
-    // Update basic fields
-    Object.assign(order, {
-      customerName: dto.customerName ?? order.customerName,
-      phoneNumber: dto.phoneNumber ?? order.phoneNumber,
-      secondPhoneNumber: dto.secondPhoneNumber ?? order.secondPhoneNumber,
-      email: dto.email ?? order.email,
-      address: dto.address ?? order.address,
-      city: dto.city ?? order.city,
-      area: dto.area ?? order.area,
-      paymentMethod: dto.paymentMethod ?? order.paymentMethod,
-      storeId: dto.storeId ?? order.storeId,
-      shippingCost: dto.shippingCost ?? order.shippingCost,
-      discount: dto.discount ?? order.discount,
-      notes: dto.notes ?? order.notes,
-      customerNotes: dto.customerNotes ?? order.customerNotes,
-      trackingNumber: dto.trackingNumber ?? order.trackingNumber,
-      updatedByUserId: me?.id,
-      landmark: dto.landmark,
-      deposit: dto.deposit,
-      shippingMetadata: dto.shippingMetadata
-        ? { ...order.shippingMetadata, ...dto.shippingMetadata }
-        : order.shippingMetadata,
+      return await manager.save(OrderEntity, order);
     });
-
-    // Recalculate if needed
-    if (dto.shippingCost !== undefined || dto.discount !== undefined) {
-      const { productsTotal, finalTotal, profit } = this.calculateTotals(
-        order.items.map((it: any) => ({
-          unitPrice: it.unitPrice,
-          unitCost: it.unitCost,
-          quantity: it.quantity,
-        })),
-        order.shippingCost,
-        order.discount
-      );
-      order.productsTotal = productsTotal;
-      order.finalTotal = finalTotal;
-      order.profit = profit;
-    }
-
-    return this.orderRepo.save(order);
   }
   // ========================================
   // ✅ CHANGE ORDER STATUS
@@ -2135,6 +2275,7 @@ export class OrdersService {
       .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
       .leftJoinAndSelect("order.store", "store")
       .orderBy("assignment.assignedAt", "ASC") // 🔥 Old → New
+      .addOrderBy("order.id", "ASC")
       .getOne();
 
     return orders;

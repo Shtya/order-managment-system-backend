@@ -129,7 +129,6 @@ export class StoreEventEntity {
 	created_at: Date;
 }
 
-
 @Entity({ name: "webhook_order_failures" })
 // @Index(["adminId", "storeId", "externalOrderId"], { unique: true })
 export class WebhookOrderFailureEntity {
