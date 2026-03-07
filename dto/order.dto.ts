@@ -64,6 +64,10 @@ export class OrderItemDto {
   @IsInt()
   @Min(0)
   unitCost?: number; // optional, can be calculated from variant
+
+  @IsOptional()
+  @IsBoolean()
+  isAdditional?: boolean;
 }
 
 
@@ -145,7 +149,9 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString()
   shippingCompanyId: string;
-
+  @IsOptional()
+  @IsBoolean()
+  allowOpenPackage?: boolean;
 
   // Shipping
   @IsOptional()
@@ -156,6 +162,12 @@ export class CreateOrderDto {
   @IsInt()
   @Min(0)
   shippingCost?: number;
+
+  // Added Optional Second Name
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  secondPhoneNumber?: string;
 
   @IsOptional()
   @IsInt()
