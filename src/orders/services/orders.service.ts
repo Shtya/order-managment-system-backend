@@ -1061,18 +1061,16 @@ export class OrdersService {
 
       // 2. Notify Employee (The one assigned to the order)
       // We notify the employee only if someone else (like a manager) changed the status
-      if (settings.notifyEmployee && activeAssignment.employeeId !== employeeId) {
-        notificationPromises.push(
-          manager.save(Notification, {
-            userId: activeAssignment.employeeId,
-            type: 'ORDER_STATUS_UPDATE',
-            title: `Assignment Updated`,
-            message: `Your assigned order #${savedOrder.orderNumber} is now "${newStatus.name}".`,
-            relatedEntityType: 'Order',
-            relatedEntityId: String(savedOrder.id),
-          })
-        );
-      }
+      notificationPromises.push(
+        manager.save(Notification, {
+          userId: activeAssignment.employeeId,
+          type: 'ORDER_STATUS_UPDATE',
+          title: `Assignment Updated`,
+          message: `Your assigned order #${savedOrder.orderNumber} is now "${newStatus.name}".`,
+          relatedEntityType: 'Order',
+          relatedEntityId: String(savedOrder.id),
+        })
+      );
 
       await Promise.all(notificationPromises);
 
