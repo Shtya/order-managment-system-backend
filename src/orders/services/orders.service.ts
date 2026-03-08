@@ -640,7 +640,20 @@ export class OrdersService {
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     return this.dataSource.transaction(async (manager) => {
-      const order = await this.get(me, id, manager);
+      const order = await manager.createQueryBuilder(OrderEntity, "order")
+        .leftJoinAndSelect("order.items", "items")
+        .leftJoinAndSelect("items.variant", "variant")
+        .leftJoinAndSelect("variant.product", "product")
+        .leftJoinAndSelect("order.statusHistory", "statusHistory")
+        .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
+        .leftJoinAndSelect("statusHistory.toStatus", "toStatus")
+        .leftJoinAndSelect("order.status", "status")
+        .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
+        .leftJoinAndSelect("order.store", "store")
+        .where("order.id = :id", { id })
+        .andWhere("order.adminId = :adminId", { adminId })
+        .getOne();
+
       const shippingRepo = manager.getRepository(ShippingCompanyEntity);
       const storeRepo = manager.getRepository(StoreEntity);
       const integrationRepo = manager.getRepository(ShippingIntegrationEntity);
@@ -685,37 +698,43 @@ export class OrdersService {
         const removedVariantIds = dto.removedItems.map(i => i.variantId);
 
         // Find the entities that belong to this order to remove them
-        const itemsToRemove = currentOrderItems.filter(i =>
-          removedVariantIds.includes(i.variantId)
-        );
+
+        const updateIds = new Set(dto.items.map((i) => i.variantId));
+        const itemsToRemove = dto.removedItems.filter((i) => !updateIds.has(i.variantId));
 
         if (itemsToRemove.length > 0) {
-          // 1. Fetch all variants at once
-          const variantsToUpdate = await manager.find(ProductVariantEntity, {
+          // 2. Fetch the Variants to update their reserved stock
+          const RemovedOrderItems = await manager.find(OrderItemEntity, {
             where: {
               adminId,
-              id: In(itemsToRemove.map(i => i.variantId))
+
+              variantId: In(itemsToRemove.map(i => i.variantId))
             } as any,
+            relations: {
+              variant: true
+            }
           });
 
-          const variantMap = new Map(variantsToUpdate.map(v => [v.id, v]));
-
-          // 2. Update stock in memory only
+          const RemovedItemsMap = new Map(RemovedOrderItems.map(v => [v.variantId, v]));
+          const variantsToUpdate = new Map<number, ProductVariantEntity>();
+          // 3. Release reserved stock based on the OrderItem's quantity
           for (const item of itemsToRemove) {
-            const variant = variantMap.get(item.variantId);
-            if (variant) {
-              // Release the reserved stock safely in the object
-              variant.reserved = Math.max(0, (variant.reserved || 0) - item.quantity);
+            const removedItem = RemovedItemsMap.get(item.variantId);
+            if (removedItem) {
+              // Use item.quantity (from the DB) to decrease the reservation
+              const qtyToRelease = removedItem.quantity || 0;
+              removedItem.variant.reserved = Math.max(0, (removedItem.variant.reserved || 0) - qtyToRelease);
+              variantsToUpdate.set(removedItem.variant.id, removedItem.variant);
             }
           }
 
-          // 3. Batch Save all variants in ONE query
-          await manager.save(ProductVariantEntity, variantsToUpdate);
+          // 4. Batch Save variants and Batch Remove items
+          if (variantsToUpdate.size > 0) {
+            await manager.save(ProductVariantEntity, Array.from(variantsToUpdate.values()));
+          }
+          await manager.remove(OrderItemEntity, RemovedOrderItems);
 
-          // 4. Batch Remove the items from the order
-          await manager.remove(OrderItemEntity, itemsToRemove);
-
-          // Update the running array for totals calculation
+          // Update the local array for subsequent total calculations
           currentOrderItems = currentOrderItems.filter(i =>
             !removedVariantIds.includes(i.variantId)
           );
@@ -801,13 +820,8 @@ export class OrdersService {
         }
       }
 
-
-
       // Attach final items list so calculateTotals uses the exact latest state
       order.items = currentOrderItems;
-
-
-
       // Update basic fields
       Object.assign(order, {
         customerName: dto.customerName ?? order.customerName,
@@ -850,8 +864,10 @@ export class OrdersService {
       }
 
       return await manager.save(OrderEntity, order);
-    });
+
+    })
   }
+
   // ========================================
   // ✅ CHANGE ORDER STATUS
   // ========================================
