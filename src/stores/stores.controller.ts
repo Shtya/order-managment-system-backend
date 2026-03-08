@@ -75,6 +75,12 @@ export class StoresController {
   }
 
   @Permissions("stores.read")
+  @Get("integrations")
+  async integrations(@Req() req: any) {
+    return this.storesService.listWithCredentials(req.user);
+  }
+
+  @Permissions("stores.read")
   @Get(":id")
   async get(@Req() req: any, @Param("id") id: string) {
     return this.storesService.get(req.user, Number(id));

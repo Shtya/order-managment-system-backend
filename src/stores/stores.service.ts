@@ -134,6 +134,26 @@ export class StoresService {
     };
   }
 
+  async listWithCredentials(me: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const stores = await this.storesRepo.find({
+      where: { adminId },
+      order: { created_at: "DESC" }
+    });
+
+    const records = await Promise.all(
+      stores.map(async (store) => await this.getMaskedStoreIntegrations(store))
+    );
+
+    return {
+      total_records: records.length,
+      records,
+    };
+  }
+
+
   async get(me: any, id: number) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
