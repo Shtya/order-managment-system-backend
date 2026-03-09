@@ -54,6 +54,10 @@ export class OrdersController {
   stats(@Req() req: any) {
     return this.svc.getStats(req.user);
   }
+  @Get("statuses")
+  statuses(@Req() req: any) {
+    return this.svc.getStatuses(req.user);
+  }
 
   // employee-orders.controller.ts
 

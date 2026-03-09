@@ -201,6 +201,31 @@ export class OrdersService {
       system: stat.system || stat.system
     }));
   }
+  async getStatuses(me: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const statuses = await this.statusRepo
+      .createQueryBuilder('status')
+      // use relation path only (no join condition)
+      .leftJoin('status.orders', 'o')
+      .select([
+        'status.id AS id',
+        'status.name AS name',
+        'status.code AS code',
+        'status.color  AS color',
+        'status.system AS system',
+        'status.sortOrder AS sortOrder'
+      ])
+      .where(new Brackets(qb => {
+        qb.where('status.adminId = :adminId', { adminId })
+          .orWhere('status.system = :system', { system: true });
+      }))
+      .orderBy('status.sortOrder', 'ASC')
+      .getRawMany();
+
+    return statuses;
+  }
 
 
   // ========================================

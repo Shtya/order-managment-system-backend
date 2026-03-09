@@ -143,11 +143,6 @@ export class User {
 	@Column({ type: 'int', default: 0 })
 	otpAttempts: number;
 
-	@Column({ nullable: true })
-	companyName: string;
-
-	@Column({ type: 'varchar', nullable: true })
-	businessType: string;
 
 	@OneToMany(() => Asset, upload => upload.user)
 	uploads: Asset[];
@@ -183,6 +178,18 @@ export class User {
 		nullable: true,
 	})
 	company: Relation<Company>;
+
+	@Column({ type: 'varchar', nullable: true })
+	pendingNewEmail: string | null;
+
+	@Column({ type: 'varchar', nullable: true })
+	newEmailOtpCodeHash: string | null;
+
+	@Column({ type: 'bigint', nullable: true })
+	newEmailOtpExpiresAt: number | null;
+
+	@Column({ type: 'int', default: 0 })
+	newEmailOtpAttempts: number;
 
 	@CreateDateColumn()
 	createdAt: Date;
@@ -254,10 +261,10 @@ export class Company {
 	@Column()
 	name: string;
 
-	@Column()
+	@Column({ nullable: true })
 	country: string;
 
-	@Column()
+	@Column({ default: "EGP" })
 	currency: string;
 
 	@Column({ nullable: true })
@@ -284,4 +291,7 @@ export class Company {
 
 	@UpdateDateColumn()
 	updatedAt: Date;
+
+	@Column({ type: 'varchar', nullable: true })
+	businessType: string;
 }

@@ -12,6 +12,7 @@ import axios from 'axios';
 import { Response } from 'express';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
+import { ChangePasswordDto, RequestEmailChangeDto, VerifyEmailChangeDto } from 'dto/user.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -98,5 +99,29 @@ export class AuthController {
   @Post('google')
   google(@Body() dto: GoogleLoginDto) {
     return this.auth.googleLogin(dto.idToken, dto.name);
+  }
+
+  @Post('change-password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
+    return this.auth.changePasswordByOldPassword(req.user.id, dto.oldPassword, dto.newPassword);
+  }
+
+  @Post('request-email-change')
+  @UseGuards(JwtAuthGuard)
+  requestEmailChange(@Req() req: any, @Body() dto: RequestEmailChangeDto) {
+    return this.auth.requestEmailChange(req.user.id, dto.newEmail);
+  }
+
+  @Post('resend-email-request')
+  @UseGuards(JwtAuthGuard)
+  async resendEmailRequest(@Req() req: any) {
+    return await this.auth.resendEmailChangeOtp(req.user.id);
+  }
+
+  @Post('verify-email-change')
+  @UseGuards(JwtAuthGuard)
+  verifyEmailChange(@Req() req: any, @Body() dto: VerifyEmailChangeDto) {
+    return this.auth.verifyEmailChange(req.user.id, dto.otp);
   }
 }
