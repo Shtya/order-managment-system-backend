@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { PendingUser, Role, SystemRole, User } from 'entities/user.entity';
+import { Company, PendingUser, Role, SystemRole, User } from 'entities/user.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -182,9 +182,6 @@ export class AuthService {
 				phone: pendingUser.phone,
 				adminId: null,
 				roleId: pendingUser.roleId,
-				// Metadata fields
-				businessType: pendingUser.businessType,
-				companyName: pendingUser.companyName,
 				isActive: true,
 				otpVerified: false,
 				otpCodeHash: null,
@@ -194,8 +191,20 @@ export class AuthService {
 
 			const savedUser = await manager.save(newUser);
 
+			if (pendingUser.companyName) {
+				const company = manager.create(Company, {
+					name: pendingUser.companyName,
+					businessType: pendingUser.businessType,
+					user: savedUser
+				});
+
+				await manager.save(company);
+			}
+
+
 			// Delete the pending record so it can't be used again
 			await manager.delete(PendingUser, pendingUser.id);
+
 
 			return savedUser;
 		});
@@ -224,13 +233,13 @@ export class AuthService {
 
 		// 2. Enforce Cooldown (using the bigint/number logic)
 		const currentTimestamp = Date.now();
-		if (pendingUser.lastSentAt) {
-			const timeElapsed = (currentTimestamp - Number(pendingUser.lastSentAt)) / 1000;
-			if (timeElapsed < this.RESEND_COOLDOWN_SECONDS) {
-				const remaining = Math.ceil(this.RESEND_COOLDOWN_SECONDS - timeElapsed);
-				throw new ForbiddenException(`Please wait ${remaining} seconds before resending.`);
-			}
-		}
+		// if (pendingUser.lastSentAt) {
+		// 	const timeElapsed = (currentTimestamp - Number(pendingUser.lastSentAt)) / 1000;
+		// 	if (timeElapsed < this.RESEND_COOLDOWN_SECONDS) {
+		// 		const remaining = Math.ceil(this.RESEND_COOLDOWN_SECONDS - timeElapsed);
+		// 		throw new ForbiddenException(`Please wait ${remaining} seconds before resending.`);
+		// 	}
+		// }
 
 		// 3. Generate New OTP and Reset Security State
 		const newOtp = this.generateOtp(6);
@@ -295,6 +304,35 @@ export class AuthService {
 		});
 
 		return { message: 'OTP sent if email exists' };
+	}
+
+	// auth.service.ts
+
+	async resendEmailChangeOtp(userId: number) {
+		const user = await this.usersRepo.findOne({ where: { id: userId } });
+
+		if (!user || !user.pendingNewEmail) {
+			throw new BadRequestException('No pending email change request found');
+		}
+
+		// Optional: Check cooldown (using your RESEND_COOLDOWN_SECONDS)
+		// if (user.lastOtpSentAt && Date.now() < user.lastOtpSentAt + this.RESEND_COOLDOWN_SECONDS * 1000) {
+		//    throw new BadRequestException('Please wait before requesting another code');
+		// }
+
+		const otp = this.generateOtp(6);
+		user.newEmailOtpCodeHash = this.hashOtp(otp);
+		user.newEmailOtpExpiresAt = Date.now() + 1000 * 60 * 10; // 10 minutes
+		user.newEmailOtpAttempts = 0;
+
+		await this.usersRepo.save(user);
+
+		await this.mail.sendEmailChangeOtpEmail(user.pendingNewEmail, {
+			otp,
+			userName: user.name || 'there',
+		});
+
+		return { message: 'A new verification code has been sent' };
 	}
 
 	async verifyResetOtp(email: string, otp: string) {
@@ -497,5 +535,102 @@ export class AuthService {
 		const result = await this.sign(user);
 
 		return result;
+	}
+
+	async changePasswordByOldPassword(userId: number, oldPassword: string, newPassword: string) {
+		const user = await this.usersRepo.findOne({ where: { id: userId } });
+		if (!user) throw new NotFoundException('User not found');
+
+		// Verify old password
+		const isMatch = await bcrypt.compare(oldPassword, user.passwordHash || '');
+		if (!isMatch) throw new BadRequestException('Invalid current password');
+
+		// Hash and update new password
+		user.passwordHash = await bcrypt.hash(newPassword, 10);
+		await this.usersRepo.save(user);
+
+		await this.mail.sendPasswordChangeNotificationEmail(user.email, {
+			userName: user.name || 'there',
+		});
+
+		return { message: 'Password updated successfully' };
+	}
+
+	// Step 1: Request Email Change
+	async requestEmailChange(userId: number, newEmail: string) {
+		// 1. Check if the new email is already used by another account
+		const emailExists = await this.usersRepo.findOne({ where: { email: newEmail } });
+		if (emailExists) throw new ConflictException('Email is already in use by another account');
+
+		const user = await this.usersRepo.findOne({ where: { id: userId } });
+		if (!user) throw new NotFoundException('User not found');
+
+		if (user.email === newEmail) throw new BadRequestException('This is already your current email');
+
+		// 2. Generate and hash OTP
+		const otp = this.generateOtp(6);
+		user.pendingNewEmail = newEmail;
+		user.newEmailOtpCodeHash = this.hashOtp(otp);
+		user.newEmailOtpExpiresAt = Date.now() + 1000 * 60 * 10; // 10 minutes
+		user.newEmailOtpAttempts = 0;
+
+		await this.usersRepo.save(user);
+
+		// 3. Send email to the NEW email address
+		await this.mail.sendEmailChangeOtpEmail(newEmail, {
+			otp,
+			userName: user.name || 'there',
+		});
+
+		return { message: 'A verification code has been sent to your new email address' };
+	}
+
+	// Step 2: Verify OTP and apply Email Change
+	async verifyEmailChange(userId: number, otp: string) {
+		const user = await this.usersRepo.findOne({
+			where: { id: userId },
+			relations: { role: true, subscription: { plan: true } }
+		});
+
+		if (!user || !user.pendingNewEmail) {
+			throw new BadRequestException('No pending email change request found');
+		}
+
+		// 1. Check Expiration
+		const exp = Number(user.newEmailOtpExpiresAt) || 0;
+		if (!user.newEmailOtpCodeHash || Date.now() > exp) {
+			throw new BadRequestException('OTP expired, please request a new one');
+		}
+
+		// 2. Handle Attempts
+		user.newEmailOtpAttempts = (user.newEmailOtpAttempts || 0) + 1;
+		if (user.newEmailOtpAttempts > 5) {
+			user.newEmailOtpCodeHash = null;
+			user.newEmailOtpExpiresAt = null;
+			await this.usersRepo.save(user);
+			throw new BadRequestException('Too many attempts, request a new OTP');
+		}
+
+		// 3. Verify Hash
+		const isMatch = this.hashOtp(otp) === user.newEmailOtpCodeHash;
+		if (!isMatch) {
+			await this.usersRepo.save(user);
+			throw new BadRequestException('Invalid OTP');
+		}
+
+		// 4. Success: Apply new email and clear OTP data
+		user.email = user.pendingNewEmail;
+		user.pendingNewEmail = null;
+		user.newEmailOtpCodeHash = null;
+		user.newEmailOtpExpiresAt = null;
+		user.newEmailOtpAttempts = 0;
+
+		await this.usersRepo.save(user);
+
+		// Return new signed token because the email (and possibly payload) has changed
+		return {
+			message: 'Email updated successfully',
+			...await this.sign(user),
+		};
 	}
 }

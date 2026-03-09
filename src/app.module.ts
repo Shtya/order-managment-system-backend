@@ -53,7 +53,7 @@ import { SubscriptionsModule } from "./subscription/subscription.module";
 			database: process.env.DATABASE_NAME,
 			entities: [__dirname + '/../**/*.entity{.ts,.js}', ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity],
 			// entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity ,ProductVariantEntity, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity, ProductEntity, Asset],
-			synchronize: false,
+			synchronize: true,
 			logging: false
 		}),
 		BullModule.registerQueue({ name: 'store-sync' }),

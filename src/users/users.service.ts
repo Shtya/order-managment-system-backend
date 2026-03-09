@@ -5,8 +5,10 @@ import { DataSource, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Plan, Subscription, SubscriptionStatus } from 'entities/plans.entity';
-import { UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
+import { UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { SubscriptionsService } from 'src/subscription/subscription.service';
+import { unlink } from 'fs/promises';
+import { join } from 'path';
 
 @Injectable()
 export class UsersService {
@@ -218,6 +220,8 @@ export class UsersService {
 
 		console.log(me, target);
 
+		if (me.id === target.id) return;
+
 		if (me.role?.name === SystemRole.ADMIN) {
 			if (target.adminId !== me.id) throw new ForbiddenException('Not your user');
 			return;
@@ -272,8 +276,21 @@ export class UsersService {
 		});
 		if (!user) throw new BadRequestException('User not found');
 
+		const old = user.avatarUrl;
+
 		user.avatarUrl = `/uploads/avatars/${avatar.filename}`;
 		const saved = await this.usersRepo.save(user);
+		if (old) {
+
+			try {
+
+				const filePath = join(process.cwd(), old);
+				await unlink(filePath);
+			} catch (err) {
+				// Log error but don't stop the process if one file is already missing
+				console.error(`Failed to delete file at ${old}:`, err.message);
+			}
+		}
 
 		return {
 			id: saved.id,
@@ -788,6 +805,25 @@ export class UsersService {
 			},
 		});
 	}
+	async updateMe(me: User, patch: UpdateMeUserDto) {
+		const user = await this.get(me, me.id);
+
+
+		if (typeof patch.name === 'string') user.name = patch.name;
+		if (typeof patch.isActive === 'boolean') user.isActive = patch.isActive;
+		if (typeof (patch as any).phone === 'string') user.phone = patch.phone;
+
+		const saved = await this.usersRepo.save(user);
+		// ✅ Return with plan relation
+		return this.usersRepo.findOne({
+			where: { id: saved.id },
+			relations: {
+				role: true, subscription: {
+					plan: true
+				}
+			},
+		});
+	}
 
 	async deactivate(me: User, id: number) {
 		const user = await this.get(me, id);
@@ -871,6 +907,10 @@ export class UsersService {
 
 	// users.service.ts
 	async upsertCompany(me: User, dto: UpsertCompanyDto) {
+		if (me.role?.name !== 'admin') {
+			throw new ForbiddenException('Only admins can update company informations');
+		}
+
 		return await this.dataSource.transaction(async (manager) => {
 			// Fetch user with existing company relation
 			const user = await manager.findOne(User, {

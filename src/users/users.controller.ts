@@ -3,7 +3,7 @@ import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
-import { UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
+import { UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile } from '@nestjs/common';
 import { diskStorage } from 'multer';
@@ -206,8 +206,8 @@ export class UsersController {
 
 	@Permissions('users.update')
 	@Patch('me')
-	updateMe(@Req() req: any, @Body() dto: UpdateUserDto) {
-		return this.users.update(req.user, Number(req.user.id), dto);
+	updateMe(@Req() req: any, @Body() dto: UpdateMeUserDto) {
+		return this.users.updateMe(req.user, dto);
 	}
 
 	@Permissions('users.update')
@@ -226,7 +226,6 @@ export class UsersController {
 	toggleActive(@Req() req: any, @Param('id') id: string) {
 		return this.users.toggleActive(req.user, Number(id));
 	}
-
 
 
 	@Permissions('users.update')

@@ -30,6 +30,13 @@ export class UpdateUserDto {
 	@IsOptional() @IsString() employeeType?: string;
 }
 
+export class UpdateMeUserDto {
+	@IsOptional() @IsString() name?: string;
+	@IsOptional() isActive?: boolean;
+
+	@IsOptional() @IsString() phone?: string;
+}
+
 
 
 export class UpsertCompanyDto {
@@ -64,4 +71,29 @@ export class UpsertCompanyDto {
 	@IsString()
 	@IsOptional()
 	address: string;
+
+	@IsString()
+	@IsOptional()
+	businessType: string;
+}
+
+export class ChangePasswordDto {
+	@IsString()
+	@IsNotEmpty()
+	oldPassword: string;
+
+	@IsString()
+	@MinLength(6)
+	newPassword: string;
+}
+
+export class RequestEmailChangeDto {
+	@IsEmail()
+	newEmail: string;
+}
+
+export class VerifyEmailChangeDto {
+	@IsString()
+	@IsNotEmpty()
+	otp: string;
 }
