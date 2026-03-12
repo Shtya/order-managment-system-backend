@@ -6,7 +6,8 @@ import * as crypto from 'crypto';
 import { CheckoutOptions, CheckoutResponse, ParsedRedirectData, ParsedWebhookData, PaymentProvider, PaymentProviderEnum, PaymentSessionEntity, PaymentSessionResponse, PaymentSessionStatusEnum } from 'entities/payments.entity';
 import { User } from 'entities/user.entity';
 import { Repository } from 'typeorm';
-import queryString from 'query-string';
+import { stringify as querystringStringify } from 'querystring';
+
 
 @Injectable()
 export class KashierProvider extends PaymentProvider {
@@ -123,7 +124,7 @@ export class KashierProvider extends PaymentProvider {
             objectSignaturePayload[key] = data[key];
         }
 
-        const signaturePayload = queryString.stringify(objectSignaturePayload);
+        const signaturePayload = querystringStringify(objectSignaturePayload);
         const generatedSignature = crypto
             .createHmac('sha256', this.apiKey)
             .update(signaturePayload)
