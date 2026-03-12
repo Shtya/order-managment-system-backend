@@ -177,7 +177,6 @@ export class UsersController {
 			dto.email,
 			dto.roleId,
 			dto.password,
-			dto.planId, // ✅ NEW
 		);
 	}
 
@@ -196,7 +195,6 @@ export class UsersController {
 			dto.email,
 			dto.roleId,
 			dto.password,
-			dto.planId,
 			dto.phone,
 			dto.employeeType,
 			avatar,

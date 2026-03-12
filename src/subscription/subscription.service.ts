@@ -1,12 +1,16 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from "dto/subscriptions.dto";
-import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionPaymentMethod, TransactionStatus } from "entities/plans.entity";
+import { Feature, Plan, PlanDuration, PlanType, Subscription, SubscriptionStatus, UserFeature, } from "entities/plans.entity";
 import { SystemRole, User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
 import { TransactionsService } from "src/transactions/transactions.service";
 import { DataSource, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
+import { PaymentProviderEnum, PaymentPurposeEnum, PaymentSessionEntity, TransactionEntity, TransactionPaymentMethod, TransactionStatus } from "entities/payments.entity";
+import { PaymentFactoryService } from "src/payments/providers/PaymentFactoryService";
+import { defaultCurrency, SubscriptionUtils } from "common/healpers";
+import { PaymentsService } from "src/payments/payments.service";
 
 @Injectable()
 export class SubscriptionsService {
@@ -18,13 +22,21 @@ export class SubscriptionsService {
         @InjectRepository(User)
         private usersRepo: Repository<User>,
 
+        @InjectRepository(UserFeature)
+        private userFeatureRepo: Repository<UserFeature>,
+
         @InjectRepository(Plan)
         private plansRepo: Repository<Plan>,
 
         @Inject(forwardRef(() => TransactionsService))
         private transactionsService: TransactionsService,
-    ) { }
 
+        @Inject(forwardRef(() => PaymentFactoryService))
+        private paymentFactory: PaymentFactoryService,
+
+        @Inject(forwardRef(() => PaymentsService))
+        private paymentService: PaymentsService,
+    ) { }
     // ✅ Check if user is super admin
     private isSuperAdmin(me: User) {
         return me.role?.name === SystemRole.SUPER_ADMIN;
@@ -51,12 +63,7 @@ export class SubscriptionsService {
             .leftJoinAndSelect('sub.plan', 'plan');
 
         // --- Role-based access ---
-        if (this.isAdmin(me)) {
-            qb.where(
-                '(sub.adminId = :meId OR sub.userId IN (SELECT id FROM users WHERE adminId = :meId))',
-                { meId: me.id },
-            );
-        } else if (!this.isSuperAdmin(me)) {
+        if (!this.isSuperAdmin(me)) {
             qb.where('sub.userId = :meId', { meId: me.id });
         }
 
@@ -129,21 +136,40 @@ export class SubscriptionsService {
     }
 
     async updateSubscriptionStatus(me: User, id: number, status: SubscriptionStatus) {
-        // Only Super Admin allowed
+        // 1. Authorization Check
         if (!this.isSuperAdmin(me)) {
             throw new ForbiddenException('You do not have permission');
         }
 
+        // 2. Fetch the target subscription
         const subscription = await this.subscriptionsRepo.findOne({
             where: { id },
-            relations: ['user', 'plan']
+            relations: ['user']
         });
 
         if (!subscription) throw new NotFoundException('Subscription not found');
 
+        // 3. Prevent Multiple Active Subscriptions
+        // If we are trying to set this subscription to ACTIVE
+        if (status === SubscriptionStatus.ACTIVE) {
+            const existingActive = await this.subscriptionsRepo.findOne({
+                where: {
+                    userId: subscription.userId,
+                    status: SubscriptionStatus.ACTIVE,
+                }
+            });
+
+            if (existingActive && existingActive.id !== subscription.id) {
+                throw new BadRequestException(
+                    `User already has an active subscription (ID: ${existingActive.id}). Deactivate it first before activating this one.`
+                );
+            }
+        }
+
+        // 4. Apply status and save
         subscription.status = status;
 
-        return this.subscriptionsRepo.save(subscription);
+        return await this.subscriptionsRepo.save(subscription);
     }
 
     async createSubscription(me: User, dto: CreateSubscriptionDto) {
@@ -151,19 +177,10 @@ export class SubscriptionsService {
             throw new ForbiddenException('You do not have permission');
         }
 
-        const id = me?.id;
         return await this.dataSource.transaction(async (manager) => {
             // 1️⃣ Find user & plan
             const user = await manager.findOne(User, { where: { id: dto.userId } });
             if (!user) throw new NotFoundException('User not found');
-
-            // 2️⃣ Prevent duplicate active subscription
-            const existing = await manager.findOne(Subscription, {
-                where: { userId: user.id, status: SubscriptionStatus.ACTIVE },
-            });
-            if (existing) {
-                throw new BadRequestException('User already has an active subscription');
-            }
 
             const plan = await manager.findOne(Plan, { where: { id: dto.planId } });
             if (!plan) throw new NotFoundException('Plan not found');
@@ -172,45 +189,153 @@ export class SubscriptionsService {
                 throw new BadRequestException('Plan is not active');
             }
 
-            // 2️⃣ Create subscription
+            // 2️⃣ Prevent duplicate active subscription (Only if we are trying to create an ACTIVE one)
+            if (dto.status === SubscriptionStatus.ACTIVE) {
+                const existing = await manager.findOne(Subscription, {
+                    where: { userId: user.id, status: SubscriptionStatus.ACTIVE },
+                });
+                if (existing) {
+                    throw new BadRequestException('User already has an active subscription. Deactivate it first.');
+                }
+            }
+
+            // 3️⃣ Calculate End Date based on Plan Duration
+            const startDate = new Date();
+            let endDate: Date | null = null;
+
+            endDate = SubscriptionUtils.calculateEndDate(
+                startDate,
+                plan.duration,
+                plan.durationIndays
+            );
+
+            // 4️⃣ Create subscription (Taking a SNAPSHOT of the plan details)
             const subscription = manager.create(Subscription, {
                 userId: user.id,
                 planId: plan.id,
-                adminId: user.adminId,
-                price: dto.price || plan.price,
+                // Snapshot core pricing & type
+                planType: plan.type,
+                price: dto.price ?? plan.price ?? 0,
+                extraOrderFee: dto.extraOrderFee ?? plan.extraOrderFee,
+                // Snapshot limits
+                includedOrders: dto.includedOrders ?? plan.includedOrders,
+                usersLimit: dto.usersLimit ?? plan.usersLimit,
+                storesLimit: dto.storesLimit ?? plan.storesLimit,
+                shippingCompaniesLimit: dto.shippingCompaniesLimit ?? plan.shippingCompaniesLimit,
+                bulkUploadPerMonth: dto.bulkUploadPerMonth ?? plan.bulkUploadPerMonth,
+                // Status and dates
                 status: dto.status,
-                startDate: new Date(),
-                endDate: null, // can calculate endDate based on plan.duration if needed
+                startDate: startDate,
+                endDate: endDate,
+                usedOrders: 0, // Fresh start
             });
 
-            const number = `TX-${Math.random().toString(36).toUpperCase().substring(2, 12)}`;
             const savedSubscription = await manager.save(subscription);
 
-            // 3️⃣ Optionally create transaction if payed
-            let transaction: Transaction | null = null;
-            if (dto.payed) {
-                if (!dto.paymentMethod || !dto.price) {
-                    throw new BadRequestException('Payment method and amount are required if subscription is paid');
-                }
+            // 5️⃣ Optionally create transaction if paid
+            let transaction: TransactionEntity | null = null;
+            // Apply trimming as a best practice for string inputs
+            const paymentMethod = dto.paymentMethod?.trim();
 
-                transaction = manager.create(Transaction, {
-                    userId: user.id,
-                    adminId: user.adminId,
-                    subscriptionId: savedSubscription.id,
-                    amount: dto.price,
-                    number,
-                    status: TransactionStatus.COMPLETED,
-                    paymentMethod: dto.paymentMethod,
-                });
-
-                await manager.save(transaction);
+            if (!paymentMethod || dto.price === undefined) {
+                throw new BadRequestException('Payment method and amount are required if subscription is paid');
             }
+            const number = await this.transactionsService.generateTransactionNumber(user.id?.toString())
 
-            // 4️⃣ Return result
+            transaction = manager.create(TransactionEntity, {
+                userId: user.id,
+                adminId: user.adminId, // Using the user's admin (branch owner)
+                subscriptionId: savedSubscription.id,
+                amount: dto.price,
+                number,
+                status: TransactionStatus.SUCCESS,
+                paymentMethod: paymentMethod || 'cash',
+            });
+
+            await manager.save(transaction);
+
+            // 6️⃣ Return result
             return {
                 subscription: savedSubscription,
                 transaction,
             };
+        });
+    }
+
+    async updateSubscription(me: User, id: number, dto: UpdateSubscriptionDto) {
+        if (!this.isSuperAdmin(me)) {
+            throw new ForbiddenException('You do not have permission');
+        }
+
+        return await this.dataSource.transaction(async (manager) => {
+            // 1️⃣ البحث عن الاشتراك الحالي
+            const sub = await manager.findOne(Subscription, {
+                where: { id },
+                relations: ['user']
+            });
+            if (!sub) throw new NotFoundException('Subscription not found');
+
+            // 2️⃣ معالجة تغيير الخطة (Plan Change)
+            if (dto.planId && dto.planId !== sub.planId) {
+                const newPlan = await manager.findOne(Plan, { where: { id: dto.planId } });
+                if (!newPlan || !newPlan.isActive) {
+                    throw new BadRequestException('New plan is invalid or inactive');
+                }
+
+                // تحديث مرجع الخطة والنوع
+                sub.planId = newPlan.id;
+                sub.planType = newPlan.type;
+
+                // تحديث لقطة البيانات من الخطة الجديدة، مع إمكانية التجاوز من الـ DTO
+                // إذا كانت القيمة موجودة في dto نستخدمها، وإلا نأخذ القيمة الافتراضية من الخطة الجديدة
+                sub.price = dto.price ?? newPlan.price ?? 0;
+                sub.duration = dto.duration ?? newPlan.duration;
+                sub.durationIndays = dto.durationIndays ?? newPlan.durationIndays;
+                sub.extraOrderFee = dto.extraOrderFee ?? newPlan.extraOrderFee;
+                sub.includedOrders = dto.includedOrders ?? newPlan.includedOrders;
+                sub.usersLimit = dto.usersLimit ?? newPlan.usersLimit;
+                sub.storesLimit = dto.storesLimit ?? newPlan.storesLimit;
+                sub.shippingCompaniesLimit = dto.shippingCompaniesLimit ?? newPlan.shippingCompaniesLimit;
+                sub.bulkUploadPerMonth = dto.bulkUploadPerMonth ?? newPlan.bulkUploadPerMonth;
+
+                // إعادة ضبط الاستهلاك وتحديث التواريخ
+                sub.usedOrders = 0;
+                const now = new Date();
+                sub.startDate = now;
+                sub.endDate = SubscriptionUtils.calculateEndDate(
+                    now,
+                    newPlan.duration,
+                    newPlan.durationIndays
+                );
+            } else {
+                // 3️⃣ في حال عدم تغيير الخطة، نقوم بتحديث الحقول المرسلة فقط (Partial Update)
+                if (dto.status) sub.status = dto.status;
+                if (dto.price !== undefined) sub.price = dto.price;
+
+                // تحديث الحدود يدوياً إذا تم إرسالها في الـ DTO
+                if (dto.includedOrders !== undefined) sub.includedOrders = dto.includedOrders;
+                if (dto.extraOrderFee !== undefined) sub.extraOrderFee = dto.extraOrderFee;
+                if (dto.usersLimit !== undefined) sub.usersLimit = dto.usersLimit;
+                if (dto.storesLimit !== undefined) sub.storesLimit = dto.storesLimit;
+                if (dto.shippingCompaniesLimit !== undefined) sub.shippingCompaniesLimit = dto.shippingCompaniesLimit;
+                if (dto.bulkUploadPerMonth !== undefined) sub.bulkUploadPerMonth = dto.bulkUploadPerMonth;
+            }
+
+            // 4️⃣ التحقق من عدم وجود اشتراك نشط آخر لنفس المستخدم (فقط إذا كان الاشتراك الحالي سيصبح ACTIVE)
+            if (dto.status === SubscriptionStatus.ACTIVE && sub.status !== SubscriptionStatus.ACTIVE) {
+                const existingActive = await manager.findOne(Subscription, {
+                    where: {
+                        userId: sub.userId,
+                        status: SubscriptionStatus.ACTIVE,
+                    },
+                });
+                if (existingActive && existingActive.id !== sub.id) {
+                    throw new BadRequestException('User already has another active subscription');
+                }
+            }
+
+            const savedSub = await manager.save(sub);
+            return savedSub;
         });
     }
 
@@ -249,15 +374,15 @@ export class SubscriptionsService {
 
             const savedSubscription = await manager.save(subscription);
 
-            const number = `TX-${Math.random().toString(36).toUpperCase().substring(2, 12)}`;
+            const number = await this.transactionsService.generateTransactionNumber(user.id?.toString())
 
-            const transaction = manager.create(Transaction, {
+            const transaction = manager.create(TransactionEntity, {
                 userId: user.id,
                 adminId: user.adminId || adminId,
                 subscriptionId: savedSubscription.id,
-                amount: plan.price,
+                amount: savedSubscription.price,
                 number,
-                status: TransactionStatus.COMPLETED,
+                status: TransactionStatus.SUCCESS,
                 paymentMethod: TransactionPaymentMethod.CASH,
             });
 
@@ -270,42 +395,158 @@ export class SubscriptionsService {
         });
     }
 
-    async updateSubscription(me: User, subscriptionId: number, dto: UpdateSubscriptionDto) {
-        if (!this.isSuperAdmin(me)) {
-            throw new ForbiddenException('You do not have permission');
-        }
+    async subscribe(user: User, planId: number) {
+        return await this.dataSource.transaction(async (manager) => {
 
-        // Fetch subscription with user relation
-        const subscription = await this.subscriptionsRepo.findOne({
-            where: { id: subscriptionId },
-            relations: ['user'],
+            const userData = await manager.findOne(User, {
+                where: { id: user.id },
+                relations: ['company']
+            });
+            if (!userData) throw new BadRequestException("User not found");
+
+            // 1. Check for any existing ACTIVE subscription
+            const activeSub = await manager.findOne(Subscription, {
+                where: { userId: user.id, status: SubscriptionStatus.ACTIVE },
+            });
+
+
+            if (activeSub) {
+                throw new BadRequestException('You already have an active subscription.');
+            }
+
+            // 2. Check for an existing PENDING subscription for THIS specific plan
+            // This prevents creating multiple checkout sessions for the same plan
+            let subscription = await manager.findOne(Subscription, {
+                where: {
+                    userId: user.id,
+                    planId: planId,
+                    status: SubscriptionStatus.PENDING
+                },
+            });
+
+            const plan = await manager.findOne(Plan, { where: { id: planId } });
+            if (!plan || !plan.isActive) throw new NotFoundException('Plan not available');
+
+            if (plan.type === PlanType.NEGOTIATED) {
+                throw new BadRequestException('This plan requires direct negotiation. Please contact support to subscribe.');
+            }
+
+            // 3. Create PENDING subscription if it doesn't exist
+            if (!subscription) {
+                subscription = manager.create(Subscription, {
+                    userId: user.id,
+                    planId: plan.id,
+                    planType: plan.type,
+                    price: plan.price || 0,
+                    duration: plan.duration,
+                    durationIndays: plan.durationIndays,
+                    extraOrderFee: plan.extraOrderFee,
+                    includedOrders: plan.includedOrders,
+                    usersLimit: plan.usersLimit,
+                    storesLimit: plan.storesLimit,
+                    shippingCompaniesLimit: plan.shippingCompaniesLimit,
+                    bulkUploadPerMonth: plan.bulkUploadPerMonth,
+                    status: SubscriptionStatus.PENDING,
+                    startDate: new Date(), // Placeholder until activation
+                    usedOrders: 0,
+                });
+                subscription = await manager.save(subscription);
+            }
+
+            if (Number(subscription.price) === 0) {
+                // أ- إنشاء جلسة دفع مكتملة برمجياً
+                const expireMinutes = Number(process.env.PAYMENT_EXPIRE_MINUTES) || 30;
+                const maxAttempts = Number(process.env.PAYMENT_MAX_FAILURE_ATTEMPTS) || 3;
+
+                // Create Date object for DB
+                const expireAtDate = new Date(Date.now() + expireMinutes * 60 * 1000);
+
+                const session = manager.create(PaymentSessionEntity, {
+                    provider: PaymentProviderEnum.KASHIER,
+                    userId: user.id,
+                    purpose: PaymentPurposeEnum.SUBSCRIPTION_PAYMENT,
+                    amount: subscription.price,
+                    currency: defaultCurrency,
+                    subscriptionId: subscription.id,
+                    expireAt: expireAtDate, // Saved as timestamptz in DB
+                });
+                const savedSession = await manager.save(session);
+
+                // ب- إنشاء عملية دفع (Transaction)
+                const transactionNumber = await this.transactionsService.generateTransactionNumber(user.id.toString());
+                const transaction = manager.create(TransactionEntity, {
+                    number: transactionNumber,
+                    userId: user.id,
+                    sessionId: savedSession.id,
+                    purpose: savedSession.purpose,
+                    subscriptionId: subscription.id,
+                    amount: 0,
+                    status: TransactionStatus.SUCCESS, // حالة النجاح
+                    paymentMethod: 'FREE_PLAN',
+                });
+                const savedTransaction = await manager.save(transaction);
+
+                // ج- استدعاء منطق النجاح (تفعيل الاشتراك، تحديث التواريخ، إلخ)
+                await this.paymentService.handlePaymentSuccessLogic(
+                    savedSession,
+                    savedTransaction,
+                    manager
+                );
+
+                return {
+                    subscriptionId: subscription.id,
+                    message: "Free subscription activated successfully"
+                };
+            }
+
+            // 4. Generate Checkout via Payment Factory
+            const provider = this.paymentFactory.getProviderByCurrency(defaultCurrency); // Or user currency
+            const checkout = await provider.checkout({
+                amount: subscription.price,
+                currency: defaultCurrency,
+                userId: user.id,
+                purpose: PaymentPurposeEnum.SUBSCRIPTION_PAYMENT,
+                subscriptionId: subscription.id,
+                manager
+            });
+
+            return {
+                checkoutUrl: checkout.checkoutUrl,
+                subscriptionId: subscription.id,
+            };
         });
+    }
 
-        if (!subscription) throw new NotFoundException('Subscription not found');
+    async cancelSubscription(user: User, subscriptionId: number) {
+        return await this.dataSource.transaction(async (manager) => {
+            // 1. Find the subscription and verify ownership
+            const subscription = await manager.findOne(Subscription, {
+                where: {
+                    id: subscriptionId,
+                    status: SubscriptionStatus.ACTIVE
+                },
+                relations: ['plan']
+            });
 
-        // Update plan if provided
-        if (dto.planId !== undefined) {
-            const plan = await this.plansRepo.findOne({ where: { id: dto.planId } });
-            if (!plan) throw new NotFoundException('Plan not found');
-            if (!plan.isActive) throw new BadRequestException('Plan is not active');
+            if (!this.isSuperAdmin(user) && subscription.userId !== user.id) {
+                throw new ForbiddenException('You do not have permission');
+            }
 
-            subscription.planId = plan.id;
-            subscription.price = plan.price;
-        }
+            if (!subscription) {
+                throw new NotFoundException('Active subscription not found or already cancelled.');
+            }
 
-        // Update status if provided
-        if (dto.status) {
-            subscription.status = dto.status;
-        }
+            // 2. Update status
+            subscription.status = SubscriptionStatus.CANCELLED;
 
-        // Update price if explicitly provided
-        if (dto.price !== undefined) {
-            subscription.price = dto.price;
-        }
+            await manager.save(subscription);
 
-        // Save changes
-        const updated = await this.subscriptionsRepo.save(subscription);
-        return updated;
+            return {
+                success: true,
+                message: 'Subscription has been cancelled successfully.',
+                subscriptionId: subscription.id
+            };
+        });
     }
 
     async getActiveSubscriptionForAdmin(admin: User, userId: number) {
@@ -318,9 +559,6 @@ export class SubscriptionsService {
         // Only enforce admin restriction if caller is admin
         if (!this.isSuperAdmin(admin)) {
             if (!tenantAdminId) throw new BadRequestException('Missing adminId');
-            if (user.adminId !== tenantAdminId) {
-                throw new ForbiddenException('User does not belong to your account');
-            }
         }
 
         // Find latest active subscription
@@ -395,12 +633,7 @@ export class SubscriptionsService {
             .leftJoinAndSelect('sub.plan', 'plan');
 
         // --- منطق الصلاحيات (Role-based access) ---
-        if (this.isAdmin(me)) {
-            qb.where(
-                '(sub.adminId = :meId OR sub.userId IN (SELECT id FROM users WHERE adminId = :meId))',
-                { meId: me.id },
-            );
-        } else if (!this.isSuperAdmin(me)) {
+        if (!this.isSuperAdmin(me)) {
             qb.where('sub.userId = :meId', { meId: me.id });
         }
 
@@ -435,84 +668,90 @@ export class SubscriptionsService {
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet("Subscriptions");
 
-        // 1. تحديد الأعمدة بناءً على الـ Front-end المذكور
+        // 1. تحديد الأعمدة لتتطابق مع الواجهة الأمامية
         worksheet.columns = [
-            { header: "User", key: "userName", width: 25 },
-            { header: "Plan", key: "planName", width: 20 },
+            { header: "User Name", key: "userName", width: 25 },
+            { header: "User Email", key: "userEmail", width: 30 },
+            { header: "Plan Name", key: "planName", width: 20 },
+            { header: "Plan Type", key: "planType", width: 15 },
             { header: "Price", key: "price", width: 15 },
+            { header: "Duration", key: "duration", width: 15 },
+            { header: "Extra Order Fee", key: "extraOrderFee", width: 20 },
+            { header: "Used Orders", key: "usedOrders", width: 15 },
+            { header: "Included Orders", key: "includedOrders", width: 15 },
+            { header: "Users Limit", key: "usersLimit", width: 15 },
+            { header: "Stores Limit", key: "storesLimit", width: 15 },
+            { header: "Shipping Limit", key: "shippingLimit", width: 15 },
+            { header: "Bulk Uploads", key: "bulkUpload", width: 15 },
             { header: "Status", key: "status", width: 15 },
-            { header: "Start Date", key: "startDate", width: 20 },
-            { header: "End Date", key: "endDate", width: 20 },
+            { header: "Start Date", key: "startDate", width: 15 },
+            { header: "End Date", key: "endDate", width: 15 },
         ];
+
+        // دالة مساعدة لمعالجة قيم الحدود اللانهائية (null)
+        const renderLimit = (val: number | null) => (val === null || val === undefined) ? '∞' : val;
 
         // 2. تحويل البيانات وتجهيزها (Transform)
         const rows = subscriptions.map(sub => {
+            // تجهيز مدة الباقة (Duration)
+            let durationText = sub.duration || 'monthly';
+            if (durationText === 'custom' && sub.durationIndays) {
+                durationText = `${sub.durationIndays} Days`;
+            }
+
+            // تجهيز الرسوم الإضافية (Extra Order Fee)
+            let extraFeeText = 'Not Allowed';
+            if (sub.extraOrderFee === 0) {
+                extraFeeText = 'Free Excess';
+            } else if (Number(sub.extraOrderFee) > 0) {
+                extraFeeText = `+${sub.extraOrderFee} per order`;
+            }
+
             return {
                 userName: sub.user?.name?.trim() || '—',
-                planName: sub.plan?.name?.trim() || '—',
+                userEmail: sub.user?.email?.trim() || '—',
+                planName: sub.plan?.name?.trim() || 'Deleted Plan',
+                planType: sub.planType || '—',
+
                 price: Number(sub.price || 0),
+                duration: durationText,
+                extraOrderFee: extraFeeText,
+
+                usedOrders: sub.usedOrders || 0,
+                includedOrders: renderLimit(sub.includedOrders),
+
+                usersLimit: renderLimit(sub.usersLimit),
+                storesLimit: renderLimit(sub.storesLimit),
+                shippingLimit: renderLimit(sub.shippingCompaniesLimit),
+                bulkUpload: sub.bulkUploadPerMonth || 0,
+
                 status: sub.status?.toUpperCase() || '—',
-                startDate: sub.startDate ? new Date(sub.startDate).toLocaleDateString() : '—',
-                endDate: sub.endDate ? new Date(sub.endDate).toLocaleDateString() : '—',
+                // استخدام YYYY-MM-DD ليكون منسقاً وسهل القراءة في الإكسل
+                startDate: sub.startDate ? new Date(sub.startDate).toISOString().split('T')[0] : '—',
+                endDate: sub.endDate ? new Date(sub.endDate).toISOString().split('T')[0] : '—',
             };
         });
 
         worksheet.addRows(rows);
 
         // تنسيق الصف الأول (Header)
-        worksheet.getRow(1).font = { bold: true };
+        worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        worksheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF4F46E5' }, // لون أزرق للترويسة (Primary Color)
+        };
         worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
 
-        // إضافة تنسيق العملة لعمود السعر (العمود الثالث)
+        // إضافة تنسيق العملة لعمود السعر والتوسيط لباقي الأرقام
         worksheet.getColumn('price').numFmt = '#,##0.00 "EGP"';
+        worksheet.getColumn('usedOrders').alignment = { horizontal: 'center' };
+        worksheet.getColumn('includedOrders').alignment = { horizontal: 'center' };
+        worksheet.getColumn('usersLimit').alignment = { horizontal: 'center' };
 
         return await workbook.xlsx.writeBuffer();
     }
 
-    public async upsertUserSubscription(
-        me: User,
-        userId: number,
-        planId: number | null,
-    ) {
 
 
-        if (!planId) return;
-        // 🔎 Validate plan
-        const plan = await this.plansRepo.findOne({
-            where: { id: planId },
-        });
-
-        if (!plan) throw new BadRequestException('Plan not found');
-        if (!plan.isActive)
-            throw new BadRequestException('Selected plan is not active');
-
-        // 🔎 Check active subscription
-        const activeSubscription = await this.subscriptionsRepo.findOne({
-            where: {
-                userId,
-            },
-        });
-
-        if (activeSubscription) {
-            // 🔁 Update existing subscription
-            activeSubscription.planId = plan.id;
-            activeSubscription.price = plan.price;
-            activeSubscription.startDate = new Date();
-            activeSubscription.endDate = null;
-
-            await this.subscriptionsRepo.save(activeSubscription);
-        } else {
-            // ➕ Create new subscription
-            const subscription = this.subscriptionsRepo.create({
-                userId,
-                planId: plan.id,
-                price: plan.price,
-                status: SubscriptionStatus.ACTIVE,
-                startDate: new Date(),
-                adminId: this.isSuperAdmin(me) ? null : me.id,
-            });
-
-            await this.subscriptionsRepo.save(subscription);
-        }
-    }
 }

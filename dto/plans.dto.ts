@@ -1,6 +1,7 @@
+import { PartialType } from '@nestjs/mapped-types';
 import { Type } from 'class-transformer';
 import { IsString, IsNumber, IsArray, IsEnum, IsBoolean, IsOptional, Min, IsInt } from 'class-validator';
-import { TransactionPaymentMethod, PlanDuration, TransactionStatus } from 'entities/plans.entity';
+import { PlanColor, PlanDuration, PlanType, } from 'entities/plans.entity';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 /* =========================
@@ -11,69 +12,54 @@ export class CreatePlanDto {
 	@IsString()
 	name: string;
 
-	@IsNumber()
-	@Min(0)
-	price: number;
+	@IsOptional()
+	@IsEnum(PlanType)
+	type?: PlanType;
 
 	@IsEnum(PlanDuration)
 	duration: PlanDuration;
 
-	@IsString()
 	@IsOptional()
-	description?: string;
-
-	@IsArray()
-	@IsString({ each: true })
-	features: string[];
-
-	@IsString()
-	@IsOptional()
-	color?: string;
-
-	@IsBoolean()
-	@IsOptional()
-	isActive?: boolean;
-
-	@IsBoolean()
-	@IsOptional()
-	isPopular?: boolean;
+	@IsInt()
+	@Min(1)
+	durationIndays?: number;
 
 	@IsNumber()
+	@Min(0)
+	price: number;
+
 	@IsOptional()
-	adminId?: number;
+	@IsInt()
+	@Min(0)
+	includedOrders?: number | null; // null for unlimited
+
+	@IsOptional()
+	@IsNumber()
+	@Min(0)
+	extraOrderFee?: number;
 
 	@IsOptional()
 	@IsInt()
 	@Min(1)
-	usersLimit?: number;
+	usersLimit?: number | null;
 
 	@IsOptional()
 	@IsInt()
 	@Min(1)
+	storesLimit?: number | null;
+
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	shippingCompaniesLimit?: number | null;
+
+	@IsOptional()
+	@IsInt()
+	@Min(0)
 	bulkUploadPerMonth?: number;
 
 	@IsOptional()
-	@IsInt()
-	@Min(0)
-	shippingCompaniesLimit?: number;
-}
-
-export class UpdatePlanDto {
 	@IsString()
-	@IsOptional()
-	name?: string;
-
-	@IsNumber()
-	@Min(0)
-	@IsOptional()
-	price?: number;
-
-	@IsEnum(PlanDuration)
-	@IsOptional()
-	duration?: PlanDuration;
-
-	@IsString()
-	@IsOptional()
 	description?: string;
 
 	@IsArray()
@@ -85,29 +71,17 @@ export class UpdatePlanDto {
 	@IsOptional()
 	color?: string;
 
-	@IsBoolean()
 	@IsOptional()
+	@IsBoolean()
 	isActive?: boolean;
 
+	@IsOptional()
 	@IsBoolean()
-	@IsOptional()
 	isPopular?: boolean;
+}
 
+export class UpdatePlanDto extends PartialType(CreatePlanDto) {
 
-	@IsOptional()
-	@IsInt()
-	@Min(1)
-	bulkUploadPerMonth?: number;
-
-	@IsOptional()
-	@IsInt()
-	@Min(1)
-	usersLimit?: number;
-
-	@IsOptional()
-	@IsInt()
-	@Min(0)
-	shippingCompaniesLimit?: number;
 
 }
 
@@ -132,8 +106,8 @@ export class ManualCreateTransactionDto {
 	@Type(() => Number)
 	subscriptionId: number;
 
-	@IsEnum(TransactionPaymentMethod)
-	paymentMethod: TransactionPaymentMethod;
+	@IsString()
+	paymentMethod: string;
 
 	@IsOptional()
 	@IsString()

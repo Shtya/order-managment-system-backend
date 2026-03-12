@@ -6,7 +6,7 @@ import { Asset } from '../entities/assets.entity';
 import { CategoryEntity } from '../entities/categories.entity';
 import { StoreEntity } from '../entities/stores.entity';
 import { WarehouseEntity } from '../entities/warehouses.entity';
-import { Plan, Transaction } from '../entities/plans.entity';
+import { Plan } from '../entities/plans.entity';
 import { OrderAssignmentEntity, OrderEntity, OrderItemEntity, OrderMessageEntity, OrderStatus, OrderStatusEntity, OrderStatusHistoryEntity } from '../entities/order.entity';
 import { BundleEntity, BundleItemEntity } from '../entities/bundle.entity';
 import { PurchaseReturnInvoiceEntity, PurchaseReturnInvoiceItemEntity } from '../entities/purchase_return.entity';
@@ -15,6 +15,7 @@ import { SalesInvoiceEntity, SalesInvoiceItemEntity } from '../entities/sales_in
 import { ProductEntity, ProductVariantEntity } from '../entities/sku.entity';
 import { SupplierEntity, SupplierCategoryEntity } from '../entities/supplier.entity';
 import { ShippingCompanyEntity } from '../entities/shipping.entity';
+import { TransactionEntity } from 'entities/payments.entity';
 
 
 /**
@@ -31,7 +32,7 @@ const dataSource = new DataSource({
 	database: process.env.DATABASE_NAME,
 
 	// ⚠️ لازم كل الـ entities
-	entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity, BundleEntity, SalesInvoiceItemEntity, ProductEntity, ProductVariantEntity, SalesInvoiceEntity, PurchaseInvoiceItemEntity, PurchaseReturnInvoiceItemEntity, PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, BundleItemEntity, Asset, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity, OrderEntity, OrderStatusEntity, OrderItemEntity,
+	entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity, BundleEntity, SalesInvoiceItemEntity, ProductEntity, ProductVariantEntity, SalesInvoiceEntity, PurchaseInvoiceItemEntity, PurchaseReturnInvoiceItemEntity, PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, BundleItemEntity, Asset, Plan, TransactionEntity, CategoryEntity, StoreEntity, WarehouseEntity, OrderEntity, OrderStatusEntity, OrderItemEntity,
 		OrderStatusHistoryEntity, OrderMessageEntity, ShippingCompanyEntity, OrderAssignmentEntity
 	],
 

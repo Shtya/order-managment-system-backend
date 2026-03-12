@@ -10,9 +10,10 @@ import {
 	Relation,
 	OneToOne,
 } from 'typeorm';
-import { Plan, Subscription } from './plans.entity';
+import { Plan, Subscription, SubscriptionStatus } from './plans.entity';
 import { Asset } from './assets.entity';
 import { OrderAssignmentEntity } from './order.entity';
+import { PaymentSessionEntity, Wallet } from './payments.entity';
 
 /* =========================
  * Roles
@@ -115,13 +116,6 @@ export class User {
 	@JoinColumn({ name: 'adminId' })
 	admin?: User | null;
 
-	// @Column({ type: 'int', nullable: true })
-	// planId?: number | null;
-
-	// @ManyToOne(() => Plan, (plan) => plan.users, { nullable: true })
-	// @JoinColumn({ name: 'planId' })
-	// plan?: Relation<Plan> | null;
-
 	@Column({ default: true })
 	isActive: boolean;
 
@@ -151,12 +145,17 @@ export class User {
 	@OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.employee)
 	assignments: OrderAssignmentEntity[];
 
-	@OneToOne(() => Subscription, (subscription) => subscription.user, {
-		nullable: true,
-		cascade: true, // optional: allow automatic insert/update
-		onDelete: 'SET NULL',
+	@OneToMany(() => Subscription, (subscription) => subscription.user, {
+		cascade: true, // Allows saving subscriptions when saving a user
 	})
-	subscription?: Relation<Subscription>;
+	subscriptions: Relation<Subscription>[];
+
+	get activeSubscription(): Subscription | null {
+		if (!this.subscriptions || this.subscriptions.length === 0) {
+			return null;
+		}
+		return this.subscriptions.find(s => s.status === SubscriptionStatus.ACTIVE) || null;
+	}
 
 	@Column({
 		type: 'enum',
@@ -191,6 +190,12 @@ export class User {
 	@Column({ type: 'int', default: 0 })
 	newEmailOtpAttempts: number;
 
+	@OneToMany(() => PaymentSessionEntity, (session) => session.user)
+	paymentSessions: PaymentSessionEntity[];
+
+	// 🔗 Relation to Wallet
+	@OneToOne(() => Wallet, (wallet) => wallet.user, { cascade: true })
+	wallet: Relation<Wallet>;
 	@CreateDateColumn()
 	createdAt: Date;
 
@@ -246,6 +251,7 @@ export class PendingUser {
 	@JoinColumn({ name: 'roleId' })
 	role: Role;
 
+
 	@CreateDateColumn()
 	createdAt: Date;
 
@@ -295,3 +301,4 @@ export class Company {
 	@Column({ type: 'varchar', nullable: true })
 	businessType: string;
 }
+

@@ -47,18 +47,6 @@ export class TransactionsController {
 		return this.transactions.cancel(req.user, id);
 	}
 
-	// ✅ Super Admin: Manual Create Completed Transaction
-	@Permissions('transactions.create')
-	@Post('manual')
-	manualCreateCompletedTransaction(
-		@Req() req: any,
-		@Body() dto: ManualCreateTransactionDto,
-	) {
-		return this.transactions.manualCreateCompletedTransaction(
-			req.user,
-			dto,
-		);
-	}
 
 	@Permissions("transactions.read") // تأكد من مطابقة اسم الصلاحية لديك
 	@Get("export")

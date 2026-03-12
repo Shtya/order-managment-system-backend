@@ -1,5 +1,6 @@
 
 import { endOfDay, endOfMonth, startOfDay, startOfMonth, startOfWeek, startOfYear, subDays, subMonths } from 'date-fns';
+import { PlanDuration } from 'entities/plans.entity';
 
 import { unlink } from 'fs/promises';
 import { join } from 'path';
@@ -46,6 +47,46 @@ export async function deletePhysicalFiles(urls: string[]) {
         } catch (err) {
             // Log error but don't crash; the DB record is already gone
             console.error(`Cleanup failed for ${url}:`, err.message);
+        }
+    }
+}
+
+export const defaultCurrency = process.env.DEFAULT_CURRENCY || 'EGP'
+
+
+export class SubscriptionUtils {
+    private static readonly MONTH_IN_DAYS = 30;
+
+    /**
+     * Calculates the expiration date based on plan duration.
+     * @param startDate The date the subscription starts (usually 'now')
+     * @param duration The PlanDuration enum
+     * @param customDays Optional days for CUSTOM/TRIAL plans
+     */
+    static calculateEndDate(startDate: Date, duration: PlanDuration, customDays?: number | null): Date | null {
+        const endDate = new Date(startDate);
+
+        switch (duration) {
+            case PlanDuration.MONTHLY:
+                endDate.setDate(endDate.getDate() + this.MONTH_IN_DAYS);
+                return endDate;
+
+            case PlanDuration.YEARLY:
+                endDate.setFullYear(endDate.getFullYear() + 1);
+                return endDate;
+
+            case PlanDuration.CUSTOM:
+                if (customDays) {
+                    endDate.setDate(endDate.getDate() + customDays);
+                    return endDate;
+                }
+                return null;
+
+            case PlanDuration.LIFETIME:
+                return null;
+
+            default:
+                return null;
         }
     }
 }

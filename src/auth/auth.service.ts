@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Company, PendingUser, Role, SystemRole, User } from 'entities/user.entity';
@@ -9,6 +9,8 @@ import { FirebaseService } from './firebase.service';
 import { MailService } from '../../common/nodemailer';
 import { Response } from 'express';
 import { RegisterDto } from 'dto/auth.dto';
+import { SubscriptionStatus } from 'entities/plans.entity';
+import { UsersService } from 'src/users/users.service';
 
 @Injectable()
 export class AuthService {
@@ -20,15 +22,17 @@ export class AuthService {
 		private jwt: JwtService,
 		private mail: MailService,
 		private firebase: FirebaseService,
+		@Inject(forwardRef(() => UsersService))
+		private usersService: UsersService,
 	) { }
 
 	RESEND_COOLDOWN_SECONDS = 60;
 
-	// ✅ UPDATED: Include plan in JWT response
-	// ✅ UPDATED: Include plan in JWT response
-	private async sign(user: User) {
-
-		const plan = user?.subscription?.plan ?? null;
+	public async sign(user: User) {
+		// 1. Find the active subscription from the history array
+		const activeSub = user.subscriptions?.find(
+			(sub) => sub.status === SubscriptionStatus.ACTIVE
+		) ?? null;
 
 		return {
 			accessToken: this.jwt.sign({ sub: user.id }),
@@ -41,16 +45,25 @@ export class AuthService {
 				adminId: user.adminId,
 				onboardingStatus: user.onboardingStatus,
 				currentOnboardingStep: user.currentOnboardingStep,
-				plan: plan
+
+				plan: activeSub
 					? {
-						id: plan.id,
-						name: plan.name,
-						price: Number(plan.price),
-						duration: plan.duration,
-						features: plan.features,
-						color: plan.color,
-						status: user?.subscription?.status ?? null,
-						startDate: user?.subscription?.startDate ?? null
+						id: activeSub.planId, // ID of the plan at time of signup
+						name: activeSub.plan.name, // Snapshot name (e.g., "باقة النمو")
+						type: activeSub.planType,
+						price: Number(activeSub.price),
+						includedOrders: activeSub.includedOrders,
+						usedOrders: activeSub.usedOrders,
+						extraOrderFee: Number(activeSub.extraOrderFee),
+						status: activeSub.status,
+						startDate: activeSub.startDate,
+						endDate: activeSub.endDate,
+						// Limits
+						usersLimit: activeSub.usersLimit,
+						storesLimit: activeSub.storesLimit,
+						shippingCompaniesLimit: activeSub.shippingCompaniesLimit,
+						// Features (if you didn't snapshot features array, you might still pull from activeSub.plan if relation loaded)
+						features: activeSub.plan?.features ?? [],
 					}
 					: null,
 			},
@@ -64,7 +77,6 @@ export class AuthService {
 	private hashOtp(otp: string) {
 		return crypto.createHash('sha256').update(otp).digest('hex');
 	}
-
 
 	async register(registerDto: RegisterDto) {
 		const { name, email, password, phone, companyName, businessType } = registerDto;
@@ -210,15 +222,7 @@ export class AuthService {
 		});
 
 		// 6. Fetch full user with relations for the token (Plan, Roles, etc.)
-		const fullUser = await this.usersRepo.findOneOrFail({
-			where: { id: result.id },
-			relations: {
-				role: true,
-				subscription: {
-					plan: true
-				}
-			},
-		});
+		const fullUser = await this.usersService.getFullUser(result.id)
 
 		// 7. Sign and return the user (Login them in automatically)
 		return this.sign(fullUser);
@@ -262,14 +266,8 @@ export class AuthService {
 
 	// ✅ UPDATED: Include plan relation on login
 	async login(email: string, password: string) {
-		const user = await this.usersRepo.findOne({
-			where: { email },
-			relations: {
-				role: true, subscription: {
-					plan: true
-				}
-			}, // ✅ Include plan
-		});
+
+		const user = await this.usersService.getFullUserByEmail(email);
 
 		if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
 
@@ -384,18 +382,10 @@ export class AuthService {
 		await this.usersRepo.save(user);
 
 		// ✅ UPDATED: Include plan
-		const full = await this.usersRepo.findOneOrFail({
-			where: { id: user.id },
-			relations: {
-				role: true, subscription: {
-					plan: true
-				}
-			},
-		});
-
+		const fullUser = await this.usersService.getFullUser(user.id);
 		return {
 			message: 'Password updated successfully',
-			...this.sign(full),
+			...this.sign(fullUser),
 		};
 	}
 
@@ -406,14 +396,7 @@ export class AuthService {
 		const email = decoded.email;
 		if (!email) throw new UnauthorizedException('Google account has no email');
 
-		let user = await this.usersRepo.findOne({
-			where: { email },
-			relations: {
-				role: true, subscription: {
-					plan: true
-				}
-			}, // ✅ Include plan
-		});
+		let user = await this.usersService.getFullUserByEmail(email)
 
 		if (!user) {
 			const userRole = await this.rolesRepo.findOne({ where: { name: SystemRole.USER } });
@@ -434,14 +417,7 @@ export class AuthService {
 
 			await this.usersRepo.save(user);
 
-			user = await this.usersRepo.findOneOrFail({
-				where: { id: user.id },
-				relations: {
-					role: true, subscription: {
-						plan: true
-					}
-				},
-			});
+			user = await this.usersService.getFullUser(user.id)
 		}
 
 		if (!user.isActive) throw new UnauthorizedException('Account is inactive');
@@ -473,14 +449,23 @@ export class AuthService {
 
 		if (!email) throw new UnauthorizedException('Google account has no email');
 
-		let user = await this.usersRepo.findOne({
-			where: { email },
-			relations: {
-				role: true, subscription: {
-					plan: true
-				}
-			}, // ✅ Include plan
-		});
+		let user = await this.usersRepo.createQueryBuilder('user')
+			// Join Role
+			.leftJoinAndSelect('user.role', 'role')
+
+			// Join only the ACTIVE subscription
+			.leftJoinAndSelect(
+				'user.subscriptions',
+				'subscription',
+				'subscription.status = :status',
+				{ status: SubscriptionStatus.ACTIVE }
+			)
+
+			// Join the Plan details for that active subscription
+			.leftJoinAndSelect('subscription.plan', 'plan')
+
+			.where('user.email = :email', { email })
+			.getOne();
 
 		if (!user) {
 			const userRole = await this.rolesRepo.findOne({ where: { name: SystemRole.ADMIN } });
@@ -502,14 +487,8 @@ export class AuthService {
 
 			await this.usersRepo.save(user);
 
-			user = await this.usersRepo.findOneOrFail({
-				where: { id: user.id },
-				relations: {
-					role: true, subscription: {
-						plan: true
-					}
-				},
-			});
+			user = await this.usersService.getFullUser(user.id)
+
 		}
 
 		if (!user.isActive) throw new UnauthorizedException('Account is inactive');
@@ -521,14 +500,7 @@ export class AuthService {
 	}
 
 	async signUser(id) {
-		const user = await this.usersRepo.findOne({
-			where: { id },
-			relations: {
-				role: true, subscription: {
-					plan: true
-				}
-			}, // ✅ Include plan
-		});
+		const user = await this.usersService.getFullUser(id);
 
 		if (!user) throw new NotFoundException('User not found');
 
@@ -587,10 +559,8 @@ export class AuthService {
 
 	// Step 2: Verify OTP and apply Email Change
 	async verifyEmailChange(userId: number, otp: string) {
-		const user = await this.usersRepo.findOne({
-			where: { id: userId },
-			relations: { role: true, subscription: { plan: true } }
-		});
+
+		const user = await this.usersService.getFullUser(userId)
 
 		if (!user || !user.pendingNewEmail) {
 			throw new BadRequestException('No pending email change request found');

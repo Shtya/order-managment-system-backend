@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from 'entities/user.entity';
+import { SubscriptionStatus } from 'entities/plans.entity';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -17,14 +18,24 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 	}
 
 	async validate(payload: { sub: number }) {
-		const user = await this.usersRepo.findOne({
-			where: { id: payload.sub },
-			relations: {
-				role: true, subscription: {
-					plan: true
-				}
-			} // أو ['role']
-		});
+
+		const user = await this.usersRepo.createQueryBuilder('user')
+			// Join Role
+			.leftJoinAndSelect('user.role', 'role')
+
+			// Join only the ACTIVE subscription
+			.leftJoinAndSelect(
+				'user.subscriptions',
+				'subscription',
+				'subscription.status = :status',
+				{ status: SubscriptionStatus.ACTIVE }
+			)
+
+			// Join the Plan details for that active subscription
+			.leftJoinAndSelect('subscription.plan', 'plan')
+
+			.where('user.id = :userId', { userId: payload.sub })
+			.getOne();
 
 
 		if (!user || !user.isActive) throw new UnauthorizedException('Invalid user');

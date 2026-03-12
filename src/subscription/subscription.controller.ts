@@ -27,14 +27,29 @@ export class SubscriptionsController {
     constructor(private subscriptions: SubscriptionsService) { }
 
     // ✅ List subscriptions
-    @Permissions('subscriptions.read')
     @Get()
     list(@Req() req: any, @Query() q?: any) {
         return this.subscriptions.list(req.user, q);
     }
 
+
+    @Permissions("subscriptions.read") // تأكد من مطابقة اسم الصلاحية لديك
+    @Get("export")
+    async export(@Req() req: any, @Query() q: any, @Res() res: Response) {
+        // استدعاء دالة التصدير الجديدة
+        const buffer = await this.subscriptions.exportSubscriptions(req.user, q);
+
+        const filename = `subscriptions_report_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+
+        return res.send(buffer);
+    }
+
+
     // ✅ Get subscription by ID
-    @Permissions('subscriptions.read')
+
     @Get(':id')
     get(@Req() req: any, @Param('id') id: string) {
         return this.subscriptions.get(req.user, Number(id))
@@ -53,36 +68,52 @@ export class SubscriptionsController {
         );
     }
 
-    @Permissions('subscriptions.create')
-    @Post("mock")
-    createMockSubscription(
+    @Permissions('subscriptions.update')
+    @Put(':id') // subscription ID in URL
+    updateSubscription(
+        @Req() req: any,
+        @Param('id') id: string,
+        @Body() dto: UpdateSubscriptionDto,
+    ) {
+        return this.subscriptions.updateSubscription(req.user, Number(id), dto);
+    }
+
+
+    // @Permissions('subscriptions.create')
+    // @Post("mock")
+    // createMockSubscription(
+    //     @Req() req: any,
+    //     @Body() dto: { planId },
+    // ) {
+    //     return this.subscriptions.createMockSubscription(
+    //         req.user,
+    //         dto,
+    //     );
+    // }
+    @Post("subscribe")
+    subscribe(
         @Req() req: any,
         @Body() dto: { planId },
     ) {
-        return this.subscriptions.createMockSubscription(
+        return this.subscriptions.subscribe(
             req.user,
-            dto,
+            dto.planId,
         );
     }
 
-    @Permissions("subscriptions.read") // تأكد من مطابقة اسم الصلاحية لديك
-    @Get("export")
-    async export(@Req() req: any, @Query() q: any, @Res() res: Response) {
-        // استدعاء دالة التصدير الجديدة
-        const buffer = await this.subscriptions.exportSubscriptions(req.user, q);
-
-        const filename = `subscriptions_report_${new Date().toISOString().split('T')[0]}.xlsx`;
-
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-
-        return res.send(buffer);
+    @Post("cancel/:id")
+    async cancelSubscription(
+        @Req() req: any,
+        @Param('id', ParseIntPipe) subscriptionId: number,
+    ) {
+        return await this.subscriptions.cancelSubscription(
+            req.user,
+            subscriptionId,
+        );
     }
 
 
-
     // ✅ Admin get active subscription for specific user
-    @Permissions('subscriptions.read')
     @Get('admin/:userId/active')
     getActiveSubscriptionForAdmin(
         @Req() req: any,
@@ -95,28 +126,17 @@ export class SubscriptionsController {
     }
 
     // ✅ Get my active subscription
-    @Permissions('subscriptions.read')
     @Get('me/active')
     getMyActiveSubscription(@Req() req: any) {
         return this.subscriptions.getMyActiveSubscription(req.user);
     }
 
     // ✅ Get subscription statistics
-    @Permissions('subscriptions.read')
     @Get('statistics/overview')
     getSubscriptionStatistics(@Req() req: any) {
         return this.subscriptions.getSubscriptionStatistics(req.user);
     }
 
-    @Permissions('subscriptions.update')
-    @Put(':id') // subscription ID in URL
-    updateSubscription(
-        @Req() req: any,
-        @Param('id') id: string,
-        @Body() dto: UpdateSubscriptionDto,
-    ) {
-        return this.subscriptions.updateSubscription(req.user, Number(id), dto);
-    }
 
     // ✅ Update subscription status
     @Permissions('subscriptions.update')
@@ -132,5 +152,6 @@ export class SubscriptionsController {
             status,
         );
     }
+
 
 }

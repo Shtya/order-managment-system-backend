@@ -1,8 +1,20 @@
-import { Column, CreateDateColumn, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
 
+export enum NotificationType {
+    ORDER_STATUS_UPDATE = 'order_status_update',
+    SUBSCRIPTION_ACTIVATED = 'subscription_activated',
+    SUBSCRIPTION_CANCELLED = 'subscription_cancelled',
+    FEATURE_ACTIVATED = 'feature_activated',
+    WALLET_TOP_UP = 'wallet_top_up',
+    WALLET_CREDIT = 'wallet_credit',
+    SYSTEM_ALERT = 'system_alert',
+    PAYMENT_FAILED = 'payment_failed',
+}
 
 @Entity('notifications')
+@Index(['userId', 'type', 'isRead'])
+@Index(['userId', 'isRead'])
 export class Notification {
     @PrimaryGeneratedColumn()
     id: number;
@@ -15,8 +27,11 @@ export class Notification {
     @Column({ name: 'user_id' })
     userId: number;
 
-    @Column()
-    type: string;
+    @Column({
+        type: 'enum',
+        enum: NotificationType,
+    })
+    type: NotificationType; // 👈 Changed from string to Enum
 
     @Column()
     title: string;
