@@ -8,12 +8,13 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { SystemRole, User } from 'entities/user.entity';
 import { Between, Repository } from 'typeorm';
 import { CreatePlanDto, UpdatePlanDto } from 'dto/plans.dto';
-import { Plan } from 'entities/plans.entity';
+import { Plan, PlanType, Subscription, SubscriptionStatus } from 'entities/plans.entity';
 
 @Injectable()
 export class PlansService {
 	constructor(
 		@InjectRepository(Plan) private plansRepo: Repository<Plan>,
+		@InjectRepository(Subscription) private subscriptionRepo: Repository<Subscription>,
 		@InjectRepository(User) private usersRepo: Repository<User>,
 	) { }
 
@@ -77,87 +78,111 @@ export class PlansService {
 
 	// ✅ Create Plan
 	async create(me: User, dto: CreatePlanDto) {
-		// Only super admin and admin can create plans
-		if (!(this.isSuperAdmin(me) || this.isAdmin(me))) {
-			throw new ForbiddenException('Not allowed');
+		// 1. Authorization Check
+		if (!this.isSuperAdmin(me)) {
+			throw new ForbiddenException('Only Super Admins can create global plans');
 		}
 
-		// Check if plan name already exists
+		// 2. Conflict Check
 		const exists = await this.plansRepo.findOne({ where: { name: dto.name } });
 		if (exists) throw new BadRequestException('Plan name already exists');
 
+		// 3. Entity Creation
 		const plan = this.plansRepo.create({
-			name: dto.name,
-			price: dto.price,
+			name: dto.name?.trim(),
+			type: dto.type ?? PlanType.STANDARD,
 			duration: dto.duration,
-			description: dto.description,
+			//
+			durationIndays: dto.durationIndays !== undefined ? dto.durationIndays : null,
+
+
+			price: dto.price,
+			extraOrderFee: dto.extraOrderFee !== undefined ? dto.extraOrderFee : null,
+
+
+			includedOrders: dto.includedOrders !== undefined ? dto.includedOrders : null,
+			usersLimit: dto.usersLimit !== undefined ? dto.usersLimit : 1,
+			storesLimit: dto.storesLimit !== undefined ? dto.storesLimit : 1,
+			shippingCompaniesLimit: dto.shippingCompaniesLimit !== undefined ? dto.shippingCompaniesLimit : 0,
+			bulkUploadPerMonth: dto.bulkUploadPerMonth ?? 0,
+
+			description: dto.description?.trim(),
 			features: dto.features || [],
 			color: dto.color || 'from-blue-500 to-blue-600',
-			isActive: dto.isActive !== undefined ? dto.isActive : true,
-			isPopular: dto.isPopular,
-			usersLimit: dto.usersLimit ?? 1,
-			shippingCompaniesLimit: dto.shippingCompaniesLimit ?? 0,
-			bulkUploadPerMonth: dto.bulkUploadPerMonth ?? 0,
-			adminId: this.isSuperAdmin(me) ? null : me.id,
+			isActive: dto.isActive ?? true,
+			isPopular: dto.isPopular ?? false,
+			adminId: null,
 		});
 
 		return this.plansRepo.save(plan);
 	}
-
+	// ✅ Update Plan
 	// ✅ Update Plan
 	async update(me: User, id: number, dto: UpdatePlanDto) {
 		const plan = await this.get(me, id);
 
-		// Only owner or super admin can update
+		// 1. Authorization: Only Super Admin or the Plan Owner can update
 		if (!this.isSuperAdmin(me) && plan.adminId !== me.id) {
 			throw new ForbiddenException('Not your plan');
 		}
 
-		// Check name uniqueness if changing name
-		if (dto.name && dto.name !== plan.name) {
-			const exists = await this.plansRepo.findOne({ where: { name: dto.name } });
+		// 2. Uniqueness Check if name is changing
+		if (dto.name && dto.name.trim() !== plan.name) {
+			const exists = await this.plansRepo.findOne({
+				where: { name: dto.name.trim() }
+			});
 			if (exists) throw new BadRequestException('Plan name already exists');
 		}
 
-		// Update fields
-		if (dto.name !== undefined) plan.name = dto.name;
-		if (dto.price !== undefined) plan.price = dto.price;
+		// 3. Manual Property Mapping (Explicit assignment)
+
+		// Identity & Type
+		if (dto.name !== undefined) plan.name = dto.name.trim();
+		if (dto.type !== undefined) plan.type = dto.type;
 		if (dto.duration !== undefined) plan.duration = dto.duration;
-		if (dto.description !== undefined) plan.description = dto.description;
+		if (dto.durationIndays !== undefined) plan.durationIndays = dto.durationIndays;
+
+		// Pricing Logic
+		if (dto.price !== undefined) plan.price = dto.price;
+		if (dto.extraOrderFee !== undefined) plan.extraOrderFee = dto.extraOrderFee;
+
+		// Limits
+		if (dto.includedOrders !== undefined) plan.includedOrders = dto.includedOrders;
+		if (dto.usersLimit !== undefined) plan.usersLimit = dto.usersLimit;
+		if (dto.storesLimit !== undefined) plan.storesLimit = dto.storesLimit;
+		if (dto.shippingCompaniesLimit !== undefined) plan.shippingCompaniesLimit = dto.shippingCompaniesLimit;
+		if (dto.bulkUploadPerMonth !== undefined) plan.bulkUploadPerMonth = dto.bulkUploadPerMonth;
+
+		// Metadata & UI
+		if (dto.description !== undefined) plan.description = dto.description.trim();
 		if (dto.features !== undefined) plan.features = dto.features;
 		if (dto.color !== undefined) plan.color = dto.color;
 		if (dto.isActive !== undefined) plan.isActive = dto.isActive;
 		if (dto.isPopular !== undefined) plan.isPopular = dto.isPopular;
-		if (dto.usersLimit !== undefined) plan.usersLimit = dto.usersLimit;
-		if (dto.bulkUploadPerMonth !== undefined) plan.bulkUploadPerMonth = dto.bulkUploadPerMonth;
-		if (dto.shippingCompaniesLimit !== undefined)
-			plan.shippingCompaniesLimit = dto.shippingCompaniesLimit;
 
-		return this.plansRepo.save(plan);
+		return await this.plansRepo.save(plan);
 	}
 
+	// ✅ Delete Plan
 	// ✅ Delete Plan
 	async remove(me: User, id: number) {
 		const plan = await this.get(me, id);
 
-		// Only owner or super admin can delete
+		// 1. Authorization Check: Only owner or super admin
 		if (!this.isSuperAdmin(me) && plan.adminId !== me.id) {
 			throw new ForbiddenException('Not your plan');
 		}
 
-		// Check if plan has active transactions
-		const activeTransactions = await this.plansRepo
-			.createQueryBuilder('p')
-			.innerJoin('p.transactions', 't')
-			.where('p.id = :planId', { planId: id })
-			.andWhere('t.status IN (:...statuses)', {
-				statuses: ['نشط', 'تحويل جاري'],
-			})
-			.getCount();
+		const activeSubscriptionCount = await this.subscriptionRepo.count({
+			where: {
+				planId: id,
+				status: SubscriptionStatus.ACTIVE
+			}
+		});
 
-		if (activeTransactions > 0) {
+		if (activeSubscriptionCount > 0) {
 			throw new BadRequestException(
-				'Cannot delete plan with active transactions. Deactivate it instead.',
+				`Cannot delete plan. There are ${activeSubscriptionCount} users currently using this plan. Please deactivate it instead so new users cannot join.`
 			);
 		}
 

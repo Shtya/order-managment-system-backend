@@ -1,6 +1,8 @@
 
-import { IsEnum, IsInt, IsOptional, IsNumber } from 'class-validator';
-import { TransactionPaymentMethod, SubscriptionStatus } from 'entities/plans.entity';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
+import { IsEnum, IsInt, IsOptional, IsNumber, IsString, Min } from 'class-validator';
+import { PlanDuration, SubscriptionStatus } from 'entities/plans.entity';
+
 
 
 export class CreateSubscriptionDto {
@@ -13,30 +15,57 @@ export class CreateSubscriptionDto {
     @IsEnum(SubscriptionStatus)
     status: SubscriptionStatus;
 
+    @IsEnum(PlanDuration)
+    duration: PlanDuration;
+
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    durationIndays?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    includedOrders?: number | null; // null for unlimited
+
+    @IsOptional()
+    @IsNumber()
+    @Min(0)
+    extraOrderFee?: number | null;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    usersLimit?: number | null;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    storesLimit?: number | null;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    shippingCompaniesLimit?: number | null;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    bulkUploadPerMonth?: number;
+
     @IsOptional()
     @IsNumber()
     price?: number; // amount actually paid
 
-    @IsOptional()
-    payed?: boolean; // true if already paid
 
     @IsOptional()
-    @IsEnum(TransactionPaymentMethod)
-    paymentMethod?: TransactionPaymentMethod;
+    @IsString()
+    paymentMethod?: string;
 
 }
 
 
-export class UpdateSubscriptionDto {
-    @IsOptional()
-    @IsInt({ message: 'planId must be an integer' })
-    planId?: number;
-
-    @IsOptional()
-    @IsNumber()
-    price?: number; // amount actually paid
-
-    @IsOptional()
-    @IsEnum(SubscriptionStatus, { message: 'status must be a valid SubscriptionStatus' })
-    status?: SubscriptionStatus;
-}
+export class UpdateSubscriptionDto extends PartialType(
+    OmitType(CreateSubscriptionDto, ['userId'] as const)
+) { }

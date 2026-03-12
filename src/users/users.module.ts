@@ -10,5 +10,6 @@ import { SubscriptionsModule } from 'src/subscription/subscription.module';
   imports: [forwardRef(() => SubscriptionsModule), TypeOrmModule.forFeature([User, Role, Plan, Subscription, Company])],
   providers: [UsersService],
   controllers: [UsersController],
+  exports: [UsersService]
 })
 export class UsersModule { }

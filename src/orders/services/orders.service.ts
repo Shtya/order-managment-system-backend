@@ -37,7 +37,7 @@ import {
 import { User } from "entities/user.entity";
 import { BulkUploadUsage } from "dto/plans.dto";
 
-import { Notification } from "entities/notifications.entity";
+import { Notification, NotificationType } from "entities/notifications.entity";
 import { StoreEntity } from "entities/stores.entity";
 import { ShippingCompanyEntity, ShippingIntegrationEntity } from "entities/shipping.entity";
 import { SubscriptionStatus } from "entities/plans.entity";
@@ -1075,7 +1075,7 @@ export class OrdersService {
         notificationPromises.push(
           manager.save(Notification, {
             userId: adminId, // Ensure this maps to the actual Admin User ID
-            type: 'ORDER_STATUS_UPDATE',
+            type: NotificationType.ORDER_STATUS_UPDATE,
             title: `Order #${savedOrder.orderNumber} Updated`,
             message: `Status changed to "${newStatus.name}" by ${me.name || 'Staff'}.`,
             relatedEntityType: 'Order',
@@ -1089,7 +1089,7 @@ export class OrdersService {
       notificationPromises.push(
         manager.save(Notification, {
           userId: activeAssignment.employeeId,
-          type: 'ORDER_STATUS_UPDATE',
+          type: NotificationType.ORDER_STATUS_UPDATE,
           title: `Assignment Updated`,
           message: `Your assigned order #${savedOrder.orderNumber} is now "${newStatus.name}".`,
           relatedEntityType: 'Order',
@@ -1570,7 +1570,7 @@ export class OrdersService {
       .where('user.id = :id', { id: adminId })
       .getOne();
 
-    if (!admin?.subscription) throw new ForbiddenException("No active plan found");
+    if (!admin?.activeSubscription) throw new ForbiddenException("No active plan found");
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as any);
@@ -1578,7 +1578,7 @@ export class OrdersService {
     const rowCount = sheet.rowCount - 1; // Subtract header
 
     const usage = await this.getUsageTracker(adminId);
-    const limit = admin.subscription?.plan.bulkUploadPerMonth;
+    const limit = admin.activeSubscription?.plan.bulkUploadPerMonth;
 
     if (usage.count + rowCount > limit) {
       throw new BadRequestException(

@@ -8,17 +8,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { SystemRole, User } from 'entities/user.entity';
 import { DataSource, Repository } from 'typeorm';
 import * as ExcelJS from "exceljs";
-import { Plan, Subscription, SubscriptionStatus, Transaction, TransactionStatus } from 'entities/plans.entity';
-import { ManualCreateTransactionDto } from 'dto/plans.dto';
 import { imageSrc } from 'common/healpers';
+import { TransactionEntity, TransactionStatus } from 'entities/payments.entity';
 
 
 @Injectable()
 export class TransactionsService {
 	constructor(
-		private dataSource: DataSource,
-		@InjectRepository(Transaction) private transactionsRepo: Repository<Transaction>,
-		@InjectRepository(User) private usersRepo: Repository<User>,
+		@InjectRepository(TransactionEntity) private transactionsRepo: Repository<TransactionEntity>,
 	) { }
 
 	// ✅ Check if user is super admin
@@ -39,7 +36,7 @@ export class TransactionsService {
 		//
 		const lastTransaction = await this.transactionsRepo
 			.createQueryBuilder("t")
-			.where("t.adminId = :adminId", { adminId })
+			.where("t.userId = :adminId", { adminId })
 			.andWhere("t.number LIKE :prefix", { prefix: `${prefix}%` })
 			.orderBy("t.id", "DESC")
 			.getOne();
@@ -68,22 +65,27 @@ export class TransactionsService {
 			.createQueryBuilder('t')
 			.leftJoinAndSelect('t.user', 'user')
 			.leftJoinAndSelect('t.subscription', 'sub')
-			.leftJoinAndSelect('sub.plan', 'plan');
+			.leftJoinAndSelect('sub.plan', 'plan')
 
-		// --- Role-based access ---
-		if (this.isAdmin(me)) {
-			qb.where(
-				'(sub."adminId" = :meId OR sub."userId" IN (SELECT id FROM users WHERE "adminId" = :meId))',
-				{ meId: me.id },
-			);
-		} else if (!this.isSuperAdmin(me)) {
-			qb.where('sub.userId = :meId', { meId: me.id });
+			.leftJoinAndSelect('t.userFeature', 'userFeature')
+			.leftJoinAndSelect('userFeature.feature', 'feature');
+
+
+		if (!this.isSuperAdmin(me)) {
+			qb.where('t.userId = :meId', { meId: me.id });
+		}
+		const allowedPurposes = q?.allowedPurposes;
+		if (allowedPurposes && Array.isArray(allowedPurposes) && allowedPurposes.length > 0) {
+			qb.andWhere('t.purpose IN (:...allowedPurposes)', { allowedPurposes });
 		}
 
 		// --- Filters ---
 		if (q?.status) qb.andWhere('t.status = :status', { status: q.status });
 		if (q?.userId) qb.andWhere('t.userId = :userId', { userId: q.userId });
 		if (q?.planId) qb.andWhere('sub.planId = :planId', { planId: q.planId });
+
+		if (q?.purpose) qb.andWhere('t.purpose = :purpose', { purpose: q.purpose });
+
 
 		// Search by user name/email or plan name
 		if (search) {
@@ -142,12 +144,6 @@ export class TransactionsService {
 			return transaction;
 		}
 
-		// Admin: can see transactions where transaction.adminId === adminId
-		if (this.isAdmin(me)) {
-			const user = await this.usersRepo.findOne({ where: { id: transaction.userId } });
-			if (user && user.adminId === me.id) return transaction;
-			throw new ForbiddenException('Not your transaction');
-		}
 
 		// Regular user: only their own transactions
 		if (transaction.userId === me.id) return transaction;
@@ -156,53 +152,60 @@ export class TransactionsService {
 	}
 
 	// ✅ Get Transaction Statistics (for admin)
+	// ✅ Get Transaction Statistics
 	async getStatistics(me: User) {
-		if (!(this.isSuperAdmin(me) || this.isAdmin(me))) {
+		// 1. Authorization Check
+		if (!this.isSuperAdmin(me) && !this.isAdmin(me)) {
 			throw new ForbiddenException('Not allowed');
 		}
 
 		const qb = this.transactionsRepo.createQueryBuilder('t');
 
-		if (this.isSuperAdmin(me)) {
-			qb.where('t.adminId IS NULL');
-		} else {
-			qb.where('t.adminId = :meId', { meId: me.id });
+		// 2. Ownership Filter
+		if (!this.isSuperAdmin(me)) {
+			// Super admin sees global platform revenue/transactions
+			qb.where('t.userId = :meId', { meId: me.id });
 		}
-
+		// 3. Aggregation with new Statuses
 		const result = await qb
 			.select([
 				'COUNT(*) as total',
-				`COUNT(CASE WHEN t.status = :active THEN 1 END) as active`,
-				`COUNT(CASE WHEN t.status = :processing THEN 1 END) as processing`,
-				`COUNT(CASE WHEN t.status = :completed THEN 1 END) as completed`,
-				`COUNT(CASE WHEN t.status = :cancelled THEN 1 END) as cancelled`,
-				'COALESCE(SUM(t.amount), 0) as totalRevenue',
+				'COUNT(CASE WHEN t.status = :success THEN 1 END) as success',
+				'COUNT(CASE WHEN t.status = :pending THEN 1 END) as pending',
+				'COUNT(CASE WHEN t.status = :failed THEN 1 END) as failed',
+				'COUNT(CASE WHEN t.status = :cancelled THEN 1 END) as cancelled',
+				'COUNT(CASE WHEN t.status = :refunded THEN 1 END) as refunded',
+				'COALESCE(SUM(CASE WHEN t.status = :success THEN t.amount ELSE 0 END), 0) as totalRevenue',
 			])
 			.setParameters({
-				active: TransactionStatus.ACTIVE,
-				processing: TransactionStatus.PROCESSING,
-				completed: TransactionStatus.COMPLETED,
+				success: TransactionStatus.SUCCESS,
+				pending: TransactionStatus.PENDING,
+				failed: TransactionStatus.FAILED,
 				cancelled: TransactionStatus.CANCELLED,
+				refunded: TransactionStatus.REFUNDED,
 			})
 			.getRawOne();
 
+		// 4. Return formatted numbers
 		return {
-			total: Number(result.total),
-			active: Number(result.active),
-			processing: Number(result.processing),
-			completed: Number(result.completed),
-			cancelled: Number(result.cancelled),
-			totalRevenue: Number(result.totalRevenue),
+			total: Number(result.total || 0),
+			success: Number(result.success || 0),
+			pending: Number(result.pending || 0),
+			failed: Number(result.failed || 0),
+			cancelled: Number(result.cancelled || 0),
+			refunded: Number(result.refunded || 0),
+			totalRevenue: Number(result.totalRevenue || 0),
 		};
 	}
-
 	// ✅ Cancel Transaction (by user or admin)
 	async cancel(me: User, id: number) {
 		const transaction = await this.get(me, id);
 
 		// Can only cancel if processing
-		if (transaction.status !== TransactionStatus.PROCESSING) {
-			throw new BadRequestException('Can only cancel processing transactions');
+		if (transaction.status !== TransactionStatus.PENDING) {
+			throw new BadRequestException(
+				`Cannot cancel transaction with status: ${transaction.status}. Only pending transactions can be cancelled.`
+			);
 		}
 
 		transaction.status = TransactionStatus.CANCELLED;
@@ -210,50 +213,6 @@ export class TransactionsService {
 		return this.transactionsRepo.save(transaction);
 	}
 
-	async manualCreateCompletedTransaction(
-		me: User,
-		dto: ManualCreateTransactionDto,
-	) {
-		if (!this.isSuperAdmin(me)) {
-			throw new ForbiddenException(
-				'Only super admin can manually create completed transactions',
-			);
-		}
-
-		const id = me?.id
-
-		return this.dataSource.transaction(async (manager) => {
-			// ✅ Ensure subscription exists
-			const subscription = await manager.findOne(Subscription, {
-				where: { id: dto.subscriptionId },
-			});
-
-			if (!subscription) {
-				throw new NotFoundException('Subscription not found');
-			}
-
-			const number = await this.generateTransactionNumber(id?.toString())
-			// ✅ Create new transaction
-			const transaction = manager.create(Transaction, {
-				subscriptionId: dto.subscriptionId,
-				amount: subscription.price,
-				paymentMethod: dto.paymentMethod,
-				paymentProof: dto.paymentProof ?? null,
-				number,
-				status: TransactionStatus.COMPLETED,
-			});
-
-			await manager.save(Transaction, transaction);
-
-			// ✅ Optional: activate subscription if not active
-			if (subscription.status !== SubscriptionStatus.ACTIVE) {
-				subscription.status = SubscriptionStatus.ACTIVE;
-				await manager.save(Subscription, subscription);
-			}
-
-			return transaction;
-		});
-	}
 
 	async exportTransactions(me: User, q?: any) {
 		const search = String(q?.search ?? '').trim();
@@ -264,15 +223,13 @@ export class TransactionsService {
 			.createQueryBuilder('t')
 			.leftJoinAndSelect('t.user', 'user')
 			.leftJoinAndSelect('t.subscription', 'sub')
-			.leftJoinAndSelect('sub.plan', 'plan');
+			.leftJoinAndSelect('sub.plan', 'plan')
+
+			.leftJoinAndSelect('t.userFeature', 'userFeature')
+			.leftJoinAndSelect('userFeature.feature', 'feature');
 
 		// --- منطق الصلاحيات (Role-based access) ---
-		if (this.isAdmin(me)) {
-			qb.where(
-				'(sub.adminId = :meId OR sub.userId IN (SELECT id FROM users WHERE adminId = :meId))',
-				{ meId: me.id },
-			);
-		} else if (!this.isSuperAdmin(me)) {
+		if (!this.isSuperAdmin(me)) {
 			qb.where('sub.userId = :meId', { meId: me.id });
 		}
 
@@ -280,6 +237,9 @@ export class TransactionsService {
 		if (q?.status) qb.andWhere('t.status = :status', { status: q.status });
 		if (q?.userId) qb.andWhere('t.userId = :userId', { userId: q.userId });
 		if (q?.planId) qb.andWhere('sub.planId = :planId', { planId: q.planId });
+
+		if (q?.purpose) qb.andWhere('t.purpose = :purpose', { purpose: q.purpose });
+
 
 		if (search) {
 			qb.andWhere(
@@ -296,8 +256,11 @@ export class TransactionsService {
 		// 1. تحديد الأعمدة بنفس ترتيب الـ Front-end
 		worksheet.columns = [
 			{ header: "Transaction ID", key: "number", width: 20 },
-			{ header: "User", key: "userName", width: 25 },
+			{ header: "User Name", key: "userName", width: 25 },
+			{ header: "User Email", key: "userEmail", width: 25 },
+			{ header: "Purpose", key: "purpose", width: 20 },      // عمود جديد
 			{ header: "Subscription", key: "planName", width: 20 },
+			{ header: "Feature", key: "featureName", width: 25 },  // عمود جديد
 			{ header: "Amount", key: "amount", width: 15 },
 			{ header: "Status", key: "status", width: 15 },
 			{ header: "Payment Method", key: "paymentMethod", width: 20 },
@@ -311,17 +274,18 @@ export class TransactionsService {
 			return {
 				number: t.number?.trim() || '—',
 				userName: t.user?.name?.trim() || '—',
+				userEmail: t.user?.email?.trim() || '—',
+				purpose: t.purpose?.replace(/_/g, ' ').toUpperCase() || '—', // تنسيق النص (مثلاً: WALLET TOP UP)
 				planName: t.subscription?.plan?.name?.trim() || '—',
+				featureName: t.userFeature?.feature?.name?.trim() || '—',
 				amount: Number(t.amount || 0),
 				status: t.status?.toUpperCase() || '—',
-				paymentMethod: t.paymentMethod || '—',
-				// إرسال الرابط المباشر للملف إذا وجد
+				paymentMethod: t.paymentMethod?.toUpperCase() || '—',
 				paymentProof: t.paymentProof ? imageSrc(t.paymentProof) : '—',
-				createdAt: t.createdAt ? new Date(t.createdAt).toLocaleDateString() : '—',
-				updatedAt: t.updatedAt ? new Date(t.updatedAt).toLocaleDateString() : '—',
+				createdAt: t.createdAt ? new Date(t.createdAt).toLocaleString() : '—', // استخدام Time أيضاً في الإكسل
+				updatedAt: t.updatedAt ? new Date(t.updatedAt).toLocaleString() : '—',
 			};
 		});
-
 		worksheet.addRows(rows);
 
 		// تنسيق الصف الأول (Header)

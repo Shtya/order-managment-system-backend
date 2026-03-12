@@ -10,7 +10,6 @@ import { RolesModule } from "./roles/roles.module";
 import { LookupsModule } from './lookups/lookups.module';
 import { PlansModule } from './plans/plans.module';
 import { TransactionsModule } from './transactions/transactions.module';
-import { Plan, Transaction } from "../entities/plans.entity";
 import { StoresModule } from './stores/stores.module';
 import { WarehousesModule } from './warehouse/warehouse.module';
 import { CategoryModule } from './category/category.module';
@@ -40,10 +39,21 @@ import { WebSocketModule } from "common/websocket.module";
 import { CollectionModule } from "./order-collections/collection.module";
 import { DashboardModule } from './dashboard/dashboard.module';
 import { SubscriptionsModule } from "./subscription/subscription.module";
+import { PaymentsModule } from './payments/payments.module';
+import kashierConfig from "./payments/configs/kashier.config";
+import { ScheduleModule } from "@nestjs/schedule";
+import { WalletModule } from './wallet/wallet.module';
+import { CronModule } from './cron/cron.module';
+import { ExtraFeaturesModule } from './extra-features/extra-features.module';
 
 @Module({
 	imports: [
-		ConfigModule.forRoot(),
+		ScheduleModule.forRoot(),
+		ConfigModule.forRoot({
+			isGlobal: true,
+			envFilePath: ['.env', `.env.${process.env.NODE_ENV || 'production'}`],
+			load: [kashierConfig],
+		}),
 		TypeOrmModule.forRoot({
 			type: "postgres",
 			host: process.env.DATABASE_HOST,
@@ -82,7 +92,11 @@ import { SubscriptionsModule } from "./subscription/subscription.module";
 		NotificationModule,
 		CollectionModule,
 		DashboardModule,
-		SubscriptionsModule
+		SubscriptionsModule,
+		PaymentsModule,
+		WalletModule,
+		CronModule,
+		ExtraFeaturesModule,
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

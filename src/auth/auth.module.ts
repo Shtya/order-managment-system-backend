@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PendingUser, Role, User } from 'entities/user.entity';
 import { JwtModule } from '@nestjs/jwt';
@@ -9,11 +9,13 @@ import { PassportModule } from '@nestjs/passport';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { FirebaseService } from './firebase.service';
 import { MailService } from '../../common/nodemailer';
+import { UsersModule } from 'src/users/users.module';
 
 
 @Module({
   imports: [
     ConfigModule,
+    forwardRef(() => UsersModule),
     TypeOrmModule.forFeature([User, Role, PendingUser]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
 
