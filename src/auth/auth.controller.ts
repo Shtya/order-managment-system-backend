@@ -96,10 +96,10 @@ export class AuthController {
   }
 
   // Google login
-  @Post('google')
-  google(@Body() dto: GoogleLoginDto) {
-    return this.auth.googleLogin(dto.idToken, dto.name);
-  }
+  // @Post('google')
+  // google(@Body() dto: GoogleLoginDto) {
+  //   return this.auth.googleLogin(dto.idToken, dto.name);
+  // }
 
   @Post('change-password')
   @UseGuards(JwtAuthGuard)

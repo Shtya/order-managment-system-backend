@@ -201,6 +201,13 @@ export class CreateOrderDto {
   @ValidateNested()
   @Type(() => ShippingMetadataDto)
   shippingMetadata?: ShippingMetadataDto;
+
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => RemovedOrderItemDto)
+  removedItems?: RemovedOrderItemDto[]; // Items explicitly removed
 }
 
 // ✅ Update Order DTO
