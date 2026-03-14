@@ -49,7 +49,7 @@ export class AuthService {
 				plan: activeSub
 					? {
 						id: activeSub.planId, // ID of the plan at time of signup
-						name: activeSub.plan.name, // Snapshot name (e.g., "باقة النمو")
+						name: activeSub?.plan?.name, // Snapshot name (e.g., "باقة النمو")
 						type: activeSub.planType,
 						price: Number(activeSub.price),
 						includedOrders: activeSub.includedOrders,
