@@ -198,5 +198,41 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     }
 
 
+    async clearQueueRecoveryKeys(namespace: string, redis): Promise<number> {
+        try {
+            // Define the specific patterns used by your queue library/logic
+            const patterns = [
+                `${namespace}:g:*:active`,    // Group locks
+                `${namespace}:processing:*`,  // Job markers
+                `${namespace}:unique:*`       // Duplicate markers
+            ];
 
+            let totalDeleted = 0;
+
+            for (const pattern of patterns) {
+                let cursor = '0';
+
+                do {
+                    // Scan for keys matching the pattern in batches of 100
+                    const [newCursor, keys] = await redis.scan(
+                        cursor,
+                        'MATCH', pattern,
+                        'COUNT', 100
+                    );
+
+                    cursor = newCursor;
+
+                    if (keys.length > 0) {
+                        await redis.del(...keys);
+                        totalDeleted += keys.length;
+                    }
+                } while (cursor !== '0');
+            }
+
+            return totalDeleted;
+        } catch (error) {
+            this.logger.error(`[Redis] Failed to clear recovery keys for namespace: ${namespace}`, error);
+            throw error;
+        }
+    }
 }

@@ -1,7 +1,7 @@
 // --- File: backend/src/shipping/shipping.service.ts ---
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 
 
@@ -14,24 +14,30 @@ import {
 	UnifiedShippingStatus,
 } from '../../entities/shipping.entity';
 
-import { AssignOrderDto, CreateShipmentDto } from './shipping.dto';
-import { ShippingProvider } from './providers/shipping-provider.interface';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto } from './shipping.dto';
+import { ProviderCode, ShippingProvider } from './providers/shipping-provider.interface';
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
 import { tenantId } from 'src/category/category.service';
-import { OrderEntity, OrderReplacementEntity } from 'entities/order.entity';
+import { OrderActionResult, OrderActionType, OrderEntity, OrderReplacementEntity, OrderStatus } from 'entities/order.entity';
 import { ProductVariantEntity } from 'entities/sku.entity';
+import { OrdersService } from 'src/orders/services/orders.service';
+import { ShippingQueueService } from './queues/shipping.queues';
+import { AppGateway } from '../../common/app.gateway';
 
 @Injectable()
 export class ShippingService {
-	private providers: Record<string, ShippingProvider>;
+	private providers: Record<ProviderCode, ShippingProvider>;
 
 	constructor(
 		private bostaProvider: BostaProvider,
 		private jtProvider: JtProvider,
+		private queueService: ShippingQueueService,
+
 		private turboProvider: TurboProvider,
 		private dataSource: DataSource,
+		private appGateway: AppGateway,
 		@InjectRepository(ShippingCompanyEntity)
 		private companiesRepo: Repository<ShippingCompanyEntity>,
 
@@ -46,11 +52,16 @@ export class ShippingService {
 
 		@InjectRepository(ShipmentEventEntity)
 		private eventsRepo: Repository<ShipmentEventEntity>,
+		@Inject(forwardRef(() => OrdersService))
+		private readonly ordersService: OrdersService
 	) {
 		this.providers = {
 			bosta: this.bostaProvider,
 			jt: this.jtProvider,
 			turbo: this.turboProvider,
+			aramex: null,
+			dhl: null,
+			SMSA: null
 		};
 	}
 
@@ -142,7 +153,7 @@ export class ShippingService {
 		};
 	}
 
-	private getProvider(provider: string): ShippingProvider {
+	private getProvider(provider: string | ProviderCode): ShippingProvider {
 		const key = (provider || '').toLowerCase().trim();
 		const p = this.providers[key];
 		if (!p) throw new BadRequestException(`Unsupported shipping provider: ${provider}`);
@@ -334,11 +345,10 @@ export class ShippingService {
 		};
 	}
 
-	async createShipment(me, provider: string, dto: CreateShipmentDto, orderId: number) {
+	async createShipment(me, provider: ProviderCode, dto: CreateShipmentDto, orderId: number
+		, options: { emitSocket?: boolean } = { emitSocket: true }) {
 		const adminId = tenantId(me);
-		const p = this.getProvider(provider);
-		const { apiKey, companyId, integ } = await this.requireApiKey(adminId, provider);
-
+		const userId = me?.id;
 
 		if (!orderId) {
 			throw new BadRequestException("Order is required to create a shipment.");
@@ -360,71 +370,165 @@ export class ShippingService {
 
 		if (!order) throw new BadRequestException("Order not found.");
 
-		return await this.dataSource.transaction(async (manager) => {
-			const shipment = await manager.save(
-				manager.create(ShipmentEntity, {
+		// Requirement 4: Cancel previous shipment if exists
+		if (order.shippingCompanyId && order.trackingNumber) {
+			const prevShipment = await this.shipmentsRepo.findOne({
+				where: {
+					orderId: order.id,
 					adminId,
-					orderId: orderId,
-					shippingCompanyId: companyId,
-					status: ShipmentStatus.SUBMITTED,
-					unifiedStatus: UnifiedShippingStatus.NEW,
-				}),
-			);
+				},
+				order: { created_at: 'DESC' as any },
+				relations: ['shippingCompany']
+			});
+
+			if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
+				try {
+					await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
+				} catch (e) {
+					const errorMessage = `Failed to auto-cancel previous shipment ${prevShipment.id}: ${e?.response?.message || e?.response?.data?.message || e.message}`;
+					console.warn(errorMessage);
+					await this.ordersService.logOrderAction({
+						adminId, userId, orderId,
+						actionType: OrderActionType.COURIER_ASSIGNED,
+						result: OrderActionResult.FAILED,
+						details: errorMessage
+					});
+					if (options.emitSocket !== false) {
+						this.appGateway.emitShipmentStatus(adminId, {
+							orderId,
+							orderNumber: order.orderNumber,
+							status: 'failed',
+							message: errorMessage,
+						});
+					}
+					throw new BadRequestException(errorMessage)
+				}
+			}
+		}
+
+		try {
+			const p = this.getProvider(provider);
+			const { apiKey, companyId, integ } = await this.requireApiKey(adminId, provider);
 
 
-			const payload = p.buildDeliveryPayload(order, dto, integ)
-			try {
-				const res = await p.createShipment(apiKey, payload);
+			const result = await this.dataSource.transaction(async (manager) => {
+				const shipment = await manager.save(
+					manager.create(ShipmentEntity, {
+						adminId,
+						orderId: orderId,
+						shippingCompanyId: companyId,
+						status: ShipmentStatus.SUBMITTED,
+						unifiedStatus: UnifiedShippingStatus.NEW,
+					}),
+				);
 
-				shipment.trackingNumber = res.trackingNumber || null;
-				shipment.providerShipmentId = res.providerShipmentId || null;
+				let payload;
+				try {
+					const payloadResult = await p.buildDeliveryPayload(order, dto, integ);
 
-				shipment.status = ShipmentStatus.CREATED;
-				shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
+					if (!payloadResult.success) {
+						throw new BadRequestException(payloadResult.error);
+					}
+					payload = payloadResult.data;
+				} catch (e: any) {
+					shipment.status = ShipmentStatus.FAILED;
+					shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
+					shipment.failureReason = e?.message || 'Build payload failed';
+					await manager.save(shipment);
+					await this.ordersService.logOrderAction({
+						manager, adminId, userId, orderId,
+						actionType: OrderActionType.COURIER_ASSIGNED,
+						result: OrderActionResult.FAILED,
+						details: `Payload Build Failed: ${e.message}`
+					});
 
-				shipment.providerRaw = {
-					request: payload,
-					response: res.providerRaw || { trackingNumber: shipment.trackingNumber, providerShipmentId: shipment.providerShipmentId },
-				};
-
-				await manager.save(shipment);
-
-
-				for (const item of order.items) {
-					await manager.decrement(
-						ProductVariantEntity,
-						{ id: item.variantId, adminId },
-						"stockOnHand", // Physical deduction
-						item.quantity
-					);
-
-					await manager.decrement(
-						ProductVariantEntity,
-						{ id: item.variantId, adminId },
-						"reserved", // Remove from reservation
-						item.quantity
-					);
+					throw e;
 				}
 
-				return {
-					ok: true,
-					shipmentId: shipment.id,
-					orderId: shipment.orderId,
-					provider,
-					trackingNumber: shipment.trackingNumber,
-					providerShipmentId: shipment.providerShipmentId,
-					status: shipment.unifiedStatus,
-				};
-			} catch (e: any) {
-				shipment.status = ShipmentStatus.FAILED;
-				shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
-				shipment.failureReason = e?.message || 'Create shipment failed';
-				shipment.providerRaw = { request: payload, error: e?.response?.data || e?.message || 'unknown' };
-				await manager.save(shipment);
-				throw new BadRequestException(shipment.failureReason);
+
+				try {
+					const res = await p.createShipment(apiKey, payload);
+
+					shipment.trackingNumber = res.trackingNumber || null;
+					shipment.providerShipmentId = res.providerShipmentId || null;
+
+					shipment.status = ShipmentStatus.CREATED;
+					shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
+
+					shipment.providerRaw = {
+						request: payload,
+						response: res.providerRaw || { trackingNumber: shipment.trackingNumber, providerShipmentId: shipment.providerShipmentId },
+					};
+
+					await manager.save(shipment);
+					const status = await this.ordersService.findStatusByCode(OrderStatus.DISTRIBUTED, adminId, manager)
+
+
+					await manager.update(OrderEntity,
+						{ id: orderId, adminId },
+						{
+							statusId: status.id,
+							trackingNumber: shipment.trackingNumber, // Copy tracking number to order
+							shippingCompanyId: companyId, // Ensure company ID is linked to order
+							distributed_at: new Date(),
+						}
+					);
+					await this.ordersService.logOrderAction({
+						manager, adminId, userId, orderId,
+						actionType: OrderActionType.COURIER_ASSIGNED,
+						result: OrderActionResult.SUCCESS,
+						shippingCompanyId: companyId,
+						details: `Assigned to ${provider}. Tracking: ${shipment.trackingNumber}`
+					});
+					return {
+						ok: true,
+						shipmentId: shipment.id,
+						orderId: shipment.orderId,
+						provider,
+						trackingNumber: shipment.trackingNumber,
+						providerShipmentId: shipment.providerShipmentId,
+						status: shipment.unifiedStatus,
+					};
+				} catch (e: any) {
+					shipment.status = ShipmentStatus.FAILED;
+					shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
+					shipment.failureReason = e?.response?.message || e?.response?.data?.message || e.message || 'Create shipment failed';
+					shipment.providerRaw = { request: payload, error: shipment.failureReason };
+					await manager.save(shipment);
+					await this.ordersService.logOrderAction({
+						manager, adminId, userId, orderId,
+						actionType: OrderActionType.COURIER_ASSIGNED,
+						result: OrderActionResult.FAILED,
+						details: `Courier API Error: ${shipment.failureReason}`
+					});
+
+					throw new BadRequestException(shipment.failureReason);
+				}
+
+			});
+
+			if (options.emitSocket !== false) {
+				this.appGateway.emitShipmentStatus(adminId, {
+					orderId,
+					orderNumber: order.orderNumber,
+					shipmentId: result.shipmentId,
+					status: 'success',
+					trackingNumber: result.trackingNumber,
+				});
 			}
 
-		});
+			return result;
+		} catch (error) {
+			if (options.emitSocket !== false) {
+				this.appGateway.emitShipmentStatus(adminId, {
+					orderId,
+					orderNumber: order.orderNumber,
+					status: 'failed',
+					message: error.message,
+				});
+			}
+			throw error;
+		}
 	}
 
 	async cancelShipment(me, provider: string, shipmentId: number) {
@@ -480,8 +584,14 @@ export class ShippingService {
 		});
 	}
 
-	async assignOrder(adminId: string, provider: string, orderId: number, dto: AssignOrderDto) {
-		return this.createShipment(adminId, provider, dto, orderId);
+	// Remains direct for speed
+	async assignOrder(me: any, provider: ProviderCode, orderId: number, dto: AssignOrderDto) {
+		const adminId = tenantId(me);
+		return this.createShipment(me, provider, dto, orderId, { emitSocket: false });
+	}
+
+	async bulkAssignOrders(me: any, provider: ProviderCode, dto: BulkAssignOrderDto) {
+		return this.queueService.enqueueBulkShippingTasks(me, provider, dto);
 	}
 
 	async listShipments(adminId: string) {
@@ -549,12 +659,76 @@ export class ShippingService {
 	getUnifiedStatuses() {
 		return { ok: true, statuses: Object.values(UnifiedShippingStatus) };
 	}
+	async getCompanyDistribution(me: any) {
+		const adminId = tenantId(me);
+
+		const stats = await this.companiesRepo
+			.createQueryBuilder('company')
+			.leftJoin('company.orders', 'order', 'order.adminId = :adminId', { adminId })
+			.leftJoin('order.status', 'status', 'status.code = :dCode', {
+				dCode: OrderStatus.DISTRIBUTED
+			})
+			.select('company.id', 'companyId')
+			.addSelect('company.name', 'companyName')
+			.addSelect('company.code', 'code')
+			.addSelect('COUNT(order.id)', 'count')
+			.groupBy('company.id')
+			.addGroupBy('company.name')
+			.getRawMany();
+
+		return stats.map(s => ({
+			companyId: s.companyId,
+			companyName: s.companyName,
+			code: s.code,
+		}));
+	}
+
+
+	async getShipmentLifecycleStats(me: any) {
+		const adminId = tenantId(me);
+
+		// Run all three counts in parallel
+		const [confirmed, distributed, distributedNotPrinted] = await Promise.all([
+			// 1. Total Confirmed (Pending Assignment)
+			this.ordersRepo.count({
+				where: {
+					adminId,
+					status: { code: OrderStatus.CONFIRMED }
+				}
+			}),
+
+			// 2. Total Distributed (Assigned to companies)
+			this.ordersRepo.count({
+				where: {
+					adminId,
+					status: { code: OrderStatus.DISTRIBUTED }
+				}
+			}),
+
+			// 3. Distributed but Label NOT printed (طباعة البوالص)
+			this.ordersRepo.count({
+				where: {
+					adminId,
+					status: { code: OrderStatus.DISTRIBUTED },
+					labelPrinted: IsNull()
+				}
+			})
+		]);
+
+		return {
+			confirmed,
+			distributed,
+			distributedNotPrinted
+		};
+	}
+
+
 
 	// -----------------------
 	// Webhook setup helpers (NEW)
 	// -----------------------
 	private buildPublicWebhookUrl(provider: string) {
-		const base = process.env.PUBLIC_API_BASE_URL || 'http://localhost:3000';
+		const base = process.env.BACKEND_URL || 'http://localhost:3000';
 		return `${base.replace(/\/$/, '')}/shipping/webhooks/${provider}`;
 	}
 

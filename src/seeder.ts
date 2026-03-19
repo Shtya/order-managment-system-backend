@@ -32,9 +32,7 @@ const dataSource = new DataSource({
 	database: process.env.DATABASE_NAME,
 
 	// ⚠️ لازم كل الـ entities
-	entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity, BundleEntity, SalesInvoiceItemEntity, ProductEntity, ProductVariantEntity, SalesInvoiceEntity, PurchaseInvoiceItemEntity, PurchaseReturnInvoiceItemEntity, PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, BundleItemEntity, Asset, Plan, TransactionEntity, CategoryEntity, StoreEntity, WarehouseEntity, OrderEntity, OrderStatusEntity, OrderItemEntity,
-		OrderStatusHistoryEntity, OrderMessageEntity, ShippingCompanyEntity, OrderAssignmentEntity
-	],
+	entities: [__dirname + '/../**/*.entity{.ts,.js}'],
 
 	synchronize: true, // فقط dev
 });
@@ -62,8 +60,26 @@ async function runGlobalSeed() {
 			name: 'Confirmed', code: OrderStatus.CONFIRMED, isDefault: false, order: 3, color: '#4CAF50', // أخضر (نجاح التأكيد)
 		},
 		{
+			name: 'Distributed', code: OrderStatus.DISTRIBUTED, isDefault: false, order: 4, color: '#9C27B0', // Purple (Indicates it's out for handling)
+		},
+		{
+			name: 'Return Preparing',
+			code: OrderStatus.RETURN_PREPARING,
+			isDefault: false,
+			order: 10,
+			color: '#FF9800', // Orange (Matches "Under Review" style)
+		},
+		{
+			name: 'Packed',
+			code: OrderStatus.PACKED,
+			isDefault: false,
+			order: 7,
+			color: '#795548' // Brown (Boxed and ready for pickup)
+		},
+		{
 			name: 'PostPoned', code: OrderStatus.POSTPONED, isDefault: false, order: 4, color: '#00BCD4', // سماوي
 		},
+		{ name: 'Printed', code: OrderStatus.PRINTED, isDefault: false, order: 5, color: '#3F51B5', },
 		{
 			name: 'No Answer', code: OrderStatus.NO_ANSWER, isDefault: false, order: 5, color: '#FF5722', // برتقالي محروق (تحذير)
 		},
@@ -93,6 +109,9 @@ async function runGlobalSeed() {
 		},
 		{
 			name: 'Returned', code: OrderStatus.RETURNED, isDefault: false, order: 14, color: '#607D8B', // Grey (Standard for Returned/Archive)
+		},
+		{
+			name: 'Rejected', code: OrderStatus.REJECTED, isDefault: false, order: 15, color: '#F44336', // Red (Matches stats.cancelledShipping)
 		},
 	];
 

@@ -20,7 +20,7 @@ import {
   ValidateNested,
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
-import { PaymentStatus, PaymentMethod, ReplacementReason } from "entities/order.entity";
+import { PaymentStatus, PaymentMethod, ReplacementReason, ShipmentManifestType } from "entities/order.entity";
 
 
 export class CreateStatusDto {
@@ -489,4 +489,56 @@ export class CreateReplacementDto {
     return Array.isArray(value) ? plainToInstance(ReplacementItemDto, value) : value;
   })
   items: ReplacementItemDto[];
+}
+
+
+
+
+export class CreateManifestDto {
+  @IsInt()
+  @IsNotEmpty()
+  shippingCompanyId: number;
+
+  @IsString()
+  @IsOptional()
+  driverName?: string;
+
+  @IsArray()
+  @IsInt({ each: true })
+  orderIds: number[];
+
+
+}
+
+
+
+export class ReturnItemDto {
+  @IsNumber()
+  @IsNotEmpty()
+  originalItemId: number;
+
+  @IsNumber()
+  @Min(1)
+  quantity: number;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => value?.trim()) // [2025-12-24] Trim applied
+  condition?: string;
+}
+
+export class CreateReturnDto {
+  @IsNumber()
+  @IsNotEmpty()
+  orderId: number;
+
+  @IsString()
+  @IsOptional()
+  @Transform(({ value }) => value?.trim()) // [2025-12-24] Trim applied
+  reason?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ReturnItemDto)
+  items: ReturnItemDto[];
 }

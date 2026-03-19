@@ -2,8 +2,9 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ShippingService } from './shipping.service';
-import { AssignOrderDto, CreateShipmentDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
 import { tenantId } from 'src/category/category.service';
+import { ProviderCode } from './providers/shipping-provider.interface';
 
 @Controller('shipping')
 export class ShippingController {
@@ -45,6 +46,23 @@ export class ShippingController {
 		return this.shipping.getCapabilities(req.user.id, provider);
 	}
 
+	@UseGuards(JwtAuthGuard)
+	@Get('stats/companies-workload')
+	async getCompanyWorkload(@Req() req: any) {
+		return await this.shipping.getCompanyDistribution(req.user);
+	}
+
+	/**
+	 * Endpoint 2: Lifecycle Totals
+	 * Returns: { confirmed: 100, distributed: 50, distributedNotPrinted: 10 }
+	*/
+	@UseGuards(JwtAuthGuard)
+	@Get('stats/lifecycle-summary')
+	async getLifecycleSummary(@Req() req: any) {
+		return await this.shipping.getShipmentLifecycleStats(req.user);
+	}
+
+
 	// @UseGuards(JwtAuthGuard)
 	// @Get('providers/:provider/areas')
 	// areas(@Req() req: any, @Param('provider') provider: string, @Query('countryId') countryId?: string) {
@@ -52,17 +70,21 @@ export class ShippingController {
 	// 	return this.shipping.getAreas(req.user.id, provider, cid);
 	// }
 
-	@UseGuards(JwtAuthGuard)
-	@Post('providers/:provider/shipments/create/:orderId')
-	createShipment(@Req() req: any, @Param('provider') provider: string, @Param('orderId') orderId: string, @Body() dto: CreateShipmentDto) {
-		const order = orderId ? Number(orderId) : null;
-		return this.shipping.createShipment(req.user, provider, dto, order);
-	}
 
 	@UseGuards(JwtAuthGuard)
 	@Post('providers/:provider/orders/:orderId/assign')
-	assign(@Req() req: any, @Param('provider') provider: string, @Param('orderId') orderId: string, @Body() dto: AssignOrderDto) {
-		return this.shipping.assignOrder(req.user.id, provider, Number(orderId), dto);
+	assign(@Req() req: any, @Param('provider') provider: ProviderCode, @Param('orderId') orderId: string, @Body() dto: AssignOrderDto) {
+		return this.shipping.assignOrder(req.user, provider, Number(orderId), dto);
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Post('providers/:provider/orders/bulk-assign')
+	bulkAssign(
+		@Req() req: any,
+		@Param('provider') provider: ProviderCode,
+		@Body() dto: BulkAssignOrderDto
+	) {
+		return this.shipping.bulkAssignOrders(req.user, provider, dto);
 	}
 
 	@UseGuards(JwtAuthGuard)

@@ -22,10 +22,21 @@ export enum PurchaseReturnType {
 export enum OrderStatus {
   NEW = "new",
   PENDING = "pending",
+  UNDER_REVIEW = "under_review",
+  CONFIRMED = "confirmed",
+  DISTRIBUTED = "distributed",
+  POSTPONED = "postponed",
+  NO_ANSWER = "no_answer",
+  WRONG_NUMBER = "wrong_number",
+  OUT_OF_DELIVERY_AREA = "out_of_delivery_area",
+  DUPLICATE = "duplicate",
+  PREPARING = "preparing",
+  READY = "ready",
   SHIPPED = "shipped",
   DELIVERED = "delivered",
   RETURNED = "returned",
   CANCELLED = "cancelled",
+  REJECTED = "rejected",
   RETURN_IN_PROGRESS = "return_in_progress",
 }
 

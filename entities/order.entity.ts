@@ -26,6 +26,7 @@ export enum OrderStatus {
   UNDER_REVIEW = "under_review",
   // ✅ حالات مرحلة التأكيد الجديدة
   CONFIRMED = "confirmed",           // مؤكد
+  DISTRIBUTED = "distributed",
   POSTPONED = "postponed",           // مؤجل
   NO_ANSWER = "no_answer",           // لا يوجد رد
   WRONG_NUMBER = "wrong_number",     // الرقم غلط
@@ -33,10 +34,15 @@ export enum OrderStatus {
   DUPLICATE = "duplicate",           // طلب مكرر
   //
   PREPARING = "preparing",
+
+  PRINTED = "printed",
   READY = "ready",
+  PACKED = "packed",
+  REJECTED = "rejected",
   SHIPPED = "shipped",
   DELIVERED = "delivered",
   CANCELLED = "cancelled",
+  RETURN_PREPARING = 'return_preparing',
   RETURNED = "returned",
 }
 
@@ -68,6 +74,7 @@ export class OrderStatusEntity {
 
   @Column({ type: "int", default: 0 })
   sortOrder: number; // For "trimming" the UI list order
+
 
   @Column({ type: "varchar", length: 7, default: "#000000" })
   color: string; // Hex code for UI display
@@ -124,12 +131,37 @@ export enum PaymentMethod {
 @Index(["adminId", "created_at"])
 @Index(['adminId', 'storeId', 'created_at'])
 @Index(["adminId", "city", "area"])
+@Index(["adminId", "statusId", "rejectedAt"])
 export class OrderEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column({ type: "varchar", length: 255, nullable: true })
   externalId?: string | null;
+
+  @Column({ type: "text", nullable: true })
+  rejectReason: string; // ✅ The new column for rejection/cancellation reasons
+
+  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  rejectedAt?: Date;
+
+  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  returnedAt?: Date;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "rejectedById" })
+  rejectedBy?: User;
+
+  @Column({ nullable: true })
+  rejectedById?: number;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "rejectedById" })
+  returnedBy?: User;
+
+  @Column({ nullable: true })
+  returnedById?: number;
+
 
   @Column()
   @Index()
@@ -205,11 +237,17 @@ export class OrderEntity {
   @Column({ type: "varchar", length: 100, nullable: true })
   trackingNumber?: string;
 
+  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  distributed_at?: Date;
+
   @Column({ type: "timestamptz", nullable: true })
   shippedAt?: Date;
 
   @Column({ type: "timestamptz", nullable: true })
   deliveredAt?: Date;
+
+  @Column({ type: "timestamptz", nullable: true })
+  labelPrinted?: Date;
 
   // ✅ Pricing
   @Column({ type: "int", default: 0 })
@@ -263,6 +301,36 @@ export class OrderEntity {
   @Column({ default: false })
   allowOpenPackage: boolean;
 
+  // Inside OrderEntity
+  @Column({ nullable: true })
+  lastReturnId?: number;
+
+  @ManyToOne(() => ReturnRequestEntity, { nullable: true })
+  @JoinColumn({ name: "lastReturnId" })
+  lastReturn?: Relation<ReturnRequestEntity>;
+
+  @Column({ type: "int", nullable: true })
+  manifestId?: number;
+
+  @ManyToOne(() => ShipmentManifestEntity, (manifest) => manifest.orders, {
+    nullable: true,
+    onDelete: "SET NULL",
+  })
+  @JoinColumn({ name: "manifestId" })
+  manifest?: Relation<ShipmentManifestEntity>;
+
+  // Inside OrderEntity
+  @Column({
+    type: "jsonb",
+    nullable: true,
+    default: { preparation: 0, shipping: 0 }
+  })
+  failedScanCounts: {
+    preparation: number;
+    shipping: number;
+  };
+
+
   @OneToOne('OrderReplacementEntity', 'originalOrder', { nullable: true })
   replacementRequest: Relation<OrderReplacementEntity>;
 
@@ -315,6 +383,13 @@ export class OrderItemEntity {
   @Column({ type: "int" })
   quantity!: number;
 
+  @Column({ type: "int", default: 0 })
+  scannedQuantity: number;
+
+  @Column({ type: "int", default: 0 })
+  shippingScannedQuantity: number;
+
+
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   unitPrice!: number; // Price at time of order
 
@@ -333,6 +408,68 @@ export class OrderItemEntity {
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
 }
+
+export enum ScanLogType {
+  PREPARATION = 'PREPARATION', // Scanning items into a box
+  SHIPPING = 'SHIPPING',       // Scanning boxes onto a truck
+}
+
+export enum ScanReason {
+  SKU_NOT_IN_ORDER = "SKU_NOT_IN_ORDER",
+  ALREADY_FULLY_SCANNED = "ALREADY_FULLY_SCANNED",
+  INVALID_STATUS = "INVALID_STATUS",
+  OTHER = "OTHER",
+}
+
+
+@Entity({ name: "order_scan_logs" })
+@Index(["adminId", "orderId", "phase"]) // Fast lookup for a specific order's audit trail
+export class OrderScanLogEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  @Index()
+  adminId!: string; // Mandatory for multi-tenancy
+
+  @Column({ type: "int" })
+  orderId!: number;
+
+  @ManyToOne(() => OrderEntity, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "orderId" })
+  order!: OrderEntity;
+
+  @Column({ type: "int", nullable: true })
+  userId?: number;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "userId" })
+  user?: User;
+
+  @Column({ type: "varchar", length: 100 })
+  sku: string; // The raw string received from the scanner
+
+  @Column({
+    type: "enum",
+    enum: ScanReason,
+    default: ScanReason.OTHER,
+  })
+  reason: ScanReason;
+
+  @Column({ type: "text", nullable: true })
+  details?: string; // Optional: Store the current status or other context
+
+  @Column({
+    type: "enum",
+    enum: ScanLogType,
+    default: ScanLogType.PREPARATION,
+  })
+  phase: ScanLogType;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  createdAt!: Date;
+}
+
 
 // ✅ Order Status History Entity
 @Entity({ name: "order_status_history" })
@@ -370,6 +507,17 @@ export class OrderStatusHistoryEntity {
 
   @Column({ type: "int", nullable: true })
   changedByUserId?: number;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "changedByUserId" })
+  changedByUser?: User;
+
+  @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
+  @JoinColumn({ name: "shippingCompanyId" })
+  shippingCompany?: ShippingCompanyEntity;
+
+  @Column({ type: "int", nullable: true })
+  shippingCompanyId?: number;
 
   @Column({ type: "text", nullable: true })
   notes?: string;
@@ -615,3 +763,192 @@ export class OrderReplacementItemEntity {
   newVariantId: number;
 }
 
+export enum ShipmentManifestType {
+  SHIPPING = "SHIPPING", // بيان تحميل / شحن
+  RETURN = "RETURN",     // بيان مرتجعات
+}
+@Index(["adminId", "type"])
+@Entity({ name: "shipment_manifests" })
+export class ShipmentManifestEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  adminId: string;
+
+  @Column({
+    type: "enum",
+    enum: ShipmentManifestType,
+    default: ShipmentManifestType.SHIPPING
+  })
+  type: ShipmentManifestType; // ✅ shipping or return
+
+  @Column({ unique: true })
+  manifestNumber: string; // e.g., MAN-2026-0001
+
+  @Column({ type: "int", nullable: true })
+  changedByUserId?: number;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "changedByUserId" })
+  changedByUser?: User;
+
+  @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
+  @JoinColumn({ name: "shippingCompanyId" })
+  shippingCompany?: ShippingCompanyEntity;
+
+  @Column({ type: "int", nullable: true })
+  shippingCompanyId?: number;
+
+  @Column({ nullable: true })
+  driverName: string;
+
+  @Column({ type: "timestamptz", nullable: true })
+  lastPrintedAt?: Date;
+
+  @OneToMany(() => OrderEntity, (order) => order.manifest)
+  orders: OrderEntity[];
+
+  @Column({ type: "int", default: 0 })
+  totalOrders: number;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  createdAt: Date;
+
+}
+
+
+export enum OrderActionType {
+  CONFIRMED = "CONFIRMED",
+  COURIER_ASSIGNED = "COURIER_ASSIGNED",
+  PREPARATION_STARTED = "PREPARATION_STARTED",
+  WAYBILL_PRINTED = "WAYBILL_PRINTED",
+  WAYBILL_REPRINTED = "WAYBILL_REPRINTED",
+  MANIFEST_PRINTED = "MANIFEST_PRINTED",
+  MANIFEST_REPRINTED = "MANIFEST_REPRINTED",
+  OUTGOING_DISPATCHED = "OUTGOING_DISPATCHED",
+  RETURN = "RETURN",
+  REJECTED = "REJECTED",
+
+  RETURN_RECEIVED = "RETURN_RECEIVED", // استلام مرتجع
+  RETRY_ATTEMPT = "RETRY_ATTEMPT",
+}
+
+export enum OrderActionResult {
+  SUCCESS = "SUCCESS",
+  FAILED = "FAILED"
+}
+
+@Entity({ name: "order_action_logs" })
+export class OrderActionLogEntity {
+  @PrimaryGeneratedColumn()
+  id: number; // This is your Operation Number
+
+  @Index()
+  @Column({ unique: true })
+  operationNumber: string; // ✅ Human-readable ID: OP-20260318-0001
+
+  @Column()
+  @Index()
+  adminId: string;
+
+  @Column({ type: "enum", enum: OrderActionType })
+  actionType: OrderActionType; // Operation Type
+
+  @Column({ type: "int" })
+  orderId: number;
+
+  @ManyToOne(() => OrderEntity)
+  @JoinColumn({ name: "orderId" })
+  order: OrderEntity;
+
+  @Column({ type: "int", nullable: true })
+  shippingCompanyId?: number;
+
+  @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
+  @JoinColumn({ name: "shippingCompanyId" })
+  shippingCompany?: ShippingCompanyEntity;
+
+  @Column({ type: "int", nullable: true })
+  userId?: number;
+
+  @ManyToOne(() => User, { nullable: true })
+  @JoinColumn({ name: "userId" })
+  user?: User; // Employee
+
+  @Column({
+    type: "enum",
+    enum: OrderActionResult,
+    default: OrderActionResult.SUCCESS
+  })
+  result: OrderActionResult; // ✅ Now an Enum
+
+  @Column({ type: "text", nullable: true })
+  details?: string; // Details
+
+  @CreateDateColumn({ type: "timestamptz" })
+  createdAt: Date; // Date & Time
+}
+
+
+@Index(['adminId', 'orderId'])
+@Entity('order_returns')
+export class ReturnRequestEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  adminId: string;
+
+  @Column()
+  orderId: number;
+
+  @ManyToOne(() => OrderEntity)
+  @JoinColumn({ name: 'orderId' })
+  order: OrderEntity;
+
+  @Column()
+  userId: number; // User who created the request (Staff/Admin)
+
+  @Column({ nullable: true })
+  reason: string;
+
+  @OneToMany(() => ReturnRequestItemEntity, (item) => item.returnRequest, { cascade: true })
+  items: ReturnRequestItemEntity[];
+
+  @CreateDateColumn()
+  createdAt: Date;
+}
+
+
+@Entity('order_return_items')
+export class ReturnRequestItemEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  returnRequestId: number;
+
+  @ManyToOne(() => ReturnRequestEntity, (req) => req.items)
+  returnRequest: ReturnRequestEntity;
+
+  @Column()
+  originalOrderItemId: number;
+
+  @ManyToOne(() => OrderItemEntity)
+  @JoinColumn({ name: 'originalOrderItemId' })
+  originalItem: OrderItemEntity;
+
+  @Column()
+  returnedVariantId: number; // The actual variant received
+
+  @ManyToOne(() => ProductVariantEntity)
+  @JoinColumn({ name: 'returnedVariantId' })
+  returnedVariant: ProductVariantEntity;
+
+  @Column({ type: 'int', default: 1 })
+  quantity: number;
+
+  @Column({ nullable: true })
+  condition: string; // e.g., "Damaged", "Resellable"
+}
