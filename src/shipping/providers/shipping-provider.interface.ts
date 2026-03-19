@@ -3,7 +3,7 @@ import { OrderEntity } from 'entities/order.entity';
 import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
 import { CreateShipmentDto } from '../shipping.dto';
 
-export type ProviderCode = 'bosta' | 'jt' | 'turbo' | 'aramex' | 'dhl';
+export type ProviderCode = 'bosta' | 'jt' | 'turbo' | 'aramex' | 'dhl' | 'SMSA';
 
 export interface UnifiedGeography {
 	id: string;
@@ -69,7 +69,7 @@ export abstract class ShippingProvider {
 
 	// Shipment Creation
 	abstract createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult>;
-	abstract buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any>;
+	abstract buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<{ success: boolean; data?: any; error?: string }>;
 
 	// Webhooks
 	abstract mapWebhookToUnified(body: any): ProviderWebhookResult;
@@ -81,7 +81,7 @@ export abstract class ShippingProvider {
 	abstract getShipmentStatus(apiKey: string, trackingNumber: string, accountId?: string): Promise<ProviderWebhookResult>;
 
 	protected buildPublicWebhookUrl(provider: string) {
-		const base = process.env.PUBLIC_API_BASE_URL || 'http://localhost:3000';
+		const base = process.env.BACKEND_URL || 'http://localhost:3000';
 		return `${base.replace(/\/$/, '')}/shipping/webhooks/${provider}`;
 	}
 

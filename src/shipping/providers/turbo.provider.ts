@@ -92,14 +92,14 @@ export class TurboProvider extends ShippingProvider {
   }
 
   async cancelShipment(apiKey: string, providerShipmentId: string, accountId?: string): Promise<boolean> {
-    const url = `${this.mainBaseUrl}/external-api/delete-order`;
+    const url = `${this.mainBaseUrl}/external-api/canceled`;
 
     try {
       const { data } = await firstValueFrom(
         this.http.post(url, {
           authentication_key: apiKey,
-          main_client_code: accountId,
-          search_key: String(providerShipmentId), // Turbo expects numeric ID
+          // main_client_code: accountId,
+          id: providerShipmentId, // Turbo expects numeric ID
         })
       );
 
@@ -121,15 +121,20 @@ export class TurboProvider extends ShippingProvider {
     // التأكد من وجود البيانات الجغرافية (المحافظة والمنطقة)
     // Turbo يتطلب الأسماء كنصوص (Strings) في طلب إضافة الطلب
     if (!meta?.cityId || !meta?.zoneId) {
-      throw new BadRequestException(
-        "Missing required shipping geography names (Government or Area). Please update the order details."
-      );
+      return {
+        success: false,
+        error: "Missing required shipping geography names (Government or Area). Please update the order details."
+      };
+
     }
 
     // جلب كود العميل الرئيسي من إعدادات التكامل
     const accountId = integration?.credentials?.accountId;
     if (!accountId) {
-      throw new BadRequestException("Turbo main_client_code is missing in integration credentials.");
+      return {
+        success: false,
+        error: "Turbo main_client_code is missing in integration credentials."
+      };
     }
     const isExchange = order.isReplacement;
 
@@ -194,7 +199,7 @@ export class TurboProvider extends ShippingProvider {
       payload.return_summary = returnInstructions;
     }
 
-    return payload;
+    return { success: true, data: payload };
   }
 
   async getShipmentStatus(apiKey: string, trackingNumber: string, mainClientCode: string): Promise<ProviderWebhookResult> {
@@ -241,9 +246,9 @@ export class TurboProvider extends ShippingProvider {
     );
 
 
-    if (!data?.bar_code && !data?.code) {
+    if (!data?.result?.bar_code && !data?.result?.code) {
       throw new BadRequestException(
-        `Turbo Error: ${data?.message || 'Failed to create shipment'}`
+        `Turbo Error: ${data?.error_msg || data?.message || 'Failed to create shipment'}`
       );
     }
 

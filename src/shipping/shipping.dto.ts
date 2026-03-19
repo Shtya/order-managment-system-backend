@@ -1,5 +1,6 @@
 // --- File: backend/src/shipping/shipping.dto.ts ---
-import { IsBoolean, IsObject, IsOptional, IsString, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsNumber, IsObject, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
 
 export class SetActiveDto {
 	@IsBoolean()
@@ -34,3 +35,15 @@ export class CreateShipmentDto {
 }
 
 export class AssignOrderDto extends CreateShipmentDto { }
+
+export class BulkAssignItemDto extends CreateShipmentDto {
+	@IsNumber()
+	orderId: number;
+}
+
+export class BulkAssignOrderDto {
+	@IsArray()
+	@ValidateNested({ each: true })
+	@Type(() => BulkAssignItemDto)
+	items: BulkAssignItemDto[];
+}

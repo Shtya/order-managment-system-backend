@@ -636,7 +636,6 @@ export class StoresService {
           items: items,
           notes: `Imported from ${p.displayName}) via Webhook`,
           storeId: String(store.id),
-
         };
 
         const User = { id: store.adminId, role: { name: 'admin' } };

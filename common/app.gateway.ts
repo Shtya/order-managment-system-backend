@@ -103,6 +103,20 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server.to(`user_${userId}`).emit("new_notification", notification);
     }
 
+    emitShipmentStatus(userId: string, payload: {
+        orderId: number;
+        orderNumber?: string;
+        shipmentId?: number;
+        status: 'success' | 'failed';
+        message?: string;
+        trackingNumber?: string;
+    }) {
+        this.server.to(`user_${userId}`).emit("shipment:status", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
     // --- Helper Methods ---
 
     private broadcastStatus(userId: string, status: 'online' | 'offline') {

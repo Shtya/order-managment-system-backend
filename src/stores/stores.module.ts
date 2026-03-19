@@ -23,7 +23,6 @@ import { WebSocketModule } from "common/websocket.module";
 
 @Module({
   imports: [
-    RedisModule,
     forwardRef(() => OrdersModule),
     forwardRef(() => ProductsModule),
     forwardRef(() => CategoryModule),

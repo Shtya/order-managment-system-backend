@@ -11,6 +11,10 @@ import {
   OrderStatusEntity,
   OrderRetrySettingsEntity,
   OrderReplacementEntity,
+  OrderScanLogEntity,
+  ShipmentManifestEntity,
+  OrderActionLogEntity,
+  ReturnRequestEntity,
 } from "entities/order.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
@@ -26,6 +30,9 @@ import { StoreEntity } from "entities/stores.entity";
 import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
 import { OrderReplacementService } from "./services/order-replacements.service";
 import { OrderCollectionEntity } from "entities/order-collection.entity";
+import { ShippingModule } from "src/shipping/shipping.module";
+import { OrderReturnService } from "./services/order-return.service";
+import { OrderReturnsController } from "./controllers/order-return.controller";
 
 
 
@@ -33,6 +40,7 @@ import { OrderCollectionEntity } from "entities/order-collection.entity";
 @Module({
   imports: [
     forwardRef(() => StoresModule),
+    forwardRef(() => ShippingModule),
     forwardRef(() => AuthModule),
     TypeOrmModule.forFeature([
       OrderEntity,
@@ -49,11 +57,15 @@ import { OrderCollectionEntity } from "entities/order-collection.entity";
       StoreEntity,
       OrderReplacementEntity,
       ShippingIntegrationEntity,
-      OrderCollectionEntity
+      OrderCollectionEntity,
+      OrderScanLogEntity,
+      ShipmentManifestEntity,
+      OrderActionLogEntity,
+      ReturnRequestEntity
     ]),
   ],
-  providers: [OrdersService, OrderSubscriber, ShippingSeedService, OrderReplacementService],
-  controllers: [OrdersController, OrderReplacemetsController],
+  providers: [OrdersService, OrderSubscriber, ShippingSeedService, OrderReplacementService, OrderReturnService],
+  controllers: [OrdersController, OrderReplacemetsController, OrderReturnsController],
   exports: [OrdersService],
 })
 export class OrdersModule { }

@@ -665,11 +665,14 @@ export class WooCommerceService extends BaseStoreProvider {
 
             // Confirmed
             [OrderStatus.CONFIRMED]: "processing",
+            [OrderStatus.PRINTED]: "processing",
 
             // Preparing / shipping
             [OrderStatus.PREPARING]: "processing",
             [OrderStatus.READY]: "processing",
+            [OrderStatus.PACKED]: "processing",
             [OrderStatus.SHIPPED]: "processing",
+            [OrderStatus.DISTRIBUTED]: "processing",
 
             // Delivered
             [OrderStatus.DELIVERED]: "completed",
@@ -679,9 +682,11 @@ export class WooCommerceService extends BaseStoreProvider {
             [OrderStatus.OUT_OF_DELIVERY_AREA]: "cancelled",
             [OrderStatus.DUPLICATE]: "cancelled",
             [OrderStatus.CANCELLED]: "cancelled",
+            [OrderStatus.REJECTED]: "cancelled",
 
             // Return states
             [OrderStatus.RETURNED]: "refunded",
+            [OrderStatus.RETURN_PREPARING]: "refunded",
         };
 
         return map[internalStatus] || null;

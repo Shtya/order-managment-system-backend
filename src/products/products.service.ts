@@ -1,7 +1,7 @@
 // --- File: src/products/products.service.ts ---
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository, Like, Not, IsNull, EntityManager } from "typeorm";
+import { In, Repository, Like, Not, IsNull, EntityManager, Brackets } from "typeorm";
 
 import { unlink } from 'fs/promises';
 import { join } from 'path';
@@ -229,6 +229,9 @@ export class ProductsService {
     if (rackSearch?.trim()) {
       filters.storageRack = { ilike: rackSearch };
     }
+    if (q?.search) {
+      filters.search = q.search?.trim();
+    }
 
     if (q?.["wholesalePrice.gte"] || q?.["wholesalePrice.lte"]) {
       const gte = q["wholesalePrice.gte"];
@@ -286,6 +289,16 @@ export class ProductsService {
       qb.andWhere("product.wholesalePrice <= :lte", {
         lte: filters.wholesalePrice.lte,
       });
+
+
+    if (filters.search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("product.name ILIKE :s", { s: `%${filters.search}%` })
+        }),
+      );
+    }
+
 
     // =====================================
     // 🟣 PRODUCT_IDLE LOGIC
@@ -451,6 +464,9 @@ export class ProductsService {
     if (rackSearch?.trim()) {
       filters.storageRack = { ilike: rackSearch };
     }
+    if (q?.search) {
+      filters.search = q.search?.trim();
+    }
 
     if (q?.["wholesalePrice.gte"] || q?.["wholesalePrice.lte"]) {
       const gte = q["wholesalePrice.gte"];
@@ -499,6 +515,14 @@ export class ProductsService {
 
     if (filters.wholesalePrice?.lte)
       qb.andWhere("product.wholesalePrice <= :lte", { lte: filters.wholesalePrice.lte });
+
+    if (filters.search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("product.name ILIKE :s", { s: `%${filters.search}%` })
+        }),
+      );
+    }
 
     // =========================================
     // 🔥 Idle Products Filter

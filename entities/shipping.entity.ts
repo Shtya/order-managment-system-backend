@@ -8,6 +8,7 @@ import {
 	Index,
 	ManyToOne,
 	JoinColumn,
+	OneToMany,
 } from 'typeorm';
 import { OrderEntity } from './order.entity';
 
@@ -72,6 +73,11 @@ export class ShippingCompanyEntity {
 
 	@UpdateDateColumn({ type: "timestamptz" })
 	updated_at: Date;
+
+
+
+	@OneToMany(() => OrderEntity, (order) => order.shippingCompany)
+	orders: OrderEntity[];
 }
 
 

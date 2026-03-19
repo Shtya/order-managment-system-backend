@@ -167,7 +167,6 @@ export class BostaProvider extends ShippingProvider {
   }
 
 
-
   async buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any> {
     const itemsCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
     // ✅ Check if this order is a replacement for another order
@@ -183,10 +182,12 @@ export class BostaProvider extends ShippingProvider {
     const meta = order.shippingMetadata;
 
     if (!meta?.cityId || !meta?.districtId || !meta?.zoneId) {
-      throw new BadRequestException(
-        "Missing required shipping geography (City, District, or Zone). Please update the order details."
-      );
+      return {
+        success: false,
+        error: "Missing required shipping geography (City, District, or Zone)."
+      };
     }
+
     const payload = {
       type: isExchange ? BostaDeliveryType.Exchange : BostaDeliveryType.Deliver,
       businessReference: order.orderNumber,
@@ -220,14 +221,13 @@ export class BostaProvider extends ShippingProvider {
       // If you still want fallback per-admin (optional), you can add it later.
       webhookUrl,
       webhookCustomHeaders,
-      businessLocationId: order?.shippingMetadata?.locationId,
-      returnSpecs: null,
+      businessLocationId: order?.shippingMetadata?.locationId
     };
 
 
     if (isExchange) {
       let returnItemsCount = 0;
-      let totalReturnAmount;
+      let totalReturnAmount = 0;
       let returnInstructions = "The Package details:\n";
 
       if (order?.replacementResult?.items?.length) {
@@ -251,7 +251,7 @@ export class BostaProvider extends ShippingProvider {
         returnInstructions += `- ${returnItemsCount} item(s)`;
       }
 
-      payload.returnSpecs = {
+      (payload as any).returnSpecs = {
         packageType: "Parcel",
         size: dto.size || "SMALL",
         packageDetails: {
@@ -262,7 +262,7 @@ export class BostaProvider extends ShippingProvider {
       };
     }
 
-    return payload;
+    return { success: true, data: payload };
   }
 
 

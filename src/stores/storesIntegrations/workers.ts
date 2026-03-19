@@ -12,6 +12,7 @@ import { EasyOrderService } from "./EasyOrderService";
 import { BaseStoreProvider } from "./BaseStoreProvider";
 import { WooCommerceService } from "./WooCommerce";
 import { StoresService } from "../stores.service";
+import { RedisService } from "common/redis/RedisService";
 
 
 @Injectable()
@@ -22,6 +23,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
 
     constructor(
         private readonly shopifyService: ShopifyService,
+        private readonly redisService: RedisService,
         private readonly easyOrderService: EasyOrderService,
         private readonly woocommerceService: WooCommerceService,
         private readonly storesService: StoresService, // StoresService injected for retry handler
@@ -55,48 +57,14 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
         }
     }
 
-    // workers.ts
-
-    private async cleanupStalledLocks() {
-        try {
-            const redis = storeSyncQueue.redis;
-            const namespace = storeSyncQueue.namespace || 'groupmq';
-
-            // We need to clean Group locks, Processing locks, and Unique locks
-            const patterns = [
-                `${namespace}:g:*:active`,    // Group locks (Sequential blocking)
-                `${namespace}:processing:*`,  // Job-level active markers
-                `${namespace}:unique:*`       // Duplicate prevention markers
-            ];
-
-            let totalDeleted = 0;
-
-            for (const pattern of patterns) {
-                let cursor = '0';
-                this.logger.log(`[Recovery] Scanning: ${pattern}`);
-
-                do {
-                    const [newCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
-                    cursor = newCursor;
-
-                    if (keys.length > 0) {
-                        await redis.del(...keys);
-                        totalDeleted += keys.length;
-                    }
-                } while (cursor !== '0');
-            }
-
-            if (totalDeleted > 0) {
-                this.logger.warn(`[Recovery] ✓ Cleared ${totalDeleted} orphaned locks/markers.`);
-            }
-        } catch (error) {
-            this.logger.error("[Recovery] ✗ Failed to cleanup stalled locks:", error);
-        }
-    }
-
     async onModuleInit() {
         this.logger.log(`Starting Worker for Queue: [${storeSyncQueue.name || 'unknown'}] with concurrency: ${150}`);
-        await this.cleanupStalledLocks();
+        const namespace = storeSyncQueue.namespace || 'groupmq';
+        const deleted = await this.redisService.clearQueueRecoveryKeys(namespace, storeSyncQueue.redis);
+
+        if (deleted > 0) {
+            this.logger.warn(`[Recovery] Cleared ${deleted} orphaned locks for ${namespace}`);
+        }
         this.worker = new Worker({
             queue: storeSyncQueue,
             concurrency: 4,

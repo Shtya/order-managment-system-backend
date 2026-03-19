@@ -45,6 +45,7 @@ import { ScheduleModule } from "@nestjs/schedule";
 import { WalletModule } from './wallet/wallet.module';
 import { CronModule } from './cron/cron.module';
 import { ExtraFeaturesModule } from './extra-features/extra-features.module';
+import { RedisModule } from "common/redis/redis.module";
 
 @Module({
 	imports: [
@@ -97,6 +98,7 @@ import { ExtraFeaturesModule } from './extra-features/extra-features.module';
 		WalletModule,
 		CronModule,
 		ExtraFeaturesModule,
+		RedisModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

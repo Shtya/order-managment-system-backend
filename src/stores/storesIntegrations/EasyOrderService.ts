@@ -1081,13 +1081,19 @@ export class EasyOrderService extends BaseStoreProvider {
 
             // مرحلة التنفيذ والتوصيل
             [OrderStatus.PREPARING]: "processing",
+            [OrderStatus.PRINTED]: "processing",
+            [OrderStatus.DISTRIBUTED]: "processing",
             [OrderStatus.READY]: "waiting_for_pickup",
+            [OrderStatus.PACKED]: "processing",
             [OrderStatus.SHIPPED]: "in_delivery",
             [OrderStatus.DELIVERED]: "delivered",
 
             // حالات الإغلاق
             [OrderStatus.CANCELLED]: "canceled",
+            [OrderStatus.REJECTED]: "canceled",
+
             [OrderStatus.RETURNED]: "returning_from_delivery",
+            [OrderStatus.RETURN_PREPARING]: "returning_from_delivery",
         };
         return map[internalStatus] || null;
     }
