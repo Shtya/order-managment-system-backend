@@ -46,6 +46,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { CronModule } from './cron/cron.module';
 import { ExtraFeaturesModule } from './extra-features/extra-features.module';
 import { RedisModule } from "common/redis/redis.module";
+import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 
 @Module({
 	imports: [
@@ -98,7 +99,8 @@ import { RedisModule } from "common/redis/redis.module";
 		WalletModule,
 		CronModule,
 		ExtraFeaturesModule,
-		RedisModule
+		RedisModule,
+		AdminSettingsModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService
