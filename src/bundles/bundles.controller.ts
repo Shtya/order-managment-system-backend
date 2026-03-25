@@ -18,9 +18,12 @@ import { Permissions } from "common/permissions.decorator";
 import { BundlesService } from "./bundles.service";
 import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
 import { Response } from "express";
+import { SubscriptionGuard } from "common/subscription.guard";
+import { RequireSubscription } from "common/require-subscription.decorator";
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("bundles")
+@RequireSubscription()
 export class BundlesController {
   constructor(private bundles: BundlesService) { }
 

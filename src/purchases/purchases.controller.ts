@@ -17,6 +17,8 @@ import {
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { PurchasesService } from "./purchases.service";
 import {
 	CreatePurchaseDto,
@@ -54,8 +56,9 @@ function parseNumber(val: any): number | null | undefined {
 	return Number.isFinite(n) ? n : null;
 }
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("purchases")
+@RequireSubscription()
 export class PurchasesController {
 	constructor(private svc: PurchasesService) { }
 

@@ -20,8 +20,12 @@ import {
   ValidateNested,
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
-import { PaymentStatus, PaymentMethod, ReplacementReason, ShipmentManifestType } from "entities/order.entity";
-
+import {
+  PaymentStatus,
+  PaymentMethod,
+  OrderFlowPath,
+  StockDeductionStrategy,
+} from "entities/order.entity";
 
 export class CreateStatusDto {
   @IsString()
@@ -69,14 +73,12 @@ export class OrderItemDto {
   @IsOptional()
   @IsBoolean()
   isAdditional?: boolean;
-
 }
 // ✅ Order Item DTO
 export class RemovedOrderItemDto {
   @IsInt()
   variantId: number;
 }
-
 
 export class ShippingMetadataDto {
   @IsOptional()
@@ -202,7 +204,6 @@ export class CreateOrderDto {
   @Type(() => ShippingMetadataDto)
   shippingMetadata?: ShippingMetadataDto;
 
-
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -219,7 +220,6 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
   @IsOptional()
   @IsString()
   trackingNumber?: string;
-
 
   @IsOptional()
   @IsArray()
@@ -261,6 +261,33 @@ export class MarkMessagesReadDto {
   messageIds: number[];
 }
 
+export class ShippingSettingsDto {
+
+  @IsNumber()
+  @IsOptional()
+  shippingCompanyId?: number;
+
+  @IsString()
+  @IsOptional()
+  triggerStatus?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  notifyOnShipment?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  autoGenerateLabel?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  partialPaymentThreshold?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  requireFullPayment?: boolean;
+}
+
 export class UpsertOrderRetrySettingsDto {
   @IsBoolean()
   @IsOptional()
@@ -296,6 +323,30 @@ export class UpsertOrderRetrySettingsDto {
   @IsOptional()
   notifyAdmin?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  notifyOrderUpdates?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  notifyNewProducts?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  notifyLowStock?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  notifyMarketing?: boolean;
+
+  @IsEnum(StockDeductionStrategy)
+  @IsOptional()
+  stockDeductionStrategy?: StockDeductionStrategy;
+
+  @IsEnum(OrderFlowPath)
+  @IsOptional()
+  orderFlowPath?: OrderFlowPath;
+
   @IsObject()
   @IsOptional()
   workingHours?: {
@@ -303,6 +354,11 @@ export class UpsertOrderRetrySettingsDto {
     start: string;
     end: string;
   };
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ShippingSettingsDto)
+  shipping?: ShippingSettingsDto;
 }
 export class ManualAssignItemDto {
   @IsNotEmpty()
@@ -311,7 +367,9 @@ export class ManualAssignItemDto {
 
   @IsNotEmpty()
   @IsArray()
-  @ArrayMinSize(1, { message: "You must select at least one order for each employee" })
+  @ArrayMinSize(1, {
+    message: "You must select at least one order for each employee",
+  })
   @IsInt({ each: true })
   orderIds: number[];
 }
@@ -319,7 +377,9 @@ export class ManualAssignItemDto {
 export class ManualAssignManyDto {
   @IsNotEmpty()
   @IsArray()
-  @ArrayMinSize(1, { message: "You must provide at least one assignment block" })
+  @ArrayMinSize(1, {
+    message: "You must provide at least one assignment block",
+  })
   @ValidateNested({ each: true })
   @Type(() => ManualAssignItemDto)
   assignments: ManualAssignItemDto[];
@@ -373,12 +433,9 @@ export class AutoPreviewDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
-
 }
 
-
 export class GetFreeOrdersDto {
-
   @IsArray()
   @ArrayNotEmpty()
   @IsInt({ each: true })
@@ -405,9 +462,6 @@ export class GetFreeOrdersDto {
   limit?: number = 20;
 }
 
-
-
-
 export class ReplacementItemDto {
   @IsInt()
   @Type(() => Number)
@@ -428,8 +482,8 @@ export class ReplacementItemDto {
 }
 
 export class CreateReplacementDto {
-  @IsEnum(ReplacementReason)
-  reason: ReplacementReason;
+  @IsString()
+  reason: string;
 
   @IsString()
   @IsOptional()
@@ -456,7 +510,6 @@ export class CreateReplacementDto {
   @Type(() => Number)
   shippingCompanyId?: number;
 
-
   @IsOptional()
   @IsInt()
   @Type(() => Number)
@@ -476,7 +529,7 @@ export class CreateReplacementDto {
   @IsArray()
   @ValidateNested({ each: true })
   @Transform(({ value }) => {
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       try {
         const parsedArray = JSON.parse(value);
         // 👈 CRITICAL: Convert the plain objects into actual DTO instances!
@@ -486,17 +539,16 @@ export class CreateReplacementDto {
       }
     }
     // If it's already an array (e.g., in a normal JSON request), still convert it
-    return Array.isArray(value) ? plainToInstance(ReplacementItemDto, value) : value;
+    return Array.isArray(value)
+      ? plainToInstance(ReplacementItemDto, value)
+      : value;
   })
   items: ReplacementItemDto[];
 }
 
-
-
-
 export class CreateManifestDto {
   @IsInt()
-  @IsNotEmpty()
+  @IsOptional()
   shippingCompanyId: number;
 
   @IsString()
@@ -506,11 +558,7 @@ export class CreateManifestDto {
   @IsArray()
   @IsInt({ each: true })
   orderIds: number[];
-
-
 }
-
-
 
 export class ReturnItemDto {
   @IsNumber()

@@ -5,12 +5,14 @@ import { Feature, Plan, PlanDuration, PlanType, Subscription, SubscriptionStatus
 import { SystemRole, User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
 import { TransactionsService } from "src/transactions/transactions.service";
-import { DataSource, Repository } from "typeorm";
+import { DataSource, EntityManager, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
 import { PaymentProviderEnum, PaymentPurposeEnum, PaymentSessionEntity, TransactionEntity, TransactionPaymentMethod, TransactionStatus } from "entities/payments.entity";
 import { PaymentFactoryService } from "src/payments/providers/PaymentFactoryService";
 import { defaultCurrency, SubscriptionUtils } from "common/healpers";
 import { PaymentsService } from "src/payments/payments.service";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 
 @Injectable()
 export class SubscriptionsService {
@@ -36,6 +38,8 @@ export class SubscriptionsService {
 
         @Inject(forwardRef(() => PaymentsService))
         private paymentService: PaymentsService,
+
+        private readonly notificationService: NotificationService,
     ) { }
     // ✅ Check if user is super admin
     private isSuperAdmin(me: User) {
@@ -169,7 +173,18 @@ export class SubscriptionsService {
         // 4. Apply status and save
         subscription.status = status;
 
-        return await this.subscriptionsRepo.save(subscription);
+        const saved = await this.subscriptionsRepo.save(subscription);
+
+        await this.notificationService.create({
+            userId: Number(subscription.userId),
+            type: NotificationType.SUBSCRIPTION_STATUS_UPDATED,
+            title: "Subscription Status Updated",
+            message: `Your subscription status has been updated to ${status}.`,
+            relatedEntityType: "subscription",
+            relatedEntityId: String(saved.id),
+        });
+
+        return saved;
     }
 
     async createSubscription(me: User, dto: CreateSubscriptionDto) {
@@ -254,6 +269,15 @@ export class SubscriptionsService {
 
             await manager.save(transaction);
 
+            await this.notificationService.create({
+                userId: Number(user.id),
+                type: NotificationType.SUBSCRIPTION_CREATED,
+                title: "Subscription Created",
+                message: `Your new subscription for plan "${plan.name}" has been created successfully.`,
+                relatedEntityType: "subscription",
+                relatedEntityId: String(savedSubscription.id),
+            });
+
             // 6️⃣ Return result
             return {
                 subscription: savedSubscription,
@@ -335,6 +359,16 @@ export class SubscriptionsService {
             }
 
             const savedSub = await manager.save(sub);
+
+            await this.notificationService.create({
+                userId: Number(sub.userId),
+                type: NotificationType.SUBSCRIPTION_UPDATED,
+                title: "Subscription Updated",
+                message: `Your subscription has been updated successfully.`,
+                relatedEntityType: "subscription",
+                relatedEntityId: String(savedSub.id),
+            });
+
             return savedSub;
         });
     }
@@ -511,8 +545,7 @@ export class SubscriptionsService {
             });
 
             return {
-                checkoutUrl: checkout.checkoutUrl,
-                subscriptionId: subscription.id,
+                checkoutUrl: checkout.checkoutUrl
             };
         });
     }
@@ -540,6 +573,15 @@ export class SubscriptionsService {
             subscription.status = SubscriptionStatus.CANCELLED;
 
             await manager.save(subscription);
+
+            await this.notificationService.create({
+                userId: Number(subscription.userId),
+                type: NotificationType.SUBSCRIPTION_STATUS_UPDATED,
+                title: "Subscription Cancelled",
+                message: `Your subscription for plan "${subscription.plan?.name}" has been cancelled.`,
+                relatedEntityType: "subscription",
+                relatedEntityId: String(subscription.id),
+            });
 
             return {
                 success: true,
@@ -571,16 +613,20 @@ export class SubscriptionsService {
         return subscription;
     }
 
-    async getMyActiveSubscription(me: User) {
-        const subscription = await this.subscriptionsRepo.findOne({
-            where: { userId: me.id, status: SubscriptionStatus.ACTIVE },
-            relations: ['plan'],
-            order: { startDate: 'DESC' },
-        });
+  async getMyActiveSubscription(me: User, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(Subscription) : this.subscriptionsRepo;
 
+    const subscription = await repo.findOne({
+        where: { 
+            userId: me.id, 
+            status: SubscriptionStatus.ACTIVE 
+        },
+        relations: ['plan'],
+        order: { startDate: 'DESC' },
+    });
 
-        return subscription;
-    }
+    return subscription;
+}
 
     async getSubscriptionStatistics(me: User) {
         if (!(this.isSuperAdmin(me) || this.isAdmin(me))) {

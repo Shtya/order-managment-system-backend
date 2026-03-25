@@ -35,20 +35,20 @@ export class PlansService {
 			.orderBy('p.id', 'DESC');
 
 		// Super admin: sees all plans with adminId null
-		if (this.isSuperAdmin(me)) {
-			qb.where('p.adminId IS NULL');
-			return qb.getMany();
-		}
+		// if (this.isSuperAdmin(me)) {
+		// 	qb.where('p.adminId IS NULL');
+		// 	return qb.getMany();
+		// }
 
-		// Admin: sees global plans + his own
-		if (this.isAdmin(me)) {
-			qb.where('(p.adminId IS NULL OR p.adminId = :meId)', { meId: me.id });
-			return qb.getMany();
-		}
+		// // Admin: sees global plans + his own
+		// if (this.isAdmin(me)) {
+		// 	qb.where('(p.adminId IS NULL OR p.adminId = :meId)', { meId: me.id });
+		// 	return qb.getMany();
+		// }
 
-		// Regular user: sees only global active plans
-		qb.where('p.adminId IS NULL')
-			.andWhere('p.isActive = :active', { active: true });
+		// // Regular user: sees only global active plans
+		// qb.where('p.adminId IS NULL')
+		// 	.andWhere('p.isActive = :active', { active: true });
 
 		return qb.getMany();
 	}

@@ -3,6 +3,8 @@ import { PermissionsGuard } from "common/permissions.guard";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 import { OrderReplacementService } from "../services/order-replacements.service";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path";
@@ -19,8 +21,9 @@ const replacementsStorage = diskStorage({
     },
 });
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("order-replacements")
+@RequireSubscription()
 export class OrderReplacemetsController {
     constructor(private svc: OrderReplacementService) { }
 

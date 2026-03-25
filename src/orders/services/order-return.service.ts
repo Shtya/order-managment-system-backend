@@ -4,6 +4,8 @@ import { OrderActionResult, OrderActionType, OrderEntity, OrderStatus, ReturnReq
 import { DataSource, EntityManager, Repository } from "typeorm";
 import { OrdersService, tenantId } from "./orders.service";
 import { CreateReturnDto } from "dto/order.dto";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 
 @Injectable()
 export class OrderReturnService {
@@ -14,6 +16,7 @@ export class OrderReturnService {
         @InjectRepository(OrderEntity)
         private readonly orderRepo: Repository<OrderEntity>,
         private readonly ordersService: OrdersService, // Inject the main service
+        private readonly notificationService: NotificationService,
     ) { }
 
 
@@ -120,6 +123,15 @@ export class OrderReturnService {
                 actionType: OrderActionType.RETURN,
                 result: OrderActionResult.SUCCESS,
                 details: `Order ${order.orderNumber || dto.orderId} has been prepered for returned for ${dto.items.length} items.`.trim()
+            });
+
+            await this.notificationService.create({
+                userId: Number(adminId),
+                type: NotificationType.RETURN_REQUEST_CREATED,
+                title: "Return Request Created",
+                message: `A return request has been created for order #${order.orderNumber}.`,
+                relatedEntityType: "order",
+                relatedEntityId: String(order.id),
             });
 
             return savedRequest;

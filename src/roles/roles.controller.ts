@@ -13,10 +13,13 @@ import { RolesService } from './roles.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { PermissionsGuard } from 'common/permissions.guard';
+import { RequireSubscription } from 'common/require-subscription.decorator';
+import { SubscriptionGuard } from 'common/subscription.guard';
 import { CreateRoleDto, UpdateRoleDto } from 'dto/role.dto';
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('roles')
+@RequireSubscription()
 export class RolesController {
 	constructor(private roles: RolesService) { }
 

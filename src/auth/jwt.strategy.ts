@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from 'entities/user.entity';
+import { SystemRole, User } from 'entities/user.entity';
 import { SubscriptionStatus } from 'entities/plans.entity';
 
 @Injectable()
@@ -18,27 +18,47 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 	}
 
 	async validate(payload: { sub: number }) {
-
 		const user = await this.usersRepo.createQueryBuilder('user')
-			// Join Role
+			// 
 			.leftJoinAndSelect('user.role', 'role')
 
-			// Join only the ACTIVE subscription
+
+			.leftJoinAndSelect('user.admin', 'admin')
+
+
 			.leftJoinAndSelect(
 				'user.subscriptions',
-				'subscription',
-				'subscription.status = :status',
+				'ownSub',
+				'ownSub.status = :status',
 				{ status: SubscriptionStatus.ACTIVE }
 			)
+			.leftJoinAndSelect('ownSub.plan', 'ownPlan')
 
-			// Join the Plan details for that active subscription
-			.leftJoinAndSelect('subscription.plan', 'plan')
+
+			.leftJoinAndSelect(
+				'admin.subscriptions',
+				'adminSub',
+				'adminSub.status = :status',
+				{ status: SubscriptionStatus.ACTIVE }
+			)
+			.leftJoinAndSelect('adminSub.plan', 'adminPlan')
 
 			.where('user.id = :userId', { userId: payload.sub })
 			.getOne();
 
-
 		if (!user || !user.isActive) throw new UnauthorizedException('Invalid user');
+
+
+		const isAdmin = user.role?.name === SystemRole.ADMIN;
+		const effectiveSub = (isAdmin || !user.admin)
+			? user.subscriptions?.[0]
+			: user.admin?.subscriptions?.[0];
+
+
+		user.subscriptions = effectiveSub ? [effectiveSub] : [];
+
+		delete user.admin;
+
 		return user;
 	}
 }

@@ -2,12 +2,15 @@ import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from "@nestjs
 import { CollectionService } from "./collection.service";
 import { CreateOrderCollectionDto } from "dto/order-collection.dto";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { Response } from "express";
 import { PermissionsGuard } from "common/permissions.guard";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('collections')
+@RequireSubscription()
 export class CollectionController {
     constructor(private readonly collectionService: CollectionService) { }
 

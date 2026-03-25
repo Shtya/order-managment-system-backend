@@ -19,12 +19,18 @@ import { CreateAssetDto, UpdateAssetDto } from 'dto/assets.dto';
 import { AssetService } from './asset.service';
 import { multerOptions } from '../../common/multer.config';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from 'common/permissions.guard';
+import { Permissions } from 'common/permissions.decorator';
+import { RequireSubscription } from 'common/require-subscription.decorator';
+import { SubscriptionGuard } from 'common/subscription.guard';
  
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('assets')
-@UseGuards(JwtAuthGuard)
+@RequireSubscription()
 export class AssetController {
   constructor(private readonly assetService: AssetService) {}
 
+  @Permissions("assets.create")
   @Post()
    @UseInterceptors(FileInterceptor('file', multerOptions))
   async upload(@UploadedFile() file: any, @Body() dto: CreateAssetDto, @Req() req: any) {
@@ -33,6 +39,7 @@ export class AssetController {
     return this.assetService.create(dto, file, user);
   }
 
+  @Permissions("assets.create")
   @Post('bulk') 
   @UseInterceptors(FilesInterceptor('files', 20, multerOptions))
   async uploadMultiple(@UploadedFiles() files: any[], @Body() dto: CreateAssetDto, @Req() req: any) {
@@ -49,6 +56,7 @@ export class AssetController {
     };
   }
 
+  @Permissions("assets.read")
   @Get()
    async getMyAssets(@Req() req: any) {
     const user = req.user;
@@ -56,17 +64,20 @@ export class AssetController {
     return this.assetService.findAllByUser(user.id);
   }
 
+  @Permissions("assets.read")
   @Get(':id')
   async getAsset(@Param('id') id: any) {
     return this.assetService.findOne(id);
   }
 
+  @Permissions("assets.update")
   @Patch(':id')
   @UseInterceptors(FileInterceptor('file', multerOptions))
   async updateAsset(@Param('id') id: any, @UploadedFile() file: any, @Body() dto: UpdateAssetDto) {
     return this.assetService.update(id, dto, file);
   }
 
+  @Permissions("assets.delete")
   @Delete(':id')
   async deleteAsset(@Param('id') id: any) {
     return this.assetService.delete(id);

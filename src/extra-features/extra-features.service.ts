@@ -6,6 +6,8 @@ import { Feature, SubscriptionStatus, UserFeature } from 'entities/plans.entity'
 import { SystemRole, User } from 'entities/user.entity';
 import { PaymentFactoryService } from 'src/payments/providers/PaymentFactoryService';
 import { TransactionsService } from 'src/transactions/transactions.service';
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 import { DataSource, Repository } from 'typeorm';
 import * as ExcelJS from "exceljs";
 import { AssignUserFeatureDto, UpdateFeatureDto } from 'dto/feature.dto';
@@ -27,7 +29,9 @@ export class ExtraFeaturesService {
         private paymentFactory: PaymentFactoryService,
 
         @InjectRepository(Feature)
-        private readonly featuresRepo: Repository<Feature>
+        private readonly featuresRepo: Repository<Feature>,
+
+        private readonly notificationService: NotificationService,
     ) { }
 
     private isSuperAdmin(me: User) {
@@ -287,6 +291,13 @@ export class ExtraFeaturesService {
             });
 
             await manager.save(transaction);
+
+            await this.notificationService.create({
+                userId: Number(user.adminId || me.id),
+                type: NotificationType.EXTRA_FEATURE_ASSIGNED,
+                title: "Extra Feature Assigned",
+                message: `Feature "${feature.name}" has been assigned to user ${user.name || user.email}.`,
+            });
 
             return {
                 userFeature: savedUserFeature,

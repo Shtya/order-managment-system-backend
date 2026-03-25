@@ -33,17 +33,23 @@ export class UsersService {
 		const user = await this.usersRepo.createQueryBuilder('user')
 			// Join Role
 			.leftJoinAndSelect('user.role', 'role')
-
+			.leftJoinAndSelect('user.admin', 'admin')
 			// Join only the ACTIVE subscription
 			.leftJoinAndSelect(
 				'user.subscriptions',
-				'subscription',
-				'subscription.status = :status',
+				'ownSub',
+				'ownSub.status = :status',
 				{ status: SubscriptionStatus.ACTIVE }
 			)
+			.leftJoinAndSelect('ownSub.plan', 'ownPlan')
 
-			// Join the Plan details for that active subscription
-			.leftJoinAndSelect('subscription.plan', 'plan')
+			.leftJoinAndSelect(
+				'admin.subscriptions',
+				'adminSub',
+				'adminSub.status = :status',
+				{ status: SubscriptionStatus.ACTIVE }
+			)
+			.leftJoinAndSelect('adminSub.plan', 'adminPlan')
 
 			.where('user.id = :userId', { userId })
 			.getOne();
@@ -52,23 +58,39 @@ export class UsersService {
 			throw new NotFoundException(`User with ID ${userId} not found`);
 		}
 
+		const isAdmin = user.role?.name === SystemRole.ADMIN;
+		const effectiveSub = (isAdmin || !user.admin)
+			? user.subscriptions?.[0]
+			: user.admin?.subscriptions?.[0];
+
+		user.subscriptions = effectiveSub ? [effectiveSub] : [];
+
+		delete user.admin;
+
 		return user;
 	}
+
 	async getFullUserByEmail(email: string): Promise<User> {
 		const user = await this.usersRepo.createQueryBuilder('user')
 			// Join Role
 			.leftJoinAndSelect('user.role', 'role')
-
+			.leftJoinAndSelect('user.admin', 'admin')
 			// Join only the ACTIVE subscription
 			.leftJoinAndSelect(
 				'user.subscriptions',
-				'subscription',
-				'subscription.status = :status',
+				'ownSub',
+				'ownSub.status = :status',
 				{ status: SubscriptionStatus.ACTIVE }
 			)
+			.leftJoinAndSelect('ownSub.plan', 'ownPlan')
 
-			// Join the Plan details for that active subscription
-			.leftJoinAndSelect('subscription.plan', 'plan')
+			.leftJoinAndSelect(
+				'admin.subscriptions',
+				'adminSub',
+				'adminSub.status = :status',
+				{ status: SubscriptionStatus.ACTIVE }
+			)
+			.leftJoinAndSelect('adminSub.plan', 'adminPlan')
 
 			.where('user.email = :email', { email })
 			.getOne();
@@ -76,6 +98,15 @@ export class UsersService {
 		if (!user) {
 			throw new NotFoundException(`User with email ${email} not found`);
 		}
+
+		const isAdmin = user.role?.name === SystemRole.ADMIN;
+		const effectiveSub = (isAdmin || !user.admin)
+			? user.subscriptions?.[0]
+			: user.admin?.subscriptions?.[0];
+
+		user.subscriptions = effectiveSub ? [effectiveSub] : [];
+
+		delete user.admin;
 
 		return user;
 	}

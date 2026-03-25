@@ -16,6 +16,8 @@ import { TransactionsService } from './transactions.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { PermissionsGuard } from 'common/permissions.guard';
+import { RequireSubscription } from 'common/require-subscription.decorator';
+import { SubscriptionGuard } from 'common/subscription.guard';
 import { ManualCreateTransactionDto } from 'dto/plans.dto';
 import { Response } from 'express';
 

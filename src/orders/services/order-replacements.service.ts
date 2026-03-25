@@ -5,6 +5,8 @@ import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/com
 import { CreateOrderDto, CreateReplacementDto } from "dto/order.dto";
 import * as ExcelJS from "exceljs";
 import { InjectRepository } from "@nestjs/typeorm";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 
 @Injectable()
 export class OrderReplacementService {
@@ -13,6 +15,7 @@ export class OrderReplacementService {
         @InjectRepository(OrderReplacementEntity)
         private readonly replacementRepo: Repository<OrderReplacementEntity>,
         private readonly ordersService: OrdersService, // Inject the main service
+        private readonly notificationService: NotificationService,
     ) { }
 
     // ========================================
@@ -338,6 +341,15 @@ export class OrderReplacementService {
             newOrder.isReplacement = true;
             await manager.save(OrderEntity, newOrder);
             await manager.save(OrderReplacementEntity, replacement);
+
+            await this.notificationService.create({
+                userId: Number(adminId),
+                type: NotificationType.REPLACEMENT_CREATED,
+                title: "Order Replacement Created",
+                message: `A replacement order #${newOrder.orderNumber} has been created for original order #${originalOrder.orderNumber}.`,
+                relatedEntityType: "order",
+                relatedEntityId: String(newOrder.id),
+            });
 
             return {
                 replacement,

@@ -22,6 +22,8 @@ import { tenantId } from "../category/category.service";
 import * as ExcelJS from "exceljs";
 import { OrderItemEntity, OrderStatus } from "entities/order.entity";
 import { deletePhysicalFiles } from "common/healpers";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 
 @Injectable()
 export class ProductsService {
@@ -42,7 +44,9 @@ export class ProductsService {
     private whRepo: Repository<WarehouseEntity>,
 
     @InjectRepository(OrderItemEntity)
-    private orderItemRepo: Repository<OrderItemEntity>
+    private orderItemRepo: Repository<OrderItemEntity>,
+
+    private readonly notificationService: NotificationService,
   ) { }
 
   public async handleImageCleanup(
@@ -850,6 +854,15 @@ export class ProductsService {
 
       await this.pvRepo.save(rows);
     }
+
+    await this.notificationService.create({
+      userId: Number(adminId),
+      type: NotificationType.PRODUCT_CREATED,
+      title: "New Product Created",
+      message: `Product "${savedProduct.name}" has been created successfully.`,
+      relatedEntityType: "product",
+      relatedEntityId: String(savedProduct.id),
+    });
 
     return this.get(me, savedProduct.id);
   }
