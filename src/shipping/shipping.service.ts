@@ -25,6 +25,8 @@ import { ProductVariantEntity } from 'entities/sku.entity';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { ShippingQueueService } from './queues/shipping.queues';
 import { AppGateway } from '../../common/app.gateway';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'entities/notifications.entity';
 
 @Injectable()
 export class ShippingService {
@@ -53,7 +55,8 @@ export class ShippingService {
 		@InjectRepository(ShipmentEventEntity)
 		private eventsRepo: Repository<ShipmentEventEntity>,
 		@Inject(forwardRef(() => OrdersService))
-		private readonly ordersService: OrdersService
+		private readonly ordersService: OrdersService,
+		private readonly notificationService: NotificationService,
 	) {
 		this.providers = {
 			bosta: this.bostaProvider,
@@ -345,7 +348,7 @@ export class ShippingService {
 		};
 	}
 
-	async createShipment(me, provider: ProviderCode, dto: CreateShipmentDto, orderId: number
+	async createShipment(me, provider: ProviderCode | 'none', dto: CreateShipmentDto, orderId: number
 		, options: { emitSocket?: boolean } = { emitSocket: true }) {
 		const adminId = tenantId(me);
 		const userId = me?.id;
@@ -407,11 +410,44 @@ export class ShippingService {
 		}
 
 		try {
-			const p = this.getProvider(provider);
-			const { apiKey, companyId, integ } = await this.requireApiKey(adminId, provider);
+			const isNoneProvider = provider === 'none';
+			const p = !isNoneProvider ? this.getProvider(provider) : null;
+			const { apiKey, companyId, integ } = !isNoneProvider
+				? await this.requireApiKey(adminId, provider)
+				: { apiKey: null, companyId: null, integ: null };
 
 
 			const result = await this.dataSource.transaction(async (manager) => {
+				if (isNoneProvider) {
+					const status = await this.ordersService.findStatusByCode(OrderStatus.DISTRIBUTED, adminId, manager)
+
+					await manager.update(OrderEntity,
+						{ id: orderId, adminId },
+						{
+							statusId: status.id,
+							trackingNumber: null,
+							shippingCompanyId: null,
+							distributed_at: new Date(),
+						}
+					);
+
+					await this.ordersService.logOrderAction({
+						manager, adminId, userId, orderId,
+						actionType: OrderActionType.COURIER_ASSIGNED,
+						result: OrderActionResult.SUCCESS,
+						details: `Assigned for Manual Shipping (No Provider)`
+					});
+
+					return {
+						ok: true,
+						shipmentId: null,
+						orderId: orderId,
+						provider: 'none',
+						trackingNumber: null,
+						status: UnifiedShippingStatus.IN_PROGRESS,
+					};
+				}
+
 				const shipment = await manager.save(
 					manager.create(ShipmentEntity, {
 						adminId,
@@ -517,6 +553,17 @@ export class ShippingService {
 				});
 			}
 
+			await this.notificationService.create({
+				userId: Number(adminId),
+				type: NotificationType.SHIPMENT_CREATED,
+				title: isNoneProvider ? "Order Distributed" : "Shipment Created",
+				message: isNoneProvider
+					? `Order #${order.orderNumber} has been assigned for manual shipping.`
+					: `Shipment for order #${order.orderNumber} has been created successfully. Tracking: ${result.trackingNumber}`,
+				relatedEntityType: "order",
+				relatedEntityId: String(order.id),
+			});
+
 			return result;
 		} catch (error) {
 			if (options.emitSocket !== false) {
@@ -568,12 +615,23 @@ export class ShippingService {
 
 				}
 
-				return {
+				const result = {
 					ok: true,
 					message: "Shipment cancelled successfully and stock restored.",
 					shipmentId: shipment.id,
 					status: shipment.unifiedStatus
 				};
+
+				await this.notificationService.create({
+					userId: Number(adminId),
+					type: NotificationType.SHIPMENT_CANCELLED,
+					title: "Shipment Cancelled",
+					message: `Shipment for order #${shipment.order.orderNumber} has been cancelled and stock has been restored.`,
+					relatedEntityType: "order",
+					relatedEntityId: String(shipment.order.id),
+				});
+
+				return result;
 
 			} catch (e: any) {
 				shipment.failureReason = e?.message || 'Cancel shipment failed';
@@ -585,7 +643,7 @@ export class ShippingService {
 	}
 
 	// Remains direct for speed
-	async assignOrder(me: any, provider: ProviderCode, orderId: number, dto: AssignOrderDto) {
+	async assignOrder(me: any, orderId: number, dto: AssignOrderDto, provider?: ProviderCode | 'none') {
 		const adminId = tenantId(me);
 		return this.createShipment(me, provider, dto, orderId, { emitSocket: false });
 	}

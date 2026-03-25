@@ -8,6 +8,8 @@ import { ShippingIntegrationEntity } from 'entities/shipping.entity';
 import { tenantId } from 'src/category/category.service';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'entities/notifications.entity';
 
 @Injectable()
 export class CollectionService {
@@ -21,6 +23,8 @@ export class CollectionService {
 
         @InjectRepository(ShippingIntegrationEntity)
         private readonly shippingRepo: Repository<ShippingIntegrationEntity>,
+
+        private readonly notificationService: NotificationService,
     ) { }
 
     // collection.service.ts
@@ -102,6 +106,15 @@ export class CollectionService {
             // 3. update order.collectedAmount atomically
             order.collectedAmount = (Number(order.collectedAmount) || 0) + Number(dto.amount);
             await manager.save(order);
+
+            await this.notificationService.create({
+                userId: Number(adminId),
+                type: NotificationType.COLLECTION_CREATED,
+                title: "New Collection Added",
+                message: `A collection of ${dto.amount} ${collection.currency} has been added to order #${order.orderNumber}.`,
+                relatedEntityType: "order",
+                relatedEntityId: String(order.id),
+            });
 
             // 4. return saved (optionally return order too)
             return saved;

@@ -2,11 +2,14 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuard
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { CategoriesService } from "./category.service";
 import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("categories")
+@RequireSubscription()
 export class CategoriesController {
   constructor(private cats: CategoriesService) { }
 
@@ -16,6 +19,7 @@ export class CategoriesController {
     return this.cats.list(req.user, q);
   }
 
+  @Permissions("categories.read")
   @Get("check-slug")
   async checkSlug(
     @Req() req: any,

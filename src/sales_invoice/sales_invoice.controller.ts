@@ -3,6 +3,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuard
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
  import {
   CreateSalesInvoiceDto,
   UpdateSalesInvoiceDto,
@@ -10,8 +12,9 @@ import { Permissions } from "common/permissions.decorator";
 } from "dto/sales_invoice.dto";
 import { SalesInvoicesService } from "./sales_invoice.service";
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("sales-invoices")
+@RequireSubscription()
 export class SalesInvoicesController {
   constructor(private svc: SalesInvoicesService) {}
 

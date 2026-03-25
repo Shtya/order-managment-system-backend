@@ -3,11 +3,14 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuard
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { PurchaseReturnsService } from "./purchases-return.service";
 import { CreatePurchaseReturnDto, UpdatePurchaseReturnDto, UpdatePurchaseReturnStatusDto } from "dto/purchase_return.dto";
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("purchases-return")
+@RequireSubscription()
 export class PurchaseReturnsController {
   constructor(private svc: PurchaseReturnsService) {}
 

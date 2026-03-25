@@ -29,44 +29,10 @@ export class AuthService {
 	RESEND_COOLDOWN_SECONDS = 60;
 
 	public async sign(user: User) {
-		// 1. Find the active subscription from the history array
-		const activeSub = user.subscriptions?.find(
-			(sub) => sub.status === SubscriptionStatus.ACTIVE
-		) ?? null;
 
 		return {
 			accessToken: this.jwt.sign({ sub: user.id }),
-			user: {
-				id: user.id,
-				name: user.name,
-				email: user.email,
-				role: user.role?.name,
-				permissions: user.role?.permissionNames,
-				adminId: user.adminId,
-				onboardingStatus: user.onboardingStatus,
-				currentOnboardingStep: user.currentOnboardingStep,
-
-				plan: activeSub
-					? {
-						id: activeSub.planId, // ID of the plan at time of signup
-						name: activeSub?.plan?.name, // Snapshot name (e.g., "باقة النمو")
-						type: activeSub.planType,
-						price: Number(activeSub.price),
-						includedOrders: activeSub.includedOrders,
-						usedOrders: activeSub.usedOrders,
-						extraOrderFee: Number(activeSub.extraOrderFee),
-						status: activeSub.status,
-						startDate: activeSub.startDate,
-						endDate: activeSub.endDate,
-						// Limits
-						usersLimit: activeSub.usersLimit,
-						storesLimit: activeSub.storesLimit,
-						shippingCompaniesLimit: activeSub.shippingCompaniesLimit,
-						// Features (if you didn't snapshot features array, you might still pull from activeSub.plan if relation loaded)
-						features: activeSub.plan?.features ?? [],
-					}
-					: null,
-			},
+			user,
 		};
 	}
 	private generateOtp(len = 6) {

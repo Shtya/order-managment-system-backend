@@ -12,6 +12,8 @@ import { ProductsController } from "./products.controller";
 import { ProductSubscriber, VariantSubscriber } from "./product-subscriber";
 import { StoresModule } from "src/stores/stores.module";
 import { OrderItemEntity } from "entities/order.entity";
+import { LowStockService } from "common/background-services/low-stock.service";
+import { User } from "entities/user.entity";
 
 @Module({
   imports: [
@@ -22,10 +24,11 @@ import { OrderItemEntity } from "entities/order.entity";
       CategoryEntity,
       StoreEntity,
       WarehouseEntity,
-      OrderItemEntity
+      OrderItemEntity,
+      User
     ]),
   ],
-  providers: [ProductsService, ProductSubscriber, VariantSubscriber],
+  providers: [ProductsService, ProductSubscriber, VariantSubscriber, LowStockService],
   controllers: [ProductsController],
   exports: [ProductsService],
 })

@@ -3,12 +3,17 @@ import { DashboardService } from './dashboard.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { Response } from 'express';
+import { Permissions } from 'common/permissions.decorator';
+import { RequireSubscription } from 'common/require-subscription.decorator';
+import { SubscriptionGuard } from 'common/subscription.guard';
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('dashboard')
+@RequireSubscription()
 export class DashboardController {
   constructor(private readonly dashboardService: DashboardService) { }
 
+  @Permissions("dashboard.read")
   @Get('summary')
   async getSummary(
     @Req() req: any,
@@ -17,11 +22,13 @@ export class DashboardController {
     return this.dashboardService.getSummary(req.user, q);
   }
 
+  @Permissions("dashboard.read")
   @Get('trend')
   async getTrend(@Query() query, @Req() req) {
     return this.dashboardService.getTrends(req.user, query);
   }
 
+  @Permissions("dashboard.read")
   @Get('top-products')
   async getTopProducts(
     @Req() req,
@@ -30,6 +37,7 @@ export class DashboardController {
     return this.dashboardService.getTopProducts(req.user, query);
   }
 
+  @Permissions("dashboard.read")
   @Get('profit-report')
   async getProfitReport(
     @Req() req,
@@ -39,6 +47,7 @@ export class DashboardController {
     return this.dashboardService.getProfitReport(req.user, { storeId, range });
   }
 
+  @Permissions("dashboard.read")
   @Get('profit-report/export')
   async exportProfitReport(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.dashboardService.exportProfitExcel(req.user, q);
@@ -51,22 +60,26 @@ export class DashboardController {
     return res.send(buffer);
   }
 
+  @Permissions("dashboard.read")
   @Get('orders/stats')
   async getOrderAnalysis(@Req() req: any, @Query() query) {
     return this.dashboardService.getOrderAnalysisStats(req.user, query);
   }
 
 
+  @Permissions("dashboard.read")
   @Get('orders/trend')
   async getOrderTrend(@Req() req: any, @Query() query) {
     return this.dashboardService.getOrdersTrends(req.user, query);
   }
 
+  @Permissions("dashboard.read")
   @Get('orders/top-areas')
   async getTopAreasReport(@Req() req: any, @Query() query) {
     return this.dashboardService.getTopAreasReport(req.user, query);
   }
 
+  @Permissions("dashboard.read")
   @Get('orders/top-areas/export')
   async exportTopAreasReport(@Req() req: any, @Query() query, @Res() res: Response) {
     const buffer = await this.dashboardService.exportTopAreasReport(req.user, query);
@@ -79,6 +92,7 @@ export class DashboardController {
     return res.send(buffer);
   }
 
+  @Permissions("dashboard.read")
   @Get('employees/stats')
   async getEmployeeStats(
     @Req() req: any,
@@ -87,6 +101,7 @@ export class DashboardController {
     return this.dashboardService.getEmployeePerformance(req.user, filters);
   }
 
+  @Permissions("dashboard.read")
   @Get('employees/stats/export')
   async exportEmployeeStats(@Req() req: any, @Query() query: any, @Res() res: Response) {
     const buffer = await this.dashboardService.exportEmployeePerformance(req.user, query);

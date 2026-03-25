@@ -6,47 +6,54 @@ import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, SetActiveDto, Se
 import { tenantId } from 'src/category/category.service';
 import { ProviderCode } from './providers/shipping-provider.interface';
 
+import { PermissionsGuard } from 'common/permissions.guard';
+import { Permissions } from 'common/permissions.decorator';
+import { RequireSubscription } from 'common/require-subscription.decorator';
+import { SubscriptionGuard } from 'common/subscription.guard';
+
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('shipping')
+@RequireSubscription()
 export class ShippingController {
 	constructor(private shipping: ShippingService) { }
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('providers')
 	providers() {
 		return this.shipping.listProviders();
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('statuses')
 	statuses() {
 		return this.shipping.getUnifiedStatuses();
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.update")
 	@Post('providers/:provider/credentials')
 	setCredentials(@Req() req: any, @Param('provider') provider: string, @Body() dto: SetProviderCredentialsDto) {
 		return this.shipping.setCredentials(req.user.id, provider, dto.credentials);
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.update")
 	@Post('providers/:provider/active')
 	setActive(@Req() req: any, @Param('provider') provider: string, @Body() dto: SetActiveDto) {
 		return this.shipping.setActive(req.user.id, provider, dto.isActive);
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('providers/:provider/services')
 	services(@Req() req: any, @Param('provider') provider: string) {
 		return this.shipping.getServices(req.user.id, provider);
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('providers/:provider/capabilities')
 	capabilities(@Req() req: any, @Param('provider') provider: string) {
 		return this.shipping.getCapabilities(req.user.id, provider);
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('stats/companies-workload')
 	async getCompanyWorkload(@Req() req: any) {
 		return await this.shipping.getCompanyDistribution(req.user);
@@ -56,7 +63,7 @@ export class ShippingController {
 	 * Endpoint 2: Lifecycle Totals
 	 * Returns: { confirmed: 100, distributed: 50, distributedNotPrinted: 10 }
 	*/
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('stats/lifecycle-summary')
 	async getLifecycleSummary(@Req() req: any) {
 		return await this.shipping.getShipmentLifecycleStats(req.user);
@@ -71,13 +78,13 @@ export class ShippingController {
 	// }
 
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.update")
 	@Post('providers/:provider/orders/:orderId/assign')
-	assign(@Req() req: any, @Param('provider') provider: ProviderCode, @Param('orderId') orderId: string, @Body() dto: AssignOrderDto) {
-		return this.shipping.assignOrder(req.user, provider, Number(orderId), dto);
+	assign(@Req() req: any, @Param('orderId') orderId: string, @Body() dto: AssignOrderDto, @Param('provider') provider?: ProviderCode | 'none',) {
+		return this.shipping.assignOrder(req.user, Number(orderId), dto, provider);
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.update")
 	@Post('providers/:provider/orders/bulk-assign')
 	bulkAssign(
 		@Req() req: any,
@@ -87,13 +94,13 @@ export class ShippingController {
 		return this.shipping.bulkAssignOrders(req.user, provider, dto);
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('shipments')
 	list(@Req() req: any) {
 		return this.shipping.listShipments(req.user.id);
 	}
 
-	@UseGuards(JwtAuthGuard)
+	@Permissions("shipping-companies.read")
 	@Get('shipments/:id')
 	get(@Req() req: any, @Param('id') id: string) {
 		return this.shipping.getShipment(req.user.id, Number(id));

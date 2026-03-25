@@ -3,6 +3,8 @@ import { PaymentsService } from './payments.service';
 import { PaymentProviderEnum, PaymentSessionStatusEnum } from 'entities/payments.entity';
 import { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { PermissionsGuard } from 'common/permissions.guard';
+import { Permissions } from 'common/permissions.decorator';
 
 @Controller('payments')
 export class PaymentsController {
@@ -52,7 +54,8 @@ export class PaymentsController {
   }
 
   @Get('sessions/:id')
-  @UseGuards(JwtAuthGuard) // Assuming you have a JWT guard
+  @UseGuards(JwtAuthGuard, PermissionsGuard)
+  @Permissions("payments.read")
   async getPaymentSession(
     @Param('id', ParseIntPipe) sessionId: number,
     @Req() req: any,

@@ -27,11 +27,26 @@ export class PermissionsService implements OnModuleInit {
 
 			"stores.read", "stores.create", "stores.update", "stores.delete",
 			"order.read", "order.create", "order.update", "order.delete", "order.updateSettings", "order.readSettings", "order.assign",
-			"warehouses.read", "warehouses.create", "warehouses.update", "warehouses.delete",
+			"warehouses.read", "warehouses.create", "warehouses.update", "warehouses.delete", "warehouses.scan-shipping", "warehouses.scan-preparation",
 			"categories.read", "categories.create", "categories.update", "categories.delete",
+			"orders.read", "orders.create", "orders.update", "orders.delete", "orders.replace", "orders.readReplace", "return-request.create",
+			"suppliers.read", "suppliers.create", "suppliers.update", "suppliers.delete",
+			"orders-collect.read", "orders-collect.create",
 			"products.read", "products.create", "products.update", "products.delete",
 
 			"shipping-companies.create", "shipping-companies.read", "shipping-companies.update", "shipping-companies.delete",
+
+			"notifications.read", "notifications.update",
+			"subscriptions.read", "subscriptions.create", "subscriptions.update",
+			"admin-settings.read", "admin-settings.update",
+			"wallet.read", "wallet.update",
+			"payments.read",
+			"extra-features.read", "extra-features.create", "extra-features.update",
+			"dashboard.read",
+			"assets.read", "assets.create", "assets.update", "assets.delete",
+			"purchase_returns.read", "purchase_returns.create", "purchase_returns.update", "purchase_returns.delete",
+			"purchases.read", "purchases.create", "purchases.update", "purchases.delete",
+			"sales_invoice.read", "sales_invoice.create", "sales_invoice.update", "sales_invoice.delete",
 
 
 		];

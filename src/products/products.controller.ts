@@ -19,6 +19,8 @@ import {
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { ProductsService } from "./products.service";
 
 import {
@@ -79,8 +81,9 @@ function parseNumber(val: any): number | null | undefined {
   return Number.isFinite(n) ? n : null;
 }
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("products")
+@RequireSubscription()
 export class ProductsController {
   constructor(private products: ProductsService) { }
 
@@ -117,6 +120,7 @@ export class ProductsController {
     return this.products.getAdminSummary(req.user);
   }
 
+  @Permissions("products.read")
   @Get("check-slug")
   async checkSlug(
     @Req() req: any,

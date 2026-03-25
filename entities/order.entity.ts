@@ -25,13 +25,13 @@ export enum OrderStatus {
   NEW = "new",
   UNDER_REVIEW = "under_review",
   // ✅ حالات مرحلة التأكيد الجديدة
-  CONFIRMED = "confirmed",           // مؤكد
+  CONFIRMED = "confirmed", // مؤكد
   DISTRIBUTED = "distributed",
-  POSTPONED = "postponed",           // مؤجل
-  NO_ANSWER = "no_answer",           // لا يوجد رد
-  WRONG_NUMBER = "wrong_number",     // الرقم غلط
+  POSTPONED = "postponed", // مؤجل
+  NO_ANSWER = "no_answer", // لا يوجد رد
+  WRONG_NUMBER = "wrong_number", // الرقم غلط
   OUT_OF_DELIVERY_AREA = "out_of_area", // خارج نطاق التوصيل
-  DUPLICATE = "duplicate",           // طلب مكرر
+  DUPLICATE = "duplicate", // طلب مكرر
   //
   PREPARING = "preparing",
 
@@ -42,11 +42,11 @@ export enum OrderStatus {
   SHIPPED = "shipped",
   DELIVERED = "delivered",
   CANCELLED = "cancelled",
-  RETURN_PREPARING = 'return_preparing',
+  RETURN_PREPARING = "return_preparing",
   RETURNED = "returned",
 }
 
-@Entity('order_statuses')
+@Entity("order_statuses")
 @Index(["adminId", "code"], { unique: true })
 @Index(["adminId", "name"], { unique: true })
 export class OrderStatusEntity {
@@ -75,10 +75,9 @@ export class OrderStatusEntity {
   @Column({ type: "int", default: 0 })
   sortOrder: number; // For "trimming" the UI list order
 
-
   @Column({ type: "varchar", length: 7, default: "#000000" })
   color: string; // Hex code for UI display
-  @OneToMany(() => OrderEntity, order => order.status)
+  @OneToMany(() => OrderEntity, (order) => order.status)
   orders: OrderEntity[];
 
   @BeforeInsert()
@@ -90,7 +89,6 @@ export class OrderStatusEntity {
       this.code = slugify(this.name).slice(0, 200);
     }
   }
-
 }
 export function slugify(value: string): string {
   return value
@@ -102,7 +100,6 @@ export function slugify(value: string): string {
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 }
-
 
 // ✅ Payment Status Enum
 export enum PaymentStatus {
@@ -129,7 +126,7 @@ export enum PaymentMethod {
 @Index(["adminId", "status"])
 @Index(["adminId", "paymentStatus"])
 @Index(["adminId", "created_at"])
-@Index(['adminId', 'storeId', 'created_at'])
+@Index(["adminId", "storeId", "created_at"])
 @Index(["adminId", "city", "area"])
 @Index(["adminId", "statusId", "rejectedAt"])
 export class OrderEntity {
@@ -162,7 +159,6 @@ export class OrderEntity {
   @Column({ nullable: true })
   returnedById?: number;
 
-
   @Column()
   @Index()
   adminId!: string;
@@ -189,7 +185,7 @@ export class OrderEntity {
   @Column({ type: "text", nullable: true })
   landmark?: string;
 
-  @Column({ type: "int", default: 0, nullable: false, })
+  @Column({ type: "int", default: 0, nullable: false })
   deposit: number;
 
   @Column({ type: "varchar", length: 100 })
@@ -204,14 +200,18 @@ export class OrderEntity {
   // status!: OrderStatus;
 
   @ManyToOne(() => OrderStatusEntity, { eager: true })
-  @JoinColumn({ name: 'statusId' })
+  @JoinColumn({ name: "statusId" })
   status: OrderStatusEntity;
 
   @Column()
   statusId: number;
 
   // ✅ Payment Information
-  @Column({ type: "varchar", length: 50, default: PaymentMethod.CASH_ON_DELIVERY })
+  @Column({
+    type: "varchar",
+    length: 50,
+    default: PaymentMethod.CASH_ON_DELIVERY,
+  })
   paymentMethod!: PaymentMethod;
 
   @Column({ type: "varchar", length: 50, default: PaymentStatus.PENDING })
@@ -220,7 +220,7 @@ export class OrderEntity {
 
   // ✅ Shipping Information
   @ManyToOne(() => ShippingCompanyEntity, { nullable: true, eager: false })
-  @JoinColumn({ name: 'shippingCompanyId' })
+  @JoinColumn({ name: "shippingCompanyId" })
   shippingCompany?: ShippingCompanyEntity | null;
 
   @Column({ type: "int", nullable: true })
@@ -273,7 +273,10 @@ export class OrderEntity {
   customerNotes?: string;
 
   // ✅ Relations
-  @OneToMany(() => OrderItemEntity, (item) => item.order, { cascade: true, eager: true })
+  @OneToMany(() => OrderItemEntity, (item) => item.order, {
+    cascade: true,
+    eager: true,
+  })
   items!: OrderItemEntity[];
 
   @OneToMany(() => OrderStatusHistoryEntity, (history) => history.order)
@@ -323,34 +326,35 @@ export class OrderEntity {
   @Column({
     type: "jsonb",
     nullable: true,
-    default: { preparation: 0, shipping: 0 }
+    default: { preparation: 0, shipping: 0 },
   })
   failedScanCounts: {
     preparation: number;
     shipping: number;
   };
 
-
-  @OneToOne('OrderReplacementEntity', 'originalOrder', { nullable: true })
+  @OneToOne("OrderReplacementEntity", "originalOrder", { nullable: true })
   replacementRequest: Relation<OrderReplacementEntity>;
 
-  @OneToOne('OrderReplacementEntity', 'replacementOrder', { nullable: true })
+  @OneToOne("OrderReplacementEntity", "replacementOrder", { nullable: true })
   replacementResult: Relation<OrderReplacementEntity>;
 
   @OneToMany(() => OrderCollectionEntity, (collection) => collection.order)
   collections: Relation<OrderCollectionEntity[]>;
 
+  @OneToMany(() => OrderScanLogEntity, (log) => log.order)
+  scanLogs: Relation<OrderScanLogEntity[]>;
+
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   collectedAmount: number;
 
-  @Column({ type: 'jsonb', nullable: true })
+  @Column({ type: "jsonb", nullable: true })
   shippingMetadata?: {
     cityId?: string; //For Bosta
     districtId?: string; //For Bosta
-    zoneId?: string; //For Bosta 
-    locationId?: string;  //For Bosta
+    zoneId?: string; //For Bosta
+    locationId?: string; //For Bosta
   };
-
 }
 
 // ✅ Order Items Entity
@@ -389,7 +393,6 @@ export class OrderItemEntity {
   @Column({ type: "int", default: 0 })
   shippingScannedQuantity: number;
 
-
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   unitPrice!: number; // Price at time of order
 
@@ -405,13 +408,16 @@ export class OrderItemEntity {
   @Column({ default: false })
   isAdditional: boolean;
 
+  @Column({ type: "boolean", default: false })
+  stockDeducted: boolean;
+
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
 }
 
 export enum ScanLogType {
-  PREPARATION = 'PREPARATION', // Scanning items into a box
-  SHIPPING = 'SHIPPING',       // Scanning boxes onto a truck
+  PREPARATION = "PREPARATION", // Scanning items into a box
+  SHIPPING = "SHIPPING", // Scanning boxes onto a truck
 }
 
 export enum ScanReason {
@@ -420,7 +426,6 @@ export enum ScanReason {
   INVALID_STATUS = "INVALID_STATUS",
   OTHER = "OTHER",
 }
-
 
 @Entity({ name: "order_scan_logs" })
 @Index(["adminId", "orderId", "phase"]) // Fast lookup for a specific order's audit trail
@@ -470,7 +475,6 @@ export class OrderScanLogEntity {
   createdAt!: Date;
 }
 
-
 // ✅ Order Status History Entity
 @Entity({ name: "order_status_history" })
 @Index(["adminId", "orderId"])
@@ -487,7 +491,9 @@ export class OrderStatusHistoryEntity {
   @Index()
   orderId!: number;
 
-  @ManyToOne(() => OrderEntity, (order) => order.statusHistory, { onDelete: "CASCADE" })
+  @ManyToOne(() => OrderEntity, (order) => order.statusHistory, {
+    onDelete: "CASCADE",
+  })
   @JoinColumn({ name: "orderId" })
   order!: OrderEntity;
   // Change from Enum to Relation
@@ -564,6 +570,15 @@ export class OrderMessageEntity {
   created_at!: Date;
 }
 
+export enum OrderFlowPath {
+  SHIPPING = "shipping",
+  WAREHOUSE = "warehouse",
+}
+
+export enum StockDeductionStrategy {
+  ON_CONFIRMATION = "on_confirmation",
+  ON_SHIPMENT = "on_shipment",
+}
 
 @Entity({ name: "order_retry_settings" })
 export class OrderRetrySettingsEntity {
@@ -598,17 +613,65 @@ export class OrderRetrySettingsEntity {
   @Column({ type: "boolean", default: false })
   notifyAdmin: boolean;
 
-  @Column({ type: "jsonb", default: { enabled: true, start: "09:00", end: "18:00" } })
+  @Column({ type: "boolean", default: true })
+  notifyOrderUpdates: boolean;
+
+  @Column({ type: "boolean", default: false })
+  notifyNewProducts: boolean;
+
+  @Column({ type: "boolean", default: false })
+  notifyLowStock: boolean;
+
+  @Column({ type: "boolean", default: false })
+  notifyMarketing: boolean;
+
+  @Column({
+    type: "enum",
+    enum: StockDeductionStrategy,
+    default: StockDeductionStrategy.ON_SHIPMENT,
+  })
+  stockDeductionStrategy: StockDeductionStrategy;
+
+  @Column({
+    type: "jsonb",
+    default: { enabled: true, start: "09:00", end: "18:00" },
+  })
   workingHours: {
     enabled: boolean;
     start: string;
     end: string;
   };
 
+  @Column({
+    type: "enum",
+    enum: OrderFlowPath,
+    default: OrderFlowPath.SHIPPING,
+  })
+  orderFlowPath: OrderFlowPath;
+
+  @Column({
+    type: "jsonb",
+    default: {
+      shippingCompanyId: null,
+      triggerStatus: null,
+      notifyOnShipment: false,
+      autoGenerateLabel: false,
+      partialPaymentThreshold: 0,
+      requireFullPayment: false,
+    },
+  })
+  shipping: {
+    shippingCompanyId: number | null;
+    triggerStatus: string | null;
+    notifyOnShipment: boolean;//
+    autoGenerateLabel: boolean;
+    partialPaymentThreshold: number;
+    requireFullPayment: boolean;
+  };
+
   @UpdateDateColumn()
   updated_at: Date;
 }
-
 
 @Entity("order_assignments")
 @Index(["orderId", "isAssignmentActive"]) // Fast lookup to see if an order is "taken"
@@ -634,7 +697,7 @@ export class OrderAssignmentEntity {
   assignedByAdminId: number;
 
   @ManyToOne(() => OrderStatusEntity, { eager: true, nullable: true })
-  @JoinColumn({ name: 'lastStatusId' })
+  @JoinColumn({ name: "lastStatusId" })
   lastStatus: OrderStatusEntity;
 
   @Column({ nullable: true })
@@ -665,34 +728,15 @@ export class OrderAssignmentEntity {
   finishedAt?: Date;
 }
 
-export enum ReplacementReason {
-  WRONG_SIZE = 'wrong_size',
-  DAMAGED = 'damaged',
-  WRONG_ITEM = 'wrong_item',
-  COLOR_ISSUE = 'color_issue',
-  QUALITY = 'quality',
-  NOT_AS_DESCRIBED = 'not_as_described', // New: Mismatch with website photos/text
-  MISSING_PARTS = 'missing_parts',      // New: Item arrived incomplete
-  CHANGE_OF_MIND = 'change_of_mind',    // New: Customer just doesn't want it
-  LATE_DELIVERY = 'late_delivery',      // New: Arrived too late for an event
-  FAULTY = 'faulty',                    // New: Works, but has a functional defect
-  OTHER = 'other',
-}
-
-
 @Entity({ name: "order_replacements" })
 export class OrderReplacementEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
   // Reasons
-  @Column({
-    type: "enum",
-    enum: ReplacementReason,
-    default: ReplacementReason.OTHER
-  })
-  reason: ReplacementReason;
 
+  @Column({ type: "text", nullable: true })
+  reason?: string;
   @Column({ type: "text", nullable: true })
   anotherReason?: string; // Customer's reason (e.g., "Wrong Size")
 
@@ -725,7 +769,9 @@ export class OrderReplacementEntity {
   @Column({ nullable: true })
   shippingCompanyId: number;
 
-  @OneToMany(() => OrderReplacementItemEntity, (item) => item.replacement, { cascade: true })
+  @OneToMany(() => OrderReplacementItemEntity, (item) => item.replacement, {
+    cascade: true,
+  })
   items: OrderReplacementItemEntity[];
 
   @CreateDateColumn()
@@ -765,7 +811,7 @@ export class OrderReplacementItemEntity {
 
 export enum ShipmentManifestType {
   SHIPPING = "SHIPPING", // بيان تحميل / شحن
-  RETURN = "RETURN",     // بيان مرتجعات
+  RETURN = "RETURN", // بيان مرتجعات
 }
 @Index(["adminId", "type"])
 @Entity({ name: "shipment_manifests" })
@@ -779,7 +825,7 @@ export class ShipmentManifestEntity {
   @Column({
     type: "enum",
     enum: ShipmentManifestType,
-    default: ShipmentManifestType.SHIPPING
+    default: ShipmentManifestType.SHIPPING,
   })
   type: ShipmentManifestType; // ✅ shipping or return
 
@@ -814,9 +860,7 @@ export class ShipmentManifestEntity {
 
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
-
 }
-
 
 export enum OrderActionType {
   CONFIRMED = "CONFIRMED",
@@ -836,7 +880,7 @@ export enum OrderActionType {
 
 export enum OrderActionResult {
   SUCCESS = "SUCCESS",
-  FAILED = "FAILED"
+  FAILED = "FAILED",
 }
 
 @Entity({ name: "order_action_logs" })
@@ -879,7 +923,7 @@ export class OrderActionLogEntity {
   @Column({
     type: "enum",
     enum: OrderActionResult,
-    default: OrderActionResult.SUCCESS
+    default: OrderActionResult.SUCCESS,
   })
   result: OrderActionResult; // ✅ Now an Enum
 
@@ -890,9 +934,8 @@ export class OrderActionLogEntity {
   createdAt: Date; // Date & Time
 }
 
-
-@Index(['adminId', 'orderId'])
-@Entity('order_returns')
+@Index(["adminId", "orderId"])
+@Entity("order_returns")
 export class ReturnRequestEntity {
   @PrimaryGeneratedColumn()
   id: number;
@@ -904,7 +947,7 @@ export class ReturnRequestEntity {
   orderId: number;
 
   @ManyToOne(() => OrderEntity)
-  @JoinColumn({ name: 'orderId' })
+  @JoinColumn({ name: "orderId" })
   order: OrderEntity;
 
   @Column()
@@ -913,15 +956,16 @@ export class ReturnRequestEntity {
   @Column({ nullable: true })
   reason: string;
 
-  @OneToMany(() => ReturnRequestItemEntity, (item) => item.returnRequest, { cascade: true })
+  @OneToMany(() => ReturnRequestItemEntity, (item) => item.returnRequest, {
+    cascade: true,
+  })
   items: ReturnRequestItemEntity[];
 
   @CreateDateColumn()
   createdAt: Date;
 }
 
-
-@Entity('order_return_items')
+@Entity("order_return_items")
 export class ReturnRequestItemEntity {
   @PrimaryGeneratedColumn()
   id: number;
@@ -936,17 +980,17 @@ export class ReturnRequestItemEntity {
   originalOrderItemId: number;
 
   @ManyToOne(() => OrderItemEntity)
-  @JoinColumn({ name: 'originalOrderItemId' })
+  @JoinColumn({ name: "originalOrderItemId" })
   originalItem: OrderItemEntity;
 
   @Column()
   returnedVariantId: number; // The actual variant received
 
   @ManyToOne(() => ProductVariantEntity)
-  @JoinColumn({ name: 'returnedVariantId' })
+  @JoinColumn({ name: "returnedVariantId" })
   returnedVariant: ProductVariantEntity;
 
-  @Column({ type: 'int', default: 1 })
+  @Column({ type: "int", default: 1 })
   quantity: number;
 
   @Column({ nullable: true })

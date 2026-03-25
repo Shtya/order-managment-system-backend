@@ -2,13 +2,16 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, Use
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { StoresService } from "./stores.service";
 import { CreateStoreDto, UpdateStoreDto } from "dto/stores.dto";
 import { Response } from "express";
 
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("stores")
+@RequireSubscription()
 export class StoresController {
   constructor(private storesService: StoresService) { }
 

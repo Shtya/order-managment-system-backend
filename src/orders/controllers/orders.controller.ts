@@ -24,6 +24,8 @@ import { Response } from "express";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 import { OrdersService } from "../services/orders.service";
 import {
   CreateOrderDto,
@@ -40,29 +42,32 @@ import {
   AutoPreviewDto,
   CreateManifestDto,
 } from "dto/order.dto";
-import { extname } from "path";
-import { diskStorage } from "multer";
 import { ScanLogType } from "entities/order.entity";
 
 
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("orders")
+@RequireSubscription()
 export class OrdersController {
   constructor(private svc: OrdersService) { }
 
   // ✅ Get order statistics
-  // @Permissions("orders.read")
   @Get("stats")
+  @Permissions("orders.read")
+
   stats(@Req() req: any) {
     return this.svc.getStats(req.user);
   }
+
   @Get("statuses")
+  @Permissions("orders.read")
   statuses(@Req() req: any) {
     return this.svc.getStatuses(req.user);
   }
 
   // employee-orders.controller.ts
 
+  @Permissions("orders.read")
   @Get("employee/orders/next")
   async getNextOrder(@Req() req: any) {
     return this.svc.getNextAssignedOrder(req.user);
@@ -91,6 +96,7 @@ export class OrdersController {
   }
 
   @Post(':id/scan-preparation/:sku')
+  @Permissions("warehouses.scan-preparation")
   async scanPreparation(
     @Param("id") id: string,
     @Param('sku') sku: string,
@@ -101,6 +107,7 @@ export class OrdersController {
 
 
   @Post(':id/scan-shipping/:sku')
+  @Permissions("warehouses.scan-shipping")
   async scanShipping(
     @Param("id") id: string,
     @Param('sku') sku: string,
@@ -108,6 +115,8 @@ export class OrdersController {
   ) {
     return await this.svc.scanForShipping(Number(id), sku, req.user);
   }
+
+  @Permissions("warehouses.scan-preparation")
   @Get(':id/scan-logs/:phase')
   async getScanLogs(
     @Param("id") id: string,
@@ -133,7 +142,7 @@ export class OrdersController {
     });
   }
 
-  // @Permissions("orders.read")
+  @Permissions("orders.read")
   @Get('assigned')
   listMyAssigned(@Req() req: any, @Query('limit') limit: number) {
     return this.svc.listMyAssignedOrders(req.user, limit);
@@ -172,6 +181,7 @@ export class OrdersController {
     return this.svc.getEmployeesByLoad(req.user, Number(limit ?? 20), cursor ? Number(cursor) : null);
   }
 
+  @Permissions("orders.read")
   @Get('manifests')
   async listManifests(
     @Query() q: any,
@@ -179,6 +189,8 @@ export class OrdersController {
   ) {
     return await this.svc.listManifests(req.user, q);
   }
+
+  @Permissions("orders.read")
   @Get('logs')
   async logs(
     @Query() q: any,
@@ -186,6 +198,8 @@ export class OrdersController {
   ) {
     return await this.svc.listLogs(req.user, q);
   }
+
+  @Permissions("orders.read")
   @Get('logs/export')
   async logsExport(
     @Query() q: any,
@@ -193,13 +207,13 @@ export class OrdersController {
     @Res() res: Response
   ) {
     const buffer = await this.svc.exportLogs(req.user, q);
-
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", `attachment; filename=orders_export_${Date.now()}.xlsx`);
 
     return res.send(buffer);
   }
 
+  @Permissions("orders.create")
   @Post("manifests")
   async createManifest(
     @Body() dto: CreateManifestDto,
@@ -208,6 +222,8 @@ export class OrdersController {
     // req.user is passed as 'me' to the service
     return await this.svc.createManifest(dto, req.user);
   }
+
+  @Permissions("orders.create")
   @Post("manifests/return")
   async createManifestReturn(
     @Body() dto: CreateManifestDto,
@@ -217,6 +233,7 @@ export class OrdersController {
     return await this.svc.createReturnManifest(dto, req.user);
   }
 
+  @Permissions("orders.read")
   @Get(':id/manifests/scan-logs')
   async getManifestLogs(
     @Param("id") id: string,
@@ -225,6 +242,7 @@ export class OrdersController {
     return await this.svc.getManifestScanLogs(Number(id), req.user);
   }
 
+  @Permissions("orders.update")
   @Patch(':id/mark-manifest-printed')
   async markPrinted(
     @Param("id") id: string,
@@ -233,6 +251,7 @@ export class OrdersController {
     return await this.svc.markAsPrinted(Number(id), req.user);
   }
 
+  @Permissions("orders.read")
   @Get('manifests/:id')
   async getDetail(
     @Param("id") id: string,
@@ -241,41 +260,49 @@ export class OrdersController {
     return await this.svc.getManifestDetail(Number(id), req.user);
   }
 
+  @Permissions("orders.read")
   @Get('stats/returns-summary')
   async getReturnsSummary(@Req() req: any,) {
     return await this.svc.getReturnsSummaryStats(req?.user);
   }
 
+  @Permissions("orders.read")
   @Get('stats/shipping-summary')
   async getShippingSummary(@Req() req: any) {
     return await this.svc.getShippingSummary(req.user);
   }
+
+  @Permissions("orders.read")
   @Get('stats/rejected-orders')
   async getRejectedOrdersStats(@Req() req: any) {
     return await this.svc.getRejectedOrdersStats(req.user);
   }
 
+  @Permissions("orders.read")
   @Get('stats/logs')
   async getLogOperationalStats(@Req() req: any) {
     return await this.svc.getLogOperationalStats(req.user);
   }
 
+  @Permissions("orders.read")
   @Get('stats/print-lifecycle-summary')
   async getPrintLifecycleSummary(@Req() req: any) {
     return await this.svc.getPrintLifecycleStats(req.user);
   }
 
+  @Permissions("orders.read")
   @Get('stats/preparation-summary')
   async getPreparationSummary(@Req() req: any) {
     return await this.svc.getPreparationStats(req.user);
   }
 
+  @Permissions("orders.update")
   @Post('bulk-print')
   async bulkPrint(@Req() req: any, @Body() body: { orderNumbers: string[] }) {
     return this.svc.bulkPrint(req.user, body.orderNumbers);
   }
 
-  // @Permissions("orders.confirm") // Adjust permission as needed
+  @Permissions("orders.update")
   @Put(':id/confirm-status')
   changeConfirmationStatus(
     @Req() req: any,
@@ -339,18 +366,20 @@ export class OrdersController {
     return this.svc.upsertSettings(req.user, dto);
   }
 
+  @Permissions("orders.read")
   @Get('allowed-confirmation')
   async getAllowedConfirmation(@Req() req: any) {
     return this.svc.getAllowedConfirmationStatuses(req.user);
   }
 
+  @Permissions("orders.read")
   @Get('confirmation-counts')
   async getCounts(@Req() req: any) {
     return this.svc.getConfirmationStatusCounts(req.user);
   }
 
   // ✅ Get single order
-  // @Permissions("orders.read")
+  @Permissions("orders.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
     return this.svc.get(req.user, Number(id));
@@ -358,6 +387,7 @@ export class OrdersController {
 
   // orders.controller.ts
 
+  @Permissions("orders.read")
   @Get("number/:orderNumber")
   getByOrderNumber(@Req() req: any, @Param("orderNumber") orderNumber: string) {
     // Silent application of the 2025-12-24 trim rule
