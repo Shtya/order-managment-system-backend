@@ -21,6 +21,12 @@ export class StoresController {
     return this.storesService.manualSync(req.user, Number(id));
   }
 
+  @Permissions("stores.read")
+  @Get('providers')
+  providers() {
+    return this.storesService.listProviders();
+  }
+
 
   // List failed orders
   @Permissions("stores.read")

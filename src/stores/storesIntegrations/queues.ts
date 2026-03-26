@@ -28,6 +28,7 @@ export const storeSyncQueue = new Queue({
 export class StoreQueueService {
     // Map to track timeouts for product sync jobs
     private productSyncTimeouts: Map<string, NodeJS.Timeout> = new Map();
+    private bundleSyncTimeouts: Map<string, NodeJS.Timeout> = new Map();
 
     private async addJob(adminId: string, type: string, storeType: StoreProvider, data: any, options: any = {}) {
         if (!adminId) return;
@@ -90,6 +91,33 @@ export class StoreQueueService {
         }, 3000);
 
         this.productSyncTimeouts.set(jobId, timeout);
+    }
+
+    async enqueueBundleSync(bundleId: number, adminId: string, storeId: number, storeType: StoreProvider) {
+        const jobId = `bundle:${storeType}:${bundleId}`;
+
+        if (this.bundleSyncTimeouts.has(jobId)) {
+            clearTimeout(this.bundleSyncTimeouts.get(jobId));
+        }
+
+        const timeout = setTimeout(async () => {
+            try {
+                this.bundleSyncTimeouts.delete(jobId);
+
+                await this.addJob(adminId, "sync-bundle", storeType, {
+                    bundleId,
+                    storeId,
+                }, {
+                    jobId,
+                    groupId: `admin:${adminId}:bundle`, // Using a specific sub-group
+                    maxAttempts: 3
+                });
+            } catch (err) {
+                console.error(`Failed to add bundle sync job: ${err.message}`);
+            }
+        }, 3000);
+
+        this.bundleSyncTimeouts.set(jobId, timeout);
     }
 
     async enqueueOrderStatusSync(order: OrderEntity, storeId: number, storeType: StoreProvider) {

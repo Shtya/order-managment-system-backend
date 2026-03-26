@@ -20,6 +20,7 @@ import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { StoreWebhooksController } from "./webhooks.controller";
 import { WooCommerceService } from "./storesIntegrations/WooCommerce";
 import { WebSocketModule } from "common/websocket.module";
+import { BundleEntity } from "entities/bundle.entity";
 
 @Module({
   imports: [
@@ -27,7 +28,7 @@ import { WebSocketModule } from "common/websocket.module";
     forwardRef(() => ProductsModule),
     forwardRef(() => CategoryModule),
     WebSocketModule,
-    TypeOrmModule.forFeature([StoreEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity]),
+    TypeOrmModule.forFeature([StoreEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity]),
   ],
   providers: [
     StoresService,

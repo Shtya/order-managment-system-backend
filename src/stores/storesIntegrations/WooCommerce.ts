@@ -1,7 +1,8 @@
 import { forwardRef, Inject, Injectable, InternalServerErrorException } from "@nestjs/common";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto } from "./BaseStoreProvider";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
+import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
@@ -18,7 +19,10 @@ import { AppGateway } from "common/app.gateway";
 
 
 @Injectable()
-export class WooCommerceService extends BaseStoreProvider {
+export class WooCommerceService extends BaseStoreProvider implements IBundleSyncProvider {
+
+    maxBundleItems?: number;
+    supportBundle: boolean = true;
     code: StoreProvider = StoreProvider.WOOCOMMERCE;
     displayName: string = "WooCommerce";
     baseUrl: string = process.env.WOOCOMMERCE_BASE_URL || "https://api.easy-orders.net/api/v1";
@@ -160,7 +164,8 @@ export class WooCommerceService extends BaseStoreProvider {
             this.logCtx(`[Category] ✓ Successfully created category with external ID: ${created?.id}`, store);
             return created;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to create category: ${error?.message || error}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to create category: ${message}`, store);
             throw error;
         }
     }
@@ -192,7 +197,8 @@ export class WooCommerceService extends BaseStoreProvider {
             this.logCtx(`[Category] ✓ Successfully updated category ${externalId}`, store);
             return updated;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to update category ${externalId}: ${error?.message || error}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to update category ${externalId}: ${message}`, store);
             throw error;
         }
     }
@@ -223,7 +229,8 @@ export class WooCommerceService extends BaseStoreProvider {
             this.logCtxDebug(`[Category] ✓ Retrieved ${count} categories`, store);
             return categories;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to fetch categories: ${error?.message || error}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to fetch categories: ${message}`, store);
             throw error;
         }
     }
@@ -476,11 +483,11 @@ export class WooCommerceService extends BaseStoreProvider {
 
     private async getProductBySlug(store: StoreEntity, slug: string) {
         if (!slug) return null;
-
+        const status = 'any';
         const response = await this.sendRequest(store, {
             method: 'GET',
             url: '/products',
-            params: { slug: slug.trim(), status: 'publish,draft,private', per_page: 100 },
+            params: { slug: slug.trim(), status: status, per_page: 100 },
         });
 
         const products = response?.data ?? response;
@@ -491,7 +498,7 @@ export class WooCommerceService extends BaseStoreProvider {
         this.logCtx(`[Product] Creating product: ${product.name}`, store);
         const attrMap = await this.ensureAttributesForVariants(store, variants);
 
-        const payload = await this.mapWooProductPayload(product, variants, externalCategoryId, attrMap);
+        const payload = await this.mapWooProductPayload(product, variants, externalCategoryId, attrMap, store);
 
         try {
             const response = await this.sendRequest(store, {
@@ -508,7 +515,8 @@ export class WooCommerceService extends BaseStoreProvider {
             return created;
 
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to create: ${error?.response?.data?.message || error?.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Product] ✗ Failed to create: ${message}`, store);
             throw error;
         }
     }
@@ -520,7 +528,7 @@ export class WooCommerceService extends BaseStoreProvider {
         this.logCtx(`[Product] Updating product ${externalId}`, store);
         const attrMap = await this.ensureAttributesForVariants(store, variants);
 
-        const payload = this.mapWooProductPayload(product, variants, externalCategoryId, attrMap);
+        const payload = await this.mapWooProductPayload(product, variants, externalCategoryId, attrMap, store);
 
         try {
             const response = await this.sendRequest(store, {
@@ -538,7 +546,8 @@ export class WooCommerceService extends BaseStoreProvider {
             return response?.data ?? response;
 
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to update ${externalId}: ${error?.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Product] ✗ Failed to update ${externalId}: ${message}`, store);
             throw error;
         }
     }
@@ -571,13 +580,16 @@ export class WooCommerceService extends BaseStoreProvider {
         }));
     }
 
-    private async mapWooProductPayload(
+    protected async mapWooProductPayload(
         product: ProductEntity,
         variants: ProductVariantEntity[],
         externalCategoryId?: string,
-        attrMap?: Map<string, number>
+        attrMap?: Map<string, number>,
+        store?: StoreEntity,
+        bundledItemsData?: any[]
     ) {
         const isVariable = variants.length > 1;
+        const isBundle = bundledItemsData && bundledItemsData.length > 0;
 
         // 1. Map WooCommerce Attributes Definition
         // We use the attrMap provided by ensureAttributesForVariants
@@ -604,31 +616,69 @@ export class WooCommerceService extends BaseStoreProvider {
             }
         }
 
+        const upsellIds = await this.getUpsellIds(product, store);
+
         return {
             name: product.name.trim(),
             slug: product.slug?.trim(),
-            type: isVariable ? "variable" : "simple",
+            type: isBundle ? "bundle" : (isVariable ? "variable" : "simple"),
             description: product.description || "",
             short_description: product.description || "",
-            // [2025-12-24] Generate clean SKU
-            sku: `SKU-${product.slug?.toUpperCase().replace(/-/g, '').substring(0, 8)}-${product.id}`.trim(),
+            // [2025-12-24] Generate clean unique SKU for WooCommerce
+            sku: `SKU-${product.slug?.toUpperCase().replace(/-/g, '').substring(0, 8)}-${product.id}${isBundle ? '-BUNDLE' : ''}`.trim(),
 
             // STOCK LOGIC: 
-            // If variable, we don't manage stock at parent level (variants handle it)
-            manage_stock: !isVariable,
-            stock_quantity: !isVariable
+            // If variable or bundle, we don't manage stock at parent level (variants handle it)
+            manage_stock: !isVariable && !isBundle,
+            stock_quantity: (!isVariable && !isBundle)
                 ? Math.max(0, (variants[0]?.stockOnHand || 0) - (variants[0]?.reserved || 0))
                 : undefined,
 
             regular_price: String(product.wholesalePrice || 0),
             categories: externalCategoryId ? [{ id: externalCategoryId }] : [],
             attributes: attributes,
+            upsell_ids: upsellIds,
+            bundled_items: isBundle ? bundledItemsData : undefined,
             images: [
                 ...(product.mainImage ? [{ src: this.getImageUrl(product.mainImage) }] : []),
                 ...(product.images?.map(img => ({ src: this.getImageUrl(img.url) })) || [])
             ]
         };
     }
+
+    protected async getUpsellIds(product: ProductEntity, store: StoreEntity): Promise<number[]> {
+        if (!product.upsellingProducts?.length) return [];
+
+        const upsellIds: number[] = [];
+
+        for (const upsell of product.upsellingProducts) {
+            if (!upsell.productId) continue;
+
+            const localProduct = await this.productsRepo.findOne({
+                where: { id: Number(upsell.productId) },
+                relations: ['variants'],
+            });
+
+            if (!localProduct) continue;
+
+            let remoteProduct = await this.getProductBySlug(store, localProduct.slug);
+
+            if (!remoteProduct) {
+                this.logCtx(`[Upsell] Product ${localProduct.name} not found on WooCommerce, syncing now...`, store);
+                const syncedProduct = await this.syncProduct({ product: localProduct, variants: localProduct.variants });
+                if (syncedProduct) {
+                    remoteProduct = await this.getProductBySlug(store, localProduct.slug);
+                }
+            }
+
+            if (remoteProduct) {
+                upsellIds.push(remoteProduct.id);
+            }
+        }
+
+        return upsellIds;
+    }
+
 
     private mapWooVariationsPayload(
         variants: ProductVariantEntity[],
@@ -778,15 +828,15 @@ export class WooCommerceService extends BaseStoreProvider {
             product.adminId
         );
 
-        // 1️⃣ Validate Store
-        if (!product.store || product.store.provider !== StoreProvider.WOOCOMMERCE) {
-            this.logCtxWarn(
-                `[Sync] Skipping sync: Store not found or provider is not WOOCOMMERCE`,
-                null,
-                product.adminId
-            );
-            return;
-        }
+        // // 1️⃣ Validate Store
+        // if (!product.store || product.store.provider !== StoreProvider.WOOCOMMERCE) {
+        //     this.logCtxWarn(
+        //         `[Sync] Skipping sync: Store not found or provider is not WOOCOMMERCE`,
+        //         null,
+        //         product.adminId
+        //     );
+        //     return;
+        // }
 
         const activeStore = await this.getStoreForSync(product.adminId);
 
@@ -859,13 +909,139 @@ export class WooCommerceService extends BaseStoreProvider {
             }
 
         } catch (error) {
-
+            const message = this.getErrorMessage(error);
             this.logCtxError(
-                `[Sync] ✗ Failed to sync product ${product.name}: ${error.message}`,
+                `[Sync] ✗ Failed to sync product ${product.name}: ${message}`,
                 activeStore,
                 product.adminId
             );
 
+            throw error;
+        }
+    }
+
+    public async syncBundle(bundle: BundleEntity) {
+        this.logCtx(`[Sync] Starting bundle sync | Bundle: ${bundle.name} | SKU: ${bundle.sku}`, null, bundle.adminId);
+
+        const activeStore = await this.getStoreForSync(bundle.adminId);
+        if (!activeStore) {
+            this.logCtxWarn(`[Sync] Skipping bundle sync: No active WooCommerce store enabled`, null, bundle.adminId);
+            return;
+        }
+
+        try {
+            // 1. Ensure all items are synced first
+            const bundledItemsData = [];
+
+            for (const item of bundle.items) {
+                const itemVariant = await this.pvRepo.findOne({
+                    where: { id: item.variantId },
+                    relations: ['product', 'product.store']
+                });
+
+                if (!itemVariant || !itemVariant.product) {
+                    this.logCtxWarn(`[Sync] Skipping item variant ${item.variantId}: Not found or no product associated`, activeStore);
+                    continue;
+                }
+
+                // Sync the item product first to ensure it exists on WooCommerce
+                await this.syncProduct({
+                    product: itemVariant.product,
+                    variants: [itemVariant],
+                    slug: itemVariant.product.slug
+                });
+
+                // Get remote details for this item
+                const remoteItemProduct = await this.getProductBySlug(activeStore, itemVariant.product.slug);
+                if (!remoteItemProduct) {
+                    this.logCtxWarn(`[Sync] Item product ${itemVariant.product.slug} not found on WooCommerce after sync`, activeStore);
+                    continue;
+                }
+
+                const bundledItem: any = {
+                    product_id: remoteItemProduct.id,
+                    quantity_min: item.qty,
+                    quantity_max: item.qty,
+                    priced_individually: false,
+                    shipped_individually: false,
+                    optional: false
+                };
+
+                // If it's a variation, WooCommerce Product Bundles might need the variation_id
+                // Note: remoteItemProduct.variations contains variation IDs
+                if (remoteItemProduct.type === 'variable' || remoteItemProduct.variations?.length > 0) {
+                    // Find the remote variation ID matching our local variant
+                    const remoteVariation = remoteItemProduct.variations?.find(v => v.sku === itemVariant.sku);
+                    if (remoteVariation) {
+                        bundledItem.variation_id = remoteVariation.id;
+                    } else {
+                        // If not found in variations nodes, we might need to fetch them
+                        // But syncProduct already sets externalId
+                        if (itemVariant.externalId) {
+                            bundledItem.variation_id = Number(itemVariant.externalId);
+                        }
+                    }
+                }
+
+                bundledItemsData.push(bundledItem);
+            }
+
+            // 2. Resolve the main product variant
+            const mainVariant = await this.pvRepo.findOne({
+                where: { id: bundle.variantId },
+                relations: ['product', 'product.store', 'product.category']
+            });
+
+            if (!mainVariant || !mainVariant.product) {
+                throw new Error(`Bundle main variant ${bundle.variantId} or its product not found`);
+            }
+
+            // 3. Sync the main product as a bundle
+            let wooCategory = null;
+            if (mainVariant.product.category) {
+                wooCategory = await this.syncCategory({
+                    category: mainVariant.product.category,
+                    slug: mainVariant.product.category.slug,
+                    relatedAdminId: mainVariant.product.adminId
+                });
+            }
+
+            // [2025-12-24] Ensure unique slug for bundles to avoid collision with individual products
+            const bundleSlug = `${mainVariant.product.slug}-bundle`;
+
+            const remoteProduct = await this.getProductBySlug(activeStore, bundleSlug);
+
+            const attrMap = await this.ensureAttributesForVariants(activeStore, [mainVariant]);
+            const payload = await this.mapWooProductPayload(
+                { ...mainVariant.product, slug: bundleSlug } as ProductEntity,
+                [mainVariant],
+                wooCategory?.id,
+                attrMap,
+                activeStore,
+                bundledItemsData
+            );
+
+            if (remoteProduct) {
+                this.logCtx(`[Sync] Updating bundle product (ID: ${remoteProduct.id})`, activeStore);
+                await this.sendRequest(activeStore, {
+                    method: 'PUT',
+                    url: `/products/${remoteProduct.id}`,
+                    data: payload
+                });
+            } else {
+                this.logCtx(`[Sync] Creating new bundle product`, activeStore);
+                await this.sendRequest(activeStore, {
+                    method: 'POST',
+                    url: '/products',
+                    data: payload
+                });
+            }
+
+            this.logCtx(`[Sync] ✓ Bundle sync completed successfully`, activeStore);
+
+        } catch (error) {
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Sync] ✗ Bundle sync failed: ${message}`, activeStore, bundle.adminId);
             throw error;
         }
     }
@@ -883,7 +1059,8 @@ export class WooCommerceService extends BaseStoreProvider {
             await this.updateOrderStatus(order, store);
             this.logCtx(`[Sync] ✓ Order status synced successfully`, store);
         } catch (error) {
-            this.logCtxError(`[Sync] ✗ Failed to sync order status for ${order.orderNumber}: ${error.message}`, null, order.adminId);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Sync] ✗ Failed to sync order status for ${order.orderNumber}: ${message}`, null, order.adminId);
         }
     }
 
@@ -935,7 +1112,8 @@ export class WooCommerceService extends BaseStoreProvider {
                         stats.created++;
                     }
                 } catch (error) {
-                    this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${error.message}`, store);
+                    const message = this.getErrorMessage(error);
+                    this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${message}`, store);
                 }
                 stats.processed++;
             }
@@ -1017,7 +1195,8 @@ export class WooCommerceService extends BaseStoreProvider {
 
                     totalProcessed++;
                 } catch (error) {
-                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${error.message}`, store);
+                    const message = this.getErrorMessage(error);
+                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${message}`, store);
                     totalErrors++;
                 }
             }
@@ -1079,9 +1258,10 @@ export class WooCommerceService extends BaseStoreProvider {
                 });
             }
         } catch (error) {
+            const message = this.getErrorMessage(error);
             this.logCtxError(`[Sync] ========================================`, store);
             this.logCtxError(`[Sync] ✗ FULL STORE SYNC FAILED`, store);
-            this.logCtxError(`[Sync] Error: ${error.message}`, store);
+            this.logCtxError(`[Sync] Error: ${message}`, store);
             this.logCtxError(`[Sync] ========================================`, store);
 
             await this.storesRepo.update(store.id, {
@@ -1231,7 +1411,8 @@ export class WooCommerceService extends BaseStoreProvider {
 
                 this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
             } catch (error) {
-                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${error.message}`);
+                const message = this.getErrorMessage(error);
+                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${message}`);
             }
         }
     }
@@ -1444,7 +1625,8 @@ export class WooCommerceService extends BaseStoreProvider {
             } else if (status === 404) {
                 this.logger.warn(`[WooCommerce] 404 Not Found: Check if WooCommerce is installed at ${storeUrl}`);
             } else {
-                this.logger.error(`[WooCommerce] Connection error: ${error.message}`);
+                const message = this.getErrorMessage(error);
+                this.logger.error(`[WooCommerce] Connection error: ${message}`);
             }
 
             return false;

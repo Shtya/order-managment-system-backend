@@ -9,6 +9,11 @@ import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import Bottleneck from "bottleneck";
 import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { BundleEntity } from "entities/bundle.entity";
+
+export interface IBundleSyncProvider {
+    syncBundle(bundle: BundleEntity): Promise<void>;
+}
 
 
 export interface WebhookOrderPayload {
@@ -67,6 +72,8 @@ export interface UnifiedProductDto {
 export abstract class BaseStoreProvider implements OnModuleInit {
     abstract readonly code: StoreProvider;
     abstract readonly displayName: string;
+    abstract readonly supportBundle: boolean;
+    abstract readonly maxBundleItems?: number;
     abstract readonly baseUrl: string;
 
     protected readonly logger = new Logger(this.constructor.name);
@@ -107,6 +114,10 @@ export abstract class BaseStoreProvider implements OnModuleInit {
         throw error;
     }
 
+
+    protected getErrorMessage(error: any): string {
+        return error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
+    }
 
     /**
      * ==========================================

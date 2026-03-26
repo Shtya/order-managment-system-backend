@@ -19,7 +19,9 @@ import { AppGateway } from "common/app.gateway";
 
 @Injectable()
 export class EasyOrderService extends BaseStoreProvider {
+    maxBundleItems?: number;
 
+    supportBundle: boolean = false;
     code: StoreProvider = StoreProvider.EASYORDER;
     displayName: string = "EasyOrder";
     baseUrl: string = process.env.EASY_ORDER_BASE_URL || "https://api.easy-orders.net/api/v1";
@@ -129,7 +131,8 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logCtx(`[Category] ✓ Successfully created category with external ID: ${response.data?.id}`, store);
             return response.data;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to create category: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to create category: ${message}`, store);
             throw error;
         }
     }
@@ -161,7 +164,8 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logCtx(`[Category] ✓ Successfully updated category ${externalId}`, store);
             return response;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to update category ${externalId}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to update category ${externalId}: ${message}`, store);
             throw error;
         }
     }
@@ -177,7 +181,8 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logCtxDebug(`[Category] ✓ Successfully fetched category: ${response?.name}`, store);
             return response;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to fetch category ${externalCategoryId}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to fetch category ${externalCategoryId}: ${message}`, store);
             throw error;
         }
     }
@@ -214,7 +219,8 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logCtxDebug(`[Category] ✓ Retrieved ${response?.length || 0} categories`, store);
             return response;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to fetch categories: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to fetch categories: ${message}`, store);
             throw error;
         }
     }
@@ -294,7 +300,8 @@ export class EasyOrderService extends BaseStoreProvider {
                         totalCreated++;
                     }
                 } catch (error) {
-                    this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${error.message}`, store);
+                    const message = this.getErrorMessage(error);
+                    this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${message}`, store);
                 }
 
                 totalProcessed++;
@@ -488,7 +495,8 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logCtx(`[Product] ✓ Successfully created product with external ID: ${response?.id}`, store);
             return response;
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to create product ${product.name}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Product] ✗ Failed to create product ${product.name}: ${message}`, store);
             throw error;
         }
     }
@@ -513,7 +521,8 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logCtx(`[Product] ✓ Successfully updated product ${externalId}`, store);
             return response;
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to update product ${externalId}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Product] ✗ Failed to update product ${externalId}: ${message}`, store);
             throw error;
         }
     }
@@ -538,7 +547,8 @@ export class EasyOrderService extends BaseStoreProvider {
 
             this.logCtx(`[Stock] ✓ Successfully updated stock for variant ${variantInternalId} to ${safeQuantity}`, store);
         } catch (error) {
-            this.logCtxError(`[Stock] ✗ Failed to update stock for variant ${variantInternalId}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Stock] ✗ Failed to update stock for variant ${variantInternalId}: ${message}`, store);
             throw error;
         }
     }
@@ -576,7 +586,8 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logCtxDebug(`[Product] ✓ Retrieved ${response?.length || 0} products`, store);
             return response;
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to fetch products: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Product] ✗ Failed to fetch products: ${message}`, store);
             throw error;
         }
     }
@@ -634,7 +645,8 @@ export class EasyOrderService extends BaseStoreProvider {
                     }
                     totalProcessed++;
                 } catch (error) {
-                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${error.message}`, store);
+                    const message = this.getErrorMessage(error);
+                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${message}`, store);
                     totalErrors++;
                 }
 
@@ -847,7 +859,8 @@ export class EasyOrderService extends BaseStoreProvider {
                 url: `/orders/${externalOrderId}`,
             });
         } catch (error) {
-            this.handleError(error, "getOrderDetails");
+            //use  this.logCtxError as [Sync] ✗ Failed to get order details
+            this.logCtxError(`[Sync] ✗ Failed to get order details for order (${externalOrderId}) | admin (${store.adminId}) | error: ${this.getErrorMessage(error)}`, null, store.adminId);
         }
     }
 
@@ -870,7 +883,8 @@ export class EasyOrderService extends BaseStoreProvider {
                 data: { status: remoteStatus }
             });
         } catch (error) {
-            this.handleError(error, "updateOrderStatus");
+            //use  this.logCtxError as [Sync] ✗ Failed to sync order status
+            this.logCtxError(`[Sync] ✗ Failed to sync order status for order (${order.id}) | admin (${order.adminId}) | error: ${this.getErrorMessage(error)}`, null, order.adminId);
         }
     }
 
@@ -881,10 +895,10 @@ export class EasyOrderService extends BaseStoreProvider {
         this.logCtx(`[Sync] Starting single product sync | Product: ${product.name} | SKU Count: ${variants.length}`, null, product.adminId);
 
         // 1. Validate Store
-        if (!product.store || product.store.provider !== StoreProvider.EASYORDER) {
-            this.logCtxWarn(`[Sync] Skipping sync: Store not found or provider is not EASYORDER`, null, product.adminId);
-            return;
-        }
+        // if (!product.store || product.store.provider !== StoreProvider.EASYORDER) {
+        //     this.logCtxWarn(`[Sync] Skipping sync: Store not found or provider is not EASYORDER`, null, product.adminId);
+        //     return;
+        // }
 
         const activeStore = await this.getStoreForSync(product.adminId);
 
@@ -913,7 +927,8 @@ export class EasyOrderService extends BaseStoreProvider {
                 return await this.createProduct(product, variants, activeStore, easyOrderCategory?.id);
             }
         } catch (error) {
-            this.logCtxError(`[Sync] ✗ Failed to sync product ${product.name}: ${error.message}`, activeStore, product.adminId);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Sync] ✗ Failed to sync product ${product.name}: ${message}`, activeStore, product.adminId);
             throw error;
         }
     }
@@ -928,7 +943,8 @@ export class EasyOrderService extends BaseStoreProvider {
             const existingProducts = await this.getAllProducts(store, searchFilters);
             return existingProducts?.length > 0 ? existingProducts[0] : null;
         } catch (error) {
-            this.logger.error(`[EasyOrder] Failed to fetch product by slug ${cleanSlug}: ${error.message}`);
+            const message = this.getErrorMessage(error);
+            this.logger.error(`[EasyOrder] Failed to fetch product by slug ${cleanSlug}: ${message}`);
             return null;
         }
     }
@@ -949,7 +965,8 @@ export class EasyOrderService extends BaseStoreProvider {
             await this.updateOrderStatus(order, store);
             this.logCtx(`[Sync] ✓ Order status synced successfully`, store);
         } catch (error) {
-            this.logCtxError(`[Sync] ✗ Failed to sync order status for ${order.orderNumber}: ${error.message}`, null, order.adminId);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Sync] ✗ Failed to sync order status for ${order.orderNumber}: ${message}`, null, order.adminId);
         }
     }
 
@@ -1007,9 +1024,10 @@ export class EasyOrderService extends BaseStoreProvider {
                 });
             }
         } catch (error) {
+            const message = this.getErrorMessage(error);
             this.logCtxError(`[Sync] ========================================`, store);
             this.logCtxError(`[Sync] ✗ FULL STORE SYNC FAILED`, store);
-            this.logCtxError(`[Sync] Error: ${error.message}`, store);
+            this.logCtxError(`[Sync] Error: ${message}`, store);
             this.logCtxError(`[Sync] ========================================`, store);
 
             await this.storesRepo.update(store.id, {
@@ -1165,8 +1183,9 @@ export class EasyOrderService extends BaseStoreProvider {
             if (error.response?.status === 401 || error.response?.status === 403) {
                 return false;
             }
+            const message = this.getErrorMessage(error);
             // For other errors (network, 500), you might want to throw or log
-            this.logger.error(`EasyOrder connection check failed: ${error.message}`);
+            this.logger.error(`EasyOrder connection check failed: ${message}`);
             return false;
         }
     }
@@ -1196,7 +1215,8 @@ export class EasyOrderService extends BaseStoreProvider {
 
                 this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
             } catch (error) {
-                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${error.message}`);
+                const message = this.getErrorMessage(error);
+                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${message}`);
             }
         }
     }

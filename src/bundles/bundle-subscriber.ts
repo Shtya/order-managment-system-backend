@@ -1,0 +1,36 @@
+import { Injectable, Logger } from "@nestjs/common";
+import { DataSource, EntitySubscriberInterface, EventSubscriber, InsertEvent, UpdateEvent } from "typeorm";
+import { BundleEntity } from "entities/bundle.entity";
+import { StoresService } from "src/stores/stores.service";
+
+@EventSubscriber()
+@Injectable()
+export class BundleSubscriber implements EntitySubscriberInterface<BundleEntity> {
+    private readonly logger = new Logger(BundleSubscriber.name);
+
+    constructor(
+        private dataSource: DataSource,
+        private readonly storesService: StoresService,
+    ) {
+        this.dataSource.subscribers.push(this);
+    }
+
+    listenTo() {
+        return BundleEntity;
+    }
+
+    async afterInsert(event: InsertEvent<BundleEntity>) {
+        // Only sync if assigned to a specific store
+        if (event.entity.storeId) {
+            await this.storesService.syncBundleToStore(event.entity);
+        }
+    }
+
+    async afterUpdate(event: UpdateEvent<BundleEntity>) {
+        const entity = event.entity as BundleEntity;
+        if (entity.storeId) {
+            await this.storesService.syncBundleToStore(entity);
+        }
+    }
+
+}

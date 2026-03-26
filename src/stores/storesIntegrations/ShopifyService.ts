@@ -3,9 +3,10 @@
  */
 
 import { forwardRef, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto } from "./BaseStoreProvider";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
+import { BundleEntity } from "entities/bundle.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
@@ -23,8 +24,10 @@ import axios from "axios";
 import { AppGateway } from "common/app.gateway";
 
 @Injectable()
-export class ShopifyService extends BaseStoreProvider {
+export class ShopifyService extends BaseStoreProvider implements IBundleSyncProvider {
 
+    maxBundleItems?: number = 30;
+    supportBundle: boolean = true;
     code: StoreProvider = StoreProvider.SHOPIFY;
     displayName: string = "Shopify";
     baseUrl: string = process.env.SHOPIFY_BASE_URL || "https://api.easy-orders.net/api/v1";
@@ -39,8 +42,7 @@ export class ShopifyService extends BaseStoreProvider {
         @Inject(forwardRef(() => OrdersService))
         protected readonly ordersService: OrdersService,
         @Inject(forwardRef(() => ProductsService)) private readonly productsService: ProductsService,
-        @Inject(forwardRef(() => CategoriesService))
-        private readonly categoriesService: CategoriesService,
+        @Inject(forwardRef(() => CategoriesService)) private readonly categoriesService: CategoriesService,
 
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
@@ -130,6 +132,8 @@ export class ShopifyService extends BaseStoreProvider {
         return { url: redirectUrl };
     }
 
+
+
     private async getAccessToken(store: StoreEntity): Promise<string> {
         const cacheKey = `store_token:${store.id}`;
         let accessToken = await this.redisService.get(cacheKey);
@@ -177,7 +181,8 @@ export class ShopifyService extends BaseStoreProvider {
 
             return data.access_token;
         } catch (error) {
-            this.logCtxError(`[Shopify] Token Generation Failed: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Shopify] Token Generation Failed: ${message}`, store);
             throw new UnauthorizedException('Failed to authenticate with Shopify');
         }
     }
@@ -282,7 +287,8 @@ export class ShopifyService extends BaseStoreProvider {
 
             } catch (error) {
                 // Handle network or Apollo-specific errors
-                this.logCtxError(`Apollo Request Failed: ${error.message}`, store);
+                const message = this.getErrorMessage(error);
+                this.logCtxError(`Apollo Request Failed: ${message}`, store);
                 throw error;
             }
         }, attempt, 2000, 'Shopify GraphQL (Apollo)');
@@ -327,7 +333,8 @@ export class ShopifyService extends BaseStoreProvider {
 
             return collection;
         } catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to fetch collection by handle ${cleanHandle}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to fetch collection by handle ${cleanHandle}: ${message}`, store);
             throw error;
         }
     }
@@ -384,7 +391,8 @@ export class ShopifyService extends BaseStoreProvider {
             this.logCtx(`[Category] ✓ Successfully created Shopify collection: ${newCollection?.title} (ID: ${newCollection?.id})`, store);
             return newCollection;
         } catch (err) {
-            this.logCtxError(`[Category] ✗ Failed to create collection ${category.name}: ${err.message}`, store);
+            const message = this.getErrorMessage(err);
+            this.logCtxError(`[Category] ✗ Failed to create collection ${category.name}: ${message}`, store);
             throw err;
         }
     }
@@ -439,7 +447,8 @@ export class ShopifyService extends BaseStoreProvider {
             return response.collectionUpdate.collection;
         }
         catch (error) {
-            this.logCtxError(`[Category] ✗ Failed to update Shopify collection ${shopifyId}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Category] ✗ Failed to update Shopify collection ${shopifyId}: ${message}`, store);
             throw error;
         }
     }
@@ -482,12 +491,13 @@ export class ShopifyService extends BaseStoreProvider {
 
             return product;
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to fetch product by handle ${cleanSlug}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Product] ✗ Failed to fetch product by handle ${cleanSlug}: ${message}`, store);
             throw error;
         }
     }
 
-    private buildProductSetInput(
+    private async buildProductSetInput(
         product: ProductEntity,
         variants: ProductVariantEntity[],
         locationId: string,
@@ -501,7 +511,8 @@ export class ShopifyService extends BaseStoreProvider {
             try {
                 attrs = typeof v.attributes === "string" ? JSON.parse(v.attributes) : v.attributes || {};
             } catch (e) {
-                this.logCtxError(`[Product] Attributes parse error for ${v.sku}: ${e.message}`);
+                const message = this.getErrorMessage(e);
+                this.logCtxError(`[Product] Attributes parse error for ${v.sku}: ${message}`);
             }
 
             Object.entries(attrs).forEach(([key, val]) => {
@@ -553,8 +564,9 @@ export class ShopifyService extends BaseStoreProvider {
                         ? JSON.parse(v.attributes)
                         : (v.attributes || {});
             } catch (e: any) {
+                const message = this.getErrorMessage(e);
                 this.logCtxError(
-                    `[Product] Failed to parse attributes for variant ${v.sku}: ${e.message}`,
+                    `[Product] Failed to parse attributes for variant ${v.sku}: ${message}`,
                     store,
                 );
                 return null;
@@ -589,6 +601,8 @@ export class ShopifyService extends BaseStoreProvider {
             };
         });
 
+        const upsellMetafield = await this.getShopifyUpsellMetafield(product, store);
+
         const input: any = {
             title: product.name.trim(),
             handle: product.slug.trim(),
@@ -599,11 +613,51 @@ export class ShopifyService extends BaseStoreProvider {
             productOptions,
             files: media,
             variants: variantsInput,
+            metafields: upsellMetafield ? [upsellMetafield] : [],
             // You can also include tags, collectionsToJoin, metafields, etc. here if needed.
         };
 
         return input;
     }
+
+    private async getShopifyUpsellMetafield(product: ProductEntity, store: StoreEntity): Promise<any> {
+        if (!product.upsellingProducts?.length) return null;
+
+        const upsellGids: string[] = [];
+
+        for (const upsell of product.upsellingProducts) {
+            if (!upsell.productId) continue;
+
+            const localProduct = await this.productsRepo.findOne({
+                where: { id: Number(upsell.productId) },
+                relations: ['variants'],
+            });
+
+            if (!localProduct) continue;
+
+            let remoteProduct = await this.getProductBySlug(store, localProduct.slug);
+
+            if (!remoteProduct) {
+                this.logCtx(`[Upsell] Product ${localProduct.name} not found on Shopify, syncing now...`, store);
+                await this.syncProduct({ product: localProduct, variants: localProduct.variants });
+                remoteProduct = await this.getProductBySlug(store, localProduct.slug);
+            }
+
+            if (remoteProduct) {
+                upsellGids.push(remoteProduct.id);
+            }
+        }
+
+        if (upsellGids.length === 0) return null;
+
+        return {
+            namespace: "shopify--discovery--product_recommendation.complementary_products",
+            key: "complementary_products",
+            type: "list.product_reference",
+            value: JSON.stringify(upsellGids),
+        };
+    }
+
 
     private async removeProductFromCategoryCollection(store: StoreEntity, previousCollectionId: string, productId: string) {
         const oldCid = previousCollectionId.trim();
@@ -654,8 +708,9 @@ export class ShopifyService extends BaseStoreProvider {
                 );
             }
         } catch (error: any) {
+            const message = this.getErrorMessage(error);
             this.logCtxError(
-                `[Product] ✗ Failed to remove product ${productId} from previous category collection ${oldCid}: ${error.message}`,
+                `[Product] ✗ Failed to remove product ${productId} from previous category collection ${oldCid}: ${message}`,
                 store,
             );
             // Decide whether to rethrow or continue; here we continue and still add to new collection
@@ -731,8 +786,9 @@ export class ShopifyService extends BaseStoreProvider {
 
             return collection;
         } catch (error: any) {
+            const message = this.getErrorMessage(error);
             this.logCtxError(
-                `[Product] ✗ Failed to add product ${pid} to category collection ${cid}: ${error.message}`,
+                `[Product] ✗ Failed to add product ${pid} to category collection ${cid}: ${message}`,
                 store,
             );
             throw error;
@@ -882,7 +938,7 @@ export class ShopifyService extends BaseStoreProvider {
 
         const locationId = await this.getFirstLocationId(store);
 
-        const input = this.buildProductSetInput(
+        const input = await this.buildProductSetInput(
             product,
             variants,
             locationId,
@@ -922,8 +978,9 @@ export class ShopifyService extends BaseStoreProvider {
 
             return updatedProduct;
         } catch (error: any) {
+            const message = this.getErrorMessage(error);
             this.logCtxError(
-                `[ProductSet] ✗ Failed to sync product via productSet ${shopifyId}: ${error.message}`,
+                `[ProductSet] ✗ Failed to sync product via productSet ${shopifyId}: ${message}`,
                 store,
             );
             throw error;
@@ -1051,7 +1108,8 @@ export class ShopifyService extends BaseStoreProvider {
                     await this.syncCategory({ category: cat, relatedAdminId: store.adminId, slug: cat.slug })
 
                 } catch (error) {
-                    this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${error.message}`, store);
+                    const message = this.getErrorMessage(error);
+                    this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${message}`, store);
                 }
 
                 totalProcessed++;
@@ -1096,7 +1154,8 @@ export class ShopifyService extends BaseStoreProvider {
                     await this.syncProduct({ product, variants: product.variants, slug: product.slug })
                     totalProcessed++;
                 } catch (error) {
-                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${error.message}`, store);
+                    const message = this.getErrorMessage(error);
+                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${message}`, store);
                     totalErrors++;
                 }
 
@@ -1134,14 +1193,247 @@ export class ShopifyService extends BaseStoreProvider {
     /**
      * Main entry point: Sync a single product to Shopify
      */
+    public async syncBundle(bundle: BundleEntity) {
+        this.logCtx(`[Sync] Starting bundle sync | Bundle: ${bundle.name} | SKU: ${bundle.sku}`, null, bundle.adminId);
+
+        // 1. Validate Store
+        const activeStore = await this.getStoreForSync(bundle.adminId);
+        if (!activeStore) {
+            this.logCtxWarn(`[Sync] Skipping bundle sync: No active store enabled`, activeStore, bundle.adminId);
+            return;
+        }
+
+        try {
+            // 1. Sync products (main product variant and items product variants)
+            // Sync main product variant
+            if (bundle.variant && bundle.variant.product) {
+                await this.syncProduct({
+                    product: bundle.variant.product,
+                    variants: [bundle.variant],
+                    slug: bundle.variant.product.slug
+                });
+            }
+
+            // Sync item product variants
+            for (const item of bundle.items) {
+                if (item.variant && item.variant.product) {
+                    await this.syncProduct({
+                        product: item.variant.product,
+                        variants: [item.variant],
+                        slug: item.variant.product.slug
+                    });
+                }
+            }
+
+            // 2. Get remote bundle details by legacyResourceId and main variant sku
+            const handle = bundle.variant?.product?.slug;
+            if (!handle) throw new Error("Bundle variant product slug is missing");
+
+            const getProductLegacyIdQuery = `
+                query GetProductLegacyIdByHandle($handle: String!) {
+                    productByHandle(handle: $handle) {
+                        id
+                        legacyResourceId
+                        handle
+                        title
+                    }
+                }
+            `;
+            const productLegacyIdData = await this.runGraphQL(activeStore, false, getProductLegacyIdQuery, { handle });
+            const remoteProduct = productLegacyIdData.productByHandle;
+            if (!remoteProduct) throw new Error(`Product with handle ${handle} not found on Shopify`);
+
+            const legacyResourceId = remoteProduct.legacyResourceId;
+
+            const bundleDetailsQuery = `
+                query BundleByProductAndVariantSku($query: String!) {
+                    productVariants(first: 10, query: $query) {
+                        nodes {
+                            id
+                            sku
+                            title
+                            requiresComponents
+                            productVariantComponents(first: 30) {
+                                nodes {
+                                    id
+                                    quantity
+                                    productVariant {
+                                        id
+                                        sku
+                                        title
+                                        product {
+                                            id
+                                            title
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            `;
+            const bundleQueryString = `product_id:${legacyResourceId} AND sku:${bundle.variant.sku} AND requires_components:true`;
+            const bundleDetailsData = await this.runGraphQL(activeStore, false, bundleDetailsQuery, { query: bundleQueryString });
+
+            const remoteBundleVariant = bundleDetailsData.productVariants.nodes[0];
+            if (!remoteBundleVariant) throw new Error(`Bundle variant with SKU ${bundle.variant.sku} not found on Shopify or doesn't require components`);
+
+            const parentProductVariantId = remoteBundleVariant.id;
+            const remoteComponents = remoteBundleVariant.productVariantComponents.nodes;
+
+            // 3. Determine components to create, update, or remove
+            const localItems = bundle.items;
+            const productVariantRelationshipsToCreate = [];
+            const productVariantRelationshipsToUpdate = [];
+            const productVariantRelationshipsToRemove = [];
+            const productVariantsCache: Map<string, Map<string, string>> = new Map();
+            const findRemoteVariantIdBySku = async (handle: string, sku: string) => {
+                if (!productVariantsCache.has(handle)) {
+                    productVariantsCache.set(handle, new Map());
+                    let cursor = null;
+                    let hasNextPage = true;
+
+                    const query = `
+                        query VariantsByProductHandle($handle: String!, $cursor: String) {
+                            productByHandle(handle: $handle) {
+                                id
+                                handle
+                                variants(first: 250, after: $cursor) {
+                                    nodes {
+                                        id
+                                        sku
+                                        title
+                                    }
+                                    pageInfo {
+                                        hasNextPage
+                                        endCursor
+                                    }
+                                }
+                            }
+                        }
+                    `;
+
+                    while (hasNextPage) {
+                        const variables = { handle, cursor };
+                        const data = await this.runGraphQL(activeStore, false, query, variables);
+                        const product = data.productByHandle;
+
+                        if (!product) {
+                            this.logCtxWarn(`[Sync] Product with handle ${handle} not found on Shopify`, activeStore);
+                            break;
+                        }
+
+                        for (const variant of product.variants.nodes) {
+                            productVariantsCache.get(handle).set(variant.sku, variant.id);
+                        }
+
+                        hasNextPage = product.variants.pageInfo.hasNextPage;
+                        cursor = product.variants.pageInfo.endCursor;
+                    }
+                }
+
+                return productVariantsCache.get(handle).get(sku);
+            };
+
+            const remoteComponentsMap = new Map();
+            for (const comp of remoteComponents) {
+                remoteComponentsMap.set(comp.productVariant.sku, comp);
+            }
+
+            for (const localItem of localItems) {
+                const sku = localItem.variant.sku;
+                const remoteComp = remoteComponentsMap.get(sku);
+
+                if (remoteComp) {
+                    if (remoteComp.quantity !== localItem.qty) {
+                        productVariantRelationshipsToUpdate.push({
+                            id: remoteComp.productVariant.id,
+                            quantity: localItem.qty
+                        });
+                    }
+                    remoteComponentsMap.delete(sku);
+                } else {
+                    const itemHandle = localItem.variant.product?.slug;
+                    if (!itemHandle) {
+                        this.logCtxWarn(`[Sync] Skipping local item SKU ${sku}: Product slug missing`, activeStore);
+                        continue;
+                    }
+                    const remoteVariantId = await findRemoteVariantIdBySku(itemHandle, sku);
+                    if (remoteVariantId) {
+                        productVariantRelationshipsToCreate.push({
+                            id: remoteVariantId,
+                            quantity: localItem.qty
+                        });
+                    } else {
+                        this.logCtxWarn(`[Sync] Skipping local item SKU ${sku}: Variant not found on Shopify`, activeStore);
+                    }
+                }
+            }
+
+            for (const remoteComp of remoteComponentsMap.values()) {
+                productVariantRelationshipsToRemove.push(remoteComp.productVariant.id);
+            }
+
+            // Call mutation
+            if (productVariantRelationshipsToCreate.length > 0 || productVariantRelationshipsToUpdate.length > 0 || productVariantRelationshipsToRemove.length > 0) {
+                const updateMutation = `
+                    mutation UpdateBundleComponents($input: [ProductVariantRelationshipUpdateInput!]!) {
+                        productVariantRelationshipBulkUpdate(input: $input) {
+                            parentProductVariants {
+                                id
+                                productVariantComponents(first: 10) {
+                                    nodes {
+                                        id
+                                        quantity
+                                        productVariant {
+                                            id
+                                            displayName
+                                        }
+                                    }
+                                }
+                            }
+                            userErrors {
+                                code
+                                field
+                                message
+                            }
+                        }
+                    }
+                `;
+
+                const variables = {
+                    input: [{
+                        parentProductVariantId,
+                        productVariantRelationshipsToCreate,
+                        productVariantRelationshipsToUpdate,
+                        productVariantRelationshipsToRemove
+                    }]
+                };
+
+                const mutationResult = await this.runGraphQL(activeStore, true, updateMutation, variables);
+                const errors = mutationResult.productVariantRelationshipBulkUpdate.userErrors;
+                if (errors && errors.length > 0) {
+                    throw new Error(`Shopify mutation errors: ${JSON.stringify(errors)}`);
+                }
+            }
+
+            this.logCtx(`[Sync] ✓ Bundle sync completed for ${bundle.sku}`, activeStore);
+
+        } catch (error) {
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Sync] ✗ Failed to sync bundle ${bundle.sku}: ${message}`, activeStore, bundle.adminId);
+            throw error;
+        }
+    }
+
     public async syncProduct({ product, variants, slug }: { product: ProductEntity; variants: ProductVariantEntity[]; slug?: string; }) {
         this.logCtx(`[Sync] Starting single product sync | Product: ${product.name} | SKU Count: ${variants.length}`, null, product.adminId);
 
         // 1. Validate Store
-        if (!product.store || product.store.provider !== StoreProvider.SHOPIFY) {
-            this.logCtxWarn(`[Sync] Skipping sync: Store not found or provider is not SHOPIFY`, null, product.adminId);
-            return;
-        }
+        // if (!product.store || product.store.provider !== StoreProvider.SHOPIFY) {
+        //     this.logCtxWarn(`[Sync] Skipping sync: Store not found or provider is not SHOPIFY`, null, product.adminId);
+        //     return;
+        // }
 
         const activeStore = await this.getStoreForSync(product.adminId);
 
@@ -1203,7 +1495,8 @@ export class ShopifyService extends BaseStoreProvider {
 
 
         } catch (error) {
-            this.logCtxError(`[Sync] ✗ Failed to sync product ${product.name}: ${error.message}`, activeStore, product.adminId);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Sync] ✗ Failed to sync product ${product.name}: ${message}`, activeStore, product.adminId);
             throw error;
         }
     }
@@ -1261,9 +1554,10 @@ export class ShopifyService extends BaseStoreProvider {
                 });
             }
         } catch (error) {
+            const message = this.getErrorMessage(error);
             this.logCtxError(`[Sync] ========================================`, store);
             this.logCtxError(`[Sync] ✗ FULL STORE SYNC FAILED`, store);
-            this.logCtxError(`[Sync] Error: ${error.message}`, store);
+            this.logCtxError(`[Sync] Error: ${message}`, store);
             this.logCtxError(`[Sync] ========================================`, store);
 
             await this.storesRepo.update(store.id, {
@@ -1389,7 +1683,8 @@ export class ShopifyService extends BaseStoreProvider {
             const response = await this.runGraphQL(store, false, query, { ids: gids });
             return (response?.nodes || []).filter(n => n !== null);
         } catch (error) {
-            this.logger.error(`[Shopify] Batch fetch failed: ${error.message}`);
+            const message = this.getErrorMessage(error);
+            this.logger.error(`[Shopify] Batch fetch failed: ${message}`);
             return [];
         }
     }
@@ -1535,7 +1830,8 @@ export class ShopifyService extends BaseStoreProvider {
             }
             return product;
         } catch (error) {
-            this.logCtxError(`[Product] ✗ Failed to fetch FULL product by handle ${cleanSlug}: ${error.message}`, store);
+            const message = this.getErrorMessage(error);
+            this.logCtxError(`[Product] ✗ Failed to fetch FULL product by handle ${cleanSlug}: ${message}`, store);
             throw error;
         }
     }
@@ -1562,7 +1858,8 @@ export class ShopifyService extends BaseStoreProvider {
 
                 this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
             } catch (error) {
-                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${error.message}`);
+                const message = this.getErrorMessage(error);
+                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${message}`);
             }
         }
     }
@@ -1787,7 +2084,8 @@ export class ShopifyService extends BaseStoreProvider {
 
             return !!response.data?.data?.shop?.name;
         } catch (error) {
-            this.logger.error(`[Shopify] Connection check failed: ${error.message}`);
+            const message = this.getErrorMessage(error);
+            this.logger.error(`[Shopify] Connection check failed: ${message}`);
             // 401 Unauthorized or 404 Not Found (Invalid URL) returns false
             return false;
         }
