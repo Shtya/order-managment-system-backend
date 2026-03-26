@@ -891,8 +891,28 @@ export class EasyOrderService extends BaseStoreProvider {
     // ===========================================================================
     // MAIN ENTRY POINTS FOR SYNC
     // ===========================================================================
-    public async syncProduct({ product, variants, slug }: { product: ProductEntity, variants: ProductVariantEntity[], slug?: string }) {
-        this.logCtx(`[Sync] Starting single product sync | Product: ${product.name} | SKU Count: ${variants.length}`, null, product.adminId);
+    public async syncProduct({ productId, slug }: { productId: number, slug?: string }) {
+        const product = await this.productsRepo.findOne({
+            where: { id: productId },
+            relations: ['category', 'store']
+        });
+
+        if (!product) {
+            this.logCtxWarn(`[Sync] Skipping: Product with ID ${productId} not found`, null);
+            return;
+        }
+
+        // 2️⃣ جلب الـ Variants الخاصة بالمنتج
+        const variants = await this.pvRepo.find({
+            where: { productId: product.id }
+        });
+
+        // 3️⃣ البدء في عملية المزامنة (الكود القديم)
+        this.logCtx(
+            `[Sync] Starting single product sync | Product: ${product.name} | SKU Count: ${variants.length}`,
+            null,
+            product.adminId
+        );
 
         // 1. Validate Store
         // if (!product.store || product.store.provider !== StoreProvider.EASYORDER) {

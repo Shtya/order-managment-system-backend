@@ -656,7 +656,6 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
 
             const localProduct = await this.productsRepo.findOne({
                 where: { id: Number(upsell.productId) },
-                relations: ['variants'],
             });
 
             if (!localProduct) continue;
@@ -665,7 +664,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
 
             if (!remoteProduct) {
                 this.logCtx(`[Upsell] Product ${localProduct.name} not found on WooCommerce, syncing now...`, store);
-                const syncedProduct = await this.syncProduct({ product: localProduct, variants: localProduct.variants });
+                const syncedProduct = await this.syncProduct({ productId: localProduct.id });
                 if (syncedProduct) {
                     remoteProduct = await this.getProductBySlug(store, localProduct.slug);
                 }
@@ -812,21 +811,22 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
     }
 
 
-    public async syncProduct({
-        product,
-        variants,
-        slug
-    }: {
-        product: ProductEntity,
-        variants: ProductVariantEntity[],
-        slug?: string
-    }) {
+    public async syncProduct({ productId, slug }: { productId: number, slug?: string }) {
+        const product = await this.productsRepo.findOne({
+            where: { id: productId },
+            relations: ['category', 'store']
+        });
 
-        this.logCtx(
-            `[Sync] Starting single product sync | Product: ${product.name} | Variant Count: ${variants.length}`,
-            null,
-            product.adminId
-        );
+        if (!product) {
+            this.logCtxWarn(`[Sync] Skipping: Product with ID ${productId} not found`, null);
+            return;
+        }
+
+        // 2️⃣ جلب الـ Variants الخاصة بالمنتج
+        const variants = await this.pvRepo.find({
+            where: { productId: product.id }
+        });
+
 
         // // 1️⃣ Validate Store
         // if (!product.store || product.store.provider !== StoreProvider.WOOCOMMERCE) {
@@ -946,8 +946,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
 
                 // Sync the item product first to ensure it exists on WooCommerce
                 await this.syncProduct({
-                    product: itemVariant.product,
-                    variants: [itemVariant],
+                    productId: itemVariant.productId,
                     slug: itemVariant.product.slug
                 });
 

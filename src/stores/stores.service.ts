@@ -72,6 +72,23 @@ export class StoresService {
   }
 
 
+  private async clearStoreCache(storeId: number) {
+    const pattern = `stores:${storeId}:*`;
+    try {
+      // جلب كافة المفاتيح التي تطابق النمط
+      const keys = await this.redisService.redisClient.keys(pattern);
+
+      if (keys && keys.length > 0) {
+        await this.redisService.redisClient.del(keys);
+        this.logger.log(`[Cache] Cleared ${keys.length} keys for store ${storeId} using pattern: ${pattern}`);
+      }
+
+
+    } catch (error) {
+      this.logger.error(`[Cache] Failed to clear cache for store ${storeId}: ${error.message}`);
+    }
+  }
+
   listProviders() {
     return {
       ok: true,
@@ -261,11 +278,6 @@ export class StoresService {
       };
     });
   }
-  private async removeAuthCashe(storeId: number) {
-    const cacheKey = `store_auth:${storeId}`;
-    await this.redisService.del(cacheKey);
-    this.logger.log(`Cache cleared for store ${storeId}.`);
-  }
 
   async regenerateWebhookSecrets(me: any, id: number) {
     const adminId = tenantId(me);
@@ -285,7 +297,7 @@ export class StoresService {
     };
 
     await this.storesRepo.save(store);
-
+    await this.clearStoreCache(store.id)
     const { webhookCreateOrderSecret, webhookUpdateStatusSecret } = store.credentials;
 
     return {
@@ -359,7 +371,7 @@ export class StoresService {
       const savedStore = await manager.save(store);
 
       // 5. Cleanup
-      await this.removeAuthCashe(savedStore.id);
+      await this.clearStoreCache(savedStore.id);
 
       return {
         ok: true,
@@ -393,7 +405,7 @@ export class StoresService {
 
     if (!store) throw new NotFoundException(`Store not found`);
     const removedStore = await this.storesRepo.remove(store);
-    await this.removeAuthCashe(store.id);
+    await this.clearStoreCache(store.id);
     return this.getMaskedStoreIntegrations(removedStore);
   }
 
