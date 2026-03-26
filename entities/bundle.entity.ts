@@ -10,6 +10,7 @@ import {
 	JoinColumn,
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
+import { StoreEntity } from "./stores.entity";
 
 @Entity({ name: "bundles" })
 @Index(["adminId", "sku"], { unique: true })
@@ -41,6 +42,21 @@ export class BundleEntity {
 	@OneToMany(() => BundleItemEntity, (it) => it.bundle, { cascade: ["insert", "update"] })
 	items!: BundleItemEntity[];
 
+	@Column({ type: "int", nullable: true })
+	@Index()
+	variantId!: number;
+
+	@ManyToOne(() => ProductVariantEntity, { nullable: true })
+	@JoinColumn({ name: "variantId" })
+	variant!: ProductVariantEntity;
+
+	@Column({ type: "int", nullable: true })
+	@Index()
+	storeId?: number | null;
+
+	@ManyToOne(() => StoreEntity, { nullable: true, onDelete: "SET NULL" })
+	@JoinColumn({ name: "storeId" })
+	store?: StoreEntity | null;
 }
 
 @Entity({ name: "bundle_items" })

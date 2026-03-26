@@ -45,6 +45,7 @@ my-things/
 # temp directory
 .temp
 .tmp
+.env.development
 
 # Runtime data
 pids

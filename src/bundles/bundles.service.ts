@@ -1,5 +1,5 @@
 // --- File: src/bundles/bundles.service.ts ---
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Like, Repository } from "typeorm";
 import { tenantId } from "../category/category.service";
@@ -9,6 +9,7 @@ import { ProductVariantEntity } from "entities/sku.entity";
 import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
 import { CRUD } from "../../common/crud.service";
 import * as ExcelJS from "exceljs";
+import { StoresService } from "src/stores/stores.service";
 
 @Injectable()
 export class BundlesService {
@@ -20,7 +21,10 @@ export class BundlesService {
 		private itemRepo: Repository<BundleItemEntity>,
 
 		@InjectRepository(ProductVariantEntity)
-		private pvRepo: Repository<ProductVariantEntity>
+		private pvRepo: Repository<ProductVariantEntity>,
+
+		@Inject(forwardRef(() => StoresService))
+		private storesService: StoresService,
 	) { }
 
 
@@ -32,7 +36,12 @@ export class BundlesService {
 			filters.categoryId = q.categoryId;
 		}
 
-		// 2. Numeric Range Filter (Mapping query 'wholesalePrice' to entity 'price')
+		// 2. Store Filter
+		if (q?.storeId && q?.storeId !== "none") {
+			filters.storeId = q.storeId;
+		}
+
+		// 3. Numeric Range Filter (Mapping query 'wholesalePrice' to entity 'price')
 		if (q?.["wholesalePrice.gte"] || q?.["wholesalePrice.lte"]) {
 			const gte = q["wholesalePrice.gte"];
 			const lte = q["wholesalePrice.lte"];
@@ -48,7 +57,7 @@ export class BundlesService {
 			}
 		}
 
-		// 3. Main CRUD Call
+		// 4. Main CRUD Call
 		return CRUD.findAll(
 			this.bundleRepo,
 			"bundle", // Alias
@@ -57,7 +66,7 @@ export class BundlesService {
 			q?.limit ?? 10,
 			q?.sortBy ?? "created_at",
 			(q?.sortOrder ?? "DESC") as any,
-			["items", "items.variant"], // Relations to load
+			["variant","variant.product", "store", "items", "items.variant"], // Relations to load
 			["name", "sku"], // 🔎 Searchable fields as requested
 			{
 				__tenant: {
@@ -74,7 +83,7 @@ export class BundlesService {
 		const adminId = tenantId(me);
 		const bundle = await this.bundleRepo.findOne({
 			where: { id, adminId } as any,
-			relations: ["items", "items.variant"],
+			relations: ["variant", "variant.product","store", "items", "items.variant"],
 		});
 		if (!bundle) throw new BadRequestException("bundle not found");
 		return bundle;
@@ -84,7 +93,7 @@ export class BundlesService {
 		const adminId = tenantId(me);
 		const bundle = await this.bundleRepo.findOne({
 			where: { adminId, sku } as any,
-			relations: ["items", "items.variant"],
+			relations: ["variant", "variant.product","store", "items", "items.variant"],
 		});
 		if (!bundle) throw new BadRequestException("bundle SKU not found");
 		return bundle;
@@ -96,6 +105,33 @@ export class BundlesService {
 
 		const items = Array.isArray(dto.items) ? dto.items : [];
 		if (!items.length) throw new BadRequestException("items is required");
+
+		// ensure main variant is not in items
+		if (items.some(it => it.variantId === dto.variantId)) {
+			throw new BadRequestException("Main variant cannot be part of bundle items");
+		}
+
+		// ensure items are unique
+		const itemIds = items.map(it => it.variantId);
+		if (new Set(itemIds).size !== itemIds.length) {
+			throw new BadRequestException("Bundle cannot contain duplicate items");
+		}
+
+		// Validate Store if storeId is provided
+		if (dto.storeId) {
+			const store = await this.storesService.getStoreById(me, dto.storeId);
+			if (!store) throw new BadRequestException("Store not found");
+
+			// Get provider from StoresService to check bundle support and max items
+			const provider = this.storesService.getProvider(store.provider);
+			if (!provider.supportBundle) {
+				throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
+			}
+
+			if (provider.maxBundleItems !== undefined && items.length > provider.maxBundleItems) {
+				throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
+			}
+		}
 
 		for (const it of items) {
 			if (!Number.isInteger(it.variantId)) throw new BadRequestException("variantId must be int");
@@ -120,6 +156,8 @@ export class BundlesService {
 			sku: dto.sku,
 			price: dto.price,
 			description: dto.description,
+			variantId: dto.variantId,
+			storeId: dto.storeId,
 			items: items.map((it) =>
 				this.itemRepo.create({
 					adminId,
@@ -139,6 +177,10 @@ export class BundlesService {
 		// 1. Basic Filters
 		if (q?.categoryId && q?.categoryId !== "none") {
 			filters.categoryId = q.categoryId;
+		}
+
+		if (q?.storeId && q?.storeId !== "none") {
+			filters.storeId = q.storeId;
 		}
 
 		// 2. Price Range Filters (Query "wholesalePrice" -> DB "price")
@@ -166,7 +208,7 @@ export class BundlesService {
 			q?.limit ?? 1000000,
 			q?.sortBy ?? "created_at",
 			(q?.sortOrder ?? "DESC") as any,
-			["items"], // Relations needed for item count
+			["variant","variant.product", "store", "items", "items.variant"],
 			["name", "sku"], // Searchable fields
 			{
 				__tenant: {
@@ -185,6 +227,9 @@ export class BundlesService {
 				name: b.name ?? "",
 				sku: b.sku ?? "",
 				price: b.price ?? 0,
+				variantSku: b.variant?.sku ?? "",
+				variantName: b.variant?.product?.name ?? "",
+				storeName: b.store?.name ?? "",
 				itemsCount: b.items?.length ?? 0,
 				description: b.description ?? "",
 				created_at: b.created_at
@@ -202,6 +247,9 @@ export class BundlesService {
 			{ header: "Name", key: "name", width: 30 },
 			{ header: "SKU", key: "sku", width: 25 },
 			{ header: "Price", key: "price", width: 15 },
+			{ header: "Main Variant SKU", key: "variantSku", width: 25 },
+			{ header: "Main Variant Name", key: "variantName", width: 30 },
+			{ header: "Store Name", key: "storeName", width: 25 },
 			{ header: "Items Count", key: "itemsCount", width: 15 },
 			{ header: "Description", key: "description", width: 40 },
 			{ header: "Created At", key: "created_at", width: 18 },
@@ -236,6 +284,52 @@ export class BundlesService {
 		if (dto.sku !== undefined) b.sku = dto.sku;
 		if (dto.price !== undefined) b.price = dto.price;
 		if (dto.description !== undefined) b.description = dto.description;
+		if (dto.variantId !== undefined) b.variantId = dto.variantId;
+
+		const finalVariantId = dto.variantId !== undefined ? dto.variantId : b.variantId;
+		const finalItems = dto.items !== undefined ? dto.items : b.items;
+
+		// ensure main variant is not in items
+		if (finalItems.some((it: any) => it.variantId === finalVariantId)) {
+			throw new BadRequestException("Main variant cannot be part of bundle items");
+		}
+
+		// ensure items are unique
+		if (dto.items !== undefined) {
+			const itemIds = dto.items.map((it) => it.variantId);
+			if (new Set(itemIds).size !== itemIds.length) {
+				throw new BadRequestException("Bundle cannot contain duplicate items");
+			}
+		}
+
+		// Validate Store if storeId is provided/changed
+		if (dto.storeId !== undefined) {
+			if (dto.storeId === null) {
+				b.storeId = null;
+			} else {
+				const store = await this.storesService.getStoreById(me, dto.storeId);
+				if (!store) throw new BadRequestException("Store not found");
+
+				const provider = this.storesService.getProvider(store.provider);
+				if (!provider.supportBundle) {
+					throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
+				}
+
+				// Check items count for the store
+				const itemsToValidate = dto.items !== undefined ? dto.items : b.items;
+				if (provider.maxBundleItems !== undefined && itemsToValidate.length > provider.maxBundleItems) {
+					throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
+				}
+				b.storeId = dto.storeId;
+			}
+		} else if (dto.items !== undefined && b.storeId) {
+			// storeId didn't change but items did, re-validate max items
+			const store = await this.storesService.getStoreById(me, b.storeId);
+			const provider = this.storesService.getProvider(store.provider);
+			if (provider.maxBundleItems !== undefined && dto.items.length > provider.maxBundleItems) {
+				throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
+			}
+		}
 
 		if (dto.items !== undefined) {
 			const items = Array.isArray(dto.items) ? dto.items : [];

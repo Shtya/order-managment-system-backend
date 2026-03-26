@@ -3,7 +3,9 @@ import { Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { storeSyncQueue } from "./queues";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { BundleEntity } from "entities/bundle.entity";
 import { OrderEntity } from "entities/order.entity";
+import { IBundleSyncProvider } from "./BaseStoreProvider";
 import { StoreEntity, StoreProvider } from "entities/stores.entity";
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from "@nestjs/common";
 import { Worker, Queue, ReservedJob } from "groupmq";
@@ -34,6 +36,8 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
         private readonly prodRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity)
         private readonly pvRepo: Repository<ProductVariantEntity>,
+        @InjectRepository(BundleEntity)
+        private readonly bundleRepo: Repository<BundleEntity>,
         @InjectRepository(OrderEntity)
         private readonly orderRepo: Repository<OrderEntity>,
     ) {
@@ -101,7 +105,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     protected async processJob(payload: any): Promise<void> {
-        const { type, storeType, storeId, productId, category, slug, orderId } = payload;
+        const { type, storeType, storeId, productId, bundleId, category, slug, orderId } = payload;
 
         try {
             // 1. Resolve which service to use
@@ -124,6 +128,19 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
 
                     // All services share this method signature via BaseStoreProvider
                     await service.syncProduct({ product, variants, slug });
+                    break;
+
+                case "sync-bundle":
+                    const bundle = await this.bundleRepo.findOne({
+                        where: { id: bundleId },
+                        relations: ['variant', 'variant.product', 'items', 'items.variant', 'items.variant.product']
+                    });
+                    if (!bundle) return;
+
+                    // Ensure syncBundle is called if the service supports it
+                    if ('syncBundle' in service) {
+                        await (service as IBundleSyncProvider).syncBundle(bundle);
+                    }
                     break;
 
                 case "sync-order-status":

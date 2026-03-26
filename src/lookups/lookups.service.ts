@@ -361,7 +361,7 @@ export class LookupsService {
 	async stores(me: User, params: ActiveLookupParams) {
 		const qb = this.storesRepo
 			.createQueryBuilder('s')
-			.select(['s.id AS id', 's.name AS name', 's.isActive AS "isActive"'])
+			.select(['s.id AS id', 's.name AS name', 's.isActive AS "isActive"', 's.provider AS provider'])
 			.orderBy('s.id', 'DESC')
 			.limit(params.limit);
 
@@ -380,6 +380,7 @@ export class LookupsService {
 			label: `${x.name}`,
 			name: x.name,
 			code: x.code,
+			provider: x.provider,
 			isActive: x.isActive,
 		}));
 	}

@@ -5,6 +5,7 @@ import { OrderFailStatus, StoreEntity, StoreProvider, SyncStatus, WebhookOrderFa
 import { CreateStoreDto, UpdateStoreDto } from "dto/stores.dto";
 import { tenantId } from "src/category/category.service";
 import { CategoryEntity } from "entities/categories.entity";
+import { BundleEntity } from "entities/bundle.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { OrderEntity } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
@@ -63,12 +64,26 @@ export class StoresService {
   }
 
 
-  private getProvider(provider: string): BaseStoreProvider {
+  public getProvider(provider: string): BaseStoreProvider {
     const key = (provider || '').toLowerCase().trim();
     const p = this.providers[key];
     if (!p) throw new BadRequestException(`Unsupported shipping provider: ${provider}`);
     return p;
   }
+
+
+  listProviders() {
+    return {
+      ok: true,
+      providers: Object.values(this.providers).map((p) => ({
+        code: p.code,
+        name: p.displayName,
+        supportBundle: p.supportBundle,
+        maxBundleItems: p.maxBundleItems,
+      })),
+    };
+  }
+
 
   async list(me: any, q?: any) {
     const adminId = tenantId(me); // Normalized and trimmed adminId
@@ -155,12 +170,17 @@ export class StoresService {
 
 
   async get(me: any, id: number) {
+    const store = await this.getStoreById(me, id);
+    return this.getMaskedStoreIntegrations(store);
+  }
+
+  async getStoreById(me: any, id: number) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
     if (!store) throw new NotFoundException(`Store not found`);
-    return this.getMaskedStoreIntegrations(store);
+    return store;
   }
 
   async create(me: any, dto: CreateStoreDto) {
@@ -466,6 +486,28 @@ export class StoresService {
       `[Product Sync] Dispatched sync job for Product: "${name}" (ID: ${id}) ` +
       `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. ` +
       `${slug ? `(Slug update detected from: ${slug})` : ''}`
+    );
+
+  }
+
+  async syncBundleToStore(bundle: BundleEntity) {
+    const { storeId, adminId, name, id } = bundle;
+    if (!storeId) return;
+
+    // Get active stores
+    const store = await this.storesRepo.findOne({
+      where: { id: storeId, adminId, isActive: true }
+    });
+
+    if (!store) {
+      this.logger.warn(`[Bundle Sync] No active store found (ID: ${storeId}) for Bundle: "${name}". Skipping.`);
+      return;
+    }
+    // Route to the correct queue based on Provider
+    await this.storeQueueService.enqueueBundleSync(bundle.id, bundle.adminId, store.id, store.provider);
+    this.logger.log(
+      `[Bundle Sync] Dispatched sync job for Bundle: "${name}" (ID: ${id}) ` +
+      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`
     );
 
   }

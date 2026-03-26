@@ -36,6 +36,14 @@ export class CreateBundleDto {
   @Min(1)
   price!: number;
 
+  @IsInt()
+  @IsNotEmpty()
+  variantId!: number;
+
+  @IsInt()
+  @IsOptional()
+  storeId?: number;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
