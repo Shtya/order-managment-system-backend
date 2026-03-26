@@ -135,7 +135,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
 
     private async getAccessToken(store: StoreEntity): Promise<string> {
-        const cacheKey = `store_token:${store.id}`;
+        const cacheKey = `stores:${store.id}:token`;
         let accessToken = await this.redisService.get(cacheKey);
         if (accessToken) return accessToken;
 
@@ -630,7 +630,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
             const localProduct = await this.productsRepo.findOne({
                 where: { id: Number(upsell.productId) },
-                relations: ['variants'],
             });
 
             if (!localProduct) continue;
@@ -639,7 +638,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
             if (!remoteProduct) {
                 this.logCtx(`[Upsell] Product ${localProduct.name} not found on Shopify, syncing now...`, store);
-                await this.syncProduct({ product: localProduct, variants: localProduct.variants });
+                await this.syncProduct({ productId: localProduct.id });
                 remoteProduct = await this.getProductBySlug(store, localProduct.slug);
             }
 
@@ -1134,7 +1133,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         while (hasMore) {
             const localBatch = await this.storesRepo.manager.find(ProductEntity, {
                 where: { storeId: store.id, adminId: store.adminId, id: MoreThan(lastId) },
-                relations: ['variants', 'category', 'store'],
+                relations: ['category', 'store'],
                 order: { id: 'ASC' } as any,
                 take: 20
             });
@@ -1151,7 +1150,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             for (const product of localBatch) {
                 try {
 
-                    await this.syncProduct({ product, variants: product.variants, slug: product.slug })
+                    await this.syncProduct({ productId: product.id, slug: product.slug })
                     totalProcessed++;
                 } catch (error) {
                     const message = this.getErrorMessage(error);
@@ -1208,8 +1207,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             // Sync main product variant
             if (bundle.variant && bundle.variant.product) {
                 await this.syncProduct({
-                    product: bundle.variant.product,
-                    variants: [bundle.variant],
+                    productId: bundle.variant.productId,
                     slug: bundle.variant.product.slug
                 });
             }
@@ -1218,8 +1216,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             for (const item of bundle.items) {
                 if (item.variant && item.variant.product) {
                     await this.syncProduct({
-                        product: item.variant.product,
-                        variants: [item.variant],
+                        productId: item.variant.productId,
                         slug: item.variant.product.slug
                     });
                 }
@@ -1426,7 +1423,21 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
     }
 
-    public async syncProduct({ product, variants, slug }: { product: ProductEntity; variants: ProductVariantEntity[]; slug?: string; }) {
+    public async syncProduct({ productId, slug }: { productId: number, slug?: string }) {
+        const product = await this.productsRepo.findOne({
+            where: { id: productId },
+            relations: ['category', 'store']
+        });
+
+        if (!product) {
+            this.logCtxWarn(`[Sync] Skipping: Product with ID ${productId} not found`, null);
+            return;
+        }
+
+        // 2️⃣ جلب الـ Variants الخاصة بالمنتج
+        const variants = await this.pvRepo.find({
+            where: { productId: product.id }
+        });
         this.logCtx(`[Sync] Starting single product sync | Product: ${product.name} | SKU Count: ${variants.length}`, null, product.adminId);
 
         // 1. Validate Store

@@ -124,10 +124,8 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     });
                     if (!product) return;
 
-                    const variants = await this.pvRepo.find({ where: { productId: product.id } });
-
                     // All services share this method signature via BaseStoreProvider
-                    await service.syncProduct({ product, variants, slug });
+                    await service.syncProduct({ productId, slug });
                     break;
 
                 case "sync-bundle":
