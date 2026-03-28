@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable
 import { InjectRepository } from "@nestjs/typeorm";
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from "dto/subscriptions.dto";
 import { Feature, Plan, PlanDuration, PlanType, Subscription, SubscriptionStatus, UserFeature, } from "entities/plans.entity";
-import { SystemRole, User } from "entities/user.entity";
+import { OnboardingStatus, OnboardingStep, SystemRole, User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
 import { TransactionsService } from "src/transactions/transactions.service";
 import { DataSource, EntityManager, Repository } from "typeorm";
@@ -571,8 +571,14 @@ export class SubscriptionsService {
 
             // 2. Update status
             subscription.status = SubscriptionStatus.CANCELLED;
-
             await manager.save(subscription);
+
+            // 3. Revert onboarding step if still in progress
+            const currentUser = await manager.findOne(User, { where: { id: user.id } });
+            if (currentUser && currentUser.onboardingStatus !== OnboardingStatus.COMPLETED) {
+                currentUser.currentOnboardingStep = OnboardingStep.PLAN;
+                await manager.save(currentUser);
+            }
 
             await this.notificationService.create({
                 userId: Number(subscription.userId),
