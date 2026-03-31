@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Company, OnboardingStatus, OnboardingStep, Role, SystemRole, User } from 'entities/user.entity';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Plan, Subscription, SubscriptionStatus } from 'entities/plans.entity';
@@ -601,10 +601,10 @@ export class UsersService {
 		const user = await this.get(me, id);
 		this.ensureAdminOwnership(me, user);
 
-		user.isActive = !user.isActive;
-		const saved = await this.usersRepo.save(user);
+		const newStatus = !user.isActive;
+		await this.usersRepo.update(id, { isActive: newStatus });
 
-		return { id: saved.id, isActive: saved.isActive };
+		return { id: user.id, isActive: newStatus };
 	}
 
 	async exportCsv(me: User, opts: { search: string; type: string }) {
@@ -1016,5 +1016,20 @@ export class UsersService {
 		if (!user) throw new NotFoundException('User not found');
 
 		return user.company || null;
+	}
+
+	async getCompanyCurrency(me: User, manager?: EntityManager): Promise<string> {
+		const repo = manager ? manager.getRepository(User) : this.usersRepo;
+
+		const user = await repo.findOne({
+			where: { id: me.id },
+			relations: ['company'],
+		});
+
+		if (!user || !user.company) {
+			return 'EGP';
+		}
+
+		return user.company.currency || 'EGP';
 	}
 }
