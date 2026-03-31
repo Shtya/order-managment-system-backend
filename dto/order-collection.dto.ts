@@ -21,7 +21,4 @@ export class CreateOrderCollectionDto {
     @IsOptional()
     notes?: string;
 
-    @IsString()
-    @IsOptional()
-    currency?: string;
 }

@@ -10,6 +10,7 @@ import { Brackets, DataSource, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
+import { UsersService } from 'src/users/users.service';
 
 @Injectable()
 export class CollectionService {
@@ -25,6 +26,7 @@ export class CollectionService {
         private readonly shippingRepo: Repository<ShippingIntegrationEntity>,
 
         private readonly notificationService: NotificationService,
+        private readonly usersService: UsersService,
     ) { }
 
     // collection.service.ts
@@ -88,13 +90,13 @@ export class CollectionService {
             if (!shippingIntegration) {
                 throw new NotFoundException(`You must integrate with the shipping company before assigning it to collections`);
             }
-
+            const currency = await this.usersService.getCompanyCurrency(me, manager);
             // 2. create collection
             const collection = manager.create(OrderCollectionEntity, {
                 adminId,
                 orderId: dto.orderId,
                 amount: dto.amount,
-                currency: (dto.currency?.trim() || "EGP").toUpperCase(),
+                currency: currency,
                 source: dto.source,
                 notes: dto.notes?.trim(),
                 collectedAt: new Date(),
