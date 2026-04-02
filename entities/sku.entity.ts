@@ -49,6 +49,9 @@ export class ProductEntity {
   @Column({ type: "decimal", precision: 12, scale: 2, nullable: true })
   lowestPrice?: number;
 
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+  salePrice: number;
+
   @Column({ type: "text", nullable: true })
   storageRack?: string;
 
