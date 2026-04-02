@@ -220,6 +220,7 @@ export class ProductsController {
       slug: body.slug,
 
       wholesalePrice: parseNumber(body.wholesalePrice) as any,
+      salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack ?? null,
 
@@ -282,6 +283,7 @@ export class ProductsController {
       name: body.name,
       slug: body.slug,
       wholesalePrice: parseNumber(body.wholesalePrice) as any,
+      salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack,
 

@@ -634,7 +634,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
                 ? Math.max(0, (variants[0]?.stockOnHand || 0) - (variants[0]?.reserved || 0))
                 : undefined,
 
-            regular_price: String(product.wholesalePrice || 0),
+            regular_price: String(product.salePrice || 0),
             categories: externalCategoryId ? [{ id: externalCategoryId }] : [],
             attributes: attributes,
             upsell_ids: upsellIds,
@@ -1484,6 +1484,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
             description: remoteProduct.description,
             wholesalePrice: parseFloat(remoteProduct.price) || 0,
             lowestPrice: parseFloat(remoteProduct.price) || 0,
+            salePrice: parseFloat(remoteProduct.price) || 0,
             storeId: store.id,
             categoryId: localCategoryId,
             mainImage: images[0]?.url || '',
@@ -1502,6 +1503,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
                 slug: productDto.slug,
                 description: productDto.description,
                 wholesalePrice: productDto.wholesalePrice,
+                salePrice: productDto.salePrice,
                 lowestPrice: productDto.lowestPrice,
                 storeId: productDto.storeId,
                 categoryId: productDto.categoryId,
@@ -1514,6 +1516,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
                 slug: productDto.slug,
                 description: productDto.description,
                 wholesalePrice: productDto.wholesalePrice,
+                salePrice: productDto.salePrice,
                 lowestPrice: productDto.lowestPrice,
                 storeId: productDto.storeId,
                 categoryId: productDto.categoryId,

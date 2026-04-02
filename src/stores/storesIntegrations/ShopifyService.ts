@@ -582,7 +582,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 return null;
             }
             return {
-                price: (v.price || product.wholesalePrice || 0).toString(),
+                price: (v.price || product.salePrice || 0).toString(),
                 optionValues,
                 inventoryItem: {
                     tracked: true,
@@ -1936,6 +1936,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             slug: remoteProduct.handle,
             description: remoteProduct.descriptionHtml || '',
             wholesalePrice: 0,
+            salePrice: 0,
             lowestPrice: 0,
             storeId: store.id,
             categoryId: localCategoryId,
@@ -1955,6 +1956,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 slug: productDto.slug,
                 description: productDto.description,
                 wholesalePrice: productDto.wholesalePrice,
+                salePrice: productDto.salePrice,
                 lowestPrice: productDto.lowestPrice,
                 storeId: productDto.storeId,
                 categoryId: productDto.categoryId,
@@ -1967,6 +1969,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 slug: productDto.slug,
                 description: productDto.description,
                 wholesalePrice: productDto.wholesalePrice,
+                salePrice: productDto.salePrice,
                 lowestPrice: productDto.lowestPrice,
                 storeId: productDto.storeId,
                 categoryId: productDto.categoryId,

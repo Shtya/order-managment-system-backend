@@ -84,6 +84,10 @@ export class CreateProductDto {
   lowestPrice?: Money;
 
   @IsOptional()
+  @Min(0)
+  salePrice?: Money;
+
+  @IsOptional()
   @IsString()
   storageRack?: string | null;
 

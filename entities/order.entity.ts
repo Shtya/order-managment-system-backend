@@ -658,15 +658,19 @@ export class OrderRetrySettingsEntity {
       autoGenerateLabel: false,
       partialPaymentThreshold: 0,
       requireFullPayment: false,
+      autoShipAfterWarehouse: false,
+      warehouseDefaultShippingCompanyId: null,
     },
   })
   shipping: {
     shippingCompanyId: number | null;
     triggerStatus: string | null;
-    notifyOnShipment: boolean;//
+    notifyOnShipment: boolean; //
     autoGenerateLabel: boolean;
     partialPaymentThreshold: number;
     requireFullPayment: boolean;
+    autoShipAfterWarehouse: boolean;
+    warehouseDefaultShippingCompanyId: number | null;
   };
 
   @UpdateDateColumn()

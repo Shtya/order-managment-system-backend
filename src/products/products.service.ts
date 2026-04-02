@@ -248,6 +248,17 @@ export class ProductsService {
         filters.wholesalePrice = { ...filters.wholesalePrice, lte: Number(lte) };
     }
 
+    if (q?.["salePrice.gte"] || q?.["salePrice.lte"]) {
+      const gte = q["salePrice.gte"];
+      const lte = q["salePrice.lte"];
+
+      if (!Number.isNaN(Number(gte)))
+        filters.salePrice = { ...filters.salePrice, gte: Number(gte) };
+
+      if (!Number.isNaN(Number(lte)))
+        filters.salePrice = { ...filters.salePrice, lte: Number(lte) };
+    }
+
     let idleDate: Date | null = null;
     if (type === "PRODUCT_IDLE" && q?.["created_at.lte"]) {
       idleDate = new Date(q["created_at.lte"]);
@@ -292,6 +303,16 @@ export class ProductsService {
     if (filters.wholesalePrice?.lte)
       qb.andWhere("product.wholesalePrice <= :lte", {
         lte: filters.wholesalePrice.lte,
+      });
+
+    if (filters.salePrice?.gte)
+      qb.andWhere("product.salePrice >= :gte", {
+        gte: filters.salePrice.gte,
+      });
+
+    if (filters.salePrice?.lte)
+      qb.andWhere("product.salePrice <= :lte", {
+        lte: filters.salePrice.lte,
       });
 
 
@@ -354,6 +375,7 @@ export class ProductsService {
         warehouse: p.warehouse?.name ?? "",
         storageRack: p.storageRack ?? "",
         wholesalePrice: p.wholesalePrice ?? "",
+        salePrice: p.salePrice ?? "",
         lowestPrice: p.lowestPrice ?? "",
         totalStock: totalStock,
         created_at: p.created_at
@@ -378,6 +400,7 @@ export class ProductsService {
       { header: "Warehouse", key: "warehouse", width: 20 },
       { header: "Storage Rack", key: "storageRack", width: 18 },
       { header: "Wholesale Price", key: "wholesalePrice", width: 16 },
+      { header: "Sale Price", key: "salePrice", width: 16 },
       { header: "Lowest Price", key: "lowestPrice", width: 16 },
       { header: "Total Stock", key: "totalStock", width: 14 },
       { header: "Created At", key: "created_at", width: 18 },
@@ -485,6 +508,17 @@ export class ProductsService {
       }
     }
 
+    if (q?.["salePrice.gte"] || q?.["salePrice.lte"]) {
+      const gte = q["salePrice.gte"];
+      const lte = q["salePrice.lte"];
+
+      if (!Number.isNaN(Number(gte)))
+        filters.salePrice = { ...filters.salePrice, gte: Number(gte) };
+
+      if (!Number.isNaN(Number(lte)))
+        filters.salePrice = { ...filters.salePrice, lte: Number(lte) };
+    }
+
     // =========================================
     // 🟣 PRODUCT_IDLE LOGIC
     // =========================================
@@ -519,6 +553,12 @@ export class ProductsService {
 
     if (filters.wholesalePrice?.lte)
       qb.andWhere("product.wholesalePrice <= :lte", { lte: filters.wholesalePrice.lte });
+
+    if (filters.salePrice?.gte)
+      qb.andWhere("product.salePrice >= :gte", { gte: filters.salePrice.gte });
+
+    if (filters.salePrice?.lte)
+      qb.andWhere("product.salePrice <= :lte", { lte: filters.salePrice.lte });
 
     if (filters.search) {
       qb.andWhere(
@@ -774,6 +814,7 @@ export class ProductsService {
       slug: dto.slug,
       wholesalePrice: dto.wholesalePrice ?? null,
       lowestPrice: dto.lowestPrice ?? null,
+      salePrice: dto.salePrice ?? null,
       storageRack: dto.storageRack ?? null,
 
       categoryId: dto.categoryId ?? null,

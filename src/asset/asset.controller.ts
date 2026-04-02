@@ -23,24 +23,25 @@ import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { RequireSubscription } from 'common/require-subscription.decorator';
 import { SubscriptionGuard } from 'common/subscription.guard';
- 
+
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('assets')
 @RequireSubscription()
 export class AssetController {
-  constructor(private readonly assetService: AssetService) {}
+  constructor(private readonly assetService: AssetService) { }
 
   @Permissions("assets.create")
   @Post()
-   @UseInterceptors(FileInterceptor('file', multerOptions))
+  @UseInterceptors(FileInterceptor('file', multerOptions))
   async upload(@UploadedFile() file: any, @Body() dto: CreateAssetDto, @Req() req: any) {
     const user = req.user;
     if (!user) throw new NotFoundException('Authenticated user not found in request');
+
     return this.assetService.create(dto, file, user);
   }
 
   @Permissions("assets.create")
-  @Post('bulk') 
+  @Post('bulk')
   @UseInterceptors(FilesInterceptor('files', 20, multerOptions))
   async uploadMultiple(@UploadedFiles() files: any[], @Body() dto: CreateAssetDto, @Req() req: any) {
     if (!files?.length) throw new NotFoundException('No files uploaded');
@@ -58,7 +59,7 @@ export class AssetController {
 
   @Permissions("assets.read")
   @Get()
-   async getMyAssets(@Req() req: any) {
+  async getMyAssets(@Req() req: any) {
     const user = req.user;
     if (!user) throw new NotFoundException('Authenticated user not found in request');
     return this.assetService.findAllByUser(user.id);

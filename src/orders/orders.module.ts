@@ -76,9 +76,9 @@ import { WalletModule } from "src/wallet/wallet.module";
   ],
   controllers: [
     OrdersController,
-    OrderReplacemetsController,
+    // OrderReplacemetsController,
     OrderReturnsController,
   ],
   exports: [OrdersService],
 })
-export class OrdersModule {}
+export class OrdersModule { }

@@ -385,8 +385,8 @@ export class EasyOrderService extends BaseStoreProvider {
         const variantsPayload = variants.map(v => {
             productQuantity += (v.stockOnHand - v.reserved);
             return {
-                price: v.price || product.wholesalePrice || 0,
-                sale_price: v.price || product.wholesalePrice || 0, // Default as per requirements
+                price: v.price || product.salePrice || 0,
+                sale_price: v.price || product.salePrice || 0, // Default as per requirements
                 quantity: v.stockOnHand - v.reserved,   // ALWAYS 0 on Create/Full Update. Sync stock separately.
                 taager_code: String(v.sku),
                 variation_props: Object.entries(v.attributes || {}).map(([key, val]) => ({
@@ -398,8 +398,8 @@ export class EasyOrderService extends BaseStoreProvider {
 
         return {
             name: product.name.trim(),
-            price: product.wholesalePrice || 0,
-            sale_price: product.wholesalePrice || 0,
+            price: product.salePrice || 0,
+            sale_price: product.salePrice || 0,
             description: product.description || "",
             slug: product.slug,
             sku: `SKU-${product.slug.toUpperCase().replace(/-/g, '').substring(0, 8)}-${product.id}`.trim(),
@@ -712,6 +712,7 @@ export class EasyOrderService extends BaseStoreProvider {
             slug: remoteProduct.slug, // Crucial for matching
             description: remoteProduct.description,
             wholesalePrice: remoteProduct.price,
+            salePrice: remoteProduct.sale_price || remoteProduct.price,
             lowestPrice: remoteProduct.price || remoteProduct.price,
             storeId: store.id,
             categoryId: localCategoryId,
@@ -738,6 +739,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 slug: productDto.slug,
                 description: productDto.description,
                 wholesalePrice: productDto.wholesalePrice,
+                salePrice: productDto.salePrice,
                 lowestPrice: productDto.lowestPrice,
                 storeId: productDto.storeId,
                 categoryId: productDto.categoryId,
@@ -765,6 +767,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 slug: productDto.slug,
                 description: productDto.description,
                 wholesalePrice: productDto.wholesalePrice,
+                salePrice: productDto.salePrice,
                 lowestPrice: productDto.lowestPrice,
                 storeId: productDto.storeId,
                 categoryId: productDto.categoryId,

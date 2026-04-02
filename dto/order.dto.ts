@@ -286,6 +286,14 @@ export class ShippingSettingsDto {
   @IsBoolean()
   @IsOptional()
   requireFullPayment?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  autoShipAfterWarehouse?: boolean;
+
+  @IsNumber()
+  @IsOptional()
+  warehouseDefaultShippingCompanyId?: number;
 }
 
 export class UpsertOrderRetrySettingsDto {

@@ -398,7 +398,7 @@ export class UsersService {
 			.createQueryBuilder("user")
 			.leftJoinAndSelect("user.role", "role")
 			.leftJoinAndSelect(
-				'u.subscriptions',
+				'user.subscriptions',
 				'subscription',
 				'subscription.status = :status',
 				{ status: SubscriptionStatus.ACTIVE }
