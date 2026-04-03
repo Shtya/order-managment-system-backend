@@ -13,6 +13,7 @@ import {
 import {
   OrderEntity,
   OrderItemEntity,
+  OrderAssignmentEntity,
   OrderStatus,
   OrderStatusEntity,
 } from "entities/order.entity";
@@ -34,7 +35,7 @@ export class DashboardService {
 
     @InjectRepository(User)
     private usersRepo: Repository<User>,
-  ) {}
+  ) { }
 
   async getSummary(
     user,
@@ -150,11 +151,11 @@ export class DashboardService {
     const finalStartDate =
       start ||
       (filters.startDate
-                ? new Date(filters.startDate)
-                : subDays(new Date(), 30));
-            const finalEndDate =  end || (filters.endDate ? new Date(filters.endDate) : new Date());
+        ? new Date(filters.startDate)
+        : subDays(new Date(), 30));
+    const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
 
-            // 2. بناء بارامترات الاستعلام الخام (Raw Query)
+    // 2. بناء بارامترات الاستعلام الخام (Raw Query)
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
 
@@ -220,7 +221,7 @@ export class DashboardService {
     const finalStartDate = start || filters.startDate;
     const finalEndDate = end || filters.endDate;
 
-  
+
     // 1️⃣ بناء الاستعلام الأساسي المشترك
     const baseQuery = this.orderRepo.manager
       .createQueryBuilder(OrderItemEntity, "item")
@@ -763,22 +764,6 @@ export class DashboardService {
       .leftJoin("oa.order", "o")
       .leftJoin("o.status", "st");
 
-    // Fields selection
-    qb.select(["u.id AS id", "u.name AS name", "u.avatarUrl AS avatarUrl"])
-      .addSelect("COUNT(DISTINCT oa.id)", "totalAssigned") // DISTINCT هنا مهمة لمنع التكرار
-      .addSelect(
-        `COUNT(DISTINCT CASE WHEN la.code = '${OrderStatus.CONFIRMED}' THEN oa.id END)`,
-        "confirmedCount",
-      )
-      .addSelect(
-        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN oa.id END)`,
-        "shippedCount",
-      )
-      .addSelect(
-        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN oa.id END)`,
-        "deliveredCount",
-      );
-
     // Filters
     qb.where("u.adminId = :adminId", { adminId });
 
@@ -797,20 +782,56 @@ export class DashboardService {
       qb.andWhere("o.storeId = :storeId", { storeId: Number(q.storeId) });
     }
 
-    if (q?.startDate) {
-      qb.andWhere("o.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-    }
+    // Separate Query for Stats to apply date filters
+    const statsSubQuery = (field: string, condition?: string) => {
+      let query = `COUNT(DISTINCT CASE WHEN ${field} THEN oa.id END)`;
+      if (q?.startDate || q?.endDate) {
+        const dateConditions = [];
+        if (q?.startDate) dateConditions.push(`o.created_at >= '${q.startDate}T00:00:00.000Z'`);
+        if (q?.endDate) dateConditions.push(`o.created_at <= '${q.endDate}T23:59:59.999Z'`);
 
-    if (q?.endDate) {
-      qb.andWhere("o.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
-    }
+        const dateFilter = dateConditions.join(' AND ');
+        query = `COUNT(DISTINCT CASE WHEN (${field}${condition ? ' AND ' + condition : ''}) AND ${dateFilter} THEN oa.id END)`;
+      } else if (condition) {
+        query = `COUNT(DISTINCT CASE WHEN ${field} AND ${condition} THEN oa.id END)`;
+      }
+      return query;
+    };
+
+    qb.select(["u.id AS id", "u.name AS name", "u.avatarUrl AS avatarUrl", "u.isActive AS isActive"])
+      .addSelect(
+        "COUNT(DISTINCT oa.id)",
+        "totalAssigned"
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN la.code = '${OrderStatus.CONFIRMED}' ${q?.startDate ? `AND oa.lastActionAt >= '${q.startDate}T00:00:00.000Z'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${q.endDate}T23:59:59.999Z'` : ''} THEN oa.id END)`,
+        "confirmedCount",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' ${q?.startDate ? `AND oa.lastActionAt >= '${q.startDate}T00:00:00.000Z'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${q.endDate}T23:59:59.999Z'` : ''} THEN oa.id END)`,
+        "shippedCount",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' ${q?.startDate ? `AND oa.lastActionAt >= '${q.startDate}T00:00:00.000Z'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${q.endDate}T23:59:59.999Z'` : ''} THEN oa.id END)`,
+        "deliveredCount",
+      )
+      .addSelect((sub) => {
+        return sub
+          .select("COUNT(oa_active.id)", "activeCount")
+          .from(OrderAssignmentEntity, "oa_active")
+          .where("oa_active.employeeId = u.id")
+          .andWhere("oa_active.isAssignmentActive = true");
+      }, "activeAssignments")
+      .addSelect((sub) => {
+        return sub
+          .select("COUNT(oa_locked.id)", "lockedCount")
+          .from(OrderAssignmentEntity, "oa_locked")
+          .where("oa_locked.employeeId = u.id")
+          .andWhere("oa_locked.lockedUntil > CURRENT_TIMESTAMP");
+      }, "lockedAssignments");
 
     // Grouping
-    qb.groupBy("u.id").addGroupBy("u.name").addGroupBy("u.avatarUrl");
+    qb.groupBy("u.id").addGroupBy("u.name").addGroupBy("u.avatarUrl").addGroupBy("u.isActive");
 
     const [totalRecordsResult, stats] = await Promise.all([
       // استعلام العدد (Count Query)
@@ -837,12 +858,17 @@ export class DashboardService {
       const confirmed = Number(row.confirmedCount) || 0;
       const shipped = Number(row.shippedCount) || 0;
       const delivered = Number(row.deliveredCount) || 0;
+      const activeCount = Number(row.activeAssignments) || 0;
+      const lockedCount = Number(row.lockedAssignments) || 0;
 
       return {
         id: Number(row.id),
         name: row.name,
-        avatarUrl: row.avatarUrl,
+        avatarUrl: row.avatarurl,
+        isActive: row.isactive,
         totalAssigned: total,
+        activeAssignments: activeCount,
+        lockedAssignments: lockedCount,
         confirmed: {
           count: confirmed,
           percent: total > 0 ? Math.round((confirmed / total) * 100) : 0,
@@ -977,18 +1003,37 @@ export class DashboardService {
     const adminId = tenantId(user);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    // 1. تحديد الحالات المطلوبة للتفصيل
     const targetCodes = [
+      OrderStatus.NEW,
       OrderStatus.CONFIRMED,
       OrderStatus.SHIPPED,
       OrderStatus.DELIVERED,
       OrderStatus.CANCELLED,
     ];
 
-    // --- الجزء الأول: جلب إحصائيات الحالات المحددة ---
+    const except = Array.isArray(q.except) ? q.except : (typeof q.except === 'string' ? [q.except] : []);
+
+
+    const startDate = q.startDate ? `${q.startDate}T00:00:00.000Z` : null;
+    const endDate = q.endDate ? `${q.endDate}T23:59:59.999Z` : null;
+
+
+    const dynamicCountSql = `COUNT(DISTINCT 
+        CASE 
+          WHEN status.code IN (:...except) THEN oa.id 
+          ELSE (
+            CASE 
+              WHEN (:startDate::timestamp IS NULL OR oa.lastActionAt >= :startDate::timestamp) 
+                   AND (:endDate::timestamp IS NULL OR oa.lastActionAt <= :endDate::timestamp) 
+              THEN oa.id 
+            END
+          )
+        END
+      )`;
+
     const qb = this.statusRepo
       .createQueryBuilder("status")
-      .leftJoin("status.orders", "o")
+      .leftJoin(OrderAssignmentEntity, "oa", "oa.lastStatusId = status.id")
       .select([
         "status.id AS id",
         "status.name AS name",
@@ -996,10 +1041,12 @@ export class DashboardService {
         "status.color AS color",
         "status.sortOrder AS sortOrder",
       ])
-      .addSelect("COUNT(DISTINCT o.id)", "count") // عد التكليفات المرتبطة بهذه الحالة
+      .addSelect(dynamicCountSql, "count")
+      .setParameter("except", except.length > 0 ? except : ["__none__"])
+      .setParameter("startDate", startDate)
+      .setParameter("endDate", endDate)
       .where("status.code IN (:...codes)", { codes: targetCodes });
 
-    // فلتر الآدمن والنظام للحالات
     qb.andWhere(
       new Brackets((sq) => {
         sq.where("status.adminId = :adminId", { adminId }).orWhere(
@@ -1009,14 +1056,17 @@ export class DashboardService {
       }),
     );
 
-    // --- الجزء الثاني: جلب إجمالي التكليفات (Total) بشكل منفصل ---
-    // سنستخدم استعلاماً فرعياً أو QueryBuilder منفصل لضمان دقة الإجمالي العام
-    const totalQb = this.orderRepo
-      .createQueryBuilder("o")
-      .where("o.adminId = :adminId", { adminId });
+    const totalCountQb = this.dataSource.getRepository(OrderAssignmentEntity)
+      .createQueryBuilder("oa")
+      .leftJoin("oa.lastStatus", "status")
+      .where("oa.assignedByAdminId = :adminId", { adminId: Number(adminId) })
+      .andWhere("status.code IN (:...codes)", { codes: targetCodes })
+      .select(dynamicCountSql.replace("count", "totalCount"), "totalCount") // إعادة استخدام نفس المنطق
+      .setParameter("except", except.length > 0 ? except : ["__none__"])
+      .setParameter("startDate", startDate)
+      .setParameter("endDate", endDate);
 
-    // تنفيذ الاستعلامات
-    const [stats, totalCount] = await Promise.all([
+    const [stats, totalRes] = await Promise.all([
       qb
         .groupBy("status.id")
         .addGroupBy("status.name")
@@ -1025,10 +1075,11 @@ export class DashboardService {
         .addGroupBy("status.sortOrder")
         .orderBy("status.sortOrder", "ASC")
         .getRawMany(),
-      totalQb.getCount(), // جلب العدد الإجمالي للتكليفات
+      totalCountQb.getRawOne(),
     ]);
 
-    // تنسيق النتائج
+    const totalCount = Number(totalRes?.totalCount || 0);
+
     const formattedStats = stats.map((stat) => ({
       id: Number(stat.id),
       name: stat.name,
@@ -1037,12 +1088,11 @@ export class DashboardService {
       count: Number(stat.count) || 0,
     }));
 
-    // إضافة سطر "الإجمالي" في بداية المصفوفة ليتعرف عليه الفرونت إند
     formattedStats.unshift({
       id: 0,
       name: "Total Assignments",
       code: "total",
-      color: "#ff8b00", // نفس لون الـ Total في الإعدادات لديك
+      color: "#ff8b00",
       count: totalCount,
     });
 
