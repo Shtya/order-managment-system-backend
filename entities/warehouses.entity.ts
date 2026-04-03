@@ -24,8 +24,8 @@ export class WarehouseEntity {
 	@Index()
 	adminId!: string | null;
 
-	@Column({ type: "varchar", length: 120 })
-	name!: string;
+	@Column({ type: "varchar", length: 120, nullable: true })
+	name: string;
 
 	@Column({ type: "varchar", length: 160, nullable: true })
 	location?: string;
