@@ -9,6 +9,7 @@ import { UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { SubscriptionsService } from 'src/subscription/subscription.service';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
+import { tenantId } from 'src/category/category.service';
 
 @Injectable()
 export class UsersService {
@@ -1008,8 +1009,9 @@ export class UsersService {
 	}
 
 	async getCompany(me: User) {
+		const adminId = tenantId(me);
 		const user = await this.usersRepo.findOne({
-			where: { id: me.id },
+			where: { id: adminId },
 			relations: ['company'],
 		});
 
@@ -1020,9 +1022,9 @@ export class UsersService {
 
 	async getCompanyCurrency(me: User, manager?: EntityManager): Promise<string> {
 		const repo = manager ? manager.getRepository(User) : this.usersRepo;
-
+		const adminId = tenantId(me);
 		const user = await repo.findOne({
-			where: { id: me.id },
+			where: { id: adminId },
 			relations: ['company'],
 		});
 
