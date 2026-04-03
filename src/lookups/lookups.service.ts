@@ -32,6 +32,7 @@ type SkusLookupParams = {
 	q?: string;
 	productId?: number;
 	limit: number;
+	cursor?: number;
 };
 
 
@@ -95,8 +96,10 @@ export class LookupsService {
 
 
 	async skus(me: User, params: SkusLookupParams) {
+		const fetchLimit = Number(params.limit) || 20;
 		const qb = this.variantsRepo
 			.createQueryBuilder('v')
+			.leftJoin('v.product', 'p')
 			.select([
 				'v.id AS id',
 				'v.productId AS "productId"',
@@ -105,9 +108,10 @@ export class LookupsService {
 				'v.stockOnHand AS "stockOnHand"',
 				'v.reserved AS reserved',
 				'v.price AS price',
+				'p.name AS "productName"'
 			])
 			.orderBy('v.id', 'DESC')
-			.limit(params.limit);
+			.limit(fetchLimit + 1);
 
 		this.applyTenantScope(qb, 'v', me);
 
@@ -115,27 +119,30 @@ export class LookupsService {
 			qb.andWhere('v.productId = :productId', { productId: params.productId });
 		}
 
-		if (params.q?.trim()) {
-			const tokens = params.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+		if (params.cursor) {
+			qb.andWhere('v.id < :cursor', { cursor: Number(params.cursor) });
+		}
+
+		const search = params.q?.trim().toLowerCase();
+
+		if (search) {
+			const likeParam = `%${search}%`;
 
 			qb.andWhere(
 				new Brackets((b) => {
-					for (const t of tokens) {
-						const like = `%${t}%`;
-						b.andWhere(
-							new Brackets((bb) => {
-								bb.where('LOWER(v.sku) LIKE :like', { like })
-									.orWhere('LOWER(v.key) LIKE :like', { like });
-							}),
-						);
-					}
+					b.where('LOWER(v.sku) LIKE :search', { search: likeParam })
+						.orWhere('LOWER(v.key) LIKE :search', { search: likeParam })
+						.orWhere('LOWER(p.name) LIKE :search', { search: likeParam });
 				}),
 			);
 		}
 
 
 		const rows = await qb.getRawMany();
-		return rows.map((x) => ({
+		const hasMore = rows.length > fetchLimit;
+		if (hasMore) rows.pop();
+
+		const data = rows.map((x) => ({
 			id: Number(x.id),
 			productId: Number(x.productId),
 			label: x.sku ? x.sku : `#${x.id}`,
@@ -146,6 +153,12 @@ export class LookupsService {
 			price: Number(x.price ?? 0),
 			available: Math.max(0, Number(x.stockOnHand ?? 0) - Number(x.reserved ?? 0)),
 		}));
+
+		return {
+			data,
+			hasMore,
+			nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
+		};
 	}
 
 
