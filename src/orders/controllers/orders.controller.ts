@@ -177,8 +177,9 @@ export class OrdersController {
     @Req() req: any,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
+    @Query('role') role?: string,
   ) {
-    return this.svc.getEmployeesByLoad(req.user, Number(limit ?? 20), cursor ? Number(cursor) : null);
+    return this.svc.getEmployeesByLoad(req.user, Number(limit ?? 20), cursor ? Number(cursor) : null, role ? role : undefined);
   }
 
   @Permissions("orders.read")

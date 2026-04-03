@@ -4058,7 +4058,7 @@ export class OrdersService {
     return { count };
   }
 
-  async getEmployeesByLoad(me: any, limit: number = 20, cursor: number | null) {
+  async getEmployeesByLoad(me: any, limit: number = 20, cursor: number | null, role?: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -4066,6 +4066,7 @@ export class OrdersService {
 
     const qb = this.userRepo
       .createQueryBuilder("user")
+      .leftJoin("user.role", "role") // لتمكين الفلترة بالـ role
       .leftJoin(
         "user.assignments",
         "assignment",
@@ -4078,20 +4079,20 @@ export class OrdersService {
         "user.email",
         "user.avatarUrl",
         "user.employeeType",
+        "user.isActive",
       ])
       .addSelect("COUNT(assignment.id)", "activeCount")
       .groupBy("user.id")
-      .addGroupBy("user.name")
-      .addGroupBy("user.email")
-      .addGroupBy("user.avatarUrl")
-      .addGroupBy("user.employeeType");
+      .addGroupBy("role.id");
 
-    // Filter by cursor (count)
+    if (role) {
+      qb.andWhere("role.name = :role", { role });
+    }
+
     if (cursor !== null && cursor !== undefined) {
       qb.having("COUNT(assignment.id) >= :cursor", { cursor });
     }
 
-    // Order by count (primary) and ID (secondary tie-breaker)
     qb.orderBy("COUNT(assignment.id)", "ASC")
       .addOrderBy("user.id", "ASC")
       .limit(fetchLimit + 1);
@@ -4109,7 +4110,6 @@ export class OrdersService {
       result.pop();
     }
 
-    // Next cursor is the count of the last item
     const nextCursor =
       hasMore && result.length > 0
         ? result[result.length - 1].activeCount
@@ -4121,7 +4121,6 @@ export class OrdersService {
       hasMore,
     };
   }
-
   async manualAssignMany(me: any, dto: ManualAssignManyDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
