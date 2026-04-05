@@ -62,8 +62,8 @@ export class CreateSalesInvoiceDto {
   paymentStatus?: PaymentStatus;
 
   @IsOptional()
-  @IsInt()
-  safeId?: number;
+  @IsString()
+  safeId?: string;
 
   @IsOptional()
   @IsString()
@@ -107,8 +107,8 @@ export class UpdateSalesInvoiceDto {
   paymentStatus?: PaymentStatus;
 
   @IsOptional()
-  @IsInt()
-  safeId?: number;
+  @IsString()
+  safeId?: string;
 
   @IsOptional()
   @IsString()

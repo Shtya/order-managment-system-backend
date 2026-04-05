@@ -29,23 +29,22 @@ export class PurchaseInvoiceEntity {
 	@Column({ type: "varchar", length: 120 })
 	receiptNumber!: string;
 
-
 	@Column({ type: "text", nullable: true })
 	receiptAsset?: any | null;
 
 	@Column({ type: "text", nullable: true })
 	safeId?: any | null;
 
-	@Column({ type: "int", default: 0 })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	paidAmount!: number;
 
-	@Column({ type: "int", default: 0 })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	subtotal!: number;
 
-	@Column({ type: "int", default: 0 })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	total!: number;
 
-	@Column({ type: "int", default: 0 })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	remainingAmount!: number;
 
 	@Column({ type: "varchar", length: 20, default: ApprovalStatus.PENDING })
@@ -93,13 +92,13 @@ export class PurchaseInvoiceItemEntity {
 	@Column({ type: "int" })
 	quantity!: number;
 
-	@Column({ type: "int" })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	purchaseCost!: number;
 
-	@Column({ type: "int", default: 0 })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	lineSubtotal!: number;
 
-	@Column({ type: "int", default: 0 })
+	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	lineTotal!: number;
 
 	@CreateDateColumn({ type: "timestamptz" })

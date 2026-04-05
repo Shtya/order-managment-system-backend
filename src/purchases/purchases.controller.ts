@@ -30,6 +30,7 @@ import {
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path";
+import { parseJsonField, parseNumber } from "common/healpers";
 
 const purchasesStorage = diskStorage({
 	destination: "./uploads/purchases",
@@ -38,23 +39,6 @@ const purchasesStorage = diskStorage({
 		cb(null, `purchase-${uniqueSuffix}${extname(file.originalname)}`);
 	},
 });
-
-function parseJsonField<T>(val: any, fallback: T): T {
-	if (val === undefined || val === null || val === "") return fallback;
-	if (typeof val !== "string") return val as T;
-	try {
-		return JSON.parse(val) as T;
-	} catch {
-		return fallback;
-	}
-}
-
-function parseNumber(val: any): number | null | undefined {
-	if (val === undefined) return undefined;
-	if (val === null || val === "") return null;
-	const n = Number(val);
-	return Number.isFinite(n) ? n : null;
-}
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("purchases")

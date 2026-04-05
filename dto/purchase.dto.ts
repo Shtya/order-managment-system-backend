@@ -1,12 +1,12 @@
 // dto/purchase.dto.ts
 import { Type } from "class-transformer";
-import { IsArray, IsEnum, IsInt, IsNotEmpty, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import { IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
 import { ApprovalStatus } from "common/enums";
 
 export class PurchaseItemDto {
 	@IsInt() variantId: number;
 	@IsInt() @Min(1) quantity: number;
-	@IsInt() @Min(0) purchaseCost: number;
+	@Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) purchaseCost: number;
 }
 
 export class CreatePurchaseDto {
@@ -14,7 +14,7 @@ export class CreatePurchaseDto {
 	@IsString() @IsNotEmpty() receiptNumber: string;
 	safeId: any;
 
-	@IsOptional() @IsInt() @Min(0) paidAmount?: number;
+	@IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) paidAmount?: number;
 	@IsOptional() @IsString() notes?: string;
 
 	// Receipt image as base64 string or file path
@@ -31,7 +31,7 @@ export class UpdatePurchaseDto {
 	@IsOptional() @IsString() receiptNumber?: string;
 	@IsOptional() safeId?: any;
 
-	@IsOptional() @IsInt() @Min(0) paidAmount?: number;
+	@IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) paidAmount?: number;
 	@IsOptional() @IsString() notes?: string;
 
 	// Receipt image as base64 string or file path

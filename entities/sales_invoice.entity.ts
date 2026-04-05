@@ -32,8 +32,8 @@ export class SalesInvoiceEntity {
   @Column({ type: "varchar", length: 30, default: PaymentStatus.UNPAID })
   paymentStatus!: PaymentStatus;
 
-  @Column({ type: "int", nullable: true })
-  safeId?: number | null;
+  @Column({ type: "text", nullable: true })
+  safeId?: any | null;
 
   @Column({ type: "text", nullable: true })
   notes?: string;

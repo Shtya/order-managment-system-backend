@@ -8,6 +8,8 @@ import { ProductVariantEntity } from "entities/sku.entity";
 import { CreatePurchaseDto, UpdatePurchaseDto, UpdatePaidAmountDto } from "dto/purchase.dto";
 import { ApprovalStatus } from "common/enums";
 import { SupplierEntity } from "../../entities/supplier.entity";
+import * as fs from "fs";
+import * as path from "path";
 
 export function tenantId(me: any): any | null {
 	if (!me) return null;
@@ -281,7 +283,7 @@ export class PurchasesService {
 		const total = subtotal;
 
 		const paidAmount = dto.paidAmount ?? 0;
-		const remainingAmount = Math.max(total - paidAmount, 0);
+		const remainingAmount = total - paidAmount;
 
 
 		const inv = this.invRepo.create({
@@ -320,6 +322,19 @@ export class PurchasesService {
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
 		const inv = await this.get(me, id);
+
+		// Delete old file if a new one is uploaded
+		if (dto.receiptAsset && inv.receiptAsset && dto.receiptAsset !== inv.receiptAsset) {
+			const oldPath = path.join(process.cwd(), inv.receiptAsset);
+			if (fs.existsSync(oldPath)) {
+				try {
+					fs.unlinkSync(oldPath);
+				} catch (e) {
+					console.error(`Failed to delete old file: ${oldPath}`, e);
+				}
+			}
+		}
+
 		// Save old values for financial sync
 		const oldTotal = inv.total ?? 0;
 		const oldRemaining = inv.remainingAmount ?? 0;
@@ -358,14 +373,14 @@ export class PurchasesService {
 			const total = subtotal;
 
 			const paidAmount = dto.paidAmount ?? inv.paidAmount ?? 0;
-			const remainingAmount = Math.max(total - paidAmount, 0);
+			const remainingAmount = total - paidAmount;
 
 			Object.assign(inv as any, dto, { subtotal, total, paidAmount, remainingAmount, items });
 			saved = await this.invRepo.save(inv as any);
 		} else {
 			Object.assign(inv as any, dto);
 			if (typeof dto.paidAmount === "number") {
-				(inv as any).remainingAmount = Math.max(((inv as any).total ?? 0) - dto.paidAmount, 0);
+				(inv as any).remainingAmount = ((inv as any).total ?? 0) - dto.paidAmount;
 			}
 			saved = await this.invRepo.save(inv as any);
 		}
@@ -404,7 +419,7 @@ export class PurchasesService {
 		const oldRemaining = inv.remainingAmount ?? 0;
 		const oldStatus = inv.status;
 		(inv as any).paidAmount = dto.paidAmount;
-		(inv as any).remainingAmount = Math.max(total - dto.paidAmount, 0);
+		(inv as any).remainingAmount = total - dto.paidAmount;
 
 		const saved = await this.invRepo.save(inv as any);
 

@@ -5,7 +5,7 @@ import {
 } from "typeorm";
 import { User } from "./user.entity";
 import { ProductVariantEntity } from "./sku.entity";
-import { PurchaseReturnType, ReturnStatus } from "common/enums";
+import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
 
 @Entity({ name: "purchase_return_invoices" })
 @Index(["adminId", "returnNumber"], { unique: true })
@@ -38,26 +38,32 @@ export class PurchaseReturnInvoiceEntity {
   @Column({ type: "varchar", length: 80, nullable: true })
   returnReason?: string | null;
 
-  @Column({ type: "int", nullable: true })
-  safeId?: number | null;
+  @Column({ type: "text", nullable: true })
+  safeId?: any | null;
 
-  @Column({ type: "varchar", length: 40, default: PurchaseReturnType.CASH_REFUND })
+  @Column({ type: "varchar", length: 40, default: PurchaseReturnType.CASH_REFUND, nullable: true })
   returnType!: PurchaseReturnType;
 
-  @Column({ type: "varchar", length: 20, default: ReturnStatus.PENDING })
-  status!: ReturnStatus;
+  @Column({ type: "varchar", length: 20, default: ApprovalStatus.PENDING })
+  status!: ApprovalStatus;
 
   @Column({ type: "text", nullable: true })
   notes?: string;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   subtotal!: number;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   taxTotal!: number;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   totalReturn!: number;
+
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+  paidAmount!: number;
+
+  @Column({ type: "varchar", length: 255, nullable: true })
+  receiptAsset?: string | null;
 
   @Column({ type: "int", nullable: true })
   createdByUserId?: number | null;
@@ -105,23 +111,83 @@ export class PurchaseReturnInvoiceItemEntity {
   @Column({ type: "int" })
   returnedQuantity!: number;
 
-  @Column({ type: "int" })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   unitCost!: number;
 
   @Column({ type: "boolean", default: false })
   taxInclusive!: boolean;
 
-  @Column({ type: "int", default: 5 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   taxRate!: number;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   lineSubtotal!: number;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   lineTax!: number;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   lineTotal!: number;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  created_at!: Date;
+}
+
+export enum PurchaseReturnAuditAction {
+  CREATED = "created",
+  UPDATED = "updated",
+  STATUS_CHANGED = "status_changed",
+  PAID_AMOUNT_UPDATED = "paid_amount_updated",
+  STOCK_APPLIED = "stock_applied",
+  STOCK_REMOVED = "stock_removed",
+  DELETED = "deleted",
+}
+
+@Entity({ name: "purchase_return_audit_logs" })
+@Index(["adminId", "invoiceId"])
+@Index(["invoiceId", "created_at"])
+export class PurchaseReturnAuditLogEntity {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column()
+  @Index()
+  adminId!: string;
+
+  @Column({ type: "int" })
+  @Index()
+  invoiceId!: number;
+
+  @ManyToOne(() => PurchaseReturnInvoiceEntity, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "invoiceId" })
+  invoice!: PurchaseReturnInvoiceEntity;
+
+  @Column({ type: "int", nullable: true })
+  @Index()
+  userId?: number | null;
+
+  @ManyToOne(() => User, { eager: true, nullable: true })
+  @JoinColumn({ name: "userId" })
+  user?: User | null;
+
+  @Column({ type: "varchar", length: 50 })
+  @Index()
+  action!: PurchaseReturnAuditAction;
+
+  @Column({ type: "jsonb", nullable: true })
+  oldData?: any;
+
+  @Column({ type: "jsonb", nullable: true })
+  newData?: any;
+
+  @Column({ type: "jsonb", nullable: true })
+  changes?: any;
+
+  @Column({ type: "text", nullable: true })
+  description?: string;
+
+  @Column({ type: "varchar", length: 50, nullable: true })
+  ipAddress?: string;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
