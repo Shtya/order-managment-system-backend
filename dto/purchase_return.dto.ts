@@ -1,15 +1,15 @@
 // dto/purchase_return.dto.ts
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min, ValidateNested } from "class-validator";
-import { PurchaseReturnType, ReturnStatus } from "common/enums";
+import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
 
 export class PurchaseReturnItemDto {
   @IsInt() variantId: number;
   @IsInt() @Min(1) returnedQuantity: number;
-  @IsInt() @Min(0) unitCost: number;
+  @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) unitCost: number;
 
   @IsOptional() @IsBoolean() taxInclusive?: boolean;
-  @IsOptional() @IsInt() @Min(0) taxRate?: number;
+  @IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) taxRate?: number;
 }
 
 export class CreatePurchaseReturnDto {
@@ -22,11 +22,15 @@ export class CreatePurchaseReturnDto {
   @IsOptional() @IsString() invoiceNumber?: string;
   @IsOptional() @IsString() returnReason?: string;
 
-  @IsOptional() @IsInt() safeId?: number;
+  @IsOptional() @IsString() safeId?: string;
 
-  @IsEnum(PurchaseReturnType) returnType: PurchaseReturnType;
+  @IsOptional() @IsEnum(PurchaseReturnType) returnType?: PurchaseReturnType;
 
   @IsOptional() @IsString() notes?: string;
+
+  @IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) paidAmount?: number;
+
+  @IsOptional() @IsString() receiptAsset?: string;
 
   @IsArray()
   @ValidateNested({ each: true })
@@ -35,9 +39,14 @@ export class CreatePurchaseReturnDto {
 }
 
 export class UpdatePurchaseReturnDto extends CreatePurchaseReturnDto {
-  @IsOptional() @IsEnum(ReturnStatus) status?: ReturnStatus;
+  @IsOptional() @IsEnum(ApprovalStatus) status?: ApprovalStatus;
 }
 
 export class UpdatePurchaseReturnStatusDto {
-  @IsEnum(ReturnStatus) status: ReturnStatus;
+  @IsEnum(ApprovalStatus) status: ApprovalStatus;
+}
+
+
+export class UpdatePaidAmountDto {
+  @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) paidAmount: number;
 }
