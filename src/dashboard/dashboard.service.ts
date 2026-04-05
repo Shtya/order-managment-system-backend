@@ -16,6 +16,7 @@ import {
   OrderAssignmentEntity,
   OrderStatus,
   OrderStatusEntity,
+  OrderScanLogEntity,
 } from "entities/order.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
@@ -35,6 +36,9 @@ export class DashboardService {
 
     @InjectRepository(User)
     private usersRepo: Repository<User>,
+
+    @InjectRepository(OrderScanLogEntity)
+    private scanLogsRepo: Repository<OrderScanLogEntity>,
   ) { }
 
   async getSummary(
@@ -828,7 +832,25 @@ export class DashboardService {
           .from(OrderAssignmentEntity, "oa_locked")
           .where("oa_locked.employeeId = u.id")
           .andWhere("oa_locked.lockedUntil > CURRENT_TIMESTAMP");
-      }, "lockedAssignments");
+      }, "lockedAssignments")
+      .addSelect((sub) => {
+        return sub
+          .select("COUNT(sl.id)", "prepFailedCount")
+          .from(OrderScanLogEntity, "sl")
+          .where("sl.userId = u.id")
+          .andWhere("sl.phase = 'PREPARATION'")
+          .andWhere(q?.startDate ? `sl.createdAt >= '${q.startDate}T00:00:00.000Z'` : '1=1')
+          .andWhere(q?.endDate ? `sl.createdAt <= '${q.endDate}T23:59:59.999Z'` : '1=1');
+      }, "preparationFailedCount")
+      .addSelect((sub) => {
+        return sub
+          .select("COUNT(sl.id)", "outFailedCount")
+          .from(OrderScanLogEntity, "sl")
+          .where("sl.userId = u.id")
+          .andWhere("sl.phase = 'SHIPPING'")
+          .andWhere(q?.startDate ? `sl.createdAt >= '${q.startDate}T00:00:00.000Z'` : '1=1')
+          .andWhere(q?.endDate ? `sl.createdAt <= '${q.endDate}T23:59:59.999Z'` : '1=1');
+      }, "outgoingFailedCount");
 
     // Grouping
     qb.groupBy("u.id").addGroupBy("u.name").addGroupBy("u.avatarUrl").addGroupBy("u.isActive");
@@ -860,6 +882,8 @@ export class DashboardService {
       const delivered = Number(row.deliveredCount) || 0;
       const activeCount = Number(row.activeAssignments) || 0;
       const lockedCount = Number(row.lockedAssignments) || 0;
+      const prepFailedRate = Number(row.preparationFailedRate) || 0;
+      const outFailedRate = Number(row.outgoingFailedRate) || 0;
 
       return {
         id: Number(row.id),
@@ -869,6 +893,8 @@ export class DashboardService {
         totalAssigned: total,
         activeAssignments: activeCount,
         lockedAssignments: lockedCount,
+        preparationFailedRate: prepFailedRate,
+        outgoingFailedRate: outFailedRate,
         confirmed: {
           count: confirmed,
           percent: total > 0 ? Math.round((confirmed / total) * 100) : 0,
@@ -1066,7 +1092,17 @@ export class DashboardService {
       .setParameter("startDate", startDate)
       .setParameter("endDate", endDate);
 
-    const [stats, totalRes] = await Promise.all([
+    const scanStatsQb = this.dataSource.getRepository(OrderScanLogEntity)
+      .createQueryBuilder("sl")
+      .where("sl.adminId = :adminId", { adminId })
+      .andWhere(startDate ? "sl.createdAt >= :startDate" : "1=1", { startDate })
+      .andWhere(endDate ? "sl.createdAt <= :endDate" : "1=1", { endDate })
+      .select([
+        "COUNT(sl.id) AS preparationFailedCount",
+        "COUNT(sl.id) AS outgoingFailedCount"
+      ]);
+
+    const [stats, totalRes, scanRes] = await Promise.all([
       qb
         .groupBy("status.id")
         .addGroupBy("status.name")
@@ -1076,6 +1112,7 @@ export class DashboardService {
         .orderBy("status.sortOrder", "ASC")
         .getRawMany(),
       totalCountQb.getRawOne(),
+      scanStatsQb.getRawOne(),
     ]);
 
     const totalCount = Number(totalRes?.totalCount || 0);
@@ -1094,6 +1131,22 @@ export class DashboardService {
       code: "total",
       color: "#ff8b00",
       count: totalCount,
+    });
+
+    formattedStats.push({
+      id: 998,
+      name: "Preparation Failed Count",
+      code: "preparationFailedCount",
+      color: "#f59e0b",
+      count: Number(scanRes?.preparationFailedCount || 0),
+    });
+
+    formattedStats.push({
+      id: 999,
+      name: "Outgoing Failed Count",
+      code: "outgoingFailedCount",
+      color: "#ef4444",
+      count: Number(scanRes?.outgoingFailedCount || 0),
     });
 
     return formattedStats;

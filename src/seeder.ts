@@ -195,11 +195,11 @@ async function runGlobalSeed() {
 	// const warehouses = [
 	// 	{
 	// 		name: 'المخزن الرئيسي',
-	// 		location: 'القاهرة',
+	// 		location: null,
 	// 	},
 	// 	{
 	// 		name: 'مخزن الطوارئ',
-	// 		location: 'الجيزة',
+	// 		location: null,
 	// 	},
 	// ];
 

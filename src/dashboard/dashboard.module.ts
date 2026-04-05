@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { DashboardService } from './dashboard.service';
 import { DashboardController } from './dashboard.controller';
 import { Type } from 'class-transformer';
-import { OrderEntity, OrderStatusEntity } from 'entities/order.entity';
+import { OrderEntity, OrderScanLogEntity, OrderStatusEntity } from 'entities/order.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from 'entities/user.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([OrderEntity, OrderStatusEntity, User])],
+  imports: [TypeOrmModule.forFeature([OrderEntity, OrderStatusEntity, User, OrderScanLogEntity])],
   controllers: [DashboardController],
   providers: [DashboardService],
 })
