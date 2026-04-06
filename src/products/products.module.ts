@@ -14,10 +14,12 @@ import { StoresModule } from "src/stores/stores.module";
 import { OrderItemEntity } from "entities/order.entity";
 import { LowStockService } from "common/background-services/low-stock.service";
 import { User } from "entities/user.entity";
+import { PurchasesModule } from "src/purchases/purchases.module";
 
 @Module({
   imports: [
     forwardRef(() => StoresModule),
+    forwardRef(() => PurchasesModule),
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductVariantEntity,

@@ -152,6 +152,7 @@ export class LookupsService {
 			reserved: Number(x.reserved ?? 0),
 			price: Number(x.price ?? 0),
 			available: Math.max(0, Number(x.stockOnHand ?? 0) - Number(x.reserved ?? 0)),
+			name: x.productName ?? null,
 		}));
 
 		return {

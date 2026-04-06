@@ -19,6 +19,8 @@ export function tenantId(me: any): any | null {
 	return me.adminId;
 }
 
+const MAX_DECIMAL_LIMIT = 9999999999.99; // Limit for precision 12, scale 2 (10^10 - 0.01)
+
 @Injectable()
 export class PurchasesService {
 	constructor(
@@ -257,19 +259,22 @@ export class PurchasesService {
 		};
 	}
 
-	async create(me: any, dto: CreatePurchaseDto, ipAddress?: string) {
+	async create(me: any, dto: CreatePurchaseDto, ipAddress?: string, manager?: EntityManager) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 		if (!dto.items?.length) throw new BadRequestException("Items are required");
 
-		const exists = await this.invRepo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
+		const repo = manager ? manager.getRepository(PurchaseInvoiceEntity) : this.invRepo;
+		const itemRepo = manager ? manager.getRepository(PurchaseInvoiceItemEntity) : this.itemRepo;
+
+		const exists = await repo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
 		if (exists) throw new BadRequestException("receiptNumber already exists");
 
 		const items = (dto.items || []).map((it) => {
 			const lineSubtotal = it.purchaseCost * it.quantity;
 			const lineTotal = lineSubtotal;
 
-			return this.itemRepo.create({
+			return itemRepo.create({
 				adminId,
 				variantId: it.variantId,
 				quantity: it.quantity,
@@ -286,7 +291,7 @@ export class PurchasesService {
 		const remainingAmount = total - paidAmount;
 
 
-		const inv = this.invRepo.create({
+		const inv = repo.create({
 			adminId,
 			supplierId: dto.supplierId,
 			receiptNumber: dto.receiptNumber,
@@ -301,7 +306,7 @@ export class PurchasesService {
 			items,
 		} as any);
 
-		const saved: any = await this.invRepo.save(inv);
+		const saved: any = await repo.save(inv);
 
 
 		await this.log({
@@ -312,6 +317,7 @@ export class PurchasesService {
 			newData: { id: saved.id, status: saved.status },
 			description: `Purchase invoice created (status: ${saved.status})`,
 			ipAddress,
+			manager
 		});
 
 		return saved;
@@ -711,7 +717,6 @@ export class PurchasesService {
 	}
 
 
-
 	async remove(me: any, id: number, ipAddress?: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
@@ -791,11 +796,11 @@ export class PurchasesService {
 			const currentDue = Number(supplier.dueBalance || 0);
 
 			if (op === "add") {
-				supplier.purchaseValue = currentPurchase + total;
-				supplier.dueBalance = currentDue + remainingAmount;
+				supplier.purchaseValue = Number(currentPurchase) + Number(total);
+				supplier.dueBalance = Number(currentDue) + Number(remainingAmount);
 			} else {
-				supplier.purchaseValue = currentPurchase - total;
-				supplier.dueBalance = currentDue - remainingAmount;
+				supplier.purchaseValue = Number(currentPurchase) - Number(total);
+				supplier.dueBalance = Number(currentDue) - Number(remainingAmount);
 			}
 
 			await repo.save(supplier);

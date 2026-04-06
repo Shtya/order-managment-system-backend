@@ -45,10 +45,10 @@ export class SupplierEntity {
 	email?: string;
 
 	// Financial fields
-	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+	@Column({ type: "decimal", precision: 20, scale: 2, default: 0 })
 	dueBalance!: number; // الرصيد المستحق
 
-	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+	@Column({ type: "decimal", precision: 20, scale: 2, default: 0 })
 	purchaseValue!: number; // قيمة المشتريات
 
 	@ManyToMany(() => SupplierCategoryEntity, (category) => category.suppliers, {
