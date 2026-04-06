@@ -24,6 +24,9 @@ import { OrderItemEntity, OrderStatus } from "entities/order.entity";
 import { deletePhysicalFiles } from "common/healpers";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
+import { PurchaseReturnsService } from "src/purchases-return/purchases-return.service";
+import { PurchasesService } from "src/purchases/purchases.service";
+import { DataSource } from "typeorm";
 
 @Injectable()
 export class ProductsService {
@@ -47,6 +50,8 @@ export class ProductsService {
     private orderItemRepo: Repository<OrderItemEntity>,
 
     private readonly notificationService: NotificationService,
+    private readonly purchasesService: PurchasesService,
+    private readonly dataSource: DataSource,
   ) { }
 
   public async handleImageCleanup(
@@ -782,130 +787,165 @@ export class ProductsService {
   }
 
 
-  async create(me: any, dto: CreateProductDto) {
+  async create(me: any, dto: CreateProductDto, manager?: EntityManager) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const category = await this.assertOwnedOrNull(this.catRepo, adminId, dto.categoryId ?? null, "category");
-    const store = await this.assertOwnedOrNull(this.storeRepo, adminId, dto.storeId ?? null, "store");
-    const warehouse = await this.assertOwnedOrNull(this.whRepo, adminId, dto.warehouseId ?? null, "warehouse");
-    const existingSlug = await this.prodRepo.findOne({
-      where: {
-        adminId,
-        slug: dto.slug.trim(),
-        storeId: dto.storeId ?? null
-      }
-    });
+    const work = async (mgr: EntityManager) => {
+      const prodRepo = mgr.getRepository(ProductEntity);
+      const catRepo = mgr.getRepository(CategoryEntity);
+      const storeRepo = mgr.getRepository(StoreEntity);
+      const whRepo = mgr.getRepository(WarehouseEntity);
+      const pvRepo = mgr.getRepository(ProductVariantEntity);
 
-    if (existingSlug) {
-      if (store?.name) {
-        throw new BadRequestException(
-          `This slug "${dto.slug}" is already in use for store "${store.name}".`
-        );
-      } else {
-        throw new BadRequestException(
-          `This slug "${dto.slug}" is already in use.`
-        );
-      }
-    }
-    const p = this.prodRepo.create({
-      adminId,
-      name: dto.name,
-      slug: dto.slug,
-      wholesalePrice: dto.wholesalePrice ?? null,
-      lowestPrice: dto.lowestPrice ?? null,
-      salePrice: dto.salePrice ?? null,
-      storageRack: dto.storageRack ?? null,
+      const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
+      const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+      const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
 
-      categoryId: dto.categoryId ?? null,
-      category: category ?? null,
-      storeId: dto.storeId ?? null,
-      store: store ?? null,
-      warehouseId: dto.warehouseId ?? null,
-      warehouse: warehouse ?? null,
-
-      description: dto.description ?? null,
-      callCenterProductDescription: dto.callCenterProductDescription ?? null,
-
-      upsellingEnabled: dto.upsellingEnabled ?? false,
-      upsellingProducts: (dto.upsellingProducts as any) ?? [],
-
-      createdByUserId: me?.id ?? null,
-      mainImage: dto.mainImage,
-      images: dto.images ?? [],
-      updatedByUserId: null,
-    });
-
-    const savedProduct = await this.prodRepo.save(p);
-
-    const combos = Array.isArray((dto as any).combinations) ? (dto as any).combinations : [];
-    if (combos.length) {
-
-      const rows: ProductVariantEntity[] = combos.map((c: any) => {
-        const attrs = c.attributes ?? {};
-
-        if (!Object.keys(attrs).length) {
-          throw new BadRequestException("Each combination must have attributes");
-        }
-
-        const key = this.canonicalKey(attrs); // ✅ Always generated
-        const sku = this.generateSku(savedProduct, attrs, adminId); // ✅ Always generated
-
-        if (!key) throw new BadRequestException("Each combination must have key or attributes");
-
-        const stockOnHand = 0;
-        const reserved = 0;
-
-        if (stockOnHand < 0) throw new BadRequestException("stockOnHand cannot be negative");
-        if (reserved < 0) throw new BadRequestException("reserved cannot be negative");
-        if (reserved > stockOnHand) throw new BadRequestException("reserved cannot exceed stockOnHand");
-
-        return this.pvRepo.create({
+      const existingSlug = await prodRepo.findOne({
+        where: {
           adminId,
-          productId: savedProduct.id,
-          key,
-          sku: sku ?? null,
-          price: c.price !== undefined && c.price !== null ? Number(c.price) : null, // ✅ NEW
-          attributes: attrs,
-          stockOnHand,
-          reserved,
-        } as any);
+          slug: dto.slug.trim(),
+          storeId: dto.storeId ?? null
+        }
       });
 
-      {
-        const seen = new Set<string>();
-        for (const r of rows) {
-          const k = `${adminId}::${savedProduct.id}::${r.key}`;
-          if (seen.has(k)) throw new BadRequestException(`Duplicate combination key: ${r.key}`);
-          seen.add(k);
+      if (existingSlug) {
+        if (store?.name) {
+          throw new BadRequestException(
+            `This slug "${dto.slug}" is already in use for store "${store.name}".`
+          );
+        } else {
+          throw new BadRequestException(
+            `This slug "${dto.slug}" is already in use.`
+          );
         }
       }
 
-      {
-        const keys = rows.map((r) => r.key);
-        const exists = await this.pvRepo.find({
-          where: { adminId, productId: savedProduct.id, key: In(keys) } as any,
-          select: ["id", "key"],
+      const p = prodRepo.create({
+        adminId,
+        name: dto.name,
+        slug: dto.slug,
+        wholesalePrice: dto.wholesalePrice ?? null,
+        lowestPrice: dto.lowestPrice ?? null,
+        salePrice: dto.salePrice ?? null,
+        storageRack: dto.storageRack ?? null,
+
+        categoryId: dto.categoryId ?? null,
+        category: category ?? null,
+        storeId: dto.storeId ?? null,
+        store: store ?? null,
+        warehouseId: dto.warehouseId ?? null,
+        warehouse: warehouse ?? null,
+
+        description: dto.description ?? null,
+        callCenterProductDescription: dto.callCenterProductDescription ?? null,
+
+        upsellingEnabled: dto.upsellingEnabled ?? false,
+        upsellingProducts: (dto.upsellingProducts as any) ?? [],
+
+        createdByUserId: me?.id ?? null,
+        mainImage: dto.mainImage,
+        images: dto.images ?? [],
+        updatedByUserId: null,
+      });
+
+      const savedProduct = await prodRepo.save(p);
+
+      const combos = Array.isArray((dto as any).combinations) ? (dto as any).combinations : [];
+      let savedVariants: ProductVariantEntity[] = [];
+
+      if (combos.length) {
+        const rows: ProductVariantEntity[] = combos.map((c: any) => {
+          const attrs = c.attributes ?? {};
+
+          if (!Object.keys(attrs).length) {
+            throw new BadRequestException("Each combination must have attributes");
+          }
+
+          const key = this.canonicalKey(attrs); // ✅ Always generated
+          const sku = this.generateSku(savedProduct, attrs, adminId); // ✅ Always generated
+
+          if (!key) throw new BadRequestException("Each combination must have key or attributes");
+
+          const stockOnHand = 0;
+          const reserved = 0;
+
+          if (stockOnHand < 0) throw new BadRequestException("stockOnHand cannot be negative");
+          if (reserved < 0) throw new BadRequestException("reserved cannot be negative");
+          if (reserved > stockOnHand) throw new BadRequestException("reserved cannot exceed stockOnHand");
+
+          return pvRepo.create({
+            adminId,
+            productId: savedProduct.id,
+            key,
+            sku: sku ?? null,
+            price: c.price !== undefined && c.price !== null ? Number(c.price) : null,
+            attributes: attrs,
+            stockOnHand,
+            reserved,
+          } as any);
         });
 
-        if (exists.length) {
-          throw new BadRequestException(`Duplicate combination key already exists: ${exists[0].key}`);
+        {
+          const seen = new Set<string>();
+          for (const r of rows) {
+            const k = `${adminId}::${savedProduct.id}::${r.key}`;
+            if (seen.has(k)) throw new BadRequestException(`Duplicate combination key: ${r.key}`);
+            seen.add(k);
+          }
+        }
+
+        {
+          const keys = rows.map((r) => r.key);
+          const exists = await pvRepo.find({
+            where: { adminId, productId: savedProduct.id, key: In(keys) } as any,
+            select: ["id", "key"],
+          });
+
+          if (exists.length) {
+            throw new BadRequestException(`Duplicate combination key already exists: ${exists[0].key}`);
+          }
+        }
+
+        savedVariants = await pvRepo.save(rows);
+      }
+
+      // Handle Purchase Data if provided
+      if (dto.purchase) {
+        // Map combinations to variant IDs for purchase items
+        const purchaseItems = savedVariants.map(v => {
+          // Find original combo to get purchaseCost and quantity
+          const combo = combos.find(c => this.canonicalKey(c.attributes) === v.key);
+          return {
+            variantId: v.id,
+            quantity: Number(combo?.stockOnHand) || 0,
+            purchaseCost: Number(dto.wholesalePrice) || 0, // Fallback to product wholesale price
+          };
+        }).filter(it => it.quantity > 0);
+
+        if (purchaseItems.length) {
+          await this.purchasesService.create(me, {
+            ...dto.purchase,
+            items: purchaseItems
+          }, undefined, mgr);
         }
       }
 
-      await this.pvRepo.save(rows);
-    }
+      await this.notificationService.create({
+        userId: Number(adminId),
+        type: NotificationType.PRODUCT_CREATED,
+        title: "New Product Created",
+        message: `Product "${savedProduct.name}" has been created successfully.`,
+        relatedEntityType: "product",
+        relatedEntityId: String(savedProduct.id),
+      });
 
-    await this.notificationService.create({
-      userId: Number(adminId),
-      type: NotificationType.PRODUCT_CREATED,
-      title: "New Product Created",
-      message: `Product "${savedProduct.name}" has been created successfully.`,
-      relatedEntityType: "product",
-      relatedEntityId: String(savedProduct.id),
-    });
+      return savedProduct.id;
+    };
 
-    return this.get(me, savedProduct.id);
+    const savedId = manager ? await work(manager) : await this.dataSource.transaction(mgr => work(mgr));
+    return this.get(me, savedId);
   }
 
   async update(me: any, id: number, dto: UpdateProductDto) {

@@ -106,11 +106,11 @@ export class PurchaseReturnsService {
       // op "subtract" means the return is ACCEPTED (so it subtracts from supplier's balance)
       // op "add" means the return left ACCEPTED (so it adds back to supplier's balance)
       if (op === "subtract") {
-        supplier.purchaseValue = currentPurchase - totalReturn;
-        supplier.dueBalance = currentDue - remaining;
+        supplier.purchaseValue = currentPurchase - Number(totalReturn);
+        supplier.dueBalance = currentDue - Number(remaining);
       } else {
-        supplier.purchaseValue = currentPurchase + totalReturn;
-        supplier.dueBalance = currentDue + remaining;
+        supplier.purchaseValue = currentPurchase + Number(totalReturn);
+        supplier.dueBalance = currentDue + Number(remaining);
       }
 
       await repo.save(supplier);

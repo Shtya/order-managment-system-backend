@@ -202,6 +202,7 @@ export class ProductsController {
       [
         { name: "mainImage", maxCount: 1 },
         { name: "images", maxCount: 20 },
+        { name: "purchaseReceiptAsset", maxCount: 1 },
       ],
       multerOptions
     )
@@ -212,6 +213,7 @@ export class ProductsController {
     files: {
       mainImage?: Express.Multer.File[];
       images?: Express.Multer.File[];
+      purchaseReceiptAsset?: Express.Multer.File[];
     },
     @Body() body: any
   ) {
@@ -237,10 +239,12 @@ export class ProductsController {
       mainImage: body.mainImage ?? null,
       images: parseJsonField(body.imagesMeta, []),
       combinations: parseJsonField(body.combinations, []),
+      purchase: parseJsonField(body.purchase, undefined),
     } as any;
 
     const main = files?.mainImage?.[0];
     const imgs = files?.images ?? [];
+    const purchaseReceipt = files?.purchaseReceiptAsset?.[0];
 
     if (main) {
       dto.mainImage = `/uploads/products/${main.filename}`;
@@ -253,6 +257,10 @@ export class ProductsController {
         url: `/uploads/products/${f.filename}`,
       }));
       dto.images = [...(dto.images ?? []), ...uploaded];
+    }
+
+    if (purchaseReceipt && dto.purchase) {
+      dto.purchase.receiptAsset = `/uploads/products/${purchaseReceipt.filename}`;
     }
 
     return this.products.create(req.user, dto);

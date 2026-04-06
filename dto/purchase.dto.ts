@@ -26,6 +26,7 @@ export class CreatePurchaseDto {
 	items: PurchaseItemDto[];
 }
 
+
 export class UpdatePurchaseDto {
 	@IsOptional() @IsInt() supplierId?: number;
 	@IsOptional() @IsString() receiptNumber?: string;

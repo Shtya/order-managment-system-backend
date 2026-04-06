@@ -14,8 +14,9 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
-import { PartialType } from "@nestjs/mapped-types";
+import { OmitType, PartialType } from "@nestjs/mapped-types";
 import { Money, ProductImage } from "entities/sku.entity";
+import { CreatePurchaseDto } from "./purchase.dto";
 
 export class UpsellingProductDto {
   @IsString()
@@ -61,6 +62,9 @@ export class CreateSkuItemDto {
   reserved?: number;
 }
 
+export class CreatePurchaseWithProductDto extends OmitType(CreatePurchaseDto, ['items']) {
+
+}
 export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
@@ -139,6 +143,11 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSkuItemDto)
   combinations?: CreateSkuItemDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreatePurchaseWithProductDto)
+  purchase?: CreatePurchaseWithProductDto;
 }
 
 export class UpdateProductDto extends PartialType(CreateProductDto) {
