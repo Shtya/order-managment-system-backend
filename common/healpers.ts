@@ -1,6 +1,7 @@
 
 import { endOfDay, endOfMonth, startOfDay, startOfMonth, startOfWeek, startOfYear, subDays, subMonths } from 'date-fns';
 import { PlanDuration } from 'entities/plans.entity';
+import { existsSync } from 'fs';
 
 import { unlink } from 'fs/promises';
 import { join } from 'path';
@@ -110,3 +111,15 @@ export
 }
 
 
+export async function deleteFile(filePath: string) {
+    try {
+
+        const fullPath = join(process.cwd(), filePath.startsWith('/') ? filePath.slice(1) : filePath);
+
+        if (existsSync(fullPath)) {
+            await unlink(fullPath);
+        }
+    } catch (err) {
+        console.error(`Failed to delete file at ${filePath}:`, err);
+    }
+}

@@ -328,7 +328,9 @@ export class PurchasesService {
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
 		const inv = await this.get(me, id);
-
+		if (inv.closingId) {
+			throw new BadRequestException("Cannot update a purchase that has been closed.");
+		}
 		// Delete old file if a new one is uploaded
 		if (dto.receiptAsset && inv.receiptAsset && dto.receiptAsset !== inv.receiptAsset) {
 			const oldPath = path.join(process.cwd(), inv.receiptAsset);
@@ -421,6 +423,10 @@ export class PurchasesService {
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
 		const inv = await this.get(me, id);
+		if (inv.closingId) {
+			throw new BadRequestException("Cannot update a purchase that has been closed.");
+		}
+
 		const total = (inv as any).total ?? 0;
 		const oldRemaining = inv.remainingAmount ?? 0;
 		const oldStatus = inv.status;
@@ -457,6 +463,11 @@ export class PurchasesService {
 	async updateStatus(me: any, id: number, status: ApprovalStatus, ipAddress?: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
+
+		const inv = await this.get(me, id);
+		if (inv.closingId) {
+			throw new BadRequestException("Cannot update a purchase that has been closed.");
+		}
 
 		return this.dataSource.transaction(async (manager) => {
 			const inv = await manager.findOne(PurchaseInvoiceEntity, {
@@ -723,6 +734,9 @@ export class PurchasesService {
 
 		const inv = await this.get(me, id);
 
+		if (inv.closingId) {
+			throw new BadRequestException("Cannot delete a purchase that has been closed.");
+		}
 
 		// Rollback supplier financials if invoice was ACCEPTED before deletion
 		if (inv.status === ApprovalStatus.ACCEPTED) {

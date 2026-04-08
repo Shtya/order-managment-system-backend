@@ -19,6 +19,7 @@ import { StoreEntity } from "./stores.entity";
 import { User } from "./user.entity";
 import { ShippingCompanyEntity } from "./shipping.entity";
 import { OrderCollectionEntity } from "./order-collection.entity";
+import { MonthlyClosingEntity } from "./accounting.entity";
 
 // ✅ Order Status Enum
 export enum OrderStatus {
@@ -355,6 +356,14 @@ export class OrderEntity {
     zoneId?: string; //For Bosta
     locationId?: string; //For Bosta
   };
+
+  // Add this to your OrderEntity
+  @Column({ nullable: true })
+  monthlyClosingId: number | null;
+
+  @ManyToOne(() => MonthlyClosingEntity)
+  @JoinColumn({ name: 'monthlyClosingId' })
+  monthlyClosing: Relation<MonthlyClosingEntity>;
 }
 
 // ✅ Order Items Entity

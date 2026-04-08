@@ -7,7 +7,11 @@ import {
 	UpdateDateColumn,
 	ManyToMany,
 	JoinTable,
+	ManyToOne,
+	JoinColumn,
+	Relation,
 } from "typeorm";
+import { SupplierClosingEntity } from "./accounting.entity";
 
 @Entity({ name: "suppliers" })
 @Index(["adminId", "name"])
@@ -60,6 +64,16 @@ export class SupplierEntity {
 		inverseJoinColumn: { name: "categoryId", referencedColumnName: "id" },
 	})
 	categories?: SupplierCategoryEntity[];
+
+	@Column({ type: 'date', nullable: true })
+	lastClosingEndDate: Date;
+
+	@Column({ nullable: true })
+	lastClosingId: number;
+
+	@ManyToOne(() => SupplierClosingEntity)
+	@JoinColumn({ name: 'lastClosingId' })
+	lastClosing: Relation<SupplierClosingEntity>;
 
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;

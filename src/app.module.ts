@@ -47,6 +47,7 @@ import { CronModule } from './cron/cron.module';
 import { ExtraFeaturesModule } from './extra-features/extra-features.module';
 import { RedisModule } from "common/redis/redis.module";
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
+import { AccountingModule } from './accounting/accounting.module';
 
 @Module({
 	imports: [
@@ -100,7 +101,8 @@ import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 		CronModule,
 		ExtraFeaturesModule,
 		RedisModule,
-		AdminSettingsModule
+		AdminSettingsModule,
+		AccountingModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

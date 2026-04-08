@@ -1,11 +1,13 @@
 // entities/purchase_return.entity.ts
 import {
   Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
-  Index, ManyToOne, JoinColumn, OneToMany
+  Index, ManyToOne, JoinColumn, OneToMany,
+  Relation
 } from "typeorm";
 import { User } from "./user.entity";
 import { ProductVariantEntity } from "./sku.entity";
 import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
+import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
 
 @Entity({ name: "purchase_return_invoices" })
 @Index(["adminId", "returnNumber"], { unique: true })
@@ -74,6 +76,26 @@ export class PurchaseReturnInvoiceEntity {
 
   @OneToMany(() => PurchaseReturnInvoiceItemEntity, (x) => x.invoice, { cascade: true, eager: true })
   items!: PurchaseReturnInvoiceItemEntity[];
+
+  @ManyToOne(() => SupplierClosingEntity, (closing) => closing.purchases, {
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'closingId' })
+  closing: Relation<SupplierClosingEntity>;
+
+  @Column({ nullable: true })
+  @Index()
+  closingId: number
+
+  @CreateDateColumn({ type: "timestamptz" })
+  statusUpdateDate!: Date;
+  // Add this to your OrderEntity
+  @Column({ nullable: true })
+  monthlyClosingId: number | null;
+
+  @ManyToOne(() => MonthlyClosingEntity)
+  @JoinColumn({ name: 'monthlyClosingId' })
+  monthlyClosing: Relation<MonthlyClosingEntity>;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
@@ -188,6 +210,12 @@ export class PurchaseReturnAuditLogEntity {
 
   @Column({ type: "varchar", length: 50, nullable: true })
   ipAddress?: string;
+
+
+
+  @Column({ nullable: true })
+  @Index()
+  closingId: number;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;

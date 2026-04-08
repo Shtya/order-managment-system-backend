@@ -405,7 +405,6 @@ export class UsersService {
 				{ status: SubscriptionStatus.ACTIVE }
 			)
 			.leftJoinAndSelect('subscription.plan', 'plan')
-			.leftJoinAndSelect("subscription.plan", "plan")
 			.orderBy("user.id", "DESC")
 			.take(fetchLimit + 1);
 
