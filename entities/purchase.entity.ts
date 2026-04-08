@@ -1,12 +1,14 @@
 // entities/purchase.entity.ts
 import {
 	Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn,
-	Index, ManyToOne, JoinColumn, OneToMany
+	Index, ManyToOne, JoinColumn, OneToMany,
+	Relation
 } from "typeorm";
 import { User } from "./user.entity";
 import { ProductVariantEntity } from "./sku.entity";
 import { ApprovalStatus } from "common/enums";
 import { SupplierEntity } from "./supplier.entity";
+import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
 
 @Entity({ name: "purchase_invoices" })
 @Index(["adminId", "receiptNumber"], { unique: true })
@@ -56,8 +58,29 @@ export class PurchaseInvoiceEntity {
 	@OneToMany(() => PurchaseInvoiceItemEntity, (x) => x.invoice, { cascade: true, eager: true })
 	items!: PurchaseInvoiceItemEntity[];
 
+	@ManyToOne(() => SupplierClosingEntity, (closing) => closing.purchases, {
+		onDelete: 'SET NULL',
+	})
+	@JoinColumn({ name: 'closingId' })
+	closing: Relation<SupplierClosingEntity>;
+	// used ot track lock
+	@Column({ nullable: true })
+	@Index()
+	closingId: number;
+
+	// Add this to your OrderEntity
+	@Column({ nullable: true })
+	monthlyClosingId: number | null;
+
+	@ManyToOne(() => MonthlyClosingEntity)
+	@JoinColumn({ name: 'monthlyClosingId' })
+	monthlyClosing: Relation<MonthlyClosingEntity>;
+
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;
+
+	@CreateDateColumn({ type: "timestamptz" })
+	statusUpdateDate!: Date;
 
 	@UpdateDateColumn({ type: "timestamptz" })
 	updated_at!: Date;

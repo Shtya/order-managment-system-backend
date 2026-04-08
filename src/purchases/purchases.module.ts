@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { PurchasesController } from "./purchases.controller";
 import { PurchasesService } from "./purchases.service";
+import { PurchaseSubscriber } from "./purchase-subscriber";
 import {
   PurchaseInvoiceEntity,
   PurchaseInvoiceItemEntity,
@@ -18,11 +19,11 @@ import { SupplierEntity } from "../../entities/supplier.entity";
       PurchaseInvoiceItemEntity,
       PurchaseAuditLogEntity,
       ProductVariantEntity,
-			SupplierEntity
+      SupplierEntity
     ]),
   ],
-  providers: [PurchasesService],
+  providers: [PurchasesService, PurchaseSubscriber],
   controllers: [PurchasesController],
   exports: [PurchasesService],
 })
-export class PurchasesModule {}
+export class PurchasesModule { }

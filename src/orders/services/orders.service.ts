@@ -144,6 +144,19 @@ export class OrdersService {
     private redisService: RedisService,
   ) { }
 
+  //private function to lock order if he delivered and has monthly closign id
+  private async throwIfDelivered(order: OrderEntity, message?: string) {
+    const deliveryStatus = await this.statusRepo.findOne({
+      where: {
+        name: OrderStatus.DELIVERED,
+      },
+    });
+
+    if (order.statusId === deliveryStatus.id && order.monthlyClosingId) {
+      throw new BadRequestException(message || "Cannot update or delete a order that has been closed.");
+    }
+
+  }
   // ✅ Generate unique order number
   private async generateOrderNumber(adminId: string): Promise<string> {
     const date = new Date();
@@ -2183,6 +2196,7 @@ export class OrdersService {
         .andWhere("order.adminId = :adminId", { adminId })
         .getOne();
 
+      await this.throwIfDelivered(order, "Cannot update a order that has been closed.");
       const shippingRepo = manager.getRepository(ShippingCompanyEntity);
       const storeRepo = manager.getRepository(StoreEntity);
       const integrationRepo = manager.getRepository(ShippingIntegrationEntity);
@@ -2462,6 +2476,7 @@ export class OrdersService {
       });
 
       if (!order) throw new BadRequestException("Order not found");
+      await this.throwIfDelivered(order, "Cannot update a order that has been closed.");
 
       const newStatus = await this.findStatusById(dto.statusId, order.adminId);
 
@@ -2562,6 +2577,7 @@ export class OrdersService {
       ]);
 
       if (!order) throw new NotFoundException("Order not found");
+      await this.throwIfDelivered(order, "Cannot reject a order that has been closed.");
       if (!rejectedStatus)
         throw new BadRequestException("Rejected status not found");
 
@@ -2628,6 +2644,7 @@ export class OrdersService {
         this.findStatusByCode(OrderStatus.CONFIRMED, adminId, manager),
       ]);
 
+      await this.throwIfDelivered(order, "Cannot re-confirm a order that has been closed.");
       if (!order) throw new NotFoundException("Order not found");
       if (!confirmedStatus)
         throw new BadRequestException("Confirmed status not found");
@@ -2885,6 +2902,7 @@ export class OrdersService {
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     const order = await this.get(me, id);
+    await this.throwIfDelivered(order, "Cannot update a order that has been closed.");
     order.paymentStatus = dto.paymentStatus;
     order.updatedByUserId = me?.id;
 
@@ -4174,6 +4192,8 @@ export class OrdersService {
           `Some orders are either invalid, restricted, or already actively assigned.`,
         );
       }
+
+      freeOrders.forEach(async o => await this.throwIfDelivered(o, "Cannot assign a order that has been closed."));
       // 4) fetch settings
       const settings = await this.getSettings(me);
       const maxRetries = settings?.maxRetries || 3;
@@ -4260,6 +4280,7 @@ export class OrdersService {
           `Cannot fulfill request. You requested ${dto.orderCount} orders, but only ${freeOrders.length} unassigned orders were found for the selected statuses.`,
         );
       }
+      freeOrders.forEach(async o => await this.throwIfDelivered(o, "Cannot assign a order that has been closed."));
 
       // 2. Find 'Least Busy' Employees
       // We count active assignments for each employee and sort ASC

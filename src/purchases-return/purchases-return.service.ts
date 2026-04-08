@@ -267,6 +267,10 @@ export class PurchaseReturnsService {
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     const inv = await this.get(me, id);
+    if (inv.closingId) {
+      throw new BadRequestException("Cannot update a purchase return that has been closed.");
+    }
+
     const oldStatus = inv.status;
     const oldPaidAmount = Number(inv.paidAmount || 0);
     const totalReturn = Number(inv.totalReturn || 0);
@@ -370,6 +374,9 @@ export class PurchaseReturnsService {
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     const inv = await this.get(me, id);
+    if (inv.closingId) {
+      throw new BadRequestException("Cannot update a purchase return that has been closed.");
+    }
     const oldStatus = inv.status;
     const oldSupplierId = inv.supplierId;
 
@@ -456,6 +463,9 @@ export class PurchaseReturnsService {
         relations: ["items", "items.variant"],
       });
       if (!inv) throw new BadRequestException("purchase return invoice not found");
+      if (inv.closingId) {
+        throw new BadRequestException("Cannot update a purchase return that has been closed.");
+      }
 
       const oldStatus = inv.status;
       if (oldStatus === status) return inv;
@@ -610,6 +620,9 @@ export class PurchaseReturnsService {
   async remove(me: any, id: number, ipAddress?: string) {
     const adminId = tenantId(me);
     const inv = await this.get(me, id);
+    if (inv.closingId) {
+      throw new BadRequestException("Cannot delete a purchase return that has been closed.");
+    }
 
     await this.log({
       adminId,
