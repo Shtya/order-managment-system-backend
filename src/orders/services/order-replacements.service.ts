@@ -4,6 +4,7 @@ import { Brackets, DataSource, Repository } from "typeorm";
 import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/common";
 import { CreateOrderDto, CreateReplacementDto } from "dto/order.dto";
 import * as ExcelJS from "exceljs";
+import { DateFilterUtil } from "common/date-filter.util";
 import { InjectRepository } from "@nestjs/typeorm";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
@@ -109,11 +110,7 @@ export class OrderReplacementService {
         // =============================
         // 📅 Date filters (replacement createdAt)
         // =============================
-        if (q?.startDate)
-            qb.andWhere("replacement.createdAt >= :startDate", { startDate: `${q.startDate}T00:00:00.000Z` });
-
-        if (q?.endDate)
-            qb.andWhere("replacement.createdAt <= :endDate", { endDate: `${q.endDate}T23:59:59.999Z` });
+        DateFilterUtil.applyToQueryBuilder(qb, "replacement.createdAt", q?.startDate, q?.endDate);
 
         // =============================
         // ✅ Status filter (replacement order status)

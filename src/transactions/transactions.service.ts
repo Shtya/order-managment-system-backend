@@ -7,6 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { SystemRole, User } from 'entities/user.entity';
 import { DataSource, Repository } from 'typeorm';
+import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from "exceljs";
 import { imageSrc } from 'common/healpers';
 import { TransactionEntity, TransactionStatus } from 'entities/payments.entity';
@@ -96,16 +97,7 @@ export class TransactionsService {
 		}
 
 		// Date filters on transaction creation
-		if (q?.startDate) {
-			qb.andWhere('t.createdAt >= :startDate', {
-				startDate: `${q.startDate}T00:00:00.000Z`,
-			});
-		}
-		if (q?.endDate) {
-			qb.andWhere('t.createdAt <= :endDate', {
-				endDate: `${q.endDate}T23:59:59.999Z`,
-			});
-		}
+		DateFilterUtil.applyToQueryBuilder(qb, 't.createdAt', q?.startDate, q?.endDate);
 
 		if (q?.subscriptionId) {
 			qb.andWhere('t.subscriptionId = :subscriptionId', {

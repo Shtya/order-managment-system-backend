@@ -7,6 +7,7 @@ import { tenantId } from "src/category/category.service";
 import { TransactionsService } from "src/transactions/transactions.service";
 import { DataSource, EntityManager, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
+import { DateFilterUtil } from "common/date-filter.util";
 import { PaymentProviderEnum, PaymentPurposeEnum, PaymentSessionEntity, TransactionEntity, TransactionPaymentMethod, TransactionStatus } from "entities/payments.entity";
 import { PaymentFactoryService } from "src/payments/providers/PaymentFactoryService";
 import { defaultCurrency, SubscriptionUtils } from "common/healpers";
@@ -85,16 +86,7 @@ export class SubscriptionsService {
         }
 
         // Date filters (timestamptz-safe)
-        if (q?.startDate) {
-            qb.andWhere('sub.startDate >= :startDate', {
-                startDate: `${q.startDate}T00:00:00.000Z`,
-            });
-        }
-        if (q?.endDate) {
-            qb.andWhere('sub.endDate <= :endDate', {
-                endDate: `${q.endDate}T23:59:59.999Z`,
-            });
-        }
+        DateFilterUtil.applyToQueryBuilder(qb, 'sub.startDate', q?.startDate, q?.endDate);
 
         // --- Sorting ---
         qb.orderBy(`sub.${sortBy}`, sortDir);
@@ -619,20 +611,20 @@ export class SubscriptionsService {
         return subscription;
     }
 
-  async getMyActiveSubscription(me: User, manager?: EntityManager) {
-    const repo = manager ? manager.getRepository(Subscription) : this.subscriptionsRepo;
+    async getMyActiveSubscription(me: User, manager?: EntityManager) {
+        const repo = manager ? manager.getRepository(Subscription) : this.subscriptionsRepo;
 
-    const subscription = await repo.findOne({
-        where: { 
-            userId: me.id, 
-            status: SubscriptionStatus.ACTIVE 
-        },
-        relations: ['plan'],
-        order: { startDate: 'DESC' },
-    });
+        const subscription = await repo.findOne({
+            where: {
+                userId: me.id,
+                status: SubscriptionStatus.ACTIVE
+            },
+            relations: ['plan'],
+            order: { startDate: 'DESC' },
+        });
 
-    return subscription;
-}
+        return subscription;
+    }
 
     async getSubscriptionStatistics(me: User) {
         if (!(this.isSuperAdmin(me) || this.isAdmin(me))) {
@@ -702,17 +694,8 @@ export class SubscriptionsService {
             );
         }
 
-        // فلاتر التاريخ (Date filters)
-        if (q?.startDate) {
-            qb.andWhere('sub.startDate >= :startDate', {
-                startDate: `${q.startDate}T00:00:00.000Z`,
-            });
-        }
-        if (q?.endDate) {
-            qb.andWhere('sub.endDate <= :endDate', {
-                endDate: `${q.endDate}T23:59:59.999Z`,
-            });
-        }
+        DateFilterUtil.applyToQueryBuilder(qb, 'sub.startDate', q?.startDate, q?.endDate);
+
 
         // جلب جميع البيانات بدون Pagination للتصدير
         const subscriptions = await qb.orderBy(`sub.${sortBy}`, sortDir).getMany();

@@ -8,6 +8,7 @@ import { ShippingIntegrationEntity } from 'entities/shipping.entity';
 import { tenantId } from 'src/category/category.service';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
+import { DateFilterUtil } from 'common/date-filter.util';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { UsersService } from 'src/users/users.service';
@@ -181,8 +182,7 @@ export class CollectionService {
         }
 
         // --- 4. Date Range (Based on Order Creation or Delivery) ---
-        if (q?.startDate) qb.andWhere("order.created_at >= :startDate", { startDate: `${q.startDate}T00:00:00.000Z` });
-        if (q?.endDate) qb.andWhere("order.created_at <= :endDate", { endDate: `${q.endDate}T23:59:59.999Z` });
+        DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
 
         qb.orderBy(`order.${sortBy}`, sortDir);
 
@@ -254,8 +254,7 @@ export class CollectionService {
             }));
         }
 
-        if (q?.startDate) qb.andWhere("order.created_at >= :startDate", { startDate: `${q.startDate}T00:00:00.000Z` });
-        if (q?.endDate) qb.andWhere("order.created_at <= :endDate", { endDate: `${q.endDate}T23:59:59.999Z` });
+        DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
 
 
         // منطق فلترة الحالة (نفس الـ listCollections)

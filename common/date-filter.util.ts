@@ -4,7 +4,7 @@ export class DateFilterUtil {
     /**
      * Core logic to safely parse strings into local start/end Date boundaries
      */
-    private static getBoundaries(startDate?: string, endDate?: string) {
+    static getBoundaries(startDate?: string | Date, endDate?: string | Date) {
         let start = startDate ? new Date(startDate) : null;
         let end = endDate ? new Date(endDate) : null;
 
@@ -17,7 +17,7 @@ export class DateFilterUtil {
     /**
      * Use this for standard Repository .find() or .findOne() methods
      */
-    static getFindOperator(startDate?: string, endDate?: string) {
+    static getFindOperator(startDate?: string | Date, endDate?: string | Date) {
         const { start, end } = this.getBoundaries(startDate, endDate);
 
         if (start && end) return Between(start, end);
@@ -35,8 +35,8 @@ export class DateFilterUtil {
     static applyToQueryBuilder<T>(
         qb: SelectQueryBuilder<T>,
         columnName: string,
-        startDate?: string,
-        endDate?: string,
+        startDate?: string | Date,
+        endDate?: string | Date,
     ): SelectQueryBuilder<T> {
         const { start, end } = this.getBoundaries(startDate, endDate);
 
