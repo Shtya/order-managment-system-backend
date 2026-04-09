@@ -13,7 +13,7 @@ import { ShipmentEntity, ShipmentStatus } from 'entities/shipping.entity';
 import { SupplierEntity } from 'entities/supplier.entity';
 import { tenantId } from 'src/category/category.service';
 import { Between, DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
-
+import * as ExcelJS from 'exceljs';
 @Injectable()
 export class AccountingService {
     constructor(
@@ -214,7 +214,7 @@ export class AccountingService {
             const start = new Date(filters.startDate);
             start.setHours(0, 0, 0, 0);
 
-            dateFilter += ` AND "created_at" >= $${paramIndex++}`;
+            dateFilter += ` AND "statusUpdateDate" >= $${paramIndex++}`;
             params.push(start);
         }
 
@@ -223,7 +223,7 @@ export class AccountingService {
             const end = new Date(filters.endDate);
             end.setHours(23, 59, 59, 999);
 
-            dateFilter += ` AND "created_at" <= $${paramIndex++}`;
+            dateFilter += ` AND "statusUpdateDate" <= $${paramIndex++}`;
             params.push(end);
         }
 
@@ -431,43 +431,137 @@ export class AccountingService {
         };
     }
 
+
+    async exportShipmentsCityReport(me: any, q?: any) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        // 1. Build the Query (Matching your report logic)
+        const qb = this.shipmentRepo.createQueryBuilder('shipment')
+            .innerJoin('shipment.order', 'order')
+            .select('order.city', 'city')
+            .addSelect('COUNT(shipment.id)', 'totalShipments')
+            .addSelect(
+                `COUNT(CASE WHEN shipment.status = :delivered THEN 1 END)`,
+                'deliveredShipments'
+            )
+            .addSelect(
+                `COUNT(CASE WHEN shipment.status IN (:failed, :cancelled) THEN 1 END)`,
+                'failedShipments'
+            )
+            .where('shipment.adminId = :adminId', { adminId });
+
+        // Apply Parameters
+        qb.setParameters({
+            delivered: ShipmentStatus.DELIVERED,
+            failed: ShipmentStatus.FAILED,
+            cancelled: ShipmentStatus.CANCELLED,
+        });
+
+        // 2. Apply same filters as the report list
+        DateFilterUtil.applyToQueryBuilder(
+            qb,
+            "shipment.created_at",
+            q?.startDate,
+            q?.endDate
+        );
+
+        if (q?.storeId) {
+            qb.andWhere('order.storeId = :storeId', { storeId: q.storeId });
+        }
+
+        if (q?.search) {
+            qb.andWhere('order.city ILIKE :search', { search: `%${q.search}%` });
+        }
+
+        qb.groupBy('order.city').orderBy('"totalShipments"', 'DESC');
+
+        const rawResults = await qb.getRawMany();
+
+        // 3. Prepare Excel data (Mapping raw DB counts to final numbers)
+        const exportData = rawResults.map((row) => {
+            const total = parseInt(row.totalShipments) || 0;
+            const delivered = parseInt(row.deliveredShipments) || 0;
+            const failed = parseInt(row.failedShipments) || 0;
+
+            return {
+                city: row.city || "Unknown",
+                totalShipments: total,
+                actualDeliveries: delivered,
+                failedShipments: failed,
+                successRate: total > 0 ? `${Math.round((delivered / total) * 100)}%` : "0%",
+                failureRate: total > 0 ? `${Math.round((failed / total) * 100)}%` : "0%",
+            };
+        });
+
+        // 4. Create Workbook
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("Shipments City Report");
+
+        // 5. Define English Columns
+        worksheet.columns = [
+            { header: "City", key: "city", width: 25 },
+            { header: "Total Shipments", key: "totalShipments", width: 15 },
+            { header: "Actual Deliveries", key: "actualDeliveries", width: 15 },
+            { header: "Failed/Cancelled", key: "failedShipments", width: 15 },
+            { header: "Success Rate", key: "successRate", width: 15 },
+            { header: "Failure Rate", key: "failureRate", width: 15 },
+        ];
+
+        // Style header row (matching your pattern)
+        worksheet.getRow(1).font = { bold: true };
+        worksheet.getRow(1).fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFE0E0E0" },
+        };
+
+        // Add Rows
+        exportData.forEach((row) => {
+            worksheet.addRow(row);
+        });
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        return buffer;
+    }
+
     async getShipmentPerformanceSummary(
         me: any,
-        filters: { startDate?: string; endDate?: string; range?: string }
+        // filters: { startDate?: string; endDate?: string; range?: string }
     ) {
         const adminId = tenantId(me);
-        let { start, end } = calculateRange(filters.range);
-        const finalStartDate = start || (filters.startDate ? new Date(filters.startDate) : startOfMonth(new Date()));
-        const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : endOfMonth(new Date()));
+        // let { start, end } = calculateRange(filters.range);
+        // const finalStartDate = start || (filters.startDate ? new Date(filters.startDate) : startOfMonth(new Date()));
+        // const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : endOfMonth(new Date()));
 
 
         const [highest, lowest, averageData] = await Promise.all([
             // 1. أعلى محافظة تسليماً
-            this.getExtremeCity(adminId, finalStartDate, finalEndDate, 'DESC'),
+            this.getExtremeCity(adminId, 'DESC'),
 
             // 2. أقل محافظة تسليماً
-            this.getExtremeCity(adminId, finalStartDate, finalEndDate, 'ASC'),
+            this.getExtremeCity(adminId, 'ASC'),
 
             // 3. حساب متوسط التسليمات
-            this.calculateAverageDeliveries(adminId, finalStartDate, finalEndDate)
+            this.calculateDeliveryRate(adminId)
         ]);
 
         return {
             highestCity: highest || { city: 'N/A', count: 0 },
             lowestCity: lowest || { city: 'N/A', count: 0 },
-            averageDeliveries: parseFloat(averageData?.average || 0).toFixed(2),
+            deliveriesRate: averageData?.rate || 0,
         };
     }
 
     //
-    private async getExtremeCity(adminId: string, start: Date, end: Date, order: 'ASC' | 'DESC') {
+    private async getExtremeCity(adminId: string, order: 'ASC' | 'DESC') {
         return await this.shipmentRepo.createQueryBuilder('shipment')
             .innerJoin('shipment.order', 'order')
             .select('order.city', 'city')
             .addSelect('COUNT(shipment.id)', 'count')
             .where('shipment.adminId = :adminId', { adminId })
             .andWhere('shipment.status = :status', { status: ShipmentStatus.DELIVERED })
-            .andWhere('shipment.created_at BETWEEN :start AND :end', { start, end })
+            // .andWhere('shipment.created_at BETWEEN :start AND :end', { start, end })
             .groupBy('order.city')
             .orderBy('count', order)
             .limit(1)
@@ -475,23 +569,26 @@ export class AccountingService {
     }
 
 
-    private async calculateAverageDeliveries(adminId: string, start: Date, end: Date) {
-
-        return await this.shipmentRepo.createQueryBuilder('shipment')
-            .innerJoin('shipment.order', 'order')
-            .select('AVG(city_totals.city_count)', 'average')
-            .from((subQuery) => {
-                return subQuery
-                    .select('COUNT(s.id)', 'city_count')
-                    .from('shipments', 's')
-                    .innerJoin('orders', 'o', 'o.id = s."orderId"')
-                    .where('s.adminId = :adminId', { adminId })
-                    .andWhere('s.status = :status', { status: ShipmentStatus.DELIVERED })
-                    .andWhere('s.created_at BETWEEN :start AND :end', { start, end })
-                    .groupBy('o.city');
-            }, 'city_totals')
-            .setParameters({ adminId, status: ShipmentStatus.DELIVERED, start, end })
+    private async calculateDeliveryRate(adminId: string) {
+        const result = await this.shipmentRepo
+            .createQueryBuilder('shipment')
+            .select('COUNT(shipment.id)', 'total')
+            .addSelect(
+                `COUNT(CASE WHEN shipment.status = :status THEN 1 END)`,
+                'delivered'
+            )
+            .where('shipment.adminId = :adminId', { adminId })
+            .setParameter('status', ShipmentStatus.DELIVERED)
             .getRawOne();
+
+        const total = Number(result?.total ?? 0);
+        const delivered = Number(result?.delivered ?? 0);
+
+        return {
+            rate: total > 0 ? (delivered / total) * 100 : 0,
+            total,
+            delivered,
+        };
     }
 
     async closeSupplierPeriod(me: any, supplierId: number, startDate: string, endDate: string) {
@@ -520,7 +617,7 @@ export class AccountingService {
                 throw new BadRequestException('The end date must be later than the start date.');
             }
 
-            const { finalBalance, totalReturns, totalTaken, rCount, pCount, totalPaid, totalPurchases } = await this.getSupplierPeriodPreview(me, supplierId, newStartDate, newEndDate, manager);
+            const { finalBalance, totalReturns, totalTaken, rCount, pCount, totalPaid, totalPurchases } = await this.getSupplierPeriodPreview(me, supplierId, startDate, endDate, manager);
             if (pCount === 0 && rCount === 0) {
                 throw new BadRequestException('No unclosed accepted invoices found.');
             }
@@ -545,11 +642,11 @@ export class AccountingService {
 
             await Promise.all([
                 manager.update(PurchaseInvoiceEntity,
-                    { adminId, supplierId, created_at: Between(newStartDate, newEndDate), status: ApprovalStatus.ACCEPTED, closingId: IsNull() },
+                    { adminId, supplierId, statusUpdateDate: Between(newStartDate, newEndDate), status: ApprovalStatus.ACCEPTED, closingId: IsNull() },
                     { closingId: closing.id }
                 ),
                 manager.update(PurchaseReturnInvoiceEntity,
-                    { adminId, supplierId, created_at: Between(newStartDate, newEndDate), status: ApprovalStatus.ACCEPTED, closingId: IsNull() },
+                    { adminId, supplierId, statusUpdateDate: Between(newStartDate, newEndDate), status: ApprovalStatus.ACCEPTED, closingId: IsNull() },
                     { closingId: closing.id }
                 )
             ]);
@@ -626,13 +723,13 @@ export class AccountingService {
             this.returnRepo.createQueryBuilder("exp")
                 .select("SUM(exp.totalReturn)", "sum")
                 .where("exp.adminId = :adminId", { adminId })
-                .andWhere("exp.created_at BETWEEN :start AND :end", { start: startDate, end: endDate })
+                .andWhere("exp.statusUpdateDate BETWEEN :start AND :end", { start: startDate, end: endDate })
                 .getRawOne(),
 
             this.purchaseRepo.createQueryBuilder("p")
                 .select("SUM(p.total)", "sum")
                 .where("p.adminId = :adminId", { adminId })
-                .andWhere("p.created_at BETWEEN :start AND :end", { start: startDate, end: endDate })
+                .andWhere("p.statusUpdateDate BETWEEN :start AND :end", { start: startDate, end: endDate })
                 .getRawOne(),
         ]);
 
@@ -648,7 +745,7 @@ export class AccountingService {
     }
 
 
-    async getSupplierPeriodPreview(me: any, supplierId: number | null, startDate: string | Date, endDate: string | Date, manager?: EntityManager) {
+    async getSupplierPeriodPreview(me: any, supplierId: number | null, startDate: string, endDate: string, manager?: EntityManager) {
         const adminId = tenantId(me);
 
         const purchaseRepo = manager ? manager.getRepository(PurchaseInvoiceEntity) : this.purchaseRepo;
@@ -658,18 +755,33 @@ export class AccountingService {
             .select("SUM(p.total)", "totalPurchases")
             .addSelect("SUM(p.paidAmount)", "totalPaid")
             .addSelect("COUNT(p.id)", "count")
-            .where("p.adminId = :adminId", { adminId })
-            .andWhere("p.created_at BETWEEN :start AND :end", { start: startDate, end: endDate })
-            .andWhere("p.status = :status", { status: ApprovalStatus.ACCEPTED })
+            .where("p.adminId = :adminId", { adminId });
+
+        DateFilterUtil.applyToQueryBuilder(
+            purchaseQb,
+            "p.statusUpdateDate",
+            startDate,
+            endDate
+        );
+
+        purchaseQb.andWhere("p.status = :status", { status: ApprovalStatus.ACCEPTED })
             .andWhere("p.closingId IS NULL");
 
         const returnQb = returnRepo.createQueryBuilder("r")
             .select("SUM(r.totalReturn)", "totalReturns")
             .addSelect("SUM(r.paidAmount)", "totalTaken")
             .addSelect("COUNT(r.id)", "count")
-            .where("r.adminId = :adminId", { adminId })
-            .andWhere("r.created_at BETWEEN :start AND :end", { start: startDate, end: endDate })
-            .andWhere("r.status = :status", { status: ApprovalStatus.ACCEPTED })
+            .where("r.adminId = :adminId", { adminId });
+
+        DateFilterUtil.applyToQueryBuilder(
+            returnQb,
+            "r.statusUpdateDate",
+            startDate,
+            endDate
+        );
+
+
+        returnQb.andWhere("r.status = :status", { status: ApprovalStatus.ACCEPTED })
             .andWhere("r.closingId IS NULL");
 
 

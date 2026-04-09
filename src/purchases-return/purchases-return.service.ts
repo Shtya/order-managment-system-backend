@@ -163,6 +163,18 @@ export class PurchaseReturnsService {
     if (q?.returnType && q?.returnType !== "all") filters.returnType = q.returnType;
     if (q?.supplierId && q?.supplierId !== "none") filters.supplierId = Number(q.supplierId);
 
+    if (q?.closingId) filters.closingId = Number(q?.closingId);
+    else {
+      if (q?.closed && q?.closed !== "none") {
+        if (q?.closed === "false") {
+          filters["closingId.isnull"] = true;
+        } else if (q?.closed === "true") {
+          filters["closingId.isnull"] = false;
+        }
+      }
+
+    }
+
     return CRUD.findAll(
       this.invRepo,
       "purchase_return_invoices",

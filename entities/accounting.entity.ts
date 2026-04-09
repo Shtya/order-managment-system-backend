@@ -1,6 +1,8 @@
 import { Entity, PrimaryGeneratedColumn, Column, OneToMany, Index, ManyToOne, JoinColumn, CreateDateColumn, Relation } from 'typeorm';
 import { PurchaseReturnInvoiceEntity } from './purchase_return.entity';
 import { PurchaseInvoiceEntity } from './purchase.entity';
+import { User } from './user.entity';
+import { SupplierEntity } from './supplier.entity';
 
 @Entity({ name: 'manual_expenses' })
 export class ManualExpenseEntity {
@@ -21,12 +23,13 @@ export class ManualExpenseEntity {
     attachment: string;
 
     @Column()
-    @Index()
-    userId: number;
-
-
-    @Column()
     createdByUserId: number;
+
+    @ManyToOne(() => User, {
+        onDelete: 'SET NULL',
+    })
+    @JoinColumn({ name: 'createdByUserId' })
+    user: Relation<User>;
 
     @ManyToOne(() => ManualExpenseCategoryEntity, (category) => category.expenses, {
         onDelete: 'SET NULL',
@@ -91,6 +94,10 @@ export class SupplierClosingEntity {
     @Column()
     supplierId: number;
 
+    @ManyToOne(() => SupplierEntity)
+    @JoinColumn({ name: 'supplierId' })
+    supplier: Relation<SupplierEntity>;
+
     @Column({ type: 'date' })
     startDate: Date;
 
@@ -101,7 +108,7 @@ export class SupplierClosingEntity {
     totalPurchases: number; // إجمالي المشتريات
 
     @Column({ type: 'decimal', precision: 20, scale: 2 })
-    totalPaid: number;      // إجمالي المدفوع للمورد
+    totalPaid: number;      // إجم  الي المدفوع للمورد
 
     @Column({ type: 'decimal', precision: 20, scale: 2 })
     totalReturns: number;   // إجمالي المرتجعات
@@ -112,7 +119,8 @@ export class SupplierClosingEntity {
     @Column({ type: 'decimal', precision: 20, scale: 2 })
     finalBalance: number;   // الرصيد النهائي
 
-
+    @CreateDateColumn()
+    createdAt: Date;
 
     @OneToMany(() => PurchaseInvoiceEntity, (purchase) => purchase.closing)
     purchases: Relation<PurchaseInvoiceEntity[]>;
@@ -170,6 +178,12 @@ export class MonthlyClosingEntity {
     // Audit
     @Column({ type: 'int', nullable: true })
     createdByUserId?: number;
+
+    @ManyToOne(() => User, {
+        onDelete: 'SET NULL',
+    })
+    @JoinColumn({ name: 'createdByUserId' })
+    user: Relation<User>;
 
     @CreateDateColumn()
     createdAt: Date;

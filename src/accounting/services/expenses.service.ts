@@ -1,17 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { CreateManualExpenseDto, UpdateManualExpenseDto } from 'dto/accounting.dto';
-import { ManualExpenseEntity } from 'entities/accounting.entity';
+import { ManualExpenseCategoryEntity, ManualExpenseEntity } from 'entities/accounting.entity';
 import { tenantId } from 'src/category/category.service';
 import { Brackets, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 import { deleteFile } from 'common/healpers';
+import { DateFilterUtil } from 'common/date-filter.util';
 
 @Injectable()
 export class ExpensesService {
     constructor(
         @InjectRepository(ManualExpenseEntity)
         private expenseRepo: Repository<ManualExpenseEntity>,
+
+        @InjectRepository(ManualExpenseCategoryEntity)
+        private categoryRepo: Repository<ManualExpenseCategoryEntity>,
     ) { }
 
     async listExpenses(me: any, q?: any) {
@@ -22,6 +26,7 @@ export class ExpensesService {
         const qb = this.expenseRepo
             .createQueryBuilder("expense")
             .leftJoinAndSelect("expense.category", "category")
+            .leftJoinAndSelect("expense.user", "user")
             .where("expense.adminId = :adminId", { adminId });
 
         // فلاتر
@@ -38,13 +43,7 @@ export class ExpensesService {
                 }),
             );
         }
-        if (q?.startDate) {
-            qb.andWhere("expense.collectionDate >= :startDate", { startDate: q.startDate });
-        }
-
-        if (q?.endDate) {
-            qb.andWhere("expense.collectionDate <= :endDate", { endDate: q.endDate });
-        }
+        DateFilterUtil.applyToQueryBuilder(qb, "expense.collectionDate", q?.startDate, q?.endDate);
 
         const allowedSortFields = ['amount', 'collectionDate', 'createdAt'];
         const sortBy = allowedSortFields.includes(q?.sortBy) ? q.sortBy : 'collectionDate';
@@ -89,13 +88,8 @@ export class ExpensesService {
                 }),
             );
         }
-        if (q?.startDate) {
-            qb.andWhere("expense.collectionDate >= :startDate", { startDate: q.startDate });
-        }
+        DateFilterUtil.applyToQueryBuilder(qb, "expense.collectionDate", q?.startDate, q?.endDate);
 
-        if (q?.endDate) {
-            qb.andWhere("expense.collectionDate <= :endDate", { endDate: q.endDate });
-        }
 
         qb.orderBy("expense.collectionDate", "DESC");
 
@@ -143,6 +137,14 @@ export class ExpensesService {
 
     async createExpense(me: any, dto: CreateManualExpenseDto) {
         const adminId = tenantId(me);
+        const category = await this.categoryRepo.findOne({
+            where: { id: dto.categoryId, adminId }
+        });
+
+        if (!category) {
+            throw new NotFoundException(`Category with ID ${dto.categoryId} not found for this tenant`);
+        }
+
         const expense = this.expenseRepo.create({
             ...dto,
             adminId,
@@ -165,10 +167,20 @@ export class ExpensesService {
         if (expense.monthlyClosingId) {
             throw new BadRequestException("Cannot update a expense that has been closed.");
         }
+
+        if (dto.categoryId) {
+            const category = await this.categoryRepo.findOne({
+                where: { id: dto.categoryId, adminId }
+            });
+
+            if (!category) {
+                throw new NotFoundException(`Category with ID ${dto.categoryId} not found for this tenant`);
+            }
+        }
+
         if (dto.attachment) {
-            expense.attachment = dto.attachment;
-            //delete oldAttachment;
             await deleteFile(expense.attachment);
+            expense.attachment = dto.attachment;
         }
         Object.assign(expense, dto);
 

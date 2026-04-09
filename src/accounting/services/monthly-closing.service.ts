@@ -129,7 +129,29 @@ export class MonthlyClosingService {
     const deliveredStatus = await this.orderStatusRepo.findOne({
       where: [{ code: OrderStatus.DELIVERED }],
     });
+    const [unclosedPurchases, unclosedReturns] = await Promise.all([
+      this.purchaseRepo.createQueryBuilder('p')
+        .select('p.invoiceNumber', 'num')
+        .where('p.adminId = :adminId', { adminId })
+        .andWhere('p.statusUpdateDate <= :end', { end })
+        .andWhere('p.monthlyClosingId IS NULL')
+        .limit(5)
+        .getRawMany(),
 
+      this.purchaseReturnRepo.createQueryBuilder('r')
+        .select('r.returnNumber', 'num')
+        .where('r.adminId = :adminId', { adminId })
+        .andWhere('r.statusUpdateDate <= :end', { end })
+        .andWhere('r.monthlyClosingId IS NULL')
+        .limit(5)
+        .getRawMany()
+    ]);
+    if (unclosedPurchases.length > 0) {
+      throw new BadRequestException(`Cannot close month while some purchases are not closed yet: ${unclosedPurchases.map(p => p.num).join(', ')}`);
+    }
+    if (unclosedReturns.length > 0) {
+      throw new BadRequestException(`Cannot close month while some returns are not closed yet: ${unclosedReturns.map(r => r.num).join(', ')}`);
+    }
     return await this.dataSource.transaction(async (manager) => {
       // 1. Fetch all financial data in parallel
       const { revenue, productCost, operationalExpenses, returnsCost, grossProfit, operatingProfit, netProfit } = await this.getMonthPreview(me, { year, month }, manager);
@@ -205,6 +227,7 @@ export class MonthlyClosingService {
     const deliveredStatus = await this.orderStatusRepo.findOne({
       where: [{ code: OrderStatus.DELIVERED }],
     });
+
 
     const [revenueRow, productCostRow, operationalRow, returnsRow, isClosedRow] = await Promise.all([
       // Revenue = sum of finalTotal of delivered orders in period
