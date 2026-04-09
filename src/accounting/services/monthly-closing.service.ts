@@ -9,7 +9,7 @@ import { PurchaseReturnInvoiceEntity } from 'entities/purchase_return.entity';
 import { SupplierEntity } from 'entities/supplier.entity';
 import { ApprovalStatus } from 'common/enums';
 import { tenantId } from 'src/category/category.service';
-
+import * as ExcelJS from 'exceljs';
 function getMonthRange(year: number, month: number) {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const end = new Date(Date.UTC(year, month, 0, 23, 59, 59));
@@ -86,6 +86,82 @@ export class MonthlyClosingService {
     };
   }
 
+  async exportClosings(me: any, q?: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    // 1. Build the Query
+    const qb = this.monthlyRepo.createQueryBuilder("closing")
+      .where("closing.adminId = :adminId", { adminId });
+
+    // Apply filters (Year, Month, Search)
+    if (q?.year) {
+      qb.andWhere("closing.year = :year", { year: Number(q.year) });
+    }
+
+    if (q?.month) {
+      qb.andWhere("closing.month = :month", { month: Number(q.month) });
+    }
+
+    if (q?.search) {
+      const searchTerm = `%${q.search}%`;
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("CAST(closing.netProfit AS TEXT) LIKE :s", { s: searchTerm })
+            .orWhere("CAST(closing.revenue AS TEXT) LIKE :s", { s: searchTerm });
+        }),
+      );
+    }
+
+    // Sort chronologically
+    qb.orderBy('closing.year', 'DESC').addOrderBy('closing.month', 'DESC');
+
+    const records = await qb.getMany();
+
+    // 2. Prepare Excel data
+    const exportData = records.map(r => ({
+      period: `${r.month} / ${r.year}`,
+      revenue: Number(r.revenue),
+      productCost: Number(r.productCost),
+      operationalExpenses: Number(r.operationalExpenses),
+      returnsCost: Number(r.returnsCost),
+      netProfit: Number(r.netProfit),
+      closingDate: new Date(r.createdAt).toLocaleDateString('en-GB'),
+    }));
+
+    // 3. Create Workbook
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Monthly Profit Report");
+
+    // 4. Define Columns
+    worksheet.columns = [
+      { header: "Period (M/Y)", key: "period", width: 15 },
+      { header: "Total Revenue", key: "revenue", width: 18 },
+      { header: "Product Cost", key: "productCost", width: 18 },
+      { header: "Operational Expenses", key: "operationalExpenses", width: 22 },
+      { header: "Returns Cost", key: "returnsCost", width: 18 },
+      { header: "Net Profit", key: "netProfit", width: 18 },
+      { header: "Closing Date", key: "closingDate", width: 15 },
+    ];
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    // 5. Add Rows
+    exportData.forEach((row) => {
+      worksheet.addRow(row);
+    });
+
+    // 6. Return Buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    return buffer;
+  }
+
   async getClosing(me: any, id: number) {
     const adminId = tenantId(me);
     const rec = await this.monthlyRepo.findOne({ where: { id, adminId } });
@@ -117,13 +193,13 @@ export class MonthlyClosingService {
     }
 
     // Validation: Ensure suppliers are closed up to the end date
-    const suppliersNeedingClosure = await this.supplierRepo.createQueryBuilder('s')
-      .where('s.adminId = :adminId', { adminId })
-      .andWhere('(s.lastClosingEndDate IS NULL OR s.lastClosingEndDate < :end)', { end })
-      .getCount();
-    if (suppliersNeedingClosure > 0) {
-      throw new BadRequestException('Cannot close month while some supplier closing periods are not completed up to period end.');
-    }
+    // const suppliersNeedingClosure = await this.supplierRepo.createQueryBuilder('s')
+    //   .where('s.adminId = :adminId', { adminId })
+    //   .andWhere('(s.lastClosingEndDate IS NULL OR s.lastClosingEndDate < :end)', { end })
+    //   .getCount();
+    // if (suppliersNeedingClosure > 0) {
+    //   throw new BadRequestException('Cannot close month while some supplier closing periods are not completed up to period end.');
+    // }
 
     // Fetch delivered status id (from system statuses) by code = 'delivered'
     const deliveredStatus = await this.orderStatusRepo.findOne({
@@ -131,10 +207,10 @@ export class MonthlyClosingService {
     });
     const [unclosedPurchases, unclosedReturns] = await Promise.all([
       this.purchaseRepo.createQueryBuilder('p')
-        .select('p.invoiceNumber', 'num')
+        .select('p.receiptNumber', 'num')
         .where('p.adminId = :adminId', { adminId })
         .andWhere('p.statusUpdateDate <= :end', { end })
-        .andWhere('p.monthlyClosingId IS NULL')
+        .andWhere('p.closingId IS NULL')
         .limit(5)
         .getRawMany(),
 
@@ -142,7 +218,7 @@ export class MonthlyClosingService {
         .select('r.returnNumber', 'num')
         .where('r.adminId = :adminId', { adminId })
         .andWhere('r.statusUpdateDate <= :end', { end })
-        .andWhere('r.monthlyClosingId IS NULL')
+        .andWhere('r.closingId IS NULL')
         .limit(5)
         .getRawMany()
     ]);
@@ -236,7 +312,8 @@ export class MonthlyClosingService {
         .select('COALESCE(SUM(o.finalTotal - o.shippingCost), 0)', 'sum')
         .where('o.adminId = :adminId', { adminId })
         .andWhere('o.monthlyClosingId IS NULL')
-        .andWhere('o.deliveredAt <= :end', { end })
+        //Between start an end 
+        .andWhere('o.deliveredAt BETWEEN :start AND :end', { start, end })
         .andWhere('o.statusId = :deliveredId', { deliveredId: deliveredStatus?.id ?? -1 })
         .getRawOne(),
 
@@ -245,7 +322,7 @@ export class MonthlyClosingService {
         .select('COALESCE(SUM(p.total), 0)', 'sum')
         .where('p.adminId = :adminId', { adminId })
         .andWhere('p.monthlyClosingId IS NULL')
-        .andWhere('p.statusUpdateDate <= :end', { end })
+        .andWhere('p.statusUpdateDate BETWEEN :start AND :end', { start, end })
         .andWhere('p.status = :status', { status: ApprovalStatus.ACCEPTED })
         .getRawOne(),
 
@@ -254,7 +331,7 @@ export class MonthlyClosingService {
         .select('COALESCE(SUM(e.amount), 0)', 'sum')
         .where('e.adminId = :adminId', { adminId })
         .andWhere('e.monthlyClosingId IS NULL')
-        .andWhere('e.collectionDate <= :end', { end })
+        .andWhere('e.collectionDate BETWEEN :start AND :end', { start, end })
         .getRawOne(),
 
       // Returns = accepted purchase returns in period
@@ -262,7 +339,7 @@ export class MonthlyClosingService {
         .select('COALESCE(SUM(r.totalReturn), 0)', 'sum')
         .where('r.adminId = :adminId', { adminId })
         .andWhere('r.monthlyClosingId IS NULL')
-        .andWhere('r.statusUpdateDate <= :end', { end })
+        .andWhere('r.statusUpdateDate BETWEEN :start AND :end', { start, end })
         .andWhere('r.status = :status', { status: ApprovalStatus.ACCEPTED })
         .getRawOne(),
 
