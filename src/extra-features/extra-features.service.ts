@@ -10,6 +10,7 @@ import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { DataSource, Repository } from 'typeorm';
 import * as ExcelJS from "exceljs";
+import { DateFilterUtil } from 'common/date-filter.util';
 import { AssignUserFeatureDto, UpdateFeatureDto } from 'dto/feature.dto';
 
 @Injectable()
@@ -122,12 +123,8 @@ export class ExtraFeaturesService {
             );
         }
 
-        // فلاتر التاريخ (startDate)
-        if (q?.startDate) {
-            qb.andWhere('uf.startDate >= :startDate', {
-                startDate: `${q.startDate}T00:00:00.000Z`,
-            });
-        }
+        // --- فلاتر التاريخ ---
+        DateFilterUtil.applyToQueryBuilder(qb, 'uf.startDate', q?.startDate, q?.endDate);
 
         // --- الترتيب والتقسيم ---
         qb.orderBy(`uf.${sortBy}`, sortDir);

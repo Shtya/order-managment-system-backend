@@ -72,6 +72,7 @@ import {
   ShippingIntegrationEntity,
 } from "entities/shipping.entity";
 import { SubscriptionStatus } from "entities/plans.entity";
+import { DateFilterUtil } from "common/date-filter.util";
 import { RedisService } from "common/redis/RedisService";
 import { ShippingQueueService } from "src/shipping/queues/shipping.queues";
 import { WalletService } from "src/wallet/wallet.service";
@@ -409,14 +410,7 @@ export class OrdersService {
     }
 
     // Date range
-    if (q?.startDate)
-      qb.andWhere("order.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-    if (q?.endDate)
-      qb.andWhere("order.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
+    DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
 
     // Search
     if (search) {
@@ -753,15 +747,7 @@ export class OrdersService {
       });
 
     // Date range
-    if (q?.startDate)
-      qb.andWhere("order.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-
-    if (q?.endDate)
-      qb.andWhere("order.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
+    DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
 
     // Search
     if (search) {
@@ -842,16 +828,7 @@ export class OrdersService {
     }
 
     // 5. Date Range Filter
-    if (q?.startDate) {
-      qb.andWhere("log.createdAt >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-    }
-    if (q?.endDate) {
-      qb.andWhere("log.createdAt <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
-    }
+    DateFilterUtil.applyToQueryBuilder(qb, "log.createdAt", q?.startDate, q?.endDate);
 
     // 6. Search (Order Number or Operation ID)
     if (search) {
@@ -924,16 +901,7 @@ export class OrdersService {
       qb.andWhere("log.userId = :userId", { userId: Number(q.userId) });
     }
 
-    if (q?.startDate) {
-      qb.andWhere("log.createdAt >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-    }
-    if (q?.endDate) {
-      qb.andWhere("log.createdAt <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
-    }
+    DateFilterUtil.applyToQueryBuilder(qb, "log.createdAt", q?.startDate, q?.endDate);
 
     if (search) {
       qb.andWhere(
@@ -3255,15 +3223,7 @@ export class OrdersService {
     if (q?.storeId)
       qb.andWhere("order.storeId = :storeId", { storeId: Number(q.storeId) });
 
-    // Date range
-    if (q?.startDate)
-      qb.andWhere("order.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-    if (q?.endDate)
-      qb.andWhere("order.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
+    DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
 
     // Search
     if (search) {
@@ -3996,17 +3956,8 @@ export class OrdersService {
         statusIds: q.statusIds,
       });
     }
-
+    DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
     // Date filters
-    if (q?.startDate)
-      qb.andWhere("order.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-
-    if (q?.endDate)
-      qb.andWhere("order.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
 
     // Cursor pagination
     if (q.cursor) {
@@ -4060,17 +4011,7 @@ export class OrdersService {
         statusIds: q.statusIds,
       });
     }
-
-    if (q?.startDate) {
-      qb.andWhere("order.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-    }
-    if (q?.endDate) {
-      qb.andWhere("order.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
-    }
+    DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
 
     const count = await qb.getCount();
     return { count };
@@ -4258,15 +4199,8 @@ export class OrdersService {
         })
         .andWhere("assignment.id IS NULL") // Only orders with NO active assignments
         .select(["order.id", "order.orderNumber"]);
+      DateFilterUtil.applyToQueryBuilder(q, 'order.created_at', dto?.startDate, dto?.endDate);
 
-      if (dto?.startDate)
-        q.andWhere("order.created_at >= :startDate", {
-          startDate: `${dto.startDate}T00:00:00.000Z`,
-        });
-      if (dto?.endDate)
-        q.andWhere("order.created_at <= :endDate", {
-          endDate: `${dto.endDate}T23:59:59.999Z`,
-        });
 
       const freeOrders = await q.limit(dto.orderCount).getMany();
 
@@ -4362,17 +4296,8 @@ export class OrdersService {
         statusIds: dto.statusIds,
       })
       .andWhere("oa.id IS NULL");
+    DateFilterUtil.applyToQueryBuilder(orderCountQuery, 'order.created_at', dto?.startDate, dto?.endDate);
 
-    if (dto?.startDate) {
-      orderCountQuery.andWhere("order.created_at >= :startDate", {
-        startDate: `${dto.startDate}T00:00:00.000Z`,
-      });
-    }
-    if (dto?.endDate) {
-      orderCountQuery.andWhere("order.created_at <= :endDate", {
-        endDate: `${dto.endDate}T23:59:59.999Z`,
-      });
-    }
 
     const [maxOrdersCount, maxEmployeesCount] = await Promise.all([
       orderCountQuery.getCount(),

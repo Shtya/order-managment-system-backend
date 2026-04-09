@@ -23,6 +23,7 @@ import { Brackets, DataSource, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
 import { calculateRange } from "common/healpers";
 import { User } from "entities/user.entity";
+import { DateFilterUtil } from "common/date-filter.util";
 
 @Injectable()
 export class DashboardService {
@@ -53,10 +54,8 @@ export class DashboardService {
   ) {
     const adminId = tenantId(user);
 
-    // 1. معالجة الفترات الزمنية (Quick Ranges)
     let { start, end } = calculateRange(filters.range);
 
-    // إذا لم يوجد range جاهز، نستخدم التواريخ المرسلة يدوياً
     const finalStartDate = start || filters.startDate;
     const finalEndDate = end || filters.endDate;
 
@@ -67,12 +66,8 @@ export class DashboardService {
 
     if (filters.storeId)
       query.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
-    if (finalStartDate)
-      query.andWhere("o.created_at >= :startDate", {
-        startDate: finalStartDate,
-      });
-    if (finalEndDate)
-      query.andWhere("o.created_at <= :endDate", { endDate: finalEndDate });
+
+    DateFilterUtil.applyToQueryBuilder(query, "o.created_at", finalStartDate, finalEndDate);
 
     if (filters.search) {
       query.andWhere(
@@ -158,7 +153,8 @@ export class DashboardService {
         ? new Date(filters.startDate)
         : subDays(new Date(), 30));
     const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
-
+    finalStartDate.setHours(0, 0, 0, 0);
+    finalEndDate.setHours(23, 59, 59, 999);
     // 2. بناء بارامترات الاستعلام الخام (Raw Query)
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
@@ -207,6 +203,7 @@ export class DashboardService {
       sales: parseFloat(row.sales),
     }));
   }
+
   async getTopProducts(
     user,
     filters: {
@@ -222,9 +219,10 @@ export class DashboardService {
     const limit = filters.limit || 5;
 
     let { start, end } = calculateRange(filters.range);
-    const finalStartDate = start || filters.startDate;
-    const finalEndDate = end || filters.endDate;
-
+    const finalStartDate = new Date(start || filters.startDate);
+    const finalEndDate = new Date(end || filters.endDate);
+    finalStartDate.setHours(0, 0, 0, 0);
+    finalEndDate.setHours(23, 59, 59, 999);
 
     // 1️⃣ بناء الاستعلام الأساسي المشترك
     const baseQuery = this.orderRepo.manager
@@ -314,7 +312,8 @@ export class DashboardService {
     const finalEndDate =
       end ||
       (filters.endDate ? new Date(filters.endDate) : endOfMonth(new Date()));
-
+    finalStartDate.setHours(0, 0, 0, 0);
+    finalEndDate.setHours(23, 59, 59, 999);
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let extraFilters = "";
     if (filters.storeId) {
@@ -461,7 +460,8 @@ export class DashboardService {
       start || (filters.startDate ? new Date(filters.startDate) : null);
     const finalEndDate =
       end || (filters.endDate ? new Date(filters.endDate) : null);
-
+    finalStartDate.setHours(0, 0, 0, 0);
+    finalEndDate.setHours(23, 59, 59, 999);
     // 2. بناء شروط الـ JOIN ديناميكياً
     // نستخدم مصفوفة لتجميع الشروط التي ستوضع داخل الـ ON الخاص بالـ Join
     let joinConditions = "o.statusId = status.id AND o.adminId = :adminId";
@@ -537,16 +537,22 @@ export class DashboardService {
   ) {
     const adminId = tenantId(user);
     const points = filters.points || 12;
+    const { start: startDate, end: endDate } = DateFilterUtil.getBoundaries(
+      filters.startDate,
+      filters.endDate
+    );
 
     let { start, end } = calculateRange(filters.range);
     const finalStartDate =
       start ||
-      (filters.startDate
-        ? new Date(filters.startDate)
+      (startDate
+        ? new Date(startDate)
         : subDays(new Date(), 30));
     const finalEndDate =
-      end || (filters.endDate ? new Date(filters.endDate) : new Date());
+      end || (endDate ? new Date(endDate) : new Date());
 
+    finalStartDate.setHours(0, 0, 0, 0);
+    finalEndDate.setHours(23, 59, 59, 999);
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
 
@@ -616,7 +622,8 @@ export class DashboardService {
     const finalEndDate =
       end ||
       (filters.endDate ? new Date(filters.endDate) : endOfMonth(new Date()));
-
+    finalStartDate.setHours(0, 0, 0, 0);
+    finalEndDate.setHours(23, 59, 59, 999);
     const params: any[] = [finalStartDate, finalEndDate, adminId, limit];
     let extraFilters = "";
     if (filters.storeId) {
@@ -786,21 +793,11 @@ export class DashboardService {
       qb.andWhere("o.storeId = :storeId", { storeId: Number(q.storeId) });
     }
 
-    // Separate Query for Stats to apply date filters
-    const statsSubQuery = (field: string, condition?: string) => {
-      let query = `COUNT(DISTINCT CASE WHEN ${field} THEN oa.id END)`;
-      if (q?.startDate || q?.endDate) {
-        const dateConditions = [];
-        if (q?.startDate) dateConditions.push(`o.created_at >= '${q.startDate}T00:00:00.000Z'`);
-        if (q?.endDate) dateConditions.push(`o.created_at <= '${q.endDate}T23:59:59.999Z'`);
 
-        const dateFilter = dateConditions.join(' AND ');
-        query = `COUNT(DISTINCT CASE WHEN (${field}${condition ? ' AND ' + condition : ''}) AND ${dateFilter} THEN oa.id END)`;
-      } else if (condition) {
-        query = `COUNT(DISTINCT CASE WHEN ${field} AND ${condition} THEN oa.id END)`;
-      }
-      return query;
-    };
+
+    const { start, end } = DateFilterUtil.getBoundaries(q?.startDate, q?.endDate);
+    const startStr = start?.toISOString() || '';
+    const endStr = end?.toISOString() || '';
 
     qb.select(["u.id AS id", "u.name AS name", "u.avatarUrl AS avatarUrl", "u.isActive AS isActive"])
       .addSelect(
@@ -808,15 +805,15 @@ export class DashboardService {
         "totalAssigned"
       )
       .addSelect(
-        `COUNT(DISTINCT CASE WHEN la.code = '${OrderStatus.CONFIRMED}' ${q?.startDate ? `AND oa.lastActionAt >= '${q.startDate}T00:00:00.000Z'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${q.endDate}T23:59:59.999Z'` : ''} THEN oa.id END)`,
+        `COUNT(DISTINCT CASE WHEN la.code = '${OrderStatus.CONFIRMED}' ${q?.startDate ? `AND oa.lastActionAt >= '${startStr}'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${endStr}'` : ''} THEN oa.id END)`,
         "confirmedCount",
       )
       .addSelect(
-        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' ${q?.startDate ? `AND oa.lastActionAt >= '${q.startDate}T00:00:00.000Z'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${q.endDate}T23:59:59.999Z'` : ''} THEN oa.id END)`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' ${q?.startDate ? `AND oa.lastActionAt >= '${startStr}'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${endStr}'` : ''} THEN oa.id END)`,
         "shippedCount",
       )
       .addSelect(
-        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' ${q?.startDate ? `AND oa.lastActionAt >= '${q.startDate}T00:00:00.000Z'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${q.endDate}T23:59:59.999Z'` : ''} THEN oa.id END)`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' ${q?.startDate ? `AND oa.lastActionAt >= '${startStr}'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${endStr}'` : ''} THEN oa.id END)`,
         "deliveredCount",
       )
       .addSelect((sub) => {
@@ -839,8 +836,8 @@ export class DashboardService {
           .from(OrderScanLogEntity, "sl")
           .where("sl.userId = u.id")
           .andWhere("sl.phase = 'PREPARATION'")
-          .andWhere(q?.startDate ? `sl.createdAt >= '${q.startDate}T00:00:00.000Z'` : '1=1')
-          .andWhere(q?.endDate ? `sl.createdAt <= '${q.endDate}T23:59:59.999Z'` : '1=1');
+          .andWhere(q?.startDate ? `sl.createdAt >= '${startStr}'` : '1=1')
+          .andWhere(q?.endDate ? `sl.createdAt <= '${endStr}'` : '1=1');
       }, "preparationFailedCount")
       .addSelect((sub) => {
         return sub
@@ -848,8 +845,8 @@ export class DashboardService {
           .from(OrderScanLogEntity, "sl")
           .where("sl.userId = u.id")
           .andWhere("sl.phase = 'SHIPPING'")
-          .andWhere(q?.startDate ? `sl.createdAt >= '${q.startDate}T00:00:00.000Z'` : '1=1')
-          .andWhere(q?.endDate ? `sl.createdAt <= '${q.endDate}T23:59:59.999Z'` : '1=1');
+          .andWhere(q?.startDate ? `sl.createdAt >= '${startStr}'` : '1=1')
+          .andWhere(q?.endDate ? `sl.createdAt <= '${endStr}'` : '1=1');
       }, "outgoingFailedCount");
 
     // Grouping
@@ -956,13 +953,17 @@ export class DashboardService {
     }
     if (q?.storeId)
       qb.andWhere("o.storeId = :storeId", { storeId: Number(q.storeId) });
+    const { start, end } = DateFilterUtil.getBoundaries(q.startDate, q.endDate);
+    const startStr = start?.toISOString() || '';
+    const endStr = end?.toISOString() || '';
+
     if (q?.startDate)
       qb.andWhere("o.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
+        startDate: startStr,
       });
     if (q?.endDate)
       qb.andWhere("o.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
+        endDate: endStr,
       });
 
     const stats = await qb
@@ -1040,8 +1041,9 @@ export class DashboardService {
     const except = Array.isArray(q.except) ? q.except : (typeof q.except === 'string' ? [q.except] : []);
 
 
-    const startDate = q.startDate ? `${q.startDate}T00:00:00.000Z` : null;
-    const endDate = q.endDate ? `${q.endDate}T23:59:59.999Z` : null;
+    const { start, end } = DateFilterUtil['getBoundaries'](q.startDate, q.endDate);
+    const startDate = start;
+    const endDate = end;
 
 
     const dynamicCountSql = `COUNT(DISTINCT 

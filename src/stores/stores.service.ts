@@ -20,6 +20,7 @@ import { CreateOrderDto } from "dto/order.dto";
 import { UpsertProductSkusDto } from "dto/product.dto";
 import * as crypto from "crypto";
 import * as ExcelJS from "exceljs";
+import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
 
 @Injectable()
@@ -837,8 +838,8 @@ export class StoresService {
     if (q?.storeId) qb.andWhere("failure.storeId = :storeId", { storeId: Number(q.storeId) });
 
     // Date range
-    if (q?.startDate) qb.andWhere("failure.created_at >= :startDate", { startDate: `${q.startDate}T00:00:00.000Z` });
-    if (q?.endDate) qb.andWhere("failure.created_at <= :endDate", { endDate: `${q.endDate}T23:59:59.999Z` });
+    DateFilterUtil.applyToQueryBuilder(qb, "failure.created_at", q?.startDate, q?.endDate);
+
     if (q?.status) qb.andWhere("failure.status = :status", { status: String(q.status) });
 
     if (sortColumns[sortBy]) {
@@ -1002,17 +1003,7 @@ export class StoresService {
       });
     }
 
-    if (q?.startDate) {
-      qb.andWhere("failure.created_at >= :startDate", {
-        startDate: `${q.startDate}T00:00:00.000Z`,
-      });
-    }
-
-    if (q?.endDate) {
-      qb.andWhere("failure.created_at <= :endDate", {
-        endDate: `${q.endDate}T23:59:59.999Z`,
-      });
-    }
+    DateFilterUtil.applyToQueryBuilder(qb, "failure.created_at", q?.startDate, q?.endDate);
 
     qb.orderBy("failure.created_at", "DESC");
 

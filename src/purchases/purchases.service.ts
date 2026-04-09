@@ -7,6 +7,7 @@ import { PurchaseInvoiceEntity, PurchaseInvoiceItemEntity, PurchaseAuditAction, 
 import { ProductVariantEntity } from "entities/sku.entity";
 import { CreatePurchaseDto, UpdatePurchaseDto, UpdatePaidAmountDto } from "dto/purchase.dto";
 import { ApprovalStatus } from "common/enums";
+import { DateFilterUtil } from "common/date-filter.util";
 import { SupplierEntity } from "../../entities/supplier.entity";
 import * as fs from "fs";
 import * as path from "path";
@@ -113,8 +114,7 @@ export class PurchasesService {
 		if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
 		if (hasReceipt === "no") qb.andWhere("inv.receiptAsset IS NULL");
 
-		if (startDate) qb.andWhere("inv.created_at >= :startDate", { startDate: `${startDate}T00:00:00.000Z` });
-		if (endDate) qb.andWhere("inv.created_at <= :endDate", { endDate: `${endDate}T23:59:59.999Z` });
+		DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
 
 		if (search) {
 			qb.andWhere("(inv.receiptNumber ILIKE :s OR inv.notes ILIKE :s)", { s: `%${search}%` });
