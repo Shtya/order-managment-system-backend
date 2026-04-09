@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AccountingService } from '../services/accounting.service';
 import { AccountingStatsDto, CloseSupplierPeriodDto } from 'dto/accounting.dto';
 import { SubscriptionGuard } from 'common/subscription.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-
+import { Response } from 'express';
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('accounting')
 export class AccountingController {
@@ -59,10 +59,31 @@ export class AccountingController {
     return await this.accountingService.getShipmentsCityReport(req.user, query);
   }
 
+  @Get('shipments-city-report/export')
+  async exportShipmentsCityReport(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query() query: {
+      storeId?: number;
+      startDate?: string;
+      endDate?: string;
+      range?: string;
+      search?: string;
+    },
+  ) {
+    const buffer = await this.accountingService.exportShipmentsCityReport(req.user, query);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=shipments-city-report-${Date.now()}.xlsx`);
+
+
+    res.end(buffer);
+  }
+
 
   @Get('shipments-summary')
-  async getShipmentsSummary(@Req() req: any, @Query() query: any) {
-    return this.accountingService.getShipmentPerformanceSummary(req.user, query);
+  async getShipmentsSummary(@Req() req: any) {
+    return this.accountingService.getShipmentPerformanceSummary(req.user);
   }
 
   @Post('supplier-closings/close')
@@ -84,19 +105,11 @@ export class AccountingController {
     return await this.accountingService.listSupplierClosings(req.user, query);
   }
 
-
-  @Get('supplier-closings/:id')
-  async getOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
-    return await this.accountingService.getSupplierClosing(req.user, id);
-  }
-
   @Get('supplier-closings/financial-stats')
   async getFinancialStats(
-    @Req() req: any,
-    @Query('startDate') startDate: string,
-    @Query('endDate') endDate: string
+    @Req() req: any
   ) {
-    return await this.accountingService.getSupplierPeriodPreview(req.user, null, startDate, endDate);
+    return await this.accountingService.getSupplierPeriodPreview(req.user, null, null, null);
   }
 
   @Get('supplier-closings/supplier-preview')
@@ -107,5 +120,9 @@ export class AccountingController {
     @Query('endDate') endDate: string
   ) {
     return await this.accountingService.getSupplierPeriodPreview(req.user, supplierId, startDate, endDate);
+  }
+  @Get('supplier-closings/:id')
+  async getOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return await this.accountingService.getSupplierClosing(req.user, id);
   }
 }

@@ -120,6 +120,17 @@ export class PurchasesService {
 			qb.andWhere("(inv.receiptNumber ILIKE :s OR inv.notes ILIKE :s)", { s: `%${search}%` });
 		}
 
+		if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: Number(q?.closingId) }); else {
+			if (q?.closed && q?.closed !== "none") {
+				if (q?.closed === "false") {
+					qb.andWhere("inv.closingId IS NULL");
+				} else if (q?.closed === "true") {
+					qb.andWhere("inv.closingId IS NOT NULL");
+				}
+			}
+
+		}
+
 		qb.orderBy("inv.created_at", (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC");
 
 		const total = await qb.getCount();
