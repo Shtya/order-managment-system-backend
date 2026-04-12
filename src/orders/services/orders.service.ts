@@ -1998,9 +1998,16 @@ export class OrdersService {
 
     // Get variants
     const variantIds = dto.items.map((it) => it.variantId);
-    const variants = await manager.find(ProductVariantEntity, {
-      where: { adminId, id: In(variantIds) } as any,
-    });
+    const variants = await manager.createQueryBuilder(ProductVariantEntity, "variant")
+      .leftJoin("variant.product", "product")
+      .addSelect([
+        "variant",
+        "product.id",
+        "product.wholesalePrice"
+      ])
+      .where("variant.adminId = :adminId", { adminId })
+      .andWhere("variant.id IN (:...variantIds)", { variantIds })
+      .getMany();
 
     const variantMap = new Map(variants.map((v) => [v.id, v]));
 
@@ -2022,7 +2029,7 @@ export class OrdersService {
     const items = dto.items.map((it) => {
       const variant = variantMap.get(it.variantId)!;
       const unitPrice = it.unitPrice;
-      const unitCost = it.unitCost ?? variant.price ?? 0;
+      const unitCost = it.unitCost ?? variant.product.wholesalePrice ?? 0;
       const lineTotal = unitPrice * it.quantity;
       const lineProfit = (unitPrice - unitCost) * it.quantity;
 
@@ -2040,11 +2047,7 @@ export class OrdersService {
 
     // Calculate totals
     const { productsTotal, finalTotal, profit } = this.calculateTotals(
-      dto.items.map((it) => ({
-        unitPrice: it.unitPrice,
-        unitCost: it.unitCost ?? variantMap.get(it.variantId)!.price ?? 0,
-        quantity: it.quantity,
-      })),
+      items,
       dto.shippingCost ?? 0,
       dto.discount ?? 0,
     );

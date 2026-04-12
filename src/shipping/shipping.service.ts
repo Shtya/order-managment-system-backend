@@ -20,7 +20,7 @@ import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
 import { tenantId } from 'src/category/category.service';
-import { OrderActionResult, OrderActionType, OrderEntity, OrderReplacementEntity, OrderStatus } from 'entities/order.entity';
+import { OrderActionResult, OrderActionType, OrderEntity, OrderReplacementEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
 import { ProductVariantEntity } from 'entities/sku.entity';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { ShippingQueueService } from './queues/shipping.queues';
@@ -897,7 +897,25 @@ export class ShippingService {
 					shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
 				}
 
+				if (mapped.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
+					// You should fetch the status ID for 'delivered' from your status table or enum
+					const deliveredStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.DELIVERED } });
+					if (deliveredStatus) {
+						shipment.order.statusId = deliveredStatus.id;
+						shipment.order.deliveredAt = new Date(); // Set delivery timestamp
+					}
+				} else if (
+					mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
+					mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
+				) {
+					const failedStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.FAILED_DELIVERY } });
+					if (failedStatus) {
+						shipment.order.statusId = failedStatus.id;
+					}
+				}
+
 				// 3. حفظ الشحنة (سواء كانت ملغاة أو حالة أخرى)
+				await manager.save(shipment.order);
 				await manager.save(shipment);
 
 				// 4. تسجيل الحدث (Event) داخل نفس الـ Transaction

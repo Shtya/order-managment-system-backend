@@ -334,14 +334,14 @@ export class DashboardService {
             s.seg_start,
             s.seg_end,
             -- المبيعات: الطلبات التي تم تسليمها فقط
-            COALESCE(SUM(CASE WHEN st.code = 'delivered' THEN o."finalTotal" ELSE 0 END), 0) AS "sales",
+            COALESCE(SUM(CASE WHEN st.code = 'delivered' THEN (o."finalTotal" - COALESCE(o."shippingCost", 0)) ELSE 0 END), 0) AS "sales",
             -- التكاليف: مجموع تكلفة المنتجات داخل الطلبات المسلمة
             COALESCE(SUM(CASE WHEN st.code = 'delivered' THEN (
                 SELECT SUM(oi."unitCost" * oi.quantity) 
                 FROM order_items oi WHERE oi."orderId" = o.id
             ) ELSE 0 END), 0) AS "costs"
         FROM segments s
-        LEFT JOIN orders o ON o.created_at >= s.seg_start AND o.created_at < s.seg_end AND o."adminId" = $4 ${extraFilters}
+        LEFT JOIN orders o ON o."deliveredAt" BETWEEN s.seg_start AND s.seg_end AND o."adminId" = $4 ${extraFilters}
         LEFT JOIN order_statuses st ON st.id = o."statusId"
         GROUP BY s.idx, s.seg_start, s.seg_end
         ORDER BY s.seg_start ASC;
@@ -371,6 +371,8 @@ export class DashboardService {
       return {
         // الناتج سيكوم مثلاً: "1 - 7 يوليو"
         period: `${startDay} - ${endDay} ${monthName}`,
+        startDate,
+        endDate,
         sales: sales,
         costs: costs,
         profit: profit,
@@ -1131,7 +1133,7 @@ export class DashboardService {
       id: 0,
       name: "Total Assignments",
       code: "total",
-      color: "#ff8b00",
+      color: "var(--primary)",
       count: totalCount,
     });
 
