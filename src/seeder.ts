@@ -113,6 +113,9 @@ async function runGlobalSeed() {
 		{
 			name: 'Rejected', code: OrderStatus.REJECTED, isDefault: false, order: 15, color: '#F44336', // Red (Matches stats.cancelledShipping)
 		},
+		{
+			name: 'Failed Delivery', code: OrderStatus.FAILED_DELIVERY, isDefault: false, order: 16, color: '#E91E63', // Pink (Alert for delivery issues)
+		}
 	];
 
 	for (const s of systemStatuses) {

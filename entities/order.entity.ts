@@ -42,6 +42,7 @@ export enum OrderStatus {
   REJECTED = "rejected",
   SHIPPED = "shipped",
   DELIVERED = "delivered",
+  FAILED_DELIVERY = "failed_delivery",
   CANCELLED = "cancelled",
   RETURN_PREPARING = "return_preparing",
   RETURNED = "returned",
