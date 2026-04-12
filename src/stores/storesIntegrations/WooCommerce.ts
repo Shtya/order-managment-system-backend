@@ -727,6 +727,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
             [OrderStatus.DELIVERED]: "completed",
 
             // Cancel states
+            [OrderStatus.FAILED_DELIVERY]: "cancelled",
             [OrderStatus.WRONG_NUMBER]: "cancelled",
             [OrderStatus.OUT_OF_DELIVERY_AREA]: "cancelled",
             [OrderStatus.DUPLICATE]: "cancelled",

@@ -1130,6 +1130,7 @@ export class EasyOrderService extends BaseStoreProvider {
             [OrderStatus.DELIVERED]: "delivered",
 
             // حالات الإغلاق
+            [OrderStatus.FAILED_DELIVERY]: "cancelled",
             [OrderStatus.CANCELLED]: "canceled",
             [OrderStatus.REJECTED]: "canceled",
 
