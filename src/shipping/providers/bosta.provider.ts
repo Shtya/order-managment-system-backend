@@ -202,7 +202,7 @@ export class BostaProvider extends ShippingProvider {
         },
       },
       dropOffAddress: {
-        city: order.shippingMetadata?.cityId,
+        cityId: order.shippingMetadata?.cityId,
         districtId: order?.shippingMetadata?.districtId,
         zoneId: order?.shippingMetadata?.zoneId,
         firstLine: order.address,
