@@ -128,14 +128,25 @@ export class CreateProductDto {
   @Type(() => UpsellingProductDto)
   upsellingProducts?: UpsellingProductDto[];
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(500)
-  mainImage!: string;
+  mainImage?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  mainImageOrphanId?: number;
 
   @IsOptional()
   @IsArray()
   images?: ProductImage[];
+
+  @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsInt({ each: true })
+  imagesOrphanIds?: number[];
 
   // ✅ create combinations with product
   @IsOptional()

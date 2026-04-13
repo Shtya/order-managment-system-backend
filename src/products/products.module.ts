@@ -15,11 +15,14 @@ import { OrderItemEntity } from "entities/order.entity";
 import { LowStockService } from "common/background-services/low-stock.service";
 import { User } from "entities/user.entity";
 import { PurchasesModule } from "src/purchases/purchases.module";
+import { OrphanFileEntity } from "entities/files.entity";
+import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
 
 @Module({
   imports: [
     forwardRef(() => StoresModule),
     forwardRef(() => PurchasesModule),
+    forwardRef(() => OrphanFilesModule),
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductVariantEntity,
@@ -27,7 +30,8 @@ import { PurchasesModule } from "src/purchases/purchases.module";
       StoreEntity,
       WarehouseEntity,
       OrderItemEntity,
-      User
+      User,
+      OrphanFileEntity,
     ]),
   ],
   providers: [ProductsService, ProductSubscriber, VariantSubscriber, LowStockService],

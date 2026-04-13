@@ -27,6 +27,8 @@ import { NotificationType } from "entities/notifications.entity";
 import { PurchaseReturnsService } from "src/purchases-return/purchases-return.service";
 import { PurchasesService } from "src/purchases/purchases.service";
 import { DataSource } from "typeorm";
+import { OrphanFileEntity } from "entities/files.entity";
+import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 
 @Injectable()
 export class ProductsService {
@@ -49,35 +51,25 @@ export class ProductsService {
     @InjectRepository(OrderItemEntity)
     private orderItemRepo: Repository<OrderItemEntity>,
 
+    @InjectRepository(OrphanFileEntity)
+    private orphanRepo: Repository<OrphanFileEntity>,
+
     private readonly notificationService: NotificationService,
     private readonly purchasesService: PurchasesService,
+    private readonly orphanFilesService: OrphanFilesService,
     private readonly dataSource: DataSource,
   ) { }
 
+
+
   public async handleImageCleanup(
-    currentData: { mainImage?: string; images?: { url: string }[] },
-    urlsToRemove: string[] | undefined,
-    newMainImageProvided: boolean
+    currentData: { images?: { url: string }[] },
+    urlsToRemove: string[] | undefined
   ) {
     if (!urlsToRemove || urlsToRemove.length === 0) return;
 
-    // 1. Validation: Prevent removing main image without a replacement
-    const mainWillBeRemoved = urlsToRemove.includes(currentData.mainImage);
-    if (mainWillBeRemoved && !newMainImageProvided) {
-      throw new BadRequestException("Cannot remove mainImage without providing a new one");
-    }
-
     // 2. Physical Deletion from Disk
-    for (const url of urlsToRemove) {
-      try {
-
-        const filePath = join(process.cwd(), url);
-        await unlink(filePath);
-      } catch (err) {
-        // Log error but don't stop the process if one file is already missing
-        console.error(`Failed to delete file at ${url}:`, err.message);
-      }
-    }
+    deletePhysicalFiles(urlsToRemove);
 
     // 3. Return the filtered gallery images
     return (currentData.images ?? []).filter(
@@ -845,12 +837,43 @@ export class ProductsService {
         upsellingProducts: (dto.upsellingProducts as any) ?? [],
 
         createdByUserId: me?.id ?? null,
-        mainImage: dto.mainImage,
+        mainImage: dto.mainImage as any,
         images: dto.images ?? [],
         updatedByUserId: null,
       });
 
+      const mainOrphanId = Number((dto as any).mainImageOrphanId);
+      if (!p.mainImage) {
+        if (!Number.isFinite(mainOrphanId) || mainOrphanId <= 0) {
+          throw new BadRequestException("mainImageOrphanId is required");
+        }
+        const mainRow = await mgr.getRepository(OrphanFileEntity).findOne({
+          where: { adminId: String(adminId), id: mainOrphanId } as any,
+          select: ["id", "url"],
+        });
+        if (!mainRow) throw new BadRequestException("mainImageOrphanId not found");
+        p.mainImage = mainRow.url;
+      }
+
+      const imagesMeta = Array.isArray(dto.images) ? dto.images : [];
+      const orphanIds = Array.isArray((dto as any).imagesOrphanIds) ? (dto as any).imagesOrphanIds : [];
+      const orphanRows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
+      const orphanImages = orphanRows.map((r) => ({ url: r.url }));
+
+      const finalImages = [...imagesMeta, ...orphanImages];
+      if (finalImages.length > 20) {
+        throw new BadRequestException("Total images cannot exceed 20");
+      }
+      p.images = finalImages;
+
       const savedProduct = await prodRepo.save(p);
+
+      // delete used orphans AFTER product save
+      const toDelete = [
+        Number.isFinite(mainOrphanId) && mainOrphanId > 0 ? mainOrphanId : null,
+        ...orphanRows.map((r) => r.id),
+      ].filter(Boolean) as number[];
+      await this.orphanFilesService.deleteOrphansByIds(mgr, String(adminId), toDelete);
 
       const combos = Array.isArray((dto as any).combinations) ? (dto as any).combinations : [];
       let savedVariants: ProductVariantEntity[] = [];
@@ -939,41 +962,13 @@ export class ProductsService {
         message: `Product "${savedProduct.name}" has been created successfully.`,
         relatedEntityType: "product",
         relatedEntityId: String(savedProduct.id),
-      });
+      }, mgr);
 
       return savedProduct.id;
     };
 
     const savedId = manager ? await work(manager) : await this.dataSource.transaction(mgr => work(mgr));
     return this.get(me, savedId);
-  }
-
-  async appendProductImages(me: any, id: number, newImages: { url: string }[]) {
-    const adminId = tenantId(me);
-
-    return this.dataSource.transaction(async (manager) => {
-      const product = await manager
-        .createQueryBuilder(ProductEntity, 'product')
-        .setLock('pessimistic_write')
-        .where('product.id = :id', { id })
-        .andWhere('product.adminId = :adminId', { adminId })
-        .getOne();
-
-      if (!product) {
-        throw new NotFoundException('Product not found');
-      }
-
-      const currentImages = Array.isArray(product.images) ? product.images : [];
-
-      if (currentImages.length + newImages.length > 20) {
-        throw new BadRequestException('Total images cannot exceed 20');
-      }
-
-      product.images = [...currentImages, ...newImages];
-      product.updatedByUserId = me.id;
-
-      return manager.save(product);
-    });
   }
 
   async update(me: any, id: number, dto: UpdateProductDto) {
@@ -1008,13 +1003,6 @@ export class ProductsService {
       (p as any).images = ((p as any).images ?? []).filter(
         (img: any) => img?.url && !removeImgs.includes(img.url)
       );
-
-      const mainWillBeRemoved = removeImgs.includes((p as any).mainImage);
-      const newMainProvided = Boolean((dto as any).mainImage);
-
-      if (mainWillBeRemoved && !newMainProvided) {
-        throw new BadRequestException("Cannot remove mainImage without providing a new mainImage");
-      }
     }
     const removeUrls = dto.removeImgs as string[] | undefined;
 
@@ -1022,21 +1010,62 @@ export class ProductsService {
       p.images = await this.handleImageCleanup(
         p,
         removeUrls,
-        Boolean(dto.mainImage) // Check if a new main image was uploaded in this request
       );
     }
 
     delete (dto as any).removeImgs;
 
-    if ((dto as any).mainImage) {
-      (p as any).mainImage = (dto as any).mainImage;
-    }
 
-    const append = (dto as any)._appendImages as any[] | undefined;
-    if (append?.length) {
-      (p as any).images = [...((p as any).images ?? []), ...append];
+    // images replacement (existing + library) from frontend
+    const imagesCount = dto.imagesOrphanIds?.length + p.images.length;
+    if (imagesCount > 20) throw new BadRequestException("Total images cannot exceed 20");
+
+    const imagesMeta = (dto as any).imagesMeta;
+    delete (dto as any).imagesMeta;
+
+    // main image via orphan id
+    const mainOrphanId = (dto as any).mainImageOrphanId;
+    if (mainOrphanId !== undefined && mainOrphanId !== null && mainOrphanId !== "") {
+      const oid = Number(mainOrphanId);
+      if (!Number.isFinite(oid) || oid <= 0) throw new BadRequestException("mainImageOrphanId is invalid");
+      const row = await this.orphanRepo.findOne({
+        where: { adminId: String(adminId), id: oid } as any,
+        select: ["id", "url"],
+      });
+      if (!row) throw new BadRequestException("mainImageOrphanId not found");
+      if ((p as any).mainImage) {
+        deletePhysicalFiles([p.mainImage])
+      }
+      (p as any).mainImage = row.url;
+      await this.orphanRepo.delete({ adminId: String(adminId), id: oid } as any);
     }
-    delete (dto as any)._appendImages;
+    delete (dto as any).mainImageOrphanId;
+
+    // append gallery images via orphan ids
+    const orphanIds = (dto as any).imagesOrphanIds;
+
+    if (orphanIds !== undefined) {
+      if (!Array.isArray(orphanIds)) throw new BadRequestException("imagesOrphanIds must be an array");
+      const rows = await this.dataSource.transaction(async (mgr) => {
+        const found = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
+        return found;
+      });
+
+      const current = Array.isArray((p as any).images) ? (p as any).images : [];
+      const toAppend = rows.map((r) => ({ url: r.url }));
+
+      if (current.length + toAppend.length > 20) {
+        throw new BadRequestException("Total images cannot exceed 20");
+      }
+
+      (p as any).images = [...current, ...toAppend];
+
+      await this.orphanRepo.delete({
+        adminId: String(adminId),
+        id: In(rows.map((r) => r.id)),
+      } as any);
+    }
+    delete (dto as any).imagesOrphanIds;
 
     if (dto.categoryId !== undefined) {
       const category = await this.assertOwnedOrNull(this.catRepo, adminId, dto.categoryId ?? null, "category");
