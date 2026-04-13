@@ -1,5 +1,5 @@
 // --- File: src/products/products.service.ts ---
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository, Like, Not, IsNull, EntityManager, Brackets } from "typeorm";
 
@@ -946,6 +946,34 @@ export class ProductsService {
 
     const savedId = manager ? await work(manager) : await this.dataSource.transaction(mgr => work(mgr));
     return this.get(me, savedId);
+  }
+
+  async appendProductImages(me: any, id: number, newImages: { url: string }[]) {
+    const adminId = tenantId(me);
+
+    return this.dataSource.transaction(async (manager) => {
+      const product = await manager
+        .createQueryBuilder(ProductEntity, 'product')
+        .setLock('pessimistic_write')
+        .where('product.id = :id', { id })
+        .andWhere('product.adminId = :adminId', { adminId })
+        .getOne();
+
+      if (!product) {
+        throw new NotFoundException('Product not found');
+      }
+
+      const currentImages = Array.isArray(product.images) ? product.images : [];
+
+      if (currentImages.length + newImages.length > 20) {
+        throw new BadRequestException('Total images cannot exceed 20');
+      }
+
+      product.images = [...currentImages, ...newImages];
+      product.updatedByUserId = me.id;
+
+      return manager.save(product);
+    });
   }
 
   async update(me: any, id: number, dto: UpdateProductDto) {
