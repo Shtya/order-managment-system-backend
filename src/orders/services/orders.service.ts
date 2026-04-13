@@ -61,6 +61,7 @@ import {
   AutoPreviewDto,
   CreateReplacementDto,
   CreateManifestDto,
+  BulkUpdateShippingFieldsDto,
 } from "dto/order.dto";
 import { User } from "entities/user.entity";
 import { BulkUploadUsage } from "dto/plans.dto";
@@ -149,9 +150,12 @@ export class OrdersService {
   private async throwIfDelivered(order: OrderEntity, message?: string) {
     const deliveryStatus = await this.statusRepo.findOne({
       where: {
-        name: OrderStatus.DELIVERED,
+        code: OrderStatus.DELIVERED,
       },
     });
+    if (!deliveryStatus) {
+      throw new NotFoundException("Delivery status not found. Please contact support.");
+    }
 
     if (order.statusId === deliveryStatus.id && order.monthlyClosingId) {
       throw new BadRequestException(message || "Cannot update or delete a order that has been closed.");
@@ -2054,7 +2058,7 @@ export class OrdersService {
 
     const defaultStatus = await this.getDefaultStatus(adminId);
 
-    if (dto.shippingCompanyId) {
+    if (dto.shippingCompanyId && dto.shippingCompanyId !== "none") {
       const companyId = Number(dto.shippingCompanyId);
       const company = await this.shippingRepo.findOne({
         where: { id: companyId },
@@ -2105,7 +2109,7 @@ export class OrdersService {
       secondPhoneNumber: dto.secondPhoneNumber ?? null,
       allowOpenPackage: dto.allowOpenPackage ?? false,
       paymentStatus: dto.paymentStatus ?? PaymentStatus.PENDING,
-      shippingCompanyId: dto.shippingCompanyId ? dto.shippingCompanyId : null,
+      shippingCompanyId: dto.shippingCompanyId && dto.shippingCompanyId !== "none" ? dto.shippingCompanyId : null,
       storeId: dto.storeId ? dto.storeId : null,
       shippingCost: dto.shippingCost ?? 0,
       discount: dto.discount ?? 0,
@@ -2181,7 +2185,9 @@ export class OrdersService {
           "Cannot update shipped or delivered orders",
         );
       }
-      if (dto.shippingCompanyId) {
+      if (dto.shippingCompanyId == "none") {
+        order.shippingCompanyId = null;
+      } else if (dto.shippingCompanyId) {
         const companyId = Number(dto.shippingCompanyId);
         const company = await shippingRepo.findOne({
           where: { id: companyId },
@@ -2428,6 +2434,135 @@ export class OrdersService {
     });
   }
 
+  // orders.service.ts
+  async bulkUpdateShippingFields(
+    me: any,
+    dto: BulkUpdateShippingFieldsDto,
+    ipAddress?: string,
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    if (!dto.items?.length) {
+      throw new BadRequestException("No orders provided");
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      let integration: ShippingIntegrationEntity | null = null;
+      if (dto.code && dto.code.toLocaleLowerCase() !== "none") {
+        const integrationsRepo = manager.getRepository(ShippingIntegrationEntity);
+
+        integration = await integrationsRepo.findOne({
+          where: {
+            adminId,
+            isActive: true,
+            shippingCompany: {
+              code: dto.code,
+            }
+          },
+          relations: ['shippingCompany']
+        });
+
+        if (!integration) {
+          throw new BadRequestException(`Active integration for ${dto.code} not found.`);
+        }
+      }
+
+      const ids = [...new Set(dto.items.map((i) => Number(i.id)).filter(Boolean))];
+
+      const orders = await manager
+        .createQueryBuilder(OrderEntity, "order")
+        .leftJoinAndSelect("order.status", "status")
+        .where("order.id IN (:...ids)", { ids })
+        .andWhere("order.adminId = :adminId", { adminId })
+        .getMany();
+
+      const orderMap = new Map(orders.map((o) => [o.id, o]));
+
+      const invalidResults: Array<{
+        id: number;
+        reason: string;
+      }> = [];
+
+      const toSave: OrderEntity[] = [];
+      let count = 0;
+      for (const item of dto.items) {
+        const order = orderMap.get(Number(item.id));
+
+
+        if (!order) {
+          invalidResults.push({
+            id: Number(item.id),
+            reason: "Order not found or does not belong to your account.",
+          });
+          continue;
+        }
+
+
+        if (
+          order.status?.system &&
+          (order.status.code === OrderStatus.SHIPPED ||
+            order.status.code === OrderStatus.DELIVERED)
+        ) {
+          invalidResults.push({
+            id: order.id,
+            reason: "Cannot update shipped or delivered orders.",
+          });
+          continue;
+        }
+
+        // Apply updates (only allowed fields)
+        if (item.customerName !== undefined) {
+          order.customerName = item.customerName;
+        }
+
+        if (item.phoneNumber !== undefined) {
+          order.phoneNumber = item.phoneNumber;
+        }
+
+        if (item.address !== undefined) {
+          order.address = item.address;
+        }
+
+        if (item.shippingMetadata !== undefined) {
+          const cleanShippingMetadata = Object.fromEntries(
+            Object.entries(item.shippingMetadata).filter(
+              ([_, value]) => value !== undefined && value !== null && value !== "",
+            ),
+          );
+
+          order.shippingMetadata = {
+            ...(order.shippingMetadata ?? {}),
+            ...cleanShippingMetadata,
+          };
+
+          order.shippingCompanyId = integration?.shippingCompanyId || order.shippingCompanyId;
+        }
+
+        order.updatedByUserId = me?.id;
+        toSave.push(order);
+      }
+
+      // ❌ If ANY invalid → stop everything
+      if (invalidResults.length > 0) {
+        throw new BadRequestException({
+          message: "Some orders are invalid and cannot be updated.",
+          errors: invalidResults,
+        });
+      }
+
+      // ✅ Only reached if ALL orders are valid
+      if (toSave.length > 0) {
+        await manager.save(OrderEntity, toSave);
+      }
+
+      return {
+        success: true,
+        updatedCount: toSave.length,
+      };
+    });
+  }
+
   // ========================================
   // ✅ CHANGE ORDER STATUS
   // ========================================
@@ -2439,6 +2574,7 @@ export class OrdersService {
   ) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
+
 
     return this.dataSource.transaction(async (manager) => {
       const order = await manager.findOne(OrderEntity, {

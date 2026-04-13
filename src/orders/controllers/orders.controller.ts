@@ -29,6 +29,7 @@ import { SubscriptionGuard } from "common/subscription.guard";
 import { OrdersService } from "../services/orders.service";
 import {
   CreateOrderDto,
+  BulkUpdateShippingFieldsDto,
   UpdateOrderDto,
   ChangeOrderStatusDto,
   UpdatePaymentStatusDto,
@@ -401,6 +402,15 @@ export class OrdersController {
   create(@Req() req: any, @Body() dto: CreateOrderDto) {
     return this.svc.create(req.user, dto, req.ip);
   }
+  // orders.controller.ts
+  @Permissions("orders.update")
+  @Patch("bulk-update-shipping-info")
+  bulkUpdateShippingFields(
+    @Req() req: any,
+    @Body() dto: BulkUpdateShippingFieldsDto,
+  ) {
+    return this.svc.bulkUpdateShippingFields(req.user, dto, req.ip);
+  }
 
   // ✅ Update order
   @Permissions("orders.update")
@@ -408,6 +418,7 @@ export class OrdersController {
   update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateOrderDto) {
     return this.svc.update(req.user, Number(id), dto, req.ip);
   }
+
 
   // ✅ Change order status
   @Permissions("orders.update")
