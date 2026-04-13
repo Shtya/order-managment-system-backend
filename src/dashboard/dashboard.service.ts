@@ -1042,8 +1042,7 @@ export class DashboardService {
 
     const except = Array.isArray(q.except) ? q.except : (typeof q.except === 'string' ? [q.except] : []);
 
-
-    const { start, end } = DateFilterUtil['getBoundaries'](q.startDate, q.endDate);
+    const { start, end } = DateFilterUtil.getBoundaries(q.startDate, q.endDate);
     const startDate = start;
     const endDate = end;
 
@@ -1071,9 +1070,12 @@ export class DashboardService {
         "status.color AS color",
         "status.sortOrder AS sortOrder",
       ])
-      .addSelect(dynamicCountSql, "count")
-      .setParameter("except", except.length > 0 ? except : ["__none__"])
-      .setParameter("startDate", startDate)
+      .addSelect(dynamicCountSql, "count");
+
+    if (except.length > 0)
+      qb.setParameter("except", except)
+
+    qb.setParameter("startDate", startDate)
       .setParameter("endDate", endDate)
       .where("status.code IN (:...codes)", { codes: targetCodes });
 
@@ -1091,9 +1093,12 @@ export class DashboardService {
       .leftJoin("oa.lastStatus", "status")
       .where("oa.assignedByAdminId = :adminId", { adminId: Number(adminId) })
       .andWhere("status.code IN (:...codes)", { codes: targetCodes })
-      .select(dynamicCountSql.replace("count", "totalCount"), "totalCount") // إعادة استخدام نفس المنطق
-      .setParameter("except", except.length > 0 ? except : ["__none__"])
-      .setParameter("startDate", startDate)
+      .select(dynamicCountSql.replace("count", "totalCount"), "totalCount");
+
+    if (except.length > 0)
+      totalCountQb.setParameter("except", except)
+
+    totalCountQb.setParameter("startDate", startDate)
       .setParameter("endDate", endDate);
 
     const scanStatsQb = this.dataSource.getRepository(OrderScanLogEntity)
