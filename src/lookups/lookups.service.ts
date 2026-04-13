@@ -7,6 +7,7 @@ import { StoreEntity } from 'entities/stores.entity';
 import { WarehouseEntity } from 'entities/warehouses.entity';
 import { ProductEntity, ProductVariantEntity } from '../../entities/sku.entity';
 import { SupplierEntity } from '../../entities/supplier.entity';
+import { CityEntity } from 'entities/cities.entity';
 
 type UsersLookupParams = {
 	q?: string;
@@ -50,6 +51,7 @@ export class LookupsService {
 		@InjectRepository(ProductEntity) private readonly productsRepo: Repository<ProductEntity>,
 		@InjectRepository(ProductVariantEntity) private readonly variantsRepo: Repository<ProductVariantEntity>,
 		@InjectRepository(SupplierEntity) private readonly suppliersRepo: Repository<SupplierEntity>,
+		@InjectRepository(CityEntity) private readonly citiesRepo: Repository<CityEntity>,
 	) { }
 
 	private isSuperAdmin(me: User) {
@@ -438,6 +440,33 @@ export class LookupsService {
 			isActive: x.isActive,
 			managerId: x.managerId ? Number(x.managerId) : null,
 			managerName: x.managerName || null,
+		}));
+	}
+
+
+	async cities(params: SimpleLookupParams) {
+		const qb = this.citiesRepo
+			.createQueryBuilder('city')
+			.select([
+				'city.id AS id',
+				'city."nameEn"',
+				'city."nameAr"'
+			])
+			.orderBy('city.nameEn', 'ASC') // Cities are usually better sorted alphabetically
+			.limit(params.limit || 50);
+
+		if (params.q?.trim()) {
+			const q = `%${params.q.trim().toLowerCase()}%`;
+			// Search in both English and Arabic names
+			qb.andWhere('(LOWER(city.nameEn) LIKE :q OR city.nameAr LIKE :q)', { q });
+		}
+
+		const rows = await qb.getRawMany();
+
+		return rows.map((x) => ({
+			id: x.id,
+			nameEn: x.nameEn,
+			nameAr: x.nameAr,
 		}));
 	}
 }

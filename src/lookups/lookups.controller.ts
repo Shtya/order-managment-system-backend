@@ -54,6 +54,15 @@ export class LookupsController {
 		});
 	}
 
+	@Permissions('orders.read')
+	@Get('cities')
+	cities(@Req() req: any, @Query('q') q?: string, @Query('limit') limit?: string) {
+		return this.lookups.cities({
+			q,
+			limit: limit ? Math.min(Number(limit) || 50, 200) : 50,
+		});
+	}
+
 	@Permissions('stores.read')
 	@Get('stores')
 	stores(

@@ -16,6 +16,7 @@ import { ProductEntity, ProductVariantEntity } from '../entities/sku.entity';
 import { SupplierEntity, SupplierCategoryEntity } from '../entities/supplier.entity';
 import { ShippingCompanyEntity } from '../entities/shipping.entity';
 import { TransactionEntity } from 'entities/payments.entity';
+import { CityEntity } from 'entities/cities.entity';
 
 
 /**
@@ -49,6 +50,7 @@ async function runGlobalSeed() {
 	const storeRepo = dataSource.getRepository(StoreEntity);
 	const warehouseRepo = dataSource.getRepository(WarehouseEntity);
 	const statusRepo = dataSource.getRepository(OrderStatusEntity); // Add this
+	const cityRepo = dataSource.getRepository(CityEntity);
 	const systemStatuses = [
 		{
 			name: 'New', code: OrderStatus.NEW, isDefault: true, order: 1, color: '#2196F3', // Matches stats.new (Blue)
@@ -143,6 +145,45 @@ async function runGlobalSeed() {
 		} else {
 
 			await statusRepo.save(statusRepo.create(statusData));
+		}
+	}
+
+	const citiesData = [
+		{ nameEn: "Alexandria", nameAr: "الاسكندريه" },
+		{ nameEn: "Assuit", nameAr: "اسيوط" },
+		{ nameEn: "Aswan", nameAr: "اسوان" },
+		{ nameEn: "Bani Suif", nameAr: "بني سويف" },
+		{ nameEn: "Behira", nameAr: "البحيره" },
+		{ nameEn: "Cairo", nameAr: "القاهره" },
+		{ nameEn: "Dakahlia", nameAr: "الدقهليه" },
+		{ nameEn: "Damietta", nameAr: "دمياط" },
+		{ nameEn: "El Kalioubia", nameAr: "القليوبيه" },
+		{ nameEn: "Fayoum", nameAr: "الفيوم" },
+		{ nameEn: "Gharbia", nameAr: "الغربيه" },
+		{ nameEn: "Giza", nameAr: "الجيزه" },
+		{ nameEn: "Ismailia", nameAr: "الاسماعيليه" },
+		{ nameEn: "Kafr Alsheikh", nameAr: "كفر الشيخ" },
+		{ nameEn: "Luxor", nameAr: "الاقصر" },
+		{ nameEn: "Matrouh", nameAr: "مرسي مطروح" },
+		{ nameEn: "Menya", nameAr: "المنيا" },
+		{ nameEn: "Monufia", nameAr: "المنوفيه" },
+		{ nameEn: "New Valley", nameAr: "الوادي الجديد" },
+		{ nameEn: "North Coast", nameAr: "الساحل الشمالي" },
+		{ nameEn: "North Sinai", nameAr: "شمال سيناء" },
+		{ nameEn: "Port Said", nameAr: "بور سعيد" },
+		{ nameEn: "Qena", nameAr: "قنا" },
+		{ nameEn: "Red Sea", nameAr: "البحر الاحمر" },
+		{ nameEn: "Sharqia", nameAr: "الشرقيه" },
+		{ nameEn: "Sohag", nameAr: "سوهاج" },
+		{ nameEn: "South Sinai", nameAr: "جنوب سيناء" },
+		{ nameEn: "Suez", nameAr: "السويس" }
+	];
+
+	for (const city of citiesData) {
+		const exists = await cityRepo.findOne({ where: { nameEn: city.nameEn } });
+		if (!exists) {
+			await cityRepo.save(cityRepo.create(city));
+			console.log(`✅ City seeded: ${city.nameEn}`);
 		}
 	}
 
