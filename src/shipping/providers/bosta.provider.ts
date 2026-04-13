@@ -206,7 +206,7 @@ export class BostaProvider extends ShippingProvider {
         districtId: order?.shippingMetadata?.districtId,
         zoneId: order?.shippingMetadata?.zoneId,
         firstLine: order.address,
-        secondLine: order.area || "",
+        secondLine: order.landmark || "",
       },
       receiver: {
         firstName: order.customerName.split(" ")[0],

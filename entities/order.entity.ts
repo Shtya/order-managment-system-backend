@@ -352,10 +352,10 @@ export class OrderEntity {
 
   @Column({ type: "jsonb", nullable: true })
   shippingMetadata?: {
-    cityId?: string; //For Bosta
-    districtId?: string; //For Bosta
-    zoneId?: string; //For Bosta
-    locationId?: string; //For Bosta
+    cityId?: string;
+    districtId?: string;
+    zoneId?: string;
+    locationId?: string;
   };
 
   // Add this to your OrderEntity

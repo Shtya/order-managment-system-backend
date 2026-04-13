@@ -15,8 +15,10 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from "class-validator";
 import { PartialType } from "@nestjs/mapped-types";
@@ -226,6 +228,62 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
   @ValidateNested({ each: true })
   @Type(() => RemovedOrderItemDto)
   removedItems?: RemovedOrderItemDto[]; // Items explicitly removed
+}
+
+export class BulkUpdateShippingMetadataDto {
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
+  @IsOptional()
+  @IsString()
+  districtId?: string;
+
+  @IsOptional()
+  @IsString()
+  zoneId?: string;
+}
+
+export class BulkUpdateShippingFieldItemDto {
+  @Type(() => Number)
+  @IsNumber()
+  id: number;
+
+  @IsOptional()
+  @IsString()
+  customerName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(5, {
+    message: 'Address is too short. It must be at least 5 characters.',
+  })
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^01[0125][0-9]{8}$/, {
+    message:
+      "phoneNumber must be an Egyptian mobile number starting with 010, 011, 012, or 015 and contain 11 digits",
+  })
+  phoneNumber?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BulkUpdateShippingMetadataDto)
+  shippingMetadata?: BulkUpdateShippingMetadataDto;
+}
+
+export class BulkUpdateShippingFieldsDto {
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BulkUpdateShippingFieldItemDto)
+  items: BulkUpdateShippingFieldItemDto[];
 }
 
 // ✅ Change Order Status DTO
