@@ -8,13 +8,14 @@ import { StoreEntity } from '../../entities/stores.entity';
 import { WarehouseEntity } from '../../entities/warehouses.entity';
 import { SupplierEntity } from '../../entities/supplier.entity';
 import { ProductEntity, ProductVariantEntity } from '../../entities/sku.entity';
+import { CityEntity } from 'entities/cities.entity';
 
 @Module({
 	imports: [TypeOrmModule.forFeature([User, Role, Permission, CategoryEntity,
-		StoreEntity, 
-      ProductEntity,
-      ProductVariantEntity,
-      SupplierEntity,
+		StoreEntity, CityEntity,
+		ProductEntity,
+		ProductVariantEntity,
+		SupplierEntity,
 		WarehouseEntity,])],
 	controllers: [LookupsController],
 	providers: [LookupsService],
