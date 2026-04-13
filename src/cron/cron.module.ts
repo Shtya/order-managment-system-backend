@@ -3,6 +3,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PaymentSessionEntity } from 'entities/payments.entity';
 import { Subscription, UserFeature } from 'entities/plans.entity';
 import { ExpiryCronService } from './ExpiryCronService';
+import { OrphanFileEntity } from 'entities/files.entity';
+import { OrphanFilesCleanupCronService } from './orphan-files-cleanup.cron';
 
 @Module({
   imports: [
@@ -10,10 +12,11 @@ import { ExpiryCronService } from './ExpiryCronService';
     TypeOrmModule.forFeature([
       PaymentSessionEntity,
       Subscription,
-      UserFeature
+      UserFeature,
+      OrphanFileEntity,
     ]),
   ],
-  providers: [ExpiryCronService],
+  providers: [ExpiryCronService, OrphanFilesCleanupCronService],
   exports: [ExpiryCronService], // Export if you need it elsewhere, otherwise keep it private
 })
 export class CronModule { }

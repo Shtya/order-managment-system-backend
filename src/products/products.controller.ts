@@ -32,7 +32,7 @@ import {
 
 import { diskStorage } from "multer";
 import { extname } from "path";
-import { FileFieldsInterceptor, FilesInterceptor } from "@nestjs/platform-express";
+import { FileFieldsInterceptor, NoFilesInterceptor } from "@nestjs/platform-express";
 import { Response } from "express";
 
 const productsStorage = diskStorage({
@@ -200,8 +200,6 @@ export class ProductsController {
   @UseInterceptors(
     FileFieldsInterceptor(
       [
-        { name: "mainImage", maxCount: 1 },
-        { name: "images", maxCount: 20 },
         { name: "purchaseReceiptAsset", maxCount: 1 },
       ],
       multerOptions
@@ -211,8 +209,6 @@ export class ProductsController {
     @Req() req: any,
     @UploadedFiles()
     files: {
-      mainImage?: Express.Multer.File[];
-      images?: Express.Multer.File[];
       purchaseReceiptAsset?: Express.Multer.File[];
     },
     @Body() body: any
@@ -236,28 +232,20 @@ export class ProductsController {
       upsellingEnabled: parseBool(body.upsellingEnabled) ?? false,
       upsellingProducts: parseJsonField(body.upsellingProducts, []),
 
+      // images are now linked via orphan file ids
       mainImage: body.mainImage ?? null,
-      images: [],
+      mainImageOrphanId: parseNumber(body.mainImageOrphanId) as any,
+      imagesOrphanIds: parseJsonField(body.imagesOrphanIds, []),
+      images: parseJsonField(body.imagesMeta, []),
       combinations: parseJsonField(body.combinations, []),
       purchase: parseJsonField(body.purchase, undefined),
     } as any;
 
-    const main = files?.mainImage?.[0];
-    // const imgs = files?.images ?? [];
     const purchaseReceipt = files?.purchaseReceiptAsset?.[0];
 
-    if (main) {
-      dto.mainImage = `/uploads/products/${main.filename}`;
-    } else if (!dto.mainImage) {
-      throw new BadRequestException("mainImage is required");
+    if (!dto.mainImageOrphanId) {
+      throw new BadRequestException("mainImageOrphanId is required");
     }
-
-    // if (imgs.length) {
-    //   const uploaded = imgs.map((f) => ({
-    //     url: `/uploads/products/${f.filename}`,
-    //   }));
-    //   dto.images = [...(dto.images ?? []), ...uploaded];
-    // }
 
     if (purchaseReceipt && dto.purchase) {
       dto.purchase.receiptAsset = `/uploads/products/${purchaseReceipt.filename}`;
@@ -267,45 +255,11 @@ export class ProductsController {
   }
 
   @Permissions("products.update")
-  @Patch(":id/append-images")
-  @UseInterceptors(
-    FilesInterceptor("images", 3, multerOptions) // Max 3 images per request
-  )
-  async appendImages(
-    @Param("id") id: string,
-    @UploadedFiles() files: Express.Multer.File[],
-    @Req() req: any
-  ) {
-    if (!files || files.length === 0) {
-      throw new BadRequestException("No images provided");
-    }
-
-    const imageUrls = files.map(f => ({
-      url: `/uploads/products/${f.filename}`
-    }));
-
-    return this.products.appendProductImages(req.user, +id, imageUrls);
-  }
-
-  @Permissions("products.update")
+  @UseInterceptors(NoFilesInterceptor())
   @Patch(":id")
-  @UseInterceptors(
-    FileFieldsInterceptor(
-      [
-        { name: "mainImage", maxCount: 1 },
-        { name: "images", maxCount: 20 },
-      ],
-      multerOptions
-    )
-  )
   update(
     @Req() req: any,
     @Param("id") id: string,
-    @UploadedFiles()
-    files: {
-      mainImage?: Express.Multer.File[];
-      // images?: Express.Multer.File[];
-    },
     @Body() body: any
   ) {
     const dto: UpdateProductDto = {
@@ -340,25 +294,25 @@ export class ProductsController {
           ? parseJsonField(body.upsellingProducts, [])
           : undefined,
 
+      mainImageOrphanId:
+        body.mainImageOrphanId !== undefined
+          ? (parseNumber(body.mainImageOrphanId) as any)
+          : undefined,
+      imagesOrphanIds:
+        body.imagesOrphanIds !== undefined
+          ? parseJsonField(body.imagesOrphanIds, [])
+          : undefined,
+      imagesMeta:
+        body.imagesMeta !== undefined
+          ? parseJsonField(body.imagesMeta, [])
+          : undefined,
+
       // ✅ NEW
       removeImgs:
         body.
           removedImages !== undefined ? parseJsonField(body.
             removedImages, []) : undefined,
     } as any;
-
-    const main = files?.mainImage?.[0];
-    // const imgs = files?.images ?? [];
-
-    if (main) (dto as any).mainImage = `/uploads/products/${main.filename}`;
-
-    // if (imgs.length) {
-    //   const uploaded = imgs.map((f) => ({
-    //     url: `/uploads/products/${f.filename}`,
-    //   }));
-    //   (dto as any)._appendImages = uploaded;
-    // }
-
     return this.products.update(req.user, Number(id), dto);
   }
 

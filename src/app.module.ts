@@ -48,6 +48,7 @@ import { ExtraFeaturesModule } from './extra-features/extra-features.module';
 import { RedisModule } from "common/redis/redis.module";
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { AccountingModule } from './accounting/accounting.module';
+import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
 
 @Module({
 	imports: [
@@ -99,6 +100,7 @@ import { AccountingModule } from './accounting/accounting.module';
 		PaymentsModule,
 		WalletModule,
 		CronModule,
+		OrphanFilesModule,
 		ExtraFeaturesModule,
 		RedisModule,
 		AdminSettingsModule,

@@ -7,7 +7,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Notification, NotificationType } from "entities/notifications.entity";
 import { OrderRetrySettingsEntity } from "entities/order.entity";
 import { User } from "entities/user.entity";
-import { Brackets, Repository } from "typeorm";
+import { Brackets, EntityManager, Repository } from "typeorm";
 import { RedisService } from "common/redis/RedisService";
 
 @Injectable()
@@ -20,7 +20,7 @@ export class NotificationService {
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private redisService: RedisService,
-  ) {}
+  ) { }
   async list(me: any, q?: any) {
     const userId = me?.id; // Notifications are personal to the logged-in user
 
@@ -100,14 +100,15 @@ export class NotificationService {
     };
   }
 
-  private async getUserSettings(userId: number) {
+  private async getUserSettings(userId: number, manager: EntityManager = null) {
     const userCacheKey = `user_admin_id:${userId}`;
-    
+    const retrySettingsRepo = manager ? manager.getRepository(OrderRetrySettingsEntity) : this.retrySettingsRepo;
+    const userRepo = manager ? manager.getRepository(User) : this.userRepo;
     // 1. Get Admin ID (from cache or DB)
     let adminId = await this.redisService.get<string>(userCacheKey);
-    
+
     if (!adminId) {
-      const user = await this.userRepo.findOne({
+      const user = await userRepo.findOne({
         where: { id: userId },
         relations: ["role"],
       });
@@ -132,7 +133,7 @@ export class NotificationService {
     let settings = await this.redisService.get<OrderRetrySettingsEntity>(settingsCacheKey);
 
     if (!settings) {
-      settings = await this.retrySettingsRepo.findOneBy({ adminId });
+      settings = await retrySettingsRepo.findOneBy({ adminId });
       if (settings) {
         await this.redisService.set(settingsCacheKey, settings, 3600);
       }
@@ -176,9 +177,10 @@ export class NotificationService {
     message: string;
     relatedEntityType?: string;
     relatedEntityId?: string;
-  }) {
+  }, manager: EntityManager = null) {
     // Check user preferences
-    const settings = await this.getUserSettings(data.userId);
+    const notificationRepo = manager ? manager.getRepository(Notification) : this.notificationRepo;
+    const settings = await this.getUserSettings(data.userId, manager);
     if (settings) {
       const field = this.getSettingField(data.type);
       if (field && settings[field] === false) {
@@ -187,11 +189,11 @@ export class NotificationService {
       }
     }
 
-    const notification = this.notificationRepo.create({
+    const notification = notificationRepo.create({
       ...data,
       isRead: false,
     });
 
-    return this.notificationRepo.save(notification);
+    return notificationRepo.save(notification);
   }
 }
