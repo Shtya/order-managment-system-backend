@@ -477,6 +477,7 @@ export class ProductsService {
     const filters: Record<string, any> = {};
     const type = q?.type ?? "PRODUCT";
 
+      
     if (q?.categoryId && q?.categoryId != "none")
       filters.categoryId = q.categoryId;
 

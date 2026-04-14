@@ -100,7 +100,7 @@ export class SubscriptionsController {
   @Post("cancel/:id")
   cancelSubscription(
     @Req() req: any,
-    @Param("id", ParseIntPipe) subscriptionId: string,
+    @Param("id") subscriptionId: string,
   ) {
     return this.subscriptions.cancelSubscription(req.user, subscriptionId);
   }

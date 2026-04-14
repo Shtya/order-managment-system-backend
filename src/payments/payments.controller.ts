@@ -57,7 +57,7 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @Permissions("payments.read")
   async getPaymentSession(
-    @Param('id', ParseIntPipe) sessionId: string,
+    @Param('id') sessionId: string,
     @Req() req: any,
   ) {
 
