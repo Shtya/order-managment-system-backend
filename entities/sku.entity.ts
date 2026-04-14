@@ -15,6 +15,7 @@ import { StoreEntity } from "./stores.entity";
 import { WarehouseEntity } from "./warehouses.entity";
 import { CategoryEntity } from "./categories.entity";
 import { User } from "./user.entity";
+import { ActivatableEntity } from "./base.entity";
 
 export type Money = number;
 
@@ -32,18 +33,7 @@ export type UpsellingProduct = {
 @Index(["adminId", "name"])
 @Index(["adminId", "slug"])
 @Index(["adminId", "storeId", "slug"], { unique: true })
-export class ProductEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Index()
-  @Column({ type: 'uuid', nullable: true })
-  adminId: string;
-
-  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
-  @JoinColumn({ name: 'adminId' })
-  admin: User;
-
+export class ProductEntity extends ActivatableEntity {
   @Column({ type: "varchar", length: 200 })
   @Index()
   name!: string;
@@ -121,18 +111,7 @@ export class ProductEntity {
 @Entity({ name: "product_variants" })
 @Index(["adminId", "sku"], { unique: true, where: `"sku" IS NOT NULL` })
 @Index(["adminId", "productId", "key"], { unique: true })
-export class ProductVariantEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
-  @Index()
-  @Column({ type: 'uuid', nullable: true })
-  adminId: string;
-
-  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
-  @JoinColumn({ name: 'adminId' })
-  admin: User;
-
+export class ProductVariantEntity extends ActivatableEntity{
   @Column({ type: "int" })
   @Index()
   productId!: string;

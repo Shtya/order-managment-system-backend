@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import * as ExcelJS from 'exceljs';
-import { Repository, Brackets, SelectQueryBuilder } from 'typeorm';
-import { BadRequestException } from '@nestjs/common';
+import { Repository, Brackets, SelectQueryBuilder, ObjectLiteral, EntityManager, EntityTarget } from 'typeorm';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 export interface CustomPaginatedResponse<T> {
 	total_records: number;
@@ -19,6 +19,55 @@ type Paginated<T> = {
 };
 
 export class CRUD {
+	static async toggleStatus<T extends ObjectLiteral>(
+		manager: EntityManager,
+		entityClass: EntityTarget<T>,
+		id: string,
+		adminId: string,
+		status: boolean,
+		relationNames: string[] = []
+	): Promise<void> {
+
+		// Prepare the update payload
+		const updateData: any = {
+			isActive: status,
+			deactivatedAt: status ? null : new Date() // Reset to null if reactivated
+		};
+
+		// 1. Update the parent entity
+		const result = await manager.update(entityClass,
+			{ id, adminId } as any,
+			updateData
+		);
+
+		if (result.affected === 0) {
+			throw new NotFoundException('Entity not found or access denied');
+		}
+		
+		if (relationNames.length > 0) {
+			const entityMetadata = manager.connection.getMetadata(entityClass);
+			
+			const updatePromises = relationNames.map((relationName) => {
+				const relation = entityMetadata.findRelationWithPropertyPath(relationName);
+
+				if (relation) {
+					const TargetRelationEntity = relation.inverseEntityMetadata.target;		
+					
+					const foreignKeyName = relation.inverseRelation?.propertyName || `${entityMetadata.name.toLowerCase()}Id`;
+
+					return manager.update(
+						TargetRelationEntity,
+						{ [foreignKeyName]: id, adminId } as any,
+						updateData
+					);
+				}
+				return Promise.resolve(); 
+			});
+			
+			await Promise.all(updatePromises);
+		}
+	}
+
 	static async findAll<T>(
 		repository: Repository<T>,
 		entityName: string,
