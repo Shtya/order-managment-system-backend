@@ -192,12 +192,12 @@ export class ProductsService {
           `SUM(CASE WHEN status.code = :shipped THEN oi.quantity ELSE 0 END)`,
           'totalShipped'
         )
+        .where('oi.adminId = :adminId')
         .setParameters({
           adminId,
           delivered: OrderStatus.DELIVERED,
           shipped: OrderStatus.SHIPPED,
         })
-        .where('oi.adminId = :adminId')
         .getRawOne(),
     ]);
 
@@ -527,12 +527,13 @@ export class ProductsService {
       idleDate = new Date(q["created_at.lte"]);
     }
 
-    const qb = this.prodRepo
-      .createQueryBuilder("product")
-      .leftJoinAndSelect("product.category", "category")
-      .leftJoinAndSelect("product.store", "store")
-      .leftJoinAndSelect("product.warehouse", "warehouse")
-      .where("product.adminId = :adminId", { adminId });
+   const qb = this.prodRepo
+    .createQueryBuilder("product")
+    .leftJoinAndSelect("product.category", "category")
+    .leftJoinAndSelect("product.store", "store")
+    .leftJoinAndSelect("product.warehouse", "warehouse")
+    .where("product.adminId = :adminId", { adminId })
+    .andWhere("product.isActive = :isActive", { isActive: true });
 
     // Apply normal filters manually (since we use QueryBuilder now)
     if (filters.categoryId)
@@ -1100,24 +1101,17 @@ export class ProductsService {
   }
 
   async remove(me: any, id: string) {
-    // 1. Fetch the product first to get the image paths
-    const product = await this.get(me, id);
-
-    // 2. Perform the database deletion
-    const result = await CRUD.delete(this.prodRepo, "products", id);
-
-    // 3. If DB deletion was successful, clean up the files
-    if (result) {
-      const imagesToDelete = [
-        product.mainImage,
-        ...(product.images?.map(img => img.url) ?? [])
-      ].filter(Boolean); // Remove null/undefined
-
-      // Fire and forget deletion (or await if you want to ensure it finishes)
-      deletePhysicalFiles(imagesToDelete);
-    }
-
-    return result;
+    const adminId = tenantId(me);
+    return await this.dataSource.transaction(async (manager) => {
+        await CRUD.toggleStatus(
+            manager, 
+            ProductEntity, 
+            id, 
+            adminId, 
+            false, // Deactivate
+            ['variants'] 
+        );
+    });
   }
 
   async checkSlug(me: any, slug, storeId, productId) {

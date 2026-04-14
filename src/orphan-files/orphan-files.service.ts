@@ -17,19 +17,14 @@ export class OrphanFilesService {
     adminId: string,
     ids: number[],
   ) {
-    const cleanIds = (ids ?? [])
-      .map((x) => Number(x))
-      .filter((x) => Number.isFinite(x) && x > 0);
-
-    if (!cleanIds.length) return [];
 
     const repo = mgr.getRepository(OrphanFileEntity);
     const rows = await repo.find({
-      where: { adminId, id: In(cleanIds) } as any,
+      where: { adminId, id: In(ids) } as any,
       select: ["id", "url"],
     });
 
-    if (rows.length !== cleanIds.length) {
+    if (rows.length !== ids.length) {
       throw new BadRequestException("Some orphan files were not found");
     }
 

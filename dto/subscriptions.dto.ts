@@ -5,10 +5,10 @@ import { PlanDuration, SubscriptionStatus } from 'entities/plans.entity';
 
 
 export class CreateSubscriptionDto {
-    @IsInt()
+    @IsString()
     userId: string;
 
-    @IsInt()
+    @IsString()
     planId: string;
 
     @IsEnum(SubscriptionStatus)

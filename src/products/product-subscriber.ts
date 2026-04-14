@@ -36,6 +36,7 @@ export class ProductSubscriber implements EntitySubscriberInterface<ProductEntit
 
     async afterUpdate(event: UpdateEvent<ProductEntity>) {
         const entity = event.entity as ProductEntity;
+        if(!entity.isActive) return;
         if (entity.storeId) {
             await this.storesService.syncProductToStore(entity, event.databaseEntity?.slug);
         }
@@ -59,7 +60,7 @@ export class VariantSubscriber implements EntitySubscriberInterface<ProductVaria
 
     async afterInsert(event: InsertEvent<ProductVariantEntity>) {
         const variant = event.entity as ProductVariantEntity;
-
+        if(!variant.isActive) return;
         // We need the parent product to know which store to sync to
         const product = await event.manager.findOne(ProductEntity, {
             where: { id: variant.productId }
@@ -72,7 +73,7 @@ export class VariantSubscriber implements EntitySubscriberInterface<ProductVaria
 
     async afterUpdate(event: UpdateEvent<ProductVariantEntity>) {
         const variant = event.entity as ProductVariantEntity;
-
+        if(!variant.isActive) return;
         // 1. Identify what columns changed in this update
         const updatedColumns = event.updatedColumns.map(col => col.propertyName);
 

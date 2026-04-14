@@ -113,6 +113,7 @@ export class LookupsService {
 				'p.name AS "productName"'
 			])
 			.orderBy('v.id', 'DESC')
+			.andWhere("v.isActive = :isActive", { isActive: true })
 			.limit(fetchLimit + 1);
 
 		this.applyTenantScope(qb, 'v', me);
