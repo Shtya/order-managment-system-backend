@@ -61,21 +61,21 @@ export class PurchasesController {
 	@Permissions("purchases.read")
 	@Get(":id")
 	get(@Req() req: any, @Param("id") id: string) {
-		return this.svc.get(req.user, Number(id));
+		return this.svc.get(req.user, id);
 	}
 
 	// ✅ NEW: Audit logs for invoice
 	@Permissions("purchases.read")
 	@Get(":id/audit-logs")
 	auditLogs(@Req() req: any, @Param("id") id: string) {
-		return this.svc.getAuditLogs(req.user, Number(id));
+		return this.svc.getAuditLogs(req.user, id);
 	}
 
 	// ✅ NEW: Accept preview (what will happen on accept)
 	@Permissions("purchases.read")
 	@Get(":id/accept-preview")
 	acceptPreview(@Req() req: any, @Param("id") id: string) {
-		return this.svc.acceptPreview(req.user, Number(id));
+		return this.svc.acceptPreview(req.user, id);
 	}
 
 	@Permissions("purchases.create")
@@ -92,7 +92,7 @@ export class PurchasesController {
 		@Body() body: any
 	) {
 		const dto: CreatePurchaseDto = {
-			supplierId: Number(parseNumber(body.supplierId)),
+			supplierId: body.supplierId,
 			receiptNumber: body.receiptNumber,
 			safeId: body.safeId,
 			paidAmount:
@@ -130,9 +130,9 @@ export class PurchasesController {
 	) {
 		const dto: UpdatePurchaseDto = {
 			supplierId:
-				body.supplierId !== undefined ? Number(parseNumber(body.supplierId)) : undefined,
+				body.supplierId !== undefined ? body.supplierId : undefined,
 			receiptNumber: body.receiptNumber !== undefined ? body.receiptNumber : undefined,
-			safeId: body.safeId !== undefined ? Number(parseNumber(body.safeId)) : undefined,
+			safeId: body.safeId !== undefined ? body.safeId : undefined,
 			paidAmount:
 				body.paidAmount !== undefined ? Number(parseNumber(body.paidAmount)) : undefined,
 			notes: body.notes !== undefined ? body.notes : undefined,
@@ -145,24 +145,24 @@ export class PurchasesController {
 			dto.receiptAsset = `/uploads/purchases/${receiptFile.filename}`;
 		}
 
-		return this.svc.update(req.user, Number(id), dto, req.ip);
+		return this.svc.update(req.user, id, dto, req.ip);
 	}
 
 	@Permissions("purchases.update")
 	@Patch(":id/status")
 	updateStatus(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePurchaseStatusDto) {
-		return this.svc.updateStatus(req.user, Number(id), dto.status, req.ip);
+		return this.svc.updateStatus(req.user, id, dto.status, req.ip);
 	}
 
 	@Permissions("purchases.update")
 	@Patch(":id/paid-amount")
 	updatePaidAmount(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePaidAmountDto) {
-		return this.svc.updatePaidAmount(req.user, Number(id), dto, req.ip);
+		return this.svc.updatePaidAmount(req.user, id, dto, req.ip);
 	}
 
 	@Permissions("purchases.delete")
 	@Delete(":id")
 	remove(@Req() req: any, @Param("id") id: string) {
-		return this.svc.remove(req.user, Number(id), req.ip);
+		return this.svc.remove(req.user, id, req.ip);
 	}
 }

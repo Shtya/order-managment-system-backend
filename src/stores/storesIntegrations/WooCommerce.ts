@@ -170,7 +170,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         }
     }
 
-    private async updateCategory(category: CategoryEntity, store: StoreEntity, externalId: number) {
+    private async updateCategory(category: CategoryEntity, store: StoreEntity, externalId: string) {
         if (!externalId) {
             this.logCtxWarn(`[Category] Skipping update: No external ID provided for category ${category.name}`, store);
             return;
@@ -236,10 +236,10 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
     }
 
     private async syncWooVariations(
-        productId: number,
+        productId: string,
         variants: ProductVariantEntity[],
         store: StoreEntity,
-        attrMap?: Map<string, number>
+        attrMap?: Map<string, string>
     ) {
         this.logCtx(`[Variation] Sync started for product ${productId}`, store);
 
@@ -383,7 +383,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         }
     }
     // Ensure attribute exists globally and return its ID (create if missing)
-    private async getOrCreateWooAttribute(store: StoreEntity, attributeName: string): Promise<number> {
+    private async getOrCreateWooAttribute(store: StoreEntity, attributeName: string): Promise<string> {
         // 1) Try to find attribute by name (or slug)
         const searchResp = await this.sendRequest(store, {
             method: 'GET',
@@ -416,8 +416,8 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
     * Efficiently ensures all attributes and terms exist globally.
     * Returns a Map of Attribute Name -> Attribute ID.
     */
-    private async ensureAttributesForVariants(store: StoreEntity, variants: ProductVariantEntity[]): Promise<Map<string, number>> {
-        const attrMap = new Map<string, number>();
+    private async ensureAttributesForVariants(store: StoreEntity, variants: ProductVariantEntity[]): Promise<Map<string, string>> {
+        const attrMap = new Map<string, string>();
         const attrOptionsMap = new Map<string, Set<string>>();
 
         // 1. Collect all names and values from local variants
@@ -446,7 +446,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
     /**
      * Fetches all existing terms for an attribute and creates only the missing ones.
      */
-    private async syncAttributeTermsInBatch(store: StoreEntity, attributeId: number, neededOptions: string[]) {
+    private async syncAttributeTermsInBatch(store: StoreEntity, attributeId: string, neededOptions: string[]) {
         // Fetch existing terms (limit 100 for performance)
         const response = await this.sendRequest(store, {
             method: 'GET',
@@ -584,7 +584,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         product: ProductEntity,
         variants: ProductVariantEntity[],
         externalCategoryId?: string,
-        attrMap?: Map<string, number>,
+        attrMap?: Map<string, string>,
         store?: StoreEntity,
         bundledItemsData?: any[]
     ) {
@@ -646,16 +646,16 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         };
     }
 
-    protected async getUpsellIds(product: ProductEntity, store: StoreEntity): Promise<number[]> {
+    protected async getUpsellIds(product: ProductEntity, store: StoreEntity): Promise<string[]> {
         if (!product.upsellingProducts?.length) return [];
 
-        const upsellIds: number[] = [];
+        const upsellIds: string[] = [];
 
         for (const upsell of product.upsellingProducts) {
             if (!upsell.productId) continue;
 
             const localProduct = await this.productsRepo.findOne({
-                where: { id: Number(upsell.productId) },
+                where: { id: upsell.productId },
             });
 
             if (!localProduct) continue;
@@ -761,7 +761,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
             const batchPayload = {
                 update: [
                     {
-                        id: Number(order.externalId),
+                        id: order.externalId,
                         status: remoteStatus
                     }
                 ]
@@ -812,7 +812,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
     }
 
 
-    public async syncProduct({ productId, slug }: { productId: number, slug?: string }) {
+    public async syncProduct({ productId, slug }: { productId: string, slug?: string }) {
         const product = await this.productsRepo.findOne({
             where: { id: productId },
             relations: ['category', 'store']
@@ -978,7 +978,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
                         // If not found in variations nodes, we might need to fetch them
                         // But syncProduct already sets externalId
                         if (itemVariant.externalId) {
-                            bundledItem.variation_id = Number(itemVariant.externalId);
+                            bundledItem.variation_id = itemVariant.externalId;
                         }
                     }
                 }
@@ -1064,11 +1064,11 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         }
     }
 
-    private async syncCategoriesCursor(store: StoreEntity): Promise<Map<number, string>> {
+    private async syncCategoriesCursor(store: StoreEntity): Promise<Map<string, string>> {
         this.logCtx(`[Sync] Starting category synchronization (Individual API calls)`, store);
 
-        const categoryMap = new Map<number, string>();
-        let lastId = 0;
+        const categoryMap = new Map<string, string>();
+        let lastId = "";
         let hasMore = true;
         let stats = { processed: 0, created: 0, updated: 0 };
 
@@ -1127,10 +1127,10 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
     }
 
 
-    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<number, string>) {
+    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>) {
         this.logCtx(`[Sync] Starting product synchronization (Individual API calls)`, store);
 
-        let lastId = 0;
+        let lastId = "";
         let hasMore = true;
         let totalProcessed = 0;
         let totalCreated = 0;
@@ -1429,7 +1429,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         };
 
         // Map category: use first category if available
-        let localCategoryId: number | null = null;
+        let localCategoryId: string | null = null;
         if (remoteProduct.categories && remoteProduct.categories.length > 0) {
             const remoteCat = remoteProduct.categories[0];
             // Try to find or create local category by slug

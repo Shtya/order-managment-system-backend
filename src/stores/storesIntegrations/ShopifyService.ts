@@ -629,7 +629,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             if (!upsell.productId) continue;
 
             const localProduct = await this.productsRepo.findOne({
-                where: { id: Number(upsell.productId) },
+                where: { id: upsell.productId },
             });
 
             if (!localProduct) continue;
@@ -1080,7 +1080,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         this.logCtx(`[Sync] Starting category synchronization (batch size: 30)`, store);
 
         const categoryMap = new Map<number, string>();
-        let lastId = 0;
+        let lastId = "";
         let hasMore = true;
         let totalProcessed = 0;
 
@@ -1125,7 +1125,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     private async syncProductsCursor(store: StoreEntity) {
         this.logCtx(`[Sync] Starting product synchronization (batch size: 20)`, store);
 
-        let lastId = 0;
+        let lastId = "";
         let hasMore = true;
         let totalProcessed = 0;
         let totalErrors = 0;
@@ -1423,7 +1423,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
     }
 
-    public async syncProduct({ productId, slug }: { productId: number, slug?: string }) {
+    public async syncProduct({ productId, slug }: { productId: string, slug?: string }) {
         const product = await this.productsRepo.findOne({
             where: { id: productId },
             relations: ['category', 'store']
@@ -1887,7 +1887,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         };
 
         // Map category: use productType as category name if available
-        let localCategoryId: number | null = null;
+        let localCategoryId: string | null = null;
         const categoryName = remoteProduct.productType || 'Shopify';
         const categorySlug = remoteProduct.handle || remoteProduct.id;
         const categoryRepo = manager.getRepository(CategoryEntity);

@@ -3,8 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios from 'axios';
 import * as crypto from 'crypto';
-import { CheckoutOptions, CheckoutResponse, ParsedRedirectData, ParsedWebhookData, PaymentProvider, PaymentProviderEnum, PaymentSessionEntity, PaymentSessionResponse, PaymentSessionStatusEnum } from 'entities/payments.entity';
 import { User } from 'entities/user.entity';
+import { CheckoutOptions, CheckoutResponse, ParsedRedirectData, ParsedWebhookData, PaymentProvider, PaymentProviderEnum, PaymentSessionEntity, PaymentSessionResponse, PaymentSessionStatusEnum } from 'entities/payments.entity';
 import { Repository } from 'typeorm';
 import { stringify as querystringStringify } from 'querystring';
 
@@ -102,7 +102,7 @@ export class KashierProvider extends PaymentProvider {
 
             return { checkoutUrl, sessionId };
 
-        } catch (error) {
+        } catch (error: any) {
             // Log error and update session status to failed
             await this.sessionRepo.update(savedSession.id, {
                 metadata: { error: error.response?.data || error.message },

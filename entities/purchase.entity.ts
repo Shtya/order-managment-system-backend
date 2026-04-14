@@ -10,19 +10,24 @@ import { ApprovalStatus } from "common/enums";
 import { SupplierEntity } from "./supplier.entity";
 import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
 
+
 @Entity({ name: "purchase_invoices" })
 @Index(["adminId", "receiptNumber"], { unique: true })
 export class PurchaseInvoiceEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
 	@Index()
-	adminId!: string;
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
 
-	@Column({ type: "int", nullable: true })
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
+
+	@Column({ type: 'uuid', nullable: true })
 	@Index()
-	supplierId?: number | null;
+	supplierId?: string | null;
 
 	@ManyToOne(() => SupplierEntity, { nullable: true, eager: false })
 	@JoinColumn({ name: "supplierId" })
@@ -64,13 +69,13 @@ export class PurchaseInvoiceEntity {
 	@JoinColumn({ name: 'closingId' })
 	closing: Relation<SupplierClosingEntity>;
 	// used ot track lock
-	@Column({ nullable: true })
+	@Column({ type: 'uuid', nullable: true })
 	@Index()
-	closingId: number;
+	closingId: string;
 
 	// Add this to your OrderEntity
-	@Column({ nullable: true })
-	monthlyClosingId: number | null;
+	@Column({ type: 'uuid', nullable: true })
+	monthlyClosingId: string | null;
 
 	@ManyToOne(() => MonthlyClosingEntity)
 	@JoinColumn({ name: 'monthlyClosingId' })
@@ -89,30 +94,34 @@ export class PurchaseInvoiceEntity {
 @Entity({ name: "purchase_invoice_items" })
 @Index(["adminId", "invoiceId"])
 export class PurchaseInvoiceItemEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
 	@Index()
-	adminId!: string;
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
 
-	@Column({ type: "int" })
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
+
+	@Column({ type: 'uuid', })
 	@Index()
-	invoiceId!: number;
+	invoiceId!: string;
 
 	@ManyToOne(() => PurchaseInvoiceEntity, (x) => x.items, { onDelete: "CASCADE" })
 	@JoinColumn({ name: "invoiceId" })
 	invoice!: PurchaseInvoiceEntity;
 
-	@Column({ type: "int" })
+	@Column({ type: 'uuid', })
 	@Index()
-	variantId!: number;
+	variantId!: string;
 
 	@ManyToOne(() => ProductVariantEntity, { eager: true, onDelete: "RESTRICT" })
 	@JoinColumn({ name: "variantId" })
 	variant!: ProductVariantEntity;
 
-	@Column({ type: "int" })
+	@Column({ type: 'int' })
 	quantity!: number;
 
 	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
@@ -145,24 +154,28 @@ export enum PurchaseAuditAction {
 @Index(["adminId", "invoiceId"])
 @Index(["invoiceId", "created_at"])
 export class PurchaseAuditLogEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
 	@Index()
-	adminId!: string;
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
 
-	@Column({ type: "int" })
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
+
+	@Column({ type: 'uuid', })
 	@Index()
-	invoiceId!: number;
+	invoiceId!: string;
 
 	@ManyToOne(() => PurchaseInvoiceEntity, { onDelete: "CASCADE" })
 	@JoinColumn({ name: "invoiceId" })
 	invoice!: PurchaseInvoiceEntity;
 
-	@Column({ type: "int", nullable: true })
+	@Column({ type: 'uuid', nullable: true })
 	@Index()
-	userId?: number | null;
+	userId?: string | null;
 
 	@ManyToOne(() => User, { eager: true, nullable: true })
 	@JoinColumn({ name: "userId" })

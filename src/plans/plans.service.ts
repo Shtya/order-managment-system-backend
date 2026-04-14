@@ -54,7 +54,7 @@ export class PlansService {
 	}
 
 	// ✅ Get Single Plan
-	async get(me: User, id: number) {
+	async get(me: User, id: string) {
 		const plan = await this.plansRepo.findOne({ where: { id } });
 		if (!plan) throw new NotFoundException('Plan not found');
 
@@ -118,7 +118,7 @@ export class PlansService {
 	}
 	// ✅ Update Plan
 	// ✅ Update Plan
-	async update(me: User, id: number, dto: UpdatePlanDto) {
+	async update(me: User, id: string, dto: UpdatePlanDto) {
 		const plan = await this.get(me, id);
 
 		// 1. Authorization: Only Super Admin or the Plan Owner can update
@@ -165,7 +165,7 @@ export class PlansService {
 
 	// ✅ Delete Plan
 	// ✅ Delete Plan
-	async remove(me: User, id: number) {
+	async remove(me: User, id: string) {
 		const plan = await this.get(me, id);
 
 		// 1. Authorization Check: Only owner or super admin

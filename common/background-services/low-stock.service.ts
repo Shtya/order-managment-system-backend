@@ -61,7 +61,7 @@ export class LowStockService {
 
         // Send the notification using your standard method
         await this.notificationService.create({
-          userId: Number(adminId),
+          userId: adminId,
           type: NotificationType.LOW_STOCK_ALERT, // Make sure this enum value exists
           title: 'Low Stock Alert',
           message: message,

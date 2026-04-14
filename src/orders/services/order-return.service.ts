@@ -126,7 +126,7 @@ export class OrderReturnService {
             });
 
             await this.notificationService.create({
-                userId: Number(adminId),
+                userId: adminId,
                 type: NotificationType.RETURN_REQUEST_CREATED,
                 title: "Return Request Created",
                 message: `A return request has been created for order #${order.orderNumber}.`,

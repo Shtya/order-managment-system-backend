@@ -45,7 +45,7 @@ export class DashboardService {
   async getSummary(
     user,
     filters: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -134,7 +134,7 @@ export class DashboardService {
   async getTrends(
     user,
     filters: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -207,7 +207,7 @@ export class DashboardService {
   async getTopProducts(
     user,
     filters: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -293,7 +293,7 @@ export class DashboardService {
   async getProfitReport(
     user,
     filters: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -471,7 +471,7 @@ export class DashboardService {
 
     if (filters.storeId) {
       joinConditions += " AND o.storeId = :storeId";
-      joinParams.storeId = Number(filters.storeId);
+      joinParams.storeId = filters.storeId;
     }
     if (finalStartDate) {
       joinConditions += " AND o.created_at >= :startDate";
@@ -520,7 +520,7 @@ export class DashboardService {
 
     return stats.map((stat) => ({
       ...stat,
-      id: Number(stat.id),
+      id: stat.id,
       count: Number(stat.count) || 0,
       system: stat.system || stat.system,
     }));
@@ -529,7 +529,7 @@ export class DashboardService {
   async getOrdersTrends(
     user,
     filters: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -605,7 +605,7 @@ export class DashboardService {
   async getTopAreasReport(
     user,
     filters: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -792,7 +792,7 @@ export class DashboardService {
     }
 
     if (q?.storeId) {
-      qb.andWhere("o.storeId = :storeId", { storeId: Number(q.storeId) });
+      qb.andWhere("o.storeId = :storeId", { storeId: q.storeId });
     }
 
 
@@ -885,7 +885,7 @@ export class DashboardService {
       const outFailedRate = Number(row.outgoingFailedRate) || 0;
 
       return {
-        id: Number(row.id),
+        id: row.id,
         name: row.name,
         avatarUrl: row.avatarurl,
         isActive: row.isactive,
@@ -954,7 +954,7 @@ export class DashboardService {
       );
     }
     if (q?.storeId)
-      qb.andWhere("o.storeId = :storeId", { storeId: Number(q.storeId) });
+      qb.andWhere("o.storeId = :storeId", { storeId: q.storeId });
     const { start, end } = DateFilterUtil.getBoundaries(q.startDate, q.endDate);
     const startStr = start?.toISOString() || '';
     const endStr = end?.toISOString() || '';
@@ -1091,7 +1091,7 @@ export class DashboardService {
     const totalCountQb = this.dataSource.getRepository(OrderAssignmentEntity)
       .createQueryBuilder("oa")
       .leftJoin("oa.lastStatus", "status")
-      .where("oa.assignedByAdminId = :adminId", { adminId: Number(adminId) })
+      .where("oa.assignedByAdminId = :adminId", { adminId: adminId })
       .andWhere("status.code IN (:...codes)", { codes: targetCodes })
       .select(dynamicCountSql.replace("count", "totalCount"), "totalCount");
 
@@ -1127,7 +1127,7 @@ export class DashboardService {
     const totalCount = Number(totalRes?.totalCount || 0);
 
     const formattedStats = stats.map((stat) => ({
-      id: Number(stat.id),
+      id: stat.id,
       name: stat.name,
       code: stat.code,
       color: stat.color,

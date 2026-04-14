@@ -310,7 +310,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
     // usage of the `@shopify/shopify-api` client and provider-specific behavior.
     public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
-    public abstract syncProduct({ productId, slug }: { productId: number, slug?: string }): Promise<any>;
+    public abstract syncProduct({ productId, slug }: { productId: string, slug?: string }): Promise<any>;
     public abstract syncOrderStatus(order: OrderEntity)
     public abstract syncFullStore(store: StoreEntity)
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;

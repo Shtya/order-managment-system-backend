@@ -52,8 +52,8 @@ export enum OrderStatus {
 @Index(["adminId", "code"], { unique: true })
 @Index(["adminId", "name"], { unique: true })
 export class OrderStatusEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @Column({ type: "varchar", length: 50 })
   name: string; // e.g., "Ready for Pickup"
@@ -61,9 +61,13 @@ export class OrderStatusEntity {
   @Column({ type: "varchar", length: 50 })
   code: string; // as slug e.g., "ready-for-pickup"
 
-  @Column({ nullable: true })
   @Index()
-  adminId: string | null;
+  @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "text", nullable: true })
   description?: string;
@@ -132,10 +136,10 @@ export enum PaymentMethod {
 @Index(["adminId", "city", "area"])
 @Index(["adminId", "statusId", "rejectedAt"])
 export class OrderEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column({ type: "varchar", length: 255, nullable: true })
+  @Column({ nullable: true })
   externalId?: string | null;
 
   @Column({ type: "text", nullable: true })
@@ -151,19 +155,23 @@ export class OrderEntity {
   @JoinColumn({ name: "rejectedById" })
   rejectedBy?: User;
 
-  @Column({ nullable: true })
-  rejectedById?: number;
+  @Column({ type: 'uuid', nullable: true })
+  rejectedById?: string;
 
   @ManyToOne(() => User, { nullable: true })
-  @JoinColumn({ name: "rejectedById" })
+  @JoinColumn({ name: "returnedById" })
   returnedBy?: User;
 
-  @Column({ nullable: true })
-  returnedById?: number;
+  @Column({ type: 'uuid', nullable: true })
+  returnedById?: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "varchar", length: 100, unique: true })
   orderNumber!: string; // e.g., ORD-20250124-001
@@ -205,8 +213,8 @@ export class OrderEntity {
   @JoinColumn({ name: "statusId" })
   status: OrderStatusEntity;
 
-  @Column()
-  statusId: number;
+  @Column({type: 'uuid'})
+  statusId: string;
 
   // ✅ Payment Information
   @Column({
@@ -225,12 +233,12 @@ export class OrderEntity {
   @JoinColumn({ name: "shippingCompanyId" })
   shippingCompany?: ShippingCompanyEntity | null;
 
-  @Column({ type: "int", nullable: true })
-  shippingCompanyId?: number | null;
+  @Column({ type: 'uuid', nullable: true })
+  shippingCompanyId?: string | null;
 
-  @Column({ type: "int", nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  storeId?: number | null;
+  storeId?: string | null;
 
   @ManyToOne(() => StoreEntity, { nullable: true, onDelete: "SET NULL" })
   @JoinColumn({ name: "storeId" })
@@ -285,11 +293,11 @@ export class OrderEntity {
   statusHistory!: OrderStatusHistoryEntity[];
 
   // ✅ Metadata
-  @Column({ type: "int", nullable: true })
-  createdByUserId?: number;
+  @Column({ type: 'uuid',nullable: true })
+  createdByUserId?: string;
 
-  @Column({ type: "int", nullable: true })
-  updatedByUserId?: number;
+  @Column({ type: 'uuid',nullable: true })
+  updatedByUserId?: string;
 
   @OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.order)
   assignments: OrderAssignmentEntity[];
@@ -307,15 +315,15 @@ export class OrderEntity {
   allowOpenPackage: boolean;
 
   // Inside OrderEntity
-  @Column({ nullable: true })
-  lastReturnId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  lastReturnId?: string;
 
   @ManyToOne(() => ReturnRequestEntity, { nullable: true })
   @JoinColumn({ name: "lastReturnId" })
   lastReturn?: Relation<ReturnRequestEntity>;
 
-  @Column({ type: "int", nullable: true })
-  manifestId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  manifestId?: string;
 
   @ManyToOne(() => ShipmentManifestEntity, (manifest) => manifest.orders, {
     nullable: true,
@@ -359,8 +367,8 @@ export class OrderEntity {
   };
 
   // Add this to your OrderEntity
-  @Column({ nullable: true })
-  monthlyClosingId: number | null;
+  @Column({ type: 'uuid', nullable: true })
+  monthlyClosingId: string | null;
 
   @ManyToOne(() => MonthlyClosingEntity)
   @JoinColumn({ name: 'monthlyClosingId' })
@@ -371,24 +379,28 @@ export class OrderEntity {
 @Entity({ name: "order_items" })
 @Index(["adminId", "orderId"])
 export class OrderItemEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
+  adminId: string;
 
-  @Column({ type: "int" })
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({ type: 'uuid', })
   @Index()
-  orderId!: number;
+  orderId!: string;
 
   @ManyToOne(() => OrderEntity, (order) => order.items, { onDelete: "CASCADE" })
   @JoinColumn({ name: "orderId" })
   order!: OrderEntity;
 
-  @Column({ type: "int" })
+  @Column({ type: 'uuid', })
   @Index()
-  variantId!: number;
+  variantId!: string;
 
   @ManyToOne(() => ProductVariantEntity, { eager: true, onDelete: "RESTRICT" })
   @JoinColumn({ name: "variantId" })
@@ -440,22 +452,26 @@ export enum ScanReason {
 @Entity({ name: "order_scan_logs" })
 @Index(["adminId", "orderId", "phase"]) // Fast lookup for a specific order's audit trail
 export class OrderScanLogEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string; // Mandatory for multi-tenancy
+  @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
+  adminId: string;
 
-  @Column({ type: "int" })
-  orderId!: number;
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({ type: 'uuid', })
+  orderId!: string;
 
   @ManyToOne(() => OrderEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "orderId" })
   order!: OrderEntity;
 
-  @Column({ type: "int", nullable: true })
-  userId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  userId?: string;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: "userId" })
@@ -490,16 +506,20 @@ export class OrderScanLogEntity {
 @Index(["adminId", "orderId"])
 @Index(["orderId", "created_at"])
 export class OrderStatusHistoryEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
+  adminId: string;
 
-  @Column({ type: "int" })
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({ type: 'uuid' })
   @Index()
-  orderId!: number;
+  orderId!: string;
 
   @ManyToOne(() => OrderEntity, (order) => order.statusHistory, {
     onDelete: "CASCADE",
@@ -511,18 +531,18 @@ export class OrderStatusHistoryEntity {
   @JoinColumn({ name: "fromStatusId" })
   fromStatus: OrderStatusEntity;
 
-  @Column()
-  fromStatusId: number;
+  @Column({type: 'uuid'})
+  fromStatusId: string;
 
   @ManyToOne(() => OrderStatusEntity)
   @JoinColumn({ name: "toStatusId" })
   toStatus: OrderStatusEntity;
 
-  @Column()
-  toStatusId: number;
+  @Column({type: 'uuid',})
+  toStatusId: string;
 
-  @Column({ type: "int", nullable: true })
-  changedByUserId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  changedByUserId?: string;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: "changedByUserId" })
@@ -532,8 +552,8 @@ export class OrderStatusHistoryEntity {
   @JoinColumn({ name: "shippingCompanyId" })
   shippingCompany?: ShippingCompanyEntity;
 
-  @Column({ type: "int", nullable: true })
-  shippingCompanyId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  shippingCompanyId?: string;
 
   @Column({ type: "text", nullable: true })
   notes?: string;
@@ -549,16 +569,20 @@ export class OrderStatusHistoryEntity {
 @Entity({ name: "order_messages" })
 @Index(["adminId", "orderId"])
 export class OrderMessageEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
 
-  @Column({ type: "int" })
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({ type: 'uuid', })
   @Index()
-  orderId!: number;
+  orderId!: string;
 
   @ManyToOne(() => OrderEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "orderId" })
@@ -567,8 +591,8 @@ export class OrderMessageEntity {
   @Column({ type: "varchar", length: 50 })
   senderType!: "admin" | "customer"; // who sent the message
 
-  @Column({ type: "int", nullable: true })
-  senderUserId?: number; // if admin sent
+  @Column({ type: 'uuid', nullable: true })
+  senderUserId?: string; // if admin sent
 
   @Column({ type: "text" })
   message!: string;
@@ -592,12 +616,16 @@ export enum StockDeductionStrategy {
 
 @Entity({ name: "order_retry_settings" })
 export class OrderRetrySettingsEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
-  @Index({ unique: true }) // One setting record per admin
-  adminId!: string;
+  @Index()
+  @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "boolean", default: true })
   enabled: boolean;
@@ -673,14 +701,14 @@ export class OrderRetrySettingsEntity {
     },
   })
   shipping: {
-    shippingCompanyId: number | null;
+    shippingCompanyId: string | null;
     triggerStatus: string | null;
     notifyOnShipment: boolean; //
     autoGenerateLabel: boolean;
     partialPaymentThreshold: number;
     requireFullPayment: boolean;
     autoShipAfterWarehouse: boolean;
-    warehouseDefaultShippingCompanyId: number | null;
+    warehouseDefaultShippingCompanyId: string | null;
   };
 
   @UpdateDateColumn()
@@ -690,32 +718,32 @@ export class OrderRetrySettingsEntity {
 @Entity("order_assignments")
 @Index(["orderId", "isAssignmentActive"]) // Fast lookup to see if an order is "taken"
 export class OrderAssignmentEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
-  orderId: number;
+  @Column({type: 'uuid',})
+  orderId: string;
 
   @ManyToOne(() => OrderEntity)
   @JoinColumn({ name: "orderId" })
   order: OrderEntity;
 
-  @Column()
-  employeeId: number;
+  @Column({type: 'uuid',})
+  employeeId: string;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: "employeeId" })
   employee: User;
 
-  @Column()
-  assignedByAdminId: number;
+  @Column({type: 'uuid',})
+  assignedByAdminId: string;
 
   @ManyToOne(() => OrderStatusEntity, { eager: true, nullable: true })
   @JoinColumn({ name: "lastStatusId" })
   lastStatus: OrderStatusEntity;
 
-  @Column({ nullable: true })
-  lastStatusId: number;
+  @Column({ type: 'uuid', nullable: true })
+  lastStatusId: string;
 
   // ✅ Tracking the Work
   @Column({ type: "int", default: 0 })
@@ -744,8 +772,8 @@ export class OrderAssignmentEntity {
 
 @Entity({ name: "order_replacements" })
 export class OrderReplacementEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   // Reasons
 
@@ -765,23 +793,23 @@ export class OrderReplacementEntity {
   @JoinColumn({ name: "originalOrderId" })
   originalOrder: OrderEntity;
 
-  @Column()
-  originalOrderId: number;
+  @Column({type: 'uuid',})
+  originalOrderId: string;
 
   // Replacement order
   @OneToOne(() => OrderEntity)
   @JoinColumn({ name: "replacementOrderId" })
   replacementOrder: OrderEntity;
 
-  @Column()
-  replacementOrderId: number;
+  @Column({type: 'uuid',})
+  replacementOrderId: string;
 
   @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
   @JoinColumn({ name: "shippingCompanyId" })
   shippingCompany: ShippingCompanyEntity;
 
-  @Column({ nullable: true })
-  shippingCompanyId: number;
+  @Column({ type: 'uuid', nullable: true })
+  shippingCompanyId: string;
 
   @OneToMany(() => OrderReplacementItemEntity, (item) => item.replacement, {
     cascade: true,
@@ -794,23 +822,23 @@ export class OrderReplacementEntity {
 
 @Entity({ name: "order_replacement_items" })
 export class OrderReplacementItemEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
   @ManyToOne(() => OrderReplacementEntity, (replacement) => replacement.items)
   @JoinColumn({ name: "replacementId" })
   replacement: OrderReplacementEntity;
 
-  @Column()
-  replacementId: number;
+  @Column({type: 'uuid',})
+  replacementId: string;
 
   // Connection to the specific item being replaced from the original order
   @ManyToOne(() => OrderItemEntity)
   @JoinColumn({ name: "originalOrderItemId" })
   originalOrderItem: OrderItemEntity;
 
-  @Column()
-  originalOrderItemId: number;
+  @Column({type: 'uuid',})
+  originalOrderItemId: string;
 
   @Column({ type: "int" })
   quantityToReplace: number;
@@ -820,7 +848,7 @@ export class OrderReplacementItemEntity {
   @JoinColumn({ name: "newVariantId" })
   newVariant: ProductVariantEntity;
   @Column()
-  newVariantId: number;
+  newVariantId: string;
 }
 
 export enum ShipmentManifestType {
@@ -830,11 +858,16 @@ export enum ShipmentManifestType {
 @Index(["adminId", "type"])
 @Entity({ name: "shipment_manifests" })
 export class ShipmentManifestEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
   adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({
     type: "enum",
@@ -846,8 +879,8 @@ export class ShipmentManifestEntity {
   @Column({ unique: true })
   manifestNumber: string; // e.g., MAN-2026-0001
 
-  @Column({ type: "int", nullable: true })
-  changedByUserId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  changedByUserId?: string;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: "changedByUserId" })
@@ -857,8 +890,8 @@ export class ShipmentManifestEntity {
   @JoinColumn({ name: "shippingCompanyId" })
   shippingCompany?: ShippingCompanyEntity;
 
-  @Column({ type: "int", nullable: true })
-  shippingCompanyId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  shippingCompanyId?: string;
 
   @Column({ nullable: true })
   driverName: string;
@@ -899,36 +932,40 @@ export enum OrderActionResult {
 
 @Entity({ name: "order_action_logs" })
 export class OrderActionLogEntity {
-  @PrimaryGeneratedColumn()
-  id: number; // This is your Operation Number
+  @PrimaryGeneratedColumn('uuid')
+  id: string; // This is your Operation Number
 
   @Index()
   @Column({ unique: true })
   operationNumber: string; // ✅ Human-readable ID: OP-20260318-0001
 
-  @Column()
   @Index()
+  @Column({ type: 'uuid', nullable: true })
   adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "enum", enum: OrderActionType })
   actionType: OrderActionType; // Operation Type
 
-  @Column({ type: "int" })
-  orderId: number;
+  @Column({ type: 'uuid', })
+  orderId: string;
 
   @ManyToOne(() => OrderEntity)
   @JoinColumn({ name: "orderId" })
   order: OrderEntity;
 
-  @Column({ type: "int", nullable: true })
-  shippingCompanyId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  shippingCompanyId?: string;
 
   @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
   @JoinColumn({ name: "shippingCompanyId" })
   shippingCompany?: ShippingCompanyEntity;
 
-  @Column({ type: "int", nullable: true })
-  userId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  userId?: string;
 
   @ManyToOne(() => User, { nullable: true })
   @JoinColumn({ name: "userId" })
@@ -951,21 +988,26 @@ export class OrderActionLogEntity {
 @Index(["adminId", "orderId"])
 @Entity("order_returns")
 export class ReturnRequestEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
   adminId: string;
 
-  @Column()
-  orderId: number;
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({type: 'uuid',})
+  orderId: string;
 
   @ManyToOne(() => OrderEntity)
   @JoinColumn({ name: "orderId" })
   order: OrderEntity;
 
-  @Column()
-  userId: number; // User who created the request (Staff/Admin)
+  @Column({type: 'uuid',})
+  userId: string; // User who created the request (Staff/Admin)
 
   @Column({ nullable: true })
   reason: string;
@@ -981,24 +1023,24 @@ export class ReturnRequestEntity {
 
 @Entity("order_return_items")
 export class ReturnRequestItemEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
-  returnRequestId: number;
+  @Column({type: 'uuid',})
+  returnRequestId: string;
 
   @ManyToOne(() => ReturnRequestEntity, (req) => req.items)
   returnRequest: ReturnRequestEntity;
 
-  @Column()
-  originalOrderItemId: number;
+  @Column({type: 'uuid',})
+  originalOrderItemId: string;
 
   @ManyToOne(() => OrderItemEntity)
   @JoinColumn({ name: "originalOrderItemId" })
   originalItem: OrderItemEntity;
 
-  @Column()
-  returnedVariantId: number; // The actual variant received
+  @Column({type: 'uuid',})
+  returnedVariantId: string; // The actual variant received
 
   @ManyToOne(() => ProductVariantEntity)
   @JoinColumn({ name: "returnedVariantId" })

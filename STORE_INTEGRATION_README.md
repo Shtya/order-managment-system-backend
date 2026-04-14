@@ -78,8 +78,8 @@ Each integration is isolated and has unique:
 @Index(["adminId", "name"])
 @Index(["adminId", "isActive"])
 export class StoreEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	Id: string;
 
 	// Tenant ownership
 	@Column({ nullable: true })
@@ -150,11 +150,11 @@ export class StoreEntity {
 @Entity({ name: "store_sync_logs" })
 @Index(["storeId", "created_at"])
 export class StoreSyncLogEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  Id: string;
 
   @Column()
-  storeId!: number;
+  storeId!: string;
 
   @ManyToOne(() => StoreEntity)
   @JoinColumn({ name: "storeId" })
@@ -189,11 +189,11 @@ export class StoreSyncLogEntity {
 @Entity({ name: "webhook_events" })
 @Index(["storeId", "created_at"])
 export class WebhookEventEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  Id: string;
 
   @Column()
-  storeId!: number;
+  storeId!: string;
 
   @ManyToOne(() => StoreEntity)
   @JoinColumn({ name: "storeId" })

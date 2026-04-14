@@ -17,7 +17,7 @@ export class WarehousesService {
 
 
 	async list(me: any, q?: any) {
- 		return CRUD.findAll(
+		return CRUD.findAll(
 			this.whRepo,
 			"warehouses",
 			q?.search,
@@ -37,14 +37,14 @@ export class WarehousesService {
 		);
 	}
 
-	async get(me: any, id: number) {
+	async get(me: any, id: string) {
 		const adminId = tenantId(me);
 		const entity = await CRUD.findOne(this.whRepo, "warehouses", id, ["manager"]);
 		if ((entity as any).adminId !== adminId) throw new ForbiddenException("Not allowed");
 		return entity;
 	}
 
-	private async validateManager(me: any, managerUserId?: number | null) {
+	private async validateManager(me: any, managerUserId?: string | null) {
 		if (managerUserId == null) return null;
 
 		const adminId = tenantId(me);
@@ -72,7 +72,7 @@ export class WarehousesService {
 		return this.whRepo.save(wh);
 	}
 
-	async update(me: any, id: number, dto: UpdateWarehouseDto) {
+	async update(me: any, id: string, dto: UpdateWarehouseDto) {
 		const wh = await this.get(me, id);
 		const manager = await this.validateManager(me, dto.managerUserId);
 
@@ -88,7 +88,7 @@ export class WarehousesService {
 		return this.whRepo.save(wh as any);
 	}
 
-	async remove(me: any, id: number) {
+	async remove(me: any, id: string) {
 		await this.get(me, id);
 		return CRUD.delete(this.whRepo, "warehouses", id);
 	}

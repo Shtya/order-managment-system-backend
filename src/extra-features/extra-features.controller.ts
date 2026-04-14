@@ -36,7 +36,7 @@ export class ExtraFeaturesController {
   @Post('purchase-addon')
   async purchaseAddon(
     @Req() req: any,
-    @Body('featureId', ParseIntPipe) featureId: number
+    @Body('featureId', ParseIntPipe) featureId: string
   ) {
 
     return this.extraFeaturesService.purchaseFeature(req.user, featureId);;
@@ -46,7 +46,7 @@ export class ExtraFeaturesController {
   @Patch('features/:id')
   async updateFeature(
     @Req() req: any,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIntPipe) id: string,
     @Body() dto: UpdateFeatureDto
   ) {
     return await this.extraFeaturesService.updateFeature(req.user, id, dto);

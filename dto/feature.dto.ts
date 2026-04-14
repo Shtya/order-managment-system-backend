@@ -17,11 +17,11 @@ export class UpdateFeatureDto {
 }
 
 export class AssignUserFeatureDto {
-    @IsNumber()
-    userId: number;
+    @IsString()
+    userId: string;
 
-    @IsNumber()
-    featureId: number;
+    @IsString()
+    featureId: string;
 
     @IsEnum(SubscriptionStatus)
     @IsOptional()

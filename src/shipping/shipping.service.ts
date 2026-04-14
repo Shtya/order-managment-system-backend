@@ -77,7 +77,7 @@ export class ShippingService {
 		// per-admin integrations
 		const integrations = await this.integrationsRepo.find({ where: { adminId } });
 
-		const integByCompanyId = new Map<number, ShippingIntegrationEntity>();
+		const integByCompanyId = new Map<string, ShippingIntegrationEntity>();
 		for (const integ of integrations) integByCompanyId.set(integ.shippingCompanyId, integ);
 
 		const result = companies.map((company) => {
@@ -171,7 +171,7 @@ export class ShippingService {
 	}
 
 
-	private async getOrCreateIntegration(adminId: string, companyId: number) {
+	private async getOrCreateIntegration(adminId: string, companyId: string) {
 		let integ = await this.integrationsRepo.findOne({ where: { adminId, shippingCompanyId: companyId } });
 		if (!integ) {
 			integ = await this.integrationsRepo.save(
@@ -186,7 +186,7 @@ export class ShippingService {
 		return integ;
 	}
 
-	private async requireApiKey(adminId: string, provider: string): Promise<{ apiKey: string; companyId: number; integId: number, integ: ShippingIntegrationEntity }> {
+	private async requireApiKey(adminId: string, provider: string): Promise<{ apiKey: string; companyId: string; integId: string, integ: ShippingIntegrationEntity }> {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
 		const integ = await this.getOrCreateIntegration(adminId, company.id);
 
@@ -287,7 +287,7 @@ export class ShippingService {
 		return { ok: true, provider: p.code, capabilities: caps };
 	}
 
-	// async getAreas(adminId: string, provider: string, countryId: number) {
+	// async getAreas(adminId: string, provider: string, countryId: string) {
 	// 	const p = this.getProvider(provider);
 	// 	await this.requireApiKey(adminId, provider);
 	// 	const areas = await p.getAreas(countryId);
@@ -348,7 +348,7 @@ export class ShippingService {
 		};
 	}
 
-	async createShipment(me, provider: ProviderCode | 'none', dto: CreateShipmentDto, orderId: number
+	async createShipment(me, provider: ProviderCode | 'none', dto: CreateShipmentDto, orderId: string
 		, options: { emitSocket?: boolean } = { emitSocket: true }) {
 		const adminId = tenantId(me);
 		const userId = me?.id;
@@ -387,7 +387,7 @@ export class ShippingService {
 			if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
 				try {
 					await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
-				} catch (e) {
+				} catch (e: any) {
 					const errorMessage = `Failed to auto-cancel previous shipment ${prevShipment.id}: ${e?.response?.message || e?.response?.data?.message || e.message}`;
 					console.warn(errorMessage);
 					await this.ordersService.logOrderAction({
@@ -554,7 +554,7 @@ export class ShippingService {
 			}
 
 			await this.notificationService.create({
-				userId: Number(adminId),
+				userId: adminId,
 				type: NotificationType.SHIPMENT_CREATED,
 				title: isNoneProvider ? "Order Distributed" : "Shipment Created",
 				message: isNoneProvider
@@ -565,7 +565,7 @@ export class ShippingService {
 			});
 
 			return result;
-		} catch (error) {
+		} catch (error: any) {
 			if (options.emitSocket !== false) {
 				this.appGateway.emitShipmentStatus(adminId, {
 					orderId,
@@ -578,7 +578,7 @@ export class ShippingService {
 		}
 	}
 
-	async cancelShipment(me, provider: string, shipmentId: number) {
+	async cancelShipment(me, provider: string, shipmentId: string) {
 		const adminId = tenantId(me);
 		const p = this.getProvider(provider);
 		const { apiKey } = await this.requireApiKey(adminId, provider);
@@ -623,7 +623,7 @@ export class ShippingService {
 				};
 
 				await this.notificationService.create({
-					userId: Number(adminId),
+					userId: adminId,
 					type: NotificationType.SHIPMENT_CANCELLED,
 					title: "Shipment Cancelled",
 					message: `Shipment for order #${shipment.order.orderNumber} has been cancelled and stock has been restored.`,
@@ -643,7 +643,7 @@ export class ShippingService {
 	}
 
 	// Remains direct for speed
-	async assignOrder(me: any, orderId: number, dto: AssignOrderDto, provider?: ProviderCode | 'none') {
+	async assignOrder(me: any, orderId: string, dto: AssignOrderDto, provider?: ProviderCode | 'none') {
 		const adminId = tenantId(me);
 		return this.createShipment(me, provider, dto, orderId, { emitSocket: false });
 	}
@@ -673,7 +673,7 @@ export class ShippingService {
 		};
 	}
 
-	async getShipment(adminId: string, id: number) {
+	async getShipment(adminId: string, id: string) {
 		const s = await this.shipmentsRepo.findOne({ where: { id, adminId } });
 		if (!s) throw new BadRequestException('Shipment not found');
 
@@ -691,7 +691,7 @@ export class ShippingService {
 		};
 	}
 
-	async getShipmentEvents(adminId: string, id: number) {
+	async getShipmentEvents(adminId: string, id: string) {
 		const s = await this.shipmentsRepo.findOne({ where: { id, adminId } });
 		if (!s) throw new BadRequestException('Shipment not found');
 

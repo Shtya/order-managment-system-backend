@@ -39,8 +39,7 @@ export class CreateSupplierDto {
 	email?: string;
 
 	@IsArray()
-	@IsNumber({}, { each: true })
-	categoryIds: number[];
+	categoryIds: string[];
 }
 
 export class UpdateSupplierDto {
@@ -86,7 +85,7 @@ export class UpdateSupplierDto {
 	@IsOptional()
 	@IsArray()
 	@IsNumber({}, { each: true })
-	categoryIds?: number[];
+	categoryIds?: string[];
 }
 
 export class UpdateSupplierFinancialsDto {

@@ -169,7 +169,7 @@ export class UsersController {
 	@Permissions('users.read')
 	@Get(':id')
 	get(@Req() req: any, @Param('id') id: string) {
-		return this.users.get(req.user, Number(id));
+		return this.users.get(req.user, id);
 	}
 
 	// ✅ Admin creates account and can see credentials
@@ -227,34 +227,34 @@ export class UsersController {
 	@Permissions('users.update') // أو اعمل permission جديدة users.toggle_active
 	@Patch(':id/toggle-active')
 	toggleActive(@Req() req: any, @Param('id') id: string) {
-		return this.users.toggleActive(req.user, Number(id));
+		return this.users.toggleActive(req.user, id);
 	}
 
 
 	@Permissions('users.update')
 	@Patch(':id')
 	update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateUserDto) {
-		return this.users.update(req.user, Number(id), dto as any);
+		return this.users.update(req.user, id, dto as any);
 	}
 
 	@Permissions('users.deactivate')
 	@Post(':id/deactivate')
 	deactivate(@Req() req: any, @Param('id') id: string) {
-		return this.users.deactivate(req.user, Number(id));
+		return this.users.deactivate(req.user, id);
 	}
 
 	// ✅ Admin reset password for his user and view it
 	@Permissions('users.view_credentials')
 	@Post(':id/reset-password')
 	resetPassword(@Req() req: any, @Param('id') id: string, @Body() body: { newPassword?: string }) {
-		return this.users.adminResetPassword(req.user, Number(id), body?.newPassword);
+		return this.users.adminResetPassword(req.user, id, body?.newPassword);
 	}
 
 
 	@Permissions('users.delete') // أو users.delete
 	@Delete(':id')
 	remove(@Req() req: any, @Param('id') id: string) {
-		return this.users.remove(req.user, Number(id));
+		return this.users.remove(req.user, id);
 	}
 
 }

@@ -22,7 +22,7 @@ export class WarehousesController {
 	@Permissions("warehouses.read")
 	@Get(":id")
 	get(@Req() req: any, @Param("id") id: string) {
-		return this.wh.get(req.user, Number(id));
+		return this.wh.get(req.user, id);
 	}
 
 	@Permissions("warehouses.create")
@@ -34,12 +34,12 @@ export class WarehousesController {
 	@Permissions("warehouses.update")
 	@Patch(":id")
 	update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateWarehouseDto) {
-		return this.wh.update(req.user, Number(id), dto);
+		return this.wh.update(req.user, id, dto);
 	}
 
 	@Permissions("warehouses.delete")
 	@Delete(":id")
 	remove(@Req() req: any, @Param("id") id: string) {
-		return this.wh.remove(req.user, Number(id));
+		return this.wh.remove(req.user, id);
 	}
 }

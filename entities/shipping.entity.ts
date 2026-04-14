@@ -11,6 +11,7 @@ import {
 	OneToMany,
 } from 'typeorm';
 import { OrderEntity } from './order.entity';
+import { User } from './user.entity';
 
 export enum ShipmentStatus {
 	CREATED = 'created',
@@ -42,8 +43,8 @@ export enum UnifiedShippingStatus {
 
 @Entity({ name: "shipping_companies" })
 export class ShippingCompanyEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column({ type: "varchar", length: 50 })
 	@Index()
@@ -85,16 +86,20 @@ export class ShippingCompanyEntity {
 @Entity({ name: 'shipping_integrations' })
 @Index(['adminId', 'shippingCompanyId'], { unique: true })
 export class ShippingIntegrationEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
 	@Index()
+	@Column({ type: 'uuid', nullable: true })
 	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	@Column({ type: 'int' })
 	@Index()
-	shippingCompanyId: number;
+	shippingCompanyId: string;
 
 	@ManyToOne(() => ShippingCompanyEntity, { onDelete: 'CASCADE', eager: true })
 	@JoinColumn({ name: 'shippingCompanyId' })
@@ -124,24 +129,28 @@ export class ShippingIntegrationEntity {
 @Index(['adminId', 'shippingCompanyId'])
 @Index(['trackingNumber'])
 export class ShipmentEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
 	@Index()
+	@Column({ type: 'uuid', nullable: true })
 	adminId: string;
 
-	@Column({ type: 'int', nullable: false })
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
+
+	@Column({ type: 'uuid', nullable: false })
 	@Index()
-	orderId: number;
+	orderId: string;
 
 	@ManyToOne(() => OrderEntity, { nullable: false, onDelete: 'SET NULL' })
 	@JoinColumn({ name: 'orderId' })
 	order: OrderEntity;
 
-	@Column({ type: 'int' })
+	@Column({ type: 'uuid', })
 	@Index()
-	shippingCompanyId: number;
+	shippingCompanyId: string;
 
 	@ManyToOne(() => ShippingCompanyEntity, { eager: true })
 	@JoinColumn({ name: 'shippingCompanyId' })
@@ -175,12 +184,12 @@ export class ShipmentEntity {
 @Entity({ name: 'shipment_events' })
 @Index(['shipmentId', 'created_at'])
 export class ShipmentEventEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ type: 'int' })
+	@Column({ type: 'uuid', })
 	@Index()
-	shipmentId: number;
+	shipmentId: string;
 
 	@ManyToOne(() => ShipmentEntity, { onDelete: 'CASCADE' })
 	@JoinColumn({ name: 'shipmentId' })

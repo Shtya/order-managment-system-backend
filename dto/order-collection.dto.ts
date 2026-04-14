@@ -3,16 +3,16 @@ import { IsNumber, IsString, IsOptional, IsNotEmpty, Min, IsEnum, IsInt } from '
 import { PaymentSource } from 'entities/order-collection.entity';
 
 export class CreateOrderCollectionDto {
-    @IsNumber()
+    @IsString()
     @IsNotEmpty()
-    orderId: number;
+    orderId: string;
 
     @IsNumber()
     @Min(0.01, { message: 'Amount must be greater than 0' })
     amount: number;
 
-    @IsInt()
-    shippingCompanyId: number;
+    @IsString()
+    shippingCompanyId: string;
 
     @IsEnum(PaymentSource)
     source: PaymentSource;

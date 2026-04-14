@@ -33,7 +33,7 @@ export class SupplierCategoriesService {
     );
   }
 
-  async get(me: any, id: number) {
+  async get(me: any, id: string) {
     const adminId = tenantId(me);
     const entity = await CRUD.findOne(this.categoryRepo, "supplier_categories", id, []);
     return entity;
@@ -61,7 +61,7 @@ export class SupplierCategoriesService {
     return this.categoryRepo.save(category);
   }
 
-  async update(me: any, id: number, dto: UpdateSupplierCategoryDto) {
+  async update(me: any, id: string, dto: UpdateSupplierCategoryDto) {
     const category = await this.get(me, id);
     const adminId = tenantId(me);
 
@@ -84,7 +84,7 @@ export class SupplierCategoriesService {
     return this.categoryRepo.save(category);
   }
 
-  async remove(me: any, id: number) {
+  async remove(me: any, id: string) {
     await this.get(me, id);
     return CRUD.delete(this.categoryRepo, "supplier_categories", id);
   }

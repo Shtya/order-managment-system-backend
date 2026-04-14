@@ -111,7 +111,7 @@ export class CollectionService {
             await manager.save(order);
 
             await this.notificationService.create({
-                userId: Number(adminId),
+                userId: adminId,
                 type: NotificationType.COLLECTION_CREATED,
                 title: "New Collection Added",
                 message: `A collection of ${dto.amount} ${collection.currency} has been added to order #${order.orderNumber}.`,
@@ -145,7 +145,7 @@ export class CollectionService {
 
         // --- 1. Filter by Shipping Company (From Order Entity) ---
         if (q?.shippingCompanyId) {
-            qb.andWhere("order.shippingCompanyId = :shippingId", { shippingId: Number(q.shippingCompanyId) });
+            qb.andWhere("order.shippingCompanyId = :shippingId", { shippingId: q.shippingCompanyId });
         }
 
         // --- 2. Collection Status Logic ---
@@ -247,7 +247,7 @@ export class CollectionService {
             .where("order.adminId = :adminId", { adminId });
 
         // تطبيق نفس فلاتر البحث والشركة والحالة...
-        if (q?.shippingCompanyId) qb.andWhere("order.shippingCompanyId = :shippingId", { shippingId: Number(q.shippingCompanyId) });
+        if (q?.shippingCompanyId) qb.andWhere("order.shippingCompanyId = :shippingId", { shippingId: q.shippingCompanyId });
         if (search) {
             qb.andWhere(new Brackets(sq => {
                 sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` }).orWhere("order.customerName ILIKE :s", { s: `%${search}%` });

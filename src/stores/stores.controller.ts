@@ -18,7 +18,7 @@ export class StoresController {
   @Permissions("stores.update") // Requires update permissions
   @Post(":id/sync")
   async syncStore(@Req() req: any, @Param("id") id: string) {
-    return this.storesService.manualSync(req.user, Number(id));
+    return this.storesService.manualSync(req.user, id);
   }
 
   @Permissions("stores.read")
@@ -42,7 +42,7 @@ export class StoresController {
     @Req() req: any,
     @Param("id") id: string,
   ) {
-    return this.storesService.queueRetryFailedOrder(req.user, Number(id));
+    return this.storesService.queueRetryFailedOrder(req.user, id);
   }
 
   // Failed orders statistics
@@ -92,7 +92,7 @@ export class StoresController {
   @Permissions("stores.read")
   @Get(":id")
   async get(@Req() req: any, @Param("id") id: string) {
-    return this.storesService.get(req.user, Number(id));
+    return this.storesService.get(req.user, id);
   }
 
 
@@ -105,13 +105,13 @@ export class StoresController {
   @Permissions("stores.update")
   @Patch(":id")
   async update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateStoreDto) {
-    return this.storesService.update(req.user, Number(id), dto);
+    return this.storesService.update(req.user, id, dto);
   }
 
   @Permissions("stores.update")
   @Post(":id/regenerate-secrets")
   async regenerateSecrets(@Req() req: any, @Param("id") id: string) {
-    return this.storesService.regenerateWebhookSecrets(req.user, Number(id));
+    return this.storesService.regenerateWebhookSecrets(req.user, id);
   }
   // @Permissions("stores.read")
   // @Get("check-code/:code")
@@ -123,7 +123,7 @@ export class StoresController {
   @Permissions("stores.delete")
   @Delete(":id")
   async remove(@Req() req: any, @Param("id") id: string) {
-    return this.storesService.remove(req.user, Number(id));
+    return this.storesService.remove(req.user, id);
   }
 
 

@@ -7,7 +7,6 @@ import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { FirebaseService } from './firebase.service';
 import { MailService } from '../../common/nodemailer';
-import { Response } from 'express';
 import { RegisterDto } from 'dto/auth.dto';
 import { SubscriptionStatus } from 'entities/plans.entity';
 import { UsersService } from 'src/users/users.service';
@@ -272,7 +271,7 @@ export class AuthService {
 
 	// auth.service.ts
 
-	async resendEmailChangeOtp(userId: number) {
+	async resendEmailChangeOtp(userId: string) {
 		const user = await this.usersRepo.findOne({ where: { id: userId } });
 
 		if (!user || !user.pendingNewEmail) {
@@ -475,7 +474,7 @@ export class AuthService {
 		return result;
 	}
 
-	async changePasswordByOldPassword(userId: number, oldPassword: string, newPassword: string) {
+	async changePasswordByOldPassword(userId: string, oldPassword: string, newPassword: string) {
 		const user = await this.usersRepo.findOne({ where: { id: userId } });
 		if (!user) throw new NotFoundException('User not found');
 
@@ -495,7 +494,7 @@ export class AuthService {
 	}
 
 	// Step 1: Request Email Change
-	async requestEmailChange(userId: number, newEmail: string) {
+	async requestEmailChange(userId: string, newEmail: string) {
 		// 1. Check if the new email is already used by another account
 		const emailExists = await this.usersRepo.findOne({ where: { email: newEmail } });
 		if (emailExists) throw new ConflictException('Email is already in use by another account');
@@ -524,7 +523,7 @@ export class AuthService {
 	}
 
 	// Step 2: Verify OTP and apply Email Change
-	async verifyEmailChange(userId: number, otp: string) {
+	async verifyEmailChange(userId: string, otp: string) {
 
 		const user = await this.usersService.getFullUser(userId)
 

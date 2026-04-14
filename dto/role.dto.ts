@@ -8,7 +8,7 @@ export class CreateRoleDto {
 	@IsArray()
 	permissionNames?: string[];
 
-	@IsOptional() adminId?: number;
+	@IsOptional() adminId?: string;
 	@IsOptional() global?: boolean
 
 }

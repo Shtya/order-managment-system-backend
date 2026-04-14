@@ -69,7 +69,7 @@ export class ExpensesController {
   }))
   async update(
     @Req() req: any,
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIntPipe) id: string,
     @Body() dto: UpdateManualExpenseDto,
     @UploadedFile(
       new ParseFilePipe({
@@ -89,7 +89,7 @@ export class ExpensesController {
   @Delete(':id')
   async remove(
     @Req() req: any,
-    @Param('id', ParseIntPipe) id: number
+    @Param('id', ParseIntPipe) id: string
   ) {
     return await this.expensesService.deleteExpense(req.user, id);
   }

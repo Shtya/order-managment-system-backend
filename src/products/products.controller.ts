@@ -129,20 +129,14 @@ export class ProductsController {
     @Query("productId") productId?: string, // يأتي كـ string من الـ URL
   ) {
 
-    const parsedStoreId = storeId ? Number(storeId) : undefined;
 
-    // إذا فشل التحويل (مثلاً أرسل المستخدم نصاً بدلاً من رقم)
-    if (storeId && isNaN(parsedStoreId)) {
-      throw new BadRequestException("Invalid storeId format");
-    }
-
-    return this.products.checkSlug(req.user, slug, parsedStoreId, productId);
+    return this.products.checkSlug(req.user, slug, storeId, productId);
   }
 
   @Permissions("products.delete")
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
-    return this.products.remove(req.user, Number(id));
+    return this.products.remove(req.user, id);
   }
 
   @Permissions("products.read")
@@ -160,13 +154,13 @@ export class ProductsController {
   @Permissions("products.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.products.get(req.user, Number(id));
+    return this.products.get(req.user, id);
   }
 
   @Permissions("products.read")
   @Get(":id/skus")
   getSkus(@Req() req: any, @Param("id") id: string) {
-    return this.products.getSkus(req.user, Number(id));
+    return this.products.getSkus(req.user, id);
   }
 
   @Permissions("products.update")
@@ -176,7 +170,7 @@ export class ProductsController {
     @Param("id") id: string,
     @Body() body: UpsertProductSkusDto
   ) {
-    return this.products.upsertSkus(req.user, Number(id), body);
+    return this.products.upsertSkus(req.user, id, body);
   }
 
   @Permissions("products.update")
@@ -189,8 +183,8 @@ export class ProductsController {
   ) {
     return this.products.adjustVariantStock(
       req.user,
-      Number(id),
-      Number(variantId),
+      id,
+      variantId,
       body
     );
   }
@@ -222,9 +216,9 @@ export class ProductsController {
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack ?? null,
 
-      categoryId: parseNumber(body.categoryId) as any,
-      storeId: parseNumber(body.storeId) as any,
-      warehouseId: parseNumber(body.warehouseId) as any,
+      categoryId: body.categoryId as any,
+      storeId: body.storeId as any,
+      warehouseId: body.warehouseId as any,
 
       description: body.description ?? null,
       callCenterProductDescription: body.callCenterProductDescription ?? null,
@@ -234,7 +228,7 @@ export class ProductsController {
 
       // images are now linked via orphan file ids
       mainImage: body.mainImage ?? null,
-      mainImageOrphanId: parseNumber(body.mainImageOrphanId) as any,
+      mainImageOrphanId: body.mainImageOrphanId as any,
       imagesOrphanIds: parseJsonField(body.imagesOrphanIds, []),
       images: parseJsonField(body.imagesMeta, []),
       combinations: parseJsonField(body.combinations, []),
@@ -272,13 +266,13 @@ export class ProductsController {
 
       categoryId:
         body.categoryId !== undefined
-          ? (parseNumber(body.categoryId) as any)
+          ? (body.categoryId as any)
           : undefined,
       storeId:
-        body.storeId !== undefined ? (parseNumber(body.storeId) as any) : undefined,
+        body.storeId !== undefined ? (body.storeId as any) : undefined,
       warehouseId:
         body.warehouseId !== undefined
-          ? (parseNumber(body.warehouseId) as any)
+          ? (body.warehouseId as any)
           : undefined,
 
       description: body.description,
@@ -296,7 +290,7 @@ export class ProductsController {
 
       mainImageOrphanId:
         body.mainImageOrphanId !== undefined
-          ? (parseNumber(body.mainImageOrphanId) as any)
+          ? (body.mainImageOrphanId as any)
           : undefined,
       imagesOrphanIds:
         body.imagesOrphanIds !== undefined
@@ -313,7 +307,7 @@ export class ProductsController {
           removedImages !== undefined ? parseJsonField(body.
             removedImages, []) : undefined,
     } as any;
-    return this.products.update(req.user, Number(id), dto);
+    return this.products.update(req.user, id, dto);
   }
 
 

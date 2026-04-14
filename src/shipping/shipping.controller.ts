@@ -81,7 +81,7 @@ export class ShippingController {
 	@Permissions("shipping-companies.update")
 	@Post('providers/:provider/orders/:orderId/assign')
 	assign(@Req() req: any, @Param('orderId') orderId: string, @Body() dto: AssignOrderDto, @Param('provider') provider?: ProviderCode | 'none',) {
-		return this.shipping.assignOrder(req.user, Number(orderId), dto, provider);
+		return this.shipping.assignOrder(req.user, orderId, dto, provider);
 	}
 
 	@Permissions("shipping-companies.update")
@@ -103,13 +103,13 @@ export class ShippingController {
 	@Permissions("shipping-companies.read")
 	@Get('shipments/:id')
 	get(@Req() req: any, @Param('id') id: string) {
-		return this.shipping.getShipment(req.user.id, Number(id));
+		return this.shipping.getShipment(req.user.id, id);
 	}
 
 	@UseGuards(JwtAuthGuard)
 	@Get('shipments/:id/events')
 	events(@Req() req: any, @Param('id') id: string) {
-		return this.shipping.getShipmentEvents(req.user.id, Number(id));
+		return this.shipping.getShipmentEvents(req.user.id, id);
 	}
 
 	@UseGuards(JwtAuthGuard)

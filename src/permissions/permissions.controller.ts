@@ -27,6 +27,6 @@ export class PermissionsController {
 	@Permissions('permissions.delete')
 	@Delete(':id')
 	remove(@Param('id') id: string) {
-		return this.perms.remove(Number(id));
+		return this.perms.remove(id);
 	}
 }

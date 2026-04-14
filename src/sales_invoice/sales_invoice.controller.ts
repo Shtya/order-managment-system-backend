@@ -5,7 +5,7 @@ import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
 import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
- import {
+import {
   CreateSalesInvoiceDto,
   UpdateSalesInvoiceDto,
   UpdateSalesPaymentStatusDto,
@@ -16,7 +16,7 @@ import { SalesInvoicesService } from "./sales_invoice.service";
 @Controller("sales-invoices")
 @RequireSubscription()
 export class SalesInvoicesController {
-  constructor(private svc: SalesInvoicesService) {}
+  constructor(private svc: SalesInvoicesService) { }
 
   // ✅ for dashboard cards
   @Permissions("sales_invoices.read")
@@ -34,7 +34,7 @@ export class SalesInvoicesController {
   @Permissions("sales_invoices.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.svc.get(req.user, Number(id));
+    return this.svc.get(req.user, id);
   }
 
   @Permissions("sales_invoices.create")
@@ -46,18 +46,18 @@ export class SalesInvoicesController {
   @Permissions("sales_invoices.update")
   @Patch(":id")
   update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateSalesInvoiceDto) {
-    return this.svc.update(req.user, Number(id), dto);
+    return this.svc.update(req.user, id, dto);
   }
 
   @Permissions("sales_invoices.update")
   @Patch(":id/payment-status")
   updatePaymentStatus(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateSalesPaymentStatusDto) {
-    return this.svc.updatePaymentStatus(req.user, Number(id), dto.paymentStatus);
+    return this.svc.updatePaymentStatus(req.user, id, dto.paymentStatus);
   }
 
   @Permissions("sales_invoices.delete")
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
-    return this.svc.remove(req.user, Number(id));
+    return this.svc.remove(req.user, id);
   }
 }

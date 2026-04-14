@@ -17,12 +17,16 @@ export type WarehouseStatus = "active" | "inactive";
 @Entity({ name: "warehouses" })
 @Index(["adminId", "name"])
 export class WarehouseEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ nullable: true })
 	@Index()
-	adminId!: string | null;
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	@Column({ type: "varchar", length: 120, nullable: true })
 	name: string;

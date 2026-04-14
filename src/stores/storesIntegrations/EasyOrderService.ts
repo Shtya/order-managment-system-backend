@@ -253,11 +253,11 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
  * Sync Categories: Fetch 30 by 30 using ID as cursor
  */
-    private async syncCategoriesCursor(store: StoreEntity): Promise<Map<number, string>> {
+    private async syncCategoriesCursor(store: StoreEntity): Promise<Map<string, string>> {
         this.logCtx(`[Sync] Starting category synchronization (batch size: 30)`, store);
 
-        const categoryMap = new Map<number, string>();
-        let lastId = 0;
+        const categoryMap = new Map<string, string>();
+        let lastId = "";
         let hasMore = true;
         let totalProcessed = 0;
         let totalCreated = 0;
@@ -314,7 +314,7 @@ export class EasyOrderService extends BaseStoreProvider {
         return categoryMap;
     }
 
-    public async syncExternalCategory(user: any, remoteCategory: any, manager?: EntityManager): Promise<number | null> {
+    public async syncExternalCategory(user: any, remoteCategory: any, manager?: EntityManager): Promise<string | null> {
         if (!remoteCategory || !remoteCategory.slug) return null;
 
         // Check if category exists locally by slug
@@ -595,10 +595,10 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Sync Products: Fetch 20 by 20 with Variants
      */
-    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<number, string>) {
+    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>) {
         this.logCtx(`[Sync] Starting product synchronization (batch size: 20)`, store);
 
-        let lastId = 0;
+        let lastId = "";
         let hasMore = true;
         let totalProcessed = 0;
         let totalCreated = 0;
@@ -894,7 +894,7 @@ export class EasyOrderService extends BaseStoreProvider {
     // ===========================================================================
     // MAIN ENTRY POINTS FOR SYNC
     // ===========================================================================
-    public async syncProduct({ productId, slug }: { productId: number, slug?: string }) {
+    public async syncProduct({ productId, slug }: { productId: string, slug?: string }) {
         const product = await this.productsRepo.findOne({
             where: { id: productId },
             relations: ['category', 'store']
@@ -1202,7 +1202,7 @@ export class EasyOrderService extends BaseStoreProvider {
 
             // If we get a 200-299 status, the key is valid
             return response.status >= 200 && response.status < 300;
-        } catch (error) {
+        } catch (error: any) {
             // If the error is 401 (Unauthorized) or 403 (Forbidden), the credentials are wrong
             if (error.response?.status === 401 || error.response?.status === 403) {
                 return false;

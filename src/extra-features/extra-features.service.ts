@@ -45,7 +45,7 @@ export class ExtraFeaturesService {
     }
 
     // ✅
-    async purchaseFeature(user: User, featureId: number) {
+    async purchaseFeature(user: User, featureId: string) {
         return await this.dataSource.transaction(async (manager) => {
             const userData = await manager.findOne(User, {
                 where: { id: user.id },
@@ -204,7 +204,7 @@ export class ExtraFeaturesService {
         return await workbook.xlsx.writeBuffer();
     }
 
-    async updateFeature(me: any, featureId: number, dto: UpdateFeatureDto) {
+    async updateFeature(me: any, featureId: string, dto: UpdateFeatureDto) {
         if (!this.isSuperAdmin(me)) {
             throw new ForbiddenException('You do not have permission');
         }
@@ -290,7 +290,7 @@ export class ExtraFeaturesService {
             await manager.save(transaction);
 
             await this.notificationService.create({
-                userId: Number(user.adminId || me.id),
+                userId: user.adminId || me.id,
                 type: NotificationType.EXTRA_FEATURE_ASSIGNED,
                 title: "Extra Feature Assigned",
                 message: `Feature "${feature.name}" has been assigned to user ${user.name || user.email}.`,

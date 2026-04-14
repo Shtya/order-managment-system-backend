@@ -18,8 +18,8 @@ export class CreateWarehouseDto {
 
   // ✅ relation to user
   @IsOptional()
-  @IsInt()
-  managerUserId?: number | null;
+@IsString()
+  managerUserId?: string | null;
 
   @IsOptional()
   @IsBoolean()
@@ -45,7 +45,7 @@ export class UpdateWarehouseDto {
 
   @IsOptional()
   @IsInt()
-  managerUserId?: number | null;
+  managerUserId?: string | null;
 
   @IsOptional()
   @IsBoolean()

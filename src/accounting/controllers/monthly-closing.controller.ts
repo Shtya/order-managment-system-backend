@@ -21,7 +21,7 @@ export class MonthlyClosingController {
     @Req() req: any,
     @Res() res: Response,
     @Query() query: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -59,7 +59,7 @@ export class MonthlyClosingController {
     return await this.monthlyService.getMonthStats(req.user);
   }
   @Get(':id')
-  async getOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+  async getOne(@Req() req: any, @Param('id', ParseIntPipe) id: string) {
     return await this.monthlyService.getClosing(req.user, id);
   }
 }

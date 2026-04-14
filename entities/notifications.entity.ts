@@ -38,16 +38,16 @@ export enum NotificationType {
 @Index(['userId', 'type', 'isRead'])
 @Index(['userId', 'isRead'])
 export class Notification {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
     // The actual relation
     @ManyToOne(() => User, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'user_id' })
     user: User;
 
-    @Column({ name: 'user_id' })
-    userId: number;
+    @Column({ type: 'uuid',name: 'user_id' })
+    userId: string;
 
     @Column({
         type: 'enum',
@@ -67,7 +67,7 @@ export class Notification {
     @Column({ name: 'related_entity_type', nullable: true })
     relatedEntityType: string;
 
-    @Column({ name: 'related_entity_id', nullable: true })
+    @Column({ type: 'uuid',name: 'related_entity_id', nullable: true })
     relatedEntityId: string;
 
     @CreateDateColumn()

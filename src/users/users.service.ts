@@ -11,6 +11,7 @@ import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { tenantId } from 'src/category/category.service';
 
+
 @Injectable()
 export class UsersService {
 	constructor(
@@ -30,7 +31,7 @@ export class UsersService {
 	}
 
 
-	async getFullUser(userId: number): Promise<User> {
+	async getFullUser(userId: string): Promise<User> {
 		const user = await this.usersRepo.createQueryBuilder('user')
 			// Join Role
 			.leftJoinAndSelect('user.role', 'role')
@@ -164,7 +165,7 @@ export class UsersService {
 		if (active === 'false') qb.andWhere('u.isActive = false');
 
 		// adminId filter
-		if (adminId) qb.andWhere('u.adminId = :adminId', { adminId: Number(adminId) });
+		if (adminId) qb.andWhere('u.adminId = :adminId', { adminId: adminId });
 
 		// search
 		if (search) {
@@ -219,7 +220,7 @@ export class UsersService {
 		if (tab === 'inactive') qbStats.andWhere('u.isActive = false');
 		if (active === 'true') qbStats.andWhere('u.isActive = true');
 		if (active === 'false') qbStats.andWhere('u.isActive = false');
-		if (adminId) qbStats.andWhere('u.adminId = :adminId', { adminId: Number(adminId) });
+		if (adminId) qbStats.andWhere('u.adminId = :adminId', { adminId: adminId });
 		if (search) qbStats.andWhere('(u.name LIKE :q OR u.email LIKE :q)', { q: `%${search}%` });
 		if (roleContains) qbStats.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
 
@@ -268,7 +269,7 @@ export class UsersService {
 		if (active === 'true') qb.andWhere('u.isActive = true');
 		if (active === 'false') qb.andWhere('u.isActive = false');
 
-		if (adminId) qb.andWhere('u.adminId = :adminId', { adminId: Number(adminId) });
+		if (adminId) qb.andWhere('u.adminId = :adminId', { adminId: adminId });
 
 		if (search) qb.andWhere('(u.name LIKE :q OR u.email LIKE :q)', { q: `%${search}%` });
 		if (roleContains) qb.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
@@ -381,7 +382,7 @@ export class UsersService {
 
 				const filePath = join(process.cwd(), old);
 				await unlink(filePath);
-			} catch (err) {
+			} catch (err: any) {
 				// Log error but don't stop the process if one file is already missing
 				console.error(`Failed to delete file at ${old}:`, err.message);
 			}
@@ -597,7 +598,7 @@ export class UsersService {
 			},
 		};
 	}
-	async toggleActive(me: User, id: number) {
+	async toggleActive(me: User, id: string) {
 		const user = await this.get(me, id);
 		this.ensureAdminOwnership(me, user);
 
@@ -653,7 +654,7 @@ export class UsersService {
 		};
 	}
 
-	async remove(me: User, id: number) {
+	async remove(me: User, id: string) {
 		const user = await this.get(me, id);
 		this.ensureAdminOwnership(me, user);
 
@@ -668,7 +669,7 @@ export class UsersService {
 
 
 	// ✅ UPDATED: Include plan relation
-	async get(me: User, id: number) {
+	async get(me: User, id: string) {
 		const user = await this.getFullUser(id)
 
 		if (!user) throw new NotFoundException('User not found');
@@ -684,7 +685,7 @@ export class UsersService {
 
 		return user;
 	}
-	async getMe(id: number) {
+	async getMe(id: string) {
 		const user = await this.getFullUser(id)
 
 		if (!user) throw new NotFoundException('User not found');
@@ -701,7 +702,7 @@ export class UsersService {
 		me: User,
 		name: string,
 		email: string,
-		roleId: number,
+		roleId: string,
 		password?: string,
 	) {
 		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
@@ -768,7 +769,7 @@ export class UsersService {
 		me: User,
 		name: string,
 		email: string,
-		roleId: number,
+		roleId: string,
 		password?: string,
 		phone?: string,        // ✅ NEW
 		employeeType?: string, // ✅ NEW
@@ -832,7 +833,7 @@ export class UsersService {
 	}
 
 	// ✅ UPDATED: Handle planId in updates
-	async update(me: User, id: number, patch: UpdateUserDto) {
+	async update(me: User, id: string, patch: UpdateUserDto) {
 		const user = await this.get(me, id);
 
 		if (!this.isSuperAdmin(me) && user.role?.name === SystemRole.SUPER_ADMIN) {
@@ -879,13 +880,13 @@ export class UsersService {
 		return await this.getFullUser(saved.id)
 	}
 
-	async deactivate(me: User, id: number) {
+	async deactivate(me: User, id: string) {
 		const user = await this.get(me, id);
 		user.isActive = false;
 		return this.usersRepo.save(user);
 	}
 
-	async adminResetPassword(me: User, id: number, newPassword?: string) {
+	async adminResetPassword(me: User, id: string, newPassword?: string) {
 		const user = await this.get(me, id);
 		this.ensureAdminOwnership(me, user);
 
@@ -900,7 +901,7 @@ export class UsersService {
 		};
 	}
 
-	async processNextOnboardingStep(userId: number, me: any) {
+	async processNextOnboardingStep(userId: string, me: any) {
 		if (me.role?.name !== 'admin') {
 			throw new ForbiddenException('Only admins can complete onboarding');
 		}

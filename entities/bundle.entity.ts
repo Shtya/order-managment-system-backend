@@ -11,17 +11,22 @@ import {
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
 import { StoreEntity } from "./stores.entity";
+import { User } from "./user.entity";
 
 @Entity({ name: "bundles" })
 @Index(["adminId", "sku"], { unique: true })
 @Index(["adminId", "name"])
 export class BundleEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
 	@Index()
-	adminId!: string;
+	@Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
+	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	@Column({ type: "varchar", length: 200 })
 	name!: string;
@@ -42,17 +47,17 @@ export class BundleEntity {
 	@OneToMany(() => BundleItemEntity, (it) => it.bundle, { cascade: ["insert", "update"] })
 	items!: BundleItemEntity[];
 
-	@Column({ type: "int", nullable: true })
+	@Column({ type: 'uuid', nullable: true })
 	@Index()
-	variantId!: number;
+	variantId!: string;
 
 	@ManyToOne(() => ProductVariantEntity, { nullable: true })
 	@JoinColumn({ name: "variantId" })
 	variant!: ProductVariantEntity;
 
-	@Column({ type: "int", nullable: true })
+	@Column({ type: 'uuid', nullable: true })
 	@Index()
-	storeId?: number | null;
+	storeId?: string | null;
 
 	@ManyToOne(() => StoreEntity, { nullable: true, onDelete: "SET NULL" })
 	@JoinColumn({ name: "storeId" })
@@ -62,24 +67,28 @@ export class BundleEntity {
 @Entity({ name: "bundle_items" })
 @Index(["adminId", "bundleId"])
 export class BundleItemEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
 	@Index()
-	adminId!: string;
+	@Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
+	adminId: string;
 
-	@Column({ type: "int" })
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
+
+	@Column({ type: 'uuid', })
 	@Index()
-	bundleId!: number;
+	bundleId!: string;
 
 	@ManyToOne(() => BundleEntity, (b) => b.items)
 	@JoinColumn({ name: "bundleId" })
 	bundle!: BundleEntity;
 
-	@Column({ type: "int" })
+	@Column({ type: 'uuid', })
 	@Index()
-	variantId!: number;
+	variantId!: string;
 
 	@ManyToOne(() => ProductVariantEntity)
 	@JoinColumn({ name: "variantId" })

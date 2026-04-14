@@ -33,7 +33,7 @@ export class CategoriesController {
   @Permissions("categories.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.cats.get(req.user, Number(id));
+    return this.cats.get(req.user, id);
   }
 
   @Permissions("categories.create")
@@ -45,13 +45,13 @@ export class CategoriesController {
   @Permissions("categories.update")
   @Patch(":id")
   update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateCategoryDto) {
-    return this.cats.update(req.user, Number(id), dto);
+    return this.cats.update(req.user, id, dto);
   }
 
   @Permissions("categories.delete")
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
-    return this.cats.remove(req.user, Number(id));
+    return this.cats.remove(req.user, id);
   }
 
 }

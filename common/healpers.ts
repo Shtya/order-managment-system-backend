@@ -1,9 +1,8 @@
 
 import { endOfDay, endOfMonth, startOfDay, startOfMonth, startOfWeek, startOfYear, subDays, subMonths } from 'date-fns';
 import { PlanDuration } from 'entities/plans.entity';
-import { existsSync } from 'fs';
-
 import { unlink } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
 
 export function calculateRange(range?: string): { start?: Date; end?: Date } {
@@ -45,7 +44,7 @@ export async function deletePhysicalFiles(urls: string[]) {
         try {
             const filePath = join(process.cwd(), url);
             await unlink(filePath);
-        } catch (err) {
+        } catch (err: any) {
             // Log error but don't crash; the DB record is already gone
             console.error(`Cleanup failed for ${url}:`, err.message);
         }

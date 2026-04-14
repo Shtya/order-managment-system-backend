@@ -1,6 +1,6 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
-import { KashierProvider } from './kashierProvider';
-import { PaymentProvider } from 'entities/payments.entity';
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { KashierProvider } from "./kashierProvider";
+import { PaymentProvider } from "../../../entities/payments.entity";
 
 @Injectable()
 export class PaymentFactoryService {

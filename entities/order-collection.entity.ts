@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from "typeorm";
 import { OrderEntity } from "./order.entity";
 import { ShippingCompanyEntity } from "./shipping.entity";
+import { User } from "./user.entity";
 
 // src/entities/payment-source.enum.ts
 export enum PaymentSource {
@@ -37,21 +38,26 @@ export enum PaymentSource {
 @Index(["adminId", "orderId"])
 @Index(["adminId", "shippingCompanyId"])
 export class OrderCollectionEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
-    @Column()
+    @Index()
+    @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
     adminId: string;
 
-    @Column()
-    orderId: number;
+    @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
+    @Column({type: 'uuid'})
+    orderId: string;
 
     @ManyToOne(() => OrderEntity)
     @JoinColumn({ name: "orderId" })
     order: OrderEntity;
 
-    @Column({ type: "int", nullable: true })
-    shippingCompanyId?: number | null;
+    @Column({ type: 'uuid', nullable: true })
+    shippingCompanyId?: string | null;
 
     @ManyToOne(() => ShippingCompanyEntity, { nullable: true, onDelete: "SET NULL" })
     @JoinColumn({ name: "shippingCompanyId" })

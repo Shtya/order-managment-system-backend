@@ -49,13 +49,13 @@ export class CreateStatusDto {
 }
 export class UpdateStatusDto extends PartialType(CreateStatusDto) {
   @IsOptional()
-  @IsNumber()
-  statusId?: number;
+  @IsString()
+  statusId?: string;
 }
 
 export class OrderItemDto {
-  @IsInt()
-  variantId: number;
+@IsString()
+  variantId: string;
 
   @IsInt()
   @Min(1)
@@ -78,8 +78,8 @@ export class OrderItemDto {
 }
 // ✅ Order Item DTO
 export class RemovedOrderItemDto {
-  @IsInt()
-  variantId: number;
+@IsString()
+  variantId: string;
 }
 
 export class ShippingMetadataDto {
@@ -217,7 +217,7 @@ export class CreateOrderDto {
 export class UpdateOrderDto extends PartialType(CreateOrderDto) {
   @IsOptional()
   @IsNumber()
-  statusId?: number;
+  statusId?: string;
 
   @IsOptional()
   @IsString()
@@ -245,9 +245,9 @@ export class BulkUpdateShippingMetadataDto {
 }
 
 export class BulkUpdateShippingFieldItemDto {
-  @Type(() => Number)
-  @IsNumber()
-  id: number;
+  
+  @IsString()
+  id: string;
 
   @IsOptional()
   @IsString()
@@ -288,8 +288,8 @@ export class BulkUpdateShippingFieldsDto {
 
 // ✅ Change Order Status DTO
 export class ChangeOrderStatusDto {
-  @IsNumber()
-  statusId: number;
+  @IsString()
+  statusId: string;
 
   @IsOptional()
   @IsString()
@@ -316,14 +316,14 @@ export class AddOrderMessageDto {
 export class MarkMessagesReadDto {
   @IsArray()
   @IsInt({ each: true })
-  messageIds: number[];
+  messageIds: string[];
 }
 
 export class ShippingSettingsDto {
 
-  @IsNumber()
+  @IsString()
   @IsOptional()
-  shippingCompanyId?: number;
+  shippingCompanyId?: string;
 
   @IsString()
   @IsOptional()
@@ -349,9 +349,9 @@ export class ShippingSettingsDto {
   @IsOptional()
   autoShipAfterWarehouse?: boolean;
 
-  @IsNumber()
+  @IsString()
   @IsOptional()
-  warehouseDefaultShippingCompanyId?: number;
+  warehouseDefaultShippingCompanyId?: string;
 }
 
 export class UpsertOrderRetrySettingsDto {
@@ -428,8 +428,8 @@ export class UpsertOrderRetrySettingsDto {
 }
 export class ManualAssignItemDto {
   @IsNotEmpty()
-  @IsInt()
-  userId: number;
+@IsString()
+  userId: string;
 
   @IsNotEmpty()
   @IsArray()
@@ -437,7 +437,7 @@ export class ManualAssignItemDto {
     message: "You must select at least one order for each employee",
   })
   @IsInt({ each: true })
-  orderIds: number[];
+  orderIds: string[];
 }
 
 export class ManualAssignManyDto {
@@ -455,8 +455,7 @@ export class AutoAssignDto {
   @IsArray()
   @ArrayNotEmpty()
   @IsInt({ each: true })
-  @Type(() => Number)
-  statusIds?: number[];
+  statusIds?: string[];
 
   @IsNotEmpty()
   @IsInt()
@@ -481,8 +480,7 @@ export class AutoPreviewDto {
   @IsArray()
   @ArrayNotEmpty()
   @IsInt({ each: true })
-  @Type(() => Number)
-  statusIds: number[];
+  statusIds: string[];
 
   @IsInt()
   @Type(() => Number)
@@ -505,8 +503,7 @@ export class GetFreeOrdersDto {
   @IsArray()
   @ArrayNotEmpty()
   @IsInt({ each: true })
-  @Type(() => Number)
-  statusIds?: number[];
+  statusIds?: string[];
 
   @IsOptional()
   @IsDateString()
@@ -529,17 +526,17 @@ export class GetFreeOrdersDto {
 }
 
 export class ReplacementItemDto {
-  @IsInt()
+@IsString()
   @Type(() => Number)
-  originalOrderItemId: number;
+  originalOrderItemId: string;
 
   @IsInt()
   @Type(() => Number)
   quantityToReplace: number;
 
-  @IsInt()
-  @Type(() => Number)
-  newVariantId: number;
+@IsString()
+  @IsString()
+  newVariantId: string;
 
   @IsInt()
   @Type(() => Number)
@@ -555,9 +552,9 @@ export class CreateReplacementDto {
   @IsOptional()
   anotherReason?: string;
 
-  @IsInt()
-  @Type(() => Number)
-  originalOrderId: number;
+@IsString()
+@IsString()
+  originalOrderId: string;
 
   @IsOptional()
   @IsString()
@@ -572,9 +569,9 @@ export class CreateReplacementDto {
   returnImages?: string[];
 
   @IsOptional()
-  @IsInt()
-  @Type(() => Number)
-  shippingCompanyId?: number;
+@IsString()
+  @IsString()
+  shippingCompanyId?: string;
 
   @IsOptional()
   @IsInt()
@@ -613,9 +610,9 @@ export class CreateReplacementDto {
 }
 
 export class CreateManifestDto {
-  @IsInt()
+@IsString()
   @IsOptional()
-  shippingCompanyId: number;
+  shippingCompanyId: string;
 
   @IsString()
   @IsOptional()
@@ -623,13 +620,13 @@ export class CreateManifestDto {
 
   @IsArray()
   @IsInt({ each: true })
-  orderIds: number[];
+  orderIds: string[];
 }
 
 export class ReturnItemDto {
-  @IsNumber()
+  @IsString()
   @IsNotEmpty()
-  originalItemId: number;
+  originalItemId: string;
 
   @IsNumber()
   @Min(1)
@@ -642,9 +639,9 @@ export class ReturnItemDto {
 }
 
 export class CreateReturnDto {
-  @IsNumber()
+  @IsString()
   @IsNotEmpty()
-  orderId: number;
+  orderId: string;
 
   @IsString()
   @IsOptional()

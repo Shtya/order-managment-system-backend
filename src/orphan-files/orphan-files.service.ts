@@ -49,8 +49,8 @@ export class OrphanFilesService {
     return this.orphanRepo.save(row);
   }
 
-  async deleteOne(adminId: string, id: number, mgr?: EntityManager) {
-    if (!id || id <= 0) return;
+  async deleteOne(adminId: string, id: string, mgr?: EntityManager) {
+    if (!id) return;
 
 
     const repo = mgr ? mgr.getRepository(OrphanFileEntity) : this.orphanRepo;

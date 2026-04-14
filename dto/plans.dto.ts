@@ -88,11 +88,11 @@ export class UpdatePlanDto extends PartialType(CreatePlanDto) {
 
 @Entity('bulk_upload_usage')
 export class BulkUploadUsage {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	Id: string;
 
 	@Column()
-	adminId: number;
+	adminId: string;
 
 	@Column()
 	month: string; // Format: "YYYY-MM"
@@ -104,7 +104,7 @@ export class BulkUploadUsage {
 export class ManualCreateTransactionDto {
 	@IsNumber()
 	@Type(() => Number)
-	subscriptionId: number;
+	subscriptionId: string;
 
 	@IsString()
 	paymentMethod: string;

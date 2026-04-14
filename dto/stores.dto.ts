@@ -2,7 +2,6 @@ import { Transform, Type } from "class-transformer";
 import { IsBoolean, IsEnum, IsNotEmpty, IsObject, IsOptional, IsString, IsUrl, MaxLength, ValidateNested } from "class-validator";
 import { StoreProvider } from "entities/stores.entity";
 
-
 export class IntegrationsDto {
   @IsString()
   @IsOptional()

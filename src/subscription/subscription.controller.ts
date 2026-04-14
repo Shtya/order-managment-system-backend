@@ -28,7 +28,7 @@ import { Response } from "express";
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("subscriptions")
 export class SubscriptionsController {
-  constructor(private subscriptions: SubscriptionsService) {}
+  constructor(private subscriptions: SubscriptionsService) { }
 
   // ✅ List subscriptions
   @Permissions("subscriptions.read")
@@ -59,7 +59,7 @@ export class SubscriptionsController {
   @Permissions("subscriptions.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.subscriptions.get(req.user, Number(id));
+    return this.subscriptions.get(req.user, id);
   }
 
   // ✅ Super Admin create subscription
@@ -76,7 +76,7 @@ export class SubscriptionsController {
     @Param("id") id: string,
     @Body() dto: UpdateSubscriptionDto,
   ) {
-    return this.subscriptions.updateSubscription(req.user, Number(id), dto);
+    return this.subscriptions.updateSubscription(req.user, id, dto);
   }
 
   // @Permissions('subscriptions.create')
@@ -100,7 +100,7 @@ export class SubscriptionsController {
   @Post("cancel/:id")
   cancelSubscription(
     @Req() req: any,
-    @Param("id", ParseIntPipe) subscriptionId: number,
+    @Param("id", ParseIntPipe) subscriptionId: string,
   ) {
     return this.subscriptions.cancelSubscription(req.user, subscriptionId);
   }
@@ -113,7 +113,7 @@ export class SubscriptionsController {
   ) {
     return this.subscriptions.getActiveSubscriptionForAdmin(
       req.user,
-      Number(userId),
+      userId,
     );
   }
 
@@ -139,7 +139,7 @@ export class SubscriptionsController {
   ) {
     return this.subscriptions.updateSubscriptionStatus(
       req.user,
-      Number(id),
+      id,
       status,
     );
   }

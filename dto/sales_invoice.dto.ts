@@ -14,8 +14,8 @@ import {
 import { PaymentMethod, PaymentStatus } from "common/enums";
 
 export class SalesInvoiceItemDto {
-  @IsInt()
-  variantId: number;
+@IsString()
+  variantId: string;
 
   @IsInt()
   @Min(1)

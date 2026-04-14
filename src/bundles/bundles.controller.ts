@@ -65,7 +65,7 @@ export class BundlesController {
   @Permissions("products.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.bundles.get(req.user, Number(id));
+    return this.bundles.get(req.user, id);
   }
 
   @Permissions("products.create")
@@ -77,12 +77,12 @@ export class BundlesController {
   @Permissions("products.update")
   @Patch(":id")
   update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateBundleDto) {
-    return this.bundles.update(req.user, Number(id), dto);
+    return this.bundles.update(req.user, id, dto);
   }
 
   @Permissions("products.delete")
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
-    return this.bundles.remove(req.user, Number(id));
+    return this.bundles.remove(req.user, id);
   }
 }

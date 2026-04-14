@@ -22,7 +22,7 @@ export class WalletController {
   @Get('admin/user-wallet/:userId')
   async getUserWallet(
     @Req() req: any,
-    @Param('userId', ParseIntPipe) userId: number
+    @Param('userId', ParseIntPipe) userId: string
   ) {
     return this.walletService.getOrCreateWalletSuper(req.user, userId);
   }
@@ -40,7 +40,7 @@ export class WalletController {
   @Post('admin/adjust')
   async adjustBalance(
     @Req() req: any,
-    @Body() dto: { userId: number; amount: number; note: string }
+    @Body() dto: { userId: string; amount: number; note: string }
   ) {
     return this.walletService.adjustBalance(req.user, dto.userId, dto.amount, dto.note);
   }

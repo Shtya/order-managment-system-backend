@@ -76,7 +76,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
 
-    emitStoreSyncStatus(userId: string, payload: { storeId: number; provider: string; status: string }) {
+    emitStoreSyncStatus(userId: string, payload: { storeId: string; provider: string; status: string }) {
         this.server.to(`user_${userId}`).emit("store:sync-status", {
             ...payload,
             timestamp: new Date(),
@@ -86,9 +86,9 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     emitWebhookRetryStatus(
         userId: string,
         payload: {
-            failureId: number;
+            failureId: string;
             status: string;
-            orderId?: number | null;
+            orderId?: string | null;
             message?: string;
             attempts?: number
         }
@@ -104,9 +104,9 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     emitShipmentStatus(userId: string, payload: {
-        orderId: number;
+        orderId: string;
         orderNumber?: string;
-        shipmentId?: number;
+        shipmentId?: string;
         status: 'success' | 'failed';
         message?: string;
         trackingNumber?: string;

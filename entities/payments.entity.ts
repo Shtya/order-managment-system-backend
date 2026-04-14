@@ -30,10 +30,10 @@ export enum PaymentSessionStatusEnum {
 export interface CheckoutOptions {
     amount: number;
     currency: string;
-    userId: number;
+    userId: string;
     purpose: PaymentPurposeEnum;
-    subscriptionId?: number; /// for pay subscription purpose
-    userFeatureId?: number; /// for pay subscription purpose
+    subscriptionId?: string; /// for pay subscription purpose
+    userFeatureId?: string; /// for pay subscription purpose
     manager: EntityManager
 }
 
@@ -70,8 +70,8 @@ export enum PaymentPurposeEnum {
 @Index('IDX_PAYMENT_SESSION_EXPIRY', ['status', 'expireAt'])
 @Entity('payment_sessions')
 export class PaymentSessionEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
     @Column({
         type: 'enum',
@@ -83,8 +83,8 @@ export class PaymentSessionEntity {
     @JoinColumn({ name: 'userId' })
     user: User;
 
-    @Column()
-    userId: number;
+    @Column({type: 'uuid',})
+    userId: string;
 
     @Column({
         type: 'enum',
@@ -97,17 +97,17 @@ export class PaymentSessionEntity {
     @JoinColumn({ name: 'subscriptionId' })
     subscription: Subscription;
 
-    @Column({ nullable: true })
-    subscriptionId: number;
+    @Column({ type: 'uuid', nullable: true })
+    subscriptionId: string;
 
     @ManyToOne(() => UserFeature, { nullable: true, onDelete: 'SET NULL' })
     @JoinColumn({ name: 'userFeatureId' })
     userFeature: Relation<UserFeature>;
 
-    @Column({ nullable: true })
-    userFeatureId: number;
+    @Column({ type: 'uuid', nullable: true })
+    userFeatureId: string;
 
-    @Column({ nullable: true })
+    @Column({ type: 'uuid', nullable: true })
     externalSessionId: string;
 
     @Column('numeric', { precision: 12, scale: 2 })
@@ -177,14 +177,14 @@ export enum TransactionPaymentMethod {
 @Index('IDX_TRANSACTION_LATEST_NUMBER', ['userId', 'number', 'id'])
 @Entity('transactions')
 export class TransactionEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
     @Column({ type: "varchar", length: 100 })
     number!: string; // e.g., ORD-20250124-001
 
-    @Column({ nullable: true })
-    userId: number;
+    @Column({ type: 'uuid', nullable: true })
+    userId: string;
 
     @ManyToOne(() => User, { nullable: true, })
     @JoinColumn({ name: 'userId' })
@@ -195,15 +195,15 @@ export class TransactionEntity {
     admin?: Relation<User> | null;
 
     // New Session Relation
-    @Column({ type: 'int', nullable: true }) // Using UUID assuming your session ID is UUID
-    sessionId?: number | null;
+    @Column({ type: 'uuid', nullable: true }) // Using UUID assuming your session ID is UUID
+    sessionId?: string | null;
 
     @OneToOne(() => PaymentSessionEntity, { nullable: true, onDelete: 'SET NULL' })
     @JoinColumn({ name: 'sessionId' })
     session?: Relation<PaymentSessionEntity>;
 
-    @Column({ nullable: true })
-    subscriptionId?: number;
+    @Column({ type: 'uuid', nullable: true })
+    subscriptionId?: string;
 
     @ManyToOne(() => Subscription, (sub) => sub.transactions, { nullable: true })
     @JoinColumn({ name: 'subscriptionId' })
@@ -220,8 +220,8 @@ export class TransactionEntity {
     @JoinColumn({ name: 'userFeatureId' })
     userFeature: Relation<UserFeature>;
 
-    @Column({ nullable: true })
-    userFeatureId: number;
+    @Column({ type: 'uuid', nullable: true })
+    userFeatureId: string;
 
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     amount: number;
@@ -255,8 +255,8 @@ export class TransactionEntity {
 @Entity('webhook_events')
 @Index(['provider', 'externalTransactionId', 'status']) // Speeds up our idempotency checks
 export class WebhookEvents {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
     @Column({
         type: 'enum',
@@ -283,11 +283,11 @@ export class WebhookEvents {
 
 @Entity('wallets')
 export class Wallet {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
-    @Column()
-    userId: number;
+    @Column({type: 'uuid',})
+    userId: string;
 
     @OneToOne(() => User, (user) => user.wallet)
     @JoinColumn({ name: 'userId' })

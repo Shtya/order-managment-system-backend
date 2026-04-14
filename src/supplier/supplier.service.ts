@@ -26,7 +26,7 @@ export class SuppliersService {
 
 		// 2. Specific Filters (Exact or Partial)
 		if (q?.categoryId && q?.categoryId !== "none") {
-			query.andWhere("category.id = :categoryId", { categoryId: Number(q.categoryId) });
+			query.andWhere("category.id = :categoryId", { categoryId: q.categoryId });
 		}
 
 		if (q?.name) {
@@ -74,13 +74,13 @@ export class SuppliersService {
 	}
 
 
-	async get(me: any, id: number) {
+	async get(me: any, id: string) {
 		const adminId = tenantId(me);
 		const entity = await CRUD.findOne(this.supplierRepo, "suppliers", id, ["categories"]);
 		return entity;
 	}
 
-	private async validateCategories(me: any, categoryIds: number[]) {
+	private async validateCategories(me: any, categoryIds: string[]) {
 		if (!categoryIds || categoryIds.length === 0) {
 			throw new BadRequestException("At least one category is required");
 		}
@@ -121,7 +121,7 @@ export class SuppliersService {
 		return this.supplierRepo.save(supplier);
 	}
 
-	async update(me: any, id: number, dto: UpdateSupplierDto) {
+	async update(me: any, id: string, dto: UpdateSupplierDto) {
 		const supplier = await this.get(me, id);
 
 		if (dto.categoryIds !== undefined) {
@@ -141,7 +141,7 @@ export class SuppliersService {
 		return this.supplierRepo.save(supplier as any);
 	}
 
-	async updateFinancials(me: any, id: number, dto: UpdateSupplierFinancialsDto) {
+	async updateFinancials(me: any, id: string, dto: UpdateSupplierFinancialsDto) {
 		const supplier = await this.get(me, id);
 
 		if (dto.dueBalance !== undefined) (supplier as any).dueBalance = dto.dueBalance;
@@ -150,7 +150,7 @@ export class SuppliersService {
 		return this.supplierRepo.save(supplier as any);
 	}
 
-	async remove(me: any, id: number) {
+	async remove(me: any, id: string) {
 		await this.get(me, id);
 		return CRUD.delete(this.supplierRepo, "suppliers", id);
 	}

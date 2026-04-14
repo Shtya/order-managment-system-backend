@@ -65,7 +65,7 @@ export class OrphanFilesController {
 
 
   @Delete(":id")
-  async delete(@Req() req: any, @Param("id") id: number) {
+  async delete(@Req() req: any, @Param("id") id: string) {
     const adminId = tenantId(req.user);
     if (!adminId) throw new BadRequestException("Missing adminId");
 

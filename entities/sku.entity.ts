@@ -14,6 +14,7 @@ import {
 import { StoreEntity } from "./stores.entity";
 import { WarehouseEntity } from "./warehouses.entity";
 import { CategoryEntity } from "./categories.entity";
+import { User } from "./user.entity";
 
 export type Money = number;
 
@@ -32,12 +33,16 @@ export type UpsellingProduct = {
 @Index(["adminId", "slug"])
 @Index(["adminId", "storeId", "slug"], { unique: true })
 export class ProductEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "varchar", length: 200 })
   @Index()
@@ -55,25 +60,25 @@ export class ProductEntity {
   @Column({ type: "text", nullable: true })
   storageRack?: string;
 
-  @Column({ type: "int", nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  categoryId?: number | null;
+  categoryId?: string | null;
 
   @ManyToOne(() => CategoryEntity, { nullable: true, onDelete: "SET NULL" })
   @JoinColumn({ name: "categoryId" })
   category?: CategoryEntity | null;
 
-  @Column({ type: "int", nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  storeId?: number | null;
+  storeId?: string | null;
 
   @ManyToOne(() => StoreEntity, { nullable: true, onDelete: "SET NULL" })
   @JoinColumn({ name: "storeId" })
   store?: StoreEntity | null;
 
-  @Column({ type: "int", nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  warehouseId?: number | null;
+  warehouseId?: string | null;
 
   @ManyToOne(() => WarehouseEntity, { nullable: true, onDelete: "SET NULL" })
   @JoinColumn({ name: "warehouseId" })
@@ -97,8 +102,8 @@ export class ProductEntity {
   @Column({ type: "varchar", length: 300, nullable: false })
   slug: string;
 
-  @Column({ type: "int", nullable: true })
-  createdByUserId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  createdByUserId?: string;
 
   @Column({ type: "varchar", length: 500, nullable: false })
   mainImage!: string;
@@ -106,8 +111,8 @@ export class ProductEntity {
   @Column({ type: "simple-json", nullable: false, default: "[]" })
   images!: ProductImage[];
 
-  @Column({ type: "int", nullable: true })
-  updatedByUserId?: number;
+  @Column({ type: 'uuid', nullable: true })
+  updatedByUserId?: string;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
@@ -117,16 +122,20 @@ export class ProductEntity {
 @Index(["adminId", "sku"], { unique: true, where: `"sku" IS NOT NULL` })
 @Index(["adminId", "productId", "key"], { unique: true })
 export class ProductVariantEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "int" })
   @Index()
-  productId!: number;
+  productId!: string;
 
   @ManyToOne(() => ProductEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "productId" })
@@ -146,7 +155,7 @@ export class ProductVariantEntity {
   @Column({ type: "simple-json", nullable: false, default: "{}" })
   attributes!: Record<string, string>;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: 'int', default: 0 })
   stockOnHand!: number;
 
   @Column({ type: "int", default: 0 })

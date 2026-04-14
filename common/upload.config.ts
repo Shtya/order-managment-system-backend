@@ -87,7 +87,7 @@ export async function validateAndOptimizeImageIfPossible(absPath: string) {
     if (!meta.width || !meta.height || meta.width < IMAGE_MIN_WIDTH || meta.height < IMAGE_MIN_HEIGHT) {
       try {
         unlinkSync(absPath);
-      } catch {}
+      } catch { }
       throw new BadRequestException(`Image too small. Minimum ${IMAGE_MIN_WIDTH}x${IMAGE_MIN_HEIGHT}px.`);
     }
 
@@ -109,7 +109,7 @@ export async function validateAndOptimizeImageIfPossible(absPath: string) {
     if (e instanceof BadRequestException) throw e;
     try {
       unlinkSync(absPath);
-    } catch {}
+    } catch { }
     throw new BadRequestException('Could not process the image. Please upload a valid image file.');
   }
 }

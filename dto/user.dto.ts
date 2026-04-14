@@ -19,7 +19,7 @@ export class AdminCreateUserDto {
 export class UpdateUserDto {
 	@IsOptional() @IsString() name?: string;
 	@IsOptional() @IsEmail() email?: string;
-	@IsOptional() @IsInt() roleId?: number;
+	@IsOptional() @IsInt() roleId?: string;
 	@IsOptional() isActive?: boolean;
 
 	// ✅ NEW (عشان تعديل الخطة من Edit)

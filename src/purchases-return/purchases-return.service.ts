@@ -32,8 +32,8 @@ export class PurchaseReturnsService {
 
   private async log(params: {
     adminId: string;
-    invoiceId: number;
-    userId?: number | null;
+    invoiceId: string;
+    userId?: string | null;
     action: PurchaseReturnAuditAction | string;
     oldData?: any;
     newData?: any;
@@ -64,8 +64,8 @@ export class PurchaseReturnsService {
   private async syncSupplierFinancials(params: {
     oldStatus?: ApprovalStatus;
     newStatus?: ApprovalStatus;
-    oldSupplierId?: number | null;
-    newSupplierId?: number | null;
+    oldSupplierId?: string | null;
+    newSupplierId?: string | null;
     totalReturn: number;
     paidAmount: number;
     manager?: EntityManager;
@@ -88,7 +88,7 @@ export class PurchaseReturnsService {
 
     // Helper to update supplier safely
     const updateSupplier = async (
-      supplierId: number | null | undefined,
+      supplierId: string | null | undefined,
       op: "add" | "subtract"
     ) => {
       if (!supplierId) return;
@@ -161,9 +161,9 @@ export class PurchaseReturnsService {
 
     if (q?.status && q?.status !== "all") filters.status = q.status;
     if (q?.returnType && q?.returnType !== "all") filters.returnType = q.returnType;
-    if (q?.supplierId && q?.supplierId !== "none") filters.supplierId = Number(q.supplierId);
+    if (q?.supplierId && q?.supplierId !== "none") filters.supplierId = q.supplierId;
 
-    if (q?.closingId) filters.closingId = Number(q?.closingId);
+    if (q?.closingId) filters.closingId = q?.closingId;
     else {
       if (q?.closed && q?.closed !== "none") {
         if (q?.closed === "false") {
@@ -192,7 +192,7 @@ export class PurchaseReturnsService {
     );
   }
 
-  async get(me: any, id: number) {
+  async get(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -210,7 +210,7 @@ export class PurchaseReturnsService {
   }
 
 
-  async getAuditLogs(me: any, id: number) {
+  async getAuditLogs(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -223,7 +223,7 @@ export class PurchaseReturnsService {
     });
   }
 
-  async acceptPreview(me: any, id: number) {
+  async acceptPreview(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -274,7 +274,7 @@ export class PurchaseReturnsService {
     };
   }
 
-  async updatePaidAmount(me: any, id: number, dto: UpdatePaidAmountDto, ipAddress?: string) {
+  async updatePaidAmount(me: any, id: string, dto: UpdatePaidAmountDto, ipAddress?: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -381,7 +381,7 @@ export class PurchaseReturnsService {
     return saved;
   }
 
-  async update(me: any, id: number, dto: UpdatePurchaseReturnDto, ipAddress?: string) {
+  async update(me: any, id: string, dto: UpdatePurchaseReturnDto, ipAddress?: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -465,7 +465,7 @@ export class PurchaseReturnsService {
     return saved;
   }
 
-  async updateStatus(me: any, id: number, status: ApprovalStatus, ipAddress?: string) {
+  async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -489,10 +489,10 @@ export class PurchaseReturnsService {
       //    - write audit logs (STOCK_REMOVED)
       // =========================================================
       if (status === ApprovalStatus.ACCEPTED && oldStatus !== ApprovalStatus.ACCEPTED) {
-        const byVariant = new Map<number, number>();
+        const byVariant = new Map<string, number>();
 
         for (const it of inv.items ?? []) {
-          const vid = Number(it.variantId);
+          const vid = it.variantId;
           const qty = Number(it.returnedQuantity) || 0;
           byVariant.set(vid, (byVariant.get(vid) ?? 0) + qty);
         }
@@ -504,7 +504,7 @@ export class PurchaseReturnsService {
           where: { adminId, id: In(variantIds) } as any,
         });
 
-        const byId = new Map<number, ProductVariantEntity>();
+        const byId = new Map<string, ProductVariantEntity>();
         for (const v of variants) byId.set(v.id, v);
 
         const changedVariants: ProductVariantEntity[] = [];
@@ -549,10 +549,10 @@ export class PurchaseReturnsService {
       //    - write audit logs (STOCK_APPLIED)
       // =========================================================
       if (oldStatus === ApprovalStatus.ACCEPTED && status !== ApprovalStatus.ACCEPTED) {
-        const byVariant = new Map<number, number>();
+        const byVariant = new Map<string, number>();
 
         for (const it of inv.items ?? []) {
-          const vid = Number(it.variantId);
+          const vid = it.variantId;
           const qty = Number(it.returnedQuantity) || 0;
           byVariant.set(vid, (byVariant.get(vid) ?? 0) + qty);
         }
@@ -563,7 +563,7 @@ export class PurchaseReturnsService {
             where: { adminId, id: In(variantIds) } as any,
           });
 
-          const byId = new Map<number, ProductVariantEntity>();
+          const byId = new Map<string, ProductVariantEntity>();
           for (const v of variants) byId.set(v.id, v);
 
           const changedVariants: ProductVariantEntity[] = [];
@@ -629,7 +629,7 @@ export class PurchaseReturnsService {
     });
   }
 
-  async remove(me: any, id: number, ipAddress?: string) {
+  async remove(me: any, id: string, ipAddress?: string) {
     const adminId = tenantId(me);
     const inv = await this.get(me, id);
     if (inv.closingId) {
