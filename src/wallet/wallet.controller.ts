@@ -22,7 +22,7 @@ export class WalletController {
   @Get('admin/user-wallet/:userId')
   async getUserWallet(
     @Req() req: any,
-    @Param('userId', ParseIntPipe) userId: string
+    @Param('userId') userId: string
   ) {
     return this.walletService.getOrCreateWalletSuper(req.user, userId);
   }

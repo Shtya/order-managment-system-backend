@@ -110,7 +110,7 @@ export class StoreEventEntity {
 	@Index()
 	storeId: string;
 
-	@Column({ type: 'int' })
+	@Column({ type: 'varchar' })
 	externalId: string;
 
 	@ManyToOne(() => StoreEntity, { onDelete: 'CASCADE' })

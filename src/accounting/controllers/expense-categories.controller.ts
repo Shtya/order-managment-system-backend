@@ -23,14 +23,14 @@ export class ExpenseCategoriesController {
   @Patch(':id')
   async update(
     @Req() req: any,
-    @Param('id', ParseIntPipe) id: string,
+    @Param('id') id: string,
     @Body() dto: UpdateManualExpenseCategoryDto
   ) {
     return await this.categoriesService.updateCategory(req.user, id, dto);
   }
 
   @Delete(':id')
-  async remove(@Req() req: any, @Param('id', ParseIntPipe) id: string) {
+  async remove(@Req() req: any, @Param('id') id: string) {
     return await this.categoriesService.deleteCategory(req.user, id);
   }
 }

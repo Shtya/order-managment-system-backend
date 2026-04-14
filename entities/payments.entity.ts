@@ -107,7 +107,7 @@ export class PaymentSessionEntity {
     @Column({ type: 'uuid', nullable: true })
     userFeatureId: string;
 
-    @Column({ type: 'uuid', nullable: true })
+    @Column({ nullable: true })
     externalSessionId: string;
 
     @Column('numeric', { precision: 12, scale: 2 })

@@ -45,7 +45,7 @@ export class TransactionsController {
 	// ✅ Cancel transaction
 	@Permissions('transactions.update')
 	@Patch(':id/cancel')
-	cancel(@Req() req: any, @Param('id', ParseIntPipe) id: string) {
+	cancel(@Req() req: any, @Param('id') id: string) {
 		return this.transactions.cancel(req.user, id);
 	}
 

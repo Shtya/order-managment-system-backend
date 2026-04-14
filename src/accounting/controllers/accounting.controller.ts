@@ -122,7 +122,7 @@ export class AccountingController {
     return await this.accountingService.getSupplierPeriodPreview(req.user, supplierId, startDate, endDate);
   }
   @Get('supplier-closings/:id')
-  async getOne(@Req() req: any, @Param('id', ParseIntPipe) id: string) {
+  async getOne(@Req() req: any, @Param('id') id: string) {
     return await this.accountingService.getSupplierClosing(req.user, id);
   }
 }
