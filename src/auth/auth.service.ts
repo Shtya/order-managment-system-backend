@@ -231,7 +231,7 @@ export class AuthService {
 
 	// ✅ UPDATED: Include plan relation on login
 	async login(email: string, password: string) {
-
+		
 		const user = await this.usersService.getFullUserByEmail(email);
 
 		if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');

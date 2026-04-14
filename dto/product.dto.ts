@@ -139,7 +139,6 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsArray()
-  @IsInt({ each: true })
   imagesOrphanIds?: string[];
 
   // ✅ create combinations with product

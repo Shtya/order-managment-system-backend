@@ -315,7 +315,6 @@ export class AddOrderMessageDto {
 // ✅ Mark Messages Read DTO
 export class MarkMessagesReadDto {
   @IsArray()
-  @IsInt({ each: true })
   messageIds: string[];
 }
 
@@ -436,7 +435,6 @@ export class ManualAssignItemDto {
   @ArrayMinSize(1, {
     message: "You must select at least one order for each employee",
   })
-  @IsInt({ each: true })
   orderIds: string[];
 }
 
@@ -454,7 +452,6 @@ export class ManualAssignManyDto {
 export class AutoAssignDto {
   @IsArray()
   @ArrayNotEmpty()
-  @IsInt({ each: true })
   statusIds?: string[];
 
   @IsNotEmpty()
@@ -479,7 +476,6 @@ export class AutoAssignDto {
 export class AutoPreviewDto {
   @IsArray()
   @ArrayNotEmpty()
-  @IsInt({ each: true })
   statusIds: string[];
 
   @IsInt()
@@ -502,7 +498,6 @@ export class AutoPreviewDto {
 export class GetFreeOrdersDto {
   @IsArray()
   @ArrayNotEmpty()
-  @IsInt({ each: true })
   statusIds?: string[];
 
   @IsOptional()
@@ -619,7 +614,6 @@ export class CreateManifestDto {
   driverName?: string;
 
   @IsArray()
-  @IsInt({ each: true })
   orderIds: string[];
 }
 
