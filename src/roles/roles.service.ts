@@ -63,24 +63,12 @@ export class RolesService implements OnModuleInit {
 				{
 					name: SystemRole.ADMIN,
 					description: 'Admin (manages his own users and roles)',
-					permissionNames: [
-						'users.read',
-						'users.create',
-						'users.create_admin',
-						'users.update',
-						'users.deactivate',
-						'users.view_credentials',
-						'roles.read',
-						'roles.create',
-						'roles.update',
-						'roles.delete',
-						'permissions.read',
-					],
+					permissionNames: ['*'],
 				},
 				{
 					name: SystemRole.USER,
 					description: 'Regular user',
-					permissionNames: [],
+					permissionNames: ['*'],
 				},
 			];
 

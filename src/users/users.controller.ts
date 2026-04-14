@@ -5,7 +5,7 @@ import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { RequireSubscription } from 'common/require-subscription.decorator';
 import { SubscriptionGuard } from 'common/subscription.guard';
-import { UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
+import { AdminCreateAvatarDto, AdminCreateDto, UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile } from '@nestjs/common';
 import { diskStorage } from 'multer';
@@ -175,14 +175,9 @@ export class UsersController {
 	// ✅ Admin creates account and can see credentials
 	@Permissions('users.create_admin')
 	@Post('admin-create')
-	adminCreate(@Req() req: any, @Body() dto: any) {
-		return this.users.adminCreate(
-			req.user,
-			dto.name,
-			dto.email,
-			dto.roleId,
-			dto.password,
-		);
+	adminCreate(@Req() req: any, @Body() dto: AdminCreateDto) {
+		
+		return this.users.adminCreate(req.user, dto);
 	}
 
 
@@ -191,7 +186,7 @@ export class UsersController {
 	@UseInterceptors(FileInterceptor('avatar', { storage }))
 	async adminCreateAvatar(
 		@Req() req: any,
-		@Body() dto: any,
+		@Body() dto: AdminCreateAvatarDto, // ✅ Use the DTO here
 		@UploadedFile() avatar?: Express.Multer.File,
 	) {
 		return this.users.adminCreateAvatar(

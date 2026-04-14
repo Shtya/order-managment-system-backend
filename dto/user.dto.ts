@@ -97,3 +97,49 @@ export class VerifyEmailChangeDto {
 	@IsNotEmpty()
 	otp: string;
 }
+
+export class AdminCreateAvatarDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsEmail({}, { message: 'Invalid email format' })
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roleId: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6, { message: 'Password must be at least 6 characters' })
+  password?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  employeeType?: string;
+}
+
+
+export class AdminCreateDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsEmail({}, { message: 'Invalid email format' })
+  @IsNotEmpty()
+  email: string;
+
+  @IsString()
+  @IsNotEmpty()
+  roleId: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(6, { message: 'Password must be at least 6 characters' })
+  password?: string;
+}
