@@ -5,7 +5,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { Plan, Subscription, SubscriptionStatus } from 'entities/plans.entity';
-import { UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
+import { AdminCreateDto, UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { SubscriptionsService } from 'src/subscription/subscription.service';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
@@ -698,21 +698,15 @@ export class UsersService {
 	}
 
 	// ✅ UPDATED: Handle planId
-	async adminCreate(
-		me: User,
-		name: string,
-		email: string,
-		roleId: string,
-		password?: string,
-	) {
+	async adminCreate(me: User, dto: AdminCreateDto) {
 		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
 			throw new ForbiddenException('Not allowed');
 		}
 
-		const exists = await this.usersRepo.findOne({ where: { email } });
+		const exists = await this.usersRepo.findOne({ where: { email: dto.roleId } });
 		if (exists) throw new BadRequestException('Email already used');
 
-		const role = await this.rolesRepo.findOne({ where: { id: roleId } });
+		const role = await this.rolesRepo.findOne({ where: { id: dto.roleId } });
 		if (!role) throw new BadRequestException('Role not found');
 
 		if (!this.isSuperAdmin(me) && role.name === SystemRole.SUPER_ADMIN) {
@@ -721,14 +715,14 @@ export class UsersService {
 
 		// ✅ NEW: Validate plan if provided
 
-		const plainPassword = password || this.generatePassword(10);
+		const plainPassword = dto.password || this.generatePassword(10);
 		const passwordHash = await bcrypt.hash(plainPassword, 10);
 
 		const user = this.usersRepo.create({
-			name,
-			email,
+			name: dto.name,
+			email: dto.email,
 			passwordHash,
-			roleId,
+			roleId: dto.roleId,
 			adminId: this.isSuperAdmin(me) ? null : me.id,
 			isActive: true,
 		});
@@ -758,7 +752,7 @@ export class UsersService {
 			where: { adminId: me.id },
 		});
 
-		if (currentCount >= subscription?.plan?.usersLimit) {
+		if (currentCount >= subscription?.usersLimit) {
 			throw new BadRequestException('Users limit reached');
 		}
 	}
