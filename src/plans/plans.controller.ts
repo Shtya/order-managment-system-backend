@@ -49,7 +49,7 @@ export class PlansController {
 	@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 	@Get(':id')
 	get(@Req() req: any, @Param('id') id: string) {
-		return this.plans.get(req.user, Number(id));
+		return this.plans.get(req.user, id);
 	}
 
 	// ✅ Create plan (admin only)
@@ -63,13 +63,13 @@ export class PlansController {
 	@UseGuards(JwtAuthGuard)
 	@Patch(':id')
 	update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdatePlanDto) {
-		return this.plans.update(req.user, Number(id), dto);
+		return this.plans.update(req.user, id, dto);
 	}
 
 	// ✅ Delete plan (admin only)
 	@UseGuards(JwtAuthGuard)
 	@Delete(':id')
 	remove(@Req() req: any, @Param('id') id: string) {
-		return this.plans.remove(req.user, Number(id));
+		return this.plans.remove(req.user, id);
 	}
 }

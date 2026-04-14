@@ -332,7 +332,7 @@ export class TurboProvider extends ShippingProvider {
 
       return data?.success === true;
 
-    } catch (error) {
+    } catch (error: any) {
       // في حال كان الخطأ 401 (Unauthorized)
       if (error.response?.status === 401 || error.response?.status === 403) {
         return false;

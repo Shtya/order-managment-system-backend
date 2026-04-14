@@ -73,7 +73,7 @@ export class StoresService {
   }
 
 
-  private async clearStoreCache(storeId: number) {
+  private async clearStoreCache(storeId: string) {
     const pattern = `stores:${storeId}:*`;
     try {
       // جلب كافة المفاتيح التي تطابق النمط
@@ -187,12 +187,12 @@ export class StoresService {
   }
 
 
-  async get(me: any, id: number) {
+  async get(me: any, id: string) {
     const store = await this.getStoreById(me, id);
     return this.getMaskedStoreIntegrations(store);
   }
 
-  async getStoreById(me: any, id: number) {
+  async getStoreById(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -261,7 +261,7 @@ export class StoresService {
         if (!isAuth) {
           throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
         }
-      } catch (error) {
+      } catch (error: any) {
         this.logger.error(`Validation failed for ${dto.provider}: ${error.message}`);
         throw new BadRequestException(`Unable to validate the integration to ${p.displayName}. This could be due to an invalid key, or incorrect provider settings.`);
       }
@@ -280,7 +280,7 @@ export class StoresService {
     });
   }
 
-  async regenerateWebhookSecrets(me: any, id: number) {
+  async regenerateWebhookSecrets(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -307,7 +307,7 @@ export class StoresService {
     };
   }
 
-  async update(me: any, id: number, dto: UpdateStoreDto) {
+  async update(me: any, id: string, dto: UpdateStoreDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
     // Find the existing store
@@ -397,7 +397,7 @@ export class StoresService {
   //   });
   // }
 
-  async remove(me: any, id: number) {
+  async remove(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -548,7 +548,7 @@ export class StoresService {
 
   }
 
-  async manualSync(me: any, id: number) {
+  async manualSync(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -617,7 +617,7 @@ export class StoresService {
     failureLog?: WebhookOrderFailureEntity,
     manager?: EntityManager
 
-  ): Promise<{ ok: boolean; ignored?: boolean; reason?: string; orderId?: number }> {
+  ): Promise<{ ok: boolean; ignored?: boolean; reason?: string; orderId?: string }> {
 
     try {
       const runInTransaction = async (work: (em: EntityManager) => Promise<any>) => {
@@ -703,7 +703,7 @@ export class StoresService {
         this.logger.log(`[Webhook Order Create] Created new order from webhook with External ID ${payload.externalId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`);
         return { ok: true, orderId: newOrder.id };
       });
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`[Webhook Order Create] Error processing webhook order: ${error.message}`, error.stack);
       if (failureLog) {
         failureLog.status = OrderFailStatus.FAILED;
@@ -767,7 +767,7 @@ export class StoresService {
       this.logger.warn(`[Webhook Order Update] Order ${order.orderNumber} does not have an associated storeId. Cannot process webhook status update.`);
       return;
     }
-    const store = await this.storesRepo.findOne({ where: { id: Number(order.storeId) } });
+    const store = await this.storesRepo.findOne({ where: { id: order.storeId } });
 
     if (!store) {
       this.logger.warn(`[Webhook Order Update] Associated store with ID ${order.storeId} not found for Order #${order.orderNumber}. Cannot process webhook status update.`);
@@ -835,7 +835,7 @@ export class StoresService {
     };
 
     // Filters
-    if (q?.storeId) qb.andWhere("failure.storeId = :storeId", { storeId: Number(q.storeId) });
+    if (q?.storeId) qb.andWhere("failure.storeId = :storeId", { storeId: q.storeId });
 
     // Date range
     DateFilterUtil.applyToQueryBuilder(qb, "failure.created_at", q?.startDate, q?.endDate);
@@ -892,7 +892,7 @@ export class StoresService {
 
 
 
-  async retryFailedOrder(me: any, failureId: number) {
+  async retryFailedOrder(me: any, failureId: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -993,7 +993,7 @@ export class StoresService {
     // Filters
     if (q?.storeId) {
       qb.andWhere("failure.storeId = :storeId", {
-        storeId: Number(q.storeId),
+        storeId: q.storeId,
       });
     }
 
@@ -1046,7 +1046,7 @@ export class StoresService {
     return buffer;
   }
 
-  async queueRetryFailedOrder(me: any, failureId: number) {
+  async queueRetryFailedOrder(me: any, failureId: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -1102,7 +1102,7 @@ export class StoresService {
 
     return runInTransaction(async (em) => {
       // 1) Ensure local category exists (by slug) if payload provides category info
-      let localCategoryId: number | null = null;
+      let localCategoryId: string | null = null;
       if (payload.category && payload.category.slug) {
         const categoryRepo = em.getRepository(CategoryEntity);
         let category = await categoryRepo.findOne({

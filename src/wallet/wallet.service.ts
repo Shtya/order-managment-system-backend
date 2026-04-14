@@ -35,7 +35,7 @@ export class WalletService {
     private subscriptionsService: SubscriptionsService,
     private dataSource: DataSource,
     private notificationService: NotificationService,
-  ) {}
+  ) { }
 
   private isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;
@@ -47,7 +47,7 @@ export class WalletService {
   }
 
   // 1️⃣ Get or Create Wallet (For Admins)
-  async getOrCreateWallet(userId: number) {
+  async getOrCreateWallet(userId: string) {
     let wallet = await this.walletRepo.findOne({ where: { userId } });
     if (!wallet) {
       wallet = this.walletRepo.create({
@@ -62,7 +62,7 @@ export class WalletService {
   }
 
   // 1️⃣ Get or Create Wallet (For Specific User ID)
-  async getOrCreateWalletSuper(me: any, userId: number) {
+  async getOrCreateWalletSuper(me: any, userId: string) {
     if (!this.isSuperAdmin(me)) {
       throw new ForbiddenException("You do not have permission");
     }
@@ -89,7 +89,7 @@ export class WalletService {
   // 3️⃣ Manual Control (Super Admin only)
   async adjustBalance(
     superAdmin: User,
-    targetUserId: number,
+    targetUserId: string,
     amount: number,
     note: string,
   ) {
@@ -197,7 +197,7 @@ export class WalletService {
         };
       } catch (error) {
         await this.notificationService.create({
-          userId: Number(me.id),
+          userId: me.id,
           type: NotificationType.ORDER_USAGE_FAILED,
           title: "Order Usage Failed",
           message: `Failed to process order usage for ${numberOfOrders} orders: ${error.message}`,

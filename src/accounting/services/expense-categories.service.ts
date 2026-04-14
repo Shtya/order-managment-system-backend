@@ -45,7 +45,7 @@ export class ExpenseCategoriesService {
         return await qb.getMany();
     }
 
-    async updateCategory(me: any, id: number, dto: UpdateManualExpenseCategoryDto) {
+    async updateCategory(me: any, id: string, dto: UpdateManualExpenseCategoryDto) {
         const adminId = tenantId(me);
 
         const category = await this.categoryRepo.findOne({ where: { id, adminId } });
@@ -66,7 +66,7 @@ export class ExpenseCategoriesService {
         return await this.categoryRepo.save(category);
     }
 
-    async deleteCategory(me: any, id: number) {
+    async deleteCategory(me: any, id: string) {
         const adminId = tenantId(me);
 
         const category = await this.categoryRepo.findOne({

@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from "dto/subscriptions.dto";
-import { Feature, Plan, PlanDuration, PlanType, Subscription, SubscriptionStatus, UserFeature, } from "entities/plans.entity";
+import { Plan, PlanType, Subscription, SubscriptionStatus, UserFeature, } from "entities/plans.entity";
 import { OnboardingStatus, OnboardingStep, SystemRole, User } from "entities/user.entity";
 import { tenantId } from "src/category/category.service";
 import { TransactionsService } from "src/transactions/transactions.service";
@@ -106,7 +106,7 @@ export class SubscriptionsService {
         };
     }
 
-    async get(me: User, id: number) {
+    async get(me: User, id: string) {
         const subscription = await this.subscriptionsRepo.findOne({
             where: { id },
             relations: ['user', 'plan'],
@@ -131,7 +131,7 @@ export class SubscriptionsService {
         throw new ForbiddenException('Not allowed');
     }
 
-    async updateSubscriptionStatus(me: User, id: number, status: SubscriptionStatus) {
+    async updateSubscriptionStatus(me: User, id: string, status: SubscriptionStatus) {
         // 1. Authorization Check
         if (!this.isSuperAdmin(me)) {
             throw new ForbiddenException('You do not have permission');
@@ -168,7 +168,7 @@ export class SubscriptionsService {
         const saved = await this.subscriptionsRepo.save(subscription);
 
         await this.notificationService.create({
-            userId: Number(subscription.userId),
+            userId: subscription.userId,
             type: NotificationType.SUBSCRIPTION_STATUS_UPDATED,
             title: "Subscription Status Updated",
             message: `Your subscription status has been updated to ${status}.`,
@@ -262,7 +262,7 @@ export class SubscriptionsService {
             await manager.save(transaction);
 
             await this.notificationService.create({
-                userId: Number(user.id),
+                userId: user.id,
                 type: NotificationType.SUBSCRIPTION_CREATED,
                 title: "Subscription Created",
                 message: `Your new subscription for plan "${plan.name}" has been created successfully.`,
@@ -278,7 +278,7 @@ export class SubscriptionsService {
         });
     }
 
-    async updateSubscription(me: User, id: number, dto: UpdateSubscriptionDto) {
+    async updateSubscription(me: User, id: string, dto: UpdateSubscriptionDto) {
         if (!this.isSuperAdmin(me)) {
             throw new ForbiddenException('You do not have permission');
         }
@@ -353,7 +353,7 @@ export class SubscriptionsService {
             const savedSub = await manager.save(sub);
 
             await this.notificationService.create({
-                userId: Number(sub.userId),
+                userId: sub.userId,
                 type: NotificationType.SUBSCRIPTION_UPDATED,
                 title: "Subscription Updated",
                 message: `Your subscription has been updated successfully.`,
@@ -365,7 +365,7 @@ export class SubscriptionsService {
         });
     }
 
-    async createMockSubscription(me: User, dto: { planId: number }) {
+    async createMockSubscription(me: User, dto: { planId: string; }) {
         const adminId = tenantId(me);
         return await this.dataSource.transaction(async (manager) => {
             // 1️⃣ Get real User & Plan
@@ -421,7 +421,7 @@ export class SubscriptionsService {
         });
     }
 
-    async subscribe(user: User, planId: number) {
+    async subscribe(user: User, planId: string) {
         return await this.dataSource.transaction(async (manager) => {
 
             const userData = await manager.findOne(User, {
@@ -542,7 +542,7 @@ export class SubscriptionsService {
         });
     }
 
-    async cancelSubscription(user: User, subscriptionId: number) {
+    async cancelSubscription(user: User, subscriptionId: string) {
         return await this.dataSource.transaction(async (manager) => {
             // 1. Find the subscription and verify ownership
             const subscription = await manager.findOne(Subscription, {
@@ -573,7 +573,7 @@ export class SubscriptionsService {
             }
 
             await this.notificationService.create({
-                userId: Number(subscription.userId),
+                userId: subscription.userId,
                 type: NotificationType.SUBSCRIPTION_STATUS_UPDATED,
                 title: "Subscription Cancelled",
                 message: `Your subscription for plan "${subscription.plan?.name}" has been cancelled.`,
@@ -589,7 +589,7 @@ export class SubscriptionsService {
         });
     }
 
-    async getActiveSubscriptionForAdmin(admin: User, userId: number) {
+    async getActiveSubscriptionForAdmin(admin: User, userId: string) {
         const tenantAdminId = tenantId(admin);
 
         // Fetch the user first

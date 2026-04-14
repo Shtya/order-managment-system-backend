@@ -70,7 +70,7 @@ export class PaymentsService {
         });
 
         // 4. Update Session and Business Logic
-        const session = await this.sessionRepo.findOne({ where: { id: Number(webhookData.internalSessionId) }, relations: ['user'] });
+        const session = await this.sessionRepo.findOne({ where: { id: webhookData.internalSessionId }, relations: ['user'] });
         if (!session) return;
 
         await this.dataSource.transaction(async (manager) => {
@@ -81,12 +81,12 @@ export class PaymentsService {
             const number = await this.transactionsService.generateTransactionNumber(session.userId?.toString())
 
             const transaction = manager.create(TransactionEntity, {
-                number: number, // Provider's external ID
-                userId: Number(session.userId),
+                number, // Provider's external ID
+                userId: session.userId,
                 sessionId: session.id,
                 purpose: session.purpose,
-                subscriptionId: session.subscriptionId ? Number(session.subscriptionId) : null,
-                userFeatureId: session.userFeatureId ? Number(session.userFeatureId) : null,
+                subscriptionId: session.subscriptionId ? session.subscriptionId : null,
+                userFeatureId: session.userFeatureId ? session.userFeatureId : null,
                 amount: session.amount,
                 status: this.mapToTransactionStatus(webhookData.status),
                 paymentMethod: webhookData.paymentMethod,
@@ -187,7 +187,7 @@ export class PaymentsService {
                 }
 
                 const sub = await manager.findOne(Subscription, {
-                    where: { id: Number(session.subscriptionId) },
+                    where: { id: session.subscriptionId },
                     relations: ['plan']
                 });
 
@@ -226,7 +226,7 @@ export class PaymentsService {
                 }
 
                 const userFeat = await manager.findOne(UserFeature, {
-                    where: { id: Number(session.userFeatureId) },
+                    where: { id: session.userFeatureId },
                     relations: ['feature']
                 });
 
@@ -275,7 +275,7 @@ export class PaymentsService {
     /**
      * Shared logic to handle the actual wallet balance increment
      */
-    private async applyWalletTopUp(manager: EntityManager, userId: number, amount: number) {
+    private async applyWalletTopUp(manager: EntityManager, userId: string, amount: number) {
         let wallet = await manager.findOne(Wallet, { where: { userId } });
         if (!wallet) {
             wallet = manager.create(Wallet, { userId, currentBalance: 0, totalCharged: 0, totalWithdrawn: 0 });
@@ -300,7 +300,7 @@ export class PaymentsService {
         return { status, sessionId };
     }
 
-    async getPaymentSessionById(me: any, id: number) {
+    async getPaymentSessionById(me: any, id: string) {
 
 
         const session = await this.sessionRepo.createQueryBuilder('session')

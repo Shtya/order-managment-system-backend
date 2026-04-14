@@ -55,7 +55,7 @@ export abstract class ShippingProvider {
 	abstract readonly displayName: string;
 
 	// Geography & Capabilities
-	// abstract getAreas(countryId: number): Promise<UnifiedGeography[]>;
+	// abstract getAreas(countryId: string): Promise<UnifiedGeography[]>;
 
 	abstract getCities(apiKey: string): Promise<UnifiedGeography[]>;
 	abstract getDistricts(apiKey: string, cityId: string): Promise<UnifiedGeography[]>;

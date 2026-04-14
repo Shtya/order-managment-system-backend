@@ -15,7 +15,7 @@ import { PartialType } from "@nestjs/mapped-types";
 
 export class BundleItemDto {
   @IsInt()
-  variantId!: number;
+  variantId!: string;
 
   @IsInt()
   qty!: number;
@@ -38,11 +38,11 @@ export class CreateBundleDto {
 
   @IsInt()
   @IsNotEmpty()
-  variantId!: number;
+  variantId!: string;
 
   @IsInt()
   @IsOptional()
-  storeId?: number;
+  storeId?: string;
 
   @IsString()
   @IsNotEmpty()

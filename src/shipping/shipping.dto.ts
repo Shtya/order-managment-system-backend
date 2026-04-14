@@ -37,8 +37,8 @@ export class CreateShipmentDto {
 export class AssignOrderDto extends CreateShipmentDto { }
 
 export class BulkAssignItemDto extends CreateShipmentDto {
-	@IsNumber()
-	orderId: number;
+	@IsString()
+	orderId: string;
 }
 
 export class BulkAssignOrderDto {

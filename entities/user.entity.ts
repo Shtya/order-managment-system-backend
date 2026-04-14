@@ -27,20 +27,20 @@ export enum SystemRole {
 
 @Entity('roles')
 export class Role {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column({ unique: true })
 	name: string;
 
-	@Column({ nullable: true })
+	@Column({  nullable: true })
 	description?: string;
 
 	@Column({ type: 'simple-json', default: '[]' })
 	permissionNames: string[];
 
-	@Column({ type: 'int', nullable: true })
-	adminId?: number | null;
+	@Column({ type: 'uuid', nullable: true })
+	adminId?: string | null;
 
 	@ManyToOne(() => User, { nullable: true })
 	@JoinColumn({ name: 'adminId' })
@@ -55,8 +55,8 @@ export class Role {
 
 @Entity('permissions')
 export class Permission {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column({ unique: true })
 	name: string; // ex: 'users.read', 'roles.update'
@@ -78,8 +78,8 @@ export enum OnboardingStep {
 
 @Entity('users')
 export class User {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column()
 	name: string;
@@ -103,14 +103,14 @@ export class User {
 	passwordHash?: string;
 
 	@Column()
-	roleId: number;
+	roleId: string;
 
 	@ManyToOne(() => Role, (role) => role.users, { eager: true })
 	@JoinColumn({ name: 'roleId' })
 	role: Role;
 
-	@Column({ type: 'int', nullable: true })
-	adminId?: number | null;
+	@Column({ type: 'uuid', nullable: true })
+	adminId?: string | null;
 
 	@ManyToOne(() => User, { nullable: true })
 	@JoinColumn({ name: 'adminId' })
@@ -205,8 +205,8 @@ export class User {
 
 @Entity('pending_users')
 export class PendingUser {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column()
 	name: string;
@@ -244,8 +244,8 @@ export class PendingUser {
 
 	// --- Roles ---
 
-	@Column()
-	roleId: number;
+	@Column({type: 'uuid',})
+	roleId: string;
 
 	@ManyToOne(() => Role, { eager: true })
 	@JoinColumn({ name: 'roleId' })
@@ -261,8 +261,8 @@ export class PendingUser {
 
 @Entity('companies')
 export class Company {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column()
 	name: string;
@@ -273,7 +273,7 @@ export class Company {
 	@Column({ default: "EGP" })
 	currency: string;
 
-	@Column({ nullable: true })
+	@Column({  nullable: true })
 	tax: string;
 
 	@Column({ nullable: true })
@@ -301,4 +301,3 @@ export class Company {
 	@Column({ type: 'varchar', nullable: true })
 	businessType: string;
 }
-

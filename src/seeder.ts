@@ -190,23 +190,54 @@ async function runGlobalSeed() {
 	/** =========================
 	 * Global Categories
 	 * ========================= */
-	// const categories = [{ name: 'عام' }, { name: 'إلكترونيات' }, { name: 'ملابس' }, { name: 'أغذية' }, { name: 'مستلزمات منزلية' }];
+	const categories = [
+		{
+			name: "عام",
+			slug: "aam",
+			image: null,
+			adminId: null,
+		},
+		{
+			name: "إلكترونيات",
+			slug: "electronics",
+			image: null,
+			adminId: null,
+		},
+		{
+			name: "ملابس",
+			slug: "clothing",
+			image: null,
+			adminId: null,
+		},
+		{
+			name: "أغذية",
+			slug: "food",
+			image: null,
+			adminId: null,
+		},
+		{
+			name: "مستلزمات منزلية",
+			slug: "home-supplies",
+			image: null,
+			adminId: null,
+		},
+	];
+	for (const c of categories) {
+		const exists = await categoryRepo.findOne({
+			where: { name: c.name, adminId: null },
+		});
 
-	// for (const c of categories) {
-	// 	const exists = await categoryRepo.findOne({
-	// 		where: { name: c.name, adminId: null },
-	// 	});
-
-	// 	if (!exists) {
-	// 		await categoryRepo.save(
-	// 			categoryRepo.create({
-	// 				adminId: null,
-	// 				name: c.name,
-	// 				image: null,
-	// 			}),
-	// 		);
-	// 	}
-	// }
+		if (!exists) {
+			await categoryRepo.save(
+				categoryRepo.create({
+					adminId: null,
+					name: c.name,
+					slug: c.slug, // IMPORTANT
+					image: c.image ?? null,
+				}),
+			);
+		}
+	}
 
 	/** =========================
 	 * Global Stores
@@ -236,35 +267,44 @@ async function runGlobalSeed() {
 	/** =========================
 	 * Global Warehouses
 	 * ========================= */
-	// const warehouses = [
-	// 	{
-	// 		name: 'المخزن الرئيسي',
-	// 		location: null,
-	// 	},
-	// 	{
-	// 		name: 'مخزن الطوارئ',
-	// 		location: null,
-	// 	},
-	// ];
+	const warehouses = [
+		{
+			name: "المخزن الرئيسي",
+			location: null,
+			managerUserId: null,
+			phone: null,
+			isActive: true,
+		},
+		{
+			name: "مخزن الطوارئ",
+			location: null,
+			managerUserId: null,
+			phone: null,
+			isActive: true,
+		},
+	];
 
-	// for (const w of warehouses) {
-	// 	const exists = await warehouseRepo.findOne({
-	// 		where: { name: w.name, adminId: null },
-	// 	});
+	for (const w of warehouses) {
+		const exists = await warehouseRepo.findOne({
+			where: {
+				name: w.name,
+				adminId: null,
+			},
+		});
 
-	// 	if (!exists) {
-	// 		await warehouseRepo.save(
-	// 			warehouseRepo.create({
-	// 				adminId: null,
-	// 				name: w.name,
-	// 				location: w.location,
-	// 				manager: null,
-	// 				phone: null,
-	// 				isActive: true,
-	// 			}),
-	// 		);
-	// 	}
-	// }
+		if (!exists) {
+			await warehouseRepo.save(
+				warehouseRepo.create({
+					adminId: null,
+					name: w.name,
+					location: w.location ?? null,
+					manager: null,
+					phone: null,
+					isActive: true,
+				}),
+			);
+		}
+	}
 
 	console.log('✅ Global seed completed');
 }

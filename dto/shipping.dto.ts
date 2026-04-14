@@ -1,6 +1,7 @@
 // shipping-company.dto.ts
 import { IsString, IsOptional, IsBoolean, MinLength } from 'class-validator';
 
+
 export class CreateShippingCompanyDto {
     @IsString()
     @MinLength(2)

@@ -11,7 +11,7 @@ import { CityEntity } from 'entities/cities.entity';
 
 type UsersLookupParams = {
 	q?: string;
-	roleId?: number;
+	roleId?: string;
 	isActive?: boolean;
 	limit: number;
 };
@@ -31,7 +31,7 @@ type ActiveLookupParams = {
 
 type SkusLookupParams = {
 	q?: string;
-	productId?: number;
+	productId?: string;
 	limit: number;
 	cursor?: number;
 };
@@ -87,7 +87,7 @@ export class LookupsService {
 
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: x.phone ? `${x.name} (${x.phone})` : x.name,
 			name: x.name,
 			phone: x.phone ?? null,
@@ -145,8 +145,8 @@ export class LookupsService {
 		if (hasMore) rows.pop();
 
 		const data = rows.map((x) => ({
-			id: Number(x.id),
-			productId: Number(x.productId),
+			id: x.id,
+			productId: x.productId,
 			label: x.sku ? x.sku : `#${x.id}`,
 			sku: x.sku ?? null,
 			key: x.key ?? null,
@@ -187,7 +187,7 @@ export class LookupsService {
 
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: x.name,
 			name: x.name,
 			mainImage: x.mainImage ?? null,
@@ -267,12 +267,12 @@ export class LookupsService {
 
 		// صيغة مناسبة للدروب داون + معلومات إضافية للبحث/العرض
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: `${x.name} (${x.email})`,
 			name: x.name,
 			email: x.email,
 			isActive: x.isActive,
-			roleId: Number(x.roleId),
+			roleId: x.roleId,
 			roleName: x.roleName,
 		}));
 	}
@@ -322,7 +322,7 @@ export class LookupsService {
 		const rows = await qb.getRawMany();
 
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: x.name,
 			name: x.name,
 			description: x.description,
@@ -343,7 +343,7 @@ export class LookupsService {
 
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: x.name,
 			name: x.name,
 		}));
@@ -366,7 +366,7 @@ export class LookupsService {
 
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: x.name,
 			name: x.name,
 			slug: x.slug,
@@ -392,7 +392,7 @@ export class LookupsService {
 
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: `${x.name}`,
 			name: x.name,
 			code: x.code,
@@ -433,12 +433,12 @@ export class LookupsService {
 
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
-			id: Number(x.id),
+			id: x.id,
 			label: x.location ? `${x.name} - ${x.location}` : x.name,
 			name: x.name,
 			location: x.location,
 			isActive: x.isActive,
-			managerId: x.managerId ? Number(x.managerId) : null,
+			managerId: x.managerId ? x.managerId : null,
 			managerName: x.managerName || null,
 		}));
 	}

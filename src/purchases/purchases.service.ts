@@ -45,8 +45,8 @@ export class PurchasesService {
 
 	private async log(params: {
 		adminId: string;
-		invoiceId: number;
-		userId?: number | null;
+		invoiceId: string;
+		userId?: string | null;
 		action: PurchaseAuditAction | string;
 		oldData?: any;
 		newData?: any;
@@ -96,7 +96,7 @@ export class PurchasesService {
 		const limit = Number(q?.limit ?? 10);
 		const search = String(q?.search ?? "").trim();
 
-		const supplierId = q?.supplierId && q.supplierId !== "none" ? Number(q.supplierId) : null;
+		const supplierId = q?.supplierId && q.supplierId !== "none" ? q.supplierId : null;
 		const status = q?.status && q.status !== "all" ? String(q.status) : null;
 		const startDate = q?.startDate ? String(q.startDate) : null; // YYYY-MM-DD
 		const endDate = q?.endDate ? String(q.endDate) : null;
@@ -120,7 +120,7 @@ export class PurchasesService {
 			qb.andWhere("(inv.receiptNumber ILIKE :s OR inv.notes ILIKE :s)", { s: `%${search}%` });
 		}
 
-		if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: Number(q?.closingId) }); else {
+		if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: q?.closingId }); else {
 			if (q?.closed && q?.closed !== "none") {
 				if (q?.closed === "false") {
 					qb.andWhere("inv.closingId IS NULL");
@@ -148,7 +148,7 @@ export class PurchasesService {
 		};
 	}
 
-	async get(me: any, id: number) {
+	async get(me: any, id: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -165,7 +165,7 @@ export class PurchasesService {
 		return { ...inv, supplier };
 	}
 
-	async getAuditLogs(me: any, id: number) {
+	async getAuditLogs(me: any, id: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -178,7 +178,7 @@ export class PurchasesService {
 		});
 	}
 
-	async acceptPreview(me: any, id: number) {
+	async acceptPreview(me: any, id: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -192,9 +192,9 @@ export class PurchasesService {
 		const willApply = oldStatus !== ApprovalStatus.ACCEPTED;
 
 		// aggregate qty + avg incoming cost per variant (in case of duplicates)
-		const map = new Map<number, { qty: number; incomingCostTotal: number }>();
+		const map = new Map<string, { qty: number; incomingCostTotal: number }>();
 		for (const it of inv.items ?? []) {
-			const vid = Number(it.variantId);
+			const vid = it.variantId;
 			const qty = Number(it.quantity) || 0;
 			const cost = Number(it.purchaseCost) || 0;
 
@@ -209,7 +209,7 @@ export class PurchasesService {
 			where: { adminId } as any,
 		});
 
-		const byId = new Map<number, ProductVariantEntity>();
+		const byId = new Map<string, ProductVariantEntity>();
 		for (const v of variants) byId.set(v.id, v);
 
 		const rows = variantIds.map((variantId) => {
@@ -334,7 +334,7 @@ export class PurchasesService {
 		return saved;
 	}
 
-	async update(me: any, id: number, dto: UpdatePurchaseDto, ipAddress?: string) {
+	async update(me: any, id: string, dto: UpdatePurchaseDto, ipAddress?: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -429,7 +429,7 @@ export class PurchasesService {
 		return saved;
 	}
 
-	async updatePaidAmount(me: any, id: number, dto: UpdatePaidAmountDto, ipAddress?: string) {
+	async updatePaidAmount(me: any, id: string, dto: UpdatePaidAmountDto, ipAddress?: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -471,7 +471,7 @@ export class PurchasesService {
 		return saved;
 	}
 
-	async updateStatus(me: any, id: number, status: ApprovalStatus, ipAddress?: string) {
+	async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -497,10 +497,10 @@ export class PurchasesService {
 			//    - write audit logs (STOCK_APPLIED + price_updated)
 			// =========================================================
 			if (status === ApprovalStatus.ACCEPTED && oldStatus !== ApprovalStatus.ACCEPTED) {
-				const byVariant = new Map<number, { qty: number; incomingCostTotal: number }>();
+				const byVariant = new Map<string, { qty: number; incomingCostTotal: number }>();
 
 				for (const it of inv.items ?? []) {
-					const vid = Number(it.variantId);
+					const vid = it.variantId;
 					const qty = Number(it.quantity) || 0;
 					const cost = Number(it.purchaseCost) || 0;
 
@@ -517,7 +517,7 @@ export class PurchasesService {
 					where: { adminId, id: In(variantIds) } as any,
 				});
 
-				const byId = new Map<number, ProductVariantEntity>();
+				const byId = new Map<string, ProductVariantEntity>();
 				for (const v of variants) byId.set(v.id, v);
 
 				for (const variantId of variantIds) {
@@ -602,10 +602,10 @@ export class PurchasesService {
 			//    - rollback price for BOTH pending/rejected
 			// =========================================================
 			if (oldStatus === ApprovalStatus.ACCEPTED && status !== ApprovalStatus.ACCEPTED) {
-				const byVariant = new Map<number, number>();
+				const byVariant = new Map<string, number>();
 
 				for (const it of inv.items ?? []) {
-					const vid = Number(it.variantId);
+					const vid = it.variantId;
 					const qty = Number(it.quantity) || 0;
 					byVariant.set(vid, (byVariant.get(vid) ?? 0) + qty);
 				}
@@ -616,7 +616,7 @@ export class PurchasesService {
 						where: { adminId, id: In(variantIds) } as any,
 					});
 
-					const byId = new Map<number, ProductVariantEntity>();
+					const byId = new Map<string, ProductVariantEntity>();
 					for (const v of variants) byId.set(v.id, v);
 
 					for (const variantId of variantIds) {
@@ -666,20 +666,20 @@ export class PurchasesService {
 						const priceChanges = (lastPriceLog as any)?.changes ?? [];
 						if (Array.isArray(priceChanges) && priceChanges.length) {
 							const priceVariantIds = [
-								...new Set(priceChanges.map((x: any) => Number(x.variantId)).filter(Boolean)),
+								...new Set(priceChanges.map((x: any) => x.variantId).filter(Boolean)),
 							];
 
 							const priceVariants = await manager.find(ProductVariantEntity, {
 								where: { adminId, id: In(priceVariantIds) } as any,
 							});
 
-							const pvById = new Map<number, ProductVariantEntity>();
+							const pvById = new Map<string, ProductVariantEntity>();
 							for (const v of priceVariants) pvById.set(v.id, v);
 
 							const touched: ProductVariantEntity[] = [];
 
 							for (const ch of priceChanges) {
-								const vid = Number(ch.variantId);
+								const vid = ch.variantId;
 								const v = pvById.get(vid);
 								if (!v) continue;
 
@@ -739,7 +739,7 @@ export class PurchasesService {
 	}
 
 
-	async remove(me: any, id: number, ipAddress?: string) {
+	async remove(me: any, id: string, ipAddress?: string) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -786,8 +786,8 @@ export class PurchasesService {
 	private async syncSupplierFinancials(params: {
 		oldStatus?: ApprovalStatus;
 		newStatus?: ApprovalStatus;
-		oldSupplierId?: number | null;
-		newSupplierId?: number | null;
+		oldSupplierId?: string | null;
+		newSupplierId?: string | null;
 		total: number;
 		remainingAmount: number;
 		manager?: EntityManager;
@@ -806,7 +806,7 @@ export class PurchasesService {
 		const repo = params?.manager ? params?.manager.getRepository(SupplierEntity) : this.supplierRepo;
 		// Helper to update supplier safely
 		const updateSupplier = async (
-			supplierId: number | null | undefined,
+			supplierId: string | null | undefined,
 			op: "add" | "subtract"
 		) => {
 			if (!supplierId) return;

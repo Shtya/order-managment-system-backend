@@ -103,7 +103,7 @@ export class OrdersController {
     @Param('sku') sku: string,
     @Req() req: any,
   ) {
-    return await this.svc.scanItem(Number(id), sku, req.user);
+    return await this.svc.scanItem(id, sku, req.user);
   }
 
 
@@ -114,7 +114,7 @@ export class OrdersController {
     @Param('sku') sku: string,
     @Req() req: any,
   ) {
-    return await this.svc.scanForShipping(Number(id), sku, req.user);
+    return await this.svc.scanForShipping(id, sku, req.user);
   }
 
   @Permissions("warehouses.scan-preparation")
@@ -123,7 +123,7 @@ export class OrdersController {
     @Param("id") id: string,
     @Param('phase') phase: ScanLogType,
     @Req() req) {
-    return await this.svc.getOrderScanLogs(Number(id), phase, req.user);
+    return await this.svc.getOrderScanLogs(id, phase, req.user);
   }
 
   @Permissions("orders.assign")
@@ -136,7 +136,7 @@ export class OrdersController {
   ) {
     return this.svc.getFreeOrdersCount(req.user, {
       statusIds: statusIds
-        ? statusIds.split(',').map(id => Number(id))
+        ? statusIds.split(',').map(id => id)
         : undefined,
       startDate: startDate ?? undefined,
       endDate: endDate ?? undefined,
@@ -161,7 +161,7 @@ export class OrdersController {
   ) {
     return this.svc.getFreeOrders(req.user, {
       statusIds: statusIds
-        ? statusIds.split(',').map(id => Number(id))
+        ? statusIds.split(',').map(id => id)
         : undefined,
       startDate: startDate || undefined,
       endDate: endDate || undefined,
@@ -241,7 +241,7 @@ export class OrdersController {
     @Param("id") id: string,
     @Req() req: any,
   ) {
-    return await this.svc.getManifestScanLogs(Number(id), req.user);
+    return await this.svc.getManifestScanLogs(id, req.user);
   }
 
   @Permissions("orders.update")
@@ -250,7 +250,7 @@ export class OrdersController {
     @Param("id") id: string,
     @Req() req: any,
   ) {
-    return await this.svc.markAsPrinted(Number(id), req.user);
+    return await this.svc.markAsPrinted(id, req.user);
   }
 
   @Permissions("orders.read")
@@ -259,7 +259,7 @@ export class OrdersController {
     @Param("id") id: string,
     @Req() req: any,
   ) {
-    return await this.svc.getManifestDetail(Number(id), req.user);
+    return await this.svc.getManifestDetail(id, req.user);
   }
 
   @Permissions("orders.read")
@@ -312,7 +312,7 @@ export class OrdersController {
     @Body() dto: ChangeOrderStatusDto,
     @Ip() ipAddress: string
   ) {
-    return this.svc.changeConfirmationStatus(req.user, Number(id), dto, ipAddress);
+    return this.svc.changeConfirmationStatus(req.user, id, dto, ipAddress);
   }
 
   // ✅ List orders with filters
@@ -384,7 +384,7 @@ export class OrdersController {
   @Permissions("orders.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.svc.get(req.user, Number(id));
+    return this.svc.get(req.user, id);
   }
 
   // orders.controller.ts
@@ -416,7 +416,7 @@ export class OrdersController {
   @Permissions("orders.update")
   @Patch(":id")
   update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateOrderDto) {
-    return this.svc.update(req.user, Number(id), dto, req.ip);
+    return this.svc.update(req.user, id, dto, req.ip);
   }
 
 
@@ -424,19 +424,19 @@ export class OrdersController {
   @Permissions("orders.update")
   @Patch(":id/status")
   changeStatus(@Req() req: any, @Param("id") id: string, @Body() dto: ChangeOrderStatusDto) {
-    return this.svc.changeStatus(req.user, Number(id), dto, req.ip);
+    return this.svc.changeStatus(req.user, id, dto, req.ip);
   }
 
   @Permissions("orders.update")
   @Patch(":id/reject")
   rejectOrder(@Req() req: any, @Param("id") id: string, @Body() dto: { notes?: string }) {
-    return this.svc.rejectOrder(req.user, Number(id), dto, req.ip);
+    return this.svc.rejectOrder(req.user, id, dto, req.ip);
   }
 
   @Permissions("orders.update")
   @Patch(":id/re-confirm")
   confirmOrder(@Req() req: any, @Param("id") id: string) {
-    return this.svc.reConfirmOrder(req.user, Number(id));
+    return this.svc.reConfirmOrder(req.user, id);
   }
 
   // ✅ Update payment status
@@ -447,20 +447,20 @@ export class OrdersController {
     @Param("id") id: string,
     @Body() dto: UpdatePaymentStatusDto
   ) {
-    return this.svc.updatePaymentStatus(req.user, Number(id), dto);
+    return this.svc.updatePaymentStatus(req.user, id, dto);
   }
 
   @Permissions("orders.read")
   @Get(":id/messages")
   getMessages(@Req() req: any, @Param("id") id: string) {
-    return this.svc.getMessages(req.user, Number(id));
+    return this.svc.getMessages(req.user, id);
   }
 
 
   @Permissions("orders.update")
   @Post(":id/messages")
   addMessage(@Req() req: any, @Param("id") id: string, @Body() dto: AddOrderMessageDto) {
-    return this.svc.addMessage(req.user, Number(id), dto);
+    return this.svc.addMessage(req.user, id, dto);
   }
 
 
@@ -471,14 +471,14 @@ export class OrdersController {
     @Param("id") id: string,
     @Body() dto: MarkMessagesReadDto
   ) {
-    return this.svc.markMessagesRead(req.user, Number(id), dto);
+    return this.svc.markMessagesRead(req.user, id, dto);
   }
 
   // ✅ Delete order
   @Permissions("orders.delete")
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
-    return this.svc.remove(req.user, Number(id));
+    return this.svc.remove(req.user, id);
   }
 
   // ✅ Create new order status
@@ -496,14 +496,14 @@ export class OrdersController {
     @Param("id") id: string,
     @Body() dto: UpdateStatusDto
   ) {
-    return this.svc.updateStatus(req.user, Number(id), dto);
+    return this.svc.updateStatus(req.user, id, dto);
   }
 
   // ✅ Delete order status
   @Permissions("orders.update")
   @Delete("statuses/:id")
   removeStatus(@Req() req: any, @Param("id") id: string) {
-    return this.svc.removeStatus(req.user, Number(id));
+    return this.svc.removeStatus(req.user, id);
   }
 
 

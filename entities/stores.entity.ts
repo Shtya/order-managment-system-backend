@@ -13,6 +13,7 @@ import {
 	PrimaryGeneratedColumn,
 	UpdateDateColumn,
 } from "typeorm";
+import { User } from "./user.entity";
 
 export enum StoreProvider {
 	EASYORDER = 'easyorder',
@@ -39,13 +40,16 @@ export enum SyncStatus {
 @Index(["adminId", "name"])
 @Index(["adminId", "isActive"])
 export class StoreEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	// Tenant ownership
-	@Column({ nullable: true })
 	@Index()
-	adminId!: string | null;
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	// Store identification
 	@Column({ type: "varchar", length: 120 })
@@ -99,15 +103,15 @@ export class StoreEntity {
 @Entity({ name: 'store_events' })
 @Index(['storeId', 'created_at'])
 export class StoreEventEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ type: 'int' })
+	@Column({ type: 'uuid', })
 	@Index()
-	storeId: number;
+	storeId: string;
 
 	@Column({ type: 'int' })
-	externalId: number;
+	externalId: string;
 
 	@ManyToOne(() => StoreEntity, { onDelete: 'CASCADE' })
 	@JoinColumn({ name: 'storeId' })
@@ -132,17 +136,22 @@ export class StoreEventEntity {
 @Entity({ name: "webhook_order_failures" })
 // @Index(["adminId", "storeId", "externalOrderId"], { unique: true })
 export class WebhookOrderFailureEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ type: "varchar", length: 50 })
+	@Index()
+	@Column({ type: 'uuid', nullable: true })
 	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	@Column({ type: "int", default: 0 })
 	attempts: number;
 
-	@Column({ type: "int", nullable: false })
-	storeId: number;
+	@Column({ type: 'uuid', nullable: false })
+	storeId: string;
 
 	@Column({ type: "varchar", nullable: true })
 	externalOrderId: string;

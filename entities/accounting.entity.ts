@@ -6,12 +6,16 @@ import { SupplierEntity } from './supplier.entity';
 
 @Entity({ name: 'manual_expenses' })
 export class ManualExpenseEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
-    @Column()
     @Index()
+    @Column({ type: 'uuid', nullable: true })
     adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
 
     @Column({ type: 'decimal', precision: 20, scale: 2 })
     amount: number;
@@ -22,8 +26,8 @@ export class ManualExpenseEntity {
     @Column({ type: 'varchar', nullable: true })
     attachment: string;
 
-    @Column()
-    createdByUserId: number;
+    @Column({type: 'uuid'})
+    createdByUserId: string;
 
     @ManyToOne(() => User, {
         onDelete: 'SET NULL',
@@ -37,8 +41,8 @@ export class ManualExpenseEntity {
     @JoinColumn({ name: 'categoryId' })
     category: Relation<ManualExpenseCategoryEntity>;
 
-    @Column({ nullable: true })
-    categoryId: number;
+    @Column({ type: 'uuid',nullable: true })
+    categoryId: string;
 
     @Column({
         type: "timestamptz",
@@ -47,8 +51,8 @@ export class ManualExpenseEntity {
     @Index()
     collectionDate: Date;
 
-    @Column({ nullable: true })
-    monthlyClosingId: number | null;
+    @Column({ type: 'uuid',nullable: true })
+    monthlyClosingId: string | null;
 
     @ManyToOne(() => MonthlyClosingEntity)
     @JoinColumn({ name: 'monthlyClosingId' })
@@ -60,12 +64,16 @@ export class ManualExpenseEntity {
 @Entity({ name: 'manual_expense_categories' })
 @Index(['adminId', 'name'], { unique: true })
 export class ManualExpenseCategoryEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
-    @Column()
     @Index()
+    @Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
     adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
 
     @Column({ type: 'varchar', length: 100 })
     name: string;
@@ -85,14 +93,19 @@ export class ManualExpenseCategoryEntity {
 
 @Entity({ name: 'supplier_closings' })
 export class SupplierClosingEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
-    @Column()
+    @Index()
+    @Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
     adminId: string;
 
-    @Column()
-    supplierId: number;
+    @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
+    @Column({type: 'uuid'})
+    supplierId: string;
 
     @ManyToOne(() => SupplierEntity)
     @JoinColumn({ name: 'supplierId' })
@@ -108,7 +121,7 @@ export class SupplierClosingEntity {
     totalPurchases: number; // إجمالي المشتريات
 
     @Column({ type: 'decimal', precision: 20, scale: 2 })
-    totalPaid: number;      // إجم  الي المدفوع للمورد
+    totalPaId: number;      // إجم  الي المدفوع للمورد
 
     @Column({ type: 'decimal', precision: 20, scale: 2 })
     totalReturns: number;   // إجمالي المرتجعات
@@ -133,12 +146,16 @@ export class SupplierClosingEntity {
 @Entity({ name: 'monthly_closings' })
 @Index(['adminId', 'year', 'month'], { unique: true })
 export class MonthlyClosingEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
-    @Column()
     @Index()
+    @Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
     adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
 
     @Column({ type: 'int' })
     year: number;
@@ -176,8 +193,8 @@ export class MonthlyClosingEntity {
     netProfit: number; // operatingProfit - returnsCost but absolute value with type
 
     // Audit
-    @Column({ type: 'int', nullable: true })
-    createdByUserId?: number;
+    @Column({ type: 'uuid', nullable: true })
+    createdByUserId?: string;
 
     @ManyToOne(() => User, {
         onDelete: 'SET NULL',

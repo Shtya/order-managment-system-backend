@@ -485,7 +485,7 @@ export class CRUD {
 
 
 
-	static async delete<T>(repository: Repository<T>, entityName: string, id: number | string): Promise<{ message: string }> {
+	static async delete<T>(repository: Repository<T>, entityName: string, id: string | string): Promise<{ message: string }> {
 		const entity = await repository.findOne({ where: { id } as any });
 
 		if (!entity) {
@@ -499,7 +499,7 @@ export class CRUD {
 		};
 	}
 
-	static async findOne<T>(repository: Repository<T>, entityName: string, id: number | string, relations?: string[]): Promise<T> {
+	static async findOne<T>(repository: Repository<T>, entityName: string, id: string | string, relations?: string[]): Promise<T> {
 		const qb = repository.createQueryBuilder(entityName);
 
 

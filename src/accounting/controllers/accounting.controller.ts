@@ -46,7 +46,7 @@ export class AccountingController {
   async getShipmentsCityReport(
     @Req() req: any,
     @Query() query: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -64,7 +64,7 @@ export class AccountingController {
     @Req() req: any,
     @Res() res: Response,
     @Query() query: {
-      storeId?: number;
+      storeId?: string;
       startDate?: string;
       endDate?: string;
       range?: string;
@@ -115,14 +115,14 @@ export class AccountingController {
   @Get('supplier-closings/supplier-preview')
   async getPreview(
     @Req() req: any,
-    @Query('supplierId') supplierId: number,
+    @Query('supplierId') supplierId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string
   ) {
     return await this.accountingService.getSupplierPeriodPreview(req.user, supplierId, startDate, endDate);
   }
   @Get('supplier-closings/:id')
-  async getOne(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+  async getOne(@Req() req: any, @Param('id', ParseIntPipe) id: string) {
     return await this.accountingService.getSupplierClosing(req.user, id);
   }
 }

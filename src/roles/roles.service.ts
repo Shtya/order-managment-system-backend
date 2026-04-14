@@ -6,8 +6,8 @@ import {
 	OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Permission, Role, SystemRole, User } from 'entities/user.entity';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { CreateRoleDto, UpdateRoleDto } from 'dto/role.dto';
 
 @Injectable()
@@ -108,7 +108,7 @@ export class RolesService implements OnModuleInit {
 
 
 	// ✅ Get Single Role
-	// async get(me: User, id: number) {
+	// async get(me: User, id: string) {
 	// 	const role = await this.rolesRepo.findOne({ where: { id } });
 	// 	if (!role) throw new NotFoundException('Role not found');
 
@@ -126,7 +126,7 @@ export class RolesService implements OnModuleInit {
 	// 	throw new ForbiddenException('Not allowed');
 	// }
 
-	async get(me: User, id: number) {
+	async get(me: User, id: string) {
 		const role = await this.rolesRepo.findOne({ where: { id } });
 		if (!role) throw new NotFoundException('Role not found');
 
@@ -207,7 +207,7 @@ export class RolesService implements OnModuleInit {
 	}
 
 	// ✅ Update Role
-	async update(me: User, id: number, dto: UpdateRoleDto) {
+	async update(me: User, id: string, dto: UpdateRoleDto) {
 		const role = await this.get(me, id);
 
 		// Can't edit global roles unless super admin
@@ -233,7 +233,7 @@ export class RolesService implements OnModuleInit {
 	}
 
 	// ✅ Delete Role
-	async remove(me: User, id: number) {
+	async remove(me: User, id: string) {
 		const role = await this.get(me, id);
 
 

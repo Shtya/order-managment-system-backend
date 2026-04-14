@@ -4,13 +4,12 @@ import { IsEnum, IsInt, IsOptional, IsNumber, IsString, Min } from 'class-valida
 import { PlanDuration, SubscriptionStatus } from 'entities/plans.entity';
 
 
-
 export class CreateSubscriptionDto {
     @IsInt()
-    userId: number;
+    userId: string;
 
     @IsInt()
-    planId: number;
+    planId: string;
 
     @IsEnum(SubscriptionStatus)
     status: SubscriptionStatus;

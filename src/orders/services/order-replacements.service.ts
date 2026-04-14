@@ -340,7 +340,7 @@ export class OrderReplacementService {
             await manager.save(OrderReplacementEntity, replacement);
 
             await this.notificationService.create({
-                userId: Number(adminId),
+                userId: adminId,
                 type: NotificationType.REPLACEMENT_CREATED,
                 title: "Order Replacement Created",
                 message: `A replacement order #${newOrder.orderNumber} has been created for original order #${originalOrder.orderNumber}.`,

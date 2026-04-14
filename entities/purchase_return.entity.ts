@@ -6,25 +6,30 @@ import {
 } from "typeorm";
 import { User } from "./user.entity";
 import { ProductVariantEntity } from "./sku.entity";
-import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
+import { ApprovalStatus, PurchaseReturnType } from "common/enums";
 import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
+
 
 @Entity({ name: "purchase_return_invoices" })
 @Index(["adminId", "returnNumber"], { unique: true })
 export class PurchaseReturnInvoiceEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "varchar", length: 120 })
   returnNumber!: string; // auto or frontend (like SRF56)
 
-  @Column({ type: "int", nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  supplierId?: number | null;
+  supplierId?: string | null;
 
   // optional snapshots (because your form has supplierName/code as inputs)
   @Column({ type: "varchar", length: 200, nullable: true })
@@ -67,8 +72,8 @@ export class PurchaseReturnInvoiceEntity {
   @Column({ type: "varchar", length: 255, nullable: true })
   receiptAsset?: string | null;
 
-  @Column({ type: "int", nullable: true })
-  createdByUserId?: number | null;
+  @Column({ type: 'uuid', nullable: true })
+  createdByUserId?: string | null;
 
   @ManyToOne(() => User, { nullable: true, eager: true })
   @JoinColumn({ name: "createdByUserId" })
@@ -83,15 +88,15 @@ export class PurchaseReturnInvoiceEntity {
   @JoinColumn({ name: 'closingId' })
   closing: Relation<SupplierClosingEntity>;
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  closingId: number
+  closingId: string
 
   @CreateDateColumn({ type: "timestamptz" })
   statusUpdateDate!: Date;
   // Add this to your OrderEntity
-  @Column({ nullable: true })
-  monthlyClosingId: number | null;
+  @Column({ type: 'uuid', nullable: true })
+  monthlyClosingId: string | null;
 
   @ManyToOne(() => MonthlyClosingEntity)
   @JoinColumn({ name: 'monthlyClosingId' })
@@ -107,30 +112,34 @@ export class PurchaseReturnInvoiceEntity {
 @Entity({ name: "purchase_return_invoice_items" })
 @Index(["adminId", "invoiceId"])
 export class PurchaseReturnInvoiceItemEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
 
-  @Column({ type: "int" })
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({ type: 'uuid', })
   @Index()
-  invoiceId!: number;
+  invoiceId!: string;
 
   @ManyToOne(() => PurchaseReturnInvoiceEntity, (x) => x.items, { onDelete: "CASCADE" })
   @JoinColumn({ name: "invoiceId" })
   invoice!: PurchaseReturnInvoiceEntity;
 
-  @Column({ type: "int" })
+  @Column({ type: 'uuid', })
   @Index()
-  variantId!: number;
+  variantId!: string;
 
   @ManyToOne(() => ProductVariantEntity, { eager: true, onDelete: "RESTRICT" })
   @JoinColumn({ name: "variantId" })
   variant!: ProductVariantEntity;
 
-  @Column({ type: "int" })
+  @Column({ type: 'int', })
   returnedQuantity!: number;
 
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
@@ -169,24 +178,28 @@ export enum PurchaseReturnAuditAction {
 @Index(["adminId", "invoiceId"])
 @Index(["invoiceId", "created_at"])
 export class PurchaseReturnAuditLogEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
 
-  @Column({ type: "int" })
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({ type: 'uuid', })
   @Index()
-  invoiceId!: number;
+  invoiceId!: string;
 
   @ManyToOne(() => PurchaseReturnInvoiceEntity, { onDelete: "CASCADE" })
   @JoinColumn({ name: "invoiceId" })
   invoice!: PurchaseReturnInvoiceEntity;
 
-  @Column({ type: "int", nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  userId?: number | null;
+  userId?: string | null;
 
   @ManyToOne(() => User, { eager: true, nullable: true })
   @JoinColumn({ name: "userId" })
@@ -213,9 +226,9 @@ export class PurchaseReturnAuditLogEntity {
 
 
 
-  @Column({ nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   @Index()
-  closingId: number;
+  closingId: string;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;

@@ -27,17 +27,17 @@ export class NotificationController {
   }
 
   @Patch(":id/read")
-  async markAsRead(@Req() req: any, @Param("id") id: number) {
-    return this.svc.markAsRead(Number(req.user?.id), id);
+  async markAsRead(@Req() req: any, @Param("id") id: string) {
+    return this.svc.markAsRead(req.user?.id, id);
   }
 
   @Post("read-all")
   async markAllRead(@Req() req: any) {
-    return this.svc.markAllAsRead(Number(req.user?.id));
+    return this.svc.markAllAsRead(req.user?.id);
   }
 
   @Get("unread-count")
   async getUnreadCount(@Req() req: any) {
-    return this.svc.getUnreadCount(Number(req.user?.id));
+    return this.svc.getUnreadCount(req.user?.id);
   }
 }

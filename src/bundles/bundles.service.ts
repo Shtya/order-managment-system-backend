@@ -66,7 +66,7 @@ export class BundlesService {
 			q?.limit ?? 10,
 			q?.sortBy ?? "created_at",
 			(q?.sortOrder ?? "DESC") as any,
-			["variant","variant.product", "store", "items", "items.variant"], // Relations to load
+			["variant", "variant.product", "store", "items", "items.variant"], // Relations to load
 			["name", "sku"], // 🔎 Searchable fields as requested
 			{
 				__tenant: {
@@ -79,11 +79,11 @@ export class BundlesService {
 		);
 	}
 
-	async get(me: any, id: number) {
+	async get(me: any, id: string) {
 		const adminId = tenantId(me);
 		const bundle = await this.bundleRepo.findOne({
 			where: { id, adminId } as any,
-			relations: ["variant", "variant.product","store", "items", "items.variant"],
+			relations: ["variant", "variant.product", "store", "items", "items.variant"],
 		});
 		if (!bundle) throw new BadRequestException("bundle not found");
 		return bundle;
@@ -93,7 +93,7 @@ export class BundlesService {
 		const adminId = tenantId(me);
 		const bundle = await this.bundleRepo.findOne({
 			where: { adminId, sku } as any,
-			relations: ["variant", "variant.product","store", "items", "items.variant"],
+			relations: ["variant", "variant.product", "store", "items", "items.variant"],
 		});
 		if (!bundle) throw new BadRequestException("bundle SKU not found");
 		return bundle;
@@ -208,7 +208,7 @@ export class BundlesService {
 			q?.limit ?? 1000000,
 			q?.sortBy ?? "created_at",
 			(q?.sortOrder ?? "DESC") as any,
-			["variant","variant.product", "store", "items", "items.variant"],
+			["variant", "variant.product", "store", "items", "items.variant"],
 			["name", "sku"], // Searchable fields
 			{
 				__tenant: {
@@ -271,7 +271,7 @@ export class BundlesService {
 		return await workbook.xlsx.writeBuffer();
 	}
 
-	async update(me: any, id: number, dto: UpdateBundleDto) {
+	async update(me: any, id: string, dto: UpdateBundleDto) {
 		const adminId = tenantId(me);
 
 		const b = await this.bundleRepo.findOne({
@@ -370,7 +370,7 @@ export class BundlesService {
 	}
 
 
-	async remove(me: any, id: number) {
+	async remove(me: any, id: string) {
 		const adminId = tenantId(me);
 		await this.get(me, id);
 		await this.itemRepo.delete({ bundleId: id, adminId } as any);

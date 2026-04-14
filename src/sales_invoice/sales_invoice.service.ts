@@ -42,7 +42,7 @@ export class SalesInvoicesService {
   constructor(
     @InjectRepository(SalesInvoiceEntity) private invRepo: Repository<SalesInvoiceEntity>,
     @InjectRepository(SalesInvoiceItemEntity) private itemRepo: Repository<SalesInvoiceItemEntity>,
-  ) {}
+  ) { }
 
   async stats(me: any) {
     const adminId = tenantId(me);
@@ -71,7 +71,7 @@ export class SalesInvoicesService {
 
     if (q?.paymentStatus && q?.paymentStatus !== "all") filters.paymentStatus = q.paymentStatus;
     if (q?.paymentMethod && q?.paymentMethod !== "all") filters.paymentMethod = q.paymentMethod;
-    if (q?.safeId && q?.safeId !== "none") filters.safeId = Number(q.safeId);
+    if (q?.safeId && q?.safeId !== "none") filters.safeId = q.safeId;
 
     return CRUD.findAll(
       this.invRepo,
@@ -90,7 +90,7 @@ export class SalesInvoicesService {
     );
   }
 
-  async get(me: any, id: number) {
+  async get(me: any, id: string) {
     return CRUD.findOne(this.invRepo, "sales_invoices", id);
   }
 
@@ -129,9 +129,9 @@ export class SalesInvoicesService {
       } as any);
     });
 
-    const subtotal = items.reduce((s, x:any) => s + x.lineSubtotal, 0);
-    const taxTotal = items.reduce((s, x:any) => s + x.lineTax, 0);
-    const discountTotal = items.reduce((s, x:any) => s + (x.discount || 0), 0);
+    const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
+    const taxTotal = items.reduce((s, x: any) => s + x.lineTax, 0);
+    const discountTotal = items.reduce((s, x: any) => s + (x.discount || 0), 0);
 
     const shippingCost = dto.shippingCost ?? 0;
     const total = subtotal + taxTotal + shippingCost;
@@ -164,7 +164,7 @@ export class SalesInvoicesService {
     return this.invRepo.save(inv);
   }
 
-  async update(me: any, id: number, dto: UpdateSalesInvoiceDto) {
+  async update(me: any, id: string, dto: UpdateSalesInvoiceDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -207,9 +207,9 @@ export class SalesInvoicesService {
         } as any);
       });
 
-      const subtotal = items.reduce((s, x:any) => s + x.lineSubtotal, 0);
-      const taxTotal = items.reduce((s, x:any) => s + x.lineTax, 0);
-      const discountTotal = items.reduce((s, x:any) => s + (x.discount || 0), 0);
+      const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
+      const taxTotal = items.reduce((s, x: any) => s + x.lineTax, 0);
+      const discountTotal = items.reduce((s, x: any) => s + (x.discount || 0), 0);
 
       const shippingCost = dto.shippingCost ?? (inv as any).shippingCost ?? 0;
       const total = subtotal + taxTotal + shippingCost;
@@ -249,13 +249,13 @@ export class SalesInvoicesService {
     return this.invRepo.save(inv as any);
   }
 
-  async updatePaymentStatus(me: any, id: number, paymentStatus: PaymentStatus) {
+  async updatePaymentStatus(me: any, id: string, paymentStatus: PaymentStatus) {
     const inv = await this.get(me, id);
     (inv as any).paymentStatus = paymentStatus;
     return this.invRepo.save(inv as any);
   }
 
-  async remove(me: any, id: number) {
+  async remove(me: any, id: string) {
     await this.get(me, id);
     return CRUD.delete(this.invRepo, "sales_invoices", id);
   }

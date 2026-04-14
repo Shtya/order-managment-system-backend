@@ -162,7 +162,7 @@ export class MonthlyClosingService {
     return buffer;
   }
 
-  async getClosing(me: any, id: number) {
+  async getClosing(me: any, id: string) {
     const adminId = tenantId(me);
     const rec = await this.monthlyRepo.findOne({ where: { id, adminId } });
     if (!rec) throw new BadRequestException('Closing not found');

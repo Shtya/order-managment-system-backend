@@ -43,27 +43,27 @@ export class PurchaseReturnsController {
   @Permissions("purchase_returns.read")
   @Get(":id/audit-logs")
   auditLogs(@Req() req: any, @Param("id") id: string) {
-    return this.svc.getAuditLogs(req.user, Number(id));
+    return this.svc.getAuditLogs(req.user, id);
   }
 
   // ✅ NEW: Accept preview (what will happen on accept)
   @Permissions("purchase_returns.read")
   @Get(":id/accept-preview")
   acceptPreview(@Req() req: any, @Param("id") id: string) {
-    return this.svc.acceptPreview(req.user, Number(id));
+    return this.svc.acceptPreview(req.user, id);
   }
 
   @Permissions("purchase_returns.update")
   @Patch(":id/paid-amount")
   updatePaidAmount(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePaidAmountDto) {
-    return this.svc.updatePaidAmount(req.user, Number(id), dto, req.ip);
+    return this.svc.updatePaidAmount(req.user, id, dto, req.ip);
   }
 
 
   @Permissions("purchase_returns.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.svc.get(req.user, Number(id));
+    return this.svc.get(req.user, id);
   }
 
   @Permissions("purchase_returns.create")
@@ -82,7 +82,7 @@ export class PurchaseReturnsController {
     //
     const dto: CreatePurchaseReturnDto = {
       returnNumber: body.returnNumber,
-      supplierId: body.supplierId ? Number(parseNumber(body.supplierId)) : undefined,
+      supplierId: body.supplierId ? body.supplierId : undefined,
       supplierNameSnapshot: body.supplierNameSnapshot,
       supplierCodeSnapshot: body.supplierCodeSnapshot,
       invoiceNumber: body.invoiceNumber,
@@ -129,7 +129,7 @@ export class PurchaseReturnsController {
     @Body() body: any
   ) {
     const dto: UpdatePurchaseReturnDto = {
-      supplierId: body.supplierId !== undefined ? Number(parseNumber(body.supplierId)) : undefined,
+      supplierId: body.supplierId !== undefined ? body.supplierId : undefined,
       returnNumber: body.returnNumber !== undefined ? body.returnNumber : undefined,
       safeId: body.safeId !== undefined ? body.safeId : undefined,
       paidAmount: body.paidAmount !== undefined ? Number(parseNumber(body.paidAmount)) : undefined,
@@ -145,19 +145,19 @@ export class PurchaseReturnsController {
       dto.receiptAsset = `/uploads/purchases-returns/${receiptFile.filename}`;
     }
 
-    return this.svc.update(req.user, Number(id), dto, req.ip);
+    return this.svc.update(req.user, id, dto, req.ip);
   }
 
   @Permissions("purchase_returns.update")
   @Patch(":id/status")
   updateStatus(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePurchaseReturnStatusDto) {
-    return this.svc.updateStatus(req.user, Number(id), dto.status, req.ip);
+    return this.svc.updateStatus(req.user, id, dto.status, req.ip);
   }
 
   @Permissions("purchase_returns.delete")
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
-    return this.svc.remove(req.user, Number(id), req.ip);
+    return this.svc.remove(req.user, id, req.ip);
   }
 
 

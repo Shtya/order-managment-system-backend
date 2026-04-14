@@ -1,11 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Not, Repository } from "typeorm";
+import { Repository } from "typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
 import { CRUD } from "../../common/crud.service";
 
-export function tenantId(me: any): any | null {
+export function tenantId(me: any): string | null {
 	if (!me) return null;
 
 	const roleName = me.role?.name;
@@ -47,7 +47,7 @@ export class CategoriesService {
 		);
 	}
 
-	async get(me: any, id: number) {
+	async get(me: any, id: string) {
 		const entity = await CRUD.findOne(this.catRepo, "categories", id);
 		return entity;
 	}
@@ -68,7 +68,7 @@ export class CategoriesService {
 		return this.catRepo.save(cat);
 	}
 
-	async update(me: any, id: number, dto: UpdateCategoryDto) {
+	async update(me: any, id: string, dto: UpdateCategoryDto) {
 		const adminId = tenantId(me);
 		const cat = await this.get(me, id);
 
@@ -86,7 +86,7 @@ export class CategoriesService {
 		return this.catRepo.save(cat as any);
 	}
 
-	async remove(me: any, id: number) {
+	async remove(me: any, id: string) {
 		await this.get(me, id);
 		return CRUD.delete(this.catRepo, "categories", id);
 	}

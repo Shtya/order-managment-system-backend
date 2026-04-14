@@ -48,7 +48,7 @@ export class StoreQueueService {
         });
     }
 
-    async enqueueCategorySync(category: CategoryEntity, storeId: number, storeType: StoreProvider, slug?: string) {
+    async enqueueCategorySync(category: CategoryEntity, storeId: string, storeType: StoreProvider, slug?: string) {
 
         const cleanSlug = slug?.trim();
         await this.addJob(category.adminId, "sync-category", storeType, {
@@ -61,7 +61,7 @@ export class StoreQueueService {
     /** Product sync uses its own group (admin:${adminId}:product) so it is not blocked by full-store sync or other admin jobs. */
     // queues.ts
 
-    async enqueueProductSync(productId: number, adminId: string, storeId: number, storeType: StoreProvider, slug?: string) {
+    async enqueueProductSync(productId: string, adminId: string, storeId: string, storeType: StoreProvider, slug?: string) {
         const jobId = `product:${storeType}:${productId}`;
         const cleanSlug = slug?.trim(); // [2025-12-24] Trim slug
 
@@ -93,7 +93,7 @@ export class StoreQueueService {
         this.productSyncTimeouts.set(jobId, timeout);
     }
 
-    async enqueueBundleSync(bundleId: number, adminId: string, storeId: number, storeType: StoreProvider) {
+    async enqueueBundleSync(bundleId: string, adminId: string, storeId: string, storeType: StoreProvider) {
         const jobId = `bundle:${storeType}:${bundleId}`;
 
         if (this.bundleSyncTimeouts.has(jobId)) {
@@ -120,7 +120,7 @@ export class StoreQueueService {
         this.bundleSyncTimeouts.set(jobId, timeout);
     }
 
-    async enqueueOrderStatusSync(order: OrderEntity, storeId: number, storeType: StoreProvider) {
+    async enqueueOrderStatusSync(order: OrderEntity, storeId: string, storeType: StoreProvider) {
         await this.addJob(order.adminId, "sync-order-status", storeType, {
             orderId: order.id,
             storeId,
@@ -134,7 +134,7 @@ export class StoreQueueService {
         }, { jobId });
     }
 
-    async enqueueRetryFailedOrder(adminId: string, failureId: number, provider: StoreProvider) {
+    async enqueueRetryFailedOrder(adminId: string, failureId: string, provider: StoreProvider) {
         const jobId = `retry-failed-order:${failureId}`;
         await this.addJob(adminId, "retry-failed-order", provider, {
             failureId,

@@ -6,12 +6,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { SystemRole, User } from 'entities/user.entity';
-import { DataSource, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { DateFilterUtil } from 'common/date-filter.util';
-import * as ExcelJS from "exceljs";
 import { imageSrc } from 'common/healpers';
 import { TransactionEntity, TransactionStatus } from 'entities/payments.entity';
-
+import * as ExcelJS from "exceljs";
 
 @Injectable()
 export class TransactionsService {
@@ -123,7 +122,7 @@ export class TransactionsService {
 		};
 	}
 
-	async get(me: User, id: number) {
+	async get(me: User, id: string) {
 		const transaction = await this.transactionsRepo.findOne({
 			where: { id },
 			relations: ['user', 'subscription', 'subscription.plan'],
@@ -190,7 +189,7 @@ export class TransactionsService {
 		};
 	}
 	// ✅ Cancel Transaction (by user or admin)
-	async cancel(me: User, id: number) {
+	async cancel(me: User, id: string) {
 		const transaction = await this.get(me, id);
 
 		// Can only cancel if processing

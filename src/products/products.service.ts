@@ -85,7 +85,9 @@ export class ProductsService {
     return key;
   }
 
-  private generateSku(product: ProductEntity, attrs: Record<string, any>, nextNumber: number) {
+  private generateSku(product: ProductEntity, attrs: Record<string, any>) {
+    const rand = Math.random().toString(16).substring(2, 6).toUpperCase();
+
     const base = (product.name || "PRD")
       .toString()
       .replace(/\s+/g, "")
@@ -96,13 +98,13 @@ export class ProductsService {
       .map(v => String(v).replace(/\s+/g, "").toUpperCase())
       .join("-");
 
-    return `${base}-${attrPart}-${nextNumber}`;
+    return `${base}-${attrPart}-${rand}`;
   }
 
   private async assertOwnedOrNull(
     repo: Repository<any>,
     adminId: string,
-    id?: number | null,
+    id?: string | null,
     label = "entity"
   ) {
     if (id == null) return null;
@@ -133,7 +135,7 @@ export class ProductsService {
       order: { id: "ASC" },
     });
 
-    const byProduct = new Map<number, any[]>();
+    const byProduct = new Map<string, any[]>();
     for (const r of rows) {
       const arr = byProduct.get(r.productId) ?? [];
       arr.push(this.mapSkuRow(r));
@@ -600,7 +602,7 @@ export class ProductsService {
     };
   }
 
-  async get(me: any, id: number, manager?: EntityManager) {
+  async get(me: any, id: string, manager?: EntityManager) {
     const repo = manager ? manager.getRepository(ProductEntity) : this.prodRepo;
 
     const p = await CRUD.findOne(repo, "products", id, [
@@ -628,7 +630,7 @@ export class ProductsService {
     };
   }
 
-  async getSkus(me: any, productId: number) {
+  async getSkus(me: any, productId: string) {
     await this.get(me, productId);
 
     const rows = await this.pvRepo.find({
@@ -644,7 +646,7 @@ export class ProductsService {
 
   async upsertSkus(
     me: any,
-    productId: number,
+    productId: string,
     body: UpsertProductSkusDto,
     manager?: EntityManager
   ) {
@@ -701,7 +703,7 @@ export class ProductsService {
         // ➕ CREATE NEW
         count++;
 
-        const sku = await this.generateSku(product, attrs, adminId);
+        const sku = await this.generateSku(product, attrs);
 
         const created = pvRepo.create({
           adminId,
@@ -754,7 +756,7 @@ export class ProductsService {
     };
   }
 
-  async adjustVariantStock(me: any, productId: number, variantId: number, body: AdjustVariantStockDto) {
+  async adjustVariantStock(me: any, productId: string, variantId: string, body: AdjustVariantStockDto) {
     const adminId = tenantId(me);
     await this.get(me, productId);
 
@@ -842,9 +844,9 @@ export class ProductsService {
         updatedByUserId: null,
       });
 
-      const mainOrphanId = Number((dto as any).mainImageOrphanId);
+      const mainOrphanId = (dto as any).mainImageOrphanId;
       if (!p.mainImage) {
-        if (!Number.isFinite(mainOrphanId) || mainOrphanId <= 0) {
+        if (!mainOrphanId) {
           throw new BadRequestException("mainImageOrphanId is required");
         }
         const mainRow = await mgr.getRepository(OrphanFileEntity).findOne({
@@ -887,7 +889,7 @@ export class ProductsService {
           }
 
           const key = this.canonicalKey(attrs); // ✅ Always generated
-          const sku = this.generateSku(savedProduct, attrs, adminId); // ✅ Always generated
+          const sku = this.generateSku(savedProduct, attrs); // ✅ Always generated
 
           if (!key) throw new BadRequestException("Each combination must have key or attributes");
 
@@ -956,7 +958,7 @@ export class ProductsService {
       }
 
       await this.notificationService.create({
-        userId: Number(adminId),
+        userId: adminId,
         type: NotificationType.PRODUCT_CREATED,
         title: "New Product Created",
         message: `Product "${savedProduct.name}" has been created successfully.`,
@@ -971,7 +973,7 @@ export class ProductsService {
     return this.get(me, savedId);
   }
 
-  async update(me: any, id: number, dto: UpdateProductDto) {
+  async update(me: any, id: string, dto: UpdateProductDto) {
     const adminId = tenantId(me);
     const p = await CRUD.findOne(this.prodRepo, "products", id, ["category", "store", "warehouse"]);
     if (!p) throw new BadRequestException("product not found");
@@ -1026,8 +1028,8 @@ export class ProductsService {
     // main image via orphan id
     const mainOrphanId = (dto as any).mainImageOrphanId;
     if (mainOrphanId !== undefined && mainOrphanId !== null && mainOrphanId !== "") {
-      const oid = Number(mainOrphanId);
-      if (!Number.isFinite(oid) || oid <= 0) throw new BadRequestException("mainImageOrphanId is invalid");
+      const oid = mainOrphanId;
+      if (!oid) throw new BadRequestException("mainImageOrphanId is invalid");
       const row = await this.orphanRepo.findOne({
         where: { adminId: String(adminId), id: oid } as any,
         select: ["id", "url"],
@@ -1097,7 +1099,7 @@ export class ProductsService {
     return this.get(me, saved.id);
   }
 
-  async remove(me: any, id: number) {
+  async remove(me: any, id: string) {
     // 1. Fetch the product first to get the image paths
     const product = await this.get(me, id);
 
@@ -1133,7 +1135,7 @@ export class ProductsService {
       where: {
         adminId,
         slug: slug.trim().toLowerCase(),
-        storeId: storeId ? Number(storeId) : IsNull()
+        storeId: storeId ? storeId : IsNull()
       },
       select: ["id"] // نختار الـ id فقط لتحسين الأداء
     });

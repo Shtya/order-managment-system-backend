@@ -1,6 +1,6 @@
 import { PartialType } from "@nestjs/mapped-types";
 import { Type } from "class-transformer";
-import { IsBoolean, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsDateString, IsNotEmpty, IsNumber, IsOptional, isString, IsString } from "class-validator";
 
 export class AccountingStatsDto {
     @IsOptional()
@@ -32,9 +32,8 @@ export class CreateManualExpenseDto {
     @IsNumber()
     amount: number;
 
-    @Type(() => Number) // Convert string to number
-    @IsNumber()
-    categoryId: number;
+    @IsString()
+    categoryId: string;
 
     @IsOptional()
     @IsString()
@@ -53,9 +52,8 @@ export class UpdateManualExpenseDto extends PartialType(CreateManualExpenseDto) 
 
 
 export class CloseSupplierPeriodDto {
-    @IsNumber()
     @IsNotEmpty()
-    supplierId: number;
+    supplierId: string;
 
     @IsDateString()
     @IsNotEmpty()

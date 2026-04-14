@@ -22,7 +22,7 @@ export class LookupsController {
 	) {
 		return this.lookups.users(req.user, {
 			q,
-			roleId: roleId ? Number(roleId) : undefined,
+			roleId: roleId ? roleId : undefined,
 			isActive: typeof isActive === 'string' ? isActive === 'true' : undefined,
 			limit: limit ? Math.min(Number(limit) || 20, 100) : 20,
 		});
@@ -117,7 +117,7 @@ export class LookupsController {
 	) {
 		return this.lookups.skus(req.user, {
 			q,
-			productId: productId ? Number(productId) : undefined,
+			productId: productId ? productId : undefined,
 			limit: limit ? Math.min(Number(limit) || 50, 200) : 50,
 		});
 	}

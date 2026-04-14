@@ -27,7 +27,7 @@ export const shippingQueue = new Queue({
 
 @Injectable()
 export class ShippingQueueService {
-    private getBusyKey(orderId: number | string) {
+    private getBusyKey(orderId: string | string) {
         if (!orderId) return null;
         return `shipping:busy:${orderId}`;
     }

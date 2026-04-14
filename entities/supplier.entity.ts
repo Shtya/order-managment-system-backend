@@ -12,17 +12,22 @@ import {
 	Relation,
 } from "typeorm";
 import { SupplierClosingEntity } from "./accounting.entity";
+import { User } from "./user.entity";
 
 @Entity({ name: "suppliers" })
 @Index(["adminId", "name"])
 @Index(["adminId", "phone"])
 export class SupplierEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ nullable: true })
 	@Index()
-	adminId!: string | null;
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	@Column({ type: "varchar", length: 120 })
 	name!: string;
@@ -68,8 +73,8 @@ export class SupplierEntity {
 	@Column({ type: 'date', nullable: true })
 	lastClosingEndDate: Date;
 
-	@Column({ nullable: true })
-	lastClosingId: number;
+	@Column({ type: 'uuid', nullable: true })
+	lastClosingId: string;
 
 	@ManyToOne(() => SupplierClosingEntity)
 	@JoinColumn({ name: 'lastClosingId' })
@@ -86,12 +91,16 @@ export class SupplierEntity {
 @Entity({ name: "supplier_categories" })
 @Index(["adminId", "name"], { unique: true })
 export class SupplierCategoryEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ nullable: true })
 	@Index()
-	adminId!: string | null;
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	@Column({ type: "varchar", length: 100 })
 	name!: string;

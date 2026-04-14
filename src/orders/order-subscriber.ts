@@ -73,7 +73,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
     private async handleAutoShipping(order: OrderEntity, settings: OrderRetrySettingsEntity) {
         let shouldTrigger = false;
-        let companyId: number | null = null;
+        let companyId: string | null = null;
 
         const activeResult = await this.shippingService.activeIntegrations({ adminId: order.adminId });
         const activeIntegrations = activeResult.integrations || [];
@@ -155,7 +155,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
             // Notify success
             await this.notificationService.create({
-                userId: Number(order.adminId), // Notify the admin
+                userId: order.adminId, // Notify the admin
                 type: NotificationType.SHIPPING_AUTO_SENT,
                 title: "Auto-Shipping Success",
                 message: `Order #${order.orderNumber} has been automatically sent to ${company.name}.`,
@@ -181,7 +181,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
     private async logAndNotifyFailure(order: OrderEntity, reason: string) {
         await this.notificationService.create({
-            userId: Number(order.adminId),
+            userId: order.adminId,
             type: NotificationType.SHIPPING_AUTO_FAILED,
             title: "Auto-Shipping Failed",
             message: `Order #${order.orderNumber} failed auto-shipping: ${reason}`,

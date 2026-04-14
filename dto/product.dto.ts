@@ -96,17 +96,14 @@ export class CreateProductDto {
   storageRack?: string | null;
 
   @IsOptional()
-  @IsInt()
-  categoryId?: number;
+  categoryId?: string;
 
   @IsOptional()
-  @IsInt()
-  storeId?: number | null;
+  storeId?: string | null;
 
   @IsOptional()
   @Min(0)
-  @IsInt()
-  warehouseId?: number | null;
+  warehouseId?: string | null;
 
   @IsOptional()
   @IsString()
@@ -134,9 +131,7 @@ export class CreateProductDto {
   mainImage?: string;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  mainImageOrphanId?: number;
+  mainImageOrphanId?: string;
 
   @IsOptional()
   @IsArray()
@@ -144,9 +139,8 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsArray()
-  @Type(() => Number)
   @IsInt({ each: true })
-  imagesOrphanIds?: number[];
+  imagesOrphanIds?: string[];
 
   // ✅ create combinations with product
   @IsOptional()

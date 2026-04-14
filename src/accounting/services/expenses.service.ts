@@ -153,7 +153,7 @@ export class ExpensesService {
         return await this.expenseRepo.save(expense);
     }
 
-    async updateExpense(me: any, id: number, dto: UpdateManualExpenseDto) {
+    async updateExpense(me: any, id: string, dto: UpdateManualExpenseDto) {
         const adminId = tenantId(me);
 
         const expense = await this.expenseRepo.findOne({
@@ -187,7 +187,7 @@ export class ExpensesService {
         return await this.expenseRepo.save(expense);
     }
 
-    async deleteExpense(me: any, id: number) {
+    async deleteExpense(me: any, id: string) {
         const adminId = tenantId(me);
 
         const expense = await this.expenseRepo.findOne({

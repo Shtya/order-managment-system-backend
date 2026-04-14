@@ -7,8 +7,8 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Notification, NotificationType } from "entities/notifications.entity";
 import { OrderRetrySettingsEntity } from "entities/order.entity";
 import { User } from "entities/user.entity";
-import { Brackets, EntityManager, Repository } from "typeorm";
 import { RedisService } from "common/redis/RedisService";
+import { Brackets, EntityManager, Repository } from "typeorm";
 
 @Injectable()
 export class NotificationService {
@@ -66,7 +66,7 @@ export class NotificationService {
     };
   }
 
-  async markAsRead(userId: number, id: number) {
+  async markAsRead(userId: string, id: string) {
     // Check if notification exists and belongs to the user
     const notification = await this.notificationRepo.findOne({
       where: { id, userId },
@@ -83,16 +83,16 @@ export class NotificationService {
     return this.notificationRepo.update(id, { isRead: true });
   }
 
-  async markAllAsRead(userId: number) {
+  async markAllAsRead(userId: string) {
     return this.notificationRepo.update(
       { userId, isRead: false }, // Filter: only unread ones for this user
       { isRead: true }, // Action: mark as read
     );
   }
-  async getUnreadCount(userId: number) {
+  async getUnreadCount(userId: string) {
     // Fetch the user directly to get the cached count
     const count = await this.notificationRepo.count({
-      where: { userId: Number(userId), isRead: false },
+      where: { userId: userId, isRead: false },
     });
 
     return {
@@ -100,7 +100,7 @@ export class NotificationService {
     };
   }
 
-  private async getUserSettings(userId: number, manager: EntityManager = null) {
+  private async getUserSettings(userId: string, manager: EntityManager = null) {
     const userCacheKey = `user_admin_id:${userId}`;
     const retrySettingsRepo = manager ? manager.getRepository(OrderRetrySettingsEntity) : this.retrySettingsRepo;
     const userRepo = manager ? manager.getRepository(User) : this.userRepo;
@@ -171,7 +171,7 @@ export class NotificationService {
   }
 
   async create(data: {
-    userId: number;
+    userId: string;
     type: NotificationType;
     title: string;
     message: string;

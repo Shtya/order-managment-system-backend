@@ -41,7 +41,7 @@ export class DashboardController {
   @Get('profit-report')
   async getProfitReport(
     @Req() req,
-    @Query('storeId') storeId?: number,
+    @Query('storeId') storeId?: string,
     @Query('range') range?: string,
   ) {
     return this.dashboardService.getProfitReport(req.user, { storeId, range });
@@ -96,7 +96,7 @@ export class DashboardController {
   @Get('employees/stats')
   async getEmployeeStats(
     @Req() req: any,
-    @Query() filters: { storeId?: number; startDate?: string; endDate?: string; range?: string }
+    @Query() filters: { storeId?: string; startDate?: string; endDate?: string; range?: string }
   ) {
     return this.dashboardService.getEmployeePerformance(req.user, filters);
   }

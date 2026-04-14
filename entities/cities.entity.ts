@@ -5,8 +5,8 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from "typeorm";
 @Index(["nameAr"])
 @Entity('cities')
 export class CityEntity {
-    @PrimaryGeneratedColumn()
-    id: number;
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
 
     @Column({ unique: true })
     nameEn: string;

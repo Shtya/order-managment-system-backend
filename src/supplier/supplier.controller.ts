@@ -13,7 +13,7 @@ import * as ExcelJS from "exceljs";
 @Controller("suppliers")
 @RequireSubscription()
 export class SuppliersController {
-  constructor(private suppliersService: SuppliersService) {}
+  constructor(private suppliersService: SuppliersService) { }
 
   @Permissions("suppliers.read")
   @Get()
@@ -60,7 +60,7 @@ export class SuppliersController {
   @Permissions("suppliers.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
-    return this.suppliersService.get(req.user, Number(id));
+    return this.suppliersService.get(req.user, id);
   }
 
   @Permissions("suppliers.create")
@@ -72,18 +72,18 @@ export class SuppliersController {
   @Permissions("suppliers.update")
   @Patch(":id")
   update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateSupplierDto) {
-    return this.suppliersService.update(req.user, Number(id), dto);
+    return this.suppliersService.update(req.user, id, dto);
   }
 
   @Permissions("suppliers.update")
   @Patch(":id/financials")
   updateFinancials(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateSupplierFinancialsDto) {
-    return this.suppliersService.updateFinancials(req.user, Number(id), dto);
+    return this.suppliersService.updateFinancials(req.user, id, dto);
   }
 
   @Permissions("suppliers.delete")
   @Delete(":id")
   remove(@Req() req: any, @Param("id") id: string) {
-    return this.suppliersService.remove(req.user, Number(id));
+    return this.suppliersService.remove(req.user, id);
   }
 }

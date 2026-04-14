@@ -38,7 +38,7 @@ export class RolesController {
 	@Permissions('roles.read')
 	@Get(':id')
 	get(@Req() req: any, @Param('id') id: string) {
-		return this.roles.get(req.user, Number(id));
+		return this.roles.get(req.user, id);
 	}
 
 	@Permissions('roles.create')
@@ -50,12 +50,12 @@ export class RolesController {
 	@Permissions('roles.update')
 	@Patch(':id')
 	update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateRoleDto) {
-		return this.roles.update(req.user, Number(id), dto);
+		return this.roles.update(req.user, id, dto);
 	}
 
 	@Permissions('roles.delete')
 	@Delete(':id')
 	remove(@Req() req: any, @Param('id') id: string) {
-		return this.roles.remove(req.user, Number(id));
+		return this.roles.remove(req.user, id);
 	}
 }

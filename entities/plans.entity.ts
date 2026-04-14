@@ -45,8 +45,8 @@ export enum PlanType {
 @Entity('plans')
 @Index(['name'])
 export class Plan {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column()
 	name: string;
@@ -111,8 +111,8 @@ export class Plan {
 	@Column({ type: 'int', default: 0 })
 	bulkUploadPerMonth: number;
 
-	@Column({ type: 'int', nullable: true })
-	adminId?: number | null;
+	@Column({ type: 'uuid', nullable: true })
+	adminId?: string | null;
 
 	@ManyToOne(() => User, { nullable: true })
 	@JoinColumn({ name: 'adminId' })
@@ -144,11 +144,11 @@ export enum SubscriptionStatus {
 @Index('IDX_SUBSCRIPTION_EXPIRY', ['status', 'endDate'])
 @Entity('subscriptions')
 export class Subscription {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ nullable: true })
-	userId: number;
+	@Column({ type: 'uuid', nullable: true })
+	userId: string;
 
 	@Column({
 		type: 'enum',
@@ -165,8 +165,8 @@ export class Subscription {
 	@JoinColumn({ name: 'userId' })
 	user: Relation<User>;
 
-	@Column({ nullable: true })
-	planId: number | null; // Nullable so history remains if plan is deleted
+	@Column({ type: 'uuid', nullable: true })
+	planId: string | null; // Nullable so history remains if plan is deleted
 
 	@ManyToOne(() => Plan, (plan) => plan.subscriptions, { onDelete: 'SET NULL' })
 	@JoinColumn({ name: 'planId' })
@@ -235,8 +235,8 @@ export enum FeatureType {
 
 @Entity('features')
 export class Feature {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
 	@Column({ type: 'enum', enum: FeatureType, unique: true })
 	type: FeatureType;
@@ -258,18 +258,18 @@ export class Feature {
 @Entity('user_features')
 @Index(['userId', 'featureId', 'status'])
 export class UserFeature {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column()
-	userId: number;
+	@Column({type: 'uuid',})
+	userId: string;
 
 	@ManyToOne(() => User)
 	@JoinColumn({ name: 'userId' })
 	user: Relation<User>;
 
-	@Column()
-	featureId: number;
+	@Column({type: 'uuid',})
+	featureId: string;
 
 	@ManyToOne(() => Feature, (feature) => feature.userFeatures)
 	@JoinColumn({ name: 'featureId' })

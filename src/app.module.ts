@@ -14,16 +14,9 @@ import { StoresModule } from './stores/stores.module';
 import { WarehousesModule } from './warehouse/warehouse.module';
 import { CategoryModule } from './category/category.module';
 import { ProductsModule } from './products/products.module';
-import { CategoryEntity } from "../entities/categories.entity";
-import { StoreEntity } from "../entities/stores.entity";
-import { WarehouseEntity } from "../entities/warehouses.entity";
-import { Asset } from "../entities/assets.entity";
 import { AssetModule } from "./asset/asset.module";
-
-import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { SuppliersModule } from "./supplier/supplier.module";
 import { SupplierCategoriesModule } from "./supplier/categories/categories.module";
-import { SupplierCategoryEntity, SupplierEntity } from "../entities/supplier.entity";
 import { PurchasesModule } from './purchases/purchases.module';
 import { PurchasesReturnModule } from './purchases-return/purchases-return.module';
 import { OrdersModule } from './orders/orders.module';

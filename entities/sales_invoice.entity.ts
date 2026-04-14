@@ -10,12 +10,16 @@ import { PaymentMethod, PaymentStatus } from "common/enums";
 @Entity({ name: "sales_invoices" })
 @Index(["adminId", "invoiceNumber"], { unique: true })
 export class SalesInvoiceEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
 
   @Column({ type: "varchar", length: 120 })
   invoiceNumber!: string; // your UI shows codes like KJCS5 etc.
@@ -60,8 +64,8 @@ export class SalesInvoiceEntity {
   @Column({ type: "int", default: 0 })
   remainingAmount!: number;
 
-  @Column({ type: "int", nullable: true })
-  createdByUserId?: number | null;
+  @Column({ type: 'uuid', nullable: true })
+  createdByUserId?: string | null;
 
   @ManyToOne(() => User, { nullable: true, eager: true })
   @JoinColumn({ name: "createdByUserId" })
@@ -80,24 +84,28 @@ export class SalesInvoiceEntity {
 @Entity({ name: "sales_invoice_items" })
 @Index(["adminId", "invoiceId"])
 export class SalesInvoiceItemEntity {
-  @PrimaryGeneratedColumn()
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column()
   @Index()
-  adminId!: string;
+  @Column({ type: 'uuid', nullable: true })
+  adminId: string;
 
-  @Column({ type: "int" })
+  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+  @JoinColumn({ name: 'adminId' })
+  admin: User;
+
+  @Column({ type: 'uuid', })
   @Index()
-  invoiceId!: number;
+  invoiceId!: string;
 
   @ManyToOne(() => SalesInvoiceEntity, (x) => x.items, { onDelete: "CASCADE" })
   @JoinColumn({ name: "invoiceId" })
   invoice!: SalesInvoiceEntity;
 
-  @Column({ type: "int" })
+  @Column({ type: 'uuid', })
   @Index()
-  variantId!: number;
+  variantId!: string;
 
   @ManyToOne(() => ProductVariantEntity, { eager: true, onDelete: "RESTRICT" })
   @JoinColumn({ name: "variantId" })

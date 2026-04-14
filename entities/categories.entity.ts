@@ -4,18 +4,25 @@ import {
 	Column,
 	Index,
 	CreateDateColumn,
+	ManyToOne,
+	JoinColumn,
 } from "typeorm";
+import { User } from "./user.entity";
 
 @Entity({ name: "categories" })
 @Index(["adminId", "name"], { unique: true })
 @Index(["adminId", "slug"], { unique: true })
 export class CategoryEntity {
-	@PrimaryGeneratedColumn()
-	id: number;
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
 
-	@Column({ nullable: true })
 	@Index()
-	adminId!: string | null;
+	@Column({type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
+	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
 
 	@Column({ type: "varchar", length: 160 })
 	name!: string;

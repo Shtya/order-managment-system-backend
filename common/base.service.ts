@@ -3,7 +3,7 @@ import { Repository, Brackets, QueryFailedError } from 'typeorm';
 
 
 
-export async function checkEntityExists(repository: { findOne: (options: any) => Promise<any> }, id: number, message: string) {
+export async function checkEntityExists(repository: { findOne: (options: any) => Promise<any> }, id: string, message: string) {
 	const entity = await repository.findOne({ where: { id } });
 	if (!entity) {
 		throw new NotFoundException(message);

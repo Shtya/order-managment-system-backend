@@ -69,7 +69,7 @@ export class PermissionsService implements OnModuleInit {
 		return this.permsRepo.save(this.permsRepo.create({ name: dto.name }));
 	}
 
-	async remove(id: number) {
+	async remove(id: string) {
 		const p = await this.permsRepo.findOne({ where: { id } });
 		if (!p) throw new NotFoundException('Permission not found');
 		await this.permsRepo.delete(id);

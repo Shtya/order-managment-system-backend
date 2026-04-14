@@ -202,10 +202,10 @@ export class OrdersService {
   // ✅ Log status change
   public async logStatusChange(params: {
     adminId: string;
-    orderId: number;
-    fromStatusId: number | null; // Changed from Enum to ID
-    toStatusId: number; // Changed from Enum to ID
-    userId?: number;
+    orderId: string;
+    fromStatusId: string | null; // Changed from Enum to ID
+    toStatusId: string; // Changed from Enum to ID
+    userId?: string;
     notes?: string;
     ipAddress?: string;
     manager: EntityManager; // Removed optional '?' because getRepository needs it
@@ -270,7 +270,7 @@ export class OrdersService {
 
     return stats.map((stat) => ({
       ...stat,
-      id: Number(stat.id),
+      id: stat.id,
       count: Number(stat.count) || 0,
       system: stat.system || stat.system,
     }));
@@ -342,7 +342,7 @@ export class OrdersService {
 
     if (q?.userId) {
       qb.andWhere("assignment.employeeId = :userId", {
-        userId: Number(q.userId),
+        userId: q.userId,
       });
     }
 
@@ -381,7 +381,7 @@ export class OrdersService {
         qb.andWhere("order.shippingCompanyId IS NULL");
       } else if (q.shippingCompanyId !== "all") {
         qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
-          shippingCompanyId: Number(q.shippingCompanyId),
+          shippingCompanyId: q.shippingCompanyId,
         });
       }
     }
@@ -392,7 +392,7 @@ export class OrdersService {
         qb.andWhere("order.storeId IS NULL");
       } else if (q.storeId !== "all") {
         qb.andWhere("order.storeId = :storeId", {
-          storeId: Number(q.storeId),
+          storeId: q.storeId,
         });
       }
     }
@@ -400,7 +400,7 @@ export class OrdersService {
     // Product Filter
     if (q?.productId && q.productId !== "all") {
       qb.andWhere("variant.productId = :productId", {
-        productId: Number(q.productId),
+        productId: q.productId,
       });
     }
 
@@ -528,7 +528,7 @@ export class OrdersService {
     return { total_records: total, records };
   }
 
-  async markAsPrinted(id: number, me: any) {
+  async markAsPrinted(id: string, me: any) {
     const adminId = tenantId(me);
     const userId = me.id;
 
@@ -742,12 +742,12 @@ export class OrdersService {
 
     if (q?.shippingCompanyId)
       qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
-        shippingCompanyId: Number(q.shippingCompanyId),
+        shippingCompanyId: q.shippingCompanyId,
       });
 
     if (q?.storeId)
       qb.andWhere("order.storeId = :storeId", {
-        storeId: Number(q.storeId),
+        storeId: q.storeId,
       });
 
     // Date range
@@ -822,13 +822,13 @@ export class OrdersService {
     // 3. Filter by Shipping Company
     if (q?.shippingCompanyId) {
       qb.andWhere("log.shippingCompanyId = :shippingCompanyId", {
-        shippingCompanyId: Number(q.shippingCompanyId),
+        shippingCompanyId: q.shippingCompanyId,
       });
     }
 
     // 4. Filter by Employee (User)
     if (q?.userId) {
-      qb.andWhere("log.userId = :userId", { userId: Number(q.userId) });
+      qb.andWhere("log.userId = :userId", { userId: q.userId });
     }
 
     // 5. Date Range Filter
@@ -897,12 +897,12 @@ export class OrdersService {
 
     if (q?.shippingCompanyId) {
       qb.andWhere("log.shippingCompanyId = :shippingCompanyId", {
-        shippingCompanyId: Number(q.shippingCompanyId),
+        shippingCompanyId: q.shippingCompanyId,
       });
     }
 
     if (q?.userId) {
-      qb.andWhere("log.userId = :userId", { userId: Number(q.userId) });
+      qb.andWhere("log.userId = :userId", { userId: q.userId });
     }
 
     DateFilterUtil.applyToQueryBuilder(qb, "log.createdAt", q?.startDate, q?.endDate);
@@ -1183,7 +1183,7 @@ export class OrdersService {
     });
   }
 
-  async getManifestDetail(id: number, me: any) {
+  async getManifestDetail(id: string, me: any) {
     const adminId = tenantId(me);
 
     const manifest = await this.manifestRepo.findOne({
@@ -1556,7 +1556,7 @@ export class OrdersService {
     };
   }
 
-  async scanItem(orderId: number, sku: string, me: any) {
+  async scanItem(orderId: string, sku: string, me: any) {
     const userId = me?.id;
     const adminId = tenantId(me);
 
@@ -1685,7 +1685,7 @@ export class OrdersService {
     });
   }
 
-  async scanForShipping(orderId: number, sku: string, me: any) {
+  async scanForShipping(orderId: string, sku: string, me: any) {
     const userId = me?.id;
     const adminId = tenantId(me);
 
@@ -1788,9 +1788,9 @@ export class OrdersService {
 
   private async logFailedScan(
     manager: EntityManager,
-    orderId: number,
+    orderId: string,
     sku: string,
-    userId: number,
+    userId: string,
     adminId: string,
     reason: ScanReason,
     phase: ScanLogType,
@@ -1831,7 +1831,7 @@ export class OrdersService {
       await manager.save(OrderEntity, order);
     }
   }
-  async getOrderScanLogs(orderId: number, phase: ScanLogType, me: any) {
+  async getOrderScanLogs(orderId: string, phase: ScanLogType, me: any) {
     const adminId = tenantId(me);
 
     return await this.scanLogRepo.find({
@@ -1858,7 +1858,7 @@ export class OrdersService {
     });
   }
 
-  async getManifestScanLogs(manifestId: number, me: any) {
+  async getManifestScanLogs(manifestId: string, me: any) {
     const adminId = tenantId(me);
 
     return await this.scanLogRepo
@@ -1885,7 +1885,7 @@ export class OrdersService {
   // ✅ GET ORDER BY ID
   // ========================================
 
-  async get(me: any, id: number, manager?: EntityManager) {
+  async get(me: any, id: string, manager?: EntityManager) {
     const adminId = tenantId(me);
     const repo = manager ? manager.getRepository(OrderEntity) : this.orderRepo;
     if (!adminId) throw new BadRequestException("Missing adminId");
@@ -2059,7 +2059,7 @@ export class OrdersService {
     const defaultStatus = await this.getDefaultStatus(adminId);
 
     if (dto.shippingCompanyId && dto.shippingCompanyId !== "none") {
-      const companyId = Number(dto.shippingCompanyId);
+      const companyId = dto.shippingCompanyId;
       const company = await this.shippingRepo.findOne({
         where: { id: companyId },
       });
@@ -2083,7 +2083,7 @@ export class OrdersService {
 
     if (dto.storeId) {
       const store = await manager.findOne(StoreEntity, {
-        where: { id: Number(dto.storeId), adminId },
+        where: { id: dto.storeId, adminId },
       });
 
       if (!store) {
@@ -2151,7 +2151,7 @@ export class OrdersService {
   // ========================================
   // ✅ UPDATE ORDER
   // ========================================
-  async update(me: any, id: number, dto: UpdateOrderDto, ipAddress?: string) {
+  async update(me: any, id: string, dto: UpdateOrderDto, ipAddress?: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -2188,7 +2188,7 @@ export class OrdersService {
       if (dto.shippingCompanyId == "none") {
         order.shippingCompanyId = null;
       } else if (dto.shippingCompanyId) {
-        const companyId = Number(dto.shippingCompanyId);
+        const companyId = dto.shippingCompanyId;
         const company = await shippingRepo.findOne({
           where: { id: companyId },
         });
@@ -2213,7 +2213,7 @@ export class OrdersService {
 
       if (dto.storeId) {
         const store = await storeRepo.findOne({
-          where: { id: Number(dto.storeId), adminId },
+          where: { id: dto.storeId, adminId },
         });
 
         if (!store) {
@@ -2250,7 +2250,7 @@ export class OrdersService {
           const RemovedItemsMap = new Map(
             RemovedOrderItems.map((v) => [v.variantId, v]),
           );
-          const variantsToUpdate = new Map<number, ProductVariantEntity>();
+          const variantsToUpdate = new Map<string, ProductVariantEntity>();
           // 3. Release reserved stock based on the OrderItem's quantity
           for (const item of itemsToRemove) {
             const removedItem = RemovedItemsMap.get(item.variantId);
@@ -2422,7 +2422,7 @@ export class OrdersService {
       const updatedOrder = await manager.save(OrderEntity, order);
 
       await this.notificationService.create({
-        userId: Number(adminId),
+        userId: adminId,
         type: NotificationType.ORDER_UPDATED,
         title: "Order Updated",
         message: `Order #${order.orderNumber} has been updated.`,
@@ -2468,7 +2468,7 @@ export class OrdersService {
         }
       }
 
-      const ids = [...new Set(dto.items.map((i) => Number(i.id)).filter(Boolean))];
+      const ids = [...new Set(dto.items.map((i) => i.id).filter(Boolean))];
 
       const orders = await manager
         .createQueryBuilder(OrderEntity, "order")
@@ -2480,19 +2480,19 @@ export class OrdersService {
       const orderMap = new Map(orders.map((o) => [o.id, o]));
 
       const invalidResults: Array<{
-        id: number;
+        id: string;
         reason: string;
       }> = [];
 
       const toSave: OrderEntity[] = [];
       let count = 0;
       for (const item of dto.items) {
-        const order = orderMap.get(Number(item.id));
+        const order = orderMap.get(item.id);
 
 
         if (!order) {
           invalidResults.push({
-            id: Number(item.id),
+            id: item.id,
             reason: "Order not found or does not belong to your account.",
           });
           continue;
@@ -2568,7 +2568,7 @@ export class OrdersService {
   // ========================================
   async changeStatus(
     me: any,
-    id: number,
+    id: string,
     dto: ChangeOrderStatusDto,
     ipAddress?: string,
   ) {
@@ -2651,7 +2651,7 @@ export class OrdersService {
       });
 
       await this.notificationService.create({
-        userId: Number(adminId),
+        userId: adminId,
         type: NotificationType.ORDER_STATUS_UPDATE,
         title: "Order Status Updated",
         message: `Order #${order.orderNumber} status changed to ${newStatus.name}.`,
@@ -2665,7 +2665,7 @@ export class OrdersService {
 
   async rejectOrder(
     me: any,
-    id: number,
+    id: string,
     dto: { notes?: string },
     ipAddress?: string,
   ) {
@@ -2724,7 +2724,7 @@ export class OrdersService {
       });
 
       await this.notificationService.create({
-        userId: Number(adminId),
+        userId: adminId,
         type: NotificationType.ORDER_REJECTED,
         title: "Order Rejected",
         message: `Order #${order.orderNumber} has been rejected. Reason: ${dto.notes || "No reason provided"}`,
@@ -2736,7 +2736,7 @@ export class OrdersService {
     });
   }
 
-  async reConfirmOrder(me: any, id: number, ipAddress?: string) {
+  async reConfirmOrder(me: any, id: string, ipAddress?: string) {
     const adminId = tenantId(me);
     const userId = me?.id;
     if (!adminId) throw new BadRequestException("Missing adminId");
@@ -2792,7 +2792,7 @@ export class OrdersService {
       });
 
       await this.notificationService.create({
-        userId: Number(adminId),
+        userId: adminId,
         type: NotificationType.ORDER_RECONFIRMED,
         title: "Order Re-confirmed",
         message: `Order #${order.orderNumber} has been re-confirmed.`,
@@ -2809,7 +2809,7 @@ export class OrdersService {
   // ========================================
   async changeConfirmationStatus(
     me: any,
-    id: number,
+    id: string,
     dto: ChangeOrderStatusDto,
     ipAddress?: string,
   ) {
@@ -2973,7 +2973,7 @@ export class OrdersService {
       if (settings.notifyAdmin) {
         notificationPromises.push(
           this.notificationService.create({
-            userId: Number(adminId),
+            userId: adminId,
             type: NotificationType.ORDER_STATUS_UPDATE,
             title: `Order #${savedOrder.orderNumber} Updated`,
             message: `Status changed to "${newStatus.name}" by ${me.name || "Staff"}.`,
@@ -2986,7 +2986,7 @@ export class OrdersService {
       // 2. Notify Employee (The one assigned to the order)
       notificationPromises.push(
         this.notificationService.create({
-          userId: Number(activeAssignment.employeeId),
+          userId: activeAssignment.employeeId,
           type: NotificationType.ORDER_STATUS_UPDATE,
           title: `Assignment Updated`,
           message: `Your assigned order #${savedOrder.orderNumber} is now "${newStatus.name}".`,
@@ -3004,7 +3004,7 @@ export class OrdersService {
   // ========================================
   // ✅ UPDATE PAYMENT STATUS
   // ========================================
-  async updatePaymentStatus(me: any, id: number, dto: UpdatePaymentStatusDto) {
+  async updatePaymentStatus(me: any, id: string, dto: UpdatePaymentStatusDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -3019,7 +3019,7 @@ export class OrdersService {
   // ========================================
   // ✅ ORDER MESSAGES/CHAT
   // ========================================
-  async getMessages(me: any, orderId: number) {
+  async getMessages(me: any, orderId: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -3031,7 +3031,7 @@ export class OrdersService {
     });
   }
 
-  async addMessage(me: any, orderId: number, dto: AddOrderMessageDto) {
+  async addMessage(me: any, orderId: string, dto: AddOrderMessageDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -3049,7 +3049,7 @@ export class OrdersService {
     return this.messageRepo.save(message);
   }
 
-  async markMessagesRead(me: any, orderId: number, dto: MarkMessagesReadDto) {
+  async markMessagesRead(me: any, orderId: string, dto: MarkMessagesReadDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -3066,7 +3066,7 @@ export class OrdersService {
   // ========================================
   // ✅ DELETE ORDER
   // ========================================
-  async remove(me: any, id: number) {
+  async remove(me: any, id: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -3095,7 +3095,7 @@ export class OrdersService {
     await this.orderRepo.delete({ id, adminId } as any);
 
     await this.notificationService.create({
-      userId: Number(adminId),
+      userId: adminId,
       type: NotificationType.ORDER_DELETED,
       title: "Order Deleted",
       message: `Order #${order.orderNumber} has been deleted.`,
@@ -3111,7 +3111,7 @@ export class OrdersService {
     });
   }
 
-  async updateExternalId(orderId: number, externalId: string) {
+  async updateExternalId(orderId: string, externalId: string) {
     await this.orderRepo.update(orderId, { externalId });
   }
 
@@ -3142,7 +3142,7 @@ export class OrdersService {
     return status;
   }
   async findStatusById(
-    id: number,
+    id: string,
     adminId: string,
   ): Promise<OrderStatusEntity> {
     // [2025-12-24] Trim input and ensure case-insensitive matching if needed
@@ -3198,7 +3198,7 @@ export class OrdersService {
     const saved = await this.statusRepo.save(status);
 
     await this.notificationService.create({
-      userId: Number(adminId),
+      userId: adminId,
       type: NotificationType.ORDER_STATUS_CREATED,
       title: "New Status Created",
       message: `A new order status "${saved.name}" has been created.`,
@@ -3207,7 +3207,7 @@ export class OrdersService {
     return saved;
   }
 
-  async updateStatus(me: any, id: number, dto: UpdateStatusDto) {
+  async updateStatus(me: any, id: string, dto: UpdateStatusDto) {
     const adminId = tenantId(me);
     const status = await this.statusRepo.findOneBy({ id, adminId: adminId });
 
@@ -3235,7 +3235,7 @@ export class OrdersService {
     const saved = await this.statusRepo.save(status);
 
     await this.notificationService.create({
-      userId: Number(adminId),
+      userId: adminId,
       type: NotificationType.ORDER_STATUS_SETTINGS_UPDATED,
       title: "Status Updated",
       message: `The status "${saved.name}" has been updated.`,
@@ -3248,7 +3248,7 @@ export class OrdersService {
     name: string,
     code: string,
     adminId: string,
-    excludeId?: number,
+    excludeId?: string,
   ): Promise<void> {
     const queryBuilder = this.statusRepo
       .createQueryBuilder("status")
@@ -3283,7 +3283,7 @@ export class OrdersService {
     }
   }
 
-  async removeStatus(me: any, id: number) {
+  async removeStatus(me: any, id: string) {
     const adminId = tenantId(me);
     const status = await this.statusRepo.findOneBy({ id, adminId: adminId });
 
@@ -3330,7 +3330,7 @@ export class OrdersService {
     // Filter by assigned employee (userId)
     if (q?.userId) {
       qb.andWhere("assignment.employeeId = :userId", {
-        userId: Number(q.userId),
+        userId: q.userId,
       });
     }
 
@@ -3357,10 +3357,10 @@ export class OrdersService {
       });
     if (q?.shippingCompanyId)
       qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
-        shippingCompanyId: Number(q.shippingCompanyId),
+        shippingCompanyId: q.shippingCompanyId,
       });
     if (q?.storeId)
-      qb.andWhere("order.storeId = :storeId", { storeId: Number(q.storeId) });
+      qb.andWhere("order.storeId = :storeId", { storeId: q.storeId });
 
     DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
 
@@ -3554,7 +3554,7 @@ export class OrdersService {
     return buffer as unknown as Buffer;
   }
 
-  private async getUsageTracker(adminId: number): Promise<BulkUploadUsage> {
+  private async getUsageTracker(adminId: string): Promise<BulkUploadUsage> {
     const currentMonth = new Date().toISOString().slice(0, 7); // "2026-02"
 
     let usage = await this.usageRepo.findOne({
@@ -3660,7 +3660,7 @@ export class OrdersService {
     const shippingCompanies = await this.shippingRepo.find({
       where: { adminId } as any,
     });
-    const shippingByName = new Map<string, number>();
+    const shippingByName = new Map<string, string>();
     shippingCompanies.forEach((s) =>
       shippingByName.set(s.name.trim().toLowerCase(), s.id),
     );
@@ -3754,7 +3754,7 @@ export class OrdersService {
         } as any,
         relations: ["product"],
       });
-      const variantBySku = new Map<string, { id: number; price: number }>();
+      const variantBySku = new Map<string, { id: string; price: number }>();
       variants.forEach((v) => {
         if (v.sku)
           variantBySku.set(String(v.sku).trim().toLowerCase(), {
@@ -3787,7 +3787,7 @@ export class OrdersService {
 
       // Build items array
       const items: {
-        variantId: number;
+        variantId: string;
         quantity: number;
         unitPrice: number;
         unitCost?: number;
@@ -3873,7 +3873,7 @@ export class OrdersService {
 
     if (created > 0) {
       await this.notificationService.create({
-        userId: Number(adminId),
+        userId: adminId,
         type: NotificationType.BULK_ORDERS_CREATED,
         title: "Bulk Orders Created",
         message: `${created} orders have been successfully created from Excel.`,
@@ -3887,7 +3887,7 @@ export class OrdersService {
     manager: EntityManager,
     order: OrderEntity,
   ) {
-    const variantsMap = new Map<number, ProductVariantEntity>();
+    const variantsMap = new Map<string, ProductVariantEntity>();
     const itemsToUpdate: OrderItemEntity[] = [];
 
     for (const item of order.items) {
@@ -3919,7 +3919,7 @@ export class OrdersService {
     manager: EntityManager,
     orders: OrderEntity[],
   ) {
-    const variantsMap = new Map<number, ProductVariantEntity>();
+    const variantsMap = new Map<string, ProductVariantEntity>();
     const itemsToUpdate: OrderItemEntity[] = [];
 
     for (const order of orders) {
@@ -4125,7 +4125,7 @@ export class OrdersService {
   /** Get count of free (unassigned) orders by status and optional date range. */
   async getFreeOrdersCount(
     me: any,
-    q: { statusIds: number[]; startDate?: string; endDate?: string },
+    q: { statusIds: string[]; startDate?: string; endDate?: string },
   ) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
@@ -4286,7 +4286,7 @@ export class OrdersService {
           const assignment = manager.create(OrderAssignmentEntity, {
             orderId,
             employeeId: item.userId,
-            assignedByAdminId: Number(adminId),
+            assignedByAdminId: adminId,
             maxRetriesAtAssignment: maxRetries,
             isAssignmentActive: true,
           });
@@ -4396,7 +4396,7 @@ export class OrdersService {
         const assignment = manager.create(OrderAssignmentEntity, {
           orderId: order.id,
           employeeId: employee.id,
-          assignedByAdminId: Number(adminId),
+          assignedByAdminId: adminId,
           maxRetriesAtAssignment: maxRetries,
           isAssignmentActive: true,
         });
@@ -4491,10 +4491,7 @@ export class OrdersService {
         .getMany(),
     ]);
     // 4. In-Memory Round-Robin Assignment
-    const assignmentMap = new Map<
-      number,
-      { name: string; orderNumbers: string[] }
-    >();
+    const assignmentMap = new Map<string, { name: string; orderNumbers: string[] }>();
 
     // Initialize map with selected employees
     leastBusyEmployees.forEach((emp) => {
@@ -4559,10 +4556,10 @@ export class OrdersService {
   async logOrderAction(params: {
     manager?: EntityManager;
     adminId: string;
-    userId: number;
-    orderId: number;
+    userId: string;
+    orderId: string;
     actionType: OrderActionType;
-    shippingCompanyId?: number;
+    shippingCompanyId?: string;
     result?: OrderActionResult;
     details?: string;
   }) {
@@ -4596,10 +4593,10 @@ export class OrdersService {
   async logBulkOrderActions(params: {
     manager: EntityManager;
     adminId: string;
-    userId: number;
-    orderIds: number[];
+    userId: string;
+    orderIds: string[];
     actionType: OrderActionType;
-    shippingCompanyId?: number;
+    shippingCompanyId?: string;
     result?: OrderActionResult;
     details?: string;
   }) {

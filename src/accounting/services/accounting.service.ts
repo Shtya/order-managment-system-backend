@@ -337,7 +337,7 @@ export class AccountingService {
     async getShipmentsCityReport(
         me: any,
         filters: {
-            storeId?: number;
+            storeId?: string;
             startDate?: string;
             endDate?: string;
             range?: string;
@@ -591,7 +591,7 @@ export class AccountingService {
         };
     }
 
-    async closeSupplierPeriod(me: any, supplierId: number, startDate: string, endDate: string) {
+    async closeSupplierPeriod(me: any, supplierId: string, startDate: string, endDate: string) {
         const adminId = tenantId(me);
         const newStartDate = new Date(startDate);
         const newEndDate = new Date(endDate);
@@ -655,7 +655,7 @@ export class AccountingService {
         });
     }
 
-    async getSupplierClosing(me: any, id: number) {
+    async getSupplierClosing(me: any, id: string) {
         const adminId = tenantId(me);
         const closing = await this.supplierClosingRepo.findOne({
             where: { id, adminId },
@@ -745,7 +745,7 @@ export class AccountingService {
     }
 
 
-    async getSupplierPeriodPreview(me: any, supplierId: number | null, startDate: string, endDate: string, manager?: EntityManager) {
+    async getSupplierPeriodPreview(me: any, supplierId: string | null, startDate: string, endDate: string, manager?: EntityManager) {
         const adminId = tenantId(me);
 
         const purchaseRepo = manager ? manager.getRepository(PurchaseInvoiceEntity) : this.purchaseRepo;
