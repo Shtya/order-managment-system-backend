@@ -29,6 +29,11 @@ export type UpsellingProduct = {
   callCenterDescription?: string;
 };
 
+export enum ProductType {
+  SINGLE = 'single',     // Product alone without attributes/variants
+  VARIABLE = 'variable', // Product with variants/combinations
+}
+
 @Entity({ name: "products" })
 @Index(["adminId", "name"])
 @Index(["adminId", "slug"])
@@ -46,6 +51,13 @@ export class ProductEntity extends ActivatableEntity {
 
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   salePrice: number;
+
+  @Column({
+    type: "enum",
+    enum: ProductType,
+    default: ProductType.VARIABLE
+  })
+  type: ProductType;
 
   @Column({ type: "text", nullable: true })
   storageRack?: string;
@@ -111,7 +123,7 @@ export class ProductEntity extends ActivatableEntity {
 @Entity({ name: "product_variants" })
 @Index(["adminId", "sku"], { unique: true, where: `"sku" IS NOT NULL` })
 @Index(["adminId", "productId", "key"], { unique: true })
-export class ProductVariantEntity extends ActivatableEntity{
+export class ProductVariantEntity extends ActivatableEntity {
   @Column({ type: "int" })
   @Index()
   productId!: string;

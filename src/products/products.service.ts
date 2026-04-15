@@ -5,7 +5,7 @@ import { In, Repository, Like, Not, IsNull, EntityManager, Brackets } from "type
 
 import { unlink } from 'fs/promises';
 import { join } from 'path';
-import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
 import { CategoryEntity } from "entities/categories.entity";
 import { StoreEntity } from "entities/stores.entity";
 import { WarehouseEntity } from "entities/warehouses.entity";
@@ -225,6 +225,9 @@ export class ProductsService {
 
     if (q?.warehouseId && q?.warehouseId != "none")
       filters.warehouseId = q.warehouseId;
+    if (q?.productType && q?.productType !== "none") {
+      filters.productType = q.productType;
+    }
 
     const rackSearch = q?.["storageRack.ilike"];
     if (rackSearch?.trim()) {
@@ -269,7 +272,8 @@ export class ProductsService {
       .leftJoinAndSelect("product.category", "category")
       .leftJoinAndSelect("product.store", "store")
       .leftJoinAndSelect("product.warehouse", "warehouse")
-      .where("product.adminId = :adminId", { adminId });
+      .where("product.adminId = :adminId", { adminId })
+      .andWhere("product.isActive = :isActive", { isActive: true });
 
     // Normal Filters
     if (filters.categoryId)
@@ -286,6 +290,9 @@ export class ProductsService {
       qb.andWhere("product.warehouseId = :warehouseId", {
         warehouseId: filters.warehouseId,
       });
+    if (filters.productType) {
+      qb.andWhere("product.type = :productType", { productType: filters.productType });
+    }
 
     if (filters.storageRack?.ilike)
       qb.andWhere("product.storageRack ILIKE :rack", {
@@ -347,11 +354,12 @@ export class ProductsService {
 
     // ⚠️ No pagination for export
     const records = await qb.getMany();
+    const enriched = await this.attachSkusToProducts(me, records);
 
     // =============================
     // 📊 Prepare Excel Data
     // =============================
-    const exportData = records.map((p: any) => {
+    const exportData = enriched.map((p: any) => {
       const skus = p?.skus ?? [];
 
       const firstSku = skus?.[0]?.sku ?? "";
@@ -361,12 +369,22 @@ export class ProductsService {
         (sum: number, s: any) => sum + (s.stockOnHand || 0),
         0
       );
+      const totalReserved = skus.reduce(
+        (sum: number, s: any) => sum + (Number(s?.reserved) || 0),
+        0
+      );
+      const totalAvailable = skus.reduce(
+        (sum: number, s: any) => sum + (Number(s?.available) || 0),
+        0
+      );
 
       return {
         id: p.id,
+        slug: p.slug ?? "",
         name: p.name ?? "",
+        type: p.type ?? "",
         sku: firstSku,
-        skuCount: skuCount > 1 ? `+${skuCount - 1}` : "",
+        skuCount: skuCount,
         category: p.category?.name ?? "",
         store: p.store?.name ?? "",
         warehouse: p.warehouse?.name ?? "",
@@ -375,6 +393,8 @@ export class ProductsService {
         salePrice: p.salePrice ?? "",
         lowestPrice: p.lowestPrice ?? "",
         totalStock: totalStock,
+        totalReserved: totalReserved,
+        totalAvailable: totalAvailable,
         created_at: p.created_at
           ? new Date(p.created_at).toLocaleDateString("en-US")
           : "",
@@ -389,9 +409,11 @@ export class ProductsService {
 
     worksheet.columns = [
       { header: "ID", key: "id", width: 10 },
+      { header: "Slug", key: "slug", width: 25 },
       { header: "Name", key: "name", width: 30 },
+      { header: "Type", key: "type", width: 14 },
       { header: "SKU", key: "sku", width: 20 },
-      { header: "Extra SKUs", key: "skuCount", width: 12 },
+      { header: "SKUs Count", key: "skuCount", width: 12 },
       { header: "Category", key: "category", width: 20 },
       { header: "Store", key: "store", width: 20 },
       { header: "Warehouse", key: "warehouse", width: 20 },
@@ -400,6 +422,8 @@ export class ProductsService {
       { header: "Sale Price", key: "salePrice", width: 16 },
       { header: "Lowest Price", key: "lowestPrice", width: 16 },
       { header: "Total Stock", key: "totalStock", width: 14 },
+      { header: "Total Reserved", key: "totalReserved", width: 14 },
+      { header: "Total Available", key: "totalAvailable", width: 14 },
       { header: "Created At", key: "created_at", width: 18 },
     ];
 
@@ -484,6 +508,9 @@ export class ProductsService {
 
     if (q?.warehouseId && q?.warehouseId != "none")
       filters.warehouseId = q.warehouseId;
+    if (q?.productType && q?.productType !== "none") {
+      filters.productType = q.productType;
+    }
 
     const rackSearch = q?.["storageRack.ilike"];
     if (rackSearch?.trim()) {
@@ -543,6 +570,9 @@ export class ProductsService {
 
     if (filters.warehouseId)
       qb.andWhere("product.warehouseId = :warehouseId", { warehouseId: filters.warehouseId });
+    if (filters.productType) {
+      qb.andWhere("product.type = :productType", { productType: filters.productType });
+    }
 
     if (filters.storageRack?.ilike)
       qb.andWhere("product.storageRack ILIKE :rack", { rack: `%${filters.storageRack.ilike}%` });
@@ -820,6 +850,7 @@ export class ProductsService {
         adminId,
         name: dto.name,
         slug: dto.slug,
+        type: dto.type === ProductType.VARIABLE ? ProductType.VARIABLE : ProductType.SINGLE,
         wholesalePrice: dto.wholesalePrice ?? null,
         lowestPrice: dto.lowestPrice ?? null,
         salePrice: dto.salePrice ?? null,
@@ -877,10 +908,54 @@ export class ProductsService {
       ].filter(Boolean) as number[];
       await this.orphanFilesService.deleteOrphansByIds(mgr, String(adminId), toDelete);
 
-      const combos = Array.isArray(dto.combinations) ? dto.combinations : [];
+      const productType = p.type === ProductType.VARIABLE ? ProductType.VARIABLE : ProductType.SINGLE;
+      const combos = productType === ProductType.VARIABLE
+        ? (Array.isArray(dto.combinations) ? dto.combinations : [])
+        : [];
+      const singleSkuItem = (dto as any).singleSkuItem ?? {};
       let savedVariants: ProductVariantEntity[] = [];
 
-      if (combos.length) {
+      const candidateSkus = productType === ProductType.SINGLE
+        ? [singleSkuItem?.sku].filter((sku): sku is string => !!sku)
+        : combos
+          .map(c => c.sku)
+          .filter((sku): sku is string => !!sku);
+
+      if (candidateSkus.length > 0) {
+        const existingVariants = await pvRepo.find({
+          where: {
+            adminId,
+            sku: In(candidateSkus)
+          },
+          select: ['sku']
+        });
+
+        if (existingVariants.length > 0) {
+          const duplicateSkus = existingVariants.map(v => v.sku);
+          throw new BadRequestException(
+            `The following SKUs already exist in your account: ${duplicateSkus.join(', ')}. Please choose another one.`
+          );
+        }
+      }
+
+      if (productType === ProductType.SINGLE) {
+        const defaultPrice = dto.salePrice !== undefined && dto.salePrice !== null
+          ? Number(dto.salePrice)
+          : 0;
+        const singleRow = pvRepo.create({
+          adminId,
+          productId: savedProduct.id,
+          key: "default",
+          sku: singleSkuItem?.sku ?? null,
+          price: defaultPrice,
+          attributes: {},
+          stockOnHand: 0,
+          reserved: 0,
+          isActive: singleSkuItem?.isActive !== false,
+          deactivatedAt: singleSkuItem?.isActive === false ? new Date() : null,
+        } as any);
+        savedVariants = [await pvRepo.save(singleRow as any)];
+      } else if (combos.length) {
         const skusToCheck = combos
           .map(c => c.sku)
           .filter((sku): sku is string => !!sku);
@@ -968,12 +1043,15 @@ export class ProductsService {
       if (dto.purchase) {
         // Map combinations to variant IDs for purchase items
         const purchaseItems = savedVariants.map(v => {
-          const combo = combos.find(c => this.canonicalKey(c.attributes) === v.key);
+          const combo = productType === ProductType.SINGLE
+            ? singleSkuItem
+            : combos.find(c => this.canonicalKey(c.attributes) === v.key);
+
 
           return {
             variantId: v.id,
             quantity: Number(combo?.stockOnHand) || 0,
-            purchaseCost: Number(dto.wholesalePrice) || 0, // Fallback to product wholesale price
+            purchaseCost: Number(v.price) || 0, // Fallback to product wholesale price
           };
         }).filter(it => it.quantity > 0);
 
@@ -1020,7 +1098,6 @@ export class ProductsService {
       });
 
       if (!p) throw new BadRequestException("product not found");
-
 
       if (dto.slug) {
         const cleanSlug = dto.slug;
@@ -1126,7 +1203,6 @@ export class ProductsService {
         (p as any).warehouse = warehouse ?? null;
       }
 
-
       const patch: any = { ...dto };
       delete patch.categoryId;
       delete patch.storeId;
@@ -1136,8 +1212,29 @@ export class ProductsService {
       Object.assign(p as any, patch, { updatedByUserId: me?.id ?? null });
       const savedProduct = await prodRepo.save(p as any);
 
-      if (dto.combinations && Array.isArray(dto.combinations)) {
+      if (
+        p.type === ProductType.SINGLE &&
+        dto.salePrice !== undefined &&
+        dto.salePrice !== null
+      ) {
+        const mainVariant = await pvRepo.findOne({
+          where: { adminId, productId: p.id, key: "default" } as any,
+          order: { id: "ASC" } as any,
+        });
+
+        if (!mainVariant) {
+          throw new BadRequestException("Main SKU row not found for single product");
+        }
+
+        if (mainVariant) {
+          mainVariant.price = Number(dto.salePrice);
+          await pvRepo.save(mainVariant);
+        }
+      }
+
+      if (p.type !== ProductType.SINGLE && dto.combinations && Array.isArray(dto.combinations)) {
         const combos = dto.combinations;
+
 
         const keysInRequest = new Set<string>();
         const skusInRequest = new Set<string>();
