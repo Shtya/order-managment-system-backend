@@ -173,15 +173,15 @@ export class ProductsController {
     return this.products.getSkus(req.user, id);
   }
 
-  @Permissions("products.update")
-  @Put(":id/skus")
-  upsertSkus(
-    @Req() req: any,
-    @Param("id") id: string,
-    @Body() body: UpsertProductSkusDto
-  ) {
-    return this.products.upsertSkus(req.user, id, body);
-  }
+  // @Permissions("products.update")
+  // @Put(":id/skus")
+  // upsertSkus(
+  //   @Req() req: any,
+  //   @Param("id") id: string,
+  //   @Body() body: UpsertProductSkusDto
+  // ) {
+  //   return this.products.upsertSkus(req.user, id, body);
+  // }
 
   @Permissions("products.update")
   @Post(":id/skus/:variantId/adjust-stock")
@@ -220,6 +220,7 @@ export class ProductsController {
     const dto: CreateProductDto = {
       name: body.name,
       slug: body.slug,
+      type: body.type,
 
       wholesalePrice: parseNumber(body.wholesalePrice) as any,
       salePrice: parseNumber(body.salePrice) as any,
@@ -242,6 +243,7 @@ export class ProductsController {
       imagesOrphanIds: parseJsonField(body.imagesOrphanIds, []),
       images: parseJsonField(body.imagesMeta, []),
       combinations: parseJsonField(body.combinations, []),
+      singleSkuItem: parseJsonField(body.singleSkuItem, undefined),
       purchase: parseJsonField(body.purchase, undefined),
     } as any;
 

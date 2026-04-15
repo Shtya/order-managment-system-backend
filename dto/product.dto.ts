@@ -15,7 +15,7 @@ import {
   ValidateNested,
 } from "class-validator";
 import { OmitType, PartialType } from "@nestjs/mapped-types";
-import { Money, ProductImage } from "entities/sku.entity";
+import { Money, ProductImage, ProductType } from "entities/sku.entity";
 import { CreatePurchaseDto } from "./purchase.dto";
 
 export class UpsellingProductDto {
@@ -33,16 +33,20 @@ export class UpsellingProductDto {
   callCenterDescription?: string;
 }
 
+
+
 export class CreateSkuItemDto {
   // @IsOptional()
   // @IsString()
   // @MaxLength(500)
   // key?: string; // allow generating from attributes
 
-  @IsOptional()
   @IsString()
   @MaxLength(120)
-  sku?: string | null;
+  @Matches(/^[a-zA-Z0-9-]+$/, {
+    message: "SKU must contain only English letters, numbers, and dashes",
+  })
+  sku!: string;
 
   @IsOptional()
   @IsNumber()
@@ -58,10 +62,6 @@ export class CreateSkuItemDto {
   stockOnHand?: number;
 
   @IsOptional()
-  @IsNumber()
-  reserved?: number;
-
-  @IsOptional()
   @IsBoolean()
   isActive?: boolean = true;
 }
@@ -69,7 +69,29 @@ export class CreateSkuItemDto {
 export class CreatePurchaseWithProductDto extends OmitType(CreatePurchaseDto, ['items']) {
 
 }
+export class SingleSkuItemDto {
+  @IsString()
+  @MaxLength(120)
+  @Matches(/^[a-zA-Z0-9-]+$/, {
+    message: "SKU must contain only English letters, numbers, and dashes",
+  })
+  sku!: string;
+
+  @IsOptional()
+  @IsNumber()
+  stockOnHand?: number;
+
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean = true;
+}
+
 export class CreateProductDto {
+  @IsOptional()
+  @IsString()
+  type?: ProductType;
+
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -145,6 +167,7 @@ export class CreateProductDto {
   @IsArray()
   imagesOrphanIds?: string[];
 
+
   // ✅ create combinations with product
   @IsOptional()
   @IsArray()
@@ -154,16 +177,28 @@ export class CreateProductDto {
 
   @IsOptional()
   @ValidateNested()
+  @Type(() => SingleSkuItemDto)
+  singleSkuItem?: SingleSkuItemDto;
+
+  @IsOptional()
+  @ValidateNested()
   @Type(() => CreatePurchaseWithProductDto)
   purchase?: CreatePurchaseWithProductDto;
 }
 
-export class UpdateProductDto extends PartialType(CreateProductDto) {
+export class UpdateProductDto extends PartialType(
+  OmitType(CreateProductDto, ['singleSkuItem', 'type'] as const),
+) {
   // ✅ NEW: remove images by url
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   removeImgs?: string[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CreateSkuItemDto)
+  singleSkuItem?: CreateSkuItemDto;
 }
 
 export class UpsertSkuItemDto {

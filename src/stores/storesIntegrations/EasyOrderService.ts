@@ -697,7 +697,7 @@ export class EasyOrderService extends BaseStoreProvider {
             // If no SKU, use product slug as key
             const key = sku || `simple_${remoteProduct.id}`;
             combinations = [{
-                // sku,
+                sku,
                 price: remoteProduct.price,
                 stockOnHand: remoteProduct.quantity || 0,
                 attributes: {},

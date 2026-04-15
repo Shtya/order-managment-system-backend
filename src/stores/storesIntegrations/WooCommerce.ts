@@ -1620,7 +1620,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
 
             // If we get a 200, the connection is solid
             return response.status >= 200 && response.status < 300;
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
 
             if (status === 401) {
