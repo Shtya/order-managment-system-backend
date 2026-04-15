@@ -39,10 +39,10 @@ export class CreateSkuItemDto {
   // @MaxLength(500)
   // key?: string; // allow generating from attributes
 
-  // @IsOptional()
-  // @IsString()
-  // @MaxLength(120)
-  // sku?: string | null;
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  sku?: string | null;
 
   @IsOptional()
   @IsNumber()
@@ -60,6 +60,10 @@ export class CreateSkuItemDto {
   @IsOptional()
   @IsNumber()
   reserved?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean = true;
 }
 
 export class CreatePurchaseWithProductDto extends OmitType(CreatePurchaseDto, ['items']) {
@@ -201,4 +205,14 @@ export class UpsertProductSkusDto {
 export class AdjustVariantStockDto {
   @IsNumber()
   delta!: number;
+}
+
+export class CheckSkusDto {
+  @IsArray()
+  @IsString({ each: true })
+  skus!: string[];
+
+  @IsOptional()
+  @IsString()
+  productId?: string;
 }

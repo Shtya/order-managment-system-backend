@@ -86,19 +86,15 @@ export class ProductsService {
   }
 
   private generateSku(product: ProductEntity, attrs: Record<string, any>) {
-    const rand = Math.random().toString(16).substring(2, 6).toUpperCase();
+    const parts = (product.slug || "product").split("-");
 
-    const base = (product.name || "PRD")
-      .toString()
-      .replace(/\s+/g, "")
-      .toUpperCase()
-      .substring(0, 10);
+    const base = parts.slice(0, 2).join("-").toUpperCase();
 
     const attrPart = Object.values(attrs)
       .map(v => String(v).replace(/\s+/g, "").toUpperCase())
       .join("-");
 
-    return `${base}-${attrPart}-${rand}`;
+    return `${base}-${attrPart}`;
   }
 
   private async assertOwnedOrNull(
@@ -122,6 +118,8 @@ export class ProductsService {
       attributes: r.attributes,
       stockOnHand: r.stockOnHand,
       reserved: r.reserved,
+      isActive: r.isActive,
+      deactivatedAt: r.deactivatedAt,
       available: Math.max(0, (r.stockOnHand ?? 0) - (r.reserved ?? 0)),
     };
   }
@@ -477,7 +475,7 @@ export class ProductsService {
     const filters: Record<string, any> = {};
     const type = q?.type ?? "PRODUCT";
 
-      
+
     if (q?.categoryId && q?.categoryId != "none")
       filters.categoryId = q.categoryId;
 
@@ -528,13 +526,13 @@ export class ProductsService {
       idleDate = new Date(q["created_at.lte"]);
     }
 
-   const qb = this.prodRepo
-    .createQueryBuilder("product")
-    .leftJoinAndSelect("product.category", "category")
-    .leftJoinAndSelect("product.store", "store")
-    .leftJoinAndSelect("product.warehouse", "warehouse")
-    .where("product.adminId = :adminId", { adminId })
-    .andWhere("product.isActive = :isActive", { isActive: true });
+    const qb = this.prodRepo
+      .createQueryBuilder("product")
+      .leftJoinAndSelect("product.category", "category")
+      .leftJoinAndSelect("product.store", "store")
+      .leftJoinAndSelect("product.warehouse", "warehouse")
+      .where("product.adminId = :adminId", { adminId })
+      .andWhere("product.isActive = :isActive", { isActive: true });
 
     // Apply normal filters manually (since we use QueryBuilder now)
     if (filters.categoryId)
@@ -879,11 +877,32 @@ export class ProductsService {
       ].filter(Boolean) as number[];
       await this.orphanFilesService.deleteOrphansByIds(mgr, String(adminId), toDelete);
 
-      const combos = Array.isArray((dto as any).combinations) ? (dto as any).combinations : [];
+      const combos = Array.isArray(dto.combinations) ? dto.combinations : [];
       let savedVariants: ProductVariantEntity[] = [];
 
       if (combos.length) {
-        const rows: ProductVariantEntity[] = combos.map((c: any) => {
+        const skusToCheck = combos
+          .map(c => c.sku)
+          .filter((sku): sku is string => !!sku);
+
+        if (skusToCheck.length > 0) {
+          const existingVariants = await pvRepo.find({
+            where: {
+              adminId,
+              sku: In(skusToCheck)
+            },
+            select: ['sku']
+          });
+
+          if (existingVariants.length > 0) {
+            const duplicateSkus = existingVariants.map(v => v.sku);
+            throw new BadRequestException(
+              `The following SKUs already exist in your account: ${duplicateSkus.join(', ')}. Please choose another one.`
+            );
+          }
+        }
+
+        const rows: ProductVariantEntity[] = combos.map((c) => {
           const attrs = c.attributes ?? {};
 
           if (!Object.keys(attrs).length) {
@@ -891,35 +910,36 @@ export class ProductsService {
           }
 
           const key = this.canonicalKey(attrs); // ✅ Always generated
-          const sku = this.generateSku(savedProduct, attrs); // ✅ Always generated
+          const sku = c.sku;
 
           if (!key) throw new BadRequestException("Each combination must have key or attributes");
 
-          const stockOnHand = 0;
-          const reserved = 0;
-
-          if (stockOnHand < 0) throw new BadRequestException("stockOnHand cannot be negative");
-          if (reserved < 0) throw new BadRequestException("reserved cannot be negative");
-          if (reserved > stockOnHand) throw new BadRequestException("reserved cannot exceed stockOnHand");
-
-          return pvRepo.create({
+          return {
             adminId,
             productId: savedProduct.id,
             key,
             sku: sku ?? null,
             price: c.price !== undefined && c.price !== null ? Number(c.price) : null,
             attributes: attrs,
-            stockOnHand,
-            reserved,
-          } as any);
+            stockOnHand: 0,
+            reserved: 0,
+            isActive: c.isActive,
+            deactivatedAt: c.isActive ? null : new Date()
+          } as any
         });
 
         {
           const seen = new Set<string>();
+          const skusInRequest = new Set<string>();
           for (const r of rows) {
             const k = `${adminId}::${savedProduct.id}::${r.key}`;
-            if (seen.has(k)) throw new BadRequestException(`Duplicate combination key: ${r.key}`);
+            if (seen.has(k)) throw new BadRequestException(`Found duplicate attributes in request: ${r.key}`);
             seen.add(k);
+
+            if (r.sku) {
+              if (skusInRequest.has(r.sku)) throw new BadRequestException(`Duplicate SKU in request: ${r.sku}`);
+              skusInRequest.add(r.sku);
+            }
           }
         }
 
@@ -931,7 +951,13 @@ export class ProductsService {
           });
 
           if (exists.length) {
-            throw new BadRequestException(`Duplicate combination key already exists: ${exists[0].key}`);
+            const attrDetails = Object.entries(exists[0].attributes || {})
+              .map(([k, v]) => `${k}: ${v}`)
+              .join(", ")
+
+            throw new BadRequestException(
+              `A variant with these attributes already exists for this product: (${attrDetails}). Please modify the combination.`
+            );
           }
         }
 
@@ -942,8 +968,8 @@ export class ProductsService {
       if (dto.purchase) {
         // Map combinations to variant IDs for purchase items
         const purchaseItems = savedVariants.map(v => {
-          // Find original combo to get purchaseCost and quantity
           const combo = combos.find(c => this.canonicalKey(c.attributes) === v.key);
+
           return {
             variantId: v.id,
             quantity: Number(combo?.stockOnHand) || 0,
@@ -975,143 +1001,239 @@ export class ProductsService {
     return this.get(me, savedId);
   }
 
-  async update(me: any, id: string, dto: UpdateProductDto) {
+  async update(me: any, id: string, dto: UpdateProductDto, manager?: EntityManager) {
     const adminId = tenantId(me);
-    const p = await CRUD.findOne(this.prodRepo, "products", id, ["category", "store", "warehouse"]);
-    if (!p) throw new BadRequestException("product not found");
+    if (!adminId) throw new BadRequestException("Missing adminId");
 
-    if (dto.slug) {
-      const cleanSlug = dto.slug;
+    const work = async (mgr: EntityManager) => {
+      const prodRepo = mgr.getRepository(ProductEntity);
+      const catRepo = mgr.getRepository(CategoryEntity);
+      const storeRepo = mgr.getRepository(StoreEntity);
+      const whRepo = mgr.getRepository(WarehouseEntity);
+      const pvRepo = mgr.getRepository(ProductVariantEntity);
+      const orphanRepo = mgr.getRepository(OrphanFileEntity);
 
-      // التحقق من أن الـ Slug غير مستخدم من قبل منتج آخر
-      // (نبحث عن نفس الـ Slug ونستبعد المنتج الحالي باستخدام Not(id))
-      const existingSlug = await this.prodRepo.findOne({
-        where: {
-          adminId,
-          slug: cleanSlug,
-          storeId: dto.storeId !== undefined ? (dto.storeId ?? null) : p.storeId,
-          id: Not(id) // أهم خطوة: استثناء المنتج الحالي من البحث
+      // 1. Fetch existing product
+      const p = await prodRepo.findOne({
+        where: { id, adminId } as any,
+        relations: ["category", "store", "warehouse"]
+      });
+
+      if (!p) throw new BadRequestException("product not found");
+
+
+      if (dto.slug) {
+        const cleanSlug = dto.slug;
+        const existingSlug = await prodRepo.findOne({
+          where: {
+            adminId,
+            slug: cleanSlug,
+            storeId: dto.storeId !== undefined ? (dto.storeId ?? null) : p.storeId,
+            id: Not(id)
+          }
+        });
+
+        if (existingSlug) {
+          throw new BadRequestException(`The slug "${cleanSlug}" is already in use by another product.`);
         }
-      });
 
-      if (existingSlug) {
-        throw new BadRequestException(`The slug "${cleanSlug}" is already in use by another product.`);
+        p.slug = cleanSlug;
       }
 
-      p.slug = cleanSlug;
-    }
-
-    // ✅ removeImgs
-    const removeImgs = (dto as any).removeImgs as string[] | undefined;
-    if (removeImgs?.length) {
-      (p as any).images = ((p as any).images ?? []).filter(
-        (img: any) => img?.url && !removeImgs.includes(img.url)
-      );
-    }
-    const removeUrls = dto.removeImgs as string[] | undefined;
-
-    if (removeUrls?.length) {
-      p.images = await this.handleImageCleanup(
-        p,
-        removeUrls,
-      );
-    }
-
-    delete (dto as any).removeImgs;
-
-
-    // images replacement (existing + library) from frontend
-    const imagesCount = dto.imagesOrphanIds?.length + p.images.length;
-    if (imagesCount > 20) throw new BadRequestException("Total images cannot exceed 20");
-
-    const imagesMeta = (dto as any).imagesMeta;
-    delete (dto as any).imagesMeta;
-
-    // main image via orphan id
-    const mainOrphanId = (dto as any).mainImageOrphanId;
-    if (mainOrphanId !== undefined && mainOrphanId !== null && mainOrphanId !== "") {
-      const oid = mainOrphanId;
-      if (!oid) throw new BadRequestException("mainImageOrphanId is invalid");
-      const row = await this.orphanRepo.findOne({
-        where: { adminId: String(adminId), id: oid } as any,
-        select: ["id", "url"],
-      });
-      if (!row) throw new BadRequestException("mainImageOrphanId not found");
-      if ((p as any).mainImage) {
-        deletePhysicalFiles([p.mainImage])
+      // ✅ removeImgs
+      const removeImgs = (dto as any).removeImgs as string[] | undefined;
+      if (removeImgs?.length) {
+        (p as any).images = ((p as any).images ?? []).filter(
+          (img: any) => img?.url && !removeImgs.includes(img.url)
+        );
       }
-      (p as any).mainImage = row.url;
-      await this.orphanRepo.delete({ adminId: String(adminId), id: oid } as any);
-    }
-    delete (dto as any).mainImageOrphanId;
+      const removeUrls = dto.removeImgs as string[] | undefined;
 
-    // append gallery images via orphan ids
-    const orphanIds = (dto as any).imagesOrphanIds;
-
-    if (orphanIds !== undefined) {
-      if (!Array.isArray(orphanIds)) throw new BadRequestException("imagesOrphanIds must be an array");
-      const rows = await this.dataSource.transaction(async (mgr) => {
-        const found = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
-        return found;
-      });
-
-      const current = Array.isArray((p as any).images) ? (p as any).images : [];
-      const toAppend = rows.map((r) => ({ url: r.url }));
-
-      if (current.length + toAppend.length > 20) {
-        throw new BadRequestException("Total images cannot exceed 20");
+      if (removeUrls?.length) {
+        p.images = await this.handleImageCleanup(
+          p,
+          removeUrls,
+        );
       }
 
-      (p as any).images = [...current, ...toAppend];
-
-      await this.orphanRepo.delete({
-        adminId: String(adminId),
-        id: In(rows.map((r) => r.id)),
-      } as any);
-    }
-    delete (dto as any).imagesOrphanIds;
-
-    if (dto.categoryId !== undefined) {
-      const category = await this.assertOwnedOrNull(this.catRepo, adminId, dto.categoryId ?? null, "category");
-      (p as any).categoryId = dto.categoryId ?? null;
-      (p as any).category = category ?? null;
-    }
-
-    if (dto.storeId !== undefined) {
-      const store = await this.assertOwnedOrNull(this.storeRepo, adminId, dto.storeId ?? null, "store");
-      (p as any).storeId = dto.storeId ?? null;
-      (p as any).store = store ?? null;
-    }
-
-    if (dto.warehouseId !== undefined) {
-      const warehouse = await this.assertOwnedOrNull(this.whRepo, adminId, dto.warehouseId ?? null, "warehouse");
-      (p as any).warehouseId = dto.warehouseId ?? null;
-      (p as any).warehouse = warehouse ?? null;
-    }
+      delete (dto as any).removeImgs;
 
 
-    const patch: any = { ...dto };
-    delete patch.categoryId;
-    delete patch.storeId;
-    delete patch.warehouseId;
+      // images replacement (existing + library) from frontend
+      const imagesCount = dto.imagesOrphanIds?.length + p.images.length;
+      if (imagesCount > 20) throw new BadRequestException("Total images cannot exceed 20");
 
-    Object.assign(p as any, patch, { updatedByUserId: me?.id ?? null });
+      const imagesMeta = (dto as any).imagesMeta;
+      delete (dto as any).imagesMeta;
 
-    const saved = await this.prodRepo.save(p as any);
-    return this.get(me, saved.id);
+      // main image via orphan id
+      const mainOrphanId = (dto as any).mainImageOrphanId;
+      if (mainOrphanId !== undefined && mainOrphanId !== null && mainOrphanId !== "") {
+        const oid = mainOrphanId;
+        if (!oid) throw new BadRequestException("mainImageOrphanId is invalid");
+        const row = await orphanRepo.findOne({
+          where: { adminId: String(adminId), id: oid } as any,
+          select: ["id", "url"],
+        });
+        if (!row) throw new BadRequestException("mainImageOrphanId not found");
+        if ((p as any).mainImage) {
+          deletePhysicalFiles([p.mainImage])
+        }
+        (p as any).mainImage = row.url;
+        await this.orphanRepo.delete({ adminId: String(adminId), id: oid } as any);
+      }
+      delete (dto as any).mainImageOrphanId;
+
+      // append gallery images via orphan ids
+      const orphanIds = (dto as any).imagesOrphanIds;
+
+      if (orphanIds !== undefined) {
+        if (!Array.isArray(orphanIds)) throw new BadRequestException("imagesOrphanIds must be an array");
+        const rows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
+
+        const current = Array.isArray((p as any).images) ? (p as any).images : [];
+        const toAppend = rows.map((r) => ({ url: r.url }));
+
+        if (current.length + toAppend.length > 20) {
+          throw new BadRequestException("Total images cannot exceed 20");
+        }
+
+        (p as any).images = [...current, ...toAppend];
+
+        await orphanRepo.delete({
+          adminId: String(adminId),
+          id: In(rows.map((r) => r.id)),
+        } as any);
+      }
+      delete (dto as any).imagesOrphanIds;
+
+      // --- 2. Handle Base Relations & Fields ---
+      if (dto.categoryId !== undefined) {
+        const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
+        (p as any).categoryId = dto.categoryId ?? null;
+        (p as any).category = category ?? null;
+      }
+
+      if (dto.storeId !== undefined) {
+        const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+        (p as any).storeId = dto.storeId ?? null;
+        (p as any).store = store ?? null;
+      }
+
+      if (dto.warehouseId !== undefined) {
+        const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
+        (p as any).warehouseId = dto.warehouseId ?? null;
+        (p as any).warehouse = warehouse ?? null;
+      }
+
+
+      const patch: any = { ...dto };
+      delete patch.categoryId;
+      delete patch.storeId;
+      delete patch.warehouseId;
+      delete patch.combinations;
+
+      Object.assign(p as any, patch, { updatedByUserId: me?.id ?? null });
+      const savedProduct = await prodRepo.save(p as any);
+
+      if (dto.combinations && Array.isArray(dto.combinations)) {
+        const combos = dto.combinations;
+
+        const keysInRequest = new Set<string>();
+        const skusInRequest = new Set<string>();
+
+        for (const c of combos) {
+          const attrs = c.attributes ?? {};
+          if (!Object.keys(attrs).length) throw new BadRequestException("Each combination must have attributes");
+
+          const key = this.canonicalKey(attrs);
+          if (keysInRequest.has(key)) throw new BadRequestException(`Found duplicate attributes in request: ${key}`);
+          keysInRequest.add(key);
+
+          if (c.sku) {
+            if (skusInRequest.has(c.sku)) throw new BadRequestException(`Duplicate SKU in request: ${c.sku}`);
+            skusInRequest.add(c.sku);
+          }
+        }
+
+        const existingVariants = await pvRepo.find({ where: { adminId, productId: p.id } as any });
+        const existingVariantMap = new Map(existingVariants.map(v => [v.key, v]));
+
+        const existingSkusForThisProduct = new Set(existingVariants.map(v => v.sku).filter(Boolean));
+
+        const skusToCheck = Array.from(skusInRequest).filter(sku => !existingSkusForThisProduct.has(sku));
+
+        if (skusToCheck.length > 0) {
+          const conflictingVariants = await pvRepo.find({
+            where: { adminId, sku: In(skusToCheck) } as any,
+            select: ['sku']
+          });
+
+          if (conflictingVariants.length > 0) {
+            const duplicateSkus = conflictingVariants.map(v => v.sku);
+            throw new BadRequestException(
+              `The following SKUs already exist in your account: ${duplicateSkus.join(', ')}. Please choose another one.`
+            );
+          }
+        }
+
+        // D. Map items to Update, Create, or Deactivate
+        const variantsToSave: ProductVariantEntity[] = [];
+
+        for (const c of combos) {
+          const key = this.canonicalKey(c.attributes ?? {});
+          const existing = existingVariantMap.get(key);
+
+          if (existing) {
+            // UPDATE: Variant exists. Update fields and ensure it is active.
+            existing.sku = c.sku ?? null;
+            existing.price = c.price !== undefined && c.price !== null ? Number(c.price) : null;
+            const nextActive = c.isActive !== false;
+            existing.isActive = nextActive;
+            existing.deactivatedAt = nextActive ? null : new Date();
+            variantsToSave.push(existing);
+          } else {
+            // CREATE: Brand new variant combination
+            variantsToSave.push({
+              adminId,
+              productId: savedProduct.id,
+              key,
+              sku: c.sku ?? null,
+              price: c.price !== undefined && c.price !== null ? Number(c.price) : null,
+              attributes: c.attributes,
+              stockOnHand: 0,
+              reserved: 0,
+              isActive: c.isActive,
+              deactivatedAt: c.isActive ? null : new Date()
+            } as any);
+          }
+        }
+
+
+        if (variantsToSave.length > 0) {
+          await pvRepo.save(variantsToSave);
+        }
+      }
+
+      return savedProduct.id;
+    };
+
+    // Run everything inside a transaction to prevent partial updates
+    const savedId = manager ? await work(manager) : await this.dataSource.transaction(mgr => work(mgr));
+    return this.get(me, savedId);
   }
 
   async remove(me: any, id: string) {
     const adminId = tenantId(me);
     return await this.dataSource.transaction(async (manager) => {
-        await CRUD.toggleStatus(
-            manager, 
-            ProductEntity, 
-            id, 
-            adminId, 
-            false, // Deactivate
-            ['variants'] 
-        );
+      await CRUD.toggleStatus(
+        manager,
+        ProductEntity,
+        id,
+        adminId,
+        false, // Deactivate
+        ['variants']
+      );
     });
   }
 
@@ -1136,5 +1258,45 @@ export class ProductsService {
     });
 
     return { isUnique: !exists };
+  }
+
+  async checkSkusAvailability(me: any, skus: string[] = [], productId?: string) {
+    const adminId = tenantId(me);
+    const normalized = Array.from(
+      new Set(
+        (Array.isArray(skus) ? skus : [])
+          .map((sku) => String(sku ?? "").trim())
+          .filter(Boolean)
+      )
+    );
+
+    if (!normalized.length) {
+      return {
+        existing: [],
+        available: [],
+      };
+    }
+
+    const existingRows = await this.pvRepo.find({
+      where: {
+        adminId,
+        sku: In(normalized),
+      } as any,
+      select: ["sku", "productId"],
+    });
+
+    const existingSet = new Set(
+      existingRows
+        .filter((row) => !productId || String(row.productId) !== String(productId))
+        .map((row) => row.sku)
+    );
+
+    const existing = normalized.filter((sku) => existingSet.has(sku));
+    const available = normalized.filter((sku) => !existingSet.has(sku));
+
+    return {
+      existing,
+      available,
+    };
   }
 }

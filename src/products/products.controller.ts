@@ -25,6 +25,7 @@ import { ProductsService } from "./products.service";
 
 import {
   AdjustVariantStockDto,
+  CheckSkusDto,
   CreateProductDto,
   UpdateProductDto,
   UpsertProductSkusDto,
@@ -131,6 +132,15 @@ export class ProductsController {
 
 
     return this.products.checkSlug(req.user, slug, storeId, productId);
+  }
+
+  @Permissions("products.read")
+  @Post("check-skus")
+  checkSkus(
+    @Req() req: any,
+    @Body() body: CheckSkusDto
+  ) {
+    return this.products.checkSkusAvailability(req.user, body.skus, body.productId);
   }
 
   @Permissions("products.delete")
@@ -299,6 +309,10 @@ export class ProductsController {
       imagesMeta:
         body.imagesMeta !== undefined
           ? parseJsonField(body.imagesMeta, [])
+          : undefined,
+      combinations:
+        body.combinations !== undefined
+          ? parseJsonField(body.combinations, [])
           : undefined,
 
       // ✅ NEW
