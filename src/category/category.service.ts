@@ -86,6 +86,7 @@ export class CategoriesService {
 		// Delete old image if a new one is provided or if it's being removed
 		if ((dto.image !== undefined && (cat as any).image && dto.image !== (cat as any).image) || dto.removeImage) {
 			await deletePhysicalFiles([(cat as any).image]);
+			cat.image = null
 		}
 
 		Object.assign(cat as any, dto);
