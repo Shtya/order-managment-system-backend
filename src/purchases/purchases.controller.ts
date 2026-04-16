@@ -10,10 +10,12 @@ import {
 	Post,
 	Query,
 	Req,
+	Res,
 	UploadedFiles,
 	UseGuards,
 	UseInterceptors,
 } from "@nestjs/common";
+import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
@@ -56,6 +58,27 @@ export class PurchasesController {
 	@Get()
 	list(@Req() req: any, @Query() q: any) {
 		return this.svc.list(req.user, q);
+	}
+
+	@Permissions("purchases.read")
+	@Get("export")
+	async exportPurchases(
+		@Req() req: any,
+		@Query() q: any,
+		@Res() res: Response
+	) {
+		const buffer = await this.svc.exportPurchases(req.user, q);
+
+		res.setHeader(
+			"Content-Type",
+			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+		);
+		res.setHeader(
+			"Content-Disposition",
+			`attachment; filename=Purchases_export_${Date.now()}.xlsx`
+		);
+
+		return res.send(buffer);
 	}
 
 	@Permissions("purchases.read")

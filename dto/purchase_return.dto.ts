@@ -4,7 +4,7 @@ import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min,
 import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
 
 export class PurchaseReturnItemDto {
-@IsString() variantId: string;
+  @IsString() variantId: string;
   @IsInt() @Min(1) returnedQuantity: number;
   @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) unitCost: number;
 
@@ -15,7 +15,10 @@ export class PurchaseReturnItemDto {
 export class CreatePurchaseReturnDto {
   @IsString() returnNumber: string;
 
-  @IsOptional() @IsInt() supplierId?: string;
+  @IsOptional()
+  @IsString()
+  supplierId?: string;
+
   @IsOptional() @IsString() supplierNameSnapshot?: string;
   @IsOptional() @IsString() supplierCodeSnapshot?: string;
 

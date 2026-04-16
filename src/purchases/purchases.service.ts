@@ -11,6 +11,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { SupplierEntity } from "../../entities/supplier.entity";
 import * as fs from "fs";
 import * as path from "path";
+import * as ExcelJS from "exceljs";
 
 export function tenantId(me: any): any | null {
 	if (!me) return null;
@@ -20,7 +21,6 @@ export function tenantId(me: any): any | null {
 	return me.adminId;
 }
 
-const MAX_DECIMAL_LIMIT = 9999999999.99; // Limit for precision 12, scale 2 (10^10 - 0.01)
 
 @Injectable()
 export class PurchasesService {
@@ -96,7 +96,7 @@ export class PurchasesService {
 		const limit = Number(q?.limit ?? 10);
 		const search = String(q?.search ?? "").trim();
 
-		const supplierId = q?.supplierId && q.supplierId !== "none" ? q.supplierId : null;
+		const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
 		const status = q?.status && q.status !== "all" ? String(q.status) : null;
 		const startDate = q?.startDate ? String(q.startDate) : null; // YYYY-MM-DD
 		const endDate = q?.endDate ? String(q.endDate) : null;
@@ -108,7 +108,12 @@ export class PurchasesService {
 			// ✅ THIS is what brings supplier data
 			.leftJoinAndSelect("inv.supplier", "supplier");
 
-		if (supplierId) qb.andWhere("inv.supplierId = :supplierId", { supplierId });
+		if (supplierId && supplierId != 'none')
+			qb.andWhere("inv.supplierId = :supplierId", { supplierId });
+		else if (supplierId === 'none') {
+			qb.andWhere("inv.supplierId IS NULL");
+		}
+
 		if (status) qb.andWhere("inv.status = :status", { status });
 
 		if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
@@ -117,7 +122,10 @@ export class PurchasesService {
 		DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
 
 		if (search) {
-			qb.andWhere("(inv.receiptNumber ILIKE :s OR inv.notes ILIKE :s)", { s: `%${search}%` });
+			qb.andWhere(
+				"(inv.receiptNumber ILIKE :s OR supplier.name ILIKE :s)",
+				{ s: `%${search}%` }
+			);
 		}
 
 		if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: q?.closingId }); else {
@@ -281,6 +289,11 @@ export class PurchasesService {
 		const exists = await repo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
 		if (exists) throw new BadRequestException("receiptNumber already exists");
 
+		if (dto.supplierId) {
+			const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } as any });
+			if (!supplier) throw new BadRequestException("supplier not found");
+		}
+
 		const items = (dto.items || []).map((it) => {
 			const lineSubtotal = it.purchaseCost * it.quantity;
 			const lineTotal = lineSubtotal;
@@ -301,13 +314,12 @@ export class PurchasesService {
 		const paidAmount = dto.paidAmount ?? 0;
 		const remainingAmount = total - paidAmount;
 
-
 		const inv = repo.create({
 			adminId,
-			supplierId: dto.supplierId,
+			supplierId: dto.supplierId ?? null,
 			receiptNumber: dto.receiptNumber,
 			receiptAsset: dto.receiptAsset ?? null,
-			safeId: dto.safeId,
+			safeId: dto.safeId ?? null,
 			paidAmount,
 			subtotal,
 			total,
@@ -852,6 +864,81 @@ export class PurchasesService {
 			await updateSupplier(oldSupplierId, "subtract");
 			await updateSupplier(newSupplierId, "add");
 		}
+	}
+
+	async exportPurchases(me: any, q?: any) {
+		const adminId = tenantId(me);
+		if (!adminId) throw new BadRequestException("Missing adminId");
+
+		const search = String(q?.search ?? "").trim();
+		const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
+		const status = q?.status && q.status !== "all" ? String(q.status) : null;
+		const startDate = q?.startDate ? String(q.startDate) : null;
+		const endDate = q?.endDate ? String(q.endDate) : null;
+		const hasReceipt = q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
+
+		const qb = this.invRepo
+			.createQueryBuilder("inv")
+			.where("inv.adminId = :adminId", { adminId })
+			.leftJoinAndSelect("inv.supplier", "supplier");
+
+		if (supplierId && supplierId != 'none')
+			qb.andWhere("inv.supplierId = :supplierId", { supplierId });
+		else if (supplierId === 'none') {
+			qb.andWhere("inv.supplierId IS NULL");
+		}
+
+		if (status) qb.andWhere("inv.status = :status", { status });
+
+		if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
+		if (hasReceipt === "no") qb.andWhere("inv.receiptAsset IS NULL");
+
+		DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
+
+		if (search) {
+			qb.andWhere(
+				"(inv.receiptNumber ILIKE :s OR supplier.name ILIKE :s)",
+				{ s: `%${search}%` }
+			);
+		}
+
+		qb.orderBy("inv.created_at", (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC");
+
+		const records = await qb.getMany();
+
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet("Purchases");
+
+		worksheet.columns = [
+			{ header: "ID", key: "id", width: 10 },
+			{ header: "Supplier", key: "supplier", width: 25 },
+			{ header: "Receipt #", key: "receiptNumber", width: 20 },
+			{ header: "Status", key: "status", width: 15 },
+			{ header: "Subtotal", key: "subtotal", width: 15 },
+			{ header: "Total", key: "total", width: 15 },
+			{ header: "Paid Amount", key: "paidAmount", width: 15 },
+			{ header: "Remaining Amount", key: "remainingAmount", width: 15 },
+			{ header: "Created At", key: "created_at", width: 18 },
+		];
+
+		worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+		worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF6C5CE7" } };
+
+		records.forEach((inv) => {
+			worksheet.addRow({
+				id: inv.id,
+				supplier: inv.supplier?.name ?? "N/A",
+				receiptNumber: inv.receiptNumber,
+				status: inv.status,
+				subtotal: inv.subtotal,
+				total: inv.total,
+				paidAmount: inv.paidAmount,
+				remainingAmount: inv.remainingAmount,
+				created_at: inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US") : "",
+			});
+		});
+
+		return await workbook.xlsx.writeBuffer();
 	}
 }
 

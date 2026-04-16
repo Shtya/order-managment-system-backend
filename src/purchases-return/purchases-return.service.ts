@@ -9,8 +9,10 @@ import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
 import { tenantId } from "../category/category.service"; // or duplicate helper locally
 import { ProductVariantEntity } from "entities/sku.entity";
 import { SupplierEntity } from "entities/supplier.entity";
+import { DateFilterUtil } from "common/date-filter.util";
 import * as fs from "fs";
 import * as path from "path";
+import * as ExcelJS from "exceljs";
 
 function calcLine(cost: number, qty: number, taxRate: number, taxInclusive: boolean) {
   const lineSubtotal = cost * qty;
@@ -143,53 +145,92 @@ export class PurchaseReturnsService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const totalInvoices = await this.invRepo.count({ where: { adminId } as any });
+    const acceptedCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.ACCEPTED } as any });
+    const pendingCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.PENDING } as any });
+    const rejectedCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.REJECTED } as any });
+
     const totalReturnValueRaw = await this.invRepo
       .createQueryBuilder("r")
       .select("COALESCE(SUM(r.totalReturn),0)", "sum")
       .where("r.adminId = :adminId", { adminId })
+      .andWhere("r.status = :status", { status: ApprovalStatus.ACCEPTED })
       .getRawOne();
 
     return {
-      returnInvoicesCount: totalInvoices,
+      returnInvoicesCount: acceptedCount + pendingCount + rejectedCount,
+      accepted: acceptedCount,
+      pending: pendingCount,
+      rejected: rejectedCount,
       totalReturnValue: Number(totalReturnValueRaw?.sum || 0),
     };
   }
 
   async list(me: any, q?: any) {
-    const filters: Record<string, any> = {};
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
 
-    if (q?.status && q?.status !== "all") filters.status = q.status;
-    if (q?.returnType && q?.returnType !== "all") filters.returnType = q.returnType;
-    if (q?.supplierId && q?.supplierId !== "none") filters.supplierId = q.supplierId;
+    const page = Number(q?.page ?? 1);
+    const limit = Number(q?.limit ?? 10);
+    const search = String(q?.search ?? "").trim();
 
-    if (q?.closingId) filters.closingId = q?.closingId;
+    const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
+    const status = q?.status && q.status !== "all" ? String(q.status) : null;
+    const returnType = q?.returnType && q.returnType !== "all" ? String(q.returnType) : null;
+    const startDate = q?.startDate ? String(q.startDate) : null;
+    const endDate = q?.endDate ? String(q.endDate) : null;
+    const hasReceipt = q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
+
+    const qb = this.invRepo
+      .createQueryBuilder("inv")
+      .where("inv.adminId = :adminId", { adminId })
+      .leftJoinAndSelect("inv.supplier", "supplier")
+      .leftJoinAndSelect("inv.createdBy", "createdBy");
+
+    if (supplierId && supplierId != 'none')
+      qb.andWhere("inv.supplierId = :supplierId", { supplierId });
+    else if (supplierId === 'none') {
+      qb.andWhere("inv.supplierId IS NULL");
+    }
+    if (status) qb.andWhere("inv.status = :status", { status });
+    if (returnType) qb.andWhere("inv.returnType = :returnType", { returnType });
+
+    if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
+    if (hasReceipt === "no") qb.andWhere("inv.receiptAsset IS NULL");
+
+    DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
+
+    if (search) {
+      qb.andWhere(
+        "(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR inv.supplierNameSnapshot ILIKE :s OR inv.notes ILIKE :s)",
+        { s: `%${search}%` }
+      );
+    }
+
+    if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: q?.closingId });
     else {
       if (q?.closed && q?.closed !== "none") {
         if (q?.closed === "false") {
-          filters["closingId.isnull"] = true;
+          qb.andWhere("inv.closingId IS NULL");
         } else if (q?.closed === "true") {
-          filters["closingId.isnull"] = false;
+          qb.andWhere("inv.closingId IS NOT NULL");
         }
       }
-
     }
 
-    return CRUD.findAll(
-      this.invRepo,
-      "purchase_return_invoices",
-      q?.search,
-      q?.page ?? 1,
-      q?.limit ?? 10,
-      q?.sortBy ?? "created_at",
-      (q?.sortOrder ?? "DESC") as any,
-      ["createdBy"],
-      ["returnNumber", "invoiceNumber", "supplierNameSnapshot", "supplierCodeSnapshot", "notes"],
-      {
-        __tenant: { role: me?.role?.name, userId: me?.id, adminId: me?.adminId },
-        filters,
-      } as any
-    );
+    qb.orderBy("inv.created_at", (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC");
+
+    const total = await qb.getCount();
+    const records = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getMany();
+
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
   }
 
   async get(me: any, id: string) {
@@ -323,6 +364,11 @@ export class PurchaseReturnsService {
 
     const exists = await this.invRepo.findOne({ where: { adminId, returnNumber: dto.returnNumber } as any });
     if (exists) throw new BadRequestException("returnNumber already exists");
+
+    if (dto.supplierId) {
+      const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } as any });
+      if (!supplier) throw new BadRequestException("supplier not found");
+    }
 
     const items = dto.items.map((it) => {
       const taxRate = it.taxRate ?? 5;
@@ -646,5 +692,86 @@ export class PurchaseReturnsService {
     });
 
     return CRUD.delete(this.invRepo, "purchase_return_invoices", id);
+  }
+
+  async exportPurchaseReturns(me: any, q?: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const search = String(q?.search ?? "").trim();
+    const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
+    const status = q?.status && q.status !== "all" ? String(q.status) : null;
+    const returnType = q?.returnType && q.returnType !== "all" ? String(q.returnType) : null;
+    const startDate = q?.startDate ? String(q.startDate) : null;
+    const endDate = q?.endDate ? String(q.endDate) : null;
+    const hasReceipt = q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
+
+    const qb = this.invRepo
+      .createQueryBuilder("inv")
+      .where("inv.adminId = :adminId", { adminId })
+      .leftJoinAndSelect("inv.supplier", "supplier")
+      .leftJoinAndSelect("inv.createdBy", "createdBy");
+
+    if (supplierId && supplierId != 'none')
+      qb.andWhere("inv.supplierId = :supplierId", { supplierId });
+    else if (supplierId === 'none') {
+      qb.andWhere("inv.supplierId IS NULL");
+    }
+    if (status) qb.andWhere("inv.status = :status", { status });
+    if (returnType) qb.andWhere("inv.returnType = :returnType", { returnType });
+
+    if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
+    if (hasReceipt === "no") qb.andWhere("inv.receiptAsset IS NULL");
+
+    DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
+
+    if (search) {
+      qb.andWhere(
+        "(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR inv.supplierNameSnapshot ILIKE :s OR inv.notes ILIKE :s)",
+        { s: `%${search}%` }
+      );
+    }
+
+    qb.orderBy("inv.created_at", (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC");
+
+    const records = await qb.getMany();
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Purchase Returns");
+
+    worksheet.columns = [
+      { header: "ID", key: "id", width: 10 },
+      { header: "Return #", key: "returnNumber", width: 20 },
+      { header: "Invoice #", key: "invoiceNumber", width: 20 },
+      { header: "Supplier", key: "supplier", width: 25 },
+      { header: "Status", key: "status", width: 15 },
+      { header: "Return Type", key: "returnType", width: 15 },
+      { header: "Subtotal", key: "subtotal", width: 15 },
+      { header: "Tax Total", key: "taxTotal", width: 15 },
+      { header: "Total Return", key: "totalReturn", width: 15 },
+      { header: "Refunded", key: "paidAmount", width: 15 },
+      { header: "Created At", key: "created_at", width: 18 },
+    ];
+
+    worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF6C5CE7" } };
+
+    records.forEach((inv) => {
+      worksheet.addRow({
+        id: inv.id,
+        returnNumber: inv.returnNumber,
+        invoiceNumber: inv.invoiceNumber,
+        supplier: inv.supplier?.name || inv.supplierNameSnapshot || "N/A",
+        status: inv.status,
+        returnType: inv.returnType,
+        subtotal: inv.subtotal,
+        taxTotal: inv.taxTotal,
+        totalReturn: inv.totalReturn,
+        paidAmount: inv.paidAmount,
+        created_at: inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US") : "",
+      });
+    });
+
+    return await workbook.xlsx.writeBuffer();
   }
 }

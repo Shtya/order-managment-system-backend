@@ -1,5 +1,6 @@
 // purchases-return/purchases-return.controller.ts
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UploadedFiles, UseGuards, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFiles, UseGuards, UseInterceptors } from "@nestjs/common";
+import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
@@ -37,6 +38,27 @@ export class PurchaseReturnsController {
   @Get()
   list(@Req() req: any, @Query() q: any) {
     return this.svc.list(req.user, q);
+  }
+
+  @Permissions("purchase_returns.read")
+  @Get("export")
+  async exportPurchaseReturns(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response
+  ) {
+    const buffer = await this.svc.exportPurchaseReturns(req.user, q);
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=Purchase_Returns_export_${Date.now()}.xlsx`
+    );
+
+    return res.send(buffer);
   }
 
   // ✅ NEW: Audit logs for invoice

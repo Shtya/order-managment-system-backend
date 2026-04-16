@@ -4,13 +4,17 @@ import { IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min
 import { ApprovalStatus } from "common/enums";
 
 export class PurchaseItemDto {
-	@IsInt() variantId: string;
+	@IsString() variantId: string;
 	@IsInt() @Min(1) quantity: number;
 	@Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) purchaseCost: number;
 }
 
 export class CreatePurchaseDto {
-	@IsInt() supplierId: string;
+
+	@IsOptional()
+	@IsString()
+	supplierId?: string;
+
 	@IsString() @IsNotEmpty() receiptNumber: string;
 	safeId: any;
 
@@ -28,7 +32,7 @@ export class CreatePurchaseDto {
 
 
 export class UpdatePurchaseDto {
-	@IsOptional() @IsInt() supplierId?: string;
+	@IsOptional() @IsString() supplierId?: string;
 	@IsOptional() @IsString() receiptNumber?: string;
 	@IsOptional() safeId?: any;
 
