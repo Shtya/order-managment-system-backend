@@ -1,4 +1,17 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
@@ -6,6 +19,17 @@ import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { CategoriesService } from "./category.service";
 import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
+import { FileFieldsInterceptor } from "@nestjs/platform-express";
+import { diskStorage } from "multer";
+import { extname } from "path";
+
+const categoriesStorage = diskStorage({
+  destination: "./uploads/categories",
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `category-${uniqueSuffix}${extname(file.originalname)}`);
+  },
+});
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("categories")
@@ -38,14 +62,59 @@ export class CategoriesController {
 
   @Permissions("categories.create")
   @Post()
-  create(@Req() req: any, @Body() dto: any) {
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: "image", maxCount: 1 }], {
+      storage: categoriesStorage,
+    })
+  )
+  create(
+    @Req() req: any,
+    @UploadedFiles()
+    files: { image?: Express.Multer.File[] },
+    @Body() body: any
+  ) {
+    const dto: CreateCategoryDto = {
+      name: body.name,
+      slug: body.slug,
+    };
+    if (files?.image?.[0]) {
+      dto.image = `/uploads/categories/${files.image[0].filename}`;
+    }
     return this.cats.create(req.user, dto);
   }
 
   @Permissions("categories.update")
   @Patch(":id")
-  update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateCategoryDto) {
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: "image", maxCount: 1 }], {
+      storage: categoriesStorage,
+    })
+  )
+  update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @UploadedFiles()
+    files: { image?: Express.Multer.File[] },
+    @Body() body: any
+  ) {
+    const dto: UpdateCategoryDto = {
+      name: body.name,
+      slug: body.slug,
+    };
+    if (files?.image?.[0]) {
+      dto.image = `/uploads/categories/${files.image[0].filename}`;
+    }
     return this.cats.update(req.user, id, dto);
+  }
+
+  @Permissions("categories.create")
+  @Post(":id/duplicate")
+  duplicate(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() body: { name: string; slug: string }
+  ) {
+    return this.cats.duplicate(req.user, id, body);
   }
 
   @Permissions("categories.delete")
