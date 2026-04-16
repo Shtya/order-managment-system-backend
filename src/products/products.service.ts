@@ -593,6 +593,7 @@ export class ProductsService {
       qb.andWhere(
         new Brackets((sq) => {
           sq.where("product.name ILIKE :s", { s: `%${filters.search}%` })
+            .orWhere("product.slug ILIKE :s", { s: `%${filters.search}%` });
         }),
       );
     }
