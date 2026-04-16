@@ -82,10 +82,8 @@ export class UpdateSupplierDto {
 	@MaxLength(100)
 	email?: string;
 
-	@IsOptional()
 	@IsArray()
-	@IsNumber({}, { each: true })
-	categoryIds?: string[];
+	categoryIds: string[];
 }
 
 export class UpdateSupplierFinancialsDto {

@@ -121,9 +121,11 @@ export class CreateProductDto {
   @IsString()
   storageRack?: string | null;
 
+  @IsString()
   @IsOptional()
   categoryId?: string;
 
+  @IsString()
   @IsOptional()
   storeId?: string | null;
 
@@ -156,6 +158,7 @@ export class CreateProductDto {
   @MaxLength(500)
   mainImage?: string;
 
+  @IsString()
   @IsOptional()
   mainImageOrphanId?: string;
 

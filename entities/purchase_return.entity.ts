@@ -8,6 +8,7 @@ import { User } from "./user.entity";
 import { ProductVariantEntity } from "./sku.entity";
 import { ApprovalStatus, PurchaseReturnType } from "common/enums";
 import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
+import { SupplierEntity } from "./supplier.entity";
 
 
 @Entity({ name: "purchase_return_invoices" })
@@ -30,6 +31,11 @@ export class PurchaseReturnInvoiceEntity {
   @Column({ type: 'uuid', nullable: true })
   @Index()
   supplierId?: string | null;
+
+
+  @ManyToOne(() => SupplierEntity, { nullable: true, eager: false })
+  @JoinColumn({ name: "supplierId" })
+  supplier?: SupplierEntity | null;
 
   // optional snapshots (because your form has supplierName/code as inputs)
   @Column({ type: "varchar", length: 200, nullable: true })
