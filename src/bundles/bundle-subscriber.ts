@@ -20,14 +20,18 @@ export class BundleSubscriber implements EntitySubscriberInterface<BundleEntity>
     }
 
     async afterInsert(event: InsertEvent<BundleEntity>) {
+        const entity = event.entity as BundleEntity;
+        if (!entity.isActive) return;
+
         // Only sync if assigned to a specific store
-        if (event.entity.storeId) {
+        if (entity.storeId) {
             await this.storesService.syncBundleToStore(event.entity);
         }
     }
 
     async afterUpdate(event: UpdateEvent<BundleEntity>) {
         const entity = event.entity as BundleEntity;
+        if (!entity.isActive) return;
         if (entity.storeId) {
             await this.storesService.syncBundleToStore(entity);
         }

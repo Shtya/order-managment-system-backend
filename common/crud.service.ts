@@ -27,11 +27,9 @@ export class CRUD {
 		status: boolean,
 		relationNames: string[] = []
 	): Promise<void> {
-
-		// Prepare the update payload
 		const updateData: any = {
 			isActive: status,
-			deactivatedAt: status ? null : new Date() // Reset to null if reactivated
+			deactivatedAt: status ? null : new Date()
 		};
 
 		// 1. Update the parent entity
@@ -43,17 +41,18 @@ export class CRUD {
 		if (result.affected === 0) {
 			throw new NotFoundException('Entity not found or access denied');
 		}
-		
+
 		if (relationNames.length > 0) {
 			const entityMetadata = manager.connection.getMetadata(entityClass);
-			
+
 			const updatePromises = relationNames.map((relationName) => {
 				const relation = entityMetadata.findRelationWithPropertyPath(relationName);
 
 				if (relation) {
-					const TargetRelationEntity = relation.inverseEntityMetadata.target;		
-					
-					const foreignKeyName = relation.inverseRelation?.propertyName || `${entityMetadata.name.toLowerCase()}Id`;
+					const TargetRelationEntity = relation.inverseEntityMetadata.target;
+
+					const foreignKeyName = relation.inverseRelation?.joinColumns?.[0]?.propertyName
+						|| `${entityMetadata.name.toLowerCase()}Id`;
 
 					return manager.update(
 						TargetRelationEntity,
@@ -61,9 +60,10 @@ export class CRUD {
 						updateData
 					);
 				}
-				return Promise.resolve(); 
+				return Promise.resolve();
 			});
-			
+
+			// 2. Wait for all relation updates
 			await Promise.all(updatePromises);
 		}
 	}
