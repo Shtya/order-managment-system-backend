@@ -100,6 +100,7 @@ export class CategoriesController {
     const dto: UpdateCategoryDto = {
       name: body.name,
       slug: body.slug,
+      removeImage: !!body.removeImage
     };
     if (files?.image?.[0]) {
       dto.image = `/uploads/categories/${files.image[0].filename}`;

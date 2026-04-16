@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from "class-validator";
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from "class-validator";
 
 export class CreateCategoryDto {
   @IsString()
@@ -39,4 +39,8 @@ export class UpdateCategoryDto {
   @IsString()
   @MaxLength(400)
   image?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  removeImage?: boolean;
 }
