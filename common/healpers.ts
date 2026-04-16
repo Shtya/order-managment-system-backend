@@ -1,9 +1,9 @@
 
 import { endOfDay, endOfMonth, startOfDay, startOfMonth, startOfWeek, startOfYear, subDays, subMonths } from 'date-fns';
 import { PlanDuration } from 'entities/plans.entity';
-import { unlink } from 'fs/promises';
+import { copyFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { extname, join } from 'path';
 
 export function calculateRange(range?: string): { start?: Date; end?: Date } {
     const now = new Date();
@@ -48,6 +48,27 @@ export async function deletePhysicalFiles(urls: string[]) {
             // Log error but don't crash; the DB record is already gone
             console.error(`Cleanup failed for ${url}:`, err.message);
         }
+    }
+}
+
+export async function copyPhysicalFile(url: string, prefix: string = "copy"): Promise<string | null> {
+    try {
+        if (!url || url.startsWith("http")) return url;
+        const sourcePath = join(process.cwd(), url);
+        if (!existsSync(sourcePath)) return null;
+
+        const dir = url.substring(0, url.lastIndexOf('/'));
+        const ext = extname(url);
+        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+        const newFilename = `${prefix}-${uniqueSuffix}${ext}`;
+        const newUrl = `${dir}/${newFilename}`;
+        const destPath = join(process.cwd(), newUrl);
+
+        await copyFile(sourcePath, destPath);
+        return newUrl;
+    } catch (err: any) {
+        console.error(`File copy failed for ${url}:`, err.message);
+        return null;
     }
 }
 

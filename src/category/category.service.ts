@@ -4,6 +4,7 @@ import { Repository } from "typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
 import { CRUD } from "../../common/crud.service";
+import { copyPhysicalFile, deletePhysicalFiles } from "common/healpers";
 
 export function tenantId(me: any): string | null {
 	if (!me) return null;
@@ -82,13 +83,49 @@ export class CategoriesService {
 			if (existsName) throw new BadRequestException("Category slug already exists");
 		}
 
+		// Delete old image if a new one is provided or if it's being removed
+		if (dto.image !== undefined && (cat as any).image && dto.image !== (cat as any).image) {
+			await deletePhysicalFiles([(cat as any).image]);
+		}
+
 		Object.assign(cat as any, dto);
 		return this.catRepo.save(cat as any);
 	}
 
 	async remove(me: any, id: string) {
-		await this.get(me, id);
+		const cat = await this.get(me, id);
+		if ((cat as any).image) {
+			await deletePhysicalFiles([(cat as any).image]);
+		}
 		return CRUD.delete(this.catRepo, "categories", id);
+	}
+
+	async duplicate(me: any, id: string, dto: { name: string; slug: string }) {
+		const adminId = tenantId(me);
+		if (!adminId) throw new BadRequestException("Missing adminId");
+
+		const source = await this.get(me, id);
+		if (!source) throw new BadRequestException("Source category not found");
+
+		const existsName = await this.catRepo.findOne({ where: { adminId, name: dto.name } as any });
+		if (existsName) throw new BadRequestException("Category name already exists");
+
+		const existsSlug = await this.catRepo.findOne({ where: { adminId, slug: dto.slug } as any });
+		if (existsSlug) throw new BadRequestException("Category slug already exists");
+
+		let newImagePath = null;
+		if ((source as any).image) {
+			newImagePath = await copyPhysicalFile((source as any).image, "copy-cat");
+		}
+
+		const newCat = this.catRepo.create({
+			adminId,
+			name: dto.name,
+			slug: dto.slug,
+			image: newImagePath,
+		} as any);
+
+		return this.catRepo.save(newCat);
 	}
 
 
