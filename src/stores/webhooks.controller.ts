@@ -14,6 +14,18 @@ export class StoreWebhooksController {
         private readonly shopifyService: ShopifyService
     ) { }
 
+    @Post('easyorder/callback')
+    @HttpCode(200)
+    async handleEasyOrdersAuth(
+        @Query('adminId') adminId: string,
+        @Body() body: { api_key: string; store_id: string }
+    ) {
+        this.logger.log(`Received EasyOrders credentials for store: ${body.store_id}`);
+        return this.storesService.saveEasyOrdersCredentials(adminId, { apiKey: body.api_key, storeId: body.store_id });
+        // return res.redirect(result.url);
+    }
+
+
     @Get('shopify/init')
     async handleInit(
         @Query() query: Record<string, any>,
@@ -42,15 +54,16 @@ export class StoreWebhooksController {
     /**
      * Endpoint for Order Status Update Webhook
      */
-    @Post(':provider/orders/status')
+    @Post(':adminId/:provider/orders/status')
     @HttpCode(200)
     async handleOrderStatusUpdate(
+        @Param('adminId') adminId: string,
         @Param('provider') provider: string,
         @Headers() headers: Record<string, any>,
         @Req() req: any,
         @Body() body: any,
     ) {
-        return await this.storesService.handleWebhookOrderUpdate(provider, body, headers, req);
+        return await this.storesService.handleWebhookOrderUpdate(provider, body, headers, adminId, req);
     }
 }
 

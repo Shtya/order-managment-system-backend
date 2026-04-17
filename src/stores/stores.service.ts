@@ -2,7 +2,7 @@ import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundEx
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, In, Not, Repository } from "typeorm";
 import { OrderFailStatus, StoreEntity, StoreProvider, SyncStatus, WebhookOrderFailureEntity } from "entities/stores.entity";
-import { CreateStoreDto, UpdateStoreDto } from "dto/stores.dto";
+import { CreateStoreDto, EasyOrdersCredentialsDto, IntegrateDto, UpdateStoreDto } from "dto/stores.dto";
 import { tenantId } from "src/category/category.service";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
@@ -85,7 +85,7 @@ export class StoresService {
       }
 
 
-    } catch (error) {
+    } catch (error: any) {
       this.logger.error(`[Cache] Failed to clear cache for store ${storeId}: ${error.message}`);
     }
   }
@@ -120,6 +120,8 @@ export class StoresService {
       "store.storeUrl",
       "store.provider",
       "store.isActive",
+      "store.isIntegrated",
+      "store.syncNewProducts",
       "store.syncStatus",
       "store.lastSyncAttemptAt",
       "store.created_at",
@@ -249,6 +251,8 @@ export class StoresService {
         provider: dto.provider,
         credentials, // Direct jsonb assignment
         isActive: true,
+        syncNewProducts: dto.syncNewProducts,
+        isIntegrated: true,
         syncStatus: SyncStatus.PENDING,
       });
 
@@ -278,6 +282,59 @@ export class StoresService {
         credentialsConfigured: true
       };
     });
+  }
+
+
+
+  async upsertIntegrate(me: any, dto: IntegrateDto) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const store = await this.storesRepo.findOne({ where: { adminId, provider: dto.provider } });
+
+    if (store) {
+      store.name = dto.name.trim();
+      store.storeUrl = dto.storeUrl.trim();
+      store.syncNewProducts = dto.syncNewProducts;
+      return await this.storesRepo.save(store);
+    }
+
+    const storeToSave = {
+      adminId,
+      name: dto.name.trim(),
+      storeUrl: dto.storeUrl.trim(),
+      provider: dto.provider,
+      credentials: {
+        apiKey: null,
+      },
+      isIntegrated: false,
+      isActive: false,
+      syncNewProducts: dto.syncNewProducts,
+    };
+
+    const savedStore = await this.storesRepo.save(storeToSave);
+    return savedStore;
+  }
+
+
+  async cancelIntegration(me: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const store = await this.storesRepo.findOne({ where: { adminId, provider: StoreProvider.EASYORDER } });
+
+    if (!store) {
+      throw new BadRequestException("Store not integrated.");
+    }
+    const p = this.getProvider(store.provider);
+    await p.cancelIntegration(adminId);
+    store.isActive = false;
+    store.isIntegrated = false;
+    store.credentials = {};
+    await this.storesRepo.save(store);
+    return {
+      ok: true,
+    }
   }
 
   async regenerateWebhookSecrets(me: any, id: string) {
@@ -367,6 +424,7 @@ export class StoresService {
       // 4. Update standard fields (with trimming)
       if (dto.name) store.name = dto.name.trim();
       if (dto.storeUrl) store.storeUrl = dto.storeUrl.trim();
+      if (dto.syncNewProducts !== undefined) store.syncNewProducts = dto.syncNewProducts;
       if (dto.isActive !== undefined) store.isActive = dto.isActive;
 
       const savedStore = await manager.save(store);
@@ -443,6 +501,8 @@ export class StoresService {
       isActive: store.isActive,
       syncStatus: store.syncStatus,
       lastSyncAttemptAt: store.lastSyncAttemptAt,
+      isIntegrated: store.isIntegrated,
+      syncNewProducts: store.syncNewProducts,
       created_at: store.created_at,
       updated_at: store.updated_at,
       credentials: masked // Renamed for frontend consistency
@@ -454,7 +514,7 @@ export class StoresService {
 
     // Get active stores
     const activeStores = await this.storesRepo.find({
-      where: { adminId, isActive: true }
+      where: { adminId, isActive: true, isIntegrated: true }
     });
 
     if (activeStores.length === 0) {
@@ -486,7 +546,7 @@ export class StoresService {
 
     // Get active stores
     const store = await this.storesRepo.findOne({
-      where: { id: storeId, adminId, isActive: true }
+      where: { id: storeId, adminId, isActive: true, isIntegrated: true }
     });
 
     if (!store) {
@@ -509,7 +569,7 @@ export class StoresService {
 
     // Get active stores
     const store = await this.storesRepo.findOne({
-      where: { id: storeId, adminId, isActive: true }
+      where: { id: storeId, adminId, isActive: true, isIntegrated: true }
     });
 
     if (!store) {
@@ -529,7 +589,7 @@ export class StoresService {
     const { adminId, orderNumber, id } = order;
 
     const store = await this.storesRepo.findOne({
-      where: { adminId, isActive: true }
+      where: { adminId, isActive: true, isIntegrated: true }
     });
 
     if (!store) {
@@ -555,7 +615,9 @@ export class StoresService {
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
     if (!store) throw new NotFoundException(`Store with ID ${id} not found`);
 
-    if (!store.isActive) throw new BadRequestException("Cannot sync an inactive store");
+    if (!store.isActive) throw new BadRequestException("Cannot sync: store is inactive");
+
+    if (!store.isIntegrated) throw new BadRequestException("Cannot sync: store is not integrated");
 
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueFullStoreSync(store);
@@ -727,20 +789,18 @@ export class StoresService {
   }
 
   async handleWebhookOrderCreate(provider: string, body: any, headers: Record<string, any>, adminId: string, req: any) {
+    this.logger.log(`[Webhook Order Create] Received webhook order create for provider=${provider}`);
     const p = this.getProvider(provider);
     const store = await this.storesRepo.findOne({ where: { provider: p.code, adminId } });
     if (!store) {
-      this.logger.warn(`[Webhook Order Create] could not locate store for provider=${provider}`);
       return { ok: true, ignored: true, reason: 'store_not_found' };
     }
-    if (!store.isActive) {
-      this.logger.warn(`[Webhook Order Create] Store "${store.name}" (ID: ${store.id}) is not active. Ignoring webhook order create.`);
-      return;
+    if (!store.isActive || !store.isIntegrated) {
+      return { ok: true, ignored: true, reason: 'store_not_active' };
     }
 
     if (store.provider !== p.code) {
-      this.logger.warn(`[Webhook Order Create] Store "${store.name}" (ID: ${store.id}) provider mismatch. Expected ${p.code} but got ${store.provider}. Ignoring webhook order create.`);
-      return;
+      return { ok: true, ignored: true, reason: 'provider_mismatched' };
     }
 
     const isAuthed = p.verifyWebhookAuth(headers, body, store, req, "create");
@@ -752,7 +812,7 @@ export class StoresService {
     return this.processMappedWebhookOrder(adminId, store, payload, body);
   }
 
-  async handleWebhookOrderUpdate(provider: string, body: any, headers: Record<string, any>, req: any) {
+  async handleWebhookOrderUpdate(provider: string, body: any, headers: Record<string, any>, adminId: string, req: any) {
     const p = this.getProvider(provider);
     const payload = p.mapWebhookUpdate(body);
     const externalOrderId = payload?.externalId;
@@ -971,7 +1031,7 @@ export class StoresService {
           message: "Order successfully retried and created",
           orderId: result.orderId || null,
         };
-      } catch (error) {
+      } catch (error: any) {
         failureLog.status = OrderFailStatus.FAILED;
         failureLog.reason = error.message || "Unknown error";
         await manager.save(failureLog);
@@ -1200,4 +1260,23 @@ export class StoresService {
     });
   }
 
+  public async saveEasyOrdersCredentials(adminId: string, credentials: EasyOrdersCredentialsDto) {
+    const appURL = process.env.FRONTEND_URL;
+    const store = await this.storesRepo.findOne({
+      where: { adminId, provider: StoreProvider.EASYORDER },
+    });
+    if (!store) {
+      throw new Error("EasyOrder store not found");
+    }
+
+    store.credentials = {
+      apiKey: credentials.apiKey,
+    };
+    store.isActive = true;
+    store.isIntegrated = true;
+    store.externalStoreId = credentials.storeId;
+
+    return await this.storesRepo.save(store);
+
+  }
 }

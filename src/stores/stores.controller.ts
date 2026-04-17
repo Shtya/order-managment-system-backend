@@ -5,7 +5,7 @@ import { Permissions } from "common/permissions.decorator";
 import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { StoresService } from "./stores.service";
-import { CreateStoreDto, UpdateStoreDto } from "dto/stores.dto";
+import { CreateStoreDto, IntegrateDto, UpdateStoreDto } from "dto/stores.dto";
 import { Response } from "express";
 
 
@@ -95,12 +95,24 @@ export class StoresController {
     return this.storesService.get(req.user, id);
   }
 
-
   @Permissions("stores.create")
   @Post()
   async create(@Req() req: any, @Body() dto: CreateStoreDto) {
     return this.storesService.create(req.user, dto);
   }
+
+  @Permissions("stores.create")
+  @Post("integrations")
+  async integrate(@Req() req: any, @Body() dto: IntegrateDto) {
+    return await this.storesService.upsertIntegrate(req.user, dto);
+  }
+
+  @Patch("cancel-integration")
+  async cancelIntegration(@Req() req: any) {
+    return this.storesService.cancelIntegration(req.user);
+
+  }
+
 
   @Permissions("stores.update")
   @Patch(":id")

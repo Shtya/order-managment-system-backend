@@ -103,6 +103,9 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
 
         this.worker.run();
     }
+    protected getErrorMessage(error: any): string {
+        return error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
+    }
 
     protected async processJob(payload: any): Promise<void> {
         const { type, storeType, storeId, productId, bundleId, category, slug, orderId } = payload;
@@ -115,6 +118,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                 case "sync-category":
                     // [2025-12-24] Ensure slug/title is trimmed inside the specific service
                     await service.syncCategory({ category, slug });
+                    this.logger.log(`[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.trim()}`);
                     break;
 
                 case "sync-product":
@@ -122,10 +126,12 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                         where: { id: productId },
                         relations: ['category', 'store']
                     });
-                    if (!product) return;
+
+                    if (!product || !product.isActive) return;
 
                     // All services share this method signature via BaseStoreProvider
                     await service.syncProduct({ productId, slug });
+                    this.logger.log(`[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${slug?.trim()}`);
                     break;
 
                 case "sync-bundle":
@@ -133,11 +139,12 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                         where: { id: bundleId },
                         relations: ['variant', 'variant.product', 'items', 'items.variant', 'items.variant.product']
                     });
-                    if (!bundle) return;
+                    if (!bundle || !bundle.isActive) return;
 
                     // Ensure syncBundle is called if the service supports it
                     if ('syncBundle' in service) {
                         await (service as IBundleSyncProvider).syncBundle(bundle);
+                        this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);
                     }
                     break;
 
@@ -150,6 +157,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     });
                     if (order) {
                         await service.syncOrderStatus(order);
+                        this.logger.log(`[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`);
                     }
                     break;
 
@@ -157,6 +165,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     const store = await this.storesRepo.findOneBy({ id: storeId });
                     if (store) {
                         await service.syncFullStore(store);
+                        this.logger.log(`[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`);
                     }
                     break;
 
@@ -173,9 +182,15 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                 default:
                     this.logger.warn(`Unknown job type: ${type} for provider: ${storeType}`);
             }
-        } catch (error) {
-            this.logger.error(`[Worker Error] Provider: ${storeType} | Job: ${type} | ${error.message}`);
-            // Catching here prevents the worker from crashing or getting stuck
+        } catch (error: any) {
+            const message = this.getErrorMessage(error);
+            const stack = error instanceof Error ? error.stack : 'No stack trace available';
+
+            // Passing stack as the second argument ensures it's formatted correctly by the logger
+            this.logger.error(
+                `[Worker Error] Provider: ${storeType} | Job: ${type} | ${message}`,
+                stack
+            );
         }
     }
 

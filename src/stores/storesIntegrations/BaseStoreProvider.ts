@@ -172,7 +172,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
 
             limiter.on('idle', () => {
                 this.limiters.delete(adminId);
-                this.logger.debug(`Cleaned up idle limiter for admin: ${adminId}`);
+                // this.logger.debug(`Cleaned up idle limiter for admin: ${adminId}`);
             });
 
             this.limiters.set(adminId, limiter);
@@ -318,5 +318,6 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;
     public abstract syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void>;
     public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
+    public abstract cancelIntegration(adminId: string): Promise<boolean>
 
 }
