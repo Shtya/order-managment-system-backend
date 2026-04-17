@@ -25,6 +25,9 @@ import { AppGateway } from "common/app.gateway";
 
 @Injectable()
 export class ShopifyService extends BaseStoreProvider implements IBundleSyncProvider {
+    public cancelIntegration(adminId: string): Promise<boolean> {
+        throw new Error("Method not implemented.");
+    }
 
     maxBundleItems?: number = 30;
     supportBundle: boolean = true;
@@ -1086,7 +1089,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         while (hasMore) {
             const localBatch = await this.categoryRepo.find({
-                where: { adminId: store.adminId, id: MoreThan(lastId) },
+                where: { adminId: store.adminId, ...(lastId ? { id: MoreThan(lastId) } : {}) },
                 order: { id: 'ASC' } as any,
                 take: 30
             });
@@ -1132,7 +1135,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         while (hasMore) {
             const localBatch = await this.storesRepo.manager.find(ProductEntity, {
-                where: { storeId: store.id, adminId: store.adminId, id: MoreThan(lastId) },
+                where: { storeId: store.id, adminId: store.adminId, ...(lastId ? { id: MoreThan(lastId) } : {}) },
                 relations: ['category', 'store'],
                 order: { id: 'ASC' } as any,
                 take: 20
@@ -1627,7 +1630,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     ): boolean {
 
         const savedSecret = store?.credentials?.webhookSecret;
-        if (!savedSecret) return false;
+        if (!savedSecret) {
+            return true;
+        }
 
         const shopifyHmac = headers['x-shopify-hmac-sha256'];
         if (!shopifyHmac) return false;

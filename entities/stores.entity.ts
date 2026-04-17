@@ -55,7 +55,7 @@ export class StoreEntity {
 	@Column({ type: "varchar", length: 120 })
 	name!: string; // e.g., "My EasyOrder Store", "Shopify Main Store"
 
-	@Column({ type: "varchar", unique: true })
+	@Column({ type: "varchar" })
 	storeUrl!: string;
 
 	@Column({
@@ -77,6 +77,12 @@ export class StoreEntity {
 	@Column({ type: "boolean", default: true })
 	isActive!: boolean;
 
+	@Column({ type: "boolean", default: false })
+	isIntegrated!: boolean;
+
+	@Column({ type: "boolean", default: true })
+	syncNewProducts!: boolean;
+
 	@Column({
 		type: "enum",
 		enum: SyncStatus,
@@ -86,6 +92,9 @@ export class StoreEntity {
 
 	@Column({ type: "timestamptz", nullable: true })
 	lastSyncAttemptAt?: Date;
+
+	@Column({ type: "varchar", nullable: true })
+	externalStoreId?: string;
 
 	@Column({ type: "varchar", nullable: true })
 	onlineStorePublicationId?: string;

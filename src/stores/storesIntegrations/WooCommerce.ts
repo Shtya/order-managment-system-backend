@@ -20,6 +20,9 @@ import { AppGateway } from "common/app.gateway";
 
 @Injectable()
 export class WooCommerceService extends BaseStoreProvider implements IBundleSyncProvider {
+    public cancelIntegration(adminId: string): Promise<boolean> {
+        throw new Error("Method not implemented.");
+    }
 
     maxBundleItems?: number;
     supportBundle: boolean = true;
@@ -1075,7 +1078,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         while (hasMore) {
             // 1. Fetch local batch using cursor pagination
             const localBatch = await this.categoryRepo.find({
-                where: { adminId: store.adminId, id: MoreThan(lastId) },
+                where: { adminId: store.adminId, ...(lastId ? { id: MoreThan(lastId) } : {}) },
                 order: { id: 'ASC' } as any,
                 take: 30 // Smaller batch size recommended for individual API calls
             });
@@ -1140,7 +1143,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         while (hasMore) {
             // 1. Fetch local batch using cursor pagination
             const localBatch = await this.productsRepo.find({
-                where: { storeId: store.id, adminId: store.adminId, id: MoreThan(lastId) },
+                where: { storeId: store.id, adminId: store.adminId, ...(lastId ? { id: MoreThan(lastId) } : {}) },
                 relations: ['variants', 'category'], // Load category to get the local ID for mapping
                 order: { id: 'ASC' } as any,
                 take: 20 // Smaller batch size because products have variants and images
@@ -1298,7 +1301,11 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         const type = headers['x-wc-webhook-topic'];
         const savedSecret = type === 'order.update' ? store?.credentials?.webhookUpdateStatusSecret : type === 'order.created' ? store?.credentials?.webhookCreateOrderSecret : null;
 
-        if (!signature || !savedSecret) return false;
+        if (!savedSecret) {
+            return true;
+        }
+
+        if (!signature) return false;
 
         // body must be the raw string for the HMAC to match
         const rawBody = req.rawBody;

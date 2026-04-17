@@ -823,9 +823,16 @@ export class ProductsService {
       const whRepo = mgr.getRepository(WarehouseEntity);
       const pvRepo = mgr.getRepository(ProductVariantEntity);
 
-      const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
-      const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
-      const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
+
+      if (dto.categoryId && dto.categoryId !== 'none') {
+        const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
+      }
+      if (dto.storeId && dto.storeId !== 'none') {
+        const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+      }
+      if (dto.warehouseId && dto.warehouseId !== 'none') {
+        const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
+      }
 
       const existingSlug = await prodRepo.findOne({
         where: {
@@ -836,15 +843,10 @@ export class ProductsService {
       });
 
       if (existingSlug) {
-        if (store?.name) {
-          throw new BadRequestException(
-            `This slug "${dto.slug}" is already in use for store "${store.name}".`
-          );
-        } else {
-          throw new BadRequestException(
-            `This slug "${dto.slug}" is already in use.`
-          );
-        }
+        throw new BadRequestException(
+          `This slug "${dto.slug}" is already in use.`
+        );
+
       }
 
       const p = prodRepo.create({
@@ -857,12 +859,9 @@ export class ProductsService {
         salePrice: dto.salePrice ?? null,
         storageRack: dto.storageRack ?? null,
 
-        categoryId: dto.categoryId ?? null,
-        category: category ?? null,
-        storeId: dto.storeId ?? null,
-        store: store ?? null,
-        warehouseId: dto.warehouseId ?? null,
-        warehouse: warehouse ?? null,
+        categoryId: dto.categoryId !== undefined && dto.categoryId !== 'none' ? dto.categoryId ?? null : null,
+        storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? dto.storeId ?? null : null,
+        warehouseId: dto.warehouseId !== undefined && dto.warehouseId !== 'none' ? dto.warehouseId ?? null : null,
 
         description: dto.description ?? null,
         callCenterProductDescription: dto.callCenterProductDescription ?? null,
@@ -1106,7 +1105,7 @@ export class ProductsService {
           where: {
             adminId,
             slug: cleanSlug,
-            storeId: dto.storeId !== undefined ? (dto.storeId ?? null) : p.storeId,
+            storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? (dto.storeId ?? null) : p.storeId,
             id: Not(id)
           }
         });
@@ -1186,22 +1185,31 @@ export class ProductsService {
       delete (dto as any).imagesOrphanIds;
 
       // --- 2. Handle Base Relations & Fields ---
-      if (dto.categoryId !== undefined) {
+      if (dto.categoryId !== undefined && dto.categoryId !== 'none') {
         const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
         (p as any).categoryId = dto.categoryId ?? null;
         (p as any).category = category ?? null;
+      } else if (dto.categoryId === 'none') {
+        (p as any).categoryId = null;
+        (p as any).category = null;
       }
 
-      if (dto.storeId !== undefined) {
+      if (dto.storeId !== undefined && dto.storeId !== 'none') {
         const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
         (p as any).storeId = dto.storeId ?? null;
         (p as any).store = store ?? null;
+      } else if (dto.storeId === 'none') {
+        (p as any).storeId = null;
+        (p as any).store = null;
       }
 
-      if (dto.warehouseId !== undefined) {
+      if (dto.warehouseId !== undefined && dto.warehouseId !== 'none') {
         const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
         (p as any).warehouseId = dto.warehouseId ?? null;
         (p as any).warehouse = warehouse ?? null;
+      } else if (dto.warehouseId === 'none') {
+        (p as any).warehouseId = null;
+        (p as any).warehouse = null;
       }
 
       const patch: any = { ...dto };

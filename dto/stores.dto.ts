@@ -49,7 +49,31 @@ export class CreateStoreDto {
   @IsOptional()
   isActive?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  syncNewProducts?: boolean;
 }
+
+export class IntegrateDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  @Transform(({ value }) => value?.trim())
+  name: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @Transform(({ value }) => value?.trim())
+  storeUrl: string;
+
+  @IsEnum(StoreProvider)
+  provider: StoreProvider;
+
+  @IsBoolean()
+  @IsOptional()
+  syncNewProducts?: boolean;
+}
+
 
 export class UpdateStoreDto {
   @IsString()
@@ -72,5 +96,20 @@ export class UpdateStoreDto {
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  syncNewProducts?: boolean;
 }
 
+
+
+export class EasyOrdersCredentialsDto {
+  @IsString()
+  @IsNotEmpty()
+  apiKey: string;
+
+  @IsString()
+  @IsNotEmpty()
+  storeId: string;
+}
