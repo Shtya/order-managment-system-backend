@@ -1,16 +1,16 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, In, Not, Repository } from "typeorm";
-import { OrderFailStatus, StoreEntity, StoreProvider, SyncStatus, WebhookOrderFailureEntity } from "entities/stores.entity";
+import { OrderFailStatus, StoreEntity, StoreProvider, SyncStatus, WebhookOrderFailureEntity, WebhookOrderProblem } from "entities/stores.entity";
 import { CreateStoreDto, EasyOrdersCredentialsDto, IntegrateDto, UpdateStoreDto } from "dto/stores.dto";
 import { tenantId } from "src/category/category.service";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
-import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
 import { OrderEntity } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
 import { StoreQueueService } from "./storesIntegrations/queues";
-import { BaseStoreProvider, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
+import { BaseStoreProvider, MappedProductDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import { WooCommerceService } from "./storesIntegrations/WooCommerce";
@@ -22,6 +22,8 @@ import * as crypto from "crypto";
 import * as ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
+import { NotificationService } from "src/notifications/notification.service";
+import { getErrorMessage } from "common/healpers";
 
 @Injectable()
 export class StoresService {
@@ -33,6 +35,7 @@ export class StoresService {
     protected readonly redisService: RedisService,
     protected readonly storeQueueService: StoreQueueService,
     private readonly appGateway: AppGateway,
+    private readonly notificationService: NotificationService,
     private readonly shopifyService: ShopifyService,
     private readonly easyOrderService: EasyOrderService,
     private readonly woocommerceService: WooCommerceService,
@@ -540,7 +543,7 @@ export class StoresService {
     );
   }
 
-  async syncProductToStore(product: ProductEntity, slug?: string) {
+  async syncProductToStore(product: ProductEntity, slug?: string, auto?: boolean) {
     const { storeId, adminId, name, id } = product;
     if (!storeId) return;
 
@@ -553,6 +556,12 @@ export class StoresService {
       this.logger.warn(`[Product Sync] No active store found (ID: ${storeId}) for Product: "${name}". Skipping.`);
       return;
     }
+
+    if (!store.syncNewProducts && auto) {
+      this.logger.warn(`[Product Sync] Store ${storeId} is not set to sync new products. Skipping.`);
+      return;
+    }
+
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider, slug);
     this.logger.log(
@@ -560,7 +569,6 @@ export class StoresService {
       `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. ` +
       `${slug ? `(Slug update detected from: ${slug})` : ''}`
     );
-
   }
 
   async syncBundleToStore(bundle: BundleEntity) {
@@ -637,6 +645,7 @@ export class StoresService {
     adminId: string,
     store: StoreEntity,
     rawPayload: any,
+    payload: WebhookOrderPayload,
     reason?: string,
     externalOrderId?: string,
     customerName?: string,
@@ -660,7 +669,7 @@ export class StoresService {
     const record = this.failureRepo.create({
       adminId,
       storeId: store?.id,
-      payload: rawPayload,
+      rawPayload: rawPayload,
       reason,
       externalOrderId,
       customerName,
@@ -687,10 +696,10 @@ export class StoresService {
         return this.dataSource.transaction(work);
       };
 
-      return runInTransaction(async (manager) => {
-        const p = this.getProvider(store?.provider);
+      return await runInTransaction(async (manager) => {
         const existingOrder = await this.ordersService.findByExternalId(payload.externalId);
         if (existingOrder) {
+          //notification here
           return { ok: true, ignored: true, reason: 'order_exists' };
         }
 
@@ -710,20 +719,12 @@ export class StoresService {
             const reason = `Missing product for slug ${item.product_slug}`;
             throw new BadRequestException(reason);
           }
-
           let matchedVariant = null;
-          if (item.variant && item.variant.variation_props && item.variant.variation_props.length > 0) {
-            const payloadAttrs: Record<string, string> = {};
-
-            // [2025-12-24] Remember to trim values for accurate key matching
-            item.variant.variation_props.forEach(prop => {
-              const key = prop.name.trim();
-              const val = prop.value.trim();
-              payloadAttrs[key] = val;
-            });
-
-            const payloadKey = this.productsService.canonicalKey(payloadAttrs);
-            matchedVariant = localProduct.variants.find(v => v.key === payloadKey);
+          if (localProduct.type === ProductType.SINGLE) {
+            matchedVariant = localProduct.variants?.[0];
+          } else if (item.variant && item.variant.variation_props && item.variant.variation_props.length > 0) {
+            const key = item.variant.key;
+            matchedVariant = localProduct.variants.find(v => v.key === key);
           }
 
           if (!matchedVariant) {
@@ -751,7 +752,7 @@ export class StoresService {
           shippingCompanyId: null,
           discount: 0,
           items: items,
-          notes: `Imported from ${p.displayName}) via Webhook`,
+          // notes: `Imported from ${p.displayName}) via Webhook`,
           storeId: String(store.id),
         };
 
@@ -761,15 +762,15 @@ export class StoresService {
         await this.ordersService.updateExternalId(newOrder.id, payload.externalId);
         await manager.update(OrderEntity, newOrder.id, { externalId: payload.externalId });
 
-
         this.logger.log(`[Webhook Order Create] Created new order from webhook with External ID ${payload.externalId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`);
         return { ok: true, orderId: newOrder.id };
       });
     } catch (error: any) {
-      this.logger.error(`[Webhook Order Create] Error processing webhook order: ${error.message}`, error.stack);
+      const errorMessage = getErrorMessage(error);
+      this.logger.error(`[Webhook Order Create] Error processing webhook order: ${errorMessage}`, error.stack);
       if (failureLog) {
         failureLog.status = OrderFailStatus.FAILED;
-        failureLog.reason = error.message;
+        failureLog.lastRetryFailedReason = errorMessage;
         await this.failureRepo.save(failureLog);
       } else {
         const externalId = payload?.externalId || 'UNKNOWN';
@@ -778,7 +779,8 @@ export class StoresService {
           adminId,
           store,
           rawBody,
-          `${error.message}`,
+          payload,
+          `${errorMessage}`,
           externalId,
           customerName,
           payload?.phone
@@ -791,6 +793,7 @@ export class StoresService {
   async handleWebhookOrderCreate(provider: string, body: any, headers: Record<string, any>, adminId: string, req: any) {
     this.logger.log(`[Webhook Order Create] Received webhook order create for provider=${provider}`);
     const p = this.getProvider(provider);
+    //notification here
     const store = await this.storesRepo.findOne({ where: { provider: p.code, adminId } });
     if (!store) {
       return { ok: true, ignored: true, reason: 'store_not_found' };
@@ -894,6 +897,14 @@ export class StoresService {
       createdAt: "failure.created_at",
     };
 
+    if (q?.search) {
+      const searchTerm = `%${q.search}%`;
+      qb.andWhere(
+        "(failure.customerName ILIKE :searchTerm OR failure.phoneNumber ILIKE :searchTerm OR failure.externalOrderId ILIKE :searchTerm)",
+        { searchTerm }
+      );
+    }
+
     // Filters
     if (q?.storeId) qb.andWhere("failure.storeId = :storeId", { storeId: q.storeId });
 
@@ -921,6 +932,91 @@ export class StoresService {
       records,
     };
   }
+
+
+  async getFailedOrderDetail(me: any, id: string) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const failure = await this.failureRepo.findOne({
+      where: { id, adminId },
+      relations: ['store'],
+    });
+
+    if (!failure) {
+      throw new NotFoundException("Failed order retry details not found");
+    }
+
+    const payload = failure.payload;
+    const problems = [];
+
+    if (payload && payload.cart_items) {
+      const slugs = payload.cart_items.map(item => item.product_slug);
+      const localProducts = await this.productsRepo.find({
+        where: { adminId, slug: In(slugs) },
+        relations: ['variants'],
+      });
+
+      const productMap = new Map(localProducts.map(p => [p.slug, p]));
+
+      for (const item of payload.cart_items) {
+        const localProduct = productMap.get(item.product_slug);
+
+        if (!localProduct) {
+          problems.push({
+            slug: item.product_slug,
+            name: item.name,
+            code: WebhookOrderProblem.PRODUCT_NOT_FOUND,
+            problem: `Product "${item.product_slug}" was not found`,
+            details: `Slug "${item.product_slug}" does not exist in your local products.`,
+          });
+          continue;
+        }
+
+        // Add local product ID to the item's variant for the UI/frontend
+        if (!item.variant) item.variant = {};
+        (item.variant as any).localProductId = localProduct.id;
+
+        let matchedVariant = null;
+        if (localProduct.type === ProductType.SINGLE) {
+          matchedVariant = localProduct.variants?.[0];
+        } else if (item.variant && item.variant.key) {
+          matchedVariant = localProduct.variants.find(v => v.key === item.variant.key);
+        }
+
+        if (!matchedVariant) {
+          problems.push({
+            slug: item.product_slug,
+            name: item.name,
+            code: WebhookOrderProblem.SKU_NOT_FOUND,
+            problem: `Variant with key "${item.variant?.key}" product "${item.product_slug}" was not found`,
+            details: localProduct.type === ProductType.SINGLE
+              ? "Product is set as single but has no SKU/variant."
+              : `Variant was not found.`
+          });
+          continue;
+        }
+
+        const availableStock = matchedVariant.stockOnHand - matchedVariant.reserved;
+        if (availableStock < item.quantity) {
+          problems.push({
+            slug: item.product_slug,
+            name: item.name,
+            sku: matchedVariant.sku,
+            code: WebhookOrderProblem.INSUFFICIENT_STOCK,
+            problem: `Insufficient stock for variant "${item.variant?.key}" product "${item.product_slug}"`,
+            details: `Requested quantity is ${item.quantity}, but only ${availableStock} is available in stock.`
+          });
+        }
+      }
+    }
+
+    return {
+      failureLog: failure,
+      problems
+    };
+  }
+
   async getFailedOrdersStatistics(me: any) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
@@ -958,82 +1054,64 @@ export class StoresService {
 
 
     return await this.dataSource.transaction(async (manager) => {
-      const failureLog = await manager.findOne(WebhookOrderFailureEntity, {
-        where: { id: failureId, adminId },
-        relations: ['store'],
-      });
+      const { failureLog, problems } = await this.getFailedOrderDetail(me, failureId);
       try {
-
-
 
         if (!failureLog || !failureLog.store) {
           throw new NotFoundException("Failure log or associated store not found");
+        }
+        if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
+          throw new BadRequestException(`Store ${failureLog.store.id} is inactive or missing integration`);
         }
 
         if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
           throw new BadRequestException(`Cannot retry. Current status is: ${failureLog.status}`);
         }
 
+        if (problems.length > 0) {
+          const displayed = problems.slice(0, 2).map((p) => p.problem).join(", ");
+          const moreCount = problems.length - 2;
+          const suffix = moreCount > 0 ? ` +${moreCount}...` : "";
+
+          throw new BadRequestException(`Cannot retry. Problems: ${displayed}${suffix}`);
+        }
+
         const store = failureLog.store;
 
-        // 🔔 Emit retry started
-        this.appGateway.emitWebhookRetryStatus(String(adminId), {
-          failureId,
-          status: OrderFailStatus.RETRYING,
-          message: "Retry started",
-        });
-
-        const p = this.getProvider(store.provider);
-        const payload = await p.mapWebhookCreate(failureLog.payload, store);
+        const payload = failureLog.payload;
 
         failureLog.status = OrderFailStatus.RETRYING;
         failureLog.attempts += 1;
         await manager.save(failureLog);
 
-        const slugsToSync = payload.cart_items.map(item => item.product_slug);
-        await p.syncProductsFromProvider(store, slugsToSync, manager);
+        // const slugsToSync = payload.cart_items.map(item => item.product_slug);
+        // await p.syncProductsFromProvider(store, slugsToSync, manager);
 
         const result = await this.processMappedWebhookOrder(
           adminId,
           store,
           payload,
-          failureLog.payload,
+          failureLog.rawPayload,
           failureLog,
           manager
         );
 
         if (!result.ok) {
-
           // 🔴 Emit failed again
-          this.appGateway.emitWebhookRetryStatus(String(adminId), {
-            failureId,
-            status: OrderFailStatus.FAILED,
-            attempts: failureLog.attempts,
-            message: result.reason,
-          });
-
           throw new BadRequestException(`Retry failed again: ${result.reason}`);
         } else {
           failureLog.status = OrderFailStatus.SUCCESS;
           await manager.save(failureLog);
         }
 
-        // 🟢 Emit success
-        this.appGateway.emitWebhookRetryStatus(String(adminId), {
-          failureId,
-          status: OrderFailStatus.SUCCESS,
-          orderId: result.orderId || null,
-          attempts: failureLog.attempts,
-          message: "Order successfully retried",
-        });
-
         return {
           message: "Order successfully retried and created",
           orderId: result.orderId || null,
         };
       } catch (error: any) {
+        const errorMessage = getErrorMessage(error);
         failureLog.status = OrderFailStatus.FAILED;
-        failureLog.reason = error.message || "Unknown error";
+        failureLog.reason = errorMessage;
         await manager.save(failureLog);
         throw error;
       }
@@ -1049,6 +1127,14 @@ export class StoresService {
       .createQueryBuilder("failure")
       .where("failure.adminId = :adminId", { adminId })
       .leftJoinAndSelect("failure.store", "store");
+
+    if (q?.search) {
+      const searchTerm = `%${q.search}%`;
+      qb.andWhere(
+        "(failure.customerName ILIKE :searchTerm OR failure.phoneNumber ILIKE :searchTerm OR failure.externalOrderId ILIKE :searchTerm)",
+        { searchTerm }
+      );
+    }
 
     // Filters
     if (q?.storeId) {
@@ -1111,16 +1197,25 @@ export class StoresService {
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     // Fetch the failure log to get the store provider
-    const failureLog = await this.failureRepo.findOne({
-      where: { id: failureId, adminId },
-      relations: ['store'],
-    });
+    const { failureLog, problems } = await this.getFailedOrderDetail(me, failureId);
 
     if (!failureLog || !failureLog.store) {
       throw new NotFoundException("Failure log or associated store not found");
     }
+
     if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
       throw new BadRequestException(`Cannot retry. Current status is: ${failureLog.status}`);
+    }
+    if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
+      throw new BadRequestException(`Store ${failureLog.store.id} is inactive or missing integration`);
+    }
+
+    if (problems.length > 0) {
+      const displayed = problems.slice(0, 2).map((p) => p.problem).join(", ");
+      const moreCount = problems.length - 2;
+      const suffix = moreCount > 0 ? ` +${moreCount}...` : "";
+
+      throw new BadRequestException(`Cannot retry. Problems: ${displayed}${suffix}`);
     }
 
     // Enqueue the retry job
@@ -1277,6 +1372,44 @@ export class StoresService {
     store.externalStoreId = credentials.storeId;
 
     return await this.storesRepo.save(store);
-
   }
+
+  public async getFullProductBySlug(userContext: any, provider: StoreProvider, slug: string): Promise<MappedProductDto> {
+    const adminId = tenantId(userContext);
+    const store = await this.storesRepo.findOne({
+      where: { adminId, provider }
+    });
+    if (!store) {
+      throw new BadRequestException(`Store not found for adminId: ${adminId}, provider: ${provider}`);
+    }
+
+    if (!store.isIntegrated) {
+      throw new BadRequestException("Store not integrated");
+    }
+    if (!store.isActive) {
+      throw new BadRequestException("Store not active");
+    }
+
+    const p = this.getProvider(provider)
+
+    try {
+      const product = await p.getFullProductBySlug(store, slug);
+      if (!product) {
+        throw new BadRequestException("Product not found");
+      }
+      return product;
+    } catch (error: any) {
+      if (error instanceof BadRequestException) throw error;
+
+      const message = error.response?.data?.message || error.message;
+      const status = error.response?.status;
+
+      if (status === 429) {
+        throw new BadRequestException(`Rate limit hit for ${provider}. Please wait and try again.`);
+      }
+
+      throw new BadRequestException(`Failed to fetch product from ${provider}: ${message}`);
+    }
+  }
+
 }

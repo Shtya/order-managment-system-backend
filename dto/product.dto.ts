@@ -100,8 +100,8 @@ export class CreateProductDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(300)
-  @Matches(/^[a-z0-9-]+$/, {
-    message: 'The slug must contain only lowercase English letters, numbers, and dashes (e.g., product-name-101)',
+  @Matches(/^[a-z0-9-_]+$/, {
+    message: 'The slug must contain only lowercase English letters, numbers, underscores, and dashes (e.g., product-name-101)',
   })
   slug!: string;
 

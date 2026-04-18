@@ -2002,7 +2002,7 @@ export class OrdersService {
 
     // Get variants
     const variantIds = dto.items.map((it) => it.variantId);
-    const variants = await manager.createQueryBuilder(ProductVariantEntity, "variant")
+    const variants = variantIds.length === 0 ? [] : await manager.createQueryBuilder(ProductVariantEntity, "variant")
       .leftJoin("variant.product", "product")
       .addSelect([
         "variant",

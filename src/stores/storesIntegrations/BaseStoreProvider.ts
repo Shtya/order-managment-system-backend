@@ -14,6 +14,37 @@ import { BundleEntity } from "entities/bundle.entity";
 export interface IBundleSyncProvider {
     syncBundle(bundle: BundleEntity): Promise<void>;
 }
+export interface MappedProductDto {
+    name: string;
+    price: number;
+    expense?: number;
+    description?: string;
+    slug: string;
+    sku: string;
+    thumb: string;
+    images: string[];
+    categories: { id: string; name?: string }[];
+    quantity: number;
+    variations?: {
+        id: string;
+        name: string;
+        props: {
+            id: string;
+            name: string;
+            value: string;
+        }[];
+    }[];
+    variants: {
+        price: number;
+        expense?: number;
+        quantity: number;
+        sku: string;
+        variation_props: {
+            variation: string;
+            variation_prop: string;
+        }[];
+    }[];
+}
 
 
 export interface WebhookOrderPayload {
@@ -26,10 +57,12 @@ export interface WebhookOrderPayload {
     status: PaymentStatus;
     shipping_cost?: number;
     cart_items: {
+        name: string,
         product_slug: string;
         quantity: number;
         price: number;
         variant?: {
+            key?: string;
             variation_props?: { name: string; value: string }[];
         };
     }[];
@@ -185,7 +218,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
      * - `fn` should perform the actual network call and throw on errors.
      * - `backoffBase` in ms (used to multiply attempt index)
      */
-    protected async executeWithLimiter(adminId: string, fn: () => Promise<any>, attempt = 0, backoffBase = 10000, context?: string): Promise<any> {
+    protected async executeWithLimiter(adminId: string, fn: () => Promise<any>, attempt = 0, backoffBase = 10000, context?: string, retry = true): Promise<any> {
         const cleanAdminId = String(adminId || 'global');
         const limiter = this.getLimiter(cleanAdminId);
 
@@ -193,7 +226,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
             return await limiter.schedule(async () => {
                 return await fn();
             });
-        } catch (error) {
+        } catch (error: any) {
             const status = error.response?.status;
             const code = error.code || error.cause?.code; // Catch system errors like ETIMEDOUT
 
@@ -201,7 +234,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
             const isRateLimit = status === 429;
             const isNetworkError = ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EAI_AGAIN'].includes(code);
             // Handle throttling centrally
-            if ((isRateLimit || isNetworkError) && attempt < 5) {
+            if (retry && (isRateLimit || isNetworkError) && attempt < 5) {
                 const waitTime = (attempt + 1) * backoffBase;
 
                 // Stop all other outgoing requests for this admin immediately
@@ -210,7 +243,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
                     if (currentRes > 0) {
                         await limiter.incrementReservoir(-currentRes);
                     }
-                } catch (e) {
+                } catch (e: any) {
                     this.logger.debug(`Failed to clear reservoir for ${cleanAdminId}: ${e?.message}`);
                 }
                 const errorType = isRateLimit ? 'Rate Limit (429)' : `Network Error (${code || 'ETIMEDOUT'})`;
@@ -231,7 +264,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
                 // Refill only 1 slot to allow the retry attempt to proceed
                 try {
                     await limiter.incrementReservoir(1);
-                } catch (e) {
+                } catch (e: any) {
                     this.logger.debug(`Failed to increment reservoir for ${cleanAdminId}: ${e?.message}`);
                 }
 
@@ -246,7 +279,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     /**
      * Reusable axios call that leverages the centralized limiter/retry logic.
      */
-    protected async sendRequest(store: StoreEntity, config: AxiosRequestConfig, attempt = 0): Promise<any> {
+    protected async sendRequest(store: StoreEntity, config: AxiosRequestConfig, attempt = 0, retry = true): Promise<any> {
         const cleanAdminId = String(store?.adminId || 'global');
         const method = (config.method || 'GET').toUpperCase();
         const url = config.url || config.baseURL || '';
@@ -259,7 +292,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
 
             const response = await this.axiosInstance.request({ ...config });
             return response.data;
-        }, attempt, 10000, `${method} ${url}`);
+        }, attempt, 10000, `${method} ${url}`, retry);
     }
 
     getImageUrl = (url) => {
@@ -300,7 +333,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
 
             this.logger.log(`[Recovery] ✓ Successfully recovered ${stuckStores.length} stuck store(s)`);
             return stuckStores.length;
-        } catch (error) {
+        } catch (error: any) {
             this.logger.error(`[Recovery] ✗ Failed to recover stuck syncs: ${error.message}`);
             return 0;
         }
@@ -313,6 +346,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract syncProduct({ productId, slug }: { productId: string, slug?: string }): Promise<any>;
     public abstract syncOrderStatus(order: OrderEntity)
     public abstract syncFullStore(store: StoreEntity)
+    public abstract getFullProductBySlug(store: StoreEntity, slug: string): Promise<MappedProductDto>;
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
     public abstract mapWebhookUpdate(body: any): WebhookOrderUpdatePayload;
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;

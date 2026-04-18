@@ -30,7 +30,7 @@ export class ProductSubscriber implements EntitySubscriberInterface<ProductEntit
     async afterInsert(event: InsertEvent<ProductEntity>) {
         // Only sync if assigned to a specific store
         if (event.entity.storeId) {
-            await this.storesService.syncProductToStore(event.entity);
+            await this.storesService.syncProductToStore(event.entity, null, true);
         }
     }
 
@@ -38,7 +38,7 @@ export class ProductSubscriber implements EntitySubscriberInterface<ProductEntit
         const entity = event.entity as ProductEntity;
         if (!entity.isActive) return;
         if (entity.storeId) {
-            await this.storesService.syncProductToStore(entity, event.databaseEntity?.slug);
+            await this.storesService.syncProductToStore(entity, event.databaseEntity?.slug, true);
         }
     }
 

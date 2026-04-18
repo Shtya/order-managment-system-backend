@@ -1,7 +1,7 @@
 import { Injectable, InternalServerErrorException, forwardRef, Inject, NotFoundException, UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
 import axios, { AxiosRequestConfig } from "axios";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto } from "./BaseStoreProvider";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, MappedProductDto } from "./BaseStoreProvider";
 import { CategoryEntity } from "entities/categories.entity";
 import { InjectRepository } from "@nestjs/typeorm";
 import { StoresService } from "../stores.service";
@@ -17,8 +17,10 @@ import { CategoriesService } from "src/category/category.service";
 import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
 import { AppGateway } from "common/app.gateway";
 
+
 @Injectable()
 export class EasyOrderService extends BaseStoreProvider {
+
 
     maxBundleItems?: number;
 
@@ -81,14 +83,15 @@ export class EasyOrderService extends BaseStoreProvider {
     protected async sendRequest(
         store: StoreEntity,
         config: AxiosRequestConfig,
-        attempt = 0
+        attempt = 0,
+        retry = true
     ): Promise<any> {
         const headers = await this.getHeaders(store); // ✅ await here
         const baseConfig: AxiosRequestConfig = {
             ...config,
             headers: { ...headers, ...config.headers },
         };
-        return await super.sendRequest(store, baseConfig, attempt); // ✅ return + await
+        return await super.sendRequest(store, baseConfig, attempt, retry); // ✅ return + await
     }
 
 
@@ -510,7 +513,7 @@ export class EasyOrderService extends BaseStoreProvider {
      * - notnull (Is Not Null)         ['description||notnull']
      * * Example: getAllProducts(store, ['parent_id||isnull', 'hidden||eq||false'])
      */
-    private async getAllProducts(store: StoreEntity, filters: string[] = []) {
+    private async getAllProducts(store: StoreEntity, filters: string[] = [], retry = true) {
         const filterStr = filters.length > 0 ? ` with filters: [${filters.join(', ')}]` : '';
 
         const response = await this.sendRequest(store, {
@@ -524,7 +527,7 @@ export class EasyOrderService extends BaseStoreProvider {
             paramsSerializer: {
                 indexes: null // removes the brackets [] from the query key
             }
-        });
+        }, 0, retry);
         return response;
 
     }
@@ -872,11 +875,11 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Reusable helper to fetch a single remote product from Easy Order using filters.
      */
-    private async fetchRemoteProductBySlug(store: StoreEntity, slug: string): Promise<any | null> {
+    private async fetchRemoteProductBySlug(store: StoreEntity, slug: string, retry = true): Promise<any | null> {
         const cleanSlug = slug?.trim();
         const searchFilters = [`slug||eq||${cleanSlug}`];
 
-        const existingProducts = await this.getAllProducts(store, searchFilters);
+        const existingProducts = await this.getAllProducts(store, searchFilters, retry);
         return existingProducts?.length > 0 ? existingProducts[0] : null;
     }
 
@@ -1056,18 +1059,30 @@ export class EasyOrderService extends BaseStoreProvider {
             status: body.status === 'paid' ? PaymentStatus.PAID : PaymentStatus.PENDING,
             shipping_cost: body.shipping_cost || 0,
 
-            cart_items: (body.cart_items || []).map((item: any) => ({
-                product_slug: String(item.product?.slug),
-                quantity: Number(item.quantity),
-                price: Number(item.price),
-                variant: item.variant ? {
-                    variation_props: (item.variant.variation_props || []).map((p: any) => ({
-                        // Mapping legacy "variation/variation_prop" to new "name/value"
-                        name: p.variation,
-                        value: p.variation_prop
-                    }))
-                } : undefined
-            }))
+            cart_items: (body.cart_items || []).map((item: any) => {
+                const variationProps = (item.variant?.variation_props || []).map((p: any) => ({
+                    name: p.variation?.trim(),
+                    value: String(p.variation_prop)?.trim()
+                }));
+
+                const payloadAttrs: Record<string, string> = {};
+                variationProps.forEach(prop => {
+                    payloadAttrs[prop.name] = prop.value;
+                });
+
+                const key = this.productsService.canonicalKey(payloadAttrs);
+
+                return {
+                    name: String(item.product?.name || item.product?.title),
+                    product_slug: String(item.product?.slug),
+                    quantity: Number(item.quantity),
+                    price: Number(item.price),
+                    variant: item.variant ? {
+                        key,
+                        variation_props: variationProps
+                    } : undefined
+                };
+            })
         };
     }
 
@@ -1168,6 +1183,67 @@ export class EasyOrderService extends BaseStoreProvider {
             this.logger.error(`Failed to cancel Easy Orders integration: ${error.message}`);
             return false;
         }
+    }
+
+    public async getFullProductBySlug(store: StoreEntity, slug: string): Promise<MappedProductDto> {
+        try {
+            const product = await this.fetchRemoteProductBySlug(store, slug, false);
+            if (!product) {
+                return null;
+            }
+            const id = product?.id;
+
+            const response = await this.sendRequest(store, {
+                method: 'GET',
+                url: `/products/${id}`,
+            }, 0, false);
+
+            return this.mapRemoteProductToDto(response);
+        } catch (error: any) {
+            this.logger.error(`[Product] Failed to fetch product by slug ${slug}: ${error.message}`);
+            throw error;
+        }
+    }
+
+    private mapRemoteProductToDto(remote: any): MappedProductDto {
+        const variants = (remote.variants || []).map((v: any) => ({
+            price: Number(v.price) || 0,
+            expense: Number(v.expense) || 0,
+            quantity: Number(v.quantity) || 0,
+            sku: String(v.taager_code || v.sku || ""),
+            variation_props: (v.variation_props || []).map((p: any) => ({
+                variation: p.variation?.trim(),
+                variation_prop: String(p.variation_prop)?.trim(),
+            })),
+        }));
+
+        const variations = (remote.variations || []).map((v: any) => ({
+            id: v.id,
+            name: v.name?.trim(),
+            props: (v.props || []).map((p: any) => ({
+                id: p.id,
+                name: p.name?.trim(),
+                value: p.value?.trim(),
+            })),
+        }));
+
+        return {
+            name: remote.name?.trim(),
+            price: Number(remote.price) || 0,
+            expense: Number(remote.expense) || 0,
+            description: remote.description || "",
+            slug: remote.slug,
+            sku: remote.sku || "",
+            thumb: remote.thumb || "",
+            images: remote.images || [],
+            categories: (remote.categories || []).map((c: any) => ({
+                id: String(c.id),
+                name: c.name,
+            })),
+            quantity: Number(remote.quantity) || 0,
+            variations,
+            variants,
+        };
     }
 }
 

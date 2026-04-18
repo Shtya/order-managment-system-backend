@@ -7,6 +7,7 @@ import { SubscriptionGuard } from "common/subscription.guard";
 import { StoresService } from "./stores.service";
 import { CreateStoreDto, IntegrateDto, UpdateStoreDto } from "dto/stores.dto";
 import { Response } from "express";
+import { StoreProvider } from "entities/stores.entity";
 
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
@@ -42,7 +43,7 @@ export class StoresController {
     @Req() req: any,
     @Param("id") id: string,
   ) {
-    return this.storesService.queueRetryFailedOrder(req.user, id);
+    return this.storesService.retryFailedOrder(req.user, id);
   }
 
   // Failed orders statistics
@@ -87,6 +88,13 @@ export class StoresController {
   @Get("integrations")
   async integrations(@Req() req: any) {
     return this.storesService.listWithCredentials(req.user);
+  }
+
+  // get external product by slug
+  @Permissions("stores.read")
+  @Get("external/:provider/:slug")
+  async getExternalProductBySlug(@Req() req: any, @Param("provider") provider: StoreProvider, @Param("slug") slug: string) {
+    return this.storesService.getFullProductBySlug(req.user, provider, slug);
   }
 
   @Permissions("stores.read")
@@ -139,4 +147,10 @@ export class StoresController {
   }
 
 
+  // Get failed order details with diagnostics
+  @Permissions("stores.read")
+  @Get("failed-orders/:id")
+  async getFailedOrderDetail(@Req() req: any, @Param("id") id: string) {
+    return this.storesService.getFailedOrderDetail(req.user, id);
+  }
 }
