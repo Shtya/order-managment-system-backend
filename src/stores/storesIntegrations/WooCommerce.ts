@@ -1,5 +1,5 @@
 import { forwardRef, Inject, Injectable, InternalServerErrorException } from "@nestjs/common";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider } from "./BaseStoreProvider";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider, MappedProductDto } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
@@ -20,6 +20,9 @@ import { AppGateway } from "common/app.gateway";
 
 @Injectable()
 export class WooCommerceService extends BaseStoreProvider implements IBundleSyncProvider {
+    public getFullProductBySlug(store: StoreEntity, slug: string): Promise<MappedProductDto> {
+        throw new Error("Method not implemented.");
+    }
     public cancelIntegration(adminId: string): Promise<boolean> {
         throw new Error("Method not implemented.");
     }
@@ -99,7 +102,8 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
     protected async sendRequest(
         store: StoreEntity,
         config: AxiosRequestConfig,
-        attempt = 0
+        attempt = 0,
+        retry = true
     ): Promise<any> {
         // read decrypted keys (clientKey, clientSecret, baseUrl)
         const keys = await this.getAuthParams(store); // reuses getAuthParams from earlier
@@ -125,7 +129,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         };
 
         // call parent implementation (keeps your existing behavior: logging, retries, etc.)
-        return await super.sendRequest(store, baseConfig, attempt);
+        return await super.sendRequest(store, baseConfig, attempt, retry);
     }
     private async getStoreForSync(adminId: string): Promise<StoreEntity | null> {
         const cleanAdminId = adminId?.trim?.() ?? adminId;
@@ -1355,18 +1359,20 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
             cart_items: lineItems.map((item: any) => {
                 const productId = String(item.product_id);
                 const realSlug = idToSlugMap.get(productId) || productId;
-
+                const props =  (item.meta_data || [])
+                                .filter((meta: any) => meta.key.startsWith('pa_'))
+                                .reduce((acc: Record<string, string>, meta: any) => ({
+                                    ...acc,
+                                    [meta.key.replace('pa_', '')]: meta.value
+                                }), {})
                 return {
+                    name: String(item.product?.name || item.product?.title),
                     product_slug: realSlug,
                     quantity: item.quantity,
                     price: Number(item.price),
                     variant: item.variation_id ? {
-                        variation_props: (item.meta_data || [])
-                            .filter((meta: any) => meta.key.startsWith('pa_'))
-                            .map((meta: any) => ({
-                                name: meta.key.replace('pa_', ''),
-                                value: meta.value
-                            }))
+                        key: this.productsService.canonicalKey(props),
+                        variation_props: props
                     } : undefined
                 };
             })

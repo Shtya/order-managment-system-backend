@@ -14,6 +14,7 @@ import {
 	UpdateDateColumn,
 } from "typeorm";
 import { User } from "./user.entity";
+import { WebhookOrderPayload } from "src/stores/storesIntegrations/BaseStoreProvider";
 
 export enum StoreProvider {
 	EASYORDER = 'easyorder',
@@ -142,8 +143,17 @@ export class StoreEventEntity {
 	created_at: Date;
 }
 
+export enum WebhookOrderProblem {
+	PRODUCT_NOT_FOUND = 'PRODUCT_NOT_FOUND',
+	SKU_NOT_FOUND = 'SKU_NOT_FOUND',
+	INSUFFICIENT_STOCK = 'INSUFFICIENT_STOCK',
+}
+
 @Entity({ name: "webhook_order_failures" })
-// @Index(["adminId", "storeId", "externalOrderId"], { unique: true })
+@Index(["adminId", "storeId", "externalOrderId"], {
+	unique: true,
+	where: '"externalOrderId" IS NOT NULL'
+})
 export class WebhookOrderFailureEntity {
 	@PrimaryGeneratedColumn('uuid')
 	id: string;
@@ -178,11 +188,17 @@ export class WebhookOrderFailureEntity {
 
 	// raw payload received from the provider (not transformed)
 	@Column({ type: "jsonb" })
-	payload: any;
+	rawPayload: any;
+
+	@Column({ type: "jsonb" })
+	payload: WebhookOrderPayload;
 
 	// optional reason/message for failure
 	@Column({ type: "text", nullable: true })
 	reason?: string;
+
+	@Column({ type: "text", nullable: true })
+	lastRetryFailedReason?: string;
 
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;

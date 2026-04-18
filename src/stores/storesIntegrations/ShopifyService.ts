@@ -3,7 +3,7 @@
  */
 
 import { forwardRef, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider } from "./BaseStoreProvider";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider, MappedProductDto } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
@@ -22,6 +22,7 @@ import { ApolloClient, InMemoryCache, HttpLink, gql, ObservableQuery } from '@ap
 import fetch from 'cross-fetch';
 import axios from "axios";
 import { AppGateway } from "common/app.gateway";
+
 
 @Injectable()
 export class ShopifyService extends BaseStoreProvider implements IBundleSyncProvider {
@@ -202,7 +203,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return `https://${shopHost}/admin/api/2026-01/graphql.json`;
     }
 
-    protected async runGraphQL(store: StoreEntity, isMutation = false, query: string, variables?: Record<string, any>, attempt = 0): Promise<any> {
+    protected async runGraphQL(store: StoreEntity, isMutation = false, query: string, variables?: Record<string, any>, attempt = 0, retry = true): Promise<any> {
         if (!store) throw new Error('Store is required for runGraphQL');
 
         const accessToken = await this.getAccessToken(store);
@@ -294,7 +295,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 this.logCtxError(`Apollo Request Failed: ${message}`, store);
                 throw error;
             }
-        }, attempt, 2000, 'Shopify GraphQL (Apollo)');
+        }, attempt, 2000, 'Shopify GraphQL (Apollo)', retry);
     }
 
     // ===========================================================================
@@ -1778,23 +1779,32 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 // Get the real properties from our map
                 const realProps = varId ? variantIdToOptionsMap.get(varId) || [] : [];
 
+                const variationProps = realProps.filter(p => p.value).map(p => ({
+                    name: p.name,
+                    value: p.value
+                }));
+
+                const payloadAttrs: Record<string, string> = {};
+                variationProps.forEach(prop => {
+                    payloadAttrs[prop.name] = prop.value;
+                });
+
                 return {
+                    name: String(item.product?.name || item.product?.title),
                     product_slug: idToSlugMap.get(prodId) || item.sku || prodId,
                     quantity: item.quantity,
                     price: Number(item.price),
                     variant: item.variant_id ? {
+                        key: this.productsService.canonicalKey(payloadAttrs),
                         // Filter out Shopify's "Default Title" for simple products
-                        variation_props: realProps.filter(p => p.value).map(p => ({
-                            name: p.name,
-                            value: p.value
-                        }))
+                        variation_props: variationProps
                     } : undefined
                 };
             })
         };
     }
 
-    public async getFullProductBySlug(store: StoreEntity, slug: string): Promise<any> {
+    public async getFullProductBySlug(store: StoreEntity, slug: string, retry = false): Promise<MappedProductDto> {
         const cleanSlug = slug?.trim();
         this.logCtxDebug(`[Product] Fetching FULL product with slug: ${cleanSlug}`, store);
         const query = `
@@ -1837,14 +1847,15 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
         `;
         try {
-            const response = await this.runGraphQL(store, false, query, { handle: cleanSlug });
+            const response = await this.runGraphQL(store, false, query, { handle: cleanSlug }, 0, retry);
             const product = response?.productByHandle || null;
             if (product) {
                 this.logCtxDebug(`[Product] ✓ Found FULL product: ${product.title} (${product.id})`, store);
+                return this.mapRemoteProductToDto(product);
             } else {
                 this.logCtxDebug(`[Product] ℹ No product found with slug: ${cleanSlug}`, store);
+                return null;
             }
-            return product;
         } catch (error) {
             const message = this.getErrorMessage(error);
             this.logCtxError(`[Product] ✗ Failed to fetch FULL product by handle ${cleanSlug}: ${message}`, store);
@@ -1852,32 +1863,79 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
     }
 
+    private mapRemoteProductToDto(remote: any): MappedProductDto {
+        const variants = (remote.variants?.nodes || []).map((v: any) => ({
+            price: Number(v.price) || 0,
+            quantity: Number(v.inventoryQuantity) || 0,
+            sku: String(v.sku || ""),
+            variation_props: (v.selectedOptions || []).map((o: any) => ({
+                variation: o.name?.trim(),
+                variation_prop: String(o.value)?.trim(),
+            })),
+        }));
+
+        const variationMap = new Map<string, Set<string>>();
+        (remote.variants?.nodes || []).forEach((v: any) => {
+            (v.selectedOptions || []).forEach((o: any) => {
+                if (!variationMap.has(o.name)) variationMap.set(o.name, new Set());
+                variationMap.get(o.name)?.add(String(o.value));
+            });
+        });
+
+        const variations = Array.from(variationMap.entries()).map(([name, values]) => ({
+            id: name,
+            name: name?.trim(),
+            props: Array.from(values).map((val) => ({
+                id: val,
+                name: val?.trim(),
+                value: val?.trim(),
+            })),
+        }));
+
+        return {
+            name: remote.title?.trim(),
+            price: Number(remote.variants?.nodes?.[0]?.price) || 0,
+            description: remote.descriptionHtml || "",
+            slug: remote.handle,
+            sku: remote.variants?.nodes?.[0]?.sku || "",
+            thumb: remote.images?.nodes?.[0]?.url || "",
+            images: (remote.images?.nodes || []).map((img: any) => img.url),
+            categories: (remote.collections?.nodes || []).map((c: any) => ({
+                id: String(c.id),
+                name: c.title,
+            })),
+            quantity: (remote.variants?.nodes || []).reduce((acc: number, v: any) => acc + (Number(v.inventoryQuantity) || 0), 0),
+            variations,
+            variants,
+        };
+    }
+
     public async syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void> {
-        const adminId = store.adminId;
-        if (!slugs || slugs.length === 0) {
-            this.logger.warn(`[Reverse Sync] No slugs provided to sync for store: ${store.storeUrl}`);
-            return;
-        }
+        // const adminId = store.adminId;
+        // if (!slugs || slugs.length === 0) {
+        //     this.logger.warn(`[Reverse Sync] No slugs provided to sync for store: ${store.storeUrl}`);
+        //     return;
+        // }
 
-        for (const slug of slugs) {
-            try {
-                // 1. Fetch remote product by slug (handle)
-                const remoteProduct = await this.getFullProductBySlug(store, slug);
-                if (!remoteProduct) {
-                    this.logger.warn(`[Reverse Sync] Product with slug ${slug} not found on provider.`);
-                    continue;
-                }
+        // for (const slug of slugs) {
+        //     try {
+        //         // 1. Fetch remote product by slug (handle)
+        //         const remoteProduct = await this.getFullProductBySlug(store, slug, true);
+        //         if (!remoteProduct) {
+        //             this.logger.warn(`[Reverse Sync] Product with slug ${slug} not found on provider.`);
+        //             continue;
+        //         }
 
-                // 2. Map to unified payload and delegate to shared sync logic
-                const unified = this.mapRemoteProductToUnified(remoteProduct);
-                await this.mainStoresService.syncExternalProductPayloadToLocal(adminId, store, unified, manager);
+        //         // 2. Map to unified payload and delegate to shared sync logic
+        //         const unified = this.mapRemoteProductToUnified(remoteProduct);
+        //         await this.mainStoresService.syncExternalProductPayloadToLocal(adminId, store, unified, manager);
 
-                this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
-            } catch (error) {
-                const message = this.getErrorMessage(error);
-                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${message}`);
-            }
-        }
+        //         this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
+        //     } catch (error) {
+        //         const message = this.getErrorMessage(error);
+        //         this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${message}`);
+        //     }
+        // }
     }
 
     /**
