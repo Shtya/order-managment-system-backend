@@ -17,12 +17,14 @@ import { User } from "entities/user.entity";
 import { PurchasesModule } from "src/purchases/purchases.module";
 import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
+import { ProductSyncStateModule } from "src/product-sync-state/product-sync-state.module";
 
 @Module({
   imports: [
     forwardRef(() => StoresModule),
     forwardRef(() => PurchasesModule),
     forwardRef(() => OrphanFilesModule),
+    ProductSyncStateModule,
     TypeOrmModule.forFeature([
       ProductEntity,
       ProductVariantEntity,

@@ -97,7 +97,7 @@ export class LookupsService {
 	}
 
 
-	async skus(me: User, params: SkusLookupParams) {
+	async skus(me: User, params: SkusLookupParams & { skus?: string[] }) {
 		const fetchLimit = Number(params.limit) || 20;
 		const qb = this.variantsRepo
 			.createQueryBuilder('v')
@@ -114,17 +114,25 @@ export class LookupsService {
 				'p.name AS "productName"'
 			])
 			.orderBy('v.id', 'DESC')
-			.andWhere("v.isActive = :isActive", { isActive: true })
-			.limit(fetchLimit + 1);
+			.andWhere("v.isActive = :isActive", { isActive: true });
 
 		this.applyTenantScope(qb, 'v', me);
 
-		if (params.productId) {
-			qb.andWhere('v.productId = :productId', { productId: params.productId });
+		// ⚡ Added: If specific IDs are requested, filter by them
+		if (params.skus && params.skus.length > 0) {
+			qb.andWhere('v.sku IN (:...skus)', { skus: params.skus });
+			qb.limit(params.skus.length); // Get all requested IDs, bypass normal limits
+		} else {
+			// Apply standard limits and cursor ONLY if we are not fetching by exact IDs
+			qb.limit(fetchLimit + 1);
+
+			if (params.cursor) {
+				qb.andWhere('v.id < :cursor', { cursor: Number(params.cursor) });
+			}
 		}
 
-		if (params.cursor) {
-			qb.andWhere('v.id < :cursor', { cursor: Number(params.cursor) });
+		if (params.productId) {
+			qb.andWhere('v.productId = :productId', { productId: params.productId });
 		}
 
 		const search = params.q?.trim().toLowerCase();
@@ -141,10 +149,14 @@ export class LookupsService {
 			);
 		}
 
-
 		const rows = await qb.getRawMany();
-		const hasMore = rows.length > fetchLimit;
-		if (hasMore) rows.pop();
+
+		// Handle pagination logic carefully depending on whether 'ids' was used
+		let hasMore = false;
+		if (!params.skus || params.skus.length === 0) {
+			hasMore = rows.length > fetchLimit;
+			if (hasMore) rows.pop();
+		}
 
 		const data = rows.map((x) => ({
 			id: x.id,

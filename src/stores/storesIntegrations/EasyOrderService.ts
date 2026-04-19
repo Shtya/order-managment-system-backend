@@ -931,6 +931,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 productId: productId,
                 storeId: product.store.id,
                 adminId: product.adminId,
+                externalStoreId: product?.store?.externalStoreId
             }
         });
         const activeStore = await this.getStoreForSync(product.adminId);

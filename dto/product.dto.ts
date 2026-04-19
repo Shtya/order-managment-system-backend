@@ -130,8 +130,12 @@ export class CreateProductDto {
   storeId?: string | null;
 
   @IsOptional()
-  @Min(0)
+  @IsString()
   warehouseId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  remoteId?: string | null;
 
   @IsOptional()
   @IsString()
