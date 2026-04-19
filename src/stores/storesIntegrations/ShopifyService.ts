@@ -8,6 +8,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
+import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -26,6 +27,9 @@ import { AppGateway } from "common/app.gateway";
 
 @Injectable()
 export class ShopifyService extends BaseStoreProvider implements IBundleSyncProvider {
+    public getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto> {
+        throw new Error("Method not implemented.");
+    }
     public cancelIntegration(adminId: string): Promise<boolean> {
         throw new Error("Method not implemented.");
     }
@@ -47,12 +51,13 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         protected readonly ordersService: OrdersService,
         @Inject(forwardRef(() => ProductsService)) private readonly productsService: ProductsService,
         @Inject(forwardRef(() => CategoriesService)) private readonly categoriesService: CategoriesService,
+        @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
 
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
     ) {
-        super(storesRepo, categoryRepo, encryptionService, mainStoresService, 400, StoreProvider.SHOPIFY)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, 400, StoreProvider.SHOPIFY)
 
     }
 
@@ -1758,21 +1763,23 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         });
 
         return {
-            externalId: String(body.id),
-            full_name: fullName || "Guest Customer",
+            externalOrderId: String(body.id),
+            fullName: fullName || "Guest Customer",
+            email: billing.email || body.customer?.email || "",
             phone: billing.phone || body.customer?.phone || "",
             address: address || "No Address Provided",
             government: billing.city || "Unknown",
-            payment_method: paymentMethod,
+            paymentMethod: paymentMethod,
+            paymentStatus: body.financial_status,
 
             // Status logic: Shopify 'paid' or 'partially_paid' means PAID
             status: ['paid', 'partially_paid'].includes(body.financial_status)
                 ? PaymentStatus.PAID
                 : PaymentStatus.PENDING,
 
-            shipping_cost: Number(body.total_shipping_price_set?.shop_money?.amount || 0),
-
-            cart_items: lineItems.map((item: any) => {
+            shippingCost: Number(body.total_shipping_price_set?.shop_money?.amount || 0),
+            totalCost: Number(body.total_price_set?.shop_money?.amount || 0),
+            cartItems: lineItems.map((item: any) => {
                 const prodId = String(item.product_id);
                 const varId = item.variant_id ? String(item.variant_id) : null;
 
@@ -1791,7 +1798,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
                 return {
                     name: String(item.product?.name || item.product?.title),
-                    product_slug: idToSlugMap.get(prodId) || item.sku || prodId,
+                    productSlug: idToSlugMap.get(prodId) || item.sku || prodId,
+                    remoteProductId: item.product?.id || prodId,
                     quantity: item.quantity,
                     price: Number(item.price),
                     variant: item.variant_id ? {

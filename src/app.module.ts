@@ -42,6 +42,7 @@ import { RedisModule } from "common/redis/redis.module";
 import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
+import { ProductSyncStateModule } from './product-sync-state/product-sync-state.module';
 
 @Module({
 	imports: [
@@ -97,7 +98,8 @@ import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
 		ExtraFeaturesModule,
 		RedisModule,
 		AdminSettingsModule,
-		AccountingModule
+		AccountingModule,
+		ProductSyncStateModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService

@@ -1,6 +1,7 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { StoreEntity } from "entities/stores.entity";
+import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { StoresService } from "./stores.service";
 import { StoresController } from "./stores.controller";
 import { EncryptionService } from "common/encryption.service";
@@ -18,17 +19,20 @@ import { ProductsModule } from "src/products/products.module";
 import { CategoryModule } from "src/category/category.module";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { StoreWebhooksController } from "./webhooks.controller";
-import { WooCommerceService } from "./storesIntegrations/WooCommerce";
+import WooCommerceService from "./storesIntegrations/WooCommerce";
 import { WebSocketModule } from "common/websocket.module";
 import { BundleEntity } from "entities/bundle.entity";
+
+import { ProductSyncStateModule } from "src/product-sync-state/product-sync-state.module";
 
 @Module({
   imports: [
     forwardRef(() => OrdersModule),
     forwardRef(() => ProductsModule),
     forwardRef(() => CategoryModule),
+    ProductSyncStateModule,
     WebSocketModule,
-    TypeOrmModule.forFeature([StoreEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity]),
+    TypeOrmModule.forFeature([StoreEntity, ProductSyncStateEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity]),
   ],
   providers: [
     StoresService,

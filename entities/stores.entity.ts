@@ -10,11 +10,14 @@ import {
 	Index,
 	JoinColumn,
 	ManyToOne,
+	OneToOne,
 	PrimaryGeneratedColumn,
+	Relation,
 	UpdateDateColumn,
 } from "typeorm";
 import { User } from "./user.entity";
 import { WebhookOrderPayload } from "src/stores/storesIntegrations/BaseStoreProvider";
+import { ProductEntity } from "./sku.entity";
 
 export enum StoreProvider {
 	EASYORDER = 'easyorder',

@@ -12,9 +12,10 @@ import { Worker, Queue, ReservedJob } from "groupmq";
 import { ShopifyService } from "./ShopifyService";
 import { EasyOrderService } from "./EasyOrderService";
 import { BaseStoreProvider } from "./BaseStoreProvider";
-import { WooCommerceService } from "./WooCommerce";
+import WooCommerceService from "./WooCommerce";
 import { StoresService } from "../stores.service";
 import { RedisService } from "common/redis/RedisService";
+import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 
 
 @Injectable()
@@ -34,10 +35,9 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
         private readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(ProductEntity)
         private readonly prodRepo: Repository<ProductEntity>,
-        @InjectRepository(ProductVariantEntity)
-        private readonly pvRepo: Repository<ProductVariantEntity>,
         @InjectRepository(BundleEntity)
         private readonly bundleRepo: Repository<BundleEntity>,
+
         @InjectRepository(OrderEntity)
         private readonly orderRepo: Repository<OrderEntity>,
     ) {
@@ -130,8 +130,8 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     if (!product || !product.isActive) return;
 
                     // All services share this method signature via BaseStoreProvider
-                    await service.syncProduct({ productId, slug });
-                    this.logger.log(`[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${slug?.trim()}`);
+                    await service.syncProduct({ productId });
+                    this.logger.log(`[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${productId}`);
                     break;
 
                 case "sync-bundle":
@@ -193,6 +193,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
             );
         }
     }
+
 
     /**
     * NestJS Lifecycle: Stops the worker cleanly when the app shuts down
