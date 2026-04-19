@@ -2,13 +2,13 @@ import { Injectable, forwardRef, Inject, Logger, OnModuleInit } from "@nestjs/co
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
+import { ProductSyncStatus, ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { EncryptionService } from "common/encryption.service";
 import { StoresService } from "../stores.service";
 import { CategoryEntity } from "entities/categories.entity";
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import Bottleneck from "bottleneck";
 import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
-import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { BundleEntity } from "entities/bundle.entity";
 
 export interface IBundleSyncProvider {
@@ -48,18 +48,22 @@ export interface MappedProductDto {
 
 
 export interface WebhookOrderPayload {
-    externalId: string;
-    full_name: string;
+    externalOrderId: string;
+    fullName: string;
     phone: string;
+    email?: string;
     address: string;
     government?: string;
-    payment_method: PaymentMethod;
-    status: PaymentStatus;
-    shipping_cost?: number;
-    cart_items: {
+    paymentMethod: PaymentMethod;
+    paymentStatus: PaymentStatus;
+    shippingCost?: number;
+    totalCost?: number;
+    status?: string;
+    cartItems: {
         name: string,
-        product_slug: string;
+        productSlug: string;
         quantity: number;
+        remoteProductId: string;
         price: number;
         variant?: {
             key?: string;
@@ -101,6 +105,7 @@ export interface UnifiedProductDto {
     variants: UnifiedProductVariantDto[];
 }
 
+
 @Injectable()
 export abstract class BaseStoreProvider implements OnModuleInit {
     abstract readonly code: StoreProvider;
@@ -120,6 +125,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     constructor(
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
+        @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
         protected readonly encryptionService: EncryptionService,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
@@ -339,14 +345,24 @@ export abstract class BaseStoreProvider implements OnModuleInit {
         }
     }
 
+    getProductSyncState(productId: string, storeId: string, adminId: string) {
+        return this.productSyncStateRepo.findOne({
+            where: {
+                productId: productId,
+                storeId: storeId,
+                adminId: adminId,
+            }
+        })
+    }
+
 
     // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
     // usage of the `@shopify/shopify-api` client and provider-specific behavior.
     public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
-    public abstract syncProduct({ productId, slug }: { productId: string, slug?: string }): Promise<any>;
+    public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
     public abstract syncOrderStatus(order: OrderEntity)
     public abstract syncFullStore(store: StoreEntity)
-    public abstract getFullProductBySlug(store: StoreEntity, slug: string): Promise<MappedProductDto>;
+    public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
     public abstract mapWebhookUpdate(body: any): WebhookOrderUpdatePayload;
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;

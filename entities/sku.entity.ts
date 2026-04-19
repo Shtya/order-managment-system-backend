@@ -9,6 +9,8 @@ import {
   JoinColumn,
   OneToMany,
   Code,
+  OneToOne,
+  Relation,
 } from "typeorm";
 
 import { StoreEntity } from "./stores.entity";
@@ -16,6 +18,7 @@ import { WarehouseEntity } from "./warehouses.entity";
 import { CategoryEntity } from "./categories.entity";
 import { User } from "./user.entity";
 import { ActivatableEntity } from "./base.entity";
+import { ProductSyncStateEntity } from "./product_sync_error.entity";
 
 export type Money = number;
 
@@ -118,6 +121,9 @@ export class ProductEntity extends ActivatableEntity {
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
+
+  @OneToMany(() => ProductSyncStateEntity, (sync) => sync.product)
+  syncStates: ProductSyncStateEntity[];
 }
 
 @Entity({ name: "product_variants" })

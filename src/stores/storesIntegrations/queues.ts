@@ -61,9 +61,8 @@ export class StoreQueueService {
     /** Product sync uses its own group (admin:${adminId}:product) so it is not blocked by full-store sync or other admin jobs. */
     // queues.ts
 
-    async enqueueProductSync(productId: string, adminId: string, storeId: string, storeType: StoreProvider, slug?: string) {
+    async enqueueProductSync(productId: string, adminId: string, storeId: string, storeType: StoreProvider) {
         const jobId = `product:${storeType}:${productId}`;
-        const cleanSlug = slug?.trim(); // [2025-12-24] Trim slug
 
         // STOP: Don't call storeSyncQueue.remove(jobId) here. 
         // If it's active, remove() will break the group lock.
@@ -79,7 +78,6 @@ export class StoreQueueService {
                 await this.addJob(adminId, "sync-product", storeType, {
                     productId,
                     storeId,
-                    slug: cleanSlug,
                 }, {
                     jobId,
                     groupId: `admin:${adminId}:product`, // Using a specific sub-group

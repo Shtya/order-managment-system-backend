@@ -30,15 +30,17 @@ export class ProductSubscriber implements EntitySubscriberInterface<ProductEntit
     async afterInsert(event: InsertEvent<ProductEntity>) {
         // Only sync if assigned to a specific store
         if (event.entity.storeId) {
-            await this.storesService.syncProductToStore(event.entity, null, true);
+            await this.storesService.syncProductToStore(event.entity, true);
         }
     }
 
     async afterUpdate(event: UpdateEvent<ProductEntity>) {
         const entity = event.entity as ProductEntity;
-        if (!entity.isActive) return;
+        // as `[Variants Sync] No local variant found for SKU ${sku}`,
+        this.logger.log(`[Product Sync] Product updated: clean slug: ${event.databaseEntity?.slug}`);
+        if (!entity.isActive) return; // Skip inactive products
         if (entity.storeId) {
-            await this.storesService.syncProductToStore(entity, event.databaseEntity?.slug, true);
+            await this.storesService.syncProductToStore(entity, true);
         }
     }
 
@@ -58,49 +60,46 @@ export class VariantSubscriber implements EntitySubscriberInterface<ProductVaria
 
     listenTo() { return ProductVariantEntity; }
 
-    // async afterInsert(event: InsertEvent<ProductVariantEntity>) {
-    //     const variant = event.entity as ProductVariantEntity;
-    //     if (!variant.isActive) return;
-    //     // We need the parent product to know which store to sync to
-    //     const product = await event.manager.findOne(ProductEntity, {
-    //         where: { id: variant.productId }
-    //     });
+    async afterInsert(event: InsertEvent<ProductVariantEntity>) {
+        const variant = event.entity as ProductVariantEntity;
+        if (!variant.isActive) return;
+        // We need the parent product to know which store to sync to
+        const product = await event.manager.findOne(ProductEntity, {
+            where: { id: variant.productId }
+        });
 
-    //     if (product?.storeId) {
-    //         await this.storesService.syncProductToStore(product);
-    //     }
-    // }
+        if (product?.storeId) {
+            await this.storesService.syncProductToStore(product);
+        }
+    }
 
-    // async afterUpdate(event: UpdateEvent<ProductVariantEntity>) {
-    //     const variant = event.entity as ProductVariantEntity;
-    //     if (!variant.isActive) return;
-    //     // 1. Identify what columns changed in this update
-    //     const updatedColumns = event.updatedColumns.map(col => col.propertyName);
+    async afterUpdate(event: UpdateEvent<ProductVariantEntity>) {
+        const variant = event.entity as ProductVariantEntity;
+        if (!variant.isActive) return;
+        // 1. Identify what columns changed in this update
+        const updatedColumns = event.updatedColumns.map(col => col.propertyName);
 
-    //     const isOnlyExternalIdUpdate =
-    //         updatedColumns.length === 1 &&
-    //         updatedColumns.includes('externalId');
+        const isOnlyExternalIdUpdate =
+            updatedColumns.length === 1 &&
+            updatedColumns.includes('externalId');
 
-    //     if (isOnlyExternalIdUpdate) {
-    //         return; // Do nothing, this was likely a sync-back from the provider
-    //     }
-    //     // 4. Proceed with sync
-    //     const product = await event.manager.findOne(ProductEntity, {
-    //         where: { id: variant.productId },
-    //         relations: ['store'] // Ensure store relation is available
-    //     });
+        if (isOnlyExternalIdUpdate) {
+            return; // Do nothing, this was likely a sync-back from the provider
+        }
+        // 4. Proceed with sync
+        const product = await event.manager.findOne(ProductEntity, {
+            where: { id: variant.productId },
+            relations: ['store'] // Ensure store relation is available
+        });
 
-    //     if (product?.storeId) {
-    //         // [2025-12-24] Trim slug before passing to service
+        if (product?.storeId) {
+            // [2025-12-24] Trim slug before passing to service
 
-    //         const cleanSlug = product.slug?.trim();
-    //         this.logger.log(`[Subscriber] Triggering sync for variant update: ${product.slug?.trim()}`);
+            const cleanSlug = product.slug?.trim();
+            this.logger.log(`[Variant Sync] Triggering sync for variant update: ${cleanSlug}`);
 
-    //         await this.storesService.syncProductToStore({
-    //             ...product,
-    //             slug: cleanSlug
-    //         });
-    //     }
-    // }
+            await this.storesService.syncProductToStore(product, true);
+        }
+    }
 
 }

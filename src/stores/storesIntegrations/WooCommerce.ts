@@ -4,6 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
+import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -19,7 +20,10 @@ import { AppGateway } from "common/app.gateway";
 
 
 @Injectable()
-export class WooCommerceService extends BaseStoreProvider implements IBundleSyncProvider {
+export default class WooCommerceService extends BaseStoreProvider implements IBundleSyncProvider {
+    public getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto> {
+        throw new Error("Method not implemented.");
+    }
     public getFullProductBySlug(store: StoreEntity, slug: string): Promise<MappedProductDto> {
         throw new Error("Method not implemented.");
     }
@@ -43,6 +47,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         @Inject(forwardRef(() => OrdersService))
         protected readonly ordersService: OrdersService,
         @Inject(forwardRef(() => ProductsService)) private readonly productsService: ProductsService,
+        @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
         @Inject(forwardRef(() => CategoriesService))
         private readonly categoriesService: CategoriesService,
 
@@ -50,7 +55,7 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
     ) {
-        super(storesRepo, categoryRepo, encryptionService, mainStoresService, 400, StoreProvider.WOOCOMMERCE)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, 400, StoreProvider.WOOCOMMERCE)
 
     }
     /**
@@ -1345,30 +1350,32 @@ export class WooCommerceService extends BaseStoreProvider implements IBundleSync
         const idToSlugMap = new Map<string, string>();
         remoteProducts.forEach(p => idToSlugMap.set(p.externalId, p.slug));
         return {
-            externalId: String(body.id),
-            full_name: `${body.billing?.first_name} ${body.billing?.last_name}`.trim(),
+            externalOrderId: String(body.id),
+            fullName: `${body.billing?.first_name} ${body.billing?.last_name}`.trim(),
             phone: body.billing?.phone || "",
             address: `${body.billing?.address_1} ${body.billing?.address_2}`.trim(),
             government: body.billing?.city || "Unknown",
-            payment_method: paymentMethod,
+            paymentMethod: paymentMethod,
+            paymentStatus: body.status,
             status: ['processing', 'completed'].includes(body.status) && paymentMethod !== PaymentMethod.CASH_ON_DELIVERY
                 ? PaymentStatus.PAID
                 : PaymentStatus.PENDING,
-            shipping_cost: Number(body.shipping_total || 0),
+            shippingCost: Number(body.shipping_total || 0),
 
-            cart_items: lineItems.map((item: any) => {
+            cartItems: lineItems.map((item: any) => {
                 const productId = String(item.product_id);
                 const realSlug = idToSlugMap.get(productId) || productId;
-                const props =  (item.meta_data || [])
-                                .filter((meta: any) => meta.key.startsWith('pa_'))
-                                .reduce((acc: Record<string, string>, meta: any) => ({
-                                    ...acc,
-                                    [meta.key.replace('pa_', '')]: meta.value
-                                }), {})
+                const props = (item.meta_data || [])
+                    .filter((meta: any) => meta.key.startsWith('pa_'))
+                    .reduce((acc: Record<string, string>, meta: any) => ({
+                        ...acc,
+                        [meta.key.replace('pa_', '')]: meta.value
+                    }), {})
                 return {
                     name: String(item.product?.name || item.product?.title),
                     product_slug: realSlug,
                     quantity: item.quantity,
+                    remoteProductId: productId,
                     price: Number(item.price),
                     variant: item.variation_id ? {
                         key: this.productsService.canonicalKey(props),

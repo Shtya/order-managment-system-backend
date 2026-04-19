@@ -13,7 +13,7 @@ import { StoreQueueService } from "./storesIntegrations/queues";
 import { BaseStoreProvider, MappedProductDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
-import { WooCommerceService } from "./storesIntegrations/WooCommerce";
+import WooCommerceService from "./storesIntegrations/WooCommerce";
 import { OrdersService } from "src/orders/services/orders.service";
 import { ProductsService } from "src/products/products.service";
 import { CreateOrderDto } from "dto/order.dto";
@@ -543,7 +543,7 @@ export class StoresService {
     );
   }
 
-  async syncProductToStore(product: ProductEntity, slug?: string, auto?: boolean) {
+  async syncProductToStore(product: ProductEntity, auto?: boolean) {
     const { storeId, adminId, name, id } = product;
     if (!storeId) return;
 
@@ -563,11 +563,10 @@ export class StoresService {
     }
 
     // Route to the correct queue based on Provider
-    await this.storeQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider, slug);
+    await this.storeQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider);
     this.logger.log(
       `[Product Sync] Dispatched sync job for Product: "${name}" (ID: ${id}) ` +
-      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. ` +
-      `${slug ? `(Slug update detected from: ${slug})` : ''}`
+      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. `
     );
   }
 
@@ -670,6 +669,7 @@ export class StoresService {
       adminId,
       storeId: store?.id,
       rawPayload: rawPayload,
+      payload,
       reason,
       externalOrderId,
       customerName,
@@ -697,13 +697,13 @@ export class StoresService {
       };
 
       return await runInTransaction(async (manager) => {
-        const existingOrder = await this.ordersService.findByExternalId(payload.externalId);
+        const existingOrder = await this.ordersService.findByExternalId(payload.externalOrderId);
         if (existingOrder) {
           //notification here
           return { ok: true, ignored: true, reason: 'order_exists' };
         }
 
-        const slugs = payload.cart_items.map(item => item.product_slug);
+        const slugs = payload.cartItems.map(item => item.productSlug);
 
         const localProducts = await manager.getRepository(ProductEntity).find({
           where: { adminId, slug: In(slugs) },
@@ -713,10 +713,10 @@ export class StoresService {
         const productMap = new Map(localProducts.map(p => [p.slug, p]));
 
         const items = [];
-        for (const item of payload.cart_items) {
-          const localProduct = productMap.get(item.product_slug);
+        for (const item of payload.cartItems) {
+          const localProduct = productMap.get(item.productSlug);
           if (!localProduct) {
-            const reason = `Missing product for slug ${item.product_slug}`;
+            const reason = `Missing product for slug ${item.productSlug}`;
             throw new BadRequestException(reason);
           }
           let matchedVariant = null;
@@ -728,7 +728,7 @@ export class StoresService {
           }
 
           if (!matchedVariant) {
-            const reason = `No valid variant found for product ${item.product_slug}`;
+            const reason = `No valid variant found for product ${item.productSlug}`;
             throw new BadRequestException(reason);
           }
 
@@ -742,13 +742,13 @@ export class StoresService {
 
         //  Create Order
         const createOrderDto: CreateOrderDto = {
-          customerName: payload.full_name,
+          customerName: payload.fullName,
           phoneNumber: payload.phone,
           address: payload.address,
           city: payload.government || "Unknown",
-          paymentMethod: payload.payment_method,
-          paymentStatus: payload.status,
-          shippingCost: payload.shipping_cost || 0,
+          paymentMethod: payload.paymentMethod,
+          paymentStatus: payload.paymentStatus,
+          shippingCost: payload.shippingCost || 0,
           shippingCompanyId: null,
           discount: 0,
           items: items,
@@ -759,10 +759,10 @@ export class StoresService {
         const User = { id: store.adminId, role: { name: 'admin' } };
 
         const newOrder = await this.ordersService.createWithManager(manager, adminId, User, createOrderDto);
-        await this.ordersService.updateExternalId(newOrder.id, payload.externalId);
-        await manager.update(OrderEntity, newOrder.id, { externalId: payload.externalId });
+        await this.ordersService.updateExternalId(newOrder.id, payload.externalOrderId);
+        await manager.update(OrderEntity, newOrder.id, { externalId: payload.externalOrderId });
 
-        this.logger.log(`[Webhook Order Create] Created new order from webhook with External ID ${payload.externalId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`);
+        this.logger.log(`[Webhook Order Create] Created new order from webhook with External ID ${payload.externalOrderId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`);
         return { ok: true, orderId: newOrder.id };
       });
     } catch (error: any) {
@@ -773,8 +773,8 @@ export class StoresService {
         failureLog.lastRetryFailedReason = errorMessage;
         await this.failureRepo.save(failureLog);
       } else {
-        const externalId = payload?.externalId || 'UNKNOWN';
-        const customerName = payload?.full_name?.trim() || 'N/A';
+        const externalId = payload?.externalOrderId || 'UNKNOWN';
+        const customerName = payload?.fullName?.trim() || 'N/A';
         await this.logFailedWebhookOrder(
           adminId,
           store,
@@ -950,8 +950,8 @@ export class StoresService {
     const payload = failure.payload;
     const problems = [];
 
-    if (payload && payload.cart_items) {
-      const slugs = payload.cart_items.map(item => item.product_slug);
+    if (payload && payload.cartItems) {
+      const slugs = payload.cartItems.map(item => item.productSlug);
       const localProducts = await this.productsRepo.find({
         where: { adminId, slug: In(slugs) },
         relations: ['variants'],
@@ -959,16 +959,16 @@ export class StoresService {
 
       const productMap = new Map(localProducts.map(p => [p.slug, p]));
 
-      for (const item of payload.cart_items) {
-        const localProduct = productMap.get(item.product_slug);
+      for (const item of payload.cartItems) {
+        const localProduct = productMap.get(item.productSlug);
 
         if (!localProduct) {
           problems.push({
-            slug: item.product_slug,
+            slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_NOT_FOUND,
-            problem: `Product "${item.product_slug}" was not found`,
-            details: `Slug "${item.product_slug}" does not exist in your local products.`,
+            problem: `Product "${item.productSlug}" was not found`,
+            details: `Slug "${item.productSlug}" does not exist in your local products.`,
           });
           continue;
         }
@@ -986,10 +986,10 @@ export class StoresService {
 
         if (!matchedVariant) {
           problems.push({
-            slug: item.product_slug,
+            slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.SKU_NOT_FOUND,
-            problem: `Variant with key "${item.variant?.key}" product "${item.product_slug}" was not found`,
+            problem: `Variant with key "${item.variant?.key}" product "${item.productSlug}" was not found`,
             details: localProduct.type === ProductType.SINGLE
               ? "Product is set as single but has no SKU/variant."
               : `Variant was not found.`
@@ -1000,11 +1000,11 @@ export class StoresService {
         const availableStock = matchedVariant.stockOnHand - matchedVariant.reserved;
         if (availableStock < item.quantity) {
           problems.push({
-            slug: item.product_slug,
+            slug: item.productSlug,
             name: item.name,
             sku: matchedVariant.sku,
             code: WebhookOrderProblem.INSUFFICIENT_STOCK,
-            problem: `Insufficient stock for variant "${item.variant?.key}" product "${item.product_slug}"`,
+            problem: `Insufficient stock for variant "${item.variant?.key}" product "${item.productSlug}"`,
             details: `Requested quantity is ${item.quantity}, but only ${availableStock} is available in stock.`
           });
         }
@@ -1374,7 +1374,7 @@ export class StoresService {
     return await this.storesRepo.save(store);
   }
 
-  public async getFullProductBySlug(userContext: any, provider: StoreProvider, slug: string): Promise<MappedProductDto> {
+  public async getFullProductById(userContext: any, provider: StoreProvider, id: string): Promise<MappedProductDto> {
     const adminId = tenantId(userContext);
     const store = await this.storesRepo.findOne({
       where: { adminId, provider }
@@ -1393,7 +1393,7 @@ export class StoresService {
     const p = this.getProvider(provider)
 
     try {
-      const product = await p.getFullProductBySlug(store, slug);
+      const product = await p.getFullProductById(store, id);
       if (!product) {
         throw new BadRequestException("Product not found");
       }
