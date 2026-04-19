@@ -58,6 +58,12 @@ export class ProductSyncStateController {
   }
 
   @Permissions("stores.read")
+  @Get("logs/statistics")
+  async getLogsStatistics(@Req() req: any) {
+    return this.productSyncStateService.getLogsStatistics(req.user);
+  }
+
+  @Permissions("stores.read")
   @Get("logs/export")
   async exportLogs(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.productSyncStateService.exportLogs(req.user, q);

@@ -93,11 +93,6 @@ export class VariantSubscriber implements EntitySubscriberInterface<ProductVaria
         });
 
         if (product?.storeId) {
-            // [2025-12-24] Trim slug before passing to service
-
-            const cleanSlug = product.slug?.trim();
-            this.logger.log(`[Variant Sync] Triggering sync for variant update: ${cleanSlug}`);
-
             await this.storesService.syncProductToStore(product, true);
         }
     }
