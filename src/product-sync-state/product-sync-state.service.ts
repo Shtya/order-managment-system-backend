@@ -226,6 +226,34 @@ export class ProductSyncStateService {
         return record;
     }
 
+    async getLogsStatistics(me: any) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const raw = await this.syncErrorLogRepo
+            .createQueryBuilder("log")
+            .select("log.action", "action")
+            .addSelect("COUNT(*)", "count")
+            .where("log.adminId = :adminId", { adminId })
+            .groupBy("log.action")
+            .getRawMany();
+
+        const stats = {
+            create: 0,
+            update: 0,
+            total: 0,
+        };
+
+        raw.forEach((row) => {
+            const action = String(row.action).toLowerCase();
+            if (action === 'create') stats.create = Number(row.count);
+            if (action === 'update') stats.update = Number(row.count);
+            stats.total += Number(row.count);
+        });
+
+        return stats;
+    }
+
     async exportLogs(me: any, q?: any) {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
