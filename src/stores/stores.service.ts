@@ -24,6 +24,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
 import { getErrorMessage } from "common/healpers";
+import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 
 @Injectable()
 export class StoresService {
@@ -44,8 +45,8 @@ export class StoresService {
     protected readonly productsRepo: Repository<ProductEntity>,
     @InjectRepository(ProductVariantEntity)
     protected readonly pvRepo: Repository<ProductVariantEntity>,
-    @InjectRepository(WebhookOrderFailureEntity)
-    private readonly failureRepo: Repository<WebhookOrderFailureEntity>,
+    @InjectRepository(WebhookOrderFailureEntity) private readonly failureRepo: Repository<WebhookOrderFailureEntity>,
+    @InjectRepository(ProductSyncStateEntity) private readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
 
     @Inject(forwardRef(() => OrdersService))
     protected readonly ordersService: OrdersService,
@@ -947,23 +948,30 @@ export class StoresService {
       throw new NotFoundException("Failed order retry details not found");
     }
 
+    const storeId = failure.store?.id;
     const payload = failure.payload;
     const problems = [];
 
     if (payload && payload.cartItems) {
-      const slugs = payload.cartItems.map(item => item.productSlug);
-      const localProducts = await this.productsRepo.find({
-        where: { adminId, slug: In(slugs) },
-        relations: ['variants'],
+      const remoteIds = payload.cartItems.map(item => String(item.remoteProductId));
+      //
+      const syncStates = await this.productSyncStateRepo.find({
+        where: {
+          adminId,
+          storeId,
+          remoteProductId: In(remoteIds),
+        },
+        relations: ['product', 'product.variants'],
       });
 
-      const productMap = new Map(localProducts.map(p => [p.slug, p]));
+      const productMap = new Map(syncStates.map(s => [s.remoteProductId, s.product]));
 
       for (const item of payload.cartItems) {
-        const localProduct = productMap.get(item.productSlug);
+        const localProduct = productMap.get(item.remoteProductId);
 
         if (!localProduct) {
           problems.push({
+            remoteId: item.remoteProductId,
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_NOT_FOUND,
@@ -986,6 +994,8 @@ export class StoresService {
 
         if (!matchedVariant) {
           problems.push({
+            remoteId: item.remoteProductId,
+            productId: localProduct.id,
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.SKU_NOT_FOUND,
@@ -1000,6 +1010,8 @@ export class StoresService {
         const availableStock = matchedVariant.stockOnHand - matchedVariant.reserved;
         if (availableStock < item.quantity) {
           problems.push({
+            remoteId: item.remoteProductId,
+            productId: localProduct.id,
             slug: item.productSlug,
             name: item.name,
             sku: matchedVariant.sku,

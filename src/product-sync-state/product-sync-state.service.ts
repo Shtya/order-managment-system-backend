@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { ProductSyncStateEntity, ProductSyncErrorLogEntity, ProductSyncAction, ProductSyncStatusDto } from 'entities/product_sync_error.entity';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
@@ -334,18 +334,22 @@ export class ProductSyncStateService {
 
         return this.syncErrorLogRepo.save(log);
     }
-
     async upsertSyncState(
         { adminId, productId, storeId, externalStoreId }: { adminId: string, productId: string, storeId: string, externalStoreId: string },
         data: Partial<ProductSyncStatusDto>,
+        manager?: EntityManager
     ): Promise<ProductSyncStateEntity> {
 
         if (!adminId || !productId || !storeId || !externalStoreId) {
             throw new Error('adminId, productId, storeId, externalStoreId are required');
         }
 
-        // 1. Try find existing record
-        let state = await this.syncStateRepo.findOne({
+
+        const repo = manager
+            ? manager.getRepository(ProductSyncStateEntity)
+            : this.syncStateRepo;
+
+        let state = await repo.findOne({
             where: {
                 adminId,
                 productId,
@@ -354,19 +358,19 @@ export class ProductSyncStateService {
             },
         });
 
-        // 2. Create if not exists
         if (!state) {
-            state = this.syncStateRepo.create({
+            state = repo.create({
                 ...data,
-                adminId, productId, storeId, externalStoreId,
+                adminId,
+                productId,
+                storeId,
+                externalStoreId,
             });
         } else {
-            // 3. Merge updates safely
             Object.assign(state, data);
         }
 
-        // 4. Save (insert or update)
-        return this.syncStateRepo.save(state);
+        return await repo.save(state);
     }
 }
 

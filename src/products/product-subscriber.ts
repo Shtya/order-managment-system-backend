@@ -37,7 +37,6 @@ export class ProductSubscriber implements EntitySubscriberInterface<ProductEntit
     async afterUpdate(event: UpdateEvent<ProductEntity>) {
         const entity = event.entity as ProductEntity;
         // as `[Variants Sync] No local variant found for SKU ${sku}`,
-        this.logger.log(`[Product Sync] Product updated: clean slug: ${event.databaseEntity?.slug}`);
         if (!entity.isActive) return; // Skip inactive products
         if (entity.storeId) {
             await this.storesService.syncProductToStore(entity, true);

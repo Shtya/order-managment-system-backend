@@ -114,11 +114,13 @@ export class LookupsController {
 		@Query('q') q?: string,
 		@Query('productId') productId?: string,
 		@Query('limit') limit?: string,
+		@Query('skus') skus?: string, // 👈 Added ids parameter
 	) {
 		return this.lookups.skus(req.user, {
 			q,
 			productId: productId ? productId : undefined,
 			limit: limit ? Math.min(Number(limit) || 50, 200) : 50,
+			skus: skus ? skus.split(',').map(id => id.trim()).filter(Boolean) : undefined,
 		});
 	}
 

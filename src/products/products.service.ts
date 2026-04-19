@@ -29,6 +29,8 @@ import { PurchasesService } from "src/purchases/purchases.service";
 import { DataSource } from "typeorm";
 import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
+import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
+import { ProductSyncStatus } from "entities/product_sync_error.entity";
 
 @Injectable()
 export class ProductsService {
@@ -53,6 +55,8 @@ export class ProductsService {
 
     @InjectRepository(OrphanFileEntity)
     private orphanRepo: Repository<OrphanFileEntity>,
+
+    private readonly productSyncStateService: ProductSyncStateService,
 
     private readonly notificationService: NotificationService,
     private readonly purchasesService: PurchasesService,
@@ -827,8 +831,9 @@ export class ProductsService {
       if (dto.categoryId && dto.categoryId !== 'none') {
         const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
       }
+      let store;
       if (dto.storeId && dto.storeId !== 'none') {
-        const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+        store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
       }
       if (dto.warehouseId && dto.warehouseId !== 'none') {
         const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
@@ -849,6 +854,7 @@ export class ProductsService {
 
       }
 
+
       const p = prodRepo.create({
         adminId,
         name: dto.name,
@@ -858,7 +864,6 @@ export class ProductsService {
         lowestPrice: dto.lowestPrice ?? null,
         salePrice: dto.salePrice ?? null,
         storageRack: dto.storageRack ?? null,
-
         categoryId: dto.categoryId !== undefined && dto.categoryId !== 'none' ? dto.categoryId ?? null : null,
         storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? dto.storeId ?? null : null,
         warehouseId: dto.warehouseId !== undefined && dto.warehouseId !== 'none' ? dto.warehouseId ?? null : null,
@@ -900,6 +905,14 @@ export class ProductsService {
       p.images = finalImages;
 
       const savedProduct = await prodRepo.save(p);
+
+      if (dto.remoteId && store) {
+        await this.productSyncStateService.upsertSyncState({ adminId, productId: savedProduct.id, storeId: store.id, externalStoreId: store.externalStoreId }, {
+          remoteProductId: dto.remoteId,
+          status: ProductSyncStatus.PENDING
+        },
+          mgr)
+      }
 
       // delete used orphans AFTER product save
       const toDelete = [

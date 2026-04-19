@@ -226,7 +226,7 @@ export class ProductsController {
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack ?? null,
-
+      remoteId: body.remoteId || null,
       categoryId: body.categoryId as any,
       storeId: body.storeId as any,
       warehouseId: body.warehouseId as any,
