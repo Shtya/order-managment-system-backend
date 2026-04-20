@@ -2635,6 +2635,7 @@ export class OrdersService {
       }
 
       order.status = newStatus;
+      order.statusId = newStatus?.id;
       order.updatedByUserId = me?.id;
       const saved = await manager.save(OrderEntity, order);
 

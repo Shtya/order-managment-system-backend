@@ -127,6 +127,10 @@ export class CreateProductDto {
 
   @IsString()
   @IsOptional()
+  categoryName?: string;
+
+  @IsString()
+  @IsOptional()
   storeId?: string | null;
 
   @IsOptional()

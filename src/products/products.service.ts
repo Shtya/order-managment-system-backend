@@ -21,7 +21,7 @@ import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import * as ExcelJS from "exceljs";
 import { OrderItemEntity, OrderStatus } from "entities/order.entity";
-import { deletePhysicalFiles } from "common/healpers";
+import { deletePhysicalFiles, generateSlug } from "common/healpers";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { PurchaseReturnsService } from "src/purchases-return/purchases-return.service";
@@ -31,6 +31,8 @@ import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 import { ProductSyncStatus } from "entities/product_sync_error.entity";
+import { RemoteImageHelper } from "common/emote-image.helper";
+
 
 @Injectable()
 export class ProductsService {
@@ -57,6 +59,7 @@ export class ProductsService {
     private orphanRepo: Repository<OrphanFileEntity>,
 
     private readonly productSyncStateService: ProductSyncStateService,
+    private readonly remoteImageHelper: RemoteImageHelper,
 
     private readonly notificationService: NotificationService,
     private readonly purchasesService: PurchasesService,
@@ -88,6 +91,18 @@ export class ProductsService {
       .join("|");
     return key;
   }
+
+  public slugifyKey(s) {
+    return (s || '')
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '_')
+      // .replace(/[^\w]/g, '')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '');
+  }
+
 
   private generateSku(product: ProductEntity, attrs: Record<string, any>) {
     const parts = (product.slug || "product").split("-");
@@ -827,10 +842,38 @@ export class ProductsService {
       const whRepo = mgr.getRepository(WarehouseEntity);
       const pvRepo = mgr.getRepository(ProductVariantEntity);
 
+      const categoryName = dto.categoryName;
+      let category: CategoryEntity | null = null;
+      if (categoryName && categoryName.trim() !== "") {
+        category = await catRepo.findOne({
+          where: {
+            name: categoryName.trim(),
+            adminId,
+          },
+        });
 
-      if (dto.categoryId && dto.categoryId !== 'none') {
-        const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
+        if (!category) {
+          const slug = generateSlug(categoryName)
+          category = catRepo.create({
+            name: categoryName.trim(),
+            slug: slug || `category-${Date.now()}`,
+            adminId,
+          });
+
+          category = await catRepo.save(category);
+        }
       }
+
+      else if (dto.categoryId && dto.categoryId !== "none") {
+
+        category = await this.assertOwnedOrNull(
+          catRepo,
+          adminId,
+          dto.categoryId,
+          "category"
+        );
+      }
+
       let store;
       if (dto.storeId && dto.storeId !== 'none') {
         store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
@@ -864,7 +907,7 @@ export class ProductsService {
         lowestPrice: dto.lowestPrice ?? null,
         salePrice: dto.salePrice ?? null,
         storageRack: dto.storageRack ?? null,
-        categoryId: dto.categoryId !== undefined && dto.categoryId !== 'none' ? dto.categoryId ?? null : null,
+        categoryId: category ? category.id : null,
         storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? dto.storeId ?? null : null,
         warehouseId: dto.warehouseId !== undefined && dto.warehouseId !== 'none' ? dto.warehouseId ?? null : null,
 
@@ -875,25 +918,45 @@ export class ProductsService {
         upsellingProducts: (dto.upsellingProducts as any) ?? [],
 
         createdByUserId: me?.id ?? null,
-        mainImage: dto.mainImage as any,
-        images: dto.images ?? [],
         updatedByUserId: null,
       });
 
       const mainOrphanId = (dto as any).mainImageOrphanId;
+      const mainImageUrl = dto.mainImage;
       if (!p.mainImage) {
-        if (!mainOrphanId) {
-          throw new BadRequestException("mainImageOrphanId is required");
+        if (mainImageUrl && mainImageUrl.trim() !== "") {
+          const newMainUrl = await this.remoteImageHelper.downloadAndSaveImage(mainImageUrl)
+          p.mainImage = newMainUrl.url;
+        } else if (mainOrphanId) {
+          const mainRow = await mgr.getRepository(OrphanFileEntity).findOne({
+            where: {
+              adminId: String(adminId),
+              id: mainOrphanId,
+            } as any,
+            select: ["id", "url"],
+          });
+
+          if (!mainRow) {
+            throw new BadRequestException("mainImageOrphanId not found");
+          }
+
+          p.mainImage = mainRow.url;
+        } else {
+          throw new BadRequestException(
+            "Either mainImage or mainImageOrphanId is required"
+          );
         }
-        const mainRow = await mgr.getRepository(OrphanFileEntity).findOne({
-          where: { adminId: String(adminId), id: mainOrphanId } as any,
-          select: ["id", "url"],
-        });
-        if (!mainRow) throw new BadRequestException("mainImageOrphanId not found");
-        p.mainImage = mainRow.url;
       }
 
-      const imagesMeta = Array.isArray(dto.images) ? dto.images : [];
+      const imagesMeta = await Promise.all(
+        (dto.images ?? [])
+          .filter((img) => typeof img.url === "string" && img.url.trim() !== "")
+          .map(async (img) => {
+            const file = await this.remoteImageHelper.downloadAndSaveImage(img.url);
+
+            return { url: file.url };
+          })
+      );
       const orphanIds = Array.isArray((dto as any).imagesOrphanIds) ? (dto as any).imagesOrphanIds : [];
       const orphanRows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
       const orphanImages = orphanRows.map((r) => ({ url: r.url }));
@@ -916,8 +979,7 @@ export class ProductsService {
 
       // delete used orphans AFTER product save
       const toDelete = [
-        Number.isFinite(mainOrphanId) && mainOrphanId > 0 ? mainOrphanId : null,
-        ...orphanRows.map((r) => r.id),
+        Number.isFinite(mainOrphanId) && mainOrphanId > 0 ? mainOrphanId : null, ...orphanRows.map((r) => r.id),
       ].filter(Boolean) as number[];
       await this.orphanFilesService.deleteOrphansByIds(mgr, String(adminId), toDelete);
 

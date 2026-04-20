@@ -41,11 +41,21 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
      */
     async afterUpdate(event: UpdateEvent<OrderEntity>) {
         // Check if the status column was actually updated
-        const isStatusChanged = event.updatedColumns.some(
-            (column) => column.propertyName === 'status'
-        );
 
-        if (isStatusChanged && event.entity) {
+        const previousOrder = event.databaseEntity;
+        const currentOrder = event.entity;
+
+        if (!previousOrder || !currentOrder) {
+            return;
+        }
+
+        const oldStatusId = previousOrder.statusId || previousOrder.status?.id;
+        const newStatusId = currentOrder.statusId || currentOrder.status?.id;
+
+        // إذا تغيرت القيمة فعلياً، أو إذا اعتبره TypeORM عموداً محدثاً
+        const isStatusChanged = oldStatusId !== newStatusId
+
+        if (isStatusChanged) {
             // event.entity contains the updated fields
             const fullOrder = await event.manager.findOne(OrderEntity, {
                 where: { id: event.entity.id },
