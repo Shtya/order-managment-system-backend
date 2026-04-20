@@ -18,6 +18,7 @@ import { PurchasesModule } from "src/purchases/purchases.module";
 import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
 import { ProductSyncStateModule } from "src/product-sync-state/product-sync-state.module";
+import { RemoteImageHelper } from "common/emote-image.helper";
 
 @Module({
   imports: [
@@ -36,7 +37,10 @@ import { ProductSyncStateModule } from "src/product-sync-state/product-sync-stat
       OrphanFileEntity,
     ]),
   ],
-  providers: [ProductsService, ProductSubscriber, VariantSubscriber, LowStockService],
+  providers: [ProductsService, ProductSubscriber, VariantSubscriber, LowStockService, RemoteImageHelper, {
+    provide: 'PUBLIC_BASE_URL',
+    useValue: '/uploads/products', // القيمة التي تريدها
+  },],
   controllers: [ProductsController],
   exports: [ProductsService],
 })

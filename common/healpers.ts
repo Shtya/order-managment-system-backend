@@ -147,3 +147,12 @@ export async function deleteFile(filePath: string) {
         console.error(`Failed to delete file at ${filePath}:`, err);
     }
 }
+
+export function generateSlug(value: string): string {
+    return value
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-');
+}

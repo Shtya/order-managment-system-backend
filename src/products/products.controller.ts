@@ -228,6 +228,7 @@ export class ProductsController {
       storageRack: body.storageRack ?? null,
       remoteId: body.remoteId || null,
       categoryId: body.categoryId as any,
+      categoryName: body.categoryName as any,
       storeId: body.storeId as any,
       warehouseId: body.warehouseId as any,
 
@@ -249,7 +250,7 @@ export class ProductsController {
 
     const purchaseReceipt = files?.purchaseReceiptAsset?.[0];
 
-    if (!dto.mainImageOrphanId) {
+    if (!dto.mainImageOrphanId && !dto.mainImage) {
       throw new BadRequestException("mainImageOrphanId is required");
     }
 

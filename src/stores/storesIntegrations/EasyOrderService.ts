@@ -887,7 +887,7 @@ export class EasyOrderService extends BaseStoreProvider {
     public async updateOrderStatus(order: OrderEntity, store: StoreEntity) {
         if (!order.externalId) return;
 
-        const remoteStatus = this.mapInternalStatusToExternal[order.status.code];
+        const remoteStatus = this.mapInternalStatusToExternal(order.status.code as OrderStatus);
         if (!remoteStatus) {
             this.logger.warn(`No status mapping found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`);
             return;
@@ -1204,7 +1204,17 @@ export class EasyOrderService extends BaseStoreProvider {
                     payloadAttrs[prop.name] = prop.value;
                 });
 
-                const key = this.productsService.canonicalKey(payloadAttrs);
+                const attrs = (item.variant?.variation_props || []).reduce((acc: Record<string, string>, vp: any) => {
+                    if (vp.variation && vp.variation_prop) {
+                        const key = this.productsService.slugifyKey(vp.variation);
+                        const value = this.productsService.slugifyKey(String(vp.variation_prop));
+                        acc[key] = value;
+                    }
+                    return acc;
+                }, {});
+
+
+                const key = this.productsService.canonicalKey(attrs);
 
                 return {
                     name: String(item.product?.name || item.product?.title),

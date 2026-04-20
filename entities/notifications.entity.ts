@@ -32,6 +32,8 @@ export enum NotificationType {
     ORDER_USAGE_FAILED = 'order_usage_failed',
     LOW_STOCK_ALERT = 'low_stock_alert',
     MARKETING_MESSAGE = 'marketing_message',
+    SYSTEM_ERROR = 'system_error',
+    ORDER_CREATED = 'order_created'
 }
 
 @Entity('notifications')
@@ -46,7 +48,7 @@ export class Notification {
     @JoinColumn({ name: 'user_id' })
     user: User;
 
-    @Column({ type: 'uuid',name: 'user_id' })
+    @Column({ type: 'uuid', name: 'user_id' })
     userId: string;
 
     @Column({
@@ -67,7 +69,7 @@ export class Notification {
     @Column({ name: 'related_entity_type', nullable: true })
     relatedEntityType: string;
 
-    @Column({ type: 'uuid',name: 'related_entity_id', nullable: true })
+    @Column({ type: 'uuid', name: 'related_entity_id', nullable: true })
     relatedEntityId: string;
 
     @CreateDateColumn()

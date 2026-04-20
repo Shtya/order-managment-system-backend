@@ -25,6 +25,7 @@ import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
 import { getErrorMessage } from "common/healpers";
 import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
+import { NotificationType } from "entities/notifications.entity";
 
 @Injectable()
 export class StoresService {
@@ -764,11 +765,29 @@ export class StoresService {
         await manager.update(OrderEntity, newOrder.id, { externalId: payload.externalOrderId });
 
         this.logger.log(`[Webhook Order Create] Created new order from webhook with External ID ${payload.externalOrderId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`);
+        await this.notificationService.create({
+          userId: adminId,
+          type: NotificationType.ORDER_CREATED,
+          title: "New Order Created",
+          message: `Order "${newOrder.orderNumber}" created successfully from ${store.name}.`,
+          relatedEntityType: "order",
+          relatedEntityId: String(newOrder.id),
+        });
+
         return { ok: true, orderId: newOrder.id };
       });
     } catch (error: any) {
       const errorMessage = getErrorMessage(error);
       this.logger.error(`[Webhook Order Create] Error processing webhook order: ${errorMessage}`, error.stack);
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.SYSTEM_ERROR,
+        title: "Order Creation Failed",
+        message: `Failed to process order from ${store.name}: ${getErrorMessage(error)}`,
+        relatedEntityType: "store",
+        relatedEntityId: String(store.id),
+      });
+
       if (failureLog) {
         failureLog.status = OrderFailStatus.FAILED;
         failureLog.lastRetryFailedReason = errorMessage;
@@ -874,6 +893,15 @@ export class StoresService {
     await this.ordersService.changeStatus(User, order.id, {
       statusId: statusEntity.id,
       notes: `Status updated via Webhook from ${payload.remoteStatus} to ${payload.mappedStatus}`
+    });
+
+    await this.notificationService.create({
+      userId: order.adminId.toString(),
+      type: NotificationType.ORDER_UPDATED,
+      title: "Order Status Updated",
+      message: `Order #${order.orderNumber} updated to ${payload.mappedStatus}`,
+      relatedEntityType: "order",
+      relatedEntityId: String(order.id),
     });
 
   }
