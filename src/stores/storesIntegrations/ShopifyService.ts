@@ -1672,7 +1672,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             externalId: String(body.id),
             // Store both as a combined string so you know exactly what happened on Shopify's end
             remoteStatus: `${financialStatus}/${fulfillmentStatus || 'null'}`,
-            mappedStatus: internalStatus
+            mappedStatus: internalStatus,
+            mappedPaymentStatus: null
         };
     }
 

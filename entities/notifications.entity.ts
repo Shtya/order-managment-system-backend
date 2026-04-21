@@ -33,7 +33,8 @@ export enum NotificationType {
     LOW_STOCK_ALERT = 'low_stock_alert',
     MARKETING_MESSAGE = 'marketing_message',
     SYSTEM_ERROR = 'system_error',
-    ORDER_CREATED = 'order_created'
+    ORDER_CREATED = 'order_created',
+    PRODUCT_SYNC_FAILED = 'product_sync_failed'
 }
 
 @Entity('notifications')

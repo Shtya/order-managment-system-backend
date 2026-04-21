@@ -5,6 +5,8 @@ import { ProductSyncStateEntity, ProductSyncErrorLogEntity, ProductSyncAction, P
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'entities/notifications.entity';
 
 @Injectable()
 export class ProductSyncStateService {
@@ -13,6 +15,7 @@ export class ProductSyncStateService {
         private readonly syncStateRepo: Repository<ProductSyncStateEntity>,
         @InjectRepository(ProductSyncErrorLogEntity)
         private readonly syncErrorLogRepo: Repository<ProductSyncErrorLogEntity>,
+        private readonly notificationService: NotificationService,
     ) { }
 
     // ─── SYNC STATE ──────────────────────────────────────────────────────────
@@ -319,17 +322,32 @@ export class ProductSyncStateService {
 
     async upsertSyncErrorLog(
         { adminId, productId, storeId }: { adminId: string, productId: string, storeId: string },
-        data: Partial<ProductSyncErrorLogEntity>
+        data: {
+            remoteProductId?: string | null;
+            action: ProductSyncAction;
+            errorMessage: string;
+            userMessage: string;
+            responseStatus?: number;
+            requestPayload?: Record<string, any> | null;
+        }
     ) {
         if (!adminId || !productId || !storeId) {
             throw new Error('adminId, productId, storeId are required');
         }
-
+        const { userMessage, ...payload } = data;
         const log = this.syncErrorLogRepo.create({
-            ...data,
+            ...payload,
             adminId,
             productId,
             storeId
+        });
+        await this.notificationService.create({
+            userId: adminId,
+            type: NotificationType.PRODUCT_SYNC_FAILED,
+            title: "Product Sync Failed",
+            message: userMessage || `Failed to sync product`,
+            relatedEntityType: "product",
+            relatedEntityId: String(productId),
         });
 
         return this.syncErrorLogRepo.save(log);

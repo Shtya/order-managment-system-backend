@@ -1395,7 +1395,14 @@ export class ProductsService {
           await pvRepo.save(variantsToSave);
         }
       }
-
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.PRODUCT_CREATED,
+        title: `New Product Created ${new Date()}`,
+        message: `Product "${savedProduct.name}" has been created successfully.`,
+        relatedEntityType: "product",
+        relatedEntityId: String(savedProduct.id),
+      }, mgr);
       return savedProduct.id;
     };
 
