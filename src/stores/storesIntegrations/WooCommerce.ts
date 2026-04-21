@@ -1058,7 +1058,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         }
     }
 
-    public async syncOrderStatus(order: OrderEntity) {
+    public async syncOrderStatus(order: OrderEntity, newStatusId: string) {
         this.logCtx(`[Sync] Starting order status sync | Order: ${order.orderNumber} | Status: ${order.status}`, null, order.adminId);
 
         try {
@@ -1326,7 +1326,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
         return expected === signature;
     }
-    public mapWebhookUpdate(body: any): WebhookOrderUpdatePayload {
+    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload {
         const externalStatus = body.status; // WooCommerce uses 'status'
         const internalStatus = this.mapExternalStatusToInternal(externalStatus);
 

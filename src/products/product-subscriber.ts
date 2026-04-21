@@ -68,7 +68,7 @@ export class VariantSubscriber implements EntitySubscriberInterface<ProductVaria
         });
 
         if (product?.storeId) {
-            await this.storesService.syncProductToStore(product);
+            await this.storesService.syncProductToStore(product, true);
         }
     }
 
