@@ -77,6 +77,7 @@ export interface WebhookOrderUpdatePayload {
     externalId: string;
     remoteStatus: string;
     mappedStatus: OrderStatus;
+    mappedPaymentStatus: PaymentStatus;
 }
 
 export interface UnifiedProductVariantDto {

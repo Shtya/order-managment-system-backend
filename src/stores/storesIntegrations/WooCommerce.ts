@@ -1335,7 +1335,8 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         return {
             externalId: String(body.id),
             remoteStatus: externalStatus,
-            mappedStatus: internalStatus
+            mappedStatus: internalStatus,
+            mappedPaymentStatus: null
         };
     }
 

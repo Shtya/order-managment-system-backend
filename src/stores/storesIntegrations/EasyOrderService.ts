@@ -19,6 +19,8 @@ import { ProductsService } from "src/products/products.service";
 import { CategoriesService } from "src/category/category.service";
 import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
 import { AppGateway } from "common/app.gateway";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 
 
 @Injectable()
@@ -38,7 +40,7 @@ export class EasyOrderService extends BaseStoreProvider {
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
         @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
-
+        private readonly notificationService: NotificationService,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
         @Inject(forwardRef(() => OrdersService))
@@ -637,7 +639,7 @@ export class EasyOrderService extends BaseStoreProvider {
                         totalCreated++;
                     }
                     totalProcessed++;
-                } catch (error) {
+                } catch (error: any) {
                     const errorMessage = this.getErrorMessage(error);
                     const remoteId = product?.syncState?.remoteProductId;
                     const action = remoteId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
@@ -660,6 +662,7 @@ export class EasyOrderService extends BaseStoreProvider {
                             remoteProductId: remoteId || null,
                             action: action,
                             errorMessage,
+                            userMessage: `Failed to sync product "${product.name}" to ${store.name}: ${errorMessage}`,
                             responseStatus: error?.response?.status,
                             requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
                         }
@@ -975,7 +978,7 @@ export class EasyOrderService extends BaseStoreProvider {
 
             return result.response;
 
-        } catch (error) {
+        } catch (error: any) {
             const errorMessage = this.getErrorMessage(error);
 
             // FAILURE STATE UPDATE
@@ -996,10 +999,12 @@ export class EasyOrderService extends BaseStoreProvider {
                     remoteProductId: externalId || null,
                     action: action,
                     errorMessage,
+                    userMessage: `Failed to sync product "${product.name}" to ${activeStore.name}: ${errorMessage}`,
                     responseStatus: error?.response?.status,
                     requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
                 }
             );
+
 
             throw error;
         }
@@ -1095,25 +1100,80 @@ export class EasyOrderService extends BaseStoreProvider {
         }
     }
 
-    private mapExternalStatusToInternal(externalStatus: string): OrderStatus | null {
-        const map: Record<string, OrderStatus> = {
-            "pending": OrderStatus.NEW,
-            "pending_payment": OrderStatus.NEW,
-            "confirmed": OrderStatus.UNDER_REVIEW,
-            "paid": OrderStatus.UNDER_REVIEW,
-            "processing": OrderStatus.PREPARING,
-            "waiting_for_pickup": OrderStatus.READY,
-            "in_delivery": OrderStatus.SHIPPED,
-            "delivered": OrderStatus.DELIVERED,
-            "canceled": OrderStatus.CANCELLED,
-            "paid_failed": OrderStatus.CANCELLED,
-            "returning_from_delivery": OrderStatus.RETURNED,
-            "request_refund": OrderStatus.RETURNED,
-            "refund_in_progress": OrderStatus.RETURNED,
-            "refunded": OrderStatus.RETURNED,
+
+
+    private mapExternalStatusToInternal(externalStatus: string): {
+        orderStatus: OrderStatus | null;
+        paymentStatus: PaymentStatus | null;
+    } {
+        const map: Record<string, {
+            orderStatus: OrderStatus | null;
+            paymentStatus: PaymentStatus | null;
+        }> = {
+
+            // 🟡 Order lifecycle
+            "pending": {
+                orderStatus: OrderStatus.NEW,
+                paymentStatus: null,
+            },
+            "confirmed": {
+                orderStatus: OrderStatus.CONFIRMED,
+                paymentStatus: null,
+            },
+            "processing": {
+                orderStatus: OrderStatus.PREPARING,
+                paymentStatus: null,
+            },
+            "waiting_for_pickup": {
+                orderStatus: OrderStatus.READY,
+                paymentStatus: null,
+            },
+            "in_delivery": {
+                orderStatus: OrderStatus.SHIPPED,
+                paymentStatus: null,
+            },
+            "delivered": {
+                orderStatus: OrderStatus.DELIVERED,
+                paymentStatus: null,
+            },
+            "canceled": {
+                orderStatus: OrderStatus.CANCELLED,
+                paymentStatus: null,
+            },
+            "returning_from_delivery": {
+                orderStatus: OrderStatus.RETURNED,
+                paymentStatus: null,
+            },
+            "refunded": {
+                orderStatus: OrderStatus.RETURNED,
+                paymentStatus: PaymentStatus.REFUNDED,
+            },
+
+            // 💰 Payment states
+            "paid": {
+                orderStatus: null,
+                paymentStatus: PaymentStatus.PAID,
+            },
+            "unpaid": {
+                orderStatus: null,
+                paymentStatus: PaymentStatus.PENDING,
+            },
+            "paid_pending": {
+                orderStatus: null,
+                paymentStatus: PaymentStatus.PENDING,
+            },
+
+            // 🔴 Optional edge cases
+            "paid_failed": {
+                orderStatus: null,
+                paymentStatus: PaymentStatus.PENDING,
+            },
         };
 
-        return map[externalStatus] || null;
+        return map[externalStatus] || {
+            orderStatus: null,
+            paymentStatus: null,
+        };
     }
 
     /**
@@ -1168,18 +1228,19 @@ export class EasyOrderService extends BaseStoreProvider {
     }
     public mapWebhookUpdate(body: any): WebhookOrderUpdatePayload {
         const externalStatus = body.new_status;
-        const internalStatus = this.mapExternalStatusToInternal(externalStatus);
-        if (!internalStatus) {
+        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(externalStatus);
+        if (!orderStatus || !paymentStatus) {
             return null;
         }
         return {
             externalId: body.order_id,
             remoteStatus: externalStatus,
-            mappedStatus: internalStatus
+            mappedStatus: orderStatus,
+            mappedPaymentStatus: paymentStatus
         };
     }
     public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
-
+        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body.status)
         return {
             externalOrderId: String(body.id),
             fullName: body.full_name,
@@ -1189,8 +1250,8 @@ export class EasyOrderService extends BaseStoreProvider {
             government: body.government || "Unknown",
             // Reuse your existing internal mapping logic for payment
             paymentMethod: this.mapPaymentMethod(body.payment_method),
-            paymentStatus: body.status === 'paid' ? PaymentStatus.PAID : PaymentStatus.PENDING,
-            status: this.mapExternalStatusToInternal(body.status),
+            paymentStatus: paymentStatus || PaymentStatus.PENDING,
+            status: orderStatus || OrderStatus.NEW,
             shippingCost: body.shipping_cost || 0,
             totalCost: body.total_cost,
             cartItems: (body.cart_items || []).map((item: any) => {

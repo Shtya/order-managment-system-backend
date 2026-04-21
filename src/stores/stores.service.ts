@@ -26,6 +26,7 @@ import { NotificationService } from "src/notifications/notification.service";
 import { getErrorMessage } from "common/healpers";
 import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
+import { OrderStatus } from "common/enums";
 
 @Injectable()
 export class StoresService {
@@ -42,12 +43,11 @@ export class StoresService {
     private readonly easyOrderService: EasyOrderService,
     private readonly woocommerceService: WooCommerceService,
 
-    @InjectRepository(ProductEntity)
-    protected readonly productsRepo: Repository<ProductEntity>,
-    @InjectRepository(ProductVariantEntity)
-    protected readonly pvRepo: Repository<ProductVariantEntity>,
+    @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
+    @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
     @InjectRepository(WebhookOrderFailureEntity) private readonly failureRepo: Repository<WebhookOrderFailureEntity>,
     @InjectRepository(ProductSyncStateEntity) private readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    @InjectRepository(OrderEntity) private readonly ordersRepo: Repository<OrderEntity>,
 
     @Inject(forwardRef(() => OrdersService))
     protected readonly ordersService: OrdersService,
@@ -835,75 +835,128 @@ export class StoresService {
     return this.processMappedWebhookOrder(adminId, store, payload, body);
   }
 
-  async handleWebhookOrderUpdate(provider: string, body: any, headers: Record<string, any>, adminId: string, req: any) {
-    const p = this.getProvider(provider);
-    const payload = p.mapWebhookUpdate(body);
-    const externalOrderId = payload?.externalId;
-    const order = await this.ordersService.findByExternalId(externalOrderId);
+  async handleWebhookOrderUpdate(
+    provider: string,
+    body: any,
+    headers: Record<string, any>,
+    adminId: string,
+    req: any
+  ) {
+    try {
+      const p = this.getProvider(provider);
+      const payload = p.mapWebhookUpdate(body);
 
-    if (!order) {
-      this.logger.warn(`[Webhook Order Update] Received status update for unknown order ${externalOrderId}`);
-      return;
+      const externalOrderId = payload?.externalId;
+      const order = await this.ordersService.findByExternalId(externalOrderId);
+
+      if (!order) {
+        throw new Error(`Unknown order ${externalOrderId}`);
+      }
+
+      if (!order.storeId) {
+        throw new Error(`Order ${order.orderNumber} has no storeId`);
+      }
+
+      const store = await this.storesRepo.findOne({ where: { id: order.storeId } });
+
+      if (!store) {
+        throw new Error(`Store ${order.storeId} not found`);
+      }
+
+      if (!store.isActive) {
+        throw new Error(`Store ${store.name} is not active`);
+      }
+
+      if (store.provider !== p.code) {
+        throw new Error(
+          `Provider mismatch: expected ${p.code}, got ${store.provider}`
+        );
+      }
+
+      const isAuthed = p.verifyWebhookAuth(headers, body, store, req, "update");
+
+      if (!isAuthed) {
+        throw new Error(`Webhook authentication failed`);
+      }
+
+      // ✅ mapping validation
+      if (!payload.mappedStatus && !payload.mappedPaymentStatus) {
+        throw new Error(
+          `Unmapped status "${payload.remoteStatus}" for order ${order.orderNumber}`
+        );
+      }
+
+      const isOrderStatusChanged =
+        payload.mappedStatus &&
+        order.status?.code !== payload.mappedStatus;
+
+      const isPaymentStatusChanged =
+        payload.mappedPaymentStatus &&
+        order.paymentStatus !== payload.mappedPaymentStatus;
+
+      if (!isOrderStatusChanged && !isPaymentStatusChanged) {
+        this.logger.log(
+          `[Webhook Order Update] No changes for Order #${order.orderNumber}`
+        );
+        return;
+      }
+
+      // 🟡 Order status
+      if (isOrderStatusChanged) {
+        const statusEntity = await this.ordersService.findStatusByCode(
+          payload.mappedStatus,
+          order.adminId.toString()
+        );
+
+        if (!statusEntity) {
+          throw new Error(
+            `Mapped status "${payload.mappedStatus}" not found`
+          );
+        }
+
+        const User = { id: order.adminId.toString(), role: { name: "admin" } };
+
+        await this.ordersService.changeStatus(User, order.id, {
+          statusId: statusEntity.id,
+          notes: `Updated via webhook (${payload.remoteStatus})`,
+        });
+      }
+
+      // 💰 Payment status
+      if (isPaymentStatusChanged) {
+        order.paymentStatus = payload.mappedPaymentStatus;
+        await this.ordersRepo.save(order);
+
+        await this.notificationService.create({
+          userId: order.adminId.toString(),
+          type: NotificationType.ORDER_UPDATED,
+          title: "Order Payment Status Updated",
+          message: `Order #${order.orderNumber} payment status has been updated to ${payload.mappedPaymentStatus}.`,
+          relatedEntityType: "order",
+          relatedEntityId: String(order.id),
+        });
+      }
+
+    } catch (error: any) {
+      const message = getErrorMessage(error);
+
+      this.logger.error(
+        `[Webhook Order Update Failed] ${message}`,
+        error?.stack
+      );
+
+      // 🔥 notify admin
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.SYSTEM_ERROR,
+        title: "Webhook Order Update Failed",
+        message: message,
+        relatedEntityType: "webhook",
+        relatedEntityId: provider,
+      });
+
+      return; // ✅ prevent crash / webhook retry storm
     }
-
-    if (!order.storeId) {
-      this.logger.warn(`[Webhook Order Update] Order ${order.orderNumber} does not have an associated storeId. Cannot process webhook status update.`);
-      return;
-    }
-    const store = await this.storesRepo.findOne({ where: { id: order.storeId } });
-
-    if (!store) {
-      this.logger.warn(`[Webhook Order Update] Associated store with ID ${order.storeId} not found for Order #${order.orderNumber}. Cannot process webhook status update.`);
-      return;
-    }
-
-    if (!store.isActive) {
-      this.logger.warn(`[Webhook Order Update] Store "${store.name}" (ID: ${store.id}) associated with Order #${order.orderNumber} is not active. Ignoring webhook status update.`);
-      return;
-    }
-
-    if (store.provider !== p.code) {
-      this.logger.warn(`[Webhook Order Update] Store "${store.name}" (ID: ${store.id}) provider mismatch. Expected ${p.code} but got ${store.provider}. Ignoring webhook status update for Order #${order.orderNumber}.`);
-      return;
-    }
-
-    const creds = store.credentials || {};
-
-    const isAuthed = p.verifyWebhookAuth(headers, body, store, req, "update");
-
-    if (!isAuthed) {
-      this.logger.warn(`[Webhook Order Update] Authentication failed for webhook status update on Order #${order.orderNumber}. Invalid signature.`);
-      return { ok: true, ignored: true, reason: 'auth_failed' };
-    }
-
-    const statusEntity = await this.ordersService.findStatusByCode(payload.mappedStatus, order?.adminId.toString())
-    if (order.status.code === payload.mappedStatus) {
-      this.logger.log(`[Webhook Order Update] Received status update for Order #${order.orderNumber} but status is already "${payload.mappedStatus}". No update needed.`);
-      return;
-    }
-
-    if (!payload.mappedStatus) {
-      this.logger.warn(`[Webhook Order Update] Received unmapped status "${payload.remoteStatus}" for Order #${order.orderNumber}. No corresponding internal status found. Ignoring update.`);
-      return;
-    }
-
-    // 4. Update Status
-    const User = { id: order?.adminId.toString(), role: { name: 'admin' } };
-
-    await this.ordersService.changeStatus(User, order.id, {
-      statusId: statusEntity.id,
-      notes: `Status updated via Webhook from ${payload.remoteStatus} to ${payload.mappedStatus}`
-    });
-
-    await this.notificationService.create({
-      userId: order.adminId.toString(),
-      type: NotificationType.ORDER_UPDATED,
-      title: "Order Status Updated",
-      message: `Order #${order.orderNumber} updated to ${payload.mappedStatus}`,
-      relatedEntityType: "order",
-      relatedEntityId: String(order.id),
-    });
-
   }
 
   async listFailedOrders(me: any, q?: any) {
