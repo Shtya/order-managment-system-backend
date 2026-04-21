@@ -24,12 +24,6 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
     public getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto> {
         throw new Error("Method not implemented.");
     }
-    public getFullProductBySlug(store: StoreEntity, slug: string): Promise<MappedProductDto> {
-        throw new Error("Method not implemented.");
-    }
-    public cancelIntegration(adminId: string): Promise<boolean> {
-        throw new Error("Method not implemented.");
-    }
 
     maxBundleItems?: number;
     supportBundle: boolean = true;

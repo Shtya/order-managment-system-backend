@@ -113,6 +113,7 @@ export enum PaymentStatus {
   PAID = "paid",
   PARTIAL = "partial",
   REFUNDED = "refunded",
+  PARTIALLY_REFUNDED = "partially_refunded",
 }
 
 // ✅ Payment Method Enum
@@ -213,7 +214,7 @@ export class OrderEntity {
   @JoinColumn({ name: "statusId" })
   status: OrderStatusEntity;
 
-  @Column({type: 'uuid'})
+  @Column({ type: 'uuid' })
   statusId: string;
 
   // ✅ Payment Information
@@ -293,10 +294,10 @@ export class OrderEntity {
   statusHistory!: OrderStatusHistoryEntity[];
 
   // ✅ Metadata
-  @Column({ type: 'uuid',nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   createdByUserId?: string;
 
-  @Column({ type: 'uuid',nullable: true })
+  @Column({ type: 'uuid', nullable: true })
   updatedByUserId?: string;
 
   @OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.order)
@@ -531,14 +532,14 @@ export class OrderStatusHistoryEntity {
   @JoinColumn({ name: "fromStatusId" })
   fromStatus: OrderStatusEntity;
 
-  @Column({type: 'uuid'})
+  @Column({ type: 'uuid' })
   fromStatusId: string;
 
   @ManyToOne(() => OrderStatusEntity)
   @JoinColumn({ name: "toStatusId" })
   toStatus: OrderStatusEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   toStatusId: string;
 
   @Column({ type: 'uuid', nullable: true })
@@ -721,21 +722,21 @@ export class OrderAssignmentEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   orderId: string;
 
   @ManyToOne(() => OrderEntity)
   @JoinColumn({ name: "orderId" })
   order: OrderEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   employeeId: string;
 
   @ManyToOne(() => User)
   @JoinColumn({ name: "employeeId" })
   employee: User;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   assignedByAdminId: string;
 
   @ManyToOne(() => OrderStatusEntity, { eager: true, nullable: true })
@@ -793,7 +794,7 @@ export class OrderReplacementEntity {
   @JoinColumn({ name: "originalOrderId" })
   originalOrder: OrderEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   originalOrderId: string;
 
   // Replacement order
@@ -801,7 +802,7 @@ export class OrderReplacementEntity {
   @JoinColumn({ name: "replacementOrderId" })
   replacementOrder: OrderEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   replacementOrderId: string;
 
   @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
@@ -829,7 +830,7 @@ export class OrderReplacementItemEntity {
   @JoinColumn({ name: "replacementId" })
   replacement: OrderReplacementEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   replacementId: string;
 
   // Connection to the specific item being replaced from the original order
@@ -837,7 +838,7 @@ export class OrderReplacementItemEntity {
   @JoinColumn({ name: "originalOrderItemId" })
   originalOrderItem: OrderItemEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   originalOrderItemId: string;
 
   @Column({ type: "int" })
@@ -999,14 +1000,14 @@ export class ReturnRequestEntity {
   @JoinColumn({ name: 'adminId' })
   admin: User;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   orderId: string;
 
   @ManyToOne(() => OrderEntity)
   @JoinColumn({ name: "orderId" })
   order: OrderEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   userId: string; // User who created the request (Staff/Admin)
 
   @Column({ nullable: true })
@@ -1026,20 +1027,20 @@ export class ReturnRequestItemEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   returnRequestId: string;
 
   @ManyToOne(() => ReturnRequestEntity, (req) => req.items)
   returnRequest: ReturnRequestEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   originalOrderItemId: string;
 
   @ManyToOne(() => OrderItemEntity)
   @JoinColumn({ name: "originalOrderItemId" })
   originalItem: OrderItemEntity;
 
-  @Column({type: 'uuid',})
+  @Column({ type: 'uuid', })
   returnedVariantId: string; // The actual variant received
 
   @ManyToOne(() => ProductVariantEntity)

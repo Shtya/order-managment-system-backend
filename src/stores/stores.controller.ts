@@ -115,12 +115,10 @@ export class StoresController {
     return await this.storesService.upsertIntegrate(req.user, dto);
   }
 
-  @Patch("cancel-integration")
+  @Patch("easyorder/cancel-integration")
   async cancelIntegration(@Req() req: any) {
     return this.storesService.cancelIntegration(req.user);
-
   }
-
 
   @Permissions("stores.update")
   @Patch(":id")
