@@ -330,8 +330,8 @@ export class StoresService {
     if (!store) {
       throw new BadRequestException("Store not integrated.");
     }
-    const p = this.getProvider(store.provider);
-    await p.cancelIntegration(adminId);
+
+    await this.easyOrderService.cancelIntegration(adminId);
     store.isActive = false;
     store.isIntegrated = false;
     store.credentials = {};
@@ -378,6 +378,12 @@ export class StoresService {
     const p = this.getProvider(store.provider);
     return await this.dataSource.transaction(async (manager) => {
 
+      if (dto.name) store.name = dto.name.trim();
+      if (dto.storeUrl) store.storeUrl = dto.storeUrl.trim();
+      if (dto.syncNewProducts !== undefined) store.syncNewProducts = dto.syncNewProducts;
+      if (dto.isActive !== undefined) store.isActive = dto.isActive;
+
+
       // Handle Credentials Update
       if (dto.credentials) {
         const updatedCredentials: any = {
@@ -410,26 +416,8 @@ export class StoresService {
         }
       }
 
-      // 3. Handle Unique Code Update
-      // if (dto.code) {
-      //   const trimmedCode = dto.code.trim();
-      //   if (trimmedCode !== store.code) {
-      //     const existingCode = await manager.findOne(StoreEntity, {
-      //       where: { adminId, code: trimmedCode }
-      //     });
-
-      //     if (existingCode) {
-      //       throw new BadRequestException(`Store code "${trimmedCode}" is already in use.`);
-      //     }
-      //     store.code = trimmedCode;
-      //   }
-      // }
 
       // 4. Update standard fields (with trimming)
-      if (dto.name) store.name = dto.name.trim();
-      if (dto.storeUrl) store.storeUrl = dto.storeUrl.trim();
-      if (dto.syncNewProducts !== undefined) store.syncNewProducts = dto.syncNewProducts;
-      if (dto.isActive !== undefined) store.isActive = dto.isActive;
 
       const savedStore = await manager.save(store);
 
@@ -445,19 +433,6 @@ export class StoresService {
     });
   }
 
-  // async checkCodeExists(me: any, code: string): Promise<boolean> {
-  //   const adminId = tenantId(me);
-  //   if (!adminId) throw new BadRequestException("Missing adminId");
-
-  //   // .exists() returns a boolean directly (true if found, false if not)
-  //   // We trim the code to ensure accurate comparison
-  //   return await this.storesRepo.exists({
-  //     where: {
-  //       adminId,
-  //       code: code.trim()
-  //     }
-  //   });
-  // }
 
   async remove(me: any, id: string) {
     const adminId = tenantId(me);

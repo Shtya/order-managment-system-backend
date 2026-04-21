@@ -26,12 +26,13 @@ export class StoreWebhooksController {
     }
 
 
-    @Get('shopify/init')
+    @Get(':adminId/shopify/init')
     async handleInit(
+        @Param('adminId') adminId: string,
         @Query() query: Record<string, any>,
         @Res() res: Response
     ) {
-        const result = await this.shopifyService.Init(query);
+        const result = await this.shopifyService.Init(query, adminId);
 
         // This tells the browser to go to your React Dashboard
         return res.redirect(result.url);

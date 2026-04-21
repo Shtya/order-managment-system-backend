@@ -100,9 +100,6 @@ export class StoreEntity {
 	@Column({ type: "varchar", nullable: true })
 	externalStoreId?: string;
 
-	@Column({ type: "varchar", nullable: true })
-	onlineStorePublicationId?: string;
-
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;
 

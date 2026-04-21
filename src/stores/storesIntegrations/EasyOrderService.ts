@@ -534,6 +534,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 indexes: null // removes the brackets [] from the query key
             }
         }, 0, retry);
+
         return response;
 
     }
@@ -607,38 +608,26 @@ export class EasyOrderService extends BaseStoreProvider {
                         const remoteCategory = await this.syncCategory({ relatedAdminId: product.adminId, category: product.category });
                         extCatId = remoteCategory?.id;
                     }
-
+                    let syncedProduct: any;
                     if (remote) {
-                        const result = await this.updateProduct(product, product.variants, store, remote.id, extCatId);
-
-                        // SUCCESS STATE UPDATE
-                        await this.productSyncStateService.upsertSyncState(
-                            { adminId: store.adminId, productId: product.id, storeId: store.id, externalStoreId: store.externalStoreId },
-                            {
-                                remoteProductId: result.externalId,
-                                status: ProductSyncStatus.SYNCED,
-                                lastError: null,
-                                lastSynced_at: new Date(),
-                            },
-                        );
-
+                        syncedProduct = await this.updateProduct(product, product.variants, store, remote.id, extCatId);
                         totalUpdated++;
                     } else {
-                        const result = await this.createProduct(product, product.variants, store, extCatId);
+                        syncedProduct = await this.createProduct(product, product.variants, store, extCatId);
 
                         // SUCCESS STATE UPDATE
-                        await this.productSyncStateService.upsertSyncState(
-                            { adminId: store.adminId, productId: product.id, storeId: store.id, externalStoreId: store.externalStoreId },
-                            {
-                                remoteProductId: result.externalId,
-                                status: ProductSyncStatus.SYNCED,
-                                lastError: null,
-                                lastSynced_at: new Date(),
-                            },
-                        );
 
                         totalCreated++;
                     }
+                    await this.productSyncStateService.upsertSyncState(
+                        { adminId: store.adminId, productId: product.id, storeId: store.id, externalStoreId: store.externalStoreId },
+                        {
+                            remoteProductId: syncedProduct?.externalId ?? remoteId ?? null,
+                            status: ProductSyncStatus.SYNCED,
+                            lastError: null,
+                            lastSynced_at: new Date(),
+                        },
+                    );
                     totalProcessed++;
                 } catch (error: any) {
                     const errorMessage = this.getErrorMessage(error);
@@ -893,6 +882,7 @@ export class EasyOrderService extends BaseStoreProvider {
         const status = await this.ordersService.findStatusById(newStatusId, order.adminId);
         if (!status) {
             this.logger.warn(`No status found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`);
+            return;
         }
 
         const remoteStatus = this.mapInternalStatusToExternal(status.code as OrderStatus);
@@ -928,12 +918,6 @@ export class EasyOrderService extends BaseStoreProvider {
             where: { productId: product.id }
         });
 
-
-        // 1. Validate Store
-        // if (!product.store || product.store.provider !== StoreProvider.EASYORDER) {
-        //     this.logCtxWarn(`[Sync] Skipping sync: Store not found or provider is not EASYORDER`, null, product.adminId);
-        //     return;
-        // }
         const productSyncState = await this.productSyncStateRepo.findOne({
             where: {
                 productId: productId,
@@ -942,6 +926,8 @@ export class EasyOrderService extends BaseStoreProvider {
                 externalStoreId: product?.store?.externalStoreId
             }
         });
+        let externalId = productSyncState?.remoteProductId;
+        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
         const activeStore = await this.getStoreForSync(product.adminId);
 
         if (!activeStore) {
@@ -949,15 +935,13 @@ export class EasyOrderService extends BaseStoreProvider {
         }
 
         // 2. ⚡ RESOLVE CATEGORY ID ⚡
-        let easyOrderCategory = null;
-        if (product.category) {
-            easyOrderCategory = await this.syncCategory({ category: product.category, slug: product.category.slug, relatedAdminId: product.adminId });
-        }
-
-        const externalId = productSyncState?.remoteProductId;
-        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
 
         try {
+            let easyOrderCategory = null;
+            if (product.category) {
+                easyOrderCategory = await this.syncCategory({ category: product.category, slug: product.category.slug, relatedAdminId: product.adminId });
+            }
+
             let result;
             if (externalId) {
                 const remoteProduct = await this.getProduct(activeStore, externalId);
@@ -969,12 +953,12 @@ export class EasyOrderService extends BaseStoreProvider {
             } else {
                 result = await this.createProduct(product, variants, activeStore, easyOrderCategory?.id);
             }
-
+            externalId = result?.externalId;
             // SUCCESS STATE UPDATE
             await this.productSyncStateService.upsertSyncState(
                 { adminId: activeStore.adminId, productId: product.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId },
                 {
-                    remoteProductId: result.externalId,
+                    remoteProductId: externalId,
                     status: ProductSyncStatus.SYNCED,
                     lastError: null,
                     lastSynced_at: new Date(),

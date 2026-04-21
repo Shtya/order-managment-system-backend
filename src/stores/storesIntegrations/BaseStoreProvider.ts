@@ -14,6 +14,16 @@ import { BundleEntity } from "entities/bundle.entity";
 export interface IBundleSyncProvider {
     syncBundle(bundle: BundleEntity): Promise<void>;
 }
+
+
+export type ShopifyAction =
+    | "FULFILL"
+    | "PARTIAL_FULFILL"
+    | "CANCEL"
+    | "HOLD"
+    | "NONE";
+
+
 export interface MappedProductDto {
     name: string;
     price: number;
@@ -367,8 +377,6 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
     public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload;
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;
-    public abstract syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void>;
     public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
-    public abstract cancelIntegration(adminId: string): Promise<boolean>
 
 }
