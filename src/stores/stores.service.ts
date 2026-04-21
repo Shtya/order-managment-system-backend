@@ -7,7 +7,7 @@ import { tenantId } from "src/category/category.service";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
 import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
-import { OrderEntity } from "entities/order.entity";
+import { OrderEntity, OrderStatus } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
 import { StoreQueueService } from "./storesIntegrations/queues";
 import { BaseStoreProvider, MappedProductDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
@@ -26,7 +26,6 @@ import { NotificationService } from "src/notifications/notification.service";
 import { getErrorMessage } from "common/healpers";
 import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
-import { OrderStatus } from "common/enums";
 
 @Injectable()
 export class StoresService {
@@ -594,11 +593,16 @@ export class StoresService {
 
   }
 
-  async syncOrderStatus(order: OrderEntity) {
-    const { adminId, orderNumber, id } = order;
+  async syncOrderStatus(order: OrderEntity, newStatusId: string) {
+    const { adminId, orderNumber, id, store: orderStore } = order;
+
+    if (!orderStore) {
+      this.logger.warn(`[Order Status Sync] No active store found to sync Order #${orderNumber} for Admin ${adminId}.`);
+      return;
+    }
 
     const store = await this.storesRepo.findOne({
-      where: { adminId, isActive: true, isIntegrated: true }
+      where: { adminId, isActive: true, isIntegrated: true, provider: orderStore.provider }
     });
 
     if (!store) {
@@ -608,7 +612,7 @@ export class StoresService {
 
     // Route to the correct queue based on Provider
 
-    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider);
+    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId);
 
     this.logger.log(
       `[Order Status Sync] Dispatched status update for Order #${orderNumber} (ID: ${id}) ` +
@@ -705,20 +709,44 @@ export class StoresService {
           return { ok: true, ignored: true, reason: 'order_exists' };
         }
 
-        const slugs = payload.cartItems.map(item => item.productSlug);
+        const remoteIds = payload.cartItems.map(item => item.remoteProductId);
 
-        const localProducts = await manager.getRepository(ProductEntity).find({
-          where: { adminId, slug: In(slugs) },
-          relations: ['variants'],
-        });
 
-        const productMap = new Map(localProducts.map(p => [p.slug, p]));
+        const localProducts = await this.storesRepo.manager.createQueryBuilder(ProductEntity, "product")
+          .leftJoinAndSelect("product.variants", "variants")
+          .leftJoinAndMapOne(
+            "product.syncState",
+            ProductSyncStateEntity,
+            "syncState",
+            `
+            syncState.productId = product.id
+            AND syncState.storeId = :storeId
+            AND syncState.adminId = :adminId
+            AND syncState.externalStoreId = :externalStoreId
+            AND syncState.remoteProductId IN (:...remoteIds)
+          `,
+            {
+              storeId: store.id,
+              adminId: store.adminId,
+              externalStoreId: store.externalStoreId,
+              remoteIds,
+            }
+          )
+          .where("product.storeId = :storeId", { storeId: store.id })
+          .andWhere("product.adminId = :adminId", { adminId: store.adminId })
+          .andWhere("product.isActive = :isActive", { isActive: true })
+          .orderBy("product.id", "ASC")
+          .getMany();
+
+        const productMap = new Map(
+          localProducts.map(p => [(p as any).syncState?.remoteProductId, p])
+        );
 
         const items = [];
         for (const item of payload.cartItems) {
-          const localProduct = productMap.get(item.productSlug);
+          const localProduct = productMap.get(item.remoteProductId);
           if (!localProduct) {
-            const reason = `Missing product for slug ${item.productSlug}`;
+            const reason = `Missing product for ${item.name}`;
             throw new BadRequestException(reason);
           }
           let matchedVariant = null;
@@ -730,7 +758,7 @@ export class StoresService {
           }
 
           if (!matchedVariant) {
-            const reason = `No valid variant found for product ${item.productSlug}`;
+            const reason = `No valid variant found for product ${item.name}`;
             throw new BadRequestException(reason);
           }
 
@@ -844,14 +872,14 @@ export class StoresService {
   ) {
     try {
       const p = this.getProvider(provider);
-      const payload = p.mapWebhookUpdate(body);
 
-      const externalOrderId = payload?.externalId;
-      const order = await this.ordersService.findByExternalId(externalOrderId);
+      const externalOrderId = body?.order_id
+      const order = await this.ordersService.findByExternalId(body?.order_id);
 
       if (!order) {
         throw new Error(`Unknown order ${externalOrderId}`);
       }
+      const payload = p.mapWebhookUpdate(body, order?.status?.code as OrderStatus);
 
       if (!order.storeId) {
         throw new Error(`Order ${order.orderNumber} has no storeId`);
@@ -1467,7 +1495,7 @@ export class StoresService {
     return await this.storesRepo.save(store);
   }
 
-  public async getFullProductById(userContext: any, provider: StoreProvider, id: string): Promise<MappedProductDto> {
+  public async getFullProductById(userContext: any, provider: StoreProvider, id: string) {
     const adminId = tenantId(userContext);
     const store = await this.storesRepo.findOne({
       where: { adminId, provider }
@@ -1490,7 +1518,7 @@ export class StoresService {
       if (!product) {
         throw new BadRequestException("Product not found");
       }
-      return product;
+      return { ...product, storeId: store.id };
     } catch (error: any) {
       if (error instanceof BadRequestException) throw error;
 

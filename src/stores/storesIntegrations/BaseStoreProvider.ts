@@ -361,11 +361,11 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     // usage of the `@shopify/shopify-api` client and provider-specific behavior.
     public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
     public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
-    public abstract syncOrderStatus(order: OrderEntity)
+    public abstract syncOrderStatus(order: OrderEntity, newStatusId: string)
     public abstract syncFullStore(store: StoreEntity)
     public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
-    public abstract mapWebhookUpdate(body: any): WebhookOrderUpdatePayload;
+    public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload;
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;
     public abstract syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void>;
     public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>

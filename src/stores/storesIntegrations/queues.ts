@@ -118,9 +118,10 @@ export class StoreQueueService {
         this.bundleSyncTimeouts.set(jobId, timeout);
     }
 
-    async enqueueOrderStatusSync(order: OrderEntity, storeId: string, storeType: StoreProvider) {
+    async enqueueOrderStatusSync(order: OrderEntity, storeId: string, storeType: StoreProvider, newStatusId: string) {
         await this.addJob(order.adminId, "sync-order-status", storeType, {
             orderId: order.id,
+            newStatusId,
             storeId,
         });
     }

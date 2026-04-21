@@ -381,8 +381,8 @@ export class EasyOrderService extends BaseStoreProvider {
             expense: Number(product.wholesalePrice) || 0,
             // sale_price: Number(product.salePrice) || 0,
             description: product.description || "",
-            slug: product.slug,
-            sku: `SKU-${product.slug.toUpperCase().replace(/-/g, '').substring(0, 8)}-${product.id}`?.trim(),
+            slug: product.slug.replace(/_/g, '-'),
+            sku: `SKU-${product.slug.toUpperCase().substring(0, 8)}-${product.id}`?.trim(),
             thumb: this.getImageUrl(product.mainImage?.trim() || ""),
             images: product.images?.map(img => this.getImageUrl(img.url?.trim())) || [],
             categories: categoryPayload,
@@ -575,6 +575,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 )
                 .where("product.storeId = :storeId", { storeId: store.id })
                 .andWhere("product.adminId = :adminId", { adminId: store.adminId })
+                .andWhere("product.isActive = :isActive", { isActive: true })
                 .orderBy("product.id", "ASC")
                 .take(20);
 
@@ -596,7 +597,7 @@ export class EasyOrderService extends BaseStoreProvider {
 
             for (const product of localBatch) {
                 try {
-                    if (!product.isActive) continue;
+
                     const remoteId = product?.syncState?.remoteProductId;
                     const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
 
@@ -887,10 +888,14 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Updates the status of an order on EasyOrder
      */
-    public async updateOrderStatus(order: OrderEntity, store: StoreEntity) {
+    public async updateOrderStatus(order: OrderEntity, store: StoreEntity, newStatusId: string) {
         if (!order.externalId) return;
+        const status = await this.ordersService.findStatusById(newStatusId, order.adminId);
+        if (!status) {
+            this.logger.warn(`No status found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`);
+        }
 
-        const remoteStatus = this.mapInternalStatusToExternal(order.status.code as OrderStatus);
+        const remoteStatus = this.mapInternalStatusToExternal(status.code as OrderStatus);
         if (!remoteStatus) {
             this.logger.warn(`No status mapping found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`);
             return;
@@ -1023,7 +1028,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Main entry point for syncing order status to all applicable stores
      */
-    public async syncOrderStatus(order: OrderEntity) {
+    public async syncOrderStatus(order: OrderEntity, newStatusId: string) {
 
 
         const store = await this.getStoreForSync(order.adminId);
@@ -1031,7 +1036,7 @@ export class EasyOrderService extends BaseStoreProvider {
             throw new Error(`No active store enabled for admin (${order.adminId})`);
         }
 
-        await this.updateOrderStatus(order, store);
+        await this.updateOrderStatus(order, store, newStatusId);
     }
 
     /**
@@ -1102,10 +1107,20 @@ export class EasyOrderService extends BaseStoreProvider {
 
 
 
-    private mapExternalStatusToInternal(externalStatus: string): {
+    private mapExternalStatusToInternal(externalStatus: string, localStatus: OrderStatus): {
         orderStatus: OrderStatus | null;
         paymentStatus: PaymentStatus | null;
     } {
+        if (localStatus) {
+            const syncedRemoteStatus = this.mapInternalStatusToExternal(localStatus);
+            if (syncedRemoteStatus === externalStatus) {
+                return {
+                    orderStatus: null,
+                    paymentStatus: null,
+                }
+            }
+        }
+
         const map: Record<string, {
             orderStatus: OrderStatus | null;
             paymentStatus: PaymentStatus | null;
@@ -1226,12 +1241,10 @@ export class EasyOrderService extends BaseStoreProvider {
         }
         return true;
     }
-    public mapWebhookUpdate(body: any): WebhookOrderUpdatePayload {
+    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload {
         const externalStatus = body.new_status;
-        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(externalStatus);
-        if (!orderStatus || !paymentStatus) {
-            return null;
-        }
+        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(externalStatus, localOrderStatus);
+
         return {
             externalId: body.order_id,
             remoteStatus: externalStatus,
@@ -1240,7 +1253,7 @@ export class EasyOrderService extends BaseStoreProvider {
         };
     }
     public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
-        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body.status)
+        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body.status, null)
         return {
             externalOrderId: String(body.id),
             fullName: body.full_name,

@@ -1521,7 +1521,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
     }
 
-    public syncOrderStatus(order: OrderEntity) {
+    public syncOrderStatus(order: OrderEntity, newStatusId: string) {
         throw new Error("Method not implemented.");
     }
     public async syncFullStore(store: StoreEntity) {
@@ -1658,7 +1658,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             Buffer.from(shopifyHmac)
         );
     }
-    public mapWebhookUpdate(body: any): WebhookOrderUpdatePayload | null {
+    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload | null {
         const financialStatus = body.financial_status; // e.g., 'paid', 'pending'
         const fulfillmentStatus = body.fulfillment_status; // e.g., 'fulfilled', null
 

@@ -59,16 +59,14 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             // event.entity contains the updated fields
             const fullOrder = await event.manager.findOne(OrderEntity, {
                 where: { id: event.entity.id },
-                relations: ['status']
+                relations: ['status', 'store']
             });
 
             if (!fullOrder) return;
 
-            // Fetch settings directly using adminId
 
-            // 1. Sync status to external stores if needed
             if (fullOrder.externalId) {
-                await this.storesService.syncOrderStatus(fullOrder);
+                await this.storesService.syncOrderStatus(fullOrder, newStatusId);
             }
 
             const settings = await event.manager.findOne(OrderRetrySettingsEntity, {

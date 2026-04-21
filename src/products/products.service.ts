@@ -856,7 +856,7 @@ export class ProductsService {
           const slug = generateSlug(categoryName)
           category = catRepo.create({
             name: categoryName.trim(),
-            slug: slug || `category-${Date.now()}`,
+            slug: slug && slug !== "-" ? slug : `category-${Date.now()}`,
             adminId,
           });
 
@@ -1395,14 +1395,7 @@ export class ProductsService {
           await pvRepo.save(variantsToSave);
         }
       }
-      await this.notificationService.create({
-        userId: adminId,
-        type: NotificationType.PRODUCT_CREATED,
-        title: `New Product Created ${new Date()}`,
-        message: `Product "${savedProduct.name}" has been created successfully.`,
-        relatedEntityType: "product",
-        relatedEntityId: String(savedProduct.id),
-      }, mgr);
+
       return savedProduct.id;
     };
 

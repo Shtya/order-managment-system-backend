@@ -3110,7 +3110,7 @@ export class OrdersService {
   async findByExternalId(externalId: string): Promise<OrderEntity | null> {
     return this.orderRepo.findOne({
       where: { externalId },
-      relations: ["status", "items", "items.variant"],
+      relations: ["status", "items", "items.variant", 'store'],
     });
   }
 
