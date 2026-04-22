@@ -4,8 +4,8 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
-import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
-import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { ProductSyncAction, ProductSyncStateEntity, ProductSyncStatus } from "entities/product_sync_error.entity";
+import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
 import { ProductsService } from "src/products/products.service";
@@ -17,13 +17,12 @@ import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities
 import axios, { AxiosRequestConfig } from "axios";
 import * as crypto from 'crypto';
 import { AppGateway } from "common/app.gateway";
+import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 
 
 @Injectable()
 export default class WooCommerceService extends BaseStoreProvider implements IBundleSyncProvider {
-    public getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto> {
-        throw new Error("Method not implemented.");
-    }
+
 
     maxBundleItems?: number;
     supportBundle: boolean = true;
@@ -44,7 +43,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
         @Inject(forwardRef(() => CategoriesService))
         private readonly categoriesService: CategoriesService,
-
+        private readonly productSyncStateService: ProductSyncStateService,
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
@@ -52,6 +51,112 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, 400, StoreProvider.WOOCOMMERCE)
 
     }
+
+    public async getFullProductById(
+        store: StoreEntity,
+        id: string
+    ): Promise<MappedProductDto> {
+        try {
+            if (!id) return null;
+
+            // 🔥 run both requests in parallel
+            const [productResp, variationsResp] = await Promise.all([
+                this.sendRequest(store, {
+                    method: 'GET',
+                    url: `/products/${id}`,
+                }),
+                this.sendRequest(store, {
+                    method: 'GET',
+                    url: `/products/${id}/variations`,
+                }),
+            ]);
+
+            const product = productResp?.data ?? productResp;
+            const variations = variationsResp?.data ?? variationsResp ?? [];
+
+            return this.mapWooCommerceProductToDto(product, variations);
+
+        } catch (error: any) {
+            this.logger.error(
+                `[Product] Failed to fetch product by id ${id}: ${error.message}`
+            );
+            throw error;
+        }
+    }
+    public async getProduct(store: StoreEntity, id: string) {
+        try {
+            if (!id) return null;
+            const status = 'any';
+            const response = await this.sendRequest(store, {
+                method: 'GET',
+                url: `/products/${id}`,
+            });
+
+            const product = response?.data ?? response;
+            return product;
+
+        } catch (error: any) {
+            return
+        }
+    }
+
+    private mapWooCommerceProductToDto(remote: any, remoteVariations: any): MappedProductDto {
+
+        const variations = (remote.attributes || [])
+            .filter((attr: any) => attr.variation === true) // نأخذ فقط الخصائص التي تستخدم كمتغيرات
+            .map((attr: any) => ({
+                id: attr.id || 0,
+                name: attr.name?.trim(),
+                props: (attr.options || []).map((option: any, index: number) => ({
+                    id: index, // ووكمرس يعطي الخيارات كمصفوفة نصوص غالباً
+                    name: attr.name?.trim(),
+                    value: option?.trim(),
+                })),
+            }));
+
+
+        const variants = (remoteVariations || []).map((v: any) => ({
+            price: Number(v.regular_price || v.price) || 0,
+            expense: 0,
+            quantity: Number(v.stock_quantity) || 0,
+            sku: String(v.sku || ""),
+            variation_props: (v.attributes || []).map((attr: any) => ({
+                variation: attr.name?.trim(),
+                variation_prop: String(attr.option)?.trim(),
+            })),
+        }));
+
+        // 3. إذا كان المنتج بسيط (Simple) ولا يوجد به Variants، ننشئ Variant افتراضي
+        if (variants.length === 0 && remote.type === 'simple') {
+            variants.push({
+                price: Number(remote.price) || 0,
+                expense: 0,
+                quantity: Number(remote.stock_quantity) || 0,
+                sku: String(remote.sku || ""),
+                variation_props: [],
+            });
+        }
+
+        return {
+            name: remote.name?.trim(),
+            price: Number(remote.price) || 0,
+            type: remote.type === 'simple' ? ProductType.SINGLE : ProductType.VARIABLE,
+            expense: 0, // ووكمرس لا يحتوي على حقل تكلفة افتراضي
+            description: remote.description, // تنظيف الـ HTML من الوصف
+            slug: remote.slug?.replaceAll('_', '-'), // تطبيق تنظيف الـ slug
+            sku: remote.sku || "",
+            thumb: remote.images?.[0]?.src || "", // أول صورة هي المصغرة
+            images: (remote.images || []).map((img: any) => img.src),
+            categories: (remote.categories || []).map((c: any) => ({
+                id: String(c.id),
+                name: c.name,
+            })),
+            quantity: Number(remote.stock_quantity) || 0,
+            variations,
+            variants,
+        };
+    }
+
     /**
  * Read keys (clientKey / clientSecret / baseUrl) from your DB via mainStoresService
  */
@@ -79,9 +184,10 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         const clientSecret = keys?.clientSecret?.trim();
         const baseUrl = store?.storeUrl?.trim();
         const url = this.getWooCommerceURL(baseUrl);
+
         if (!clientKey || !clientSecret || !baseUrl) {
             throw new InternalServerErrorException(
-                `Missing WooCommerce integration keys for store ${store?.name || store?.id}`
+                `Missing WooCommerce integration keys for store ${store?.name}`
             );
         }
 
@@ -145,7 +251,6 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
     }
 
     private async createCategory(category: CategoryEntity, store: StoreEntity) {
-        this.logCtx(`[Category] Creating category: ${category.name} (slug: ${category.slug})`, store);
 
         const payload: any = {
             name: category.name.trim(),
@@ -158,31 +263,22 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             payload.image = { src: this.getImageUrl(imageUrl) };
         }
 
-        try {
-            const response = await this.sendRequest(store, {
-                method: 'POST',
-                url: '/products/categories',
-                data: payload,
-            });
+        const response = await this.sendRequest(store, {
+            method: 'POST',
+            url: '/products/categories',
+            data: payload,
+        });
 
-            // response.data is the created category object
-            const created = response?.data ?? response;
-            this.logCtx(`[Category] ✓ Successfully created category with external ID: ${created?.id}`, store);
-            return created;
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(`[Category] ✗ Failed to create category: ${message}`, store);
-            throw error;
-        }
+        // response.data is the created category object
+        const created = response?.data ?? response;
+        return created;
+
     }
 
     private async updateCategory(category: CategoryEntity, store: StoreEntity, externalId: string) {
         if (!externalId) {
-            this.logCtxWarn(`[Category] Skipping update: No external ID provided for category ${category.name}`, store);
-            return;
+            throw new Error(`No externalId provided for category ${category?.name}`)
         }
-
-        this.logCtx(`[Category] Updating category: ${category.name} (external ID: ${externalId})`, store);
 
         const payload: any = {
             name: category.name.trim(),
@@ -192,21 +288,15 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         const imageUrl = category.image?.trim();
         if (imageUrl) payload.image = { src: this.getImageUrl(imageUrl) };
 
-        try {
-            const response = await this.sendRequest(store, {
-                method: 'PUT', // WooCommerce accepts PUT for update
-                url: `/products/categories/${externalId}`,
-                data: payload,
-            });
+        const response = await this.sendRequest(store, {
+            method: 'PUT', // WooCommerce accepts PUT for update
+            url: `/products/categories/${externalId}`,
+            data: payload,
+        });
 
-            const updated = response?.data ?? response;
-            this.logCtx(`[Category] ✓ Successfully updated category ${externalId}`, store);
-            return updated;
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(`[Category] ✗ Failed to update category ${externalId}: ${message}`, store);
-            throw error;
-        }
+        const updated = response?.data ?? response;
+        return updated;
+
     }
 
     /**
@@ -215,30 +305,23 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
      */
     private async getAllCategories(store: StoreEntity, params: { slug?: string; per_page?: number; page?: number; search?: string } = {}) {
         const filterDesc = params.slug ? ` slug=${params.slug}` : params.search ? ` search=${params.search}` : '';
-        this.logCtxDebug(`[Category] Fetching categories${filterDesc}`, store);
 
-        try {
-            const response = await this.sendRequest(store, {
-                method: 'GET',
-                url: '/products/categories',
-                params: {
-                    per_page: params.per_page ?? 100,
-                    page: params.page ?? 1,
-                    ...(params.slug ? { slug: params.slug } : {}),
-                    ...(params.search ? { search: params.search } : {}),
-                },
-            });
+        const response = await this.sendRequest(store, {
+            method: 'GET',
+            url: '/products/categories',
+            params: {
+                per_page: params.per_page ?? 100,
+                page: params.page ?? 1,
+                ...(params.slug ? { slug: params.slug } : {}),
+                ...(params.search ? { search: params.search } : {}),
+            },
+        });
 
-            // Depending on your BaseStoreProvider, response could be response.data or response directly
-            const categories = response?.data ?? response;
-            const count = Array.isArray(categories) ? categories.length : 0;
-            this.logCtxDebug(`[Category] ✓ Retrieved ${count} categories`, store);
-            return categories;
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(`[Category] ✗ Failed to fetch categories: ${message}`, store);
-            throw error;
-        }
+        // Depending on your BaseStoreProvider, response could be response.data or response directly
+        const categories = response?.data ?? response;
+        const count = Array.isArray(categories) ? categories.length : 0;
+        return categories;
+
     }
 
     private async syncWooVariations(
@@ -247,7 +330,6 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         store: StoreEntity,
         attrMap?: Map<string, string>
     ) {
-        this.logCtx(`[Variation] Sync started for product ${productId}`, store);
 
         // 1️⃣ Get existing Woo variations
         const existingResponse = await this.sendRequest(store, {
@@ -314,9 +396,8 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             );
 
 
-            this.logCtx(`[Variation] ✓ Synced variations for product ${productId}`, store);
         } else {
-            this.logCtx(`[Variation] No variation changes detected`, store);
+
         }
     }
 
@@ -351,24 +432,15 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             const sku = remote?.sku?.trim();
 
             if (remote?.error) {
-                this.logCtxError("[Woo Variations Sync] Error syncing variation: " + remote.error?.message);
                 return;
             }
             if (!sku) {
-                this.logCtxError(
-                    `[Woo Variants Sync] Remote variation missing SKU`,
-                    store
-                );
                 continue;
             }
 
             const localVariant = localMap.get(sku);
 
             if (!localVariant) {
-                this.logCtxError(
-                    `[Woo Variants Sync] No local variant found for SKU ${sku}`,
-                    store
-                );
                 continue;
             }
 
@@ -381,13 +453,28 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         // 4️⃣ Save in ONE DB call
         if (variantsToSave.length) {
             await this.pvRepo.save(variantsToSave);
-
-            this.logCtx(
-                `[Woo Variants Sync] ✓ Synced ${variantsToSave.length} variation(s) external IDs`,
-                store
-            );
         }
     }
+    private generateWooSlug(name: string, prefex = 'attr'): string {
+        // 1) Normalize
+        let slug = name
+            ?.toLowerCase()
+            .replace(/\s+/g, '-')       // استبدال المسافات بواصلات
+            .replace(/[^\w-]+/g, '')    // إزالة أي رموز غير مسموحة
+            .substring(0, 28)           // قص النص عند 28 حرف
+            .replace(/-+$/, '');
+
+        // 2) limit length
+        slug = slug.substring(0, 28);
+
+        // 3) fallback if empty or invalid
+        if (!slug || slug === '-') {
+            const random = Math.random().toString(36).substring(2, 8);
+            slug = `${prefex}-${random}`; // fallback safe slug
+        }
+
+        return slug;
+    } s
     // Ensure attribute exists globally and return its ID (create if missing)
     private async getOrCreateWooAttribute(store: StoreEntity, attributeName: string): Promise<string> {
         // 1) Try to find attribute by name (or slug)
@@ -407,7 +494,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             url: '/products/attributes',
             data: {
                 name: attributeName,
-                slug: attributeName.toLowerCase().replace(/\s+/g, '-'),
+                slug: this.generateWooSlug(attributeName),
                 type: 'select',
                 order_by: 'menu_order',
                 has_archives: false
@@ -501,61 +588,48 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
     }
 
     private async createProduct(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externalCategoryId: string) {
-        this.logCtx(`[Product] Creating product: ${product.name}`, store);
-        const attrMap = await this.ensureAttributesForVariants(store, variants);
+        const activeVariants = variants.filter(v => v.isActive);
+        const attrMap = await this.ensureAttributesForVariants(store, activeVariants);
 
-        const payload = await this.mapWooProductPayload(product, variants, externalCategoryId, attrMap, store);
+        const payload = await this.mapWooProductPayload(product, activeVariants, externalCategoryId, attrMap, store);
 
-        try {
-            const response = await this.sendRequest(store, {
-                method: 'POST',
-                url: '/products',
-                data: payload
-            });
+        const response = await this.sendRequest(store, {
+            method: 'POST',
+            url: '/products',
+            data: payload
+        });
 
-            const created = response?.data ?? response;
-            if (variants.length > 1) {
-                await this.syncWooVariations(created?.id, variants, store, attrMap);
-            }
-            this.logCtx(`[Product] ✓ Created with external ID: ${created?.id}`, store);
-            return created;
+        const created = response?.data ?? response;
+        await this.syncWooVariations(created?.id, activeVariants, store, attrMap);
 
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(`[Product] ✗ Failed to create: ${message}`, store);
-            throw error;
-        }
+        return created;
+
+
     }
 
 
     private async updateProduct(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externalId: string, externalCategoryId: string) {
-        if (!externalId) return;
+        if (!externalId)
+            throw new Error(`No externalId provided for product ${product?.name}`)
 
-        this.logCtx(`[Product] Updating product ${externalId}`, store);
-        const attrMap = await this.ensureAttributesForVariants(store, variants);
+        const activeVariants = variants.filter(v => v.isActive);
+        const attrMap = await this.ensureAttributesForVariants(store, activeVariants);
 
-        const payload = await this.mapWooProductPayload(product, variants, externalCategoryId, attrMap, store);
+        const payload = await this.mapWooProductPayload(product, activeVariants, externalCategoryId, attrMap, store);
 
-        try {
-            const response = await this.sendRequest(store, {
-                method: 'PUT',
-                url: `/products/${externalId}`,
-                data: payload
-            });
 
-            const updated = response?.data ?? response;
-            if (variants.length > 1) {
-                await this.syncWooVariations(updated?.id || externalId, variants, store, attrMap);
-            }
+        const response = await this.sendRequest(store, {
+            method: 'PUT',
+            url: `/products/${externalId}`,
+            data: payload
+        });
 
-            this.logCtx(`[Product] ✓ Updated product ${externalId}`, store);
-            return response?.data ?? response;
+        const updated = response?.data ?? response;
+        await this.syncWooVariations(updated?.id || externalId, activeVariants, store, attrMap);
 
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(`[Product] ✗ Failed to update ${externalId}: ${message}`, store);
-            throw error;
-        }
+        return response?.data ?? response;
+
+
     }
 
 
@@ -574,16 +648,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         if (!Array.isArray(products)) return [];
 
         // Map WC format to our standardized RemoteProduct structure
-        return products.map(p => ({
-            slug: p.slug, // The actual text slug from WC
-            externalId: String(p.id), // Keep track of ID
-            name: p.name,
-            variants: (p.variations || []).length > 0 ? [] : [{
-                sku: p.sku,
-                price: Number(p.price),
-                variation_props: [] // Simple product
-            }]
-        }));
+        return products;
     }
 
     protected async mapWooProductPayload(
@@ -666,18 +731,10 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
             if (!localProduct) continue;
 
-            let remoteProduct = await this.getProductBySlug(store, localProduct.slug);
+            const syncedProduct = await this.syncProduct({ productId: localProduct.id });
 
-            if (!remoteProduct) {
-                this.logCtx(`[Upsell] Product ${localProduct.name} not found on WooCommerce, syncing now...`, store);
-                const syncedProduct = await this.syncProduct({ productId: localProduct.id });
-                if (syncedProduct) {
-                    remoteProduct = await this.getProductBySlug(store, localProduct.slug);
-                }
-            }
-
-            if (remoteProduct) {
-                upsellIds.push(remoteProduct.id);
+            if (syncedProduct) {
+                upsellIds.push(syncedProduct.id);
             }
         }
 
@@ -752,36 +809,32 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
     public async updateOrderStatus(order: OrderEntity, store: StoreEntity) {
 
-        if (!order.externalId) return;
+        if (!order.externalId)
+            return;
 
         const remoteStatus = this.mapInternalStatusToWoo(order.status.code as OrderStatus);
 
         if (!remoteStatus) {
-            this.logger.warn(
-                `No Woo status mapping found for order (${order.id}) | local status: ${order.status.code}`
-            );
             return;
         }
 
-        try {
-            const batchPayload = {
-                update: [
-                    {
-                        id: order.externalId,
-                        status: remoteStatus
-                    }
-                ]
-            };
 
-            return await this.sendRequest(store, {
-                method: 'POST',
-                url: `/orders/batch`,
-                data: batchPayload
-            });
+        const batchPayload = {
+            update: [
+                {
+                    id: order.externalId,
+                    status: remoteStatus
+                }
+            ]
+        };
 
-        } catch (error) {
-            this.handleError(error, "updateOrderStatus");
-        }
+        return await this.sendRequest(store, {
+            method: 'POST',
+            url: `/orders/batch`,
+            data: batchPayload
+        });
+
+
     }
 
     // ========================================================================
@@ -801,8 +854,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
         const activeStore = await this.getStoreForSync(finalAdmin);
         if (!activeStore) {
-            this.logger.debug(`[WooCommerce Sync] Skipping: No active WooCommerce store for admin ${finalAdmin}`);
-            return;
+            throw new Error("Store not found or inactive")
         }
 
         const checkSlug = slug ? slug : category.slug;
@@ -818,15 +870,14 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
     }
 
 
-    public async syncProduct({ productId, slug }: { productId: string, slug?: string }) {
+    public async syncProduct({ productId }: { productId: string }) {
         const product = await this.productsRepo.findOne({
             where: { id: productId },
             relations: ['category', 'store']
         });
 
         if (!product) {
-            this.logCtxWarn(`[Sync] Skipping: Product with ID ${productId} not found`, null);
-            return;
+            throw new Error(`Product with ID ${productId} not found`);
         }
 
         // 2️⃣ جلب الـ Variants الخاصة بالمنتج
@@ -834,38 +885,30 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             where: { productId: product.id }
         });
 
+        const productSyncState = await this.productSyncStateRepo.findOne({
+            where: {
+                productId: productId,
+                storeId: product.store.id,
+                adminId: product.adminId,
+                externalStoreId: product?.store?.externalStoreId
+            }
+        });
 
-        // // 1️⃣ Validate Store
-        // if (!product.store || product.store.provider !== StoreProvider.WOOCOMMERCE) {
-        //     this.logCtxWarn(
-        //         `[Sync] Skipping sync: Store not found or provider is not WOOCOMMERCE`,
-        //         null,
-        //         product.adminId
-        //     );
-        //     return;
-        // }
-
+        let externalId = productSyncState?.remoteProductId;
+        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
         const activeStore = await this.getStoreForSync(product.adminId);
-
-        if (!activeStore) {
-            this.logCtxWarn(
-                `[Sync] Skipping sync: No active WooCommerce store enabled`,
-                activeStore,
-                product.adminId
-            );
-            return;
-        }
-
         try {
+
+            if (!activeStore) {
+                throw new Error("store not found or inactive")
+            }
+
+
 
             // 2️⃣ ⚡ RESOLVE CATEGORY FIRST ⚡
             let wooCategory = null;
 
             if (product.category) {
-                this.logCtx(
-                    `[Sync] Syncing category: ${product.category.name}`,
-                    activeStore
-                );
 
                 wooCategory = await this.syncCategory({
                     category: product.category,
@@ -874,54 +917,76 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
                 });
             }
 
-            // 3️⃣ Check existence by SLUG (WooCommerce way)
-            const checkSlug = slug ? slug : product.slug;
 
-            this.logCtx(
-                `[Sync] Checking if product exists with slug: ${checkSlug}`,
-                activeStore
-            );
-            this.logCtx(`[Sync] Checking if product exists with slug: ${checkSlug}`, activeStore);
-
-            const remoteProduct = await this.getProductBySlug(activeStore, checkSlug);
-
-            if (remoteProduct) {
-
-                this.logCtx(
-                    `[Sync] Product already exists externally (ID: ${remoteProduct.id}), updating...`,
-                    activeStore
-                );
-
-                return await this.updateProduct(
-                    product,
-                    variants,
-                    activeStore,
-                    remoteProduct.id,
-                    wooCategory?.id
-                );
-
+            let result;
+            if (externalId) {
+                const remoteProduct = await this.getProduct(activeStore, externalId);
+                if (remoteProduct) {
+                    result = await this.updateProduct(
+                        product,
+                        variants,
+                        activeStore,
+                        remoteProduct.id,
+                        wooCategory?.id
+                    );
+                } else {
+                    result = await this.createProduct(
+                        product,
+                        variants,
+                        activeStore,
+                        wooCategory?.id
+                    );
+                }
             } else {
-
-                this.logCtx(
-                    `[Sync] Product does not exist externally, creating...`,
-                    activeStore
-                );
-
-                return await this.createProduct(
+                result = await this.createProduct(
                     product,
                     variants,
                     activeStore,
                     wooCategory?.id
                 );
             }
+            externalId = result?.id;
 
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(
-                `[Sync] ✗ Failed to sync product ${product.name}: ${message}`,
-                activeStore,
-                product.adminId
+            // SUCCESS STATE UPDATE
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, productId: product.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId },
+                {
+                    remoteProductId: externalId,
+                    status: ProductSyncStatus.SYNCED,
+                    lastError: null,
+                    lastSynced_at: new Date(),
+                },
             );
+
+            return result.response || result;
+
+        } catch (error: any) {
+            const errorMessage = this.getErrorMessage(error);
+
+            // FAILURE STATE UPDATE
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, productId: product.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId },
+                {
+                    remoteProductId: externalId || null,
+                    status: ProductSyncStatus.FAILED,
+                    lastError: errorMessage,
+                    lastSynced_at: new Date(),
+                },
+            );
+
+            // LOG THE ERROR
+            await this.productSyncStateService.upsertSyncErrorLog(
+                { adminId: activeStore.adminId, productId: product.id, storeId: activeStore.id },
+                {
+                    remoteProductId: externalId || null,
+                    action: action,
+                    errorMessage,
+                    userMessage: `Failed to sync product "${product.name}" to ${activeStore.name}: ${errorMessage}`,
+                    responseStatus: error?.response?.status,
+                    requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+                }
+            );
+
 
             throw error;
         }
@@ -933,14 +998,14 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         const activeStore = await this.getStoreForSync(bundle.adminId);
         if (!activeStore) {
             this.logCtxWarn(`[Sync] Skipping bundle sync: No active WooCommerce store enabled`, null, bundle.adminId);
-            return;
+            throw new Error("Store not found or inactive")
         }
 
         try {
             // 1. Ensure all items are synced first
             const bundledItemsData = [];
-
-            for (const item of bundle.items) {
+            const activeItems = bundle.items.filter(v => v.isActive);
+            for (const item of activeItems) {
                 const itemVariant = await this.pvRepo.findOne({
                     where: { id: item.variantId },
                     relations: ['product', 'product.store']
@@ -952,17 +1017,11 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
                 }
 
                 // Sync the item product first to ensure it exists on WooCommerce
-                await this.syncProduct({
-                    productId: itemVariant.productId,
-                    slug: itemVariant.product.slug
+                const remoteItemProduct = await this.syncProduct({
+                    productId: itemVariant.productId
                 });
 
                 // Get remote details for this item
-                const remoteItemProduct = await this.getProductBySlug(activeStore, itemVariant.product.slug);
-                if (!remoteItemProduct) {
-                    this.logCtxWarn(`[Sync] Item product ${itemVariant.product.slug} not found on WooCommerce after sync`, activeStore);
-                    continue;
-                }
 
                 const bundledItem: any = {
                     product_id: remoteItemProduct.id,
@@ -1053,25 +1112,16 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
     }
 
     public async syncOrderStatus(order: OrderEntity, newStatusId: string) {
-        this.logCtx(`[Sync] Starting order status sync | Order: ${order.orderNumber} | Status: ${order.status}`, null, order.adminId);
 
-        try {
-            const store = await this.getStoreForSync(order.adminId);
-            if (!store) {
-                this.logCtxWarn(`[Sync] Skipping order status sync: No active store enabled`, null, order.adminId);
-                return;
-            }
-
-            await this.updateOrderStatus(order, store);
-            this.logCtx(`[Sync] ✓ Order status synced successfully`, store);
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(`[Sync] ✗ Failed to sync order status for ${order.orderNumber}: ${message}`, null, order.adminId);
+        const store = await this.getStoreForSync(order.adminId);
+        if (!store) {
+            throw new Error("Store not found or inactive")
         }
+
+        await this.updateOrderStatus(order, store);
     }
 
     private async syncCategoriesCursor(store: StoreEntity): Promise<Map<string, string>> {
-        this.logCtx(`[Sync] Starting category synchronization (Individual API calls)`, store);
 
         const categoryMap = new Map<string, string>();
         let lastId = "";
@@ -1088,11 +1138,9 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
             if (localBatch.length === 0) {
                 hasMore = false;
-                this.logCtx(`[Sync] No more local categories to process`, store);
                 break;
             }
 
-            this.logCtx(`[Sync] Processing batch of ${localBatch.length} categories`, store);
 
             for (const cat of localBatch) {
                 try {
@@ -1145,20 +1193,32 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
         while (hasMore) {
             // 1. Fetch local batch using cursor pagination
-            const localBatch = await this.productsRepo.find({
-                where: { storeId: store.id, adminId: store.adminId, ...(lastId ? { id: MoreThan(lastId) } : {}) },
-                relations: ['variants', 'category'], // Load category to get the local ID for mapping
-                order: { id: 'ASC' } as any,
-                take: 20 // Smaller batch size because products have variants and images
-            });
+            const qb = this.storesRepo.manager.createQueryBuilder(ProductEntity, "product")
+                .leftJoinAndSelect("product.variants", "variants")
+                .leftJoinAndSelect("product.category", "category")
+                .leftJoinAndMapOne(
+                    "product.syncState",
+                    ProductSyncStateEntity,
+                    "syncState",
+                    "syncState.productId = product.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
+                    { storeId: store.id, adminId: store.adminId, externalStoreId: store.externalStoreId }
+                )
+                .where("product.storeId = :storeId", { storeId: store.id })
+                .andWhere("product.adminId = :adminId", { adminId: store.adminId })
+                .andWhere("product.isActive = :isActive", { isActive: true })
+                .orderBy("product.id", "ASC")
+                .take(20);
+
+            if (lastId) {
+                qb.andWhere("product.id > :lastId", { lastId });
+            }
+            const localBatch = await qb.getMany() as any[];
 
             if (localBatch.length === 0) {
                 hasMore = false;
-                this.logCtx(`[Sync] No more products to process`, store);
+
                 break;
             }
-
-            this.logCtx(`[Sync] Processing batch of ${localBatch.length} products (IDs: ${localBatch[0].id}-${localBatch[localBatch.length - 1].id})`, store);
 
             for (const product of localBatch) {
                 try {
@@ -1166,43 +1226,83 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
                     const variants = await this.pvRepo.find({
                         where: { productId: product.id }
                     });
-
+                    const remoteId = product?.syncState?.remoteProductId;
                     // 3. Check if product exists by slug using your helper
-                    const remoteProduct = await this.getProductBySlug(store, product.slug);
+                    let remoteProduct = null;
+                    if (remoteId)
+                        remoteProduct = await this.getProduct(store, remoteId);
 
                     // 4. Resolve the external category ID from the map created in Phase 1
-                    const externalCategoryId = product.category
-                        ? categoryMap.get(product.category.id)
-                        : undefined;
+                    let extCatId = product.categoryId ? categoryMap.get(product.categoryId) : null;
 
+                    if (!extCatId && product.category) {
+                        const remoteCategory = await this.syncCategory({ relatedAdminId: product.adminId, category: product.category });
+                        extCatId = remoteCategory?.id;
+                    }
+                    let syncedProduct;
                     // 5. Use individual methods for update or create
                     if (remoteProduct) {
                         {
-
-                            await this.updateProduct(
+                            syncedProduct = await this.updateProduct(
                                 product,
                                 variants,
                                 store,
                                 remoteProduct.id,
-                                externalCategoryId
+                                extCatId
                             );
                             totalUpdated++;
                         }
                     } else {
-                        await this.createProduct(
+                        syncedProduct = await this.createProduct(
                             product,
                             variants,
                             store,
-                            externalCategoryId
+                            extCatId
                         );
 
                         totalCreated++;
                     }
 
+                    await this.productSyncStateService.upsertSyncState(
+                        { adminId: store.adminId, productId: product.id, storeId: store.id, externalStoreId: store.externalStoreId },
+                        {
+                            remoteProductId: syncedProduct?.externalId ?? remoteId ?? null,
+                            status: ProductSyncStatus.SYNCED,
+                            lastError: null,
+                            lastSynced_at: new Date(),
+                        },
+                    );
                     totalProcessed++;
-                } catch (error) {
-                    const message = this.getErrorMessage(error);
-                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${message}`, store);
+                } catch (error: any) {
+                    const errorMessage = this.getErrorMessage(error);
+                    const remoteId = product?.syncState?.remoteProductId;
+                    const action = remoteId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
+
+                    // FAILURE STATE UPDATE
+                    await this.productSyncStateService.upsertSyncState(
+                        { adminId: store.adminId, productId: product.id, storeId: store.id, externalStoreId: store.externalStoreId },
+                        {
+                            remoteProductId: remoteId || null,
+                            status: ProductSyncStatus.FAILED,
+                            lastError: errorMessage,
+                            lastSynced_at: new Date(),
+                        },
+                    );
+
+                    // LOG THE ERROR
+                    await this.productSyncStateService.upsertSyncErrorLog(
+                        { adminId: store.adminId, productId: product.id, storeId: store.id },
+                        {
+                            remoteProductId: remoteId || null,
+                            action: action,
+                            errorMessage,
+                            userMessage: `Failed to sync product "${product.name}" to ${store.name}: ${errorMessage}`,
+                            responseStatus: error?.response?.status,
+                            requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+                        }
+                    );
+
+                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${errorMessage}`, store);
                     totalErrors++;
                 }
             }
@@ -1216,20 +1316,14 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
     public async syncFullStore(store: StoreEntity) {
         if (!store || !store.isActive) {
-            this.logCtxWarn(`[Sync] Skipping full store sync: Store is inactive or null`, store);
-            return;
+            throw new Error("Store not found or inactive")
         }
 
         if (store.syncStatus === SyncStatus.SYNCING) {
-            this.logCtxWarn(`[Sync] Store is already syncing. Skipping.`, store);
             return;
         }
 
         try {
-            this.logCtx(`[Sync] ========================================`, store);
-            this.logCtx(`[Sync] Starting FULL STORE SYNC`, store);
-            this.logCtx(`[Sync] ========================================`, store);
-
             const syncStartTime = Date.now();
 
             await this.storesRepo.update(store.id, {
@@ -1237,24 +1331,15 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
                 lastSyncAttemptAt: new Date()
             });
 
-            // 1. Sync Categories with Cursor (Batch 30)
-            this.logCtx(`[Sync] Phase 1: Synchronizing categories...`, store);
             const categoryMap = await this.syncCategoriesCursor(store);
-            this.logCtx(`[Sync] Phase 1 Complete: ${categoryMap.size} categories synced`, store);
 
-            // 2. Sync Products with Cursor (Batch 20)
-            this.logCtx(`[Sync] Phase 2: Synchronizing products...`, store);
             await this.syncProductsCursor(store, categoryMap);
-            this.logCtx(`[Sync] Phase 2 Complete: Products synced`, store);
 
             const syncDuration = Date.now() - syncStartTime;
             await this.storesRepo.update(store.id, {
                 syncStatus: SyncStatus.SYNCED,
             });
 
-            this.logCtx(`[Sync] ========================================`, store);
-            this.logCtx(`[Sync] ✓ FULL STORE SYNC COMPLETED in ${(syncDuration / 1000).toFixed(2)}s`, store);
-            this.logCtx(`[Sync] ========================================`, store);
 
             if (store.adminId) {
                 this.appGateway.emitStoreSyncStatus(String(store.adminId), {
@@ -1265,10 +1350,6 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             }
         } catch (error) {
             const message = this.getErrorMessage(error);
-            this.logCtxError(`[Sync] ========================================`, store);
-            this.logCtxError(`[Sync] ✗ FULL STORE SYNC FAILED`, store);
-            this.logCtxError(`[Sync] Error: ${message}`, store);
-            this.logCtxError(`[Sync] ========================================`, store);
 
             await this.storesRepo.update(store.id, {
                 syncStatus: SyncStatus.FAILED,
@@ -1284,7 +1365,15 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         }
     }
 
-    private mapExternalStatusToInternal(externalStatus: string): OrderStatus | null {
+    private mapExternalStatusToInternal(body, localStatus: OrderStatus) {
+        const externalStatus = body.status
+        if (localStatus) {
+            const syncedRemoteStatus = this.mapInternalStatusToExternal(localStatus);
+            if (syncedRemoteStatus === externalStatus) {
+                return { orderStatus: null, paymentStatus: null };
+            }
+        }
+
         const map: Record<string, OrderStatus> = {
             "pending": OrderStatus.NEW,
             "on-hold": OrderStatus.UNDER_REVIEW,
@@ -1296,7 +1385,10 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             "trash": OrderStatus.CANCELLED,
         };
 
-        return map[externalStatus] || null;
+        return {
+            orderStatus: map[body.status] || OrderStatus.NEW,
+            paymentStatus: body.set_paid ? PaymentStatus.PAID : PaymentStatus.PENDING
+        }
     }
 
     public verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean {
@@ -1320,30 +1412,70 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
         return expected === signature;
     }
-    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload {
-        const externalStatus = body.status; // WooCommerce uses 'status'
-        const internalStatus = this.mapExternalStatusToInternal(externalStatus);
 
-        if (!internalStatus) return null;
+    private mapInternalStatusToExternal(internalStatus: OrderStatus): string | null {
+        const map: Record<OrderStatus, string> = {
+
+            [OrderStatus.NEW]: "pending",
+            [OrderStatus.UNDER_REVIEW]: "on-hold",
+            [OrderStatus.POSTPONED]: "on-hold",
+            [OrderStatus.NO_ANSWER]: "on-hold",
+
+            [OrderStatus.CONFIRMED]: "on-hold",
+
+
+            [OrderStatus.WRONG_NUMBER]: "cancelled",
+            [OrderStatus.OUT_OF_DELIVERY_AREA]: "cancelled",
+            [OrderStatus.DUPLICATE]: "cancelled",
+
+
+            [OrderStatus.PREPARING]: "processing",
+            [OrderStatus.PRINTED]: "processing",
+            [OrderStatus.DISTRIBUTED]: "processing",
+            [OrderStatus.READY]: "processing",
+            [OrderStatus.PACKED]: "processing",
+            [OrderStatus.SHIPPED]: "processing",
+
+
+            [OrderStatus.DELIVERED]: "completed",
+
+
+            [OrderStatus.FAILED_DELIVERY]: "failed",
+            [OrderStatus.CANCELLED]: "cancelled",
+            [OrderStatus.REJECTED]: "cancelled",
+
+
+            [OrderStatus.RETURNED]: "refunded",
+            [OrderStatus.RETURN_PREPARING]: "refunded",
+        };
+
+        return map[internalStatus] || null;
+    }
+
+
+    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload {
+        const externalStatus = body.status;
+
+        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body, localOrderStatus);
 
         return {
             externalId: String(body.id),
             remoteStatus: externalStatus,
-            mappedStatus: internalStatus,
-            mappedPaymentStatus: null
+            mappedStatus: orderStatus,
+            mappedPaymentStatus: paymentStatus
         };
     }
-
     public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
-        const paymentMethod = this.mapPaymentMethod(body.payment_method);
+        const paymentMethod = body.paymentMethod ? this.mapPaymentMethod(body.payment_method) : PaymentMethod.CASH_ON_DELIVERY;
         const lineItems = body.line_items || [];
         const uniqueIds = [...new Set(lineItems.map((item: any) => String(item.product_id)))];
 
         const remoteProducts = await this.fetchRemoteProducts(store, uniqueIds as string[]);
+        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body, null);
 
-        // 3. Create a lookup map: { "123": "actual-product-slug" }
         const idToSlugMap = new Map<string, string>();
-        remoteProducts.forEach(p => idToSlugMap.set(p.externalId, p.slug));
+        remoteProducts.forEach(p => idToSlugMap.set(p.id?.toString(), p.slug));////
+
         return {
             externalOrderId: String(body.id),
             fullName: `${body.billing?.first_name} ${body.billing?.last_name}`.trim(),
@@ -1351,35 +1483,71 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             address: `${body.billing?.address_1} ${body.billing?.address_2}`.trim(),
             government: body.billing?.city || "Unknown",
             paymentMethod: paymentMethod,
-            paymentStatus: body.status,
-            status: ['processing', 'completed'].includes(body.status) && paymentMethod !== PaymentMethod.CASH_ON_DELIVERY
-                ? PaymentStatus.PAID
-                : PaymentStatus.PENDING,
+            paymentStatus: paymentStatus,
+            status: orderStatus,
             shippingCost: Number(body.shipping_total || 0),
 
-            cartItems: lineItems.map((item: any) => {
-                const productId = String(item.product_id);
-                const realSlug = idToSlugMap.get(productId) || productId;
-                const props = (item.meta_data || [])
-                    .filter((meta: any) => meta.key.startsWith('pa_'))
-                    .reduce((acc: Record<string, string>, meta: any) => ({
-                        ...acc,
-                        [meta.key.replace('pa_', '')]: meta.value
-                    }), {})
-                return {
-                    name: String(item.product?.name || item.product?.title),
-                    product_slug: realSlug,
-                    quantity: item.quantity,
-                    remoteProductId: productId,
-                    price: Number(item.price),
-                    variant: item.variation_id ? {
-                        key: this.productsService.canonicalKey(props),
-                        variation_props: props
-                    } : undefined
-                };
-            })
+            cartItems: await Promise.all(
+                lineItems.map(async (item: any) => {
+                    const productId = String(item.product_id);
+                    const productSlug = idToSlugMap.get(productId) || productId;
+
+                    let variationProps: { name: string; value: string }[] = [];
+                    let key: string | undefined;
+
+                    if (item.variation_id) {
+                        // ✅ Fetch real variation from WooCommerce
+                        const variation = await this.sendRequest(store, {
+                            method: "GET",
+                            url: `/products/${productId}/variations/${item.variation_id}`,
+                        });
+
+                        const v = variation?.data ?? variation;
+
+                        // ✅ Extract attributes properly
+                        variationProps = (v.attributes || []).map((attr: any) => ({
+                            name: attr.name,
+                            value: String(attr.option).trim(),
+                        }));
+
+                        const attrs = variationProps.reduce(
+                            (acc: Record<string, string>, prop) => {
+                                const k = this.productsService.slugifyKey(prop.name);
+                                const v = this.productsService.slugifyKey(prop.value);
+                                acc[k] = v;
+                                return acc;
+                            },
+                            {}
+                        );
+
+                        key = this.productsService.canonicalKey(attrs);
+                    }
+
+                    return {
+                        name: String(item.name),
+                        productSlug,
+                        quantity: Number(item.quantity),
+
+                        // ✅ IMPORTANT: use total / quantity fallback
+                        price:
+                            Number(item.total) && Number(item.quantity)
+                                ? Number(item.total) / Number(item.quantity)
+                                : Number(item.price) || 0,
+
+                        remoteProductId: productId,
+
+                        variant: item.variation_id
+                            ? {
+                                key,
+                                variation_props: variationProps,
+                            }
+                            : undefined,
+                    };
+                })
+            )
         };
     }
+
     private mapPaymentMethod(method: string): PaymentMethod {
         switch (method?.toLowerCase()) {
             case 'cod': return PaymentMethod.CASH_ON_DELIVERY;
@@ -1393,220 +1561,6 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         }
     }
 
-    public async syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void> {
-        const adminId = store.adminId;
-        if (!slugs || slugs.length === 0) {
-            this.logger.warn(`[Reverse Sync] No slugs provided to sync for store: ${store.storeUrl}`);
-            return;
-        }
-
-        for (const slug of slugs) {
-            try {
-                // 1. Fetch remote product by slug
-                const remoteProduct = await this.getProductBySlug(store, slug);
-                if (!remoteProduct) {
-                    this.logger.warn(`[Reverse Sync] Product with slug ${slug} not found on provider.`);
-                    continue;
-                }
-
-                // 2. Fetch all variations for this product
-                let remoteVariants: any[] = [];
-                if (remoteProduct.variations && remoteProduct.variations.length > 0) {
-                    const response = await this.sendRequest(store, {
-                        method: 'GET',
-                        url: `/products/${remoteProduct.id}/variations`,
-                        params: { per_page: 100 }
-                    });
-                    remoteVariants = response?.data ?? response ?? [];
-                }
-
-                // 3. Map to unified payload and delegate to shared sync logic
-                const unified = this.mapRemoteProductToUnified(remoteProduct, remoteVariants);
-                await this.mainStoresService.syncExternalProductPayloadToLocal(adminId, store, unified, manager);
-
-                this.logger.log(`[Reverse Sync] Successfully processed: ${slug.trim()}`);
-            } catch (error) {
-                const message = this.getErrorMessage(error);
-                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${message}`);
-            }
-        }
-    }
-
-    /**
-     * Sync a remote WooCommerce product and its variations to local DB using manager
-     */
-    private async syncExternalProductToLocal(adminId: string, store: StoreEntity, remoteProduct: any, remoteVariants: any[], manager: any): Promise<ProductEntity> {
-        // Map remote product and variations to local DTOs
-        const userContext = {
-            id: store.adminId,
-            adminId: store.adminId,
-            role: { name: 'admin' }
-        };
-
-        // Map category: use first category if available
-        let localCategoryId: string | null = null;
-        if (remoteProduct.categories && remoteProduct.categories.length > 0) {
-            const remoteCat = remoteProduct.categories[0];
-            // Try to find or create local category by slug
-            const categoryRepo = manager.getRepository(CategoryEntity);
-            let category = await categoryRepo.findOne({ where: { adminId: userContext.adminId, slug: remoteCat.slug } });
-            if (!category) {
-                // Create local category if not exists
-                category = categoryRepo.create({
-                    adminId: userContext.adminId,
-                    name: remoteCat.name,
-                    slug: remoteCat.slug
-                });
-                category = await categoryRepo.save(category);
-            }
-            localCategoryId = category.id;
-        }
-
-        // Map images
-        const images = (remoteProduct.images || []).map((img: any) => ({ url: img.src }));
-
-        // Map variants
-        let combinations: any[] = [];
-        if (remoteVariants && remoteVariants.length > 0) {
-            combinations = remoteVariants.map((v: any) => {
-                // Map attributes to { [name]: value }
-                const atts = (v.attributes || []).reduce((acc: any, attr: any) => {
-                    acc[attr.name] = attr.option;
-                    return acc;
-                }, {});
-                return {
-                    sku: v.sku || null,
-                    price: parseFloat(v.price) || 0,
-                    stockOnHand: v.stock_quantity ?? 0,
-                    attributes: atts,
-                    key: v.sku || `variant_${remoteProduct.id}_${v.id}`
-                };
-            });
-        } else {
-            // Simple product (no variations)
-            combinations = [{
-                sku: remoteProduct.sku || null,
-                price: parseFloat(remoteProduct.price) || 0,
-                stockOnHand: remoteProduct.stock_quantity ?? 0,
-                attributes: {},
-                key: remoteProduct.sku || `simple_${remoteProduct.id}`
-            }];
-        }
-
-        // Build product DTO
-        const productDto = {
-            name: remoteProduct.name,
-            slug: remoteProduct.slug,
-            description: remoteProduct.description,
-            wholesalePrice: parseFloat(remoteProduct.price) || 0,
-            lowestPrice: parseFloat(remoteProduct.price) || 0,
-            salePrice: parseFloat(remoteProduct.price) || 0,
-            storeId: store.id,
-            categoryId: localCategoryId,
-            mainImage: images[0]?.url || '',
-            images,
-            combinations,
-            upsellingEnabled: false,
-        };
-
-        // Upsert product
-        const productsRepository = manager.getRepository(ProductEntity);
-        let existingProduct = await productsRepository.findOne({ where: { adminId, slug: productDto.slug } });
-        let savedProduct: ProductEntity;
-        if (existingProduct) {
-            manager.merge(ProductEntity, existingProduct, {
-                name: productDto.name,
-                slug: productDto.slug,
-                description: productDto.description,
-                wholesalePrice: productDto.wholesalePrice,
-                salePrice: productDto.salePrice,
-                lowestPrice: productDto.lowestPrice,
-                storeId: productDto.storeId,
-                categoryId: productDto.categoryId,
-                mainImage: productDto.mainImage
-            });
-            savedProduct = await productsRepository.save(existingProduct);
-        } else {
-            const newProduct = manager.create(ProductEntity, {
-                name: productDto.name,
-                slug: productDto.slug,
-                description: productDto.description,
-                wholesalePrice: productDto.wholesalePrice,
-                salePrice: productDto.salePrice,
-                lowestPrice: productDto.lowestPrice,
-                storeId: productDto.storeId,
-                categoryId: productDto.categoryId,
-                mainImage: productDto.mainImage,
-                adminId: adminId
-            });
-            savedProduct = await productsRepository.save(newProduct);
-        }
-        // Note: You may want to upsert variants/SKUs as well, similar to EasyOrder, if you have a service for that.
-        return savedProduct;
-    }
-
-    private mapRemoteProductToUnified(remoteProduct: any, remoteVariants: any[]): UnifiedProductDto {
-        let variants: UnifiedProductVariantDto[] = [];
-
-        if (remoteVariants && remoteVariants.length > 0) {
-            variants = remoteVariants.map((v: any, index: number) => {
-                const attributes = (v.attributes || []).reduce((acc: Record<string, string>, attr: any) => {
-                    acc[attr.name] = attr.option;
-                    return acc;
-                }, {} as Record<string, string>);
-
-                const sku = v.sku || null;
-                const price = parseFloat(v.price) || 0;
-                const stockOnHand = v.stock_quantity ?? 0;
-                const key = sku || `variant_${remoteProduct.id}_${v.id || index}`;
-
-                return {
-                    sku,
-                    price,
-                    stockOnHand,
-                    attributes,
-                    key,
-                };
-            });
-        } else {
-            const sku = remoteProduct.sku || null;
-            const price = parseFloat(remoteProduct.price) || 0;
-            const stockOnHand = remoteProduct.stock_quantity ?? 0;
-            const key = sku || `simple_${remoteProduct.id}`;
-
-            variants = [
-                {
-                    sku,
-                    price,
-                    stockOnHand,
-                    attributes: {},
-                    key,
-                },
-            ];
-        }
-
-        const images: string[] = (remoteProduct.images || []).map((img: any) => img.src);
-
-        const category = remoteProduct.categories && remoteProduct.categories.length > 0
-            ? {
-                slug: remoteProduct.categories[0].slug,
-                name: remoteProduct.categories[0].name || remoteProduct.categories[0].slug,
-                thumb: remoteProduct.categories[0].image?.src ?? null,
-            }
-            : null;
-
-        return {
-            externalId: remoteProduct.id ? String(remoteProduct.id) : undefined,
-            name: remoteProduct.name,
-            slug: remoteProduct.slug,
-            description: remoteProduct.description,
-            basePrice: parseFloat(remoteProduct.price) || 0,
-            mainImage: images[0] || "",
-            images,
-            category,
-            variants,
-        };
-    }
 
     async validateProviderConnection(store: StoreEntity): Promise<boolean> {
         const { storeUrl, credentials } = store;

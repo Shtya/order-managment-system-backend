@@ -207,6 +207,22 @@ export class StoresService {
     return store;
   }
 
+  private extractDomain(url: string): string {
+    try {
+      let formattedUrl = url.trim().toLowerCase();
+      if (!formattedUrl.startsWith('http')) {
+        formattedUrl = `https://${formattedUrl}`;
+      }
+
+      const parsedUrl = new URL(formattedUrl);
+      let domain = parsedUrl.hostname;
+
+      return domain.replace(/^www\./, '');
+    } catch (error) {
+      return url.trim().toLowerCase().split('/')[0];
+    }
+  }
+
   async create(me: any, dto: CreateStoreDto) {
     const adminId = tenantId(me);
 
@@ -250,7 +266,7 @@ export class StoresService {
       const store = manager.create(StoreEntity, {
         adminId,
         name: dto.name.trim(),
-        // code: dto.code.trim(),
+        externalStoreId: p.code === StoreProvider.WOOCOMMERCE ? this.extractDomain(dto.storeUrl) : null,
         storeUrl: dto.storeUrl.trim(),
         provider: dto.provider,
         credentials, // Direct jsonb assignment
@@ -382,7 +398,7 @@ export class StoresService {
       if (dto.storeUrl) store.storeUrl = dto.storeUrl.trim();
       if (dto.syncNewProducts !== undefined) store.syncNewProducts = dto.syncNewProducts;
       if (dto.isActive !== undefined) store.isActive = dto.isActive;
-
+      if (p.code === StoreProvider.WOOCOMMERCE) store.externalStoreId = this.extractDomain(store.storeUrl)
 
       // Handle Credentials Update
       if (dto.credentials) {
@@ -685,7 +701,7 @@ export class StoresService {
         }
 
         const remoteIds = payload.cartItems.map(item => item.remoteProductId);
-
+        const safeRemoteIds = remoteIds.length > 0 ? remoteIds : [null];
 
         const localProducts = await this.storesRepo.manager.createQueryBuilder(ProductEntity, "product")
           .leftJoinAndSelect("product.variants", "variants")
@@ -704,7 +720,7 @@ export class StoresService {
               storeId: store.id,
               adminId: store.adminId,
               externalStoreId: store.externalStoreId,
-              remoteIds,
+              remoteIds: safeRemoteIds,
             }
           )
           .where("product.storeId = :storeId", { storeId: store.id })
@@ -714,7 +730,7 @@ export class StoresService {
           .getMany();
 
         const productMap = new Map(
-          localProducts.map(p => [(p as any).syncState?.remoteProductId, p])
+          localProducts.filter(p => (p as any).syncState?.remoteProductId).map(p => [(p as any).syncState?.remoteProductId, p])
         );
 
         const items = [];
@@ -817,10 +833,12 @@ export class StoresService {
     this.logger.log(`[Webhook Order Create] Received webhook order create for provider=${provider}`);
     const p = this.getProvider(provider);
     //notification here
+
     const store = await this.storesRepo.findOne({ where: { provider: p.code, adminId } });
     if (!store) {
       return { ok: true, ignored: true, reason: 'store_not_found' };
     }
+
     if (!store.isActive || !store.isIntegrated) {
       return { ok: true, ignored: true, reason: 'store_not_active' };
     }
@@ -848,8 +866,8 @@ export class StoresService {
     try {
       const p = this.getProvider(provider);
 
-      const externalOrderId = body?.order_id
-      const order = await this.ordersService.findByExternalId(body?.order_id);
+      const externalOrderId = body.id || body?.order_id
+      const order = await this.ordersService.findByExternalId(externalOrderId);
 
       if (!order) {
         throw new Error(`Unknown order ${externalOrderId}`);
@@ -1056,6 +1074,7 @@ export class StoresService {
         if (!localProduct) {
           problems.push({
             remoteId: item.remoteProductId,
+            key: item?.variant?.key,
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_NOT_FOUND,
@@ -1079,6 +1098,7 @@ export class StoresService {
         if (!matchedVariant) {
           problems.push({
             remoteId: item.remoteProductId,
+            key: item?.variant?.key,
             productId: localProduct.id,
             slug: item.productSlug,
             name: item.name,
@@ -1096,6 +1116,7 @@ export class StoresService {
           problems.push({
             remoteId: item.remoteProductId,
             productId: localProduct.id,
+            key: item?.variant?.key,
             slug: item.productSlug,
             name: item.name,
             sku: matchedVariant.sku,
