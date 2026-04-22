@@ -9,7 +9,7 @@ import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
 import { ProductSyncAction, ProductSyncStateEntity, ProductSyncStatus } from "entities/product_sync_error.entity";
-import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
 import { ProductsService } from "src/products/products.service";
@@ -429,7 +429,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
      */
     private async updateCollection(store: StoreEntity, shopifyId: string, category: CategoryEntity) {
         if (!shopifyId) {
-            return;
+            throw new Error(`No external ID provided for category ${category.name}`)
         }
 
         const mutation = `
@@ -637,12 +637,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
             if (!localProduct) continue;
 
-            let remoteProduct = await this.getProductBySlug(store, localProduct.slug);
-
-            if (!remoteProduct) {
-                await this.syncProduct({ productId: localProduct.id });
-                remoteProduct = await this.getProductBySlug(store, localProduct.slug);
-            }
+            let remoteProduct = await this.syncProduct({ productId: localProduct.id });
 
             if (remoteProduct) {
                 upsellGids.push(remoteProduct.id);
@@ -1327,7 +1322,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         // 1. Validate Store
         const store = await this.getStoreForSync(bundle.adminId);
         if (!store) {
-            return;
+            throw new Error("Store not found or inactive")
         }
 
         try {
@@ -1338,9 +1333,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     productId: bundle.variant.productId
                 });
             }
-
+            const activeItems = bundle.items.filter(v => v.isActive);
             // Sync item product variants
-            for (const item of bundle.items) {
+            for (const item of activeItems) {
                 if (item.variant && item.variant.product) {
                     await this.syncProduct({
                         productId: item.variant.productId
@@ -1352,25 +1347,23 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             const handle = bundle.variant?.product?.slug;
             if (!handle) throw new Error("Bundle variant product slug is missing");
 
-            const getProductLegacyIdQuery = `
-                query GetProductLegacyIdByHandle($handle: String!) {
-                    productByHandle(handle: $handle) {
-                        id
-                        legacyResourceId
-                        handle
-                        title
-                    }
-                }
-            `;
-            const productLegacyIdData = await this.runGraphQL(store, false, getProductLegacyIdQuery, { handle });
-            const remoteProduct = productLegacyIdData.productByHandle;
-            if (!remoteProduct) throw new Error(`Product with handle ${handle} not found on Shopify`);
 
-            const legacyResourceId = remoteProduct.legacyResourceId;
 
+            const mainProductSyncState = await this.productSyncStateRepo.findOne({
+                where: { productId: bundle.variant.productId, storeId: store?.id, adminId: bundle.adminId, externalStoreId: store?.externalStoreId }
+            });
+
+            if (!mainProductSyncState?.remoteProductId) {
+                throw new Error("Parent bundle has not been synced to Shopify yet.");
+            }
+
+            function productNumericIdFromGid(productGid) {
+                return productGid.split('/').pop();
+            }
+            const numericId = productNumericIdFromGid(mainProductSyncState?.remoteProductId);
             const bundleDetailsQuery = `
                 query BundleByProductAndVariantSku($query: String!) {
-                    productVariants(first: 10, query: $query) {
+                    productVariants(first: 1, query: $query) {
                         nodes {
                             id
                             sku
@@ -1395,17 +1388,18 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     }
                 }
             `;
-            const bundleQueryString = `product_id:${legacyResourceId} AND sku:${bundle.variant.sku} AND requires_components:true`;
+            const bundleQueryString = `product_id:${numericId} AND sku:${bundle.variant.sku} AND requires_components:true`;
             const bundleDetailsData = await this.runGraphQL(store, false, bundleDetailsQuery, { query: bundleQueryString });
 
-            const remoteBundleVariant = bundleDetailsData.productVariants.nodes[0];
+            const remoteBundleVariant = bundleDetailsData?.productVariants?.nodes?.[0];
             if (!remoteBundleVariant) throw new Error(`Bundle variant with SKU ${bundle.variant.sku} not found on Shopify or doesn't require components`);
+
 
             const parentProductVariantId = remoteBundleVariant.id;
             const remoteComponents = remoteBundleVariant.productVariantComponents.nodes;
 
             // 3. Determine components to create, update, or remove
-            const localItems = bundle.items;
+            const localItems = activeItems;
             const productVariantRelationshipsToCreate = [];
             const productVariantRelationshipsToUpdate = [];
             const productVariantRelationshipsToRemove = [];
@@ -1477,7 +1471,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 } else {
                     const itemHandle = localItem.variant.product?.slug;
                     if (!itemHandle) {
-
                         continue;
                     }
                     const remoteVariantId = await findRemoteVariantIdBySku(itemHandle, sku);
@@ -1633,6 +1626,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     lastSynced_at: new Date(),
                 },
             );
+            return syncedProduct;
         } catch (error: any) {
             const errorMessage = this.getErrorMessage(error);
 
@@ -1680,7 +1674,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         newStatusId: string,
     ): Promise<void> {
 
-        if (!order.externalId) return;
+        if (!order.externalId)
+            return;
 
         // 1) Resolve internal status record
         const status = await this.ordersService.findStatusById(
@@ -1689,10 +1684,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         );
 
         if (!status) {
-            this.logger.warn(
-                `No status found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`,
-            );
-            return;
+            throw new Error(`No status found for order (${order.id})`)
         }
 
         const internalStatus = status.code as OrderStatus;
@@ -1754,10 +1746,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             orderNode?.fulfillmentOrders?.nodes ?? [];
 
         if (!fulfillmentOrders.length) {
-            this.logger.warn(
-                `[Shopify] No fulfillment orders found for order ${order.id} (${order.externalId})`,
-            );
-            return;
+            throw new Error(`No fulfillment orders found for order ${order.id}`)
         }
 
         // Pick the first "OPEN" (or similar) fulfillment order
@@ -1815,17 +1804,12 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             null;
 
         if (!payload) {
-            this.logger.error(
-                `[Shopify] fulfillmentCreateV2 returned empty payload for order ${order.id} (${order.externalId})`,
-            );
-            return;
+            throw new Error(`fulfillmentCreateV2 returned empty payload for order ${order.id} (${order.externalId})`)
         }
 
         const userErrors = payload.userErrors;
         if (userErrors && userErrors.length > 0) {
-            this.logger.error(
-                `[Shopify] fulfillmentCreateV2 errors for order ${order.id} (${order.externalId}): ${userErrors[0].message}`,
-            );
+            throw new Error(`fulfillmentCreateV2 errors for order ${order.id} (${order.externalId}): ${userErrors[0].message}`)
         } else {
             this.logger.log(
                 `[Shopify] Successfully fulfilled all remaining items for fulfillmentOrder ${fulfillmentOrderId} (order ${order.id})`,
@@ -1833,27 +1817,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
 
     }
-    private async createPartialFulfillment(
-        order: OrderEntity,
-        store: StoreEntity,
-    ): Promise<void> {
-        const orderGid = order.externalId;
 
-        const mutation = `
-    mutation PartialFulfillOrder($orderId: ID!) {
-      # Placeholder – implement logic using fulfillmentOrders
-      order(id: $orderId) {
-        id
-      }
-    }
-  `;
-
-        const variables = { orderId: orderGid };
-
-
-        await this.runGraphQL(store, true, mutation, variables);
-
-    }
 
     private async cancelFulfillment(
         order: OrderEntity,
@@ -1893,18 +1857,12 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             response?.orderCancel ?? response?.data?.orderCancel ?? null;
 
         if (!payload) {
-            this.logger.error(
-                `[Shopify] orderCancel returned empty payload for order ${order.id} (${order.externalId})`,
-            );
-            return;
+            throw new Error(`orderCancel returned empty payload for order ${order.id} (${order.externalId})`)
         }
 
         const errors = payload.orderCancelUserErrors;
         if (errors && errors.length > 0) {
-            this.logger.error(
-                `[Shopify] Failed to cancel order ${order.id} (${order.externalId}): ${errors[0].message} (code: ${errors[0].code})`,
-            );
-            return;
+            throw new Error(`Failed to cancel order ${order.id} (${order.externalId}): ${errors[0].message}`)
         }
 
         const job = payload.job;
@@ -1941,10 +1899,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             fetchResponse?.order ?? fetchResponse?.data?.order ?? null;
 
         if (!orderNode) {
-            this.logger.error(
-                `[Shopify] Could not load order ${order.id} (${order.externalId}) to put on hold`,
-            );
-            return;
+            throw new Error(`Could not load order ${order.id} (${order.externalId}) to put on hold`)
         }
 
         const existingTags: string[] = orderNode.tags || [];
@@ -1979,18 +1934,12 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             response?.orderUpdate ?? response?.data?.orderUpdate ?? null;
 
         if (!payload) {
-            this.logger.error(
-                `[Shopify] orderUpdate returned empty payload for hold on order ${order.id} (${order.externalId})`,
-            );
-            return;
+            throw new Error(`orderUpdate returned empty payload for hold on order ${order.id} (${order.externalId})`)
         }
 
         const userErrors = payload.userErrors;
         if (userErrors && userErrors.length > 0) {
-            this.logger.error(
-                `[Shopify] Failed to put order ${order.id} (${order.externalId}) on hold: ${userErrors[0].message}`,
-            );
-            return;
+            throw new Error(`Failed to put order ${order.id} (${order.externalId}) on hold: ${userErrors[0].message}`)
         }
 
         this.logger.log(
@@ -2260,7 +2209,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
 
     public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
-        const paymentMethod = this.mapPaymentMethod(body.payment_gateway_names?.[0] || "");
+        const paymentMethod = body.payment_gateway_names?.length > 0 ? this.mapPaymentMethod(body.payment_gateway_names?.[0] || "") : PaymentMethod.CASH_ON_DELIVERY;
         const { orderStatus, paymentStatus } = this.mapShopifyWebhookStatusToInternal(body)
         // 1. Group unique Product IDs (Filter out nulls for custom items)
         const lineItems = body.line_items || [];
@@ -2623,6 +2572,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             expense: productExpense,
             description: remote.descriptionHtml || "",
             slug: remote.handle,
+            type: ProductType.VARIABLE,
             sku: firstVariant?.sku || "",
             thumb: remote.images?.nodes?.[0]?.url || "",
             images: (remote.images?.nodes || []).map((img: any) => img.url),

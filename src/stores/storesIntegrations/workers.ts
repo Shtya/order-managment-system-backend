@@ -118,7 +118,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                 case "sync-category":
                     // [2025-12-24] Ensure slug/title is trimmed inside the specific service
                     await service.syncCategory({ category, slug });
-                    this.logger.log(`[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.trim()}`);
+                    this.logger.log(`[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.name?.trim()}`);
                     break;
 
                 case "sync-product":

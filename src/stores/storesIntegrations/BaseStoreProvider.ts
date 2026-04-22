@@ -10,6 +10,7 @@ import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import Bottleneck from "bottleneck";
 import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { BundleEntity } from "entities/bundle.entity";
+import { ProductType } from "entities/sku.entity";
 
 export interface IBundleSyncProvider {
     syncBundle(bundle: BundleEntity): Promise<void>;
@@ -33,6 +34,7 @@ export interface MappedProductDto {
     sku: string;
     thumb: string;
     images: string[];
+    type: ProductType;
     categories: { id: string; name?: string }[];
     quantity: number;
     variations?: {
@@ -314,7 +316,6 @@ export abstract class BaseStoreProvider implements OnModuleInit {
 
     getImageUrl = (url) => {
         return url.startsWith('http') ? url : this.baseImg + url;
-
     };
 
     /**

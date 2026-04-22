@@ -10,7 +10,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { StoresService } from "../stores.service";
 import { EncryptionService } from "common/encryption.service";
 import { EntityManager, MoreThan, Repository } from "typeorm";
-import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
 import { v4 as uuidv4 } from 'uuid'; // You might need to install uuid: npm i uuid @types/uuid
 import { OrderEntity, OrderStatus, OrderStatusEntity, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -142,8 +142,7 @@ export class EasyOrderService extends BaseStoreProvider {
 
     private async updateCategory(category: CategoryEntity, store: StoreEntity, externalId) {
         if (!externalId) {
-            this.logCtxWarn(`[Category] Skipping update: No external ID provided for category ${category.name}`, store);
-            return;
+            throw new Error(`No external ID provided for category ${category.name}`)
         }
 
         const payload = {
@@ -167,12 +166,17 @@ export class EasyOrderService extends BaseStoreProvider {
     }
 
     private async getCategory(externalCategoryId: string, store: StoreEntity) {
-        const response = await this.sendRequest(store, {
-            method: 'GET',
-            url: `/categories/${externalCategoryId}`,
-        });
+        try {
 
-        return response;
+            const response = await this.sendRequest(store, {
+                method: 'GET',
+                url: `/categories/${externalCategoryId}`,
+            });
+
+            return response;
+        } catch {
+            return null;
+        }
 
     }
     /**
@@ -403,7 +407,8 @@ export class EasyOrderService extends BaseStoreProvider {
         remoteVariants: any[],
         store: StoreEntity,
     ): Promise<void> {
-        if (!remoteVariants?.length) return;
+        if (!remoteVariants?.length)
+            return;
 
         // 1️⃣ Build local map by SKU
         const localMap = new Map<string, ProductVariantEntity>();
@@ -879,16 +884,15 @@ export class EasyOrderService extends BaseStoreProvider {
      */
     public async updateOrderStatus(order: OrderEntity, store: StoreEntity, newStatusId: string) {
         if (!order.externalId) return;
+
         const status = await this.ordersService.findStatusById(newStatusId, order.adminId);
         if (!status) {
-            this.logger.warn(`No status found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`);
-            return;
+            throw new Error(`No status found for order (${order.id}) `)
         }
 
         const remoteStatus = this.mapInternalStatusToExternal(status.code as OrderStatus);
         if (!remoteStatus) {
-            this.logger.warn(`No status mapping found for order (${order.id}) | admin (${order.adminId}) | local status: ${order.status}`);
-            return;
+            throw new Error(`No status mapping found for order (${order.id})`)
         }
 
 
@@ -935,7 +939,6 @@ export class EasyOrderService extends BaseStoreProvider {
         }
 
         // 2. ⚡ RESOLVE CATEGORY ID ⚡
-
         try {
             let easyOrderCategory = null;
             if (product.category) {
@@ -1237,6 +1240,7 @@ export class EasyOrderService extends BaseStoreProvider {
         };
     }
     public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
+        const paymentMethod = body.payment_method ? this.mapPaymentMethod(body.payment_method) : PaymentMethod.CASH_ON_DELIVERY;
         const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body.status, null)
         return {
             externalOrderId: String(body.id),
@@ -1246,7 +1250,7 @@ export class EasyOrderService extends BaseStoreProvider {
             address: body.address,
             government: body.government || "Unknown",
             // Reuse your existing internal mapping logic for payment
-            paymentMethod: this.mapPaymentMethod(body.payment_method),
+            paymentMethod: paymentMethod,
             paymentStatus: paymentStatus || PaymentStatus.PENDING,
             status: orderStatus || OrderStatus.NEW,
             shippingCost: body.shipping_cost || 0,
@@ -1431,6 +1435,7 @@ export class EasyOrderService extends BaseStoreProvider {
             expense: Number(remote.expense) || 0,
             description: remote.description || "",
             slug: remote.slug,
+            type: ProductType.VARIABLE,
             sku: remote.sku || "",
             thumb: remote.thumb || "",
             images: remote.images || [],
