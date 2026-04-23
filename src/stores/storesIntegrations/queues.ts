@@ -83,7 +83,7 @@ export class StoreQueueService {
                     groupId: `admin:${adminId}:product`, // Using a specific sub-group
                     maxAttempts: 3
                 });
-            } catch (err) {
+            } catch (err: any) {
                 console.error(`Failed to add job: ${err.message}`);
             }
         }, 3000);
@@ -110,7 +110,7 @@ export class StoreQueueService {
                     groupId: `admin:${adminId}:bundle`, // Using a specific sub-group
                     maxAttempts: 3
                 });
-            } catch (err) {
+            } catch (err: any) {
                 console.error(`Failed to add bundle sync job: ${err.message}`);
             }
         }, 3000);

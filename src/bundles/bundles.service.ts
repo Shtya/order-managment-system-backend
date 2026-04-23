@@ -1,5 +1,5 @@
 // --- File: src/bundles/bundles.service.ts ---
-import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, In, Like, Repository } from "typeorm";
 import { tenantId } from "../category/category.service";
@@ -37,6 +37,10 @@ export class BundlesService {
 		const adminId = tenantId(me);
 
 		const qb = this.bundleRepo.createQueryBuilder("bundle");
+		const isActiveFilter = q?.isActive !== 'false';
+		const itemConditions = isActiveFilter
+			? "items.isActive = :itemActive"
+			: "items.isActive = :itemActive AND items.deletdWithParent = true";
 
 		// 1. Joins & Selective Loading
 		// We use a condition in the join to filter out inactive bundle items
@@ -46,14 +50,16 @@ export class BundlesService {
 			.leftJoinAndSelect(
 				"bundle.items",
 				"items",
-				"items.isActive = :itemActive",
-				{ itemActive: true }
+				itemConditions,
+				{
+					itemActive: isActiveFilter
+				}
 			)
 			.leftJoinAndSelect("items.variant", "itemVariant");
 
 		// 2. Base Filters (Tenant & Status)
 		qb.where("bundle.adminId = :adminId", { adminId });
-		qb.andWhere("bundle.isActive = :bundleActive", { bundleActive: true });
+		qb.andWhere("bundle.isActive = :bundleActive", { bundleActive: isActiveFilter });
 
 		// 3. Dynamic Filters
 		if (q?.categoryId && q?.categoryId !== "none") {
@@ -104,17 +110,25 @@ export class BundlesService {
 
 	async get(me: any, id: string) {
 		const adminId = tenantId(me);
-		const bundle = await this.bundleRepo.createQueryBuilder("bundle")
+
+		const bundle = await this.bundleRepo.findOne({
+			where: { id, adminId },
+		});
+
+		if (!bundle) throw new BadRequestException("bundle not found");
+
+		const itemCondition = bundle.isActive
+			? "items.isActive = true"
+			: "items.isActive = false AND items.deletdWithParent = true";
+
+		return this.bundleRepo.createQueryBuilder("bundle")
 			.leftJoinAndSelect("bundle.variant", "variant")
 			.leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
-			.leftJoinAndSelect("bundle.items", "items", "items.isActive = :isActive", { isActive: true })
+			.leftJoinAndSelect("bundle.items", "items", itemCondition)
 			.leftJoinAndSelect("items.variant", "itemVariant")
 			.where("bundle.id = :id AND bundle.adminId = :adminId", { id, adminId })
 			.getOne();
-
-		if (!bundle) throw new BadRequestException("bundle not found");
-		return bundle;
 	}
 
 	async getBySku(me: any, sku: string) {
@@ -206,6 +220,10 @@ export class BundlesService {
 	async exportBundles(me: any, q?: any) {
 		const adminId = tenantId(me);
 		const qb = this.bundleRepo.createQueryBuilder("bundle");
+		const isActiveFilter = q?.isActive !== 'false';
+		const itemConditions = isActiveFilter
+			? "items.isActive = :itemActive"
+			: "items.isActive = :itemActive AND items.deletdWithParent = true";
 
 		// 1. Joins & Selective Loading (Filtering inactive bundle items)
 		qb.leftJoinAndSelect("bundle.variant", "variant")
@@ -214,14 +232,16 @@ export class BundlesService {
 			.leftJoinAndSelect(
 				"bundle.items",
 				"items",
-				"items.isActive = :itemActive",
-				{ itemActive: true }
+				itemConditions,
+				{
+					itemActive: isActiveFilter
+				}
 			)
 			.leftJoinAndSelect("items.variant", "itemVariant");
 
 		// 2. Base Filters
 		qb.where("bundle.adminId = :adminId", { adminId });
-		qb.andWhere("bundle.isActive = :bundleActive", { bundleActive: true });
+		qb.andWhere("bundle.isActive = :bundleActive", { bundleActive: isActiveFilter });
 
 		// 3. Dynamic Filters (Category & Store)
 		if (q?.categoryId && q?.categoryId !== "none") {
@@ -400,6 +420,7 @@ export class BundlesService {
 				if (item) {
 					item.qty = qty;
 					item.isActive = true;
+					item.deletdWithParent = false;
 					item.deactivatedAt = null;
 				} else {
 					item = new BundleItemEntity();
@@ -440,7 +461,55 @@ export class BundlesService {
 				id,
 				adminId,
 				false, // Deactivate
-				['items']
+				['items'],
+				{
+					relations: {
+						items: {
+							deletdWithParent: true
+						}
+					}
+				}
+			);
+		});
+	}
+
+	async restore(me: any, id: string) {
+		const adminId = tenantId(me);
+		if (!adminId) throw new BadRequestException("Missing adminId");
+
+		return await this.dataSource.transaction(async (manager) => {
+			const bundleRepo = manager.getRepository(BundleEntity);
+			const itemEntity = manager.getRepository(BundleItemEntity);
+
+			// 1. Restore product
+			const product = await bundleRepo.findOne({
+				where: { id, adminId }
+			});
+
+			if (!product) {
+				throw new NotFoundException("Bundle not found");
+			}
+
+			await bundleRepo.update(
+				{ id, adminId },
+				{
+					isActive: true,
+					deactivatedAt: null,
+				}
+			);
+
+			// 2. Restore only variants that were deleted with parent
+			await itemEntity.update(
+				{
+					bundleId: id,
+					adminId,
+					deletdWithParent: true
+				},
+				{
+					isActive: true,
+					deactivatedAt: null,
+					deletdWithParent: false
+				}
 			);
 		});
 	}

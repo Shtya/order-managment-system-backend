@@ -92,8 +92,8 @@ export class StoresController {
 
   // get external product by slug
   @Permissions("stores.read")
-  @Get("external/:provider/:id")
-  async getExternalProductById(@Req() req: any, @Param("provider") provider: StoreProvider, @Param("id") id: string) {
+  @Get("external/:provider")
+  async getExternalProductById(@Req() req: any, @Param("provider") provider: StoreProvider, @Query("id") id: string) {
     return this.storesService.getFullProductById(req.user, provider, id);
   }
 

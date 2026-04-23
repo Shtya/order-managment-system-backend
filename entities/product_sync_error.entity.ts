@@ -14,6 +14,7 @@ import {
 import { ProductEntity } from "./sku.entity";
 import { StoreEntity } from "./stores.entity";
 import { User } from "./user.entity";
+import { BundleEntity } from "./bundle.entity";
 
 
 export enum ProductSyncStatus {
@@ -95,10 +96,17 @@ export class ProductSyncStateEntity {
 export enum ProductSyncAction {
 	CREATE = 'create',
 	UPDATE = 'update',
+	BUNDLE_SYNC = 'bundle_sync',
+}
+
+export enum SyncEntityType {
+	PRODUCT = "product",
+	BUNDLE = "bundle",
 }
 
 @Entity("product_sync_error_logs")
 @Index(["adminId", "productId", "storeId"])
+@Index(["adminId", "bundleId", "storeId"])
 export class ProductSyncErrorLogEntity {
 	@PrimaryGeneratedColumn("uuid")
 	id: string;
@@ -110,12 +118,22 @@ export class ProductSyncErrorLogEntity {
 	@JoinColumn({ name: 'adminId' })
 	admin: User;
 
-	@Column("uuid")
+	@Column({ type: "text", default: SyncEntityType.PRODUCT })
+	entityType: SyncEntityType;
+
+	@Column({ type: "uuid", nullable: true })
 	productId: string;
 
-	@ManyToOne(() => ProductEntity, { onDelete: 'SET NULL', })
+	@Column({ type: "uuid", nullable: true })
+	bundleId: string;
+
+	@ManyToOne(() => ProductEntity, { onDelete: 'SET NULL', nullable: true })
 	@JoinColumn({ name: 'productId' })
 	product: ProductEntity;
+
+	@ManyToOne(() => BundleEntity, { onDelete: 'SET NULL', nullable: true })
+	@JoinColumn({ name: 'bundleId' })
+	bundle: BundleEntity;
 
 	@Column("uuid")
 	storeId: string;

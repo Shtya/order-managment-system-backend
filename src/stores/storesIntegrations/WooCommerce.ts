@@ -12,7 +12,7 @@ import { ProductsService } from "src/products/products.service";
 import { CategoriesService } from "src/category/category.service";
 import { RedisService } from "common/redis/RedisService";
 import { EncryptionService } from "common/encryption.service";
-import { MoreThan, Repository } from "typeorm";
+import { In, MoreThan, Repository } from "typeorm";
 import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import axios, { AxiosRequestConfig } from "axios";
 import * as crypto from 'crypto';
@@ -21,11 +21,11 @@ import { ProductSyncStateService } from "src/product-sync-state/product-sync-sta
 
 
 @Injectable()
-export default class WooCommerceService extends BaseStoreProvider implements IBundleSyncProvider {
+export default class WooCommerceService extends BaseStoreProvider {
 
 
     maxBundleItems?: number;
-    supportBundle: boolean = true;
+    supportBundle: boolean = false;
     code: StoreProvider = StoreProvider.WOOCOMMERCE;
     displayName: string = "WooCommerce";
     baseUrl: string = process.env.WOOCOMMERCE_BASE_URL || "https://api.easy-orders.net/api/v1";
@@ -74,7 +74,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             const product = productResp?.data ?? productResp;
             const variations = variationsResp?.data ?? variationsResp ?? [];
 
-            return this.mapWooCommerceProductToDto(product, variations);
+            return this.mapWooCommerceProductToDto(product, variations, store);
 
         } catch (error: any) {
             this.logger.error(
@@ -100,7 +100,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         }
     }
 
-    private mapWooCommerceProductToDto(remote: any, remoteVariations: any): MappedProductDto {
+    private async mapWooCommerceProductToDto(remote: any, remoteVariations: any, store: StoreEntity): Promise<MappedProductDto> {
 
         const variations = (remote.attributes || [])
             .filter((attr: any) => attr.variation === true) // نأخذ فقط الخصائص التي تستخدم كمتغيرات
@@ -136,21 +136,40 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
                 variation_props: [],
             });
         }
+        // let upsellings: { id, name, mainImage, }[] = [];
+        // const upsellRemoteIds = remote.upsell_ids || [];
+
+        // if (upsellRemoteIds.length > 0) {
+        //     const remoteIds = upsellRemoteIds.map(id => String(id));
+
+        //     const syncStates = await this.productSyncStateRepo.find({
+        //         where: {
+        //             adminId: store.adminId,
+        //             storeId: store.id,
+        //             externalStoreId: store.externalStoreId,
+        //             remoteProductId: In(remoteIds)
+        //         },
+        //         relations: ["product"]
+        //     });
+
+        //     upsellings = syncStates.map(s => ({ id: `#${s.productId}`, name: s.product?.name, mainImage: s.product.mainImage, }));
+        // }
 
         return {
             name: remote.name?.trim(),
             price: Number(remote.price) || 0,
             type: remote.type === 'simple' ? ProductType.SINGLE : ProductType.VARIABLE,
-            expense: 0, // ووكمرس لا يحتوي على حقل تكلفة افتراضي
-            description: remote.description, // تنظيف الـ HTML من الوصف
-            slug: remote.slug?.replaceAll('_', '-'), // تطبيق تنظيف الـ slug
+            expense: 0,
+            description: remote.description,
+            slug: remote.slug?.replaceAll('_', '-'),
             sku: remote.sku || "",
-            thumb: remote.images?.[0]?.src || "", // أول صورة هي المصغرة
+            thumb: remote.images?.[0]?.src || "",
             images: (remote.images || []).map((img: any) => img.src),
             categories: (remote.categories || []).map((c: any) => ({
                 id: String(c.id),
                 name: c.name,
             })),
+            upsellings: [],
             quantity: Number(remote.stock_quantity) || 0,
             variations,
             variants,
@@ -807,12 +826,17 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
 
 
-    public async updateOrderStatus(order: OrderEntity, store: StoreEntity) {
+    public async updateOrderStatus(order: OrderEntity, store: StoreEntity, newStatusId: string) {
 
         if (!order.externalId)
             return;
 
-        const remoteStatus = this.mapInternalStatusToWoo(order.status.code as OrderStatus);
+        const status = await this.ordersService.findStatusById(newStatusId, order.adminId);
+        if (!status) {
+            throw new Error(`No status found for order (${order.id}) `)
+        }
+
+        const remoteStatus = this.mapInternalStatusToWoo(status.code as OrderStatus);
 
         if (!remoteStatus) {
             return;
@@ -873,9 +897,9 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
     public async syncProduct({ productId }: { productId: string }) {
         const product = await this.productsRepo.findOne({
             where: { id: productId },
-            relations: ['category', 'store']
+            relations: ['category']
         });
-
+        const activeStore = await this.getStoreForSync(product.adminId);
         if (!product) {
             throw new Error(`Product with ID ${productId} not found`);
         }
@@ -888,15 +912,15 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
         const productSyncState = await this.productSyncStateRepo.findOne({
             where: {
                 productId: productId,
-                storeId: product.store.id,
+                storeId: activeStore.id,
                 adminId: product.adminId,
-                externalStoreId: product?.store?.externalStoreId
+                externalStoreId: activeStore?.externalStoreId
             }
         });
 
         let externalId = productSyncState?.remoteProductId;
         const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
-        const activeStore = await this.getStoreForSync(product.adminId);
+
         try {
 
             if (!activeStore) {
@@ -1118,7 +1142,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
             throw new Error("Store not found or inactive")
         }
 
-        await this.updateOrderStatus(order, store);
+        await this.updateOrderStatus(order, store, newStatusId);
     }
 
     private async syncCategoriesCursor(store: StoreEntity): Promise<Map<string, string>> {
@@ -1538,7 +1562,7 @@ export default class WooCommerceService extends BaseStoreProvider implements IBu
 
                         variant: item.variation_id
                             ? {
-                                key,
+                                key: key || "default",
                                 variation_props: variationProps,
                             }
                             : undefined,

@@ -34,6 +34,7 @@ export interface MappedProductDto {
     sku: string;
     thumb: string;
     images: string[];
+    upsellings: { id, name, mainImage }[];
     type: ProductType;
     categories: { id: string; name?: string }[];
     quantity: number;

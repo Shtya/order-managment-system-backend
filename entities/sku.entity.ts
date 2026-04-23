@@ -161,6 +161,9 @@ export class ProductVariantEntity extends ActivatableEntity {
   @Column({ type: "varchar", length: 255, nullable: true })
   externalId?: string | null;
 
+  @Column({ type: 'boolean', default: false })
+  deletdWithParent: boolean;
+
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
 

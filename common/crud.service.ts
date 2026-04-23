@@ -25,17 +25,22 @@ export class CRUD {
 		id: string,
 		adminId: string,
 		status: boolean,
-		relationNames: string[] = []
+		relationNames: string[] = [],
+		patch?: {
+			parent?: Record<string, any>;
+			relations?: Record<string, Record<string, any>>;
+		}
 	): Promise<void> {
-		const updateData: any = {
+		const baseUpdateData: any = {
 			isActive: status,
-			deactivatedAt: status ? null : new Date()
+			deactivatedAt: status ? null : new Date(),
+			...(patch?.parent || {})
 		};
 
 		// 1. Update the parent entity
 		const result = await manager.update(entityClass,
 			{ id, adminId } as any,
-			updateData
+			baseUpdateData
 		);
 
 		if (result.affected === 0) {
@@ -54,10 +59,15 @@ export class CRUD {
 					const foreignKeyName = relation.inverseRelation?.joinColumns?.[0]?.propertyName
 						|| `${entityMetadata.name.toLowerCase()}Id`;
 
+					const relationUpdateData = {
+						...baseUpdateData,
+						...(patch?.relations?.[relationName] || {}),
+					};
+
 					return manager.update(
 						TargetRelationEntity,
-						{ [foreignKeyName]: id, adminId } as any,
-						updateData
+						{ [foreignKeyName]: id, adminId, isActive: true, } as any,
+						relationUpdateData
 					);
 				}
 				return Promise.resolve();
