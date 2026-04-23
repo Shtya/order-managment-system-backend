@@ -29,8 +29,8 @@ export class TransactionsService {
 	}
 
 	public async generateTransactionNumber(adminId: string): Promise<string> {
-		const date = new Date();
-		const dateStr = date.toISOString().split("T")[0].replace(/-/g, ""); // YYYYMMDD
+
+		const dateStr = Date.now(); // YYYYMMDD
 		const prefix = `TRX-${dateStr}`;
 
 		//
