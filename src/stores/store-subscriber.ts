@@ -22,9 +22,9 @@ export class StoreSubscriber implements EntitySubscriberInterface<StoreEntity> {
         return StoreEntity;
     }
 
-    async afterInsert(event: InsertEvent<StoreEntity>) {
-        const store = event.entity;
+    // async afterInsert(event: InsertEvent<StoreEntity>) {
+    //     const store = event.entity;
 
-        this.easyOrderService.syncFullStore(store);
-    }
+    //     this.easyOrderService.syncFullStore(store);
+    // }
 }
