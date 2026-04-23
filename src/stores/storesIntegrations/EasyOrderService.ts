@@ -912,6 +912,7 @@ export class EasyOrderService extends BaseStoreProvider {
             where: { id: productId },
             relations: ['category', 'store']
         });
+        const activeStore = await this.getStoreForSync(product.adminId);
 
         if (!product) {
             throw new Error(`Product with ID ${productId} not found`);
@@ -925,14 +926,13 @@ export class EasyOrderService extends BaseStoreProvider {
         const productSyncState = await this.productSyncStateRepo.findOne({
             where: {
                 productId: productId,
-                storeId: product.store.id,
+                storeId: activeStore.id,
                 adminId: product.adminId,
-                externalStoreId: product?.store?.externalStoreId
+                externalStoreId: activeStore?.externalStoreId
             }
         });
         let externalId = productSyncState?.remoteProductId;
         const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
-        const activeStore = await this.getStoreForSync(product.adminId);
 
         if (!activeStore) {
             throw new Error(`No active store enabled for admin (${product.adminId})`);
@@ -1285,7 +1285,7 @@ export class EasyOrderService extends BaseStoreProvider {
                     price: Number(item.price),
                     remoteProductId: item.product_id,
                     variant: item.variant ? {
-                        key,
+                        key: key || "default",
                         variation_props: variationProps
                     } : undefined
                 };
@@ -1437,6 +1437,7 @@ export class EasyOrderService extends BaseStoreProvider {
             slug: remote.slug,
             type: ProductType.VARIABLE,
             sku: remote.sku || "",
+            upsellings: [],
             thumb: remote.thumb || "",
             images: remote.images || [],
             categories: (remote.categories || []).map((c: any) => ({

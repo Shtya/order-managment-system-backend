@@ -270,9 +270,9 @@ export class StoresService {
         storeUrl: dto.storeUrl.trim(),
         provider: dto.provider,
         credentials, // Direct jsonb assignment
-        isActive: true,
+        isActive: p.code === StoreProvider.WOOCOMMERCE, // Only WOOCOMMERCE not wait webhook validation
         syncNewProducts: dto.syncNewProducts,
-        isIntegrated: true,
+        isIntegrated: p.code === StoreProvider.WOOCOMMERCE, // Only WOOCOMMERCE not wait webhook validation
         syncStatus: SyncStatus.PENDING,
       });
 
@@ -421,8 +421,9 @@ export class StoresService {
 
         store.credentials = updatedCredentials;
 
+      }
+      if (dto.credentials || dto.isActive)
         try {
-
           const isAuth = await p.validateProviderConnection(store);
           if (!isAuth) {
             throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
@@ -430,7 +431,6 @@ export class StoresService {
         } catch (error) {
           throw new BadRequestException(`Unable to validate the integration to ${p.displayName}. This could be due to an invalid key, or incorrect provider settings.`);
         }
-      }
 
 
       // 4. Update standard fields (with trimming)
@@ -554,6 +554,10 @@ export class StoresService {
       return;
     }
 
+    if (product!?.isActive) {
+      this.logger.log(`[Bundle Sync] Skipped inactive product`);
+      return;
+    }
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider);
     this.logger.log(
@@ -575,6 +579,12 @@ export class StoresService {
       this.logger.warn(`[Bundle Sync] No active store found (ID: ${storeId}) for Bundle: "${name}". Skipping.`);
       return;
     }
+
+    if (!bundle.isActive) {
+      this.logger.log(`[Bundle Sync] Skipped inactive bundle`);
+      return;
+    }
+
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueBundleSync(bundle.id, bundle.adminId, store.id, store.provider);
     this.logger.log(

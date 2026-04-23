@@ -74,6 +74,9 @@ export class BundleItemEntity extends ActivatableEntity {
 	@JoinColumn({ name: "variantId" })
 	variant!: ProductVariantEntity;
 
+	@Column({ type: 'boolean', default: false })
+	deletdWithParent: boolean;
+
 	@Column({ type: "int" })
 	qty!: number;
 }

@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
-import { ProductSyncStateEntity, ProductSyncErrorLogEntity, ProductSyncAction, ProductSyncStatusDto } from 'entities/product_sync_error.entity';
+import { ProductSyncStateEntity, ProductSyncErrorLogEntity, ProductSyncAction, ProductSyncStatusDto, SyncEntityType } from 'entities/product_sync_error.entity';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
@@ -184,6 +184,7 @@ export class ProductSyncStateService {
             .createQueryBuilder("log")
             .leftJoinAndSelect("log.store", "store")
             .leftJoinAndSelect("log.product", "product")
+            .leftJoinAndSelect("log.bundle", "bundle")
             .where("log.adminId = :adminId", { adminId });
 
         if (q?.productId) qb.andWhere("log.productId = :productId", { productId: q.productId });
@@ -192,10 +193,15 @@ export class ProductSyncStateService {
         if (q?.search) {
             const searchTerm = `%${q.search}%`;
             qb.andWhere(
-                "(product.name ILIKE :searchTerm OR product.slug ILIKE :searchTerm)",
+                `(
+            product.name ILIKE :searchTerm 
+            OR product.slug ILIKE :searchTerm
+            OR bundle.name ILIKE :searchTerm
+        )`,
                 { searchTerm }
             );
         }
+
         DateFilterUtil.applyToQueryBuilder(qb, "log.created_at", q?.startDate, q?.endDate);
 
         qb.orderBy("log.created_at", "DESC");
@@ -263,6 +269,9 @@ export class ProductSyncStateService {
 
         const qb = this.syncErrorLogRepo
             .createQueryBuilder("log")
+            .leftJoinAndSelect("log.store", "store")
+            .leftJoinAndSelect("log.product", "product")
+            .leftJoinAndSelect("log.bundle", "bundle")
             .where("log.adminId = :adminId", { adminId });
 
         if (q?.productId) qb.andWhere("log.productId = :productId", { productId: q.productId });
@@ -272,7 +281,11 @@ export class ProductSyncStateService {
         if (q?.search) {
             const searchTerm = `%${q.search}%`;
             qb.andWhere(
-                "(product.name ILIKE :searchTerm OR product.slug ILIKE :searchTerm)",
+                `(
+            product.name ILIKE :searchTerm 
+            OR product.slug ILIKE :searchTerm
+            OR bundle.name ILIKE :searchTerm
+        )`,
                 { searchTerm }
             );
         }
@@ -288,8 +301,9 @@ export class ProductSyncStateService {
 
         worksheet.columns = [
             { header: "ID", key: "id", width: 36 },
-            { header: "Product ID", key: "productId", width: 36 },
-            { header: "Store ID", key: "storeId", width: 36 },
+            { header: "Product Name", key: "productName", width: 30 },
+            { header: "Bundle Name", key: "bundleName", width: 30 },
+            { header: "Store Name", key: "storeName", width: 30 },
             { header: "Remote ID", key: "remoteId", width: 20 },
             { header: "Action", key: "action", width: 15 },
             { header: "Error Message", key: "error", width: 50 },
@@ -300,9 +314,9 @@ export class ProductSyncStateService {
         records.forEach((r) => {
             worksheet.addRow({
                 id: r.id,
-                productId: r.productId,
-                storeId: r.storeId,
-                remoteId: r.remoteProductId || "N/A",
+                productName: r.product?.name || "",
+                bundleName: r.bundle?.name || "",
+                storeName: r.store?.name || "",
                 action: r.action,
                 error: r.errorMessage,
                 status: r.responseStatus,
@@ -321,37 +335,71 @@ export class ProductSyncStateService {
     }
 
     async upsertSyncErrorLog(
-        { adminId, productId, storeId }: { adminId: string, productId: string, storeId: string },
+        {
+            adminId,
+            storeId,
+            productId,
+            bundleId,
+            entityType = SyncEntityType.PRODUCT,
+        }: {
+            adminId: string;
+            storeId: string;
+            productId?: string;
+            bundleId?: string;
+            entityType?: SyncEntityType;
+        },
         data: {
             remoteProductId?: string | null;
             action: ProductSyncAction;
             errorMessage: string;
-            userMessage: string;
+            userMessage?: string;
             responseStatus?: number;
             requestPayload?: Record<string, any> | null;
         }
     ) {
-        if (!adminId || !productId || !storeId) {
-            throw new Error('adminId, productId, storeId are required');
+        if (!adminId || !storeId) {
+            throw new Error('adminId and storeId are required');
         }
+
+        // ✅ Validate entity
+        if (entityType === SyncEntityType.PRODUCT && !productId) {
+            throw new Error('productId is required for PRODUCT entityType');
+        }
+
+        if (entityType === SyncEntityType.BUNDLE && !bundleId) {
+            throw new Error('bundleId is required for BUNDLE entityType');
+        }
+
         const { userMessage, ...payload } = data;
+
         const log = this.syncErrorLogRepo.create({
             ...payload,
             adminId,
-            productId,
-            storeId
+            storeId,
+            entityType,
+            productId: productId || null,
+            bundleId: bundleId || null,
         });
+
+        // ✅ Notification handling
+        const isProduct = entityType === SyncEntityType.PRODUCT;
+
         await this.notificationService.create({
             userId: adminId,
-            type: NotificationType.PRODUCT_SYNC_FAILED,
-            title: "Product Sync Failed",
-            message: userMessage || `Failed to sync product`,
-            relatedEntityType: "product",
-            relatedEntityId: String(productId),
+            type: NotificationType.PRODUCT_SYNC_FAILED, // you can later split this if needed
+            title: isProduct ? "Product Sync Failed" : "Bundle Sync Failed",
+            message:
+                userMessage ||
+                (isProduct
+                    ? "Failed to sync product"
+                    : "Failed to sync bundle"),
+            relatedEntityType: isProduct ? "product" : "bundle",
+            relatedEntityId: String(isProduct ? productId : bundleId),
         });
 
         return this.syncErrorLogRepo.save(log);
     }
+
     async upsertSyncState(
         { adminId, productId, storeId, externalStoreId }: { adminId: string, productId: string, storeId: string, externalStoreId: string },
         data: Partial<ProductSyncStatusDto>,

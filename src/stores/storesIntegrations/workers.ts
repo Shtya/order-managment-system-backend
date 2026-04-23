@@ -135,11 +135,31 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     break;
 
                 case "sync-bundle":
-                    const bundle = await this.bundleRepo.findOne({
-                        where: { id: bundleId },
-                        relations: ['variant', 'variant.product', 'items', 'items.variant', 'items.variant.product']
-                    });
-                    if (!bundle || !bundle.isActive) return;
+                    const bundle = await this.bundleRepo.createQueryBuilder('bundle')
+                        .leftJoinAndSelect('bundle.variant', 'variant')
+                        .leftJoinAndSelect('variant.product', 'product')
+
+                        .leftJoinAndSelect(
+                            'bundle.items',
+                            'items',
+                            'items.isActive = :itemActive',
+                            { itemActive: true }
+                        )
+                        .innerJoinAndSelect(
+                            'items.variant',
+                            'itemVariant',
+                            'itemVariant.isActive = :active',
+                            { active: true }
+                        )
+                        .leftJoinAndSelect('items.variant', 'itemVariant')
+                        .leftJoinAndSelect('itemVariant.product', 'itemProduct')
+
+                        .where('bundle.id = :bundleId', { bundleId })
+                        .getOne();
+
+                    if (!bundle || !bundle.isActive || !bundle?.variant?.isActive) {
+                        return;
+                    }
 
                     // Ensure syncBundle is called if the service supports it
                     if ('syncBundle' in service) {

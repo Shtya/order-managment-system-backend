@@ -571,6 +571,7 @@ export class ProductsService {
     if (type === "PRODUCT_IDLE" && q?.["created_at.lte"]) {
       idleDate = new Date(q["created_at.lte"]);
     }
+    const isActiveFilter = q?.isActive !== 'false';
 
     const qb = this.prodRepo
       .createQueryBuilder("product")
@@ -578,7 +579,7 @@ export class ProductsService {
       .leftJoinAndSelect("product.store", "store")
       .leftJoinAndSelect("product.warehouse", "warehouse")
       .where("product.adminId = :adminId", { adminId })
-      .andWhere("product.isActive = :isActive", { isActive: true });
+      .andWhere("product.isActive = :isActive", { isActive: isActiveFilter });
 
     // Apply normal filters manually (since we use QueryBuilder now)
     if (filters.categoryId)
@@ -1371,6 +1372,7 @@ export class ProductsService {
             existing.price = c.price !== undefined && c.price !== null ? Number(c.price) : null;
             const nextActive = c.isActive !== false;
             existing.isActive = nextActive;
+            existing.deletdWithParent = false;
             existing.deactivatedAt = nextActive ? null : new Date();
             variantsToSave.push(existing);
           } else {
@@ -1413,8 +1415,72 @@ export class ProductsService {
         id,
         adminId,
         false, // Deactivate
-        ['variants']
+        ['variants'],
+        {
+          relations: {
+            variants: {
+              deletdWithParent: true
+            }
+          }
+        }
       );
+    });
+  }
+
+  async restore(me: any, id: string) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    return await this.dataSource.transaction(async (manager) => {
+      const productRepo = manager.getRepository(ProductEntity);
+      const variantRepo = manager.getRepository(ProductVariantEntity);
+
+      // 1. Restore product
+      const product = await productRepo.findOne({
+        where: { id, adminId }
+      });
+
+      if (!product) {
+        throw new NotFoundException("Product not found");
+      }
+
+      await productRepo.update(
+        { id, adminId },
+        {
+          isActive: true,
+          deactivatedAt: null,
+        }
+      );
+
+      // 2. Restore only variants that were deleted with parent
+      await variantRepo.update(
+        {
+          productId: id,
+          adminId,
+          deletdWithParent: true
+        },
+        {
+          isActive: true,
+          deactivatedAt: null,
+          deletdWithParent: false
+        }
+      );
+
+      const items = await variantRepo.find({
+        where: {
+          productId: id,
+          adminId,
+          deletdWithParent: true,
+        },
+      });
+
+      for (const item of items) {
+        item.isActive = true;
+        item.deactivatedAt = null;
+        item.deletdWithParent = false;
+      }
+
+      await variantRepo.save(items);
     });
   }
 

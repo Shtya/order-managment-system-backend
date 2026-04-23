@@ -155,6 +155,12 @@ export class ProductsController {
     return this.products.searchWithSkus(req.user, q);
   }
 
+  @Permissions("products.update")
+  @Patch(":id/restore")
+  restore(@Req() req: any, @Param("id") id: string) {
+    return this.products.restore(req.user, id);
+  }
+
   @Permissions("products.read")
   @Get("by-sku/:sku")
   getBySku(@Req() req: any, @Param("sku") sku: string) {
@@ -289,6 +295,7 @@ export class ProductsController {
           : undefined,
 
       description: body.description,
+      isActive: body.isActive,
       callCenterProductDescription: body.callCenterProductDescription,
 
       upsellingEnabled:
