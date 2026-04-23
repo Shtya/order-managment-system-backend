@@ -272,7 +272,7 @@ export class StoresService {
         credentials, // Direct jsonb assignment
         isActive: p.code === StoreProvider.WOOCOMMERCE, // Only WOOCOMMERCE not wait webhook validation
         syncNewProducts: dto.syncNewProducts,
-        isIntegrated: p.code === StoreProvider.WOOCOMMERCE, // Only WOOCOMMERCE not wait webhook validation
+        isIntegrated: p.code !== StoreProvider.EASYORDER,
         syncStatus: SyncStatus.PENDING,
       });
 
