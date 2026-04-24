@@ -142,52 +142,55 @@ export class WalletService {
   ) {
     const work = async (m: EntityManager) => {
       try {
-        const activeSubscription =
-          await this.subscriptionsService.getMyActiveSubscription(me, m);
+        const activeSubscription = await this.subscriptionsService.getMyActiveSubscription(me, m);
         const wallet = await this.getOrCreateWallet(me.id);
 
         if (!activeSubscription) {
           throw new BadRequestException("No active subscription found");
         }
 
-        let remainingToProcess = numberOfOrders;
-        const availableIncluded = activeSubscription.includedOrders || 0;
+        const limit = activeSubscription.includedOrders; // قد يكون رقم أو null
+        const currentUsed = Number(activeSubscription.usedOrders || 0);
+        const newTotalUsed = currentUsed + numberOfOrders;
 
-        if (availableIncluded >= remainingToProcess) {
-          activeSubscription.includedOrders =
-            availableIncluded - remainingToProcess;
-          remainingToProcess = 0;
-        } else {
-          remainingToProcess -= availableIncluded;
-          activeSubscription.includedOrders = 0;
-        }
 
-        if (remainingToProcess > 0) {
-          if (
-            activeSubscription.extraOrderFee === null ||
-            activeSubscription.extraOrderFee === undefined
-          ) {
-            throw new BadRequestException(
-              "You have used all included orders, and your current plan does not allow for additional orders.",
-            );
+        if (limit !== null) {
+          const allowedLimit = Number(limit);
+
+          let extraOrders = 0;
+
+          if (newTotalUsed > allowedLimit) {
+            const alreadyExceededBefore = Math.max(0, currentUsed - allowedLimit);
+            const totalExceededNow = newTotalUsed - allowedLimit;
+            extraOrders = totalExceededNow - alreadyExceededBefore;
           }
 
-          const cost =
-            remainingToProcess * Number(activeSubscription.extraOrderFee);
-          const currentBalance = Number(wallet.currentBalance);
+          if (extraOrders > 0) {
+            if (
+              activeSubscription.extraOrderFee === null ||
+              activeSubscription.extraOrderFee === undefined
+            ) {
+              throw new BadRequestException(
+                "You have reached your plan limit, and additional orders are not enabled.",
+              );
+            }
 
-          if (currentBalance < cost) {
-            throw new BadRequestException(
-              "Insufficient wallet balance for extra orders",
-            );
+            const cost = extraOrders * Number(activeSubscription.extraOrderFee);
+            const currentBalance = Number(wallet.currentBalance);
+
+            if (currentBalance < cost) {
+              throw new BadRequestException(
+                "Insufficient wallet balance to cover extra orders cost.",
+              );
+            }
+
+            wallet.currentBalance = currentBalance - cost;
+            wallet.totalWithdrawn = Number(wallet.totalWithdrawn) + cost;
           }
-
-          wallet.currentBalance = currentBalance - cost;
-          wallet.totalWithdrawn = Number(wallet.totalWithdrawn) + cost;
         }
-        activeSubscription.usedOrders +
-          Number(activeSubscription.usedOrders) +
-          numberOfOrders;
+
+        activeSubscription.usedOrders = newTotalUsed;
+
         await m.save(activeSubscription);
         await m.save(wallet);
 
@@ -200,7 +203,7 @@ export class WalletService {
           userId: me.id,
           type: NotificationType.ORDER_USAGE_FAILED,
           title: "Order Usage Failed",
-          message: `Failed to process order usage for ${numberOfOrders} orders: ${error.message}`,
+          message: `Failed to process order usage: ${error.message}`,
         });
         throw error;
       }
