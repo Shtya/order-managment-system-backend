@@ -554,7 +554,7 @@ export class StoresService {
       return;
     }
 
-    if (product!?.isActive) {
+    if (!product?.isActive) {
       this.logger.log(`[Bundle Sync] Skipped inactive product`);
       return;
     }
