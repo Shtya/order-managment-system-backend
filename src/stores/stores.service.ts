@@ -713,49 +713,44 @@ export class StoresService {
         const remoteIds = payload.cartItems.map(item => item.remoteProductId);
         const safeRemoteIds = remoteIds.length > 0 ? remoteIds : [null];
 
-        const localProducts = await this.storesRepo.manager.createQueryBuilder(ProductEntity, "product")
-          .leftJoinAndSelect("product.variants", "variants")
-          .leftJoinAndMapOne(
-            "product.syncState",
-            ProductSyncStateEntity,
-            "syncState",
-            `
-            syncState.productId = product.id
-            AND syncState.storeId = :storeId
-            AND syncState.adminId = :adminId
-            AND syncState.externalStoreId = :externalStoreId
-            AND syncState.remoteProductId IN (:...remoteIds)
-          `,
-            {
-              storeId: store.id,
-              adminId: store.adminId,
-              externalStoreId: store.externalStoreId,
-              remoteIds: safeRemoteIds,
-            }
-          )
-          .where("product.storeId = :storeId", { storeId: store.id })
-          .andWhere("product.adminId = :adminId", { adminId: store.adminId })
-          .andWhere("product.isActive = :isActive", { isActive: true })
-          .orderBy("product.id", "ASC")
-          .getMany();
+        const syncStates = await this.productSyncStateRepo.find({
+          where: {
+            adminId,
+            storeId: existingOrder?.statusId,
+            externalStoreId: existingOrder?.store?.externalStoreId,
+            remoteProductId: In(safeRemoteIds),
+          },
+          relations: ['product', 'product.variants'],
+        });
 
         const productMap = new Map(
-          localProducts.filter(p => (p as any).syncState?.remoteProductId).map(p => [(p as any).syncState?.remoteProductId, p])
+          syncStates?.filter(s => s.remoteProductId).map(s => [s?.remoteProductId, s?.product])
         );
 
         const items = [];
         for (const item of payload.cartItems) {
           const localProduct = productMap.get(item.remoteProductId);
           if (!localProduct) {
-            const reason = `Missing product for ${item.name}`;
-            throw new BadRequestException(reason);
+            throw new BadRequestException(
+              `The product "${item.name}" could not be found in your system.`
+            );
           }
+          if (!localProduct?.isActive) {
+            throw new BadRequestException(`The Product "${item.name}" is no longer active.`);
+          }
+
           let matchedVariant = null;
           if (localProduct.type === ProductType.SINGLE) {
             matchedVariant = localProduct.variants?.[0];
           } else if (item.variant && item.variant.variation_props && item.variant.variation_props.length > 0) {
             const key = item.variant.key;
             matchedVariant = localProduct.variants.find(v => v.key === key);
+          }
+
+          if (!matchedVariant?.isActive) {
+            throw new BadRequestException(
+              `The selected variant for "${item.name}" is no longer active..`
+            );
           }
 
           if (!matchedVariant) {
@@ -1071,6 +1066,7 @@ export class StoresService {
         where: {
           adminId,
           storeId,
+          externalStoreId: failure?.store.externalStoreId,
           remoteProductId: In(remoteIds),
         },
         relations: ['product', 'product.variants'],
@@ -1088,11 +1084,25 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_NOT_FOUND,
-            problem: `Product "${item.productSlug}" was not found`,
-            details: `Slug "${item.productSlug}" does not exist in your local products.`,
+            problem: `Product "${item.name}" was not found`,
+            details: `The product "${item.name}" does not exist in your local products.`,
           });
           continue;
         }
+
+        if (!localProduct?.isActive) {
+          problems.push({
+            remoteId: item.remoteProductId,
+            key: item?.variant?.key,
+            slug: item.productSlug,
+            name: item.name,
+            code: WebhookOrderProblem.PRODUCT_INACTIVE,
+            problem: `Product "${item.name}" is no longer active.`,
+            details: `The product "${item.name}" has been deactivated.`,
+          });
+          continue;
+        }
+
 
         // Add local product ID to the item's variant for the UI/frontend
         if (!item.variant) item.variant = {};
@@ -1117,6 +1127,20 @@ export class StoresService {
             details: localProduct.type === ProductType.SINGLE
               ? "Product is set as single but has no SKU/variant."
               : `Variant was not found.`
+          });
+          continue;
+        }
+
+        if (!matchedVariant?.isActive) {
+          problems.push({
+            remoteId: item.remoteProductId,
+            key: item?.variant?.key,
+            productId: localProduct.id,
+            slug: item.productSlug,
+            name: item.name,
+            code: WebhookOrderProblem.SKU_NOT_FOUND,
+            problem: `Variant for "${item.name}" is no longer active.`,
+            details: `The selected variant for "${item.name}" has been deactivated.`,
           });
           continue;
         }

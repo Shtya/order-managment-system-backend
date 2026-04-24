@@ -358,15 +358,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
         }
     }
 
-    getProductSyncState(productId: string, storeId: string, adminId: string) {
-        return this.productSyncStateRepo.findOne({
-            where: {
-                productId: productId,
-                storeId: storeId,
-                adminId: adminId,
-            }
-        })
-    }
+
 
 
     // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
