@@ -2334,10 +2334,11 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             .update(rawBody, 'utf8')
             .digest('base64');
 
-        return crypto.timingSafeEqual(
+        const isAuthed = crypto.timingSafeEqual(
             Buffer.from(generatedHash),
             Buffer.from(shopifyHmac)
         );
+        return isAuthed;
     }
 
     public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload | null {
