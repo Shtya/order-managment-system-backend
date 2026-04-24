@@ -240,7 +240,12 @@ export class OrdersService {
     const stats = await this.statusRepo
       .createQueryBuilder("status")
       // use relation path only (no join condition)
-      .leftJoin("status.orders", "o")
+      .leftJoin(
+        "status.orders",
+        "o",
+        "o.adminId = :adminId",
+        { adminId }
+      )
       .select([
         "status.id AS id",
         "status.name AS name",
