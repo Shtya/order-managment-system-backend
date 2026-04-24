@@ -2525,7 +2525,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         const fullName = `${billing.first_name || ""} ${billing.last_name || ""}`.trim();
         const address = `${billing.address1 || ""} ${billing.address2 || ""}`.trim();
         return {
-            externalOrderId: String(body.id.startsWith('gid://') ? body.id : `gid://shopify/Order/${body.id}`),
+            externalOrderId: String(String(body.id).startsWith('gid://') ? body.id : `gid://shopify/Order/${body.id}`),
             fullName: fullName || "Guest Customer",
             email: billing.email || body.customer?.email || "",
             phone: billing.phone || body.customer?.phone || "",
