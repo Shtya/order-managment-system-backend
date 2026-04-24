@@ -151,7 +151,6 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                             'itemVariant.isActive = :active',
                             { active: true }
                         )
-                        .leftJoinAndSelect('items.variant', 'itemVariant')
                         .leftJoinAndSelect('itemVariant.product', 'itemProduct')
 
                         .where('bundle.id = :bundleId', { bundleId })
