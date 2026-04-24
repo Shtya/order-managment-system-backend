@@ -259,7 +259,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                         this.logCtxWarn(`[Shopify] Network Error (${systemCode}) for store: ${store.storeUrl}. Triggering retry...`, store);
 
                         // Throw the error with the code intact so executeWithLimiter recognizes it
-                        const networkErr: any = new Error(`Network ${systemCode}: ${error.message}`);
+                        const networkErr: any = new Error(`Network ${systemCode}: ${error?.message}`);
                         networkErr.code = systemCode;
                         throw networkErr;
                     }
@@ -270,8 +270,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     if (gqlErrors.length > 0) {
                         // Comprehensive check for throttling
                         const isThrottled = gqlErrors.some(e => {
-                            const message = e.message?.toUpperCase() || '';
-                            const code = e.extensions?.code;
+                            const message = e?.message?.toUpperCase() || '';
+                            const code = e?.extensions?.code;
                             return (
                                 code === 'TOO_MANY_REQUESTS' ||
                                 code === 'THROTTLED' ||
@@ -289,7 +289,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
                         // Log other GraphQL errors (Syntax, missing fields, etc.) before throwing
                         this.logCtxError(`GraphQL Errors: ${JSON.stringify(gqlErrors)}`, store);
-                        throw new Error(`GraphQL Error: ${gqlErrors[0].message}`);
+                        throw new Error(`GraphQL Error: ${gqlErrors[0]?.message}`);
                     }
                 }
                 // [2025-12-24] Remember to trim any string data returned here before further processing
@@ -527,7 +527,19 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         variants: ProductVariantEntity[],
         locationId: string,
         store: StoreEntity,
+        remoteProduct: any
     ) {
+        const remoteVariants = remoteProduct?.variants?.nodes || [];
+        const bundleParentSkus = new Set<string>();
+        if (remoteVariants?.length > 0) {
+            for (const remote of remoteVariants) {
+                if (remote.requiresComponents) {
+                    if (remote.sku) {
+                        bundleParentSkus.add(remote.sku);
+                    }
+                }
+            }
+        }
         const optionsMap = new Map<string, Set<string>>();
         const activeVariants = variants.filter(v => v.isActive);
         // Map variant attributes to options
@@ -602,24 +614,31 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             if (optionValues.length === 0) {
                 return null;
             }
-            return {
+            const base: any = {
                 price: (v.price || product.salePrice || 0).toString(),
                 optionValues,
-                inventoryItem: {
+            }
+
+            const isBundleParent = !!v.sku && bundleParentSkus.has(v.sku.trim());
+
+            if (!isBundleParent) {
+                base.inventoryItem = {
                     tracked: true,
-                    sku: v.sku
-                },
-                inventoryQuantities: v.stockOnHand
+                    sku: v.sku,
+                };
+
+                base.inventoryQuantities = v.stockOnHand
                     ? [
-                        v.stockOnHand && {
+                        {
                             quantity: v.stockOnHand,
                             locationId,
                             name: "available",
                         },
-                    ].filter(Boolean)
-                    : undefined,
+                    ]
+                    : undefined;
+            }
 
-            };
+            return base;
         });
 
         const upsellMetafield = await this.getShopifyUpsellMetafield(product, store);
@@ -826,12 +845,12 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         store: StoreEntity,
         product: ProductEntity,
         variants: ProductVariantEntity[],
-        remoteProductId?: string,
+        remoteProduct?: any,
     ): Promise<any> {
-        const mode = remoteProductId ? "update" : "create";
+        const mode = remoteProduct?.id ? "update" : "create";
         const identifier =
-            remoteProductId
-                ? { id: remoteProductId } // update existing product
+            remoteProduct?.id
+                ? { id: remoteProduct?.id } // update existing product
                 : undefined;
         const mutation = `
     mutation SetProduct(
@@ -857,6 +876,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 name
                 value
               }
+                 product {
+                    id
+                }
             }
           }
              collections(first: 50) {
@@ -885,6 +907,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             variants,
             locationId,
             store,
+            remoteProduct
         );
         let variables: any = {
             input,
@@ -1175,7 +1198,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                             store,
                             product,
                             variants,
-                            externalId,
+                            remote,
                         );
                     } else {
                         // No remoteId yet -> create
@@ -1429,6 +1452,57 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return variant;
     }
 
+    private async setVariantRequiresComponentsTrue(
+        activeStore: StoreEntity,
+        productId: string,
+        variantId: string,
+    ): Promise<void> {
+        const mutation = `
+    mutation SetVariantRequiresComponentsSimple($productId: ID!, $variantId: ID!) {
+      productVariantsBulkUpdate(
+        productId: $productId
+        variants: [
+          {
+            id: $variantId
+            requiresComponents: true
+          }
+        ]
+      ) {
+        productVariants {
+          id
+          title
+          requiresComponents
+        }
+        userErrors {
+          code
+          field
+          message
+        }
+      }
+    }
+  `;
+
+        const variables = {
+            productId,
+            variantId,
+        };
+
+        const result = await this.runGraphQL(
+            activeStore,
+            true,
+            mutation,
+            variables,
+        );
+
+        const userErrors = result?.data?.productVariantsBulkUpdate?.userErrors ?? [];
+        if (userErrors.length > 0) {
+            // You may want to throw or log details here
+            throw new Error(
+                `Failed to set requiresComponents: ${JSON.stringify(userErrors)}`,
+            );
+        }
+    }
+
     public async syncBundle(bundle: BundleEntity) {
         // 1. Validate Store
         const activeStore = await this.getStoreForSync(bundle.adminId);
@@ -1442,10 +1516,10 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         const syncedProductsMap = new Map<string, any>();
 
         if (bundle.variant && bundle.variant.product) {
-            const newItem = await this.syncProduct({
+            const newProduct = await this.syncProduct({
                 productId: bundle.variant.productId,
             });
-            syncedProductsMap.set(String(bundle.variant.productId), newItem);
+            syncedProductsMap.set(String(bundle.variant.productId), newProduct);
         }
 
 
@@ -1454,10 +1528,10 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         // Sync item product variants
         for (const item of activeItems) {
             if (item.variant && item.variant.product) {
-                const newItem = await this.syncProduct({
+                const newProduct = await this.syncProduct({
                     productId: item.variant.productId,
                 });
-                syncedProductsMap.set(String(item.variant.productId), newItem);
+                syncedProductsMap.set(String(item.variant.productId), newProduct);
             }
         }
         try {
@@ -1480,7 +1554,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     'itemVariant.isActive = :active',
                     { active: true }
                 )
-                .leftJoinAndSelect('items.variant', 'itemVariant')
                 .leftJoinAndSelect('itemVariant.product', 'itemProduct')
 
                 .where('bundle.id = :bundleId', { bundleId: bundle.id })
@@ -1584,6 +1657,13 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 productVariantRelationshipsToUpdate.length > 0 ||
                 productVariantRelationshipsToRemove.length > 0
             ) {
+                await this.setVariantRequiresComponentsTrue(
+                    activeStore,
+                    remoteBundleVariant?.product?.id, // however you store this
+                    remoteBundleVariant?.id,
+                );
+
+
                 const updateMutation = `
         mutation UpdateBundleComponents($input: [ProductVariantRelationshipUpdateInput!]!) {
           productVariantRelationshipBulkUpdate(input: $input) {
@@ -1609,15 +1689,27 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
       `;
 
+                const inputItem: any = {
+                    parentProductVariantId: remoteBundleVariant.id,
+                };
+
+                if (productVariantRelationshipsToCreate.length > 0) {
+                    inputItem.productVariantRelationshipsToCreate =
+                        productVariantRelationshipsToCreate;
+                }
+
+                if (productVariantRelationshipsToUpdate.length > 0) {
+                    inputItem.productVariantRelationshipsToUpdate =
+                        productVariantRelationshipsToUpdate;
+                }
+
+                if (productVariantRelationshipsToRemove.length > 0) {
+                    inputItem.productVariantRelationshipsToRemove =
+                        productVariantRelationshipsToRemove;
+                }
+
                 const variables = {
-                    input: [
-                        {
-                            parentProductVariantId: remoteBundleVariant?.id,
-                            productVariantRelationshipsToCreate,
-                            productVariantRelationshipsToUpdate,
-                            productVariantRelationshipsToRemove,
-                        },
-                    ],
+                    input: [inputItem],
                 };
 
                 const mutationResult = await this.runGraphQL(
@@ -1709,9 +1801,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             if (externalId) {
                 const remoteProduct = await this.getProduct(activeStore, externalId);
                 if (remoteProduct) {
-                    syncedProduct = await this.updateProductWithProductSet(activeStore, product, variants, externalId)
+                    syncedProduct = await this.updateProductWithProductSet(activeStore, product, variants, remoteProduct)
                 } else {
-                    syncedProduct = await this.updateProductWithProductSet(activeStore, product, variants, externalId)
+                    syncedProduct = await this.updateProductWithProductSet(activeStore, product, variants)
                 }
             } else {
                 syncedProduct = await this.updateProductWithProductSet(activeStore, product, variants)
@@ -2602,7 +2694,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         } catch (error: any) {
             this.logger?.error?.(
-                `[Shopify] Failed to fetch scopes: ${error.message}`
+                `[Shopify] Failed to fetch scopes: ${error?.message}`
             );
             return null;
         }
@@ -2637,6 +2729,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                         title
                         price
                         inventoryQuantity
+                        requiresComponents
                         inventoryItem {
                         unitCost {
                             amount
@@ -2715,6 +2808,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
               title
               price
               inventoryQuantity
+              requiresComponents
               selectedOptions {
                 name
                 value
