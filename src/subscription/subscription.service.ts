@@ -226,6 +226,7 @@ export class SubscriptionsService {
                 extraOrderFee: dto.extraOrderFee ?? plan.extraOrderFee,
                 // Snapshot limits
                 includedOrders: dto.includedOrders ?? plan.includedOrders,
+                remainingOrders: dto.includedOrders ?? plan.includedOrders,
                 usersLimit: dto.usersLimit ?? plan.usersLimit,
                 storesLimit: dto.storesLimit ?? plan.storesLimit,
                 shippingCompaniesLimit: dto.shippingCompaniesLimit ?? plan.shippingCompaniesLimit,

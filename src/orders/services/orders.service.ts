@@ -164,9 +164,8 @@ export class OrdersService {
   }
   // ✅ Generate unique order number
   private async generateOrderNumber(adminId: string): Promise<string> {
-    const date = new Date();
-    const dateStr = date.toISOString().split("T")[0].replace(/-/g, "");
-    const prefix = `ORD-${dateStr}`;
+    const dateStr = Date.now(); // YYYYMMDD
+    const prefix = `TRX-${dateStr}`;
 
     const lastOrder = await this.orderRepo
       .createQueryBuilder("o")
@@ -1047,7 +1046,7 @@ export class OrdersService {
       }
 
       // 2. Generate Manifest Number (e.g., MAN-20260316-001)
-      const dateStr = new Date().toISOString().split("T")[0].replace(/-/g, "");
+      const dateStr = Date.now(); // YYYYMMDD
       const count = await manager.count(ShipmentManifestEntity, {
         where: { adminId },
       });
@@ -1149,7 +1148,7 @@ export class OrdersService {
 
 
       // [2025-12-24] Generate a clean, trimmed manifest number
-      const dateStr = new Date().toISOString().split("T")[0].replace(/-/g, "");
+      const dateStr = Date.now();
       const manifestNumber =
         `RET-MAN-${dateStr}-${Math.floor(Math.random() * 1000)}`.trim();
 
@@ -4575,7 +4574,7 @@ export class OrdersService {
       ? params.manager.getRepository(OrderActionLogEntity)
       : this.orderActionLogRepo;
 
-    const dateStr = new Date().toISOString().split("T")[0].replace(/-/g, "");
+    const dateStr = Date.now();
     const count = await repo.count({
       where: { adminId: params.adminId },
     });
@@ -4608,7 +4607,7 @@ export class OrdersService {
     result?: OrderActionResult;
     details?: string;
   }) {
-    const dateStr = new Date().toISOString().split("T")[0].replace(/-/g, "");
+    const dateStr = Date.now();
     const currentCount = await params.manager.count(OrderActionLogEntity, {
       where: { adminId: params.adminId },
     });

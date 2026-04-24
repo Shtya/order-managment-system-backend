@@ -752,7 +752,7 @@ export class UsersService {
 			where: { adminId: me.id },
 		});
 
-		if (currentCount >= subscription?.usersLimit) {
+		if (subscription?.usersLimit != null && currentCount >= subscription?.usersLimit) {
 			throw new BadRequestException('Users limit reached');
 		}
 	}
