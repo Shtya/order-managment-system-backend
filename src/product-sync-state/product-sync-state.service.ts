@@ -401,12 +401,12 @@ export class ProductSyncStateService {
     }
 
     async upsertSyncState(
-        { adminId, productId, storeId, externalStoreId }: { adminId: string, productId: string, storeId: string, externalStoreId: string },
+        { adminId, productId, storeId, externalStoreId }: { adminId: string, productId: string, storeId: string, externalStoreId?: string },
         data: Partial<ProductSyncStatusDto>,
         manager?: EntityManager
     ): Promise<ProductSyncStateEntity> {
 
-        if (!adminId || !productId || !storeId || !externalStoreId) {
+        if (!adminId || !productId || !storeId) {
             throw new Error('adminId, productId, storeId, externalStoreId are required');
         }
 
