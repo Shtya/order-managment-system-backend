@@ -10,6 +10,7 @@ import { PlanDuration, Subscription, SubscriptionStatus, UserFeature } from 'ent
 import { SubscriptionUtils } from 'common/healpers';
 import { Notification, NotificationType } from 'entities/notifications.entity';
 import { SystemRole, User } from 'entities/user.entity';
+import { tenantId } from 'src/category/category.service';
 
 @Injectable()
 export class PaymentsService {
@@ -301,7 +302,6 @@ export class PaymentsService {
     }
 
     async getPaymentSessionById(me: any, id: string) {
-
 
         const session = await this.sessionRepo.createQueryBuilder('session')
             // 1. Load User Details

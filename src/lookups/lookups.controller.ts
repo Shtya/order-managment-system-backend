@@ -107,7 +107,7 @@ export class LookupsController {
 		});
 	}
 
-	@Permissions('products.read')
+	@Permissions('products.read', "orders.confirm-incoming")
 	@Get('skus')
 	skus(
 		@Req() req: any,

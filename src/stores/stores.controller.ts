@@ -30,14 +30,14 @@ export class StoresController {
 
 
   // List failed orders
-  @Permissions("stores.read")
+  @Permissions("orders.read")
   @Get("failed-orders")
   async listFailedOrders(@Req() req: any, @Query() q: any) {
     return this.storesService.listFailedOrders(req.user, q);
   }
 
   // Retry failed order
-  @Permissions("stores.update")
+  @Permissions("orders.restoreFailed")
   @Post("failed-orders/:id/retry")
   async retryFailedOrder(
     @Req() req: any,
@@ -47,13 +47,13 @@ export class StoresController {
   }
 
   // Failed orders statistics
-  @Permissions("stores.read")
+  @Permissions("orders.read")
   @Get("failed-orders/statistics")
   async failedOrdersStatistics(@Req() req: any) {
     return this.storesService.getFailedOrdersStatistics(req.user);
   }
 
-  @Permissions("stores.read")
+  @Permissions("orders.read")
   @Get("failed-orders/export")
   async exportFailedOrders(
     @Req() req: any,
@@ -146,7 +146,7 @@ export class StoresController {
 
 
   // Get failed order details with diagnostics
-  @Permissions("stores.read")
+  @Permissions("orders.read")
   @Get("failed-orders/:id")
   async getFailedOrderDetail(@Req() req: any, @Param("id") id: string) {
     return this.storesService.getFailedOrderDetail(req.user, id);

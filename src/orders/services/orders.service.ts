@@ -3961,7 +3961,7 @@ export class OrdersService {
     let settings = await this.retryRepo.findOneBy({ adminId: adminId });
 
     if (!settings) {
-      settings = await this.retryRepo.create({
+      await this.retryRepo.save({
         adminId,
         confirmationStatuses: [
           OrderStatus.CANCELLED,
@@ -3974,10 +3974,11 @@ export class OrdersService {
         ],
         autoMoveStatus: OrderStatus.CANCELLED,
         retryStatuses: [
-          OrderStatus.OUT_OF_DELIVERY_AREA,
+          OrderStatus.WRONG_NUMBER,
           OrderStatus.UNDER_REVIEW,
         ],
       });
+      settings = await this.retryRepo.findOneBy({ adminId: adminId });
     }
 
     // Return existing or a default object to keep frontend stable

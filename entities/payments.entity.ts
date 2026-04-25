@@ -83,7 +83,7 @@ export class PaymentSessionEntity {
     @JoinColumn({ name: 'userId' })
     user: User;
 
-    @Column({type: 'uuid',})
+    @Column({ type: 'uuid', })
     userId: string;
 
     @Column({
@@ -190,6 +190,9 @@ export class TransactionEntity {
     @JoinColumn({ name: 'userId' })
     user: Relation<User>;
 
+    @Column({ type: 'uuid', nullable: true })
+    adminId: string;
+
     @ManyToOne(() => User, { nullable: true })
     @JoinColumn({ name: 'adminId' })
     admin?: Relation<User> | null;
@@ -286,7 +289,7 @@ export class Wallet {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({type: 'uuid',})
+    @Column({ type: 'uuid', })
     userId: string;
 
     @OneToOne(() => User, (user) => user.wallet)

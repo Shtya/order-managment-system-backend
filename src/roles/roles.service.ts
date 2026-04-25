@@ -70,6 +70,11 @@ export class RolesService implements OnModuleInit {
 					description: 'Regular user',
 					permissionNames: ['*'],
 				},
+				{
+					name: 'call center',
+					description: 'Can confirm orders',
+					permissionNames: ["orders.confirm-incoming", "products.lookup", "orders.update"],
+				}
 			];
 
 		for (const r of predefined) {

@@ -68,7 +68,7 @@ export class OrdersController {
 
   // employee-orders.controller.ts
 
-  @Permissions("orders.read")
+  @Permissions("orders.confirm-incoming")
   @Get("employee/orders/next")
   async getNextOrder(@Req() req: any) {
     return this.svc.getNextAssignedOrder(req.user);
@@ -143,7 +143,7 @@ export class OrdersController {
     });
   }
 
-  @Permissions("orders.read")
+  @Permissions("orders.confirm-incoming")
   @Get('assigned')
   listMyAssigned(@Req() req: any, @Query('limit') limit: number) {
     return this.svc.listMyAssignedOrders(req.user, limit);
@@ -368,20 +368,20 @@ export class OrdersController {
     return this.svc.upsertSettings(req.user, dto);
   }
 
-  @Permissions("orders.read")
+  @Permissions("orders.read", "orders.confirm-incoming")
   @Get('allowed-confirmation')
   async getAllowedConfirmation(@Req() req: any) {
     return this.svc.getAllowedConfirmationStatuses(req.user);
   }
 
-  @Permissions("orders.read")
+  @Permissions("orders.confirm-incoming")
   @Get('confirmation-counts')
   async getCounts(@Req() req: any) {
     return this.svc.getConfirmationStatusCounts(req.user);
   }
 
   // ✅ Get single order
-  @Permissions("orders.read")
+  @Permissions("orders.read", "orders.confirm-incoming")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
     return this.svc.get(req.user, id);
