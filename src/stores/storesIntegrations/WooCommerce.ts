@@ -1241,9 +1241,11 @@ export default class WooCommerceService extends BaseStoreProvider {
 
             if (localBatch.length === 0) {
                 hasMore = false;
-
                 break;
             }
+            const ids = localBatch.map(p => p.syncState?.remoteProductId).filter(Boolean);
+            const remoteItems = ids ? await this.fetchRemoteProducts(store, ids) : [];
+            const remoteMap = new Map<string, any>(remoteItems.map((r: any) => [String(r.id), r]));
 
             for (const product of localBatch) {
                 try {
@@ -1253,9 +1255,7 @@ export default class WooCommerceService extends BaseStoreProvider {
                     });
                     const remoteId = product?.syncState?.remoteProductId;
                     // 3. Check if product exists by slug using your helper
-                    let remoteProduct = null;
-                    if (remoteId)
-                        remoteProduct = await this.getProduct(store, remoteId);
+                    const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
 
                     // 4. Resolve the external category ID from the map created in Phase 1
                     let extCatId = product.categoryId ? categoryMap.get(product.categoryId) : null;
@@ -1266,13 +1266,13 @@ export default class WooCommerceService extends BaseStoreProvider {
                     }
                     let syncedProduct;
                     // 5. Use individual methods for update or create
-                    if (remoteProduct) {
+                    if (remote) {
                         {
                             syncedProduct = await this.updateProduct(
                                 product,
                                 variants,
                                 store,
-                                remoteProduct.id,
+                                remote.id,
                                 extCatId
                             );
                             totalUpdated++;
