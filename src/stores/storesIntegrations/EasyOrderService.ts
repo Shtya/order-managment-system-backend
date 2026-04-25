@@ -674,6 +674,7 @@ export class EasyOrderService extends BaseStoreProvider {
 
         this.logCtx(`[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
     }
+
     private async syncExternalProductToLocal(adminId: string, store: StoreEntity, remoteProduct: any, manager: EntityManager): Promise<ProductEntity> {
 
         // A. Fetch Full Details from External API
