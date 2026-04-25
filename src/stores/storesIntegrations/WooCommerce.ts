@@ -706,7 +706,8 @@ export default class WooCommerceService extends BaseStoreProvider {
             }
         }
 
-        const upsellIds = await this.getUpsellIds(product, store);
+        // const upsellIds = await this.getUpsellIds(product, store);
+        const upsellIds = [];
 
         return {
             name: product.name.trim(),
