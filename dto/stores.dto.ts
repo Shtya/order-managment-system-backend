@@ -113,3 +113,5 @@ export class EasyOrdersCredentialsDto {
   @IsNotEmpty()
   storeId: string;
 }
+
+

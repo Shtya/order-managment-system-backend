@@ -5,6 +5,8 @@ import { CategoryEntity } from "entities/categories.entity";
 import { ProductEntity } from "entities/sku.entity";
 import { OrderEntity } from "entities/order.entity";
 import { StoreEntity, StoreProvider } from "entities/stores.entity";
+import { BundleEntity } from "entities/bundle.entity";
+import { oldBundleDataDto } from "./BaseStoreProvider";
 
 
 
@@ -91,7 +93,7 @@ export class StoreQueueService {
         this.productSyncTimeouts.set(jobId, timeout);
     }
 
-    async enqueueBundleSync(bundleId: string, adminId: string, storeId: string, storeType: StoreProvider) {
+    async enqueueBundleSync(bundleId: string, adminId: string, storeId: string, storeType: StoreProvider, oldBundleData: oldBundleDataDto) {
         const jobId = `bundle:${storeType}:${bundleId}`;
 
         if (this.bundleSyncTimeouts.has(jobId)) {
@@ -105,6 +107,7 @@ export class StoreQueueService {
                 await this.addJob(adminId, "sync-bundle", storeType, {
                     bundleId,
                     storeId,
+                    oldBundleData
                 }, {
                     jobId,
                     groupId: `admin:${adminId}:bundle`, // Using a specific sub-group

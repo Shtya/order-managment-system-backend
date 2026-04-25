@@ -108,7 +108,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     protected async processJob(payload: any): Promise<void> {
-        const { type, storeType, storeId, newStatusId, productId, bundleId, category, slug, orderId } = payload;
+        const { type, storeType, storeId, newStatusId, productId, bundleId, oldBundleData, category, slug, orderId } = payload;
 
         try {
             // 1. Resolve which service to use
@@ -156,15 +156,26 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                         .where('bundle.id = :bundleId', { bundleId })
                         .getOne();
 
-                    if (!bundle || !bundle.isActive || !bundle?.variant?.isActive) {
+                    if (!bundle) {
                         return;
                     }
+                    const { oldMainVaraintId, oldStoreId, oldStoreType, adminId: storeAdmin } = oldBundleData ?? {};
+                    if (oldMainVaraintId && oldStoreId && (bundle?.variantId !== oldMainVaraintId || bundle?.storeId !== oldStoreId)) {
+                        const deleteService = this.getService(oldStoreType);
+                        if ('deleteBundle' in deleteService)
+                            await (deleteService as unknown as IBundleSyncProvider).deleteBundle(oldMainVaraintId, oldStoreId, storeAdmin);
+                        this.logger.log(`[Delete Bundle] Provider: ${oldStoreType} | Job: ${type} | Successfully delete bundle of old varaint: ${oldMainVaraintId}`);
+                    }
 
+
+                    if (!bundle?.variant?.isActive) return;
                     // Ensure syncBundle is called if the service supports it
+
                     if ('syncBundle' in service) {
-                        await (service as IBundleSyncProvider).syncBundle(bundle);
+                        await (service as unknown as IBundleSyncProvider).syncBundle(bundle);
                         this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);
                     }
+
                     break;
 
                 case "sync-order-status":

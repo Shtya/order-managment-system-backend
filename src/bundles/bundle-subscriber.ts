@@ -25,16 +25,22 @@ export class BundleSubscriber implements EntitySubscriberInterface<BundleEntity>
 
         // Only sync if assigned to a specific store
         if (entity.storeId) {
-            await this.storesService.syncBundleToStore(event.entity);
+            await this.storesService.syncBundleToStore(event.entity, null);
         }
     }
 
     async afterUpdate(event: UpdateEvent<BundleEntity>) {
         const entity = event.entity as BundleEntity;
-        if (!entity.isActive) return;
-        if (entity.storeId) {
-            await this.storesService.syncBundleToStore(entity);
-        }
+
+        if (!entity.storeId) return;
+
+        const oldEntity = event.databaseEntity;
+        const { adminId, variantId, storeId } = oldEntity;
+        const store = await this.storesService.getStoreById({ adminId }, storeId);
+        await this.storesService.syncBundleToStore(
+            entity,
+            { adminId, oldMainVaraintId: variantId, oldStoreId: storeId, oldStoreType: store?.provider });
     }
+
 
 }

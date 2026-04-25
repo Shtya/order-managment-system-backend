@@ -10,7 +10,7 @@ import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.e
 import { OrderEntity, OrderStatus } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
 import { StoreQueueService } from "./storesIntegrations/queues";
-import { BaseStoreProvider, MappedProductDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
+import { BaseStoreProvider, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import WooCommerceService from "./storesIntegrations/WooCommerce";
@@ -566,7 +566,9 @@ export class StoresService {
     );
   }
 
-  async syncBundleToStore(bundle: BundleEntity) {
+  async syncBundleToStore(bundle: BundleEntity,
+    oldBundleData: oldBundleDataDto
+  ) {
     const { storeId, adminId, name, id } = bundle;
     if (!storeId) return;
 
@@ -586,7 +588,7 @@ export class StoresService {
     }
 
     // Route to the correct queue based on Provider
-    await this.storeQueueService.enqueueBundleSync(bundle.id, bundle.adminId, store.id, store.provider);
+    await this.storeQueueService.enqueueBundleSync(bundle.id, bundle.adminId, store.id, store.provider, oldBundleData);
     this.logger.log(
       `[Bundle Sync] Dispatched sync job for Bundle: "${name}" (ID: ${id}) ` +
       `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`

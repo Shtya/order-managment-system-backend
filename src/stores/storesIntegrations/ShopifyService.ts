@@ -1452,19 +1452,20 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return variant;
     }
 
-    private async setVariantRequiresComponentsTrue(
+    private async setVariantRequiresComponents(
         activeStore: StoreEntity,
         productId: string,
         variantId: string,
+        requiresComponents: boolean = true,
     ): Promise<void> {
         const mutation = `
-    mutation SetVariantRequiresComponentsSimple($productId: ID!, $variantId: ID!) {
+    mutation SetVariantRequiresComponents($productId: ID!, $variantId: ID!, $requiresComponents: Boolean!) {
       productVariantsBulkUpdate(
         productId: $productId
         variants: [
           {
             id: $variantId
-            requiresComponents: true
+            requiresComponents: $requiresComponents
           }
         ]
       ) {
@@ -1485,6 +1486,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         const variables = {
             productId,
             variantId,
+            requiresComponents,
         };
 
         const result = await this.runGraphQL(
@@ -1494,14 +1496,131 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             variables,
         );
 
-        const userErrors = result?.data?.productVariantsBulkUpdate?.userErrors ?? [];
+        const userErrors =
+            result?.data?.productVariantsBulkUpdate?.userErrors ?? [];
+
         if (userErrors.length > 0) {
-            // You may want to throw or log details here
             throw new Error(
                 `Failed to set requiresComponents: ${JSON.stringify(userErrors)}`,
             );
         }
     }
+
+    private async removeAllBundleComponents(
+        activeStore: StoreEntity,
+        parentVariantId: string,
+    ) {
+        const mutation = `
+    mutation RemoveAllBundleComponents($input: [ProductVariantRelationshipUpdateInput!]!) {
+      productVariantRelationshipBulkUpdate(input: $input) {
+        parentProductVariants {
+          id
+          productVariantComponents(first: 30) {
+            nodes {
+              id
+              productVariant {
+                id
+                displayName
+              }
+            }
+          }
+        }
+        userErrors {
+          code
+          field
+          message
+        }
+      }
+    }
+  `;
+
+        const variables = {
+            input: [
+                {
+                    parentProductVariantId: parentVariantId,
+                    removeAllProductVariantRelationships: true,
+                },
+            ],
+        };
+
+        const result = await this.runGraphQL(
+            activeStore,
+            true,
+            mutation,
+            variables,
+        );
+
+        const errors =
+            result?.data?.productVariantRelationshipBulkUpdate?.userErrors ?? [];
+        if (errors.length > 0) {
+            throw new Error(
+                `Failed to remove bundle components: ${JSON.stringify(errors)}`,
+            );
+        }
+    }
+
+    private async disableRemoteBundleVariant(
+        activeStore: StoreEntity,
+        adminId: string,
+        productId: string,
+        sku: string,
+    ): Promise<void> {
+        const syncStates = await this.productSyncStateRepo.find({
+            where: {
+                adminId,
+                storeId: activeStore.id,
+                externalStoreId: activeStore.externalStoreId,
+                productId,
+            },
+            relations: ['product', 'product.variants'],
+        });
+
+        const syncState = syncStates?.[0];
+
+        if (syncState && syncState.remoteProductId) {
+            const remoteVariant = await this.findRemoteVariantByProductGidAndSku(
+                activeStore,
+                syncState.remoteProductId,
+                sku,
+            );
+
+            if (remoteVariant && remoteVariant.id && remoteVariant.requiresComponents) {
+                // 1. Delete all components
+                await this.removeAllBundleComponents(activeStore, remoteVariant.id);
+
+                // 2. Set requiresComponents to false
+                await this.setVariantRequiresComponents(
+                    activeStore,
+                    syncState.remoteProductId,
+                    remoteVariant.id,
+                    false,
+                );
+            }
+        }
+    }
+
+    async deleteBundle(mainVaraintId: string, storeId: string, adminId: string): Promise<void> {
+        const oldStore = await this.storesRepo.findOne({
+            where: {
+                adminId: adminId,
+                id: storeId,
+                provider: StoreProvider.SHOPIFY,
+            },
+        });
+        const oldVariant = await this.pvRepo.findOne({
+            where: { id: mainVaraintId }
+        });
+
+        if (oldStore && oldVariant) {
+            await this.disableRemoteBundleVariant(
+                oldStore,
+                adminId,
+                oldVariant.productId,
+                oldVariant.sku
+            );
+        }
+    }
+
 
     public async syncBundle(bundle: BundleEntity) {
         // 1. Validate Store
@@ -1509,7 +1628,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         if (!activeStore) {
             throw new Error("Store not found or inactive")
         }
-
 
         // 1. Sync products (main product variant and items product variants)
         // Sync main product variant
@@ -1657,7 +1775,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 productVariantRelationshipsToUpdate.length > 0 ||
                 productVariantRelationshipsToRemove.length > 0
             ) {
-                await this.setVariantRequiresComponentsTrue(
+                await this.setVariantRequiresComponents(
                     activeStore,
                     remoteBundleVariant?.product?.id, // however you store this
                     remoteBundleVariant?.id,
@@ -1665,29 +1783,29 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
 
                 const updateMutation = `
-        mutation UpdateBundleComponents($input: [ProductVariantRelationshipUpdateInput!]!) {
-          productVariantRelationshipBulkUpdate(input: $input) {
-            parentProductVariants {
-              id
-              productVariantComponents(first: 10) {
-                nodes {
-                  id
-                  quantity
-                  productVariant {
+                mutation UpdateBundleComponents($input: [ProductVariantRelationshipUpdateInput!]!) {
+                productVariantRelationshipBulkUpdate(input: $input) {
+                    parentProductVariants {
                     id
-                    displayName
-                  }
+                    productVariantComponents(first: 10) {
+                        nodes {
+                        id
+                        quantity
+                        productVariant {
+                            id
+                            displayName
+                        }
+                        }
+                    }
+                    }
+                    userErrors {
+                    code
+                    field
+                    message
+                    }
                 }
-              }
-            }
-            userErrors {
-              code
-              field
-              message
-            }
-          }
-        }
-      `;
+                }
+            `;
 
                 const inputItem: any = {
                     parentProductVariantId: remoteBundleVariant.id,
