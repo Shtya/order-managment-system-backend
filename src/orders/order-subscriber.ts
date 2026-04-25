@@ -181,7 +181,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
                 }
             }
 
-        } catch (error) {
+        } catch (error: any) {
             console.error("Auto-shipping failed:", error);
             await this.logAndNotifyFailure(order, `Auto-shipping failed: ${error.message}`);
         }

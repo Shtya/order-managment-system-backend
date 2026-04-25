@@ -14,6 +14,7 @@ import { ProductType } from "entities/sku.entity";
 
 export interface IBundleSyncProvider {
     syncBundle(bundle: BundleEntity): Promise<void>;
+    deleteBundle(mainVaraintId: string, storeId: string, adminId: string): Promise<void>;
 }
 
 
@@ -119,6 +120,12 @@ export interface UnifiedProductDto {
     variants: UnifiedProductVariantDto[];
 }
 
+export interface oldBundleDataDto {
+    oldMainVaraintId: string,
+    oldStoreId: string,
+    oldStoreType: StoreProvider,
+    adminId: string
+}
 
 @Injectable()
 export abstract class BaseStoreProvider implements OnModuleInit {
