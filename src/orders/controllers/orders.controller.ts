@@ -145,9 +145,21 @@ export class OrdersController {
 
   @Permissions("orders.confirm-incoming")
   @Get('assigned')
-  listMyAssigned(@Req() req: any, @Query('limit') limit: number) {
-    return this.svc.listMyAssignedOrders(req.user, limit);
+  listMyAssigned(@Req() req: any, @Query() q: any) {
+    return this.svc.listMyAssignedOrders(req.user, q);
   }
+
+  @Permissions("orders.confirm-incoming")
+  @Get("assigned/export")
+  async exportMyAssignedOrders(@Req() req: any, @Query() q: any, @Res() res: Response) {
+    const buffer = await this.svc.exportMyAssignedOrders(req.user, q);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=orders_export_${Date.now()}.xlsx`);
+
+    return res.send(buffer);
+  }
+
 
   @Permissions("orders.assign")
   @Get("free-orders")

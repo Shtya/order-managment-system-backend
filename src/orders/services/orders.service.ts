@@ -165,7 +165,7 @@ export class OrdersService {
   // ✅ Generate unique order number
   private async generateOrderNumber(adminId: string): Promise<string> {
     const dateStr = Date.now(); // YYYYMMDD
-    const prefix = `TRX-${dateStr}`;
+    const prefix = `ORD-${dateStr}`;
 
     const lastOrder = await this.orderRepo
       .createQueryBuilder("o")
@@ -789,6 +789,119 @@ export class OrdersService {
       records,
     };
   }
+
+  async exportMyAssignedOrders(me: any, q?: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const myUserId = me?.id;
+    if (!myUserId) throw new BadRequestException("Missing user ID");
+
+    // 1. نفس منطق بناء الاستعلام (Query Builder)
+    const search = String(q?.search ?? "").trim();
+    const qb = this.orderRepo
+      .createQueryBuilder("order")
+      .where("order.adminId = :adminId", { adminId })
+      .innerJoinAndSelect(
+        "order.assignments",
+        "assignment",
+        "assignment.isAssignmentActive = true AND assignment.employeeId = :myUserId",
+        { myUserId },
+      )
+      .leftJoinAndSelect("order.items", "items")
+      .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.shippingCompany", "shipping")
+      .leftJoinAndSelect("order.store", "store")
+      .leftJoinAndSelect("assignment.employee", "employee");
+
+    // 2. تطبيق نفس الفلاتر
+    if (q?.status) {
+      const statusParam = q.status;
+      if (!isNaN(Number(statusParam))) {
+        qb.andWhere("order.statusId = :statusId", { statusId: Number(statusParam) });
+      } else {
+        qb.andWhere("status.code = :statusCode", { statusCode: String(statusParam).trim() });
+      }
+    }
+    if (q?.type) qb.andWhere("order.type = :type", { type: q.type });
+    if (q?.paymentStatus) qb.andWhere("order.paymentStatus = :paymentStatus", { paymentStatus: q.paymentStatus });
+    if (q?.paymentMethod) qb.andWhere("order.paymentMethod = :paymentMethod", { paymentMethod: q.paymentMethod });
+    if (q?.shippingCompanyId) qb.andWhere("order.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: q.shippingCompanyId });
+    if (q?.storeId) qb.andWhere("order.storeId = :storeId", { storeId: q.storeId });
+
+    DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
+
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.customerName ILIKE :s", { s: `%${search}%` })
+            .orWhere("order.phoneNumber ILIKE :s", { s: `%${search}%` });
+        }),
+      );
+    }
+
+    // 3. جلب جميع البيانات بدون Pagination للتصدير
+    qb.orderBy("order.created_at", "DESC");
+    const orders = await qb.getMany();
+
+    // 4. تحضير البيانات (Prepare Data)
+    const exportData = orders.map((order) => {
+      return {
+        orderNumber: order.orderNumber || "N/A",
+        status: order.status?.name || order.status?.code || "N/A",
+        customerName: order.customerName || "N/A",
+        phoneNumber: order.phoneNumber || "N/A",
+        city: order.city || "N/A",
+        paymentStatus: order.paymentStatus || "N/A",
+        shippingCompany: order.shippingCompany?.name || "N/A",
+        store: order.store?.name || "N/A",
+        finalTotal: order.finalTotal || 0,
+        createdAt: order.created_at
+          ? new Date(order.created_at).toLocaleString("en-GB")
+          : "N/A",
+      };
+    });
+
+    // 5. إنشاء ملف الإكسل (Create Workbook)
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("My Assigned Orders");
+
+    const columns = [
+      { header: "Order Number", key: "orderNumber", width: 20 },
+      { header: "Status", key: "status", width: 15 },
+      { header: "Customer Name", key: "customerName", width: 25 },
+      { header: "Phone Number", key: "phoneNumber", width: 18 },
+      { header: "City", key: "city", width: 18 },
+      { header: "Final Total", key: "finalTotal", width: 15 },
+      { header: "Payment Status", key: "paymentStatus", width: 18 },
+      { header: "Shipping Company", key: "shippingCompany", width: 20 },
+      { header: "Store", key: "store", width: 20 },
+      { header: "Created At", key: "createdAt", width: 20 },
+    ];
+
+    worksheet.columns = columns;
+
+    // تنسيق رأس الجدول (Style header row)
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    // إضافة البيانات (Add data rows)
+    exportData.forEach((row) => {
+      worksheet.addRow(row);
+    });
+
+    // 6. توليد الـ Buffer
+    const buffer = await workbook.xlsx.writeBuffer();
+    return buffer;
+  }
+
   async listLogs(me: any, q?: any) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
