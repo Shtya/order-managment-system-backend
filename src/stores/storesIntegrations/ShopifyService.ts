@@ -641,7 +641,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             return base;
         });
 
-        const upsellMetafield = await this.getShopifyUpsellMetafield(product, store);
+        // const upsellMetafield = await this.getShopifyUpsellMetafield(product, store);
+        const upsellMetafield = null;
 
         const input: any = {
             title: product.name.trim(),
