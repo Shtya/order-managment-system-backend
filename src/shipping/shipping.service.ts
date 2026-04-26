@@ -20,7 +20,7 @@ import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
 import { tenantId } from 'src/category/category.service';
-import { OrderActionResult, OrderActionType, OrderEntity, OrderReplacementEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
+import { OrderActionResult, OrderActionType, OrderEntity, OrderFlowPath, OrderReplacementEntity, OrderStatus, OrderStatusEntity, StockDeductionStrategy } from 'entities/order.entity';
 import { ProductVariantEntity } from 'entities/sku.entity';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { ShippingQueueService } from './queues/shipping.queues';
@@ -352,74 +352,67 @@ export class ShippingService {
 		, options: { emitSocket?: boolean } = { emitSocket: true }) {
 		const adminId = tenantId(me);
 		const userId = me?.id;
+		let order: any;
+		const shipment: ShipmentEntity = null;
+		try {
+			// Validation: Order ID required
+			if (!orderId) {
+				throw new BadRequestException("Order is required to create a shipment.");
+			}
 
-		if (!orderId) {
-			throw new BadRequestException("Order is required to create a shipment.");
-		}
-		const order = await this.ordersRepo.findOne({
-			where: { id: orderId, adminId },
-			relations: [
-				'items',
-				'items.variant',
-				'items.variant.product',
-				'replacementResult',
-
-				'replacementResult.items',
-				'replacementResult.items.originalOrderItem',
-				'replacementResult.items.originalOrderItem.variant',
-				'replacementResult.items.originalOrderItem.variant.product'
-			]
-		});
-
-		if (!order) throw new BadRequestException("Order not found.");
-
-		// Requirement 4: Cancel previous shipment if exists
-		if (order.shippingCompanyId && order.trackingNumber) {
-			const prevShipment = await this.shipmentsRepo.findOne({
-				where: {
-					orderId: order.id,
-					adminId,
-				},
-				order: { created_at: 'DESC' as any },
-				relations: ['shippingCompany']
+			// Validation: Order exists
+			order = await this.ordersRepo.findOne({
+				where: { id: orderId, adminId },
+				relations: [
+					"status",
+					'items',
+					'items.variant',
+					'items.variant.product',
+					'replacementResult',
+					'replacementResult.items',
+					'replacementResult.items.originalOrderItem',
+					'replacementResult.items.originalOrderItem.variant',
+					'replacementResult.items.originalOrderItem.variant.product'
+				]
 			});
 
-			if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
-				try {
+			if (!order) throw new BadRequestException("Order not found.");
+
+			// Validation: Order status
+			if (![OrderStatus.CONFIRMED, OrderStatus.FAILED_DELIVERY].includes(order.status?.code as OrderStatus)) {
+				throw new BadRequestException(`Cannot create shipment for order in status "${order.status?.code}". Only orders in "confirmed" or "failed_delivery" status can be assigned for shipping.`)
+			}
+
+			// Cancel previous shipment if exists
+			if (order.shippingCompanyId && order.trackingNumber) {
+				const prevShipment = await this.shipmentsRepo.findOne({
+					where: {
+						orderId: order.id,
+						adminId,
+					},
+					order: { created_at: 'DESC' as any },
+					relations: ['shippingCompany']
+				});
+
+				if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
 					await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
-				} catch (e: any) {
-					const errorMessage = `Failed to auto-cancel previous shipment ${prevShipment.id}: ${e?.response?.message || e?.response?.data?.message || e.message}`;
-					console.warn(errorMessage);
-					await this.ordersService.logOrderAction({
-						adminId, userId, orderId,
-						actionType: OrderActionType.COURIER_ASSIGNED,
-						result: OrderActionResult.FAILED,
-						details: errorMessage
-					});
-					if (options.emitSocket !== false) {
-						this.appGateway.emitShipmentStatus(adminId, {
-							orderId,
-							orderNumber: order.orderNumber,
-							status: 'failed',
-							message: errorMessage,
-						});
-					}
-					throw new BadRequestException(errorMessage)
 				}
 			}
-		}
 
-		try {
+			// Setup provider and API key
 			const isNoneProvider = provider === 'none';
 			const p = !isNoneProvider ? this.getProvider(provider) : null;
 			const { apiKey, companyId, integ } = !isNoneProvider
 				? await this.requireApiKey(adminId, provider)
 				: { apiKey: null, companyId: null, integ: null };
 
-
+			// Execute shipment creation transaction
 			const result = await this.dataSource.transaction(async (manager) => {
+				const settings = await this.ordersService.getSettings({ adminId: order.adminId, manager: manager });
+				const newStatusCode = settings.orderFlowPath === OrderFlowPath.SHIPPING ? OrderStatus.SHIPPED : OrderStatus.DISTRIBUTED;
+
 				if (isNoneProvider) {
-					const status = await this.ordersService.findStatusByCode(OrderStatus.DISTRIBUTED, adminId, manager)
+					const status = await this.ordersService.findStatusByCode(newStatusCode, adminId, manager)
 
 					await manager.update(OrderEntity,
 						{ id: orderId, adminId },
@@ -436,6 +429,15 @@ export class ShippingService {
 						actionType: OrderActionType.COURIER_ASSIGNED,
 						result: OrderActionResult.SUCCESS,
 						details: `Assigned for Manual Shipping (No Provider)`
+					});
+
+					await this.notificationService.create({
+						userId: adminId,
+						type: NotificationType.SHIPMENT_CREATED,
+						title: "Order Distributed for Manual Shipping",
+						message: `Order #${order.orderNumber} has been assigned for manual shipping without a provider.`,
+						relatedEntityType: "order",
+						relatedEntityId: String(order?.id),
 					});
 
 					return {
@@ -458,91 +460,59 @@ export class ShippingService {
 					}),
 				);
 
-				let payload;
-				try {
-					const payloadResult = await p.buildDeliveryPayload(order, dto, integ);
+				// Build delivery payload
+				const payloadResult = await p.buildDeliveryPayload(order, dto, integ);
 
-					if (!payloadResult.success) {
-						throw new BadRequestException(payloadResult.error);
-					}
-					payload = payloadResult.data;
-				} catch (e: any) {
-					shipment.status = ShipmentStatus.FAILED;
-					shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
-					shipment.failureReason = e?.message || 'Build payload failed';
-					await manager.save(shipment);
-					await this.ordersService.logOrderAction({
-						manager, adminId, userId, orderId,
-						actionType: OrderActionType.COURIER_ASSIGNED,
-						result: OrderActionResult.FAILED,
-						details: `Payload Build Failed: ${e.message}`
-					});
-
-					throw e;
+				if (!payloadResult.success) {
+					throw new BadRequestException(payloadResult.error);
 				}
+				const payload = payloadResult.data;
 
 
-				try {
-					const res = await p.createShipment(apiKey, payload);
+				const res = await p.createShipment(apiKey, payload);
 
-					shipment.trackingNumber = res.trackingNumber || null;
-					shipment.providerShipmentId = res.providerShipmentId || null;
+				shipment.trackingNumber = res.trackingNumber || null;
+				shipment.providerShipmentId = res.providerShipmentId || null;
+				shipment.status = ShipmentStatus.CREATED;
+				shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
+				shipment.providerRaw = {
+					request: payload,
+					response: res.providerRaw || { trackingNumber: shipment.trackingNumber, providerShipmentId: shipment.providerShipmentId },
+				};
 
-					shipment.status = ShipmentStatus.CREATED;
-					shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
+				await manager.save(shipment);
+				const status = await this.ordersService.findStatusByCode(newStatusCode, adminId, manager)
 
-					shipment.providerRaw = {
-						request: payload,
-						response: res.providerRaw || { trackingNumber: shipment.trackingNumber, providerShipmentId: shipment.providerShipmentId },
-					};
-
-					await manager.save(shipment);
-					const status = await this.ordersService.findStatusByCode(OrderStatus.DISTRIBUTED, adminId, manager)
-
-
-					await manager.update(OrderEntity,
-						{ id: orderId, adminId },
-						{
-							statusId: status.id,
-							trackingNumber: shipment.trackingNumber, // Copy tracking number to order
-							shippingCompanyId: companyId, // Ensure company ID is linked to order
-							distributed_at: new Date(),
-						}
-					);
-					await this.ordersService.logOrderAction({
-						manager, adminId, userId, orderId,
-						actionType: OrderActionType.COURIER_ASSIGNED,
-						result: OrderActionResult.SUCCESS,
-						shippingCompanyId: companyId,
-						details: `Assigned to ${provider}. Tracking: ${shipment.trackingNumber}`
-					});
-					return {
-						ok: true,
-						shipmentId: shipment.id,
-						orderId: shipment.orderId,
-						provider,
+				await manager.update(OrderEntity,
+					{ id: orderId, adminId },
+					{
+						statusId: status.id,
 						trackingNumber: shipment.trackingNumber,
-						providerShipmentId: shipment.providerShipmentId,
-						status: shipment.unifiedStatus,
-					};
-				} catch (e: any) {
-					shipment.status = ShipmentStatus.FAILED;
-					shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
-					shipment.failureReason = e?.response?.message || e?.response?.data?.message || e.message || 'Create shipment failed';
-					shipment.providerRaw = { request: payload, error: shipment.failureReason };
-					await manager.save(shipment);
-					await this.ordersService.logOrderAction({
-						manager, adminId, userId, orderId,
-						actionType: OrderActionType.COURIER_ASSIGNED,
-						result: OrderActionResult.FAILED,
-						details: `Courier API Error: ${shipment.failureReason}`
-					});
+						shippingCompanyId: companyId,
+						distributed_at: new Date(),
+					}
+				);
 
-					throw new BadRequestException(shipment.failureReason);
-				}
+				await this.ordersService.logOrderAction({
+					manager, adminId, userId, orderId,
+					actionType: OrderActionType.COURIER_ASSIGNED,
+					result: OrderActionResult.SUCCESS,
+					shippingCompanyId: companyId,
+					details: `Assigned to ${provider}. Tracking: ${shipment.trackingNumber}`
+				});
 
+				return {
+					ok: true,
+					shipmentId: shipment.id,
+					orderId: shipment.orderId,
+					provider,
+					trackingNumber: shipment.trackingNumber,
+					providerShipmentId: shipment.providerShipmentId,
+					status: shipment.unifiedStatus,
+				};
 			});
 
+			// Success path
 			if (options.emitSocket !== false) {
 				this.appGateway.emitShipmentStatus(adminId, {
 					orderId,
@@ -556,8 +526,8 @@ export class ShippingService {
 			await this.notificationService.create({
 				userId: adminId,
 				type: NotificationType.SHIPMENT_CREATED,
-				title: isNoneProvider ? "Order Distributed" : "Shipment Created",
-				message: isNoneProvider
+				title: provider === 'none' ? "Order Distributed" : "Shipment Created",
+				message: provider === 'none'
 					? `Order #${order.orderNumber} has been assigned for manual shipping.`
 					: `Shipment for order #${order.orderNumber} has been created successfully. Tracking: ${result.trackingNumber}`,
 				relatedEntityType: "order",
@@ -565,15 +535,43 @@ export class ShippingService {
 			});
 
 			return result;
+
 		} catch (error: any) {
+			// Single error handling
+			const errorMessage = error?.response?.message || error?.response?.data?.message || error.message || 'Shipment creation failed';
+
 			if (options.emitSocket !== false) {
 				this.appGateway.emitShipmentStatus(adminId, {
 					orderId,
-					orderNumber: order.orderNumber,
+					orderNumber: order?.orderNumber,
 					status: 'failed',
-					message: error.message,
+					message: errorMessage,
 				});
 			}
+			if (shipment) {
+				shipment.status = ShipmentStatus.FAILED;
+				shipment.unifiedStatus = UnifiedShippingStatus.EXCEPTION;
+				shipment.failureReason = errorMessage;
+			}
+
+			// Single log entry
+			await this.ordersService.logOrderAction({
+				adminId, userId, orderId,
+				actionType: OrderActionType.COURIER_ASSIGNED,
+				result: OrderActionResult.FAILED,
+				details: errorMessage
+			});
+
+			// Single notification
+			await this.notificationService.create({
+				userId: adminId,
+				type: NotificationType.SHIPMENT_CREATED,
+				title: "Shipment Creation Failed",
+				message: `Failed to create shipment for order #${order?.orderNumber}. Error: ${errorMessage}`,
+				relatedEntityType: "order",
+				relatedEntityId: String(order?.id),
+			});
+
 			throw error;
 		}
 	}
@@ -691,6 +689,24 @@ export class ShippingService {
 		};
 	}
 
+	async getShipmentByTrackingNumber(adminId: string, trackingNumber: string) {
+		const s = await this.shipmentsRepo.findOne({ where: { trackingNumber, adminId } });
+		if (!s) throw new BadRequestException('Shipment not found');
+
+		return {
+			ok: true,
+			id: s.id,
+			orderId: s.orderId,
+			companyId: s.shippingCompanyId,
+			company: s.shippingCompany?.name,
+			trackingNumber: s.trackingNumber,
+			providerShipmentId: s.providerShipmentId,
+			status: s.unifiedStatus,
+			created_at: s.created_at,
+			updated_at: s.updated_at,
+		};
+	}
+
 	async getShipmentEvents(adminId: string, id: string) {
 		const s = await this.shipmentsRepo.findOne({ where: { id, adminId } });
 		if (!s) throw new BadRequestException('Shipment not found');
@@ -716,6 +732,34 @@ export class ShippingService {
 
 	getUnifiedStatuses() {
 		return { ok: true, statuses: Object.values(UnifiedShippingStatus) };
+	}
+
+	async trackShipment(me: any, trackingNumber: string) {
+		const adminId = tenantId(me);
+		const shipment = await this.shipmentsRepo.findOne({
+			where: { trackingNumber, adminId },
+			relations: ['shippingCompany']
+		});
+		if (!shipment) throw new BadRequestException('Shipment not found');
+		if (!shipment.shippingCompany) throw new BadRequestException('Shipping company not found for this shipment');
+
+		const provider = this.getProvider(shipment.shippingCompany.code);
+		const integ = await this.getOrCreateIntegration(adminId, shipment.shippingCompany.id);
+		if (!integ.isActive) throw new BadRequestException('Shipping company is disabled');
+
+		const accountId = integ?.credentials?.accountId ? String(integ?.credentials?.accountId).trim() : (integ?.credentials?.accountId || undefined)
+		const apiKey = integ?.credentials?.apiKey;
+
+		if (!apiKey) throw new BadRequestException('Provider credentials not configured (missing apiKey)');
+		const { unifiedStatus, providerShipmentId, rawState } = await provider.getShipmentStatus(apiKey, shipment.trackingNumber, accountId);
+		return {
+			ok: true,
+			shipmentId: shipment.id,
+			trackingNumber: shipment.trackingNumber,
+			status: unifiedStatus,
+			rawState: rawState,
+			providerShipmentId
+		};
 	}
 	async getCompanyDistribution(me: any) {
 		const adminId = tenantId(me);

@@ -29,6 +29,7 @@ export enum TurboDeliveryType {
 
 @Injectable()
 export class TurboProvider extends ShippingProvider {
+
   // Use the backoffice URL for geography as specified in your examples
   private readonly geoBaseUrl = 'https://backoffice.turbo-eg.com';
   // Main platform URL for other operations
@@ -220,8 +221,8 @@ export class TurboProvider extends ShippingProvider {
     const shipment = data.result[0];
 
     return {
-      unifiedStatus: this.mapTurboStateToUnified(Number(shipment.status_code)),
-      rawState: shipment.status_code,
+      unifiedStatus: shipment.status_code ? this.mapTurboStateToUnified(Number(shipment.status_code)) : this.mapTurboTextStateToUnified(shipment.status),
+      rawState: shipment.status,
       trackingNumber: shipment.bar_code || shipment.code,
       providerShipmentId: shipment.bar_code || shipment.code,
     };
@@ -279,7 +280,7 @@ export class TurboProvider extends ShippingProvider {
     const trackingNumber = body?.order_number?.toString() || body?.order_number?.toString();
 
     return {
-      unifiedStatus: this.mapTurboStateToUnified(statusCode),
+      unifiedStatus: statusCode ? this.mapTurboStateToUnified(statusCode) : this.mapTurboTextStateToUnified(body?.status),
       rawState: statusCode,
       trackingNumber: trackingNumber,
       providerShipmentId: body?.order_number?.toString(),
@@ -402,6 +403,54 @@ export class TurboProvider extends ShippingProvider {
     // الحالة الافتراضية
     return UnifiedShippingStatus.IN_PROGRESS;
   }
-}
 
+  private mapTurboTextStateToUnified(stateText: string): UnifiedShippingStatus {
+    if (!stateText) return UnifiedShippingStatus.IN_PROGRESS;
+
+    // تنظيف النص من المسافات الزائدة قبل المقارنة
+    const normalizedState = stateText.trim();
+
+    switch (normalizedState) {
+      // 1. حالات جديدة (New)
+      // return UnifiedShippingStatus.NEW;
+
+      // 2. تحت الإجراء / تم القبول (In Progress)
+      case 'قيد التنفيذ':
+      case 'معاد ارسالها':
+      case 'غير مكتملة':
+      case 'قيد الإنتظار':
+        return UnifiedShippingStatus.IN_PROGRESS;
+
+      // 3. خرج للتوصيل (In Transit)
+      case 'مسلمة للمندوب':
+      case 'الشحن الدولي':
+        return UnifiedShippingStatus.IN_TRANSIT;
+
+      // 4. تم التسليم (Delivered)
+      case 'تم التسليم':
+      case 'تم التوريد':
+        return UnifiedShippingStatus.DELIVERED;
+
+      // 5. مرتجعات (Returned)
+      case 'مرتجعات فى الشركة':
+      case 'مرتجعات وصلت لك':
+        return UnifiedShippingStatus.RETURNED;
+
+      // 6. استثناءات ومشاكل (Exception / On Hold)
+      case 'مؤجلة مع المندوب':
+        return UnifiedShippingStatus.ON_HOLD;
+
+      // 7. مفقودات وتلفيات (Lost / Damaged)
+      case 'مرتجعات مفقودة':
+        return UnifiedShippingStatus.LOST;
+
+      case 'مرتجعات معدومة':
+        return UnifiedShippingStatus.DAMAGED;
+
+      // الحالة الافتراضية لأي نص غير معروف
+      default:
+        return UnifiedShippingStatus.IN_PROGRESS;
+    }
+  }
+}
 

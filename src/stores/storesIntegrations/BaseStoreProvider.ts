@@ -10,7 +10,9 @@ import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import Bottleneck from "bottleneck";
 import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { BundleEntity } from "entities/bundle.entity";
-import { ProductType } from "entities/sku.entity";
+import { ProductEntity, ProductType } from "entities/sku.entity";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 
 export interface IBundleSyncProvider {
     syncBundle(bundle: BundleEntity): Promise<void>;
@@ -150,6 +152,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
         protected readonly encryptionService: EncryptionService,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
+        protected readonly notificationService: NotificationService,
         limit,
         storeProvider
     ) {
@@ -366,7 +369,35 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     }
 
 
+    protected async sendSyncSuccessNotification(params: {
+        adminId: string;
+        entityId: string;
+        entityName: string;
+        storeName: string;
+        isProduct: boolean;
+        action: 'CREATE' | 'UPDATE' | 'SYNC';
+    }) {
+        const { adminId, entityId, entityName, storeName, isProduct, action } = params;
 
+        const entityText = isProduct ? 'Product' : 'Bundle';
+
+        const actionText = action === 'CREATE' ? 'created' : action === 'UPDATE' ? 'updated' : '';
+
+        // ✅ Title with quoted name + action
+        const title = `"${entityName}" synced successfully to ${storeName} ${actionText && `(${actionText})`}`;
+
+        // ✅ Keep your original message style (slightly improved consistency)
+        const message = `${entityText} "${entityName}" has been successfully ${actionText === 'created' ? 'synced to' : 'synced to'} ${storeName}.`;
+
+        return await this.notificationService.create({
+            userId: adminId,
+            type: NotificationType.PRODUCT_SYNC_SUCCESS,
+            title,
+            message,
+            relatedEntityType: isProduct ? "product" : "bundle",
+            relatedEntityId: String(entityId),
+        });
+    }
 
     // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
     // usage of the `@shopify/shopify-api` client and provider-specific behavior.

@@ -69,6 +69,7 @@ import { BulkUploadUsage } from "dto/plans.dto";
 import { Notification, NotificationType } from "entities/notifications.entity";
 import { OrderFailStatus, StoreEntity } from "entities/stores.entity";
 import {
+  ShipmentEntity,
   ShippingCompanyEntity,
   ShippingIntegrationEntity,
 } from "entities/shipping.entity";
@@ -579,16 +580,6 @@ export class OrdersService {
               where: { id: In(orderIds), adminId },
               relations: ["items", "items.variant"],
             });
-
-            for (const order of ordersToUpdate) {
-              // Deduct stock only if strategy is ON_SHIPMENT
-              if (
-                settings.stockDeductionStrategy ===
-                StockDeductionStrategy.ON_SHIPMENT
-              ) {
-                await this.deductStockForOrder(manager, order);
-              }
-            }
 
             await orderRepo.update(orderIds, {
               statusId: shippedStatus.id,
@@ -1580,11 +1571,6 @@ export class OrdersService {
       );
       if (!printedStatus) throw new Error("PRINTED status not configured");
 
-      // 3. Deduct stock if strategy is ON_SHIPMENT (printing usually means ready to ship)
-      if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT) {
-        await this.deductStockForMultipleOrders(manager, orders);
-      }
-
       const newPrintOrders = [];
       const reprintOrders = [];
 
@@ -2028,17 +2014,25 @@ export class OrdersService {
       .leftJoinAndSelect("assignments.employee", "employee") // Optional: load the employee details
 
       // 🔥 Replacement Data
-      .leftJoinAndSelect("order.replacementResult", "replacementResult")
+      // .leftJoinAndSelect("order.replacementResult", "replacementResult")
 
-      // Join the Replacement Order (The result) and ITS items to get NEW prices
-      .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
-      // 3. Link Bridge Items back to Original Prices
-      .leftJoinAndSelect("replacementResult.items", "bridgeItems")
-      .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem") // Gets old unitPrice/quantity
-      .leftJoinAndSelect("origItem.variant", "bridgeVar")
-      .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
-
+      // // Join the Replacement Order (The result) and ITS items to get NEW prices
+      // .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
+      // // 3. Link Bridge Items back to Original Prices
+      // .leftJoinAndSelect("replacementResult.items", "bridgeItems")
+      // .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem") // Gets old unitPrice/quantity
+      // .leftJoinAndSelect("origItem.variant", "bridgeVar")
+      // .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
+      .leftJoinAndSelect(
+        "order.shipments",
+        "shipments",
+        // تم استخدام "order" بين علامات تنصيص خاصة بقواعد البيانات أو استخدام الـ Alias المعرف للجدول
+        `shipments.adminId = :adminId AND shipments."trackingNumber" = "order"."trackingNumber"`,
+        { adminId }
+      )
+      .leftJoinAndSelect("shipments.shippingCompany", "shipmentShippingCompany")
       .where("order.id = :id", { id })
+      // 🔥 تصحيح: كان هناك مسافة في كلمة "ord er" تسببت في خطأ أيضاً
       .andWhere("order.adminId = :adminId", { adminId })
       .getOne();
 
@@ -3040,15 +3034,7 @@ export class OrdersService {
           await manager.save(ProductVariantEntity, item.variant);
           await manager.save(OrderItemEntity, item);
         }
-      } else if (
-        !allowed.includes(oldStatus.code as OrderStatus) &&
-        allowed.includes(newStatus.code as OrderStatus) &&
-        settings.stockDeductionStrategy === StockDeductionStrategy.ON_CONFIRMATION
-      ) {
-        // Deduct stock on confirmation
-        await this.deductStockForOrder(manager, order);
       }
-
       order.status = newStatus;
       order.updatedByUserId = employeeId;
 
@@ -3264,10 +3250,12 @@ export class OrdersService {
   async findStatusById(
     id: string,
     adminId: string,
+    manager?: EntityManager
   ): Promise<OrderStatusEntity> {
     // [2025-12-24] Trim input and ensure case-insensitive matching if needed
 
-    const status = await this.statusRepo.findOne({
+    const repo = manager ? manager.getRepository(OrderStatusEntity) : this.statusRepo;
+    const status = await repo.findOne({
       where: [
         { id: id, system: true }, // Condition 1: Global System Status
         { id: id, adminId: adminId }, // Condition 2: Admin-specific Status
@@ -4003,7 +3991,7 @@ export class OrdersService {
     return { created, failed: errors.length, errors };
   }
 
-  private async deductStockForOrder(
+  public async deductStockForOrder(
     manager: EntityManager,
     order: OrderEntity,
   ) {
@@ -4035,7 +4023,7 @@ export class OrdersService {
     }
   }
 
-  private async deductStockForMultipleOrders(
+  public async deductStockForMultipleOrders(
     manager: EntityManager,
     orders: OrderEntity[],
   ) {
@@ -4069,9 +4057,10 @@ export class OrdersService {
   }
 
 
-  async getSettings(me: any): Promise<OrderRetrySettingsEntity> {
+  async getSettings(me: any, manager?: EntityManager): Promise<OrderRetrySettingsEntity> {
     const adminId = tenantId(me);
-    let settings = await this.retryRepo.findOneBy({ adminId: adminId });
+    const repo = manager ? manager.getRepository(OrderRetrySettingsEntity) : this.retryRepo;
+    let settings = await repo.findOneBy({ adminId: adminId });
 
     if (!settings) {
       await this.retryRepo.save({

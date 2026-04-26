@@ -17,7 +17,7 @@ import {
 import { ProductVariantEntity } from "./sku.entity";
 import { StoreEntity } from "./stores.entity";
 import { User } from "./user.entity";
-import { ShippingCompanyEntity } from "./shipping.entity";
+import { ShipmentEntity, ShippingCompanyEntity } from "./shipping.entity";
 import { OrderCollectionEntity } from "./order-collection.entity";
 import { MonthlyClosingEntity } from "./accounting.entity";
 
@@ -302,6 +302,9 @@ export class OrderEntity {
 
   @OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.order)
   assignments: OrderAssignmentEntity[];
+
+  @OneToMany(() => ShipmentEntity, (shipment) => shipment.order)
+  shipments: ShipmentEntity[];
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
@@ -684,7 +687,7 @@ export class OrderRetrySettingsEntity {
   @Column({
     type: "enum",
     enum: OrderFlowPath,
-    default: OrderFlowPath.SHIPPING,
+    default: OrderFlowPath.WAREHOUSE,
   })
   orderFlowPath: OrderFlowPath;
 

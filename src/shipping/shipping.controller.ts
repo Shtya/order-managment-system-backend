@@ -106,6 +106,7 @@ export class ShippingController {
 		return this.shipping.getShipment(req.user.id, id);
 	}
 
+
 	@UseGuards(JwtAuthGuard)
 	@Get('shipments/:id/events')
 	events(@Req() req: any, @Param('id') id: string) {
@@ -171,4 +172,13 @@ export class ShippingController {
 		const adminId = tenantId(req.user);
 		return this.shipping.getPickupLocations(adminId, provider);
 	}
+
+
+	@Permissions("shipping-companies.read")
+	@Get('shipments/:trackingNumber/track')
+	trackShipment(@Req() req: any, @Param('trackingNumber') trackingNumber: string) {
+		const adminId = tenantId(req.user);
+		return this.shipping.getShipmentByTrackingNumber(adminId, trackingNumber);
+	}
+
 }
