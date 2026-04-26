@@ -25,6 +25,7 @@ import axios from "axios";
 import { AppGateway } from "common/app.gateway";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 import { access } from "fs";
+import { NotificationService } from "src/notifications/notification.service";
 
 
 @Injectable()
@@ -47,14 +48,14 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         @Inject(forwardRef(() => OrdersService))
         protected readonly ordersService: OrdersService,
         @Inject(forwardRef(() => ProductsService)) private readonly productsService: ProductsService,
-        @Inject(forwardRef(() => CategoriesService)) private readonly categoriesService: CategoriesService,
         @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
         private readonly productSyncStateService: ProductSyncStateService,
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
+        protected readonly notificationService: NotificationService,
     ) {
-        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, 400, StoreProvider.SHOPIFY)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.SHOPIFY)
 
     }
 
@@ -1252,6 +1253,15 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                         }
                     }
 
+                    await this.sendSyncSuccessNotification({
+                        adminId: product.adminId,
+                        entityId: product.id,
+                        entityName: product.name,
+                        storeName: store.name,
+                        isProduct: true,
+                        action: remote ? "UPDATE" : "CREATE"
+                    });
+
                     // 3.6 SUCCESS STATE UPDATE
                     await this.productSyncStateService.upsertSyncState(
                         {
@@ -1856,6 +1866,15 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                         `Shopify mutation errors: ${JSON.stringify(errors)}`,
                     );
                 }
+
+                await this.sendSyncSuccessNotification({
+                    adminId: bundle.adminId,
+                    entityId: bundle.id,
+                    entityName: bundle.name,
+                    storeName: activeStore.name,
+                    isProduct: false,
+                    action: "SYNC"
+                });
             }
         } catch (error: any) {
             const message = this.getErrorMessage(error);

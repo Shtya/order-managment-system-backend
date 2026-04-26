@@ -40,7 +40,7 @@ export class EasyOrderService extends BaseStoreProvider {
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
         @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
-        private readonly notificationService: NotificationService,
+        protected readonly notificationService: NotificationService,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
         @Inject(forwardRef(() => OrdersService))
@@ -54,7 +54,7 @@ export class EasyOrderService extends BaseStoreProvider {
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
     ) {
-        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, 40, StoreProvider.EASYORDER)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 40, StoreProvider.EASYORDER)
     }
 
 
@@ -472,6 +472,15 @@ export class EasyOrderService extends BaseStoreProvider {
             store
         );
 
+        await this.sendSyncSuccessNotification({
+            adminId: product.adminId,
+            entityId: product.id,
+            entityName: product.name,
+            storeName: store.name,
+            isProduct: true,
+            action: 'CREATE'
+        });
+
         return { response, externalId, payload };
     }
 
@@ -490,6 +499,18 @@ export class EasyOrderService extends BaseStoreProvider {
             remoteVariants,
             store
         );
+
+        const adminId = product.adminId;
+        const isProduct = true;
+
+        await this.sendSyncSuccessNotification({
+            adminId,
+            entityId: product.id,
+            entityName: product.name,
+            storeName: store.name,
+            isProduct: true,
+            action: 'UPDATE'
+        });
 
         return { response, externalId, payload };
     }
@@ -1139,7 +1160,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 orderStatus: OrderStatus.DELIVERED,
                 paymentStatus: null,
             },
-            "canceled": {
+            "cancelled": {
                 orderStatus: OrderStatus.CANCELLED,
                 paymentStatus: null,
             },

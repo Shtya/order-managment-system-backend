@@ -18,6 +18,7 @@ import axios, { AxiosRequestConfig } from "axios";
 import * as crypto from 'crypto';
 import { AppGateway } from "common/app.gateway";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
+import { NotificationService } from "src/notifications/notification.service";
 
 
 @Injectable()
@@ -47,8 +48,9 @@ export default class WooCommerceService extends BaseStoreProvider {
         protected readonly redisService: RedisService,
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
+        protected readonly notificationService: NotificationService,
     ) {
-        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, 400, StoreProvider.WOOCOMMERCE)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.WOOCOMMERCE)
 
     }
 
@@ -621,6 +623,15 @@ export default class WooCommerceService extends BaseStoreProvider {
         const created = response?.data ?? response;
         await this.syncWooVariations(created?.id, activeVariants, store, attrMap);
 
+        await this.sendSyncSuccessNotification({
+            adminId: product.adminId,
+            entityId: product.id,
+            entityName: product.name,
+            storeName: store.name,
+            isProduct: false,
+            action: "CREATE"
+        });
+
         return created;
 
 
@@ -645,6 +656,15 @@ export default class WooCommerceService extends BaseStoreProvider {
 
         const updated = response?.data ?? response;
         await this.syncWooVariations(updated?.id || externalId, activeVariants, store, attrMap);
+
+        await this.sendSyncSuccessNotification({
+            adminId: product.adminId,
+            entityId: product.id,
+            entityName: product.name,
+            storeName: store.name,
+            isProduct: false,
+            action: "UPDATE"
+        });
 
         return response?.data ?? response;
 

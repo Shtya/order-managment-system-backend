@@ -6,7 +6,7 @@ import {
 } from 'typeorm';
 
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
-import { OrderEntity, OrderFlowPath, OrderRetrySettingsEntity, OrderStatus, PaymentStatus } from 'entities/order.entity';
+import { OrderEntity, OrderFlowPath, OrderRetrySettingsEntity, OrderStatus, PaymentStatus, StockDeductionStrategy } from 'entities/order.entity';
 import { Repository } from 'typeorm';
 import { StoresService } from 'src/stores/stores.service';
 import { ShippingService } from 'src/shipping/shipping.service';
@@ -64,17 +64,27 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
             if (!fullOrder) return;
 
+            try {
 
-            if (fullOrder.externalId) {
-                await this.storesService.syncOrderStatus(fullOrder, newStatusId);
+                const settings = await this.ordersService.getSettings({ adminId: fullOrder.adminId, manager: event.manager });
+                const newStatus = await this.ordersService.findStatusById(newStatusId, fullOrder.adminId, event.manager);
+
+                if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_CONFIRMATION && newStatus.code === OrderStatus.CONFIRMED) {
+                    await this.ordersService.deductStockForOrder(event.manager, fullOrder);
+                } else if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT && newStatus.code === OrderStatus.SHIPPED) {
+                    await this.ordersService.deductStockForOrder(event.manager, fullOrder);
+                }
+            } catch (error) {
+                console.error("Error in stock deduction logic:", error);
             }
 
-            const settings = await event.manager.findOne(OrderRetrySettingsEntity, {
-                where: { adminId: fullOrder.adminId }
-            });
-            // 2. Auto-send to shipping automation
-            if (settings) {
-                await this.handleAutoShipping(fullOrder, settings);
+            try {
+                if (fullOrder.externalId) {
+                    await this.storesService.syncOrderStatus(fullOrder, newStatusId);
+                }
+
+            } catch (error) {
+                console.error("Error in store synchronization:", error);
             }
         }
     }
@@ -87,7 +97,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
         const activeIntegrations = activeResult.integrations || [];
 
         if (activeIntegrations.length === 1) {
-            if (settings.orderFlowPath === OrderFlowPath.SHIPPING && (order.status?.name === settings.shipping.triggerStatus || String(order.status?.id) === settings.shipping.triggerStatus)) {
+            if (settings.orderFlowPath === OrderFlowPath.SHIPPING && (order.status?.name?.toLocaleLowerCase() === settings.shipping.triggerStatus?.toLocaleLowerCase() || String(order.status?.id) === settings.shipping.triggerStatus)) {
                 shouldTrigger = true;
                 companyId = activeIntegrations[0].providerId;
             }
@@ -98,7 +108,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             // Standard logic for multiple or no integrations
             if (settings.orderFlowPath === OrderFlowPath.SHIPPING) {
                 // 1. Classic Shipping Flow trigger
-                if (order.status?.name === settings.shipping.triggerStatus || String(order.status?.id) === settings.shipping.triggerStatus) {
+                if (order.status?.name?.toLocaleLowerCase() === settings.shipping.triggerStatus?.toLocaleLowerCase() || String(order.status?.id) === settings.shipping.triggerStatus) {
                     shouldTrigger = true;
                     companyId = settings.shipping.shippingCompanyId;
                 }
@@ -152,7 +162,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
             // Call createShipment from ShippingService
             // Mocking 'me' object for the service
-            const systemUser = { id: 0, adminId: order.adminId, role: { name: 'admin' } };
+            const systemUser = { id: order.adminId, adminId: order.adminId, role: { name: 'admin' } };
             await this.shippingService.createShipment(
                 systemUser,
                 company.code as any,

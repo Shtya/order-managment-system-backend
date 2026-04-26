@@ -34,7 +34,8 @@ export enum NotificationType {
     MARKETING_MESSAGE = 'marketing_message',
     SYSTEM_ERROR = 'system_error',
     ORDER_CREATED = 'order_created',
-    PRODUCT_SYNC_FAILED = 'product_sync_failed'
+    PRODUCT_SYNC_FAILED = 'product_sync_failed',
+    PRODUCT_SYNC_SUCCESS = 'product_sync_success'
 }
 
 @Entity('notifications')
