@@ -887,7 +887,7 @@ export class ProductsService {
         where: {
           adminId,
           slug: dto.slug.trim(),
-          storeId: dto.storeId ?? null
+          storeId: dto.storeId && dto.storeId !== 'none' ? dto.storeId ?? null : null
         }
       });
 
