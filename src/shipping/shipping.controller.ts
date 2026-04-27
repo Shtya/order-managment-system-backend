@@ -11,7 +11,7 @@ import { Permissions } from 'common/permissions.decorator';
 import { RequireSubscription } from 'common/require-subscription.decorator';
 import { SubscriptionGuard } from 'common/subscription.guard';
 
-@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('shipping')
 @RequireSubscription()
 export class ShippingController {

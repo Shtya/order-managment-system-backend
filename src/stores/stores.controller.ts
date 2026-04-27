@@ -10,7 +10,7 @@ import { Response } from "express";
 import { StoreProvider } from "entities/stores.entity";
 
 
-@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("stores")
 @RequireSubscription()
 export class StoresController {

@@ -1,4 +1,8 @@
+import { Transform } from 'class-transformer';
 import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, Min, MinLength } from 'class-validator';
+
+
+
 
 export class AdminCreateUserDto {
 	@IsString() name: string;
@@ -99,47 +103,47 @@ export class VerifyEmailChangeDto {
 }
 
 export class AdminCreateAvatarDto {
-  @IsString()
-  @IsNotEmpty()
-  name: string;
+	@IsString()
+	@IsNotEmpty()
+	name: string;
 
-  @IsEmail({}, { message: 'Invalid email format' })
-  email: string;
+	@IsEmail({}, { message: 'Invalid email format' })
+	email: string;
 
-  @IsString()
-  @IsNotEmpty()
-  roleId: string;
+	@IsString()
+	@IsNotEmpty()
+	roleId: string;
 
-  @IsOptional()
-  @IsString()
-  @MinLength(6, { message: 'Password must be at least 6 characters' })
-  password?: string;
+	@IsOptional()
+	@IsString()
+	@MinLength(6, { message: 'Password must be at least 6 characters' })
+	password?: string;
 
-  @IsOptional()
-  @IsString()
-  phone?: string;
+	@IsOptional()
+	@IsString()
+	phone?: string;
 
-  @IsOptional()
-  @IsString()
-  employeeType?: string;
+	@IsOptional()
+	@IsString()
+	employeeType?: string;
 }
 
 
 export class AdminCreateDto {
-  @IsString()
-  @IsNotEmpty()
-  name: string;
+	@IsString()
+	@IsNotEmpty()
+	name: string;
 
-  @IsEmail({}, { message: 'Invalid email format' })
-  @IsNotEmpty()
-  email: string;
+	@IsEmail({}, { message: 'Invalid email format' })
+	@IsNotEmpty()
+	email: string;
 
-  @IsString()
-  @IsNotEmpty()
-  roleId: string;
+	@IsString()
+	@IsNotEmpty()
+	roleId: string;
 
-  @IsOptional()
-  @IsString()
-  @MinLength(6, { message: 'Password must be at least 6 characters' })
-  password?: string;
+	@IsOptional()
+	@IsString()
+	@MinLength(6, { message: 'Password must be at least 6 characters' })
+	password?: string;
 }

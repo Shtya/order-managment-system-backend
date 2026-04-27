@@ -30,7 +30,6 @@ export class UsersService {
 		return me.role?.name === SystemRole.SUPER_ADMIN;
 	}
 
-
 	async getFullUser(userId: string): Promise<User> {
 		const user = await this.usersRepo.createQueryBuilder('user')
 			// Join Role
@@ -895,7 +894,7 @@ export class UsersService {
 		};
 	}
 
-	async processNextOnboardingStep(userId: string, me: any) {
+	async processNextOnboardingStep(me: User, userId: string, wantedStep: OnboardingStep) {
 		if (me.role?.name !== 'admin') {
 			throw new ForbiddenException('Only admins can complete onboarding');
 		}
@@ -924,6 +923,32 @@ export class UsersService {
 
 		if (user.role.name !== 'admin') {
 			throw new ForbiddenException('Only admins can complete onboarding');
+		}
+
+		// if currentStep already proccessed retrun next directly
+		//index map of steps
+		const indexSteps = {
+			[OnboardingStep.WELCOME]: 0,
+			[OnboardingStep.PLAN]: 1,
+			[OnboardingStep.COMPANY]: 2,
+			[OnboardingStep.STORE]: 3,
+			[OnboardingStep.SHIPPING]: 4,
+			[OnboardingStep.FINISHED]: 5,
+		};
+
+		const nextSteps = {
+			[OnboardingStep.WELCOME]: OnboardingStep.PLAN,
+			[OnboardingStep.PLAN]: OnboardingStep.COMPANY,
+			[OnboardingStep.COMPANY]: OnboardingStep.STORE,
+			[OnboardingStep.STORE]: OnboardingStep.SHIPPING,
+			[OnboardingStep.SHIPPING]: OnboardingStep.FINISHED,
+		}
+
+		const wantedStepIndex = indexSteps[wantedStep];
+		const currentStepIndex = indexSteps[user.currentOnboardingStep];
+
+		if (wantedStepIndex < currentStepIndex) {
+			return { nextStep: nextSteps[wantedStep] };
 		}
 
 		let nextStep: OnboardingStep;

@@ -10,6 +10,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UploadedFile } from '@nestjs/common';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { OnboardingStep } from 'entities/user.entity';
 
 
 const storage = diskStorage({
@@ -42,9 +43,9 @@ export class UsersController {
 
 
 	@Permissions('users.update')
-	@Post('onboarding/next')
-	async moveToNextStep(@Req() req: any) {
-		return this.users.processNextOnboardingStep(req.user.id, req.user);
+	@Post('onboarding/next/:currentStep')
+	async moveToNextStep(@Req() req: any, @Param('currentStep') currentStep: OnboardingStep) {
+		return this.users.processNextOnboardingStep(req.user, req.user.id, currentStep);
 	}
 
 	@Permissions('users.update')
@@ -176,7 +177,7 @@ export class UsersController {
 	@Permissions('users.create_admin')
 	@Post('admin-create')
 	adminCreate(@Req() req: any, @Body() dto: AdminCreateDto) {
-		
+
 		return this.users.adminCreate(req.user, dto);
 	}
 

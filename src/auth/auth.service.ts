@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, forwardRef, Inject, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { Company, PendingUser, Role, SystemRole, User } from 'entities/user.entity';
+import { Company, OnboardingStep, PendingUser, Role, SystemRole, User } from 'entities/user.entity';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
@@ -30,7 +30,7 @@ export class AuthService {
 	public async sign(user: User) {
 
 		return {
-			accessToken: this.jwt.sign({ sub: user.id }),
+			accessToken: this.jwt.sign({ sub: user.id, isOnboarding: user.currentOnboardingStep !== OnboardingStep?.FINISHED }),
 			user,
 		};
 	}
@@ -42,6 +42,20 @@ export class AuthService {
 	private hashOtp(otp: string) {
 		return crypto.createHash('sha256').update(otp).digest('hex');
 	}
+
+
+
+	async isEmailExists(email: string): Promise<boolean> {
+
+		const normalizedEmail = email.trim().toLowerCase();
+
+		const user = await this.usersRepo.findOne({
+			where: { email: normalizedEmail }
+		});
+
+		return !!user;
+	}
+
 
 	async register(registerDto: RegisterDto) {
 		const { name, email, password, phone, companyName, businessType } = registerDto;
@@ -458,7 +472,7 @@ export class AuthService {
 
 		if (!user.isActive) throw new UnauthorizedException('Account is inactive');
 
-		const accessToken = this.jwt.sign({ sub: user.id });
+		const { accessToken } = await this.sign(user);
 		const newResult = { accessToken, redirectPath };
 
 		return newResult;
