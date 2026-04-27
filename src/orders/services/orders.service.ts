@@ -576,10 +576,7 @@ export class OrdersService {
 
           if (orderIds.length > 0) {
             // Fetch full orders with items to use the deduction method
-            const ordersToUpdate = await manager.getRepository(OrderEntity).find({
-              where: { id: In(orderIds), adminId },
-              relations: ["items", "items.variant"],
-            });
+
 
             await orderRepo.update(orderIds, {
               statusId: shippedStatus.id,
@@ -1548,8 +1545,6 @@ export class OrdersService {
     const adminId = tenantId(me);
     const userId = me?.id;
 
-    const settings = await this.getSettings(me);
-
     return await this.dataSource.transaction(async (manager) => {
       // 1. Fetch orders to get IDs and current Status (needed for logs)
       const orders = await manager.find(OrderEntity, {
@@ -2135,7 +2130,7 @@ export class OrdersService {
       const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
       if (available < item.quantity) {
         throw new BadRequestException(
-          `Insufficient stock for variant ${variant.sku}. Available: ${available}, Requested: ${item.quantity}`,
+          `The requested quantity for "${variant.sku}" exceeds available stock. You can order up to ${available} item(s).`
         );
       }
     }

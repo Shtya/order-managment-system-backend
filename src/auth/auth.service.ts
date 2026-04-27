@@ -246,14 +246,15 @@ export class AuthService {
 	// ✅ UPDATED: Include plan relation on login
 	async login(email: string, password: string) {
 
-		const user = await this.usersService.getFullUserByEmail(email);
+		const user = await this.usersService.getFullUserByEmail(email, true);
 
 		if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
 
 		const ok = await bcrypt.compare(password, user.passwordHash || '');
 		if (!ok) throw new UnauthorizedException('Invalid credentials');
 
-		return this.sign(user);
+		const { passwordHash, ...finalUser } = user;
+		return this.sign(finalUser as User);
 	}
 
 	// ======================
@@ -489,7 +490,15 @@ export class AuthService {
 	}
 
 	async changePasswordByOldPassword(userId: string, oldPassword: string, newPassword: string) {
-		const user = await this.usersRepo.findOne({ where: { id: userId } });
+		const user = await this.usersRepo.findOne({
+			where: { id: userId },
+			select: {
+				passwordHash: true,
+				email: true,
+				name: true,
+				id: true,
+			}
+		});
 		if (!user) throw new NotFoundException('User not found');
 
 		// Verify old password
@@ -505,6 +514,33 @@ export class AuthService {
 		});
 
 		return { message: 'Password updated successfully' };
+	}
+
+	async setPassword(userId: string, newPassword: string) {
+		const user = await this.usersRepo
+			.createQueryBuilder('user')
+			.addSelect('user.passwordHash') // ✅ because select: false
+			.where('user.id = :id', { id: userId })
+			.getOne();
+
+		if (!user) throw new NotFoundException('User not found');
+
+		// 🚫 Prevent overriding existing password
+		if (user.passwordHash) {
+			throw new BadRequestException(
+				'Password already exists. Please use change password instead.'
+			);
+		}
+
+		// ✅ Set new password
+		user.passwordHash = await bcrypt.hash(newPassword, 10);
+		await this.usersRepo.save(user);
+
+		await this.mail.sendPasswordChangeNotificationEmail(user.email, {
+			userName: user.name || 'there',
+		});
+
+		return { message: 'Password set successfully' };
 	}
 
 	// Step 1: Request Email Change
