@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
+  CheckEmailDto,
   ForgotPasswordDto,
   GoogleLoginDto,
   LoginDto,
@@ -23,6 +24,16 @@ export class AuthController {
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
+  }
+
+  @Post('check-email')
+  async checkEmail(@Body() dto: CheckEmailDto) {
+    const exists = await this.auth.isEmailExists(dto.email);
+
+    return {
+      exists,
+      message: exists ? 'Email is already registered' : 'Email is available'
+    };
   }
 
   @Post('verify-registration')
