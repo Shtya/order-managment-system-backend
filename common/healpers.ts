@@ -4,6 +4,7 @@ import { PlanDuration } from 'entities/plans.entity';
 import { copyFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { extname, join } from 'path';
+import { OrderStatus } from 'entities/order.entity';
 
 export function calculateRange(range?: string): { start?: Date; end?: Date } {
     const now = new Date();
@@ -156,3 +157,91 @@ export function generateSlug(value: string): string {
         .replace(/\s+/g, '-')
         .replace(/-+/g, '-');
 }
+
+export const STATUS_TRANSITIONS = {
+    [OrderStatus.NEW]: [
+        OrderStatus.UNDER_REVIEW,
+        OrderStatus.CONFIRMED,
+        OrderStatus.NO_ANSWER,
+        OrderStatus.WRONG_NUMBER,
+        OrderStatus.OUT_OF_DELIVERY_AREA,
+        OrderStatus.DUPLICATE,
+        OrderStatus.CANCELLED,
+    ],
+
+    [OrderStatus.UNDER_REVIEW]: [
+        OrderStatus.CONFIRMED,
+        OrderStatus.NO_ANSWER,
+        OrderStatus.WRONG_NUMBER,
+        OrderStatus.OUT_OF_DELIVERY_AREA,
+        OrderStatus.DUPLICATE,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    ],
+
+    [OrderStatus.CONFIRMED]: [
+        OrderStatus.DISTRIBUTED,
+        OrderStatus.SHIPPED, // ✅ direct shipping allowed
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    ],
+
+    [OrderStatus.DISTRIBUTED]: [
+        OrderStatus.PRINTED,
+        OrderStatus.PREPARING, // optional shortcut
+        OrderStatus.CANCELLED,
+    ],
+
+    [OrderStatus.PRINTED]: [
+        OrderStatus.PREPARING,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    ],
+
+    [OrderStatus.PREPARING]: [
+        OrderStatus.READY,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    ],
+
+    [OrderStatus.READY]: [
+        OrderStatus.PACKED,
+        OrderStatus.CANCELLED,
+    ],
+
+    [OrderStatus.PACKED]: [
+        OrderStatus.SHIPPED,
+        OrderStatus.CANCELLED,
+    ],
+
+    [OrderStatus.SHIPPED]: [
+        OrderStatus.DELIVERED,
+        OrderStatus.FAILED_DELIVERY,
+    ],
+
+    [OrderStatus.FAILED_DELIVERY]: [
+        OrderStatus.DISTRIBUTED, // 🔁 reassign to shipping company
+        OrderStatus.SHIPPED,     // 🔁 resend directly
+        OrderStatus.RETURN_PREPARING,
+    ],
+
+    [OrderStatus.RETURN_PREPARING]: [
+        OrderStatus.RETURNED,
+    ],
+
+    // ❌ TERMINAL STATES (no transitions)
+    [OrderStatus.DELIVERED]: [],
+    [OrderStatus.CANCELLED]: [],
+    [OrderStatus.REJECTED]: [],
+    [OrderStatus.RETURNED]: [],
+};
+
+
+export const GLOBAL_CUSTOM_ALLOWED = [
+    OrderStatus.NO_ANSWER,
+    OrderStatus.WRONG_NUMBER,
+    OrderStatus.OUT_OF_DELIVERY_AREA,
+    OrderStatus.DUPLICATE,
+    OrderStatus.CANCELLED,
+    OrderStatus.REJECTED,
+];

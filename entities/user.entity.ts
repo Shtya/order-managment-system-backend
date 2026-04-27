@@ -33,7 +33,7 @@ export class Role {
 	@Column({ unique: true })
 	name: string;
 
-	@Column({  nullable: true })
+	@Column({ nullable: true })
 	description?: string;
 
 	@Column({ type: 'simple-json', default: '[]' })
@@ -99,7 +99,7 @@ export class User {
 	@Column({ type: 'varchar', nullable: true })
 	employeeType?: string;
 
-	@Column({ nullable: true })
+	@Column({ nullable: true, select: false })
 	passwordHash?: string;
 
 	@Column()
@@ -244,7 +244,7 @@ export class PendingUser {
 
 	// --- Roles ---
 
-	@Column({type: 'uuid',})
+	@Column({ type: 'uuid', })
 	roleId: string;
 
 	@ManyToOne(() => Role, { eager: true })
@@ -273,7 +273,7 @@ export class Company {
 	@Column({ default: "EGP" })
 	currency: string;
 
-	@Column({  nullable: true })
+	@Column({ nullable: true })
 	tax: string;
 
 	@Column({ nullable: true })

@@ -91,6 +91,12 @@ export class ChangePasswordDto {
 	newPassword: string;
 }
 
+export class SetPasswordDto {
+	@IsString()
+	@MinLength(6)
+	newPassword: string;
+}
+
 export class RequestEmailChangeDto {
 	@IsEmail()
 	newEmail: string;

@@ -13,7 +13,7 @@ import axios from 'axios';
 import { Response } from 'express';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
-import { ChangePasswordDto, RequestEmailChangeDto, VerifyEmailChangeDto } from 'dto/user.dto';
+import { ChangePasswordDto, RequestEmailChangeDto, SetPasswordDto, VerifyEmailChangeDto } from 'dto/user.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -116,6 +116,12 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
     return this.auth.changePasswordByOldPassword(req.user.id, dto.oldPassword, dto.newPassword);
+  }
+
+  @Post('set-password')
+  @UseGuards(JwtAuthGuard)
+  setPassword(@Req() req: any, @Body() dto: SetPasswordDto) {
+    return this.auth.setPassword(req.user.id, dto.newPassword);
   }
 
   @Post('request-email-change')

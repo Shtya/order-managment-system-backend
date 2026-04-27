@@ -30,10 +30,13 @@ export class UsersService {
 		return me.role?.name === SystemRole.SUPER_ADMIN;
 	}
 
-	async getFullUser(userId: string): Promise<User> {
-		const user = await this.usersRepo.createQueryBuilder('user')
-			// Join Role
-			.leftJoinAndSelect('user.role', 'role')
+	async getFullUser(userId: string, addPass: boolean = false): Promise<User> {
+		const q = this.usersRepo.createQueryBuilder('user')
+		// Join Role
+		if (addPass)
+			q.addSelect('user.passwordHash')
+
+		q.leftJoinAndSelect('user.role', 'role')
 			.leftJoinAndSelect('user.admin', 'admin')
 			// Join only the ACTIVE subscription
 			.leftJoinAndSelect(
@@ -52,8 +55,8 @@ export class UsersService {
 			)
 			.leftJoinAndSelect('adminSub.plan', 'adminPlan')
 
-			.where('user.id = :userId', { userId })
-			.getOne();
+			.where('user.id = :userId', { userId });
+		const user = await q.getOne();
 
 		if (!user) {
 			throw new NotFoundException(`User with ID ${userId} not found`);
@@ -71,10 +74,14 @@ export class UsersService {
 		return user;
 	}
 
-	async getFullUserByEmail(email: string): Promise<User> {
-		const user = await this.usersRepo.createQueryBuilder('user')
-			// Join Role
-			.leftJoinAndSelect('user.role', 'role')
+	async getFullUserByEmail(email: string, addPass: boolean = false): Promise<User> {
+		const q = this.usersRepo.createQueryBuilder('user')
+		// Join Role
+		if (addPass)
+			q.addSelect('user.passwordHash')
+
+
+		q.leftJoinAndSelect('user.role', 'role')
 			.leftJoinAndSelect('user.admin', 'admin')
 			// Join only the ACTIVE subscription
 			.leftJoinAndSelect(
@@ -94,7 +101,8 @@ export class UsersService {
 			.leftJoinAndSelect('adminSub.plan', 'adminPlan')
 
 			.where('user.email = :email', { email })
-			.getOne();
+
+		const user = await q.getOne();
 
 		if (!user) {
 			throw new NotFoundException(`User with email ${email} not found`);
@@ -668,8 +676,8 @@ export class UsersService {
 
 
 	// ✅ UPDATED: Include plan relation
-	async get(me: User, id: string) {
-		const user = await this.getFullUser(id)
+	async get(me: User, id: string, addPass: boolean = false) {
+		const user = await this.getFullUser(id, addPass)
 
 		if (!user) throw new NotFoundException('User not found');
 
@@ -685,11 +693,12 @@ export class UsersService {
 		return user;
 	}
 	async getMe(id: string) {
-		const user = await this.getFullUser(id)
+		const user = await this.getFullUser(id, true)
 
 		if (!user) throw new NotFoundException('User not found');
 
-		return user;
+		const { passwordHash, ...finalUser } = user;
+		return { ...finalUser, hasPassword: passwordHash != null, };
 	}
 
 	private generatePassword(len = 10) {
@@ -880,7 +889,7 @@ export class UsersService {
 	}
 
 	async adminResetPassword(me: User, id: string, newPassword?: string) {
-		const user = await this.get(me, id);
+		const user = await this.get(me, id, true);
 		this.ensureAdminOwnership(me, user);
 
 		const plain = newPassword || this.generatePassword(10);
