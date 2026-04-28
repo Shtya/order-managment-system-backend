@@ -1309,7 +1309,10 @@ export class EasyOrderService extends BaseStoreProvider {
                     variant: item.variant ? {
                         key: key || "default",
                         variation_props: variationProps
-                    } : undefined
+                    } : {
+                        key: "default",
+                        variation_props: []
+                    }
                 };
             })
         };

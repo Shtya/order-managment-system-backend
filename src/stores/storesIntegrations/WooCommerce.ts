@@ -1586,7 +1586,10 @@ export default class WooCommerceService extends BaseStoreProvider {
                                 key: key || "default",
                                 variation_props: variationProps,
                             }
-                            : undefined,
+                            : {
+                                key: "default",
+                                variation_props: []
+                            },
                     };
                 })
             )
