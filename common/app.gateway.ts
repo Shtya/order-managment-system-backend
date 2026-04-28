@@ -54,7 +54,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             this.broadcastStatus(String(user.id), 'online');
 
             socket.emit("users:active", { users: Array.from(this.onlineUsers), timestamp: new Date(), });
-        } catch (error) {
+        } catch (error: any) {
             console.error('Socket Auth Error:', error.message);
             socket.disconnect();
         }

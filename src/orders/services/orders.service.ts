@@ -7,6 +7,7 @@ import {
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
+import { isEmail } from 'class-validator';
 import { InjectRepository } from "@nestjs/typeorm";
 import {
   DataSource,
@@ -3865,6 +3866,62 @@ export class OrdersService {
   }
 
   // ========================================
+  // ✅ CELL VALUE CONVERTER WITH VALIDATION
+  // ========================================
+  private convertCellValue(
+    value: any,
+    fieldName: string,
+    rowNumber: number,
+    cellNumber: number,
+    cellErrors: Map<number, Map<number, string[]>>,
+    isOptional: boolean = true,
+  ): string {
+    // Handle null/undefined
+    if (value === null || value === undefined) {
+      return "";
+    }
+
+    // Valid primitives: string, number, boolean
+    if (typeof value === "string") {
+      return value.trim();
+    }
+
+    if (typeof value === "number") {
+      return String(value).trim();
+    }
+
+    if (typeof value === "boolean") {
+      return String(value).trim();
+    }
+
+    // Date objects
+    if (value instanceof Date) {
+      return value.toISOString().trim();
+    }
+
+    // Invalid types: objects, arrays, functions, etc.
+    const addError = (rowNumber: number, colNumber: number, message: string) => {
+      if (!cellErrors.has(rowNumber)) {
+        cellErrors.set(rowNumber, new Map<number, string[]>());
+      }
+      const rowMap = cellErrors.get(rowNumber)!;
+      if (!rowMap.has(colNumber)) {
+        rowMap.set(colNumber, []);
+      }
+      rowMap.get(colNumber)!.push(message);
+    };
+
+    const typeOf = Array.isArray(value) ? "array" : typeof value;
+    addError(
+      rowNumber,
+      cellNumber,
+      `Invalid ${fieldName}: expected string/number but got ${typeOf} or link`,
+    );
+
+    return "";
+  }
+
+  // ========================================
   // ✅ BULK CREATE ORDERS FROM EXCEL
   // ========================================
   async bulkCreateOrders(
@@ -3933,36 +3990,158 @@ export class OrdersService {
 
     const rows: any[] = [];
     const allSkus = new Set<string>();
+    const cellErrors = new Map<number, Map<number, string[]>>();
 
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber <= 2) return;
 
       const rowData: any = {
         rowNumber,
-        customerName: String(row.getCell(1).value || "").trim(),
-        phoneNumber: String(row.getCell(2).value || "").trim(),
-        secondPhoneNumber: String(row.getCell(3).value || "").trim(),
-        email: String(row.getCell(4).value || "").trim(),
-        address: String(row.getCell(5).value || "").trim(),
-        landmark: String(row.getCell(6).value || "").trim(),
-        city: String(row.getCell(7).value || "").trim(),
-        area: String(row.getCell(8).value || "").trim(),
-        paymentMethod: String(row.getCell(9).value || "cod").toLowerCase().trim(),
-        paymentStatus: String(row.getCell(10).value || "pending")
+        customerName: this.convertCellValue(
+          row.getCell(1).value,
+          "customerName",
+          rowNumber,
+          1,
+          cellErrors,
+        ),
+        phoneNumber: this.convertCellValue(
+          row.getCell(2).value,
+          "phoneNumber",
+          rowNumber,
+          2,
+          cellErrors,
+        ),
+        secondPhoneNumber: this.convertCellValue(
+          row.getCell(3).value,
+          "secondPhoneNumber",
+          rowNumber,
+          3,
+          cellErrors,
+          true,
+        ),
+        email: this.convertCellValue(
+          row.getCell(4).value,
+          "email",
+          rowNumber,
+          4,
+          cellErrors,
+          true,
+        ),
+        address: this.convertCellValue(
+          row.getCell(5).value,
+          "address",
+          rowNumber,
+          5,
+          cellErrors,
+        ),
+        landmark: this.convertCellValue(
+          row.getCell(6).value,
+          "landmark",
+          rowNumber,
+          6,
+          cellErrors,
+          true,
+        ),
+        city: this.convertCellValue(
+          row.getCell(7).value,
+          "city",
+          rowNumber,
+          7,
+          cellErrors,
+        ),
+        area: this.convertCellValue(
+          row.getCell(8).value,
+          "area",
+          rowNumber,
+          8,
+          cellErrors,
+          true,
+        ),
+        paymentMethod: (
+          this.convertCellValue(
+            row.getCell(9).value || "cod",
+            "paymentMethod",
+            rowNumber,
+            9,
+            cellErrors,
+          ) || "cod"
+        )
           .toLowerCase()
           .trim(),
-        shippingCompany: String(row.getCell(11).value || "")
+        paymentStatus: (
+          this.convertCellValue(
+            row.getCell(10).value || "pending",
+            "paymentStatus",
+            rowNumber,
+            10,
+            cellErrors,
+          ) || "pending"
+        )
+          .toLowerCase()
+          .trim(),
+        shippingCompany: (
+          this.convertCellValue(
+            row.getCell(11).value,
+            "shippingCompany",
+            rowNumber,
+            11,
+            cellErrors,
+            true,
+          ) || ""
+        )
           .toLowerCase()
           .trim(),
         allowOpenPackage:
-          String(row.getCell(12).value || "false").toLowerCase().trim() === "true",
-        store: String(row.getCell(13).value || "").toLowerCase().trim(),
+          (
+            this.convertCellValue(
+              row.getCell(12).value || "false",
+              "allowOpenPackage",
+              rowNumber,
+              12,
+              cellErrors,
+            ) || "false"
+          )
+            .toLowerCase()
+            .trim() === "true",
+        store: (
+          this.convertCellValue(
+            row.getCell(13).value,
+            "store",
+            rowNumber,
+            13,
+            cellErrors,
+            true,
+          ) || ""
+        )
+          .toLowerCase()
+          .trim(),
         shippingCost: Number(row.getCell(14).value || 0),
         deposit: Number(row.getCell(15).value || 0),
         discount: Number(row.getCell(16).value || 0),
-        notes: String(row.getCell(17).value || "").trim(),
-        customerNotes: String(row.getCell(18).value || "").trim(),
-        itemsRaw: String(row.getCell(19).value || "").trim(),
+        notes: this.convertCellValue(
+          row.getCell(17).value,
+          "notes",
+          rowNumber,
+          17,
+          cellErrors,
+          true,
+        ),
+        customerNotes: this.convertCellValue(
+          row.getCell(18).value,
+          "customerNotes",
+          rowNumber,
+          18,
+          cellErrors,
+          true,
+        ),
+        itemsRaw: this.convertCellValue(
+          row.getCell(19).value,
+          "items",
+          rowNumber,
+          19,
+          cellErrors,
+          true,
+        ),
       };
 
       if (rowData.itemsRaw) {
@@ -3984,7 +4163,7 @@ export class OrdersService {
       variants.map((v) => [v.sku, v]),
     );
 
-    const cellErrors = new Map<number, Map<number, string[]>>();
+
     const skuUsage = new Map<string, { totalQty: number; rowNumbers: Set<number> }>();
     const validOrderPayloads: CreateOrderDto[] = [];
 
@@ -4019,11 +4198,11 @@ export class OrdersService {
         addCellError(row.rowNumber, 3, "Invalid secondPhoneNumber (max 50)");
       }
 
-      if (row.email && !/^\S+@\S+\.\S+$/.test(row.email)) {
+
+      if (row.email && !isEmail(row.email)) {
         rowErrors.push("Invalid email format");
         addCellError(row.rowNumber, 4, "Invalid email format");
       }
-
       if (!row.address || row.address.length > 1000) {
         rowErrors.push("Invalid address (Required, max 1000)");
         addCellError(row.rowNumber, 5, "Invalid address (Required, max 1000)");
@@ -4233,6 +4412,12 @@ export class OrdersService {
           rows: [...(skuUsage.get(s.sku)?.rowNumbers || [])],
         })),
       );
+      return {
+        message: `Validation failed for ${cellErrors.size} row(s) and ${skuErrors.length} SKU(s). Please review the error report.`,
+        failed: rows.length,
+        errorFileBuffer,
+        skuErrors,
+      }
     }
 
     if (validOrderPayloads.length > 0) {
@@ -4240,7 +4425,7 @@ export class OrdersService {
     }
 
     return {
-      message: `Successfully queued ${validOrderPayloads.length} orders for creation.`,
+      message: validOrderPayloads.length > 0 ? `Successfully queued ${validOrderPayloads.length} orders for creation.` : "No valid orders to create.",
       failed: rows.length - validOrderPayloads.length,
       errorFileBuffer,
       skuErrors,
@@ -4404,7 +4589,7 @@ export class OrdersService {
         type: NotificationType.BULK_ORDERS_FAILED,
         title: "Bulk Order Creation Failed",
         message:
-          "No orders were created from the uploaded Excel file. Please check the errors and try again.",
+          `No orders were created from the uploaded Excel file.  ${error.message}`,
       });
 
       throw new BadRequestException(
