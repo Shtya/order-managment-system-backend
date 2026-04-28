@@ -2,8 +2,9 @@ import { Body, Controller, Get, Patch, Req, UseGuards } from "@nestjs/common";
 import { AdminSettingsService } from "./admin-settings.service";
 import { UpdateAdminSettingsDto } from "dto/adminSettings.dto";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
+import { SkipThrottle } from '@nestjs/throttler';
 
-
+@SkipThrottle({ default: true })
 @Controller("admin-settings")
 export class AdminSettingsController {
   constructor(private readonly settingsService: AdminSettingsService) { }

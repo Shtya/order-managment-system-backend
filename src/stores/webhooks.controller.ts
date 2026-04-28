@@ -4,7 +4,10 @@ import { Request, Response } from "express";
 import { EasyOrderService } from "src/stores/storesIntegrations/EasyOrderService";
 import { ShopifyService } from "src/stores/storesIntegrations/ShopifyService"
 import { StoresService } from "./stores.service";
+import { SkipThrottle } from '@nestjs/throttler';
 
+
+@SkipThrottle({ default: true })
 @Controller("stores/webhooks")
 export class StoreWebhooksController {
     private readonly logger = new Logger(StoreWebhooksController.name);

@@ -43,7 +43,8 @@ import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
 import { ProductSyncStateModule } from './product-sync-state/product-sync-state.module';
-
+import { minutes, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -52,6 +53,13 @@ import { ProductSyncStateModule } from './product-sync-state/product-sync-state.
 			envFilePath: ['.env', `.env.${process.env.NODE_ENV || 'production'}`],
 			load: [kashierConfig],
 		}),
+		ThrottlerModule.forRoot([
+			{
+				name: 'default',
+				ttl: minutes(1),
+				limit: 200,
+			}
+		]),
 		TypeOrmModule.forRoot({
 			type: "postgres",
 			host: process.env.DATABASE_HOST,
@@ -102,7 +110,10 @@ import { ProductSyncStateModule } from './product-sync-state/product-sync-state.
 		ProductSyncStateModule
 	],
 	providers: [
-		QueryFailedErrorFilter, EncryptionService
+		QueryFailedErrorFilter, EncryptionService, {
+			provide: APP_GUARD,
+			useClass: ThrottlerGuard
+		}
 	],
 	exports: [],
 })

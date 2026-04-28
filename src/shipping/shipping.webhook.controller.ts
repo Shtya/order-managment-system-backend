@@ -1,6 +1,9 @@
 import { Body, Controller, Headers, HttpCode, Param, Post } from '@nestjs/common';
 import { ShippingService } from './shipping.service';
+import { SkipThrottle } from '@nestjs/throttler';
 
+
+@SkipThrottle({ default: true })
 @Controller('shipping/webhooks')
 export class ShippingWebhookController {
 	constructor(private shipping: ShippingService) { }
