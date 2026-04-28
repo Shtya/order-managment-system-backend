@@ -44,7 +44,7 @@ import {
   ReturnRequestEntity,
   StockDeductionStrategy,
 } from "entities/order.entity";
-import { ProductVariantEntity } from "entities/sku.entity";
+import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import {
   CreateOrderDto,
   UpdateOrderDto,
@@ -79,6 +79,8 @@ import { RedisService } from "common/redis/RedisService";
 import { ShippingQueueService } from "src/shipping/queues/shipping.queues";
 import { WalletService } from "src/wallet/wallet.service";
 import { NotificationService } from "src/notifications/notification.service";
+import { StoresService } from "src/stores/stores.service";
+import { ShippingService } from "src/shipping/shipping.service";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -128,6 +130,9 @@ export class OrdersService {
     @InjectRepository(ProductVariantEntity)
     private variantRepo: Repository<ProductVariantEntity>,
 
+    @InjectRepository(ProductEntity)
+    private productRepo: Repository<ProductEntity>,
+
     @InjectRepository(OrderScanLogEntity)
     private scanLogRepo: Repository<OrderScanLogEntity>,
 
@@ -145,6 +150,10 @@ export class OrdersService {
 
     private notificationService: NotificationService,
     private redisService: RedisService,
+    @Inject(forwardRef(() => StoresService))
+    private storesService: StoresService,
+    @Inject(forwardRef(() => ShippingService))
+    private shippingService: ShippingService,
   ) { }
 
   //private function to lock order if he delivered and has monthly closign id
@@ -3586,75 +3595,254 @@ export class OrdersService {
     const buffer = await workbook.xlsx.writeBuffer();
     return buffer;
   }
-
-  // ========================================
-  // ✅ BULK UPLOAD: TEMPLATE (matches CreateOrderDto, comma-separated arrays)
-  // ========================================
   async getBulkTemplate(me: any): Promise<Buffer> {
-    tenantId(me);
+    const adminId = tenantId(me);
+
+    // ==========================================
+    // 1. Fetch Dynamic Data (Stores, Shipping, Products)
+    // ==========================================
+
+    // Fetch Stores
+    // ==========================================
+    const [storesList, shippingData, products] = await Promise.all([
+      this.storesService.list(me),
+      this.shippingService.activeIntegrations(me),
+      // Fetching only required fields to optimize database performance
+      this.productRepo.find({
+        where: {
+          adminId: adminId.trim(),
+          isActive: true,
+          variants: {
+            isActive: true
+          }
+        },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          variants: {
+            id: true,
+            sku: true,
+            stockOnHand: true,
+            reserved: true,
+          }
+        },
+        relations: { variants: true }
+      })
+    ]);
+
+    const storeProviders = storesList.records.map(s => s.provider).filter(Boolean);
+    const shippingProviders = shippingData.integrations.map(i => i.provider).filter(Boolean);
+    // ==========================================
+    // 2. Initialize Workbook & Main Sheet
+    // ==========================================
+
     const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Madar";
+    workbook.created = new Date();
+
     const sheet = workbook.addWorksheet("Orders", {
-      views: [{ state: "frozen", ySplit: 1 }],
+      views: [{ state: "frozen", ySplit: 2 }],
     });
 
     const columns = [
-      { header: "Customer Name", key: "customerName", width: 22 },
-      { header: "Phone Number", key: "phoneNumber", width: 16 },
-      { header: "Email", key: "email", width: 28 },
-      { header: "Address", key: "address", width: 32 },
-      { header: "City", key: "city", width: 14 },
-      { header: "Area", key: "area", width: 14 },
-      { header: "Landmark", key: "landmark", width: 18 },
-      { header: "Payment Method", key: "paymentMethod", width: 18 },
-      { header: "Payment Status", key: "paymentStatus", width: 16 },
-      {
-        header: "Shipping Company Name",
-        key: "shippingCompanyName",
-        width: 22,
-      },
-      { header: "Shipping Cost", key: "shippingCost", width: 14 },
-      { header: "Discount", key: "discount", width: 12 },
-      { header: "Deposit", key: "deposit", width: 12 },
-      { header: "Notes", key: "notes", width: 24 },
-      { header: "Customer Notes", key: "customerNotes", width: 24 },
-      {
-        header: "Product SKUs (comma-separated)",
-        key: "productSkus",
-        width: 30,
-      },
-      { header: "Quantities (comma-separated)", key: "quantities", width: 25 },
-      { header: "Unit Prices (comma-separated)", key: "unitPrices", width: 28 },
+      { header: "customerName", key: "customerName", width: 22 },
+      { header: "phoneNumber", key: "phoneNumber", width: 16 },
+      { header: "secondPhoneNumber", key: "secondPhoneNumber", width: 18 },
+      { header: "email", key: "email", width: 28 },
+      { header: "address", key: "address", width: 32 },
+      { header: "landmark", key: "landmark", width: 18 },
+      { header: "city", key: "city", width: 14 },
+      { header: "area", key: "area", width: 14 },
+      { header: "paymentMethod", key: "paymentMethod", width: 18 },
+      { header: "paymentStatus", key: "paymentStatus", width: 18 },
+      { header: "shippingCompany", key: "shippingCompany", width: 22 },
+      { header: "allowOpenPackage", key: "allowOpenPackage", width: 18 },
+      { header: "store", key: "store", width: 20 },
+      { header: "shippingCost", key: "shippingCost", width: 14 },
+      { header: "deposit", key: "deposit", width: 12 },
+      { header: "discount", key: "discount", width: 12 },
+      { header: "notes", key: "notes", width: 24 },
+      { header: "customerNotes", key: "customerNotes", width: 24 },
+      { header: "items (SKU|Quantity|UnitPrice)", key: "items", width: 50 },
     ];
     sheet.columns = columns;
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(1).fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFE0E0E0" },
-    };
-    // Example order with two products
+
+    // Example Data Row
     sheet.addRow({
-      customerName: "أحمد محمد",
-      phoneNumber: "01234567890",
-      email: "examble@gmail.com",
-      address: "شارع 9 - مبنى 15",
-      city: "القاهرة",
-      area: "المعادي",
-      landmark: "بجوار مسجد النور",
+      customerName: "Ahmed Ali",
+      phoneNumber: "01000000000",
+      secondPhoneNumber: "01111111111",
+      email: "test@example.com",
+      address: "Street 1, Building 2",
+      landmark: "Near the mall",
+      city: "Cairo",
+      area: "Nasr City",
       paymentMethod: "cod",
       paymentStatus: "pending",
-      shippingCompanyName: "شركة أرامكس",
+      shippingCompany: "turbo",
+      allowOpenPackage: "true",
+      store: "easyorder",
       shippingCost: 50,
-      discount: 0,
       deposit: 0,
-      notes: "",
-      customerNotes: "يفضل التواصل مساءً",
-      productSkus: "SKU-001, SKU-002",
-      quantities: "2, 1",
-      unitPrices: "350, 200",
+      discount: 0,
+      notes: "Handle with care",
+      customerNotes: "Call before delivery",
+      // ✅ Grouped items logic applied here
+      items: "sku1|2|250, sku2|1|180",
     });
+
+    // Note Row (Row 1)
+    sheet.insertRow(1, [
+      "Fill each order in one row. For items, use format: SKU|Quantity|UnitPrice, separated by commas for multiple items. Example: sku1|2|250, sku2|1|180",
+    ]);
+    sheet.mergeCells(1, 1, 1, columns.length);
+
+    const noteRow = sheet.getRow(1);
+    noteRow.height = 30;
+    noteRow.getCell(1).font = { italic: true, color: { argb: "FF666666" } };
+    noteRow.getCell(1).alignment = { wrapText: true, vertical: "middle" };
+
+    const headerRow = sheet.getRow(2);
+    headerRow.font = { bold: true };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+
+
+    // ==========================================
+    // 3. Create Validation Enum Sheets (Hidden)
+    // ==========================================
+    const paymentMethodValues = Object.values(PaymentMethod || {});
+    const paymentStatusValues = Object.values(PaymentStatus || {});
+    const booleanValues = ["true", "false"];
+
+    const pmValues = Object.values(PaymentMethod || {});
+    const psValues = Object.values(PaymentStatus || {});
+
+    const pmSheet = workbook.addWorksheet("Payment Methods");
+    paymentMethodValues.forEach((val, i) => { pmSheet.getCell(`A${i + 1}`).value = val; });
+
+    // PaymentStatus Sheet
+    const psSheet = workbook.addWorksheet("Payment Statuses");
+    paymentStatusValues.forEach((val, i) => { psSheet.getCell(`A${i + 1}`).value = val; });
+
+    // Booleans Sheet
+    const boolSheet = workbook.addWorksheet("Booleans");
+    booleanValues.forEach((val, i) => { boolSheet.getCell(`A${i + 1}`).value = val; });
+
+    // --- 4. Apply Data Validations to Main Sheet ---
+    // Assuming 1000 rows is enough for the template validation
+    for (let i = 3; i <= 1000; i++) {
+      // Payment Method (Column I)
+      sheet.getCell(`I${i}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`PaymentMethods!$A$1:$A$${paymentMethodValues.length}`]
+      };
+      // Payment Status (Column J)
+      sheet.getCell(`J${i}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`PaymentStatuses!$A$1:$A$${paymentStatusValues.length}`]
+      };
+      // Allow Open Package (Column L)
+      sheet.getCell(`L${i}`).dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: [`Booleans!$A$1:$A$2`]
+      };
+    }
+
+    // Dynamic Validation Sheets
+    if (storeProviders.length > 0) {
+      const storesSheet = workbook.addWorksheet("Stores");
+      storeProviders.forEach((v, i) => storesSheet.getCell(`A${i + 1}`).value = v);
+    }
+
+    if (shippingProviders.length > 0) {
+      const shipSheet = workbook.addWorksheet("Shipping");
+
+      shippingProviders.forEach((v, i) => shipSheet.getCell(`A${i + 1}`).value = v);
+    }
+
+    // Apply Validation to Orders Sheet
+    for (let i = 3; i <= 500; i++) {
+      sheet.getCell(`I${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_PM!$A$1:$A$${pmValues.length}`] };
+      sheet.getCell(`J${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_PS!$A$1:$A$${psValues.length}`] };
+      sheet.getCell(`L${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_Bool!$A$1:$A$2`] };
+
+      // Shipping (Column K)
+      if (shippingProviders.length > 0) {
+        sheet.getCell(`K${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_Shipping!$A$1:$A$${shippingProviders.length}`] };
+      }
+
+      // Stores (Column M)
+      if (storeProviders.length > 0) {
+        sheet.getCell(`M${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_Stores!$A$1:$A$${storeProviders.length}`] };
+      }
+    }
+
+    // ==========================================
+    // 4. Products & Variants Reference Sheet
+    // ==========================================
+    // We do NOT hide this sheet so users can browse it and copy the Variant IDs.
+
+    const refSheet = workbook.addWorksheet("Products Reference");
+    refSheet.columns = [
+      { header: "Product / Variant Name", key: "name", width: 45 },
+      { header: "SKU", key: "sku", width: 50 },
+      { header: "Available Stock", key: "stock", width: 18 },
+    ];
+
+    // Style the reference headers
+    refSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    refSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: "FF3b82f6" } }; // Blue header
+
+    products.forEach(product => {
+      // 1. Add Parent Product Row (Visually bold and shaded)
+      const pRow = refSheet.addRow({
+        name: `📦 ${product.name}`,
+        sku: "-",
+        stock: ""
+      });
+      pRow.font = { bold: true, size: 12 };
+      pRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }; // Light gray background to separate products
+
+      // 2. Add Child Variant Rows underneath
+      if (product.variants && product.variants.length > 0) {
+        product.variants.forEach(variant => {
+          const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
+
+          const vRow = refSheet.addRow({
+            name: ``, // Indented to show hierarchy
+            sku: variant.sku || "-",
+            stock: available
+          });
+        });
+      }
+    });
+
+    // Auto filter for the reference sheet to make searching easy
+    refSheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: 4 },
+    };
+
+
+
+    workbook.views = [
+      {
+        x: 0,
+        y: 0,
+        width: 10000,
+        height: 20000,
+        firstSheet: 0,
+        activeTab: 0, // Ensures 'Orders' is the focused sheet
+        visibility: 'visible',
+      },
+    ];
+
     const buffer = await workbook.xlsx.writeBuffer();
-    return buffer as unknown as Buffer;
+    return Buffer.from(buffer);
   }
 
   private async getUsageTracker(adminId: string): Promise<BulkUploadUsage> {

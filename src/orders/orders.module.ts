@@ -16,7 +16,7 @@ import {
   OrderActionLogEntity,
   ReturnRequestEntity,
 } from "entities/order.entity";
-import { ProductVariantEntity } from "entities/sku.entity";
+import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
 import { OrderSubscriber } from "./order-subscriber";
 import { User } from "entities/user.entity";
@@ -48,6 +48,7 @@ import { WalletModule } from "src/wallet/wallet.module";
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,
+      ProductEntity,
       OrderStatusEntity,
       OrderStatusHistoryEntity,
       OrderMessageEntity,
