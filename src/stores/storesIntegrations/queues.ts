@@ -50,6 +50,30 @@ export class StoreQueueService {
         });
     }
 
+    async enqueueBulkOrderCreate(
+        adminId: string,
+        orders: any[], // DTO or validated payload
+    ) {
+        if (!orders?.length) return;
+
+        const jobId = `bulk-orders::${adminId}:${Date.now()}`;
+
+        await this.addJob(
+            adminId,
+            "bulk-create-orders",
+            null,
+            {
+                orders,
+                adminId,
+            },
+            {
+                jobId,
+                groupId: `admin:${adminId}:orders`, // 🔥 separate group for orders
+                maxAttempts: 3,
+            }
+        );
+    }
+
     async enqueueCategorySync(category: CategoryEntity, storeId: string, storeType: StoreProvider, slug?: string) {
 
         const cleanSlug = slug?.trim();

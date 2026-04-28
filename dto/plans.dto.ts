@@ -81,24 +81,6 @@ export class CreatePlanDto {
 }
 
 export class UpdatePlanDto extends PartialType(CreatePlanDto) {
-
-
-}
-
-
-@Entity('bulk_upload_usage')
-export class BulkUploadUsage {
-	@PrimaryGeneratedColumn('uuid')
-	Id: string;
-
-	@Column()
-	adminId: string;
-
-	@Column()
-	month: string; // Format: "YYYY-MM"
-
-	@Column({ default: 0 })
-	count: number;
 }
 
 export class ManualCreateTransactionDto {

@@ -42,6 +42,8 @@ export enum PlanType {
 	NEGOTIATED = 'negotiated' // Price is hidden/zero; requires contacting support/admin
 }
 
+
+
 @Entity('plans')
 @Index(['name'])
 export class Plan {
@@ -261,14 +263,14 @@ export class UserFeature {
 	@PrimaryGeneratedColumn('uuid')
 	id: string;
 
-	@Column({type: 'uuid',})
+	@Column({ type: 'uuid', })
 	userId: string;
 
 	@ManyToOne(() => User)
 	@JoinColumn({ name: 'userId' })
 	user: Relation<User>;
 
-	@Column({type: 'uuid',})
+	@Column({ type: 'uuid', })
 	featureId: string;
 
 	@ManyToOne(() => Feature, (feature) => feature.userFeatures)
@@ -284,4 +286,21 @@ export class UserFeature {
 	@Column({ type: 'timestamptz' })
 	startDate: Date;
 
+}
+
+
+
+@Entity('bulk_upload_usage')
+export class BulkUploadUsage {
+	@PrimaryGeneratedColumn('uuid')
+	Id: string;
+
+	@Column()
+	adminId: string;
+
+	@Column()
+	month: string; // Format: "YYYY-MM"
+
+	@Column({ default: 0 })
+	count: number;
 }

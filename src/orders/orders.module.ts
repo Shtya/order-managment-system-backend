@@ -21,7 +21,6 @@ import { StoresModule } from "src/stores/stores.module";
 import { OrderSubscriber } from "./order-subscriber";
 import { User } from "entities/user.entity";
 import { AuthModule } from "src/auth/auth.module";
-import { BulkUploadUsage } from "dto/plans.dto";
 
 import { ShippingSeedService } from "../shipping/shipping.seed";
 import { Notification } from "entities/notifications.entity";
@@ -38,6 +37,7 @@ import { OrderReturnService } from "./services/order-return.service";
 import { OrderReturnsController } from "./controllers/order-return.controller";
 import { SubscriptionsModule } from "src/subscription/subscription.module";
 import { WalletModule } from "src/wallet/wallet.module";
+import { BulkUploadUsage } from "entities/plans.entity";
 
 @Module({
   imports: [

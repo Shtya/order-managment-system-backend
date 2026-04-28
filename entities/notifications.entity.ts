@@ -19,6 +19,7 @@ export enum NotificationType {
     ORDER_STATUS_CREATED = 'order_status_created',
     ORDER_STATUS_SETTINGS_UPDATED = 'order_status_settings_updated',
     BULK_ORDERS_CREATED = 'bulk_orders_created',
+    BULK_ORDERS_FAILED = 'bulk_orders_failed',
     COLLECTION_CREATED = 'collection_created',
     REPLACEMENT_CREATED = 'replacement_created',
     RETURN_REQUEST_CREATED = 'return_request_created',

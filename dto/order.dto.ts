@@ -54,7 +54,7 @@ export class UpdateStatusDto extends PartialType(CreateStatusDto) {
 }
 
 export class OrderItemDto {
-@IsString()
+  @IsString()
   variantId: string;
 
   @IsInt()
@@ -78,7 +78,7 @@ export class OrderItemDto {
 }
 // ✅ Order Item DTO
 export class RemovedOrderItemDto {
-@IsString()
+  @IsString()
   variantId: string;
 }
 
@@ -128,10 +128,12 @@ export class CreateOrderDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(1000)
   address: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(300)
   landmark?: string;
 
   @IsNumber()
@@ -188,10 +190,12 @@ export class CreateOrderDto {
   // Notes
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   notes?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(4000)
   customerNotes?: string;
 
   // Items
@@ -245,7 +249,7 @@ export class BulkUpdateShippingMetadataDto {
 }
 
 export class BulkUpdateShippingFieldItemDto {
-  
+
   @IsString()
   id: string;
 
@@ -427,7 +431,7 @@ export class UpsertOrderRetrySettingsDto {
 }
 export class ManualAssignItemDto {
   @IsNotEmpty()
-@IsString()
+  @IsString()
   userId: string;
 
   @IsNotEmpty()
@@ -521,7 +525,7 @@ export class GetFreeOrdersDto {
 }
 
 export class ReplacementItemDto {
-@IsString()
+  @IsString()
   @Type(() => Number)
   originalOrderItemId: string;
 
@@ -529,7 +533,7 @@ export class ReplacementItemDto {
   @Type(() => Number)
   quantityToReplace: number;
 
-@IsString()
+  @IsString()
   @IsString()
   newVariantId: string;
 
@@ -547,8 +551,8 @@ export class CreateReplacementDto {
   @IsOptional()
   anotherReason?: string;
 
-@IsString()
-@IsString()
+  @IsString()
+  @IsString()
   originalOrderId: string;
 
   @IsOptional()
@@ -564,7 +568,7 @@ export class CreateReplacementDto {
   returnImages?: string[];
 
   @IsOptional()
-@IsString()
+  @IsString()
   @IsString()
   shippingCompanyId?: string;
 
@@ -605,7 +609,7 @@ export class CreateReplacementDto {
 }
 
 export class CreateManifestDto {
-@IsString()
+  @IsString()
   @IsOptional()
   shippingCompanyId: string;
 
@@ -647,3 +651,13 @@ export class CreateReturnDto {
   @Type(() => ReturnItemDto)
   items: ReturnItemDto[];
 }
+
+
+export type CellErrorMap = Map<number, Map<number, string[]>>;
+
+export type SkuErrorRow = {
+  sku: string;
+  totalQty: number;
+  available: number;
+  rows: number[];
+};

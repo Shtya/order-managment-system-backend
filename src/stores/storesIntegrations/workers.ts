@@ -16,6 +16,7 @@ import WooCommerceService from "./WooCommerce";
 import { StoresService } from "../stores.service";
 import { RedisService } from "common/redis/RedisService";
 import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
+import { OrdersService } from "src/orders/services/orders.service";
 
 
 @Injectable()
@@ -30,6 +31,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
         private readonly easyOrderService: EasyOrderService,
         private readonly woocommerceService: WooCommerceService,
         private readonly storesService: StoresService, // StoresService injected for retry handler
+        private readonly ordersService: OrdersService, // OrdersService injected for retry handler
 
         @InjectRepository(StoreEntity)
         private readonly storesRepo: Repository<StoreEntity>,
@@ -108,16 +110,32 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     protected async processJob(payload: any): Promise<void> {
-        const { type, storeType, storeId, newStatusId, productId, bundleId, oldBundleData, category, slug, orderId } = payload;
+        const { type, storeType, storeId, newStatusId, productId, bundleId, oldBundleData, category, slug, orderId, adminId: orderAdminId } = payload;
 
         try {
             // 1. Resolve which service to use
-            const service = this.getService(storeType);
+            const service = storeType ? this.getService(storeType) : null;
 
             switch (type) {
+                case "bulk-create-orders": {
+                    const { orders } = payload;
+
+                    if (!orders?.length) {
+                        this.logger.warn(`[Bulk Orders] Empty payload for store ${storeId}`);
+                        return;
+                    }
+                    // ✅ Ensure provider supports it
+                    await this.ordersService.createBulkOrders(orders, orderAdminId);
+                    this.logger.log(
+                        `[Bulk Orders] Created ${orders.length} orders for admin ${orderAdminId}`
+                    );
+
+                    break;
+                }
+
                 case "sync-category":
                     // [2025-12-24] Ensure slug/title is trimmed inside the specific service
-                    await service.syncCategory({ category, slug });
+                    await service?.syncCategory({ category, slug });
                     this.logger.log(`[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.name?.trim()}`);
                     break;
 
@@ -130,7 +148,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     if (!product || !product.isActive) return;
 
                     // All services share this method signature via BaseStoreProvider
-                    await service.syncProduct({ productId });
+                    await service?.syncProduct({ productId });
                     this.logger.log(`[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${productId}`);
                     break;
 
@@ -185,7 +203,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                         },
                     });
                     if (order) {
-                        await service.syncOrderStatus(order, newStatusId);
+                        await service?.syncOrderStatus(order, newStatusId);
                         this.logger.log(`[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`);
                     }
                     break;
@@ -193,7 +211,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                 case "sync-full-store":
                     const store = await this.storesRepo.findOneBy({ id: storeId });
                     if (store) {
-                        await service.syncFullStore(store);
+                        await service?.syncFullStore(store);
                         this.logger.log(`[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`);
                     }
                     break;

@@ -149,7 +149,7 @@ export class ShippingService {
 	listProviders() {
 		return {
 			ok: true,
-			providers: Object.values(this.providers).map((p) => ({
+			providers: Object.values(this.providers).filter(p => !!p).map((p) => ({
 				code: p.code,
 				name: p.displayName,
 			})),
