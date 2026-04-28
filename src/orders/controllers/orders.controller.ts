@@ -358,14 +358,41 @@ export class OrdersController {
   }
 
   // ✅ Bulk create orders from Excel file
-  @Permissions("orders.create")
   @Post("bulk")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
   async bulkCreate(
     @Req() req: any,
+    @Res() res: Response,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    return this.svc.bulkCreateOrders(req.user, file);
+    try {
+      const result = await this.svc.bulkCreateOrders(req.user, file);
+
+      // If there are errors and error file buffer, send the Excel file
+      if (result.failed > 0 && result.errorFileBuffer) {
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename=order_errors_${Date.now()}.xlsx`,
+        );
+        return res.send(result.errorFileBuffer);
+      }
+
+      // Success response - all orders were valid
+      return res.json({
+        failed: result.failed,
+        skuErrors: result.skuErrors,
+      });
+
+    } catch (err: any) {
+      return res.status(400).json({
+        type: "validation_error",
+        message: err.message || "Excel validation failed",
+      });
+    }
   }
 
   @Get("retry-settings")

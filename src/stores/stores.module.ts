@@ -45,6 +45,6 @@ import { ProductSyncStateModule } from "src/product-sync-state/product-sync-stat
     StoreWorkerService,
   ],
   controllers: [StoresController, StoreWebhooksController],
-  exports: [StoresService, EasyOrderService, WooCommerceService],
+  exports: [StoresService, EasyOrderService, WooCommerceService, StoreQueueService],
 })
 export class StoresModule { }

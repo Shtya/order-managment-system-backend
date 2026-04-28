@@ -62,9 +62,11 @@ import {
   CreateReplacementDto,
   CreateManifestDto,
   BulkUpdateShippingFieldsDto,
+  OrderItemDto,
+  CellErrorMap,
+  SkuErrorRow,
 } from "dto/order.dto";
 import { User } from "entities/user.entity";
-import { BulkUploadUsage } from "dto/plans.dto";
 
 import { Notification, NotificationType } from "entities/notifications.entity";
 import { OrderFailStatus, StoreEntity } from "entities/stores.entity";
@@ -73,7 +75,7 @@ import {
   ShippingCompanyEntity,
   ShippingIntegrationEntity,
 } from "entities/shipping.entity";
-import { SubscriptionStatus } from "entities/plans.entity";
+import { BulkUploadUsage, SubscriptionStatus } from "entities/plans.entity";
 import { DateFilterUtil } from "common/date-filter.util";
 import { RedisService } from "common/redis/RedisService";
 import { ShippingQueueService } from "src/shipping/queues/shipping.queues";
@@ -81,6 +83,7 @@ import { WalletService } from "src/wallet/wallet.service";
 import { NotificationService } from "src/notifications/notification.service";
 import { StoresService } from "src/stores/stores.service";
 import { ShippingService } from "src/shipping/shipping.service";
+import { StoreQueueService } from "src/stores/storesIntegrations/queues";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -94,6 +97,7 @@ export function tenantId(me: any): any | null {
 export class OrdersService {
   constructor(
     private dataSource: DataSource,
+    protected readonly queueService: StoreQueueService,
 
     @InjectRepository(OrderEntity)
     private orderRepo: Repository<OrderEntity>,
@@ -3648,22 +3652,22 @@ export class OrdersService {
     const columns = [
       { header: "customerName", key: "customerName", width: 22 },
       { header: "phoneNumber", key: "phoneNumber", width: 16 },
-      { header: "secondPhoneNumber", key: "secondPhoneNumber", width: 18 },
-      { header: "email", key: "email", width: 28 },
+      { header: "secondPhoneNumber (default empty)", key: "secondPhoneNumber", width: 40 },
+      { header: "email (default empty)", key: "email", width: 28 },
       { header: "address", key: "address", width: 32 },
-      { header: "landmark", key: "landmark", width: 18 },
+      { header: "landmark (default empty)", key: "landmark", width: 30 },
       { header: "city", key: "city", width: 14 },
       { header: "area", key: "area", width: 14 },
-      { header: "paymentMethod", key: "paymentMethod", width: 18 },
-      { header: "paymentStatus", key: "paymentStatus", width: 18 },
-      { header: "shippingCompany", key: "shippingCompany", width: 22 },
-      { header: "allowOpenPackage", key: "allowOpenPackage", width: 18 },
-      { header: "store", key: "store", width: 20 },
-      { header: "shippingCost", key: "shippingCost", width: 14 },
-      { header: "deposit", key: "deposit", width: 12 },
-      { header: "discount", key: "discount", width: 12 },
-      { header: "notes", key: "notes", width: 24 },
-      { header: "customerNotes", key: "customerNotes", width: 24 },
+      { header: "paymentMethod (default cod)", key: "paymentMethod", width: 40 },
+      { header: "paymentStatus (default pending)", key: "paymentStatus", width: 40 },
+      { header: "shippingCompany (default empty)", key: "shippingCompany", width: 45 },
+      { header: "allowOpenPackage (default false)", key: "allowOpenPackage", width: 45 },
+      { header: "store (default empty)", key: "store", width: 30 },
+      { header: "shippingCost (default 0)", key: "shippingCost", width: 30 },
+      { header: "deposit (default 0)", key: "deposit", width: 30 },
+      { header: "discount (default 0)", key: "discount", width: 30 },
+      { header: "notes (default empty)", key: "notes", width: 24 },
+      { header: "customerNotes (default empty)", key: "customerNotes", width: 40 },
       { header: "items (SKU|Quantity|UnitPrice)", key: "items", width: 50 },
     ];
     sheet.columns = columns;
@@ -3694,7 +3698,7 @@ export class OrdersService {
 
     // Note Row (Row 1)
     sheet.insertRow(1, [
-      "Fill each order in one row. For items, use format: SKU|Quantity|UnitPrice, separated by commas for multiple items. Example: sku1|2|250, sku2|1|180",
+      "Format: SKU|Quantity|UnitPrice (comma separated for multiple). Leave optional fields (email, landmark, notes, etc.) empty to use defaults.",
     ]);
     sheet.mergeCells(1, 1, 1, columns.length);
 
@@ -3867,311 +3871,573 @@ export class OrdersService {
     me: any,
     file: Express.Multer.File,
   ): Promise<{
-    created: number;
+    message: string;
     failed: number;
-    errors: { rowNumber: number; message: string }[];
+    errorFileBuffer?: Buffer;
+    skuErrors: { sku: string; totalQty: number; available: number }[];
   }> {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
     if (!file?.buffer) throw new BadRequestException("No file uploaded");
 
-    const admin = await this.userRepo
-      .createQueryBuilder("user")
-      .leftJoinAndSelect(
-        "user.subscriptions",
-        "subscription",
-        "subscription.status = :status",
-        { status: SubscriptionStatus.ACTIVE },
-      )
-      .leftJoinAndSelect("subscription.plan", "plan")
-      .where("user.id = :id", { id: adminId })
-      .getOne();
+    const [storesData, shippingData, admin, storeProviders, shippingProviders] =
+      await Promise.all([
+        this.storesService.list(me),
+        this.shippingService.activeIntegrations(me),
+        this.userRepo.findOne({
+          where: { id: adminId },
+          relations: ["subscriptions", "subscriptions.plan"],
+        }),
+        this.storesService.listProviders(),
+        this.shippingService.listProviders(),
+      ]);
 
-    if (!admin?.activeSubscription)
-      throw new ForbiddenException("No active plan found");
+    const paymentMethodValues = Object.values(PaymentMethod || {});
+    const paymentStatusValues = Object.values(PaymentStatus || {});
+    const storeProvidersSet = new Set(storeProviders.providers.map((s) => s.code));
+    const shippingProvidersSet = new Set(
+      shippingProviders.providers.map((i) => i.code),
+    );
 
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as any);
-    const sheet = workbook.worksheets[0];
-    const rowCount = sheet.rowCount - 1; // Subtract header
 
+    const sheet = workbook.getWorksheet("Orders");
+    if (!sheet) {
+      throw new BadRequestException("Excel file must have an 'Orders' sheet");
+    }
+
+    const rowCount = sheet.rowCount - 2;
     const usage = await this.getUsageTracker(adminId);
-    const limit = admin.activeSubscription?.plan.bulkUploadPerMonth;
+    const activeSub = admin.subscriptions.find(
+      (s) => s.status === SubscriptionStatus.ACTIVE,
+    );
+    const limit = activeSub?.bulkUploadPerMonth || 0;
+    const remaining = Math.max(0, limit - usage.count);
 
     if (usage.count + rowCount > limit) {
       throw new BadRequestException(
-        `Plan limit exceeded. You have ${limit - usage.count} slots left this month, but the file has ${rowCount} rows.`,
+        `Bulk upload limit exceeded. You can upload up to ${remaining} more row(s), but you tried to upload ${rowCount}.`,
       );
     }
 
-    if (!sheet) throw new BadRequestException("Excel file has no sheet");
-
-    const rows: Record<string, string | number>[] = [];
-    const headerRow = sheet.getRow(1);
-    const keys: string[] = [];
-    headerRow.eachCell((cell, colNumber) => {
-      const val = String(cell.value ?? "").trim();
-      keys[colNumber - 1] = val ? val.toLowerCase().replace(/\s+/g, "") : "";
-    });
-
-    //extract values of rows
-    for (let i = 2; i <= sheet.rowCount; i++) {
-      const row = sheet.getRow(i);
-      const obj: Record<string, string | number> = {};
-      row.eachCell((cell, colNumber) => {
-        const key = keys[colNumber - 1];
-        if (!key) return;
-        const v = cell.value;
-        if (v === null || v === undefined) obj[key] = "";
-        else if (typeof v === "number") obj[key] = v;
-        else obj[key] = String(v).trim();
-      });
-      rows.push(obj);
-    }
-
-    const col = (obj: Record<string, string | number>, ...names: string[]) => {
-      for (const n of names) {
-        const k = n.replace(/\s+/g, "").toLowerCase();
-        if (obj[k] !== undefined && obj[k] !== "") return String(obj[k]).trim();
-      }
-      return "";
-    };
-    const num = (
-      obj: Record<string, string | number>,
-      key: string,
-      def = 0,
-    ) => {
-      const k = key.replace(/\s+/g, "").toLowerCase();
-      const v = obj[k];
-      if (v === undefined || v === "") return def;
-      const n = Number(v);
-      return isNaN(n) ? def : n;
-    };
-
-    const shippingCompanies = await this.shippingRepo.find({
-      where: { adminId } as any,
-    });
-    const shippingByName = new Map<string, string>();
-    shippingCompanies.forEach((s) =>
-      shippingByName.set(s.name.trim().toLowerCase(), s.id),
+    const storeMap = new Map(
+      storesData.records.map((s) => [s.provider.toLowerCase().trim(), s.id]),
+    );
+    const shippingMap = new Map(
+      shippingData.integrations.map((i) => [
+        i.provider.toLowerCase().trim(),
+        i.providerId,
+      ]),
     );
 
-    const paymentMethods = ["cash", "card", "bank_transfer", "cod"];
-    const paymentStatuses = ["pending", "paid", "partial"];
+    const rows: any[] = [];
+    const allSkus = new Set<string>();
 
-    let created = 0;
-    const errors: { rowNumber: number; message: string }[] = [];
-    const orderDtos: { dto: CreateOrderDto; rowNumber: number }[] = [];
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber <= 2) return;
 
-    // Build DTOs for all valid rows first
-    for (let rowIdx = 0; rowIdx < rows.length; rowIdx++) {
-      const row = rows[rowIdx];
-      const rowNumber = rowIdx + 2; // +2 because excel rows start at 1 and data starts at row 2
+      const rowData: any = {
+        rowNumber,
+        customerName: String(row.getCell(1).value || "").trim(),
+        phoneNumber: String(row.getCell(2).value || "").trim(),
+        secondPhoneNumber: String(row.getCell(3).value || "").trim(),
+        email: String(row.getCell(4).value || "").trim(),
+        address: String(row.getCell(5).value || "").trim(),
+        landmark: String(row.getCell(6).value || "").trim(),
+        city: String(row.getCell(7).value || "").trim(),
+        area: String(row.getCell(8).value || "").trim(),
+        paymentMethod: String(row.getCell(9).value || "cod").toLowerCase().trim(),
+        paymentStatus: String(row.getCell(10).value || "pending")
+          .toLowerCase()
+          .trim(),
+        shippingCompany: String(row.getCell(11).value || "")
+          .toLowerCase()
+          .trim(),
+        allowOpenPackage:
+          String(row.getCell(12).value || "false").toLowerCase().trim() === "true",
+        store: String(row.getCell(13).value || "").toLowerCase().trim(),
+        shippingCost: Number(row.getCell(14).value || 0),
+        deposit: Number(row.getCell(15).value || 0),
+        discount: Number(row.getCell(16).value || 0),
+        notes: String(row.getCell(17).value || "").trim(),
+        customerNotes: String(row.getCell(18).value || "").trim(),
+        itemsRaw: String(row.getCell(19).value || "").trim(),
+      };
 
-      const customerName = col(row, "Customer Name", "customername");
-      const phoneNumber = col(row, "Phone Number", "phonenumber");
-      const address = col(row, "Address", "address");
-      const city = col(row, "City", "city");
-      if (!customerName || !phoneNumber || !address || !city) {
-        errors.push({
-          rowNumber,
-          message:
-            "Missing required: Customer Name, Phone Number, Address, or City",
+      if (rowData.itemsRaw) {
+        rowData.itemsRaw.split(",").forEach((part: string) => {
+          const sku = part.split("|")[0]?.trim();
+          if (sku) allSkus.add(sku);
         });
-        continue;
       }
 
-      // Parse comma-separated arrays
-      const skusStr = col(row, "Product SKUs (comma-separated)", "productskus");
-      const quantitiesStr = col(
-        row,
-        "Quantities (comma-separated)",
-        "quantities",
-      );
-      const unitPricesStr = col(
-        row,
-        "Unit Prices (comma-separated)",
-        "unitprices",
-      );
+      rows.push(rowData);
+    });
 
-      if (!skusStr || !quantitiesStr || !unitPricesStr) {
-        errors.push({
-          rowNumber,
-          message: "Missing required: Product SKUs, Quantities, or Unit Prices",
-        });
-        continue;
+    const variants = await this.variantRepo.find({
+      where: { adminId, sku: In([...allSkus]), isActive: true },
+      select: ["id", "sku", "stockOnHand", "reserved", "price"],
+    });
+
+    const variantMap = new Map(
+      variants.map((v) => [v.sku, v]),
+    );
+
+    const cellErrors = new Map<number, Map<number, string[]>>();
+    const skuUsage = new Map<string, { totalQty: number; rowNumbers: Set<number> }>();
+    const validOrderPayloads: CreateOrderDto[] = [];
+
+    const addCellError = (rowNumber: number, colNumber: number, message: string) => {
+      if (!cellErrors.has(rowNumber)) {
+        cellErrors.set(rowNumber, new Map<number, string[]>());
       }
 
-      const skus = skusStr
-        .split(",")
-        .map((s) => s.trim())
-        .filter((s) => s);
-      const quantities = quantitiesStr.split(",").map((q) => {
-        const num = Number(q.trim());
-        return isNaN(num) ? null : num;
-      });
-      const unitPrices = unitPricesStr.split(",").map((p) => {
-        const num = Number(p.trim());
-        return isNaN(num) ? null : num;
-      });
-
-      // Validate array lengths match
-      if (
-        skus.length !== quantities.length ||
-        skus.length !== unitPrices.length
-      ) {
-        errors.push({
-          rowNumber,
-          message: `Array length mismatch: ${skus.length} SKUs, ${quantities.length} quantities, ${unitPrices.length} prices. All must be equal.`,
-        });
-        continue;
+      const rowMap = cellErrors.get(rowNumber)!;
+      if (!rowMap.has(colNumber)) {
+        rowMap.set(colNumber, []);
       }
 
-      // Validate no null values
-      if (quantities.includes(null) || unitPrices.includes(null)) {
-        errors.push({
-          rowNumber,
-          message: "Invalid quantities or unit prices (must be numbers)",
-        });
-        continue;
+      rowMap.get(colNumber)!.push(message);
+    };
+
+    for (const row of rows) {
+      const rowErrors: string[] = [];
+
+      if (!row.customerName || row.customerName.length > 200) {
+        rowErrors.push("Invalid customerName (Required, max 200)");
+        addCellError(row.rowNumber, 1, "Invalid customerName (Required, max 200)");
       }
 
-      // Collect unique SKUs for targeted fetch
-      const uniqueSkus = [...new Set(skus.map((s) => s))];
-      const variants = await this.variantRepo.find({
-        where: {
-          adminId,
-          sku: In(uniqueSkus),
-        } as any,
-        relations: ["product"],
-      });
-      const variantBySku = new Map<string, { id: string; price: number }>();
-      variants.forEach((v) => {
-        if (v.sku)
-          variantBySku.set(String(v.sku).trim().toLowerCase(), {
-            id: v.id,
-            price: v.price ?? 0,
-          });
-      });
-
-      const paymentMethodRaw =
-        col(row, "Payment Method", "paymentmethod") || "cod";
-      const paymentMethod = paymentMethods.includes(paymentMethodRaw)
-        ? paymentMethodRaw
-        : "cod";
-      const paymentStatusRaw =
-        col(row, "Payment Status", "paymentstatus") || "pending";
-      const paymentStatus = paymentStatuses.includes(paymentStatusRaw)
-        ? paymentStatusRaw
-        : "pending";
-
-      let shippingCompanyId: string | undefined;
-      const shippingName = col(
-        row,
-        "Shipping Company Name",
-        "shippingcompanyname",
-      );
-      if (shippingName) {
-        const sid = shippingByName.get(shippingName.toLowerCase());
-        if (sid != null) shippingCompanyId = String(sid);
+      if (!row.phoneNumber || row.phoneNumber.length > 50) {
+        rowErrors.push("Invalid phoneNumber (Required, max 50)");
+        addCellError(row.rowNumber, 2, "Invalid phoneNumber (Required, max 50)");
       }
 
-      // Build items array
-      const items: {
-        variantId: string;
-        quantity: number;
-        unitPrice: number;
-        unitCost?: number;
-      }[] = [];
-      for (let i = 0; i < skus.length; i++) {
-        const sku = skus[i];
-        const qty = quantities[i] as number;
-        const unitPrice = unitPrices[i] as number;
+      if (row.secondPhoneNumber && row.secondPhoneNumber.length > 50) {
+        rowErrors.push("Invalid secondPhoneNumber (max 50)");
+        addCellError(row.rowNumber, 3, "Invalid secondPhoneNumber (max 50)");
+      }
 
-        if (qty < 1) {
-          errors.push({
-            rowNumber,
-            message: `Invalid quantity for SKU ${sku}: must be >= 1`,
-          });
+      if (row.email && !/^\S+@\S+\.\S+$/.test(row.email)) {
+        rowErrors.push("Invalid email format");
+        addCellError(row.rowNumber, 4, "Invalid email format");
+      }
+
+      if (!row.address || row.address.length > 1000) {
+        rowErrors.push("Invalid address (Required, max 1000)");
+        addCellError(row.rowNumber, 5, "Invalid address (Required, max 1000)");
+      }
+
+      if (row.landmark && row.landmark.length > 300) {
+        rowErrors.push("Invalid landmark (max 300)");
+        addCellError(row.rowNumber, 6, "Invalid landmark (max 300)");
+      }
+
+      if (!row.city || row.city.length > 100) {
+        rowErrors.push("Invalid city (Required, max 100)");
+        addCellError(row.rowNumber, 7, "Invalid city (Required, max 100)");
+      }
+
+      if (row.area && row.area.length > 100) {
+        rowErrors.push("Invalid area (max 100)");
+        addCellError(row.rowNumber, 8, "Invalid area (max 100)");
+      }
+
+      if (row.notes && row.notes.length > 4000) {
+        rowErrors.push("Invalid notes (max 4000)");
+        addCellError(row.rowNumber, 17, "Invalid notes (max 4000)");
+      }
+
+      if (row.customerNotes && row.customerNotes.length > 4000) {
+        rowErrors.push("Invalid customerNotes (max 4000)");
+        addCellError(row.rowNumber, 18, "Invalid customerNotes (max 4000)");
+      }
+
+      let storeId: string | null = null;
+      if (row.store) {
+        if (storeProvidersSet.has(row.store)) {
+          storeId = storeMap.get(row.store) ?? null;
+          if (!storeId) {
+            rowErrors.push(`Store provider "${row.store}" not found`);
+            addCellError(row.rowNumber, 13, `Store provider "${row.store}" not found`);
+          }
+        } else {
+          rowErrors.push(`Invalid store provider "${row.store}"`);
+          addCellError(row.rowNumber, 13, `Invalid store provider "${row.store}"`);
+        }
+      }
+
+      let shippingCompanyId: string | null = null;
+      if (row.shippingCompany) {
+        if (shippingProvidersSet.has(row.shippingCompany)) {
+          shippingCompanyId = shippingMap.get(row.shippingCompany) ?? null;
+          if (!shippingCompanyId) {
+            rowErrors.push(`Shipping provider "${row.shippingCompany}" not found`);
+            addCellError(
+              row.rowNumber,
+              11,
+              `Shipping provider "${row.shippingCompany}" not found`,
+            );
+          }
+        } else {
+          rowErrors.push(`Invalid shipping provider "${row.shippingCompany}"`);
+          addCellError(row.rowNumber, 11, `Invalid shipping provider "${row.shippingCompany}"`);
+        }
+      }
+
+      if (!paymentMethodValues.includes(row.paymentMethod as any)) {
+        rowErrors.push(`Invalid paymentMethod: ${row.paymentMethod}`);
+        addCellError(row.rowNumber, 9, `Invalid paymentMethod: ${row.paymentMethod}`);
+      }
+
+      if (!paymentStatusValues.includes(row.paymentStatus as any)) {
+        rowErrors.push(`Invalid paymentStatus: ${row.paymentStatus}`);
+        addCellError(row.rowNumber, 10, `Invalid paymentStatus: ${row.paymentStatus}`);
+      }
+
+      const deposit = Number(row.deposit) || 0;
+      const shippingCost = Number(row.shippingCost) || 0;
+      const discount = Number(row.discount) || 0;
+
+      if (isNaN(deposit) || deposit < 0) {
+        rowErrors.push("Deposit must be a positive number");
+        addCellError(row.rowNumber, 15, "Deposit must be a positive number");
+      }
+
+      if (isNaN(shippingCost) || shippingCost < 0) {
+        rowErrors.push("Shipping cost must be a positive number");
+        addCellError(row.rowNumber, 14, "Shipping cost must be a positive number");
+      }
+
+      if (isNaN(discount) || discount < 0) {
+        rowErrors.push("Discount must be a positive number");
+        addCellError(row.rowNumber, 16, "Discount must be a positive number");
+      }
+
+      const items: OrderItemDto[] = [];
+      const itemParts = row.itemsRaw.split(",").filter(Boolean);
+
+      for (const part of itemParts) {
+        const [skuRaw, qty, price] = part.split("|").map((p) => p?.trim());
+        const sku = skuRaw;
+
+        const variant = variantMap.get(sku);
+
+        if (!variant) {
+          rowErrors.push(`SKU [${skuRaw}] not found`);
+          addCellError(row.rowNumber, 19, `SKU [${skuRaw}] not found`);
           continue;
         }
 
-        const variant = variantBySku.get(sku.toLowerCase());
-        if (!variant) {
-          errors.push({ rowNumber, message: `Product SKU not found: ${sku}` });
-          break;
+        const quantity = parseInt(qty);
+        const unitPrice = parseFloat(price);
+
+        if (isNaN(quantity) || quantity < 1) {
+          rowErrors.push(`Quantity for ${skuRaw} must be at least 1`);
+          addCellError(row.rowNumber, 19, `Quantity for ${skuRaw} must be at least 1`);
+          continue;
         }
+
+        if (isNaN(unitPrice) || unitPrice < 0) {
+          rowErrors.push(`Price for ${skuRaw} must be positive`);
+          addCellError(row.rowNumber, 19, `Price for ${skuRaw} must be positive`);
+          continue;
+        }
+
+        const usageItem = skuUsage.get(sku) || {
+          totalQty: 0,
+          rowNumbers: new Set<number>(),
+        };
+
+        usageItem.totalQty += quantity;
+        usageItem.rowNumbers.add(row.rowNumber);
+        skuUsage.set(sku, usageItem);
+
         items.push({
           variantId: variant.id,
-          quantity: qty,
+          quantity,
           unitPrice,
           unitCost: variant.price,
         });
       }
 
       if (items.length === 0) {
-        errors.push({ rowNumber, message: "No valid items processed" });
-        continue;
+        rowErrors.push("Order must have at least one valid item");
+        addCellError(row.rowNumber, 19, "Order must have at least one valid item");
       }
 
-      const dto: CreateOrderDto = {
-        customerName,
-        phoneNumber,
-        email: col(row, "Email", "email") || undefined,
-        address,
-        city,
-        area: col(row, "Area", "area") || undefined,
-        landmark: col(row, "Landmark", "landmark") || undefined,
-        paymentMethod: paymentMethod as any,
-        paymentStatus: paymentStatus as any,
-        shippingCompanyId: shippingCompanyId ?? "",
-        shippingCost: num(row, "Shipping Cost", 0),
-        discount: num(row, "Discount", 0),
-        deposit: num(row, "Deposit", 0),
-        notes: col(row, "Notes", "notes") || undefined,
-        customerNotes: col(row, "Customer Notes", "customernotes") || undefined,
-        items,
-        storeId: null,
-      };
-
-      orderDtos.push({ dto, rowNumber });
+      if (rowErrors.length === 0) {
+        validOrderPayloads.push({
+          customerName: row.customerName,
+          phoneNumber: row.phoneNumber,
+          secondPhoneNumber: row.secondPhoneNumber,
+          email: row.email,
+          address: row.address,
+          landmark: row.landmark,
+          city: row.city,
+          area: row.area,
+          paymentMethod: row.paymentMethod,
+          paymentStatus: row.paymentStatus,
+          shippingCompanyId,
+          storeId,
+          items,
+          shippingCost: row.shippingCost,
+          allowOpenPackage: row.allowOpenPackage,
+          deposit: row.deposit,
+          discount: row.discount,
+          notes: row.notes,
+          customerNotes: row.customerNotes,
+        });
+      }
     }
 
-    if (orderDtos.length === 0) {
-      return { created: 0, failed: errors.length, errors };
+    const skuErrors: { sku: string; totalQty: number; available: number }[] = [];
+
+    for (const [sku, usageItem] of skuUsage.entries()) {
+      const variant = variantMap.get(sku);
+      if (!variant) continue;
+
+      const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
+
+      if (usageItem.totalQty > available) {
+        skuErrors.push({
+          sku,
+          totalQty: usageItem.totalQty,
+          available,
+        });
+
+        for (const rowNumber of usageItem.rowNumbers) {
+          addCellError(
+            rowNumber,
+            19,
+            `SKU [${sku}] exceeds stock. Requested total: ${usageItem.totalQty}, available: ${available}`,
+          );
+        }
+      }
     }
+
+    let errorFileBuffer: Buffer | undefined;
+
+    if (cellErrors.size > 0 || skuErrors.length > 0) {
+      const rowsForReport = rows.map((r) => ({
+        ...r,
+        // keep original data; cells will be highlighted based on cellErrors
+      }));
+
+      errorFileBuffer = await this.generateErrorReportExcel(
+        rowsForReport,
+        cellErrors,
+        skuErrors.map((s) => ({
+          ...s,
+          rows: [...(skuUsage.get(s.sku)?.rowNumbers || [])],
+        })),
+      );
+    }
+
+    if (validOrderPayloads.length > 0) {
+      await this.queueService.enqueueBulkOrderCreate(adminId, validOrderPayloads);
+    }
+
+    return {
+      message: `Successfully queued ${validOrderPayloads.length} orders for creation.`,
+      failed: rows.length - validOrderPayloads.length,
+      errorFileBuffer,
+      skuErrors,
+    };
+  }
+
+  private async generateErrorReportExcel(
+    rows: any[],
+    cellErrors: CellErrorMap,
+    skuErrors: SkuErrorRow[],
+  ): Promise<Buffer> {
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Madar";
+    workbook.created = new Date();
+
+    // -------------------------
+    // Sheet 1: Orders
+    // -------------------------
+    const sheet = workbook.addWorksheet("Orders", {
+      views: [{ state: "frozen", ySplit: 2 }],
+    });
+
+    const columns = [
+      { header: "customerName", key: "customerName", width: 22 },
+      { header: "phoneNumber", key: "phoneNumber", width: 16 },
+      { header: "secondPhoneNumber (default empty)", key: "secondPhoneNumber", width: 40 },
+      { header: "email (default empty)", key: "email", width: 28 },
+      { header: "address", key: "address", width: 32 },
+      { header: "landmark (default empty)", key: "landmark", width: 30 },
+      { header: "city", key: "city", width: 14 },
+      { header: "area", key: "area", width: 14 },
+      { header: "paymentMethod (default cod)", key: "paymentMethod", width: 40 },
+      { header: "paymentStatus (default pending)", key: "paymentStatus", width: 40 },
+      { header: "shippingCompany (default empty)", key: "shippingCompany", width: 45 },
+      { header: "allowOpenPackage (default false)", key: "allowOpenPackage", width: 45 },
+      { header: "store (default empty)", key: "store", width: 30 },
+      { header: "shippingCost (default 0)", key: "shippingCost", width: 30 },
+      { header: "deposit (default 0)", key: "deposit", width: 30 },
+      { header: "discount (default 0)", key: "discount", width: 30 },
+      { header: "notes (default empty)", key: "notes", width: 24 },
+      { header: "customerNotes (default empty)", key: "customerNotes", width: 40 },
+      { header: "items (SKU|Quantity|UnitPrice)", key: "items", width: 50 },
+    ];
+
+    sheet.columns = columns;
+
+    sheet.insertRow(1, [
+      "Format: SKU|Quantity|UnitPrice (comma separated for multiple). Leave optional fields empty to use defaults.",
+    ]);
+    sheet.mergeCells(1, 1, 1, columns.length);
+
+    const noteRow = sheet.getRow(1);
+    noteRow.height = 30;
+    noteRow.getCell(1).font = { italic: true, color: { argb: "FF666666" } };
+    noteRow.getCell(1).alignment = { wrapText: true, vertical: "middle" };
+
+    const headerRow = sheet.getRow(2);
+    headerRow.font = { bold: true };
+    headerRow.alignment = { vertical: "middle", horizontal: "center" };
+
+    const sourceToOutputRow = new Map<number, number>();
+
+    rows.forEach((row, index) => {
+      const outRowNumber = index + 3; // because row 1 = note, row 2 = header
+      sourceToOutputRow.set(row.rowNumber, outRowNumber);
+
+      const excelRow = sheet.addRow({
+        customerName: row.customerName,
+        phoneNumber: row.phoneNumber,
+        secondPhoneNumber: row.secondPhoneNumber,
+        email: row.email,
+        address: row.address,
+        landmark: row.landmark,
+        city: row.city,
+        area: row.area,
+        paymentMethod: row.paymentMethod,
+        paymentStatus: row.paymentStatus,
+        shippingCompany: row.shippingCompany,
+        allowOpenPackage: row.allowOpenPackage,
+        store: row.store,
+        shippingCost: row.shippingCost,
+        deposit: row.deposit,
+        discount: row.discount,
+        notes: row.notes,
+        customerNotes: row.customerNotes,
+        items: row.itemsRaw,
+      });
+
+      const rowErrorMap = cellErrors.get(row.rowNumber);
+      if (!rowErrorMap) return;
+
+      for (const [colNumber, messages] of rowErrorMap.entries()) {
+        const cell = excelRow.getCell(colNumber);
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFFFC7CE" },
+        };
+        cell.font = {
+          color: { argb: "FF9C0006" },
+        };
+        cell.note = messages.join("\n");
+      }
+    });
+
+    // -------------------------
+    // Sheet 2: SKU Errors
+    // -------------------------
+    const skuSheet = workbook.addWorksheet("SKU Errors");
+    skuSheet.columns = [
+      { header: "sku", key: "sku", width: 24 },
+      { header: "totalQty", key: "totalQty", width: 12 },
+      { header: "available", key: "available", width: 12 },
+      { header: "rows", key: "rows", width: 20 },
+      { header: "message", key: "message", width: 60 },
+    ];
+
+    const skuHeader = skuSheet.getRow(1);
+    skuHeader.font = { bold: true };
+    skuHeader.alignment = { vertical: "middle", horizontal: "center" };
+
+    for (const skuError of skuErrors) {
+      skuSheet.addRow({
+        sku: skuError.sku,
+        totalQty: skuError.totalQty,
+        available: skuError.available,
+        rows: skuError.rows.join(", "),
+        message: `Requested ${skuError.totalQty}, available ${skuError.available}`,
+      });
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return Buffer.from(buffer);
+  }
+  async createBulkOrders(orders: CreateOrderDto[], adminId: string) {
+    const me = { adminId };
+
+    let created = 0;
+    const createdOrders: { index: number; customerName: string }[] = [];
 
     try {
       await this.dataSource.transaction(async (manager) => {
-        for (const { dto, rowNumber } of orderDtos) {
-          try {
-            await this.createWithManager(manager, adminId, me, dto, undefined);
-            created++;
-          } catch (err: any) {
-            errors.push({
-              rowNumber,
-              message: err?.message || "Create failed",
-            });
-            // Re-throw to ensure the whole batch is rolled back
-            throw err;
-          }
+        for (let i = 0; i < orders.length; i++) {
+          const dto = orders[i];
+
+          await this.createWithManager(manager, adminId, me, dto, undefined);
+
+          created++;
+
+          createdOrders.push({
+            index: i + 1,
+            customerName: dto.customerName,
+          });
         }
       });
-    } catch {
-      // If transaction fails, ensure no orders are reported as created
+    } catch (error: any) {
       created = 0;
+
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.BULK_ORDERS_FAILED,
+        title: "Bulk Order Creation Failed",
+        message:
+          "No orders were created from the uploaded Excel file. Please check the errors and try again.",
+      });
+
+      throw new BadRequestException(
+        `Failed to create orders: ${error.message}`,
+      );
     }
 
+    // =========================
+    // SUCCESS NOTIFICATION
+    // =========================
     if (created > 0) {
+      const preview = createdOrders
+        .slice(0, 5)
+        .map((o) => `#${o.index} - ${o.customerName}`)
+        .join(", ");
+
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.BULK_ORDERS_CREATED,
         title: "Bulk Orders Created",
-        message: `${created} orders have been successfully created from Excel.`,
+        message:
+          `${created} orders have been successfully created from Excel.` +
+          (preview ? `\nPreview: ${preview}` : ""),
+      });
+    } else {
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.BULK_ORDERS_FAILED,
+        title: "Bulk Order Creation Failed",
+        message:
+          "No orders were created from the uploaded Excel file. Please check the errors and try again.",
       });
     }
-
-    return { created, failed: errors.length, errors };
   }
 
   public async deductStockForOrder(
