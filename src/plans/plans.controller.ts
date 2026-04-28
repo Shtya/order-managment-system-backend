@@ -16,6 +16,7 @@ import { PermissionsGuard } from 'common/permissions.guard';
 import { RequireSubscription } from 'common/require-subscription.decorator';
 import { SubscriptionGuard } from 'common/subscription.guard';
 import { CreatePlanDto, UpdatePlanDto } from 'dto/plans.dto';
+import { SkipThrottle } from '@nestjs/throttler';
 
 
 @Controller('plans')
@@ -25,6 +26,8 @@ export class PlansController {
 	// ✅ List all plans (filtered by user role)
 
 	@Get()
+
+	@SkipThrottle({ default: true })
 	list(@Req() req: any) {
 		return this.plans.list(req.user);
 	}

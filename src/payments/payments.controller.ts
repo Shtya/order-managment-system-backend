@@ -5,6 +5,8 @@ import { Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
+import { SkipThrottle } from '@nestjs/throttler';
+
 
 @Controller('payments')
 export class PaymentsController {
@@ -29,6 +31,7 @@ export class PaymentsController {
 
 
   @Get('redirect/:provider')
+  @SkipThrottle({ default: true })
   async handlePaymentRedirect(
     @Param('provider') providerName: PaymentProviderEnum,
     @Query() query: any,

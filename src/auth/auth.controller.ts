@@ -14,6 +14,8 @@ import { Response } from 'express';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { ChangePasswordDto, RequestEmailChangeDto, SetPasswordDto, VerifyEmailChangeDto } from 'dto/user.dto';
+import { SkipThrottle } from '@nestjs/throttler';
+
 
 @Controller('auth')
 export class AuthController {
@@ -21,11 +23,13 @@ export class AuthController {
 
   ) { }
 
+  @SkipThrottle({ default: true })
   @Post('register')
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
+  @SkipThrottle({ default: true })
   @Post('check-email')
   async checkEmail(@Body() dto: CheckEmailDto) {
     const exists = await this.auth.isEmailExists(dto.email);
@@ -36,21 +40,25 @@ export class AuthController {
     };
   }
 
+  @SkipThrottle({ default: true })
   @Post('verify-registration')
   async verifyRegistration(@Body() dto: VerifyOtpDto) {
     return await this.auth.verifyRegisterOtp(dto.email, dto.otp);
   }
 
+  @SkipThrottle({ default: true })
   @Post('resend-registration-otp')
   async resendOtp(@Body() dto: { email: string }) {
     return await this.auth.resendRegisterOtp(dto.email);
   }
 
+  @SkipThrottle({ default: true })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
   }
 
+  @SkipThrottle({ default: true })
   @Get('google')
   googleAuth(@Query('redirect') redirect?: string) {
     const backendRedirectUri = `${process.env.BACKEND_URL}/auth/google/callback`;
@@ -59,6 +67,7 @@ export class AuthController {
     return { redirectUrl: url.replace(/\s+/g, '') };
   }
 
+  @SkipThrottle({ default: true })
   @Get('google/callback')
   async googleCallback(@Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
     try {
@@ -82,35 +91,34 @@ export class AuthController {
     }
   }
 
+
   // Step 1: send OTP
   @Get('sign')
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   sign(@Req() req: any) {
     return this.auth.signUser(req.user?.id);
-
   }
+
+  @SkipThrottle({ default: true })
   @Post('forgot-password')
   forgot(@Body() dto: ForgotPasswordDto) {
     return this.auth.sendResetOtp(dto.email);
   }
 
+  @SkipThrottle({ default: true })
   // Step 2: verify OTP
   @Post('verify-otp')
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.auth.verifyResetOtp(dto.email, dto.otp);
   }
 
+  @SkipThrottle({ default: true })
   // Step 3: reset password
   @Post('reset-password')
   reset(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPasswordByOtp(dto.email, dto.newPassword);
   }
 
-  // Google login
-  // @Post('google')
-  // google(@Body() dto: GoogleLoginDto) {
-  //   return this.auth.googleLogin(dto.idToken, dto.name);
-  // }
 
   @Post('change-password')
   @UseGuards(JwtAuthGuard)

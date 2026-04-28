@@ -5,6 +5,7 @@ import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { QueryFailedErrorFilter } from 'common/QueryFailedErrorFilter';
 import * as bodyParser from 'body-parser';
+import helmet from 'helmet';
 async function bootstrap() {
 	const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
@@ -16,7 +17,14 @@ async function bootstrap() {
 	});
 
 	// CORS + global prefix + validation
-	app.enableCors({});
+	app.enableCors(
+		{
+			origin: ['http://localhost:3000', 'https://madartest.online'], // Allowed origins
+			methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+			credentials: true,
+			allowedHeaders: '*',
+		}
+	);
 	app.useGlobalPipes(
 		new ValidationPipe({
 			disableErrorMessages: false,
@@ -36,6 +44,7 @@ async function bootstrap() {
 		}),
 	);
 
+	app.use(helmet());
 	// VPS / PM2: we ALWAYS listen here
 	await app.listen(port as number, '0.0.0.0');
 	Logger.log(`🚀 Server is running on http://localhost:${port}`, 'Bootstrap');
