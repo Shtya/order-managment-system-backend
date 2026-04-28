@@ -3613,27 +3613,27 @@ export class OrdersService {
       this.storesService.list(me),
       this.shippingService.activeIntegrations(me),
       // Fetching only required fields to optimize database performance
-      this.productRepo.find({
-        where: {
-          adminId: adminId.trim(),
-          isActive: true,
-          variants: {
-            isActive: true
-          }
-        },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          variants: {
-            id: true,
-            sku: true,
-            stockOnHand: true,
-            reserved: true,
-          }
-        },
-        relations: { variants: true }
-      })
+      this.productRepo
+        .createQueryBuilder('product')
+        .leftJoinAndSelect('product.variants', 'variant')
+        .where('product.adminId = :adminId', { adminId: adminId.trim() })
+        .andWhere('product.isActive = :isActive', { isActive: true })
+        .andWhere('variant.isActive = :vActive', { vActive: true })
+
+        // 🔥 filter by available stock
+        .andWhere('(variant.stockOnHand - variant.reserved) > 0')
+
+        .select([
+          'product.id',
+          'product.name',
+          'product.slug',
+          'variant.id',
+          'variant.sku',
+          'variant.price',
+          'variant.stockOnHand',
+          'variant.reserved',
+        ])
+        .getMany()
     ]);
 
     const storeProviders = storesList.records.map(s => s.provider).filter(Boolean);
@@ -3698,15 +3698,11 @@ export class OrdersService {
     });
 
     // Note Row (Row 1)
-    sheet.insertRow(1, [
+    this.applyNoteRow(
+      sheet,
       "Format: SKU|Quantity|UnitPrice (comma separated for multiple). Leave optional fields (email, landmark, notes, etc.) empty to use defaults.",
-    ]);
-    sheet.mergeCells(1, 1, 1, columns.length);
-
-    const noteRow = sheet.getRow(1);
-    noteRow.height = 30;
-    noteRow.getCell(1).font = { italic: true, color: { argb: "FF666666" } };
-    noteRow.getCell(1).alignment = { wrapText: true, vertical: "middle" };
+      columns.length,
+    );
 
     const headerRow = sheet.getRow(2);
     headerRow.font = { bold: true };
@@ -3724,65 +3720,69 @@ export class OrdersService {
     const psValues = Object.values(PaymentStatus || {});
 
     const pmSheet = workbook.addWorksheet("Payment Methods");
-    paymentMethodValues.forEach((val, i) => { pmSheet.getCell(`A${i + 1}`).value = val; });
+    this.applyNoteRow(pmSheet, "Select a payment method from this list for the payment method column.", 10);
+    paymentMethodValues.forEach((val, i) => { pmSheet.getCell(`A${i + 2}`).value = val; });
 
     // PaymentStatus Sheet
     const psSheet = workbook.addWorksheet("Payment Statuses");
-    paymentStatusValues.forEach((val, i) => { psSheet.getCell(`A${i + 1}`).value = val; });
+    this.applyNoteRow(psSheet, "Select a payment status from this list for the payment status column.", 10);
+    paymentStatusValues.forEach((val, i) => { psSheet.getCell(`A${i + 2}`).value = val; });
 
     // Booleans Sheet
     const boolSheet = workbook.addWorksheet("Booleans");
-    booleanValues.forEach((val, i) => { boolSheet.getCell(`A${i + 1}`).value = val; });
+    this.applyNoteRow(boolSheet, "Use 'true' or 'false' for boolean fields like allowOpenPackage.", 10);
+    booleanValues.forEach((val, i) => { boolSheet.getCell(`A${i + 2}`).value = val; });
 
     // --- 4. Apply Data Validations to Main Sheet ---
     // Assuming 1000 rows is enough for the template validation
     for (let i = 3; i <= 1000; i++) {
-      // Payment Method (Column I)
+      // Payment Method (Column I) - Data starts at row 2 due to note row
       sheet.getCell(`I${i}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: [`PaymentMethods!$A$1:$A$${paymentMethodValues.length}`]
+        formulae: [`PaymentMethods!$A$2:$A$${paymentMethodValues.length + 1}`]
       };
-      // Payment Status (Column J)
+      // Payment Status (Column J) - Data starts at row 2 due to note row
       sheet.getCell(`J${i}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: [`PaymentStatuses!$A$1:$A$${paymentStatusValues.length}`]
+        formulae: [`PaymentStatuses!$A$2:$A$${paymentStatusValues.length + 1}`]
       };
-      // Allow Open Package (Column L)
+      // Allow Open Package (Column L) - Data starts at row 2 due to note row
       sheet.getCell(`L${i}`).dataValidation = {
         type: 'list',
         allowBlank: true,
-        formulae: [`Booleans!$A$1:$A$2`]
+        formulae: [`Booleans!$A$2:$A$3`]
       };
     }
 
     // Dynamic Validation Sheets
     if (storeProviders.length > 0) {
       const storesSheet = workbook.addWorksheet("Stores");
-      storeProviders.forEach((v, i) => storesSheet.getCell(`A${i + 1}`).value = v);
+      this.applyNoteRow(storesSheet, "Select a store provider from this list for the store column.", 10);
+      storeProviders.forEach((v, i) => storesSheet.getCell(`A${i + 2}`).value = v);
     }
 
     if (shippingProviders.length > 0) {
       const shipSheet = workbook.addWorksheet("Shipping");
-
-      shippingProviders.forEach((v, i) => shipSheet.getCell(`A${i + 1}`).value = v);
+      this.applyNoteRow(shipSheet, "Select a shipping company from this list for the shipping company column.", 10);
+      shippingProviders.forEach((v, i) => shipSheet.getCell(`A${i + 2}`).value = v);
     }
 
     // Apply Validation to Orders Sheet
     for (let i = 3; i <= 500; i++) {
-      sheet.getCell(`I${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_PM!$A$1:$A$${pmValues.length}`] };
-      sheet.getCell(`J${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_PS!$A$1:$A$${psValues.length}`] };
-      sheet.getCell(`L${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_Bool!$A$1:$A$2`] };
+      sheet.getCell(`I${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`PaymentMethods!$A$2:$A$${pmValues.length + 1}`] };
+      sheet.getCell(`J${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`PaymentStatuses!$A$2:$A$${psValues.length + 1}`] };
+      sheet.getCell(`L${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Booleans!$A$2:$A$3`] };
 
       // Shipping (Column K)
       if (shippingProviders.length > 0) {
-        sheet.getCell(`K${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_Shipping!$A$1:$A$${shippingProviders.length}`] };
+        sheet.getCell(`K${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Shipping!$A$2:$A$${shippingProviders.length + 1}`] };
       }
 
       // Stores (Column M)
       if (storeProviders.length > 0) {
-        sheet.getCell(`M${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Lists_Stores!$A$1:$A$${storeProviders.length}`] };
+        sheet.getCell(`M${i}`).dataValidation = { type: 'list', allowBlank: true, formulae: [`Stores!$A$2:$A$${storeProviders.length + 1}`] };
       }
     }
 
@@ -3796,18 +3796,25 @@ export class OrdersService {
       { header: "Product / Variant Name", key: "name", width: 45 },
       { header: "SKU", key: "sku", width: 50 },
       { header: "Available Stock", key: "stock", width: 18 },
+      { header: "Price", key: "price", width: 18 },
     ];
 
-    // Style the reference headers
-    refSheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    refSheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: "FF3b82f6" } }; // Blue header
+    this.applyNoteRow(
+      refSheet,
+      "This sheet lists all active products and their variants with available stock > 0. Use the SKU to reference variants in the 'items' column of the Orders sheet.",
+      4,
+    );
+    // Style the reference headers (Row 2 due to note row at Row 1)
+    refSheet.getRow(2).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    refSheet.getRow(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: "FF3b82f6" } }; // Blue header
 
     products.forEach(product => {
       // 1. Add Parent Product Row (Visually bold and shaded)
       const pRow = refSheet.addRow({
         name: `📦 ${product.name}`,
         sku: "-",
-        stock: ""
+        stock: "",
+        price: ""
       });
       pRow.font = { bold: true, size: 12 };
       pRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } }; // Light gray background to separate products
@@ -3820,7 +3827,8 @@ export class OrdersService {
           const vRow = refSheet.addRow({
             name: ``, // Indented to show hierarchy
             sku: variant.sku || "-",
-            stock: available
+            stock: available,
+            price: variant.price || ""
           });
         });
       }
@@ -3828,8 +3836,8 @@ export class OrdersService {
 
     // Auto filter for the reference sheet to make searching easy
     refSheet.autoFilter = {
-      from: { row: 1, column: 1 },
-      to: { row: 1, column: 4 },
+      from: { row: 2, column: 1 },
+      to: { row: 2, column: 4 },
     };
 
 
@@ -3863,6 +3871,23 @@ export class OrdersService {
     }
 
     return usage;
+  }
+
+  // ========================================
+  // ✅ REUSABLE NOTE ROW STYLING
+  // ========================================
+  private applyNoteRow(
+    sheet: ExcelJS.Worksheet,
+    noteText: string,
+    columnCount: number = 1,
+  ): void {
+    sheet.insertRow(1, [noteText]);
+    sheet.mergeCells(1, 1, 1, columnCount);
+
+    const noteRow = sheet.getRow(1);
+    noteRow.height = 30;
+    noteRow.getCell(1).font = { italic: true, color: { argb: "FF666666" } };
+    noteRow.getCell(1).alignment = { wrapText: true, vertical: "middle" };
   }
 
   // ========================================
