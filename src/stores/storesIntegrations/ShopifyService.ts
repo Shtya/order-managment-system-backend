@@ -2713,7 +2713,10 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                             key: key || "default",
                             variation_props: variationProps
                         }
-                        : undefined
+                        : {
+                            key: "default",
+                            variation_props: []
+                        }
                 };
             })
         };
