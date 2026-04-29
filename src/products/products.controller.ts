@@ -135,6 +135,19 @@ export class ProductsController {
   }
 
   @Permissions("products.read")
+  @Get("check-sku")
+  async checkSku(
+    @Req() req: any,
+    @Query("sku") sku: string,
+
+    @Query("productId") productId?: string, // يأتي كـ string من الـ URL
+  ) {
+
+
+    return this.products.checkSku(req.user, sku, productId);
+  }
+
+  @Permissions("products.read")
   @Post("check-skus")
   checkSkus(
     @Req() req: any,
