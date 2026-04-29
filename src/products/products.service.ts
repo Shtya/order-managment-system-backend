@@ -887,23 +887,38 @@ export class ProductsService {
         where: {
           adminId,
           slug: dto.slug.trim(),
-          storeId: dto.storeId && dto.storeId !== 'none' ? dto.storeId ?? null : null
+          // storeId: dto.storeId === "none" ? IsNull() : dto.storeId,
         }
       });
 
       if (existingSlug) {
         throw new BadRequestException(
-          `This slug "${dto.slug}" is already in use.`
+          `This slug "${dto.slug}" is already in use by another product.`
         );
 
       }
 
 
+      const existingSKU = await prodRepo.findOne({
+        where: {
+          sku: dto.sku.trim(),
+          adminId,
+          // storeId: dto.storeId === "none" ? IsNull() : dto.storeId,
+        }
+      });
+
+      if (existingSKU) {
+        throw new BadRequestException(
+          `This SKU "${dto.sku}" is already in use by another product.`
+        );
+      }
+
       const p = prodRepo.create({
         adminId,
         name: dto.name,
         slug: dto.slug,
-        type: dto.type === ProductType.VARIABLE ? ProductType.VARIABLE : ProductType.SINGLE,
+        sku: dto.sku,
+        type: dto.type,
         wholesalePrice: dto.wholesalePrice ?? null,
         lowestPrice: dto.lowestPrice ?? null,
         salePrice: dto.salePrice ?? null,
@@ -988,11 +1003,11 @@ export class ProductsService {
       const combos = productType === ProductType.VARIABLE
         ? (Array.isArray(dto.combinations) ? dto.combinations : [])
         : [];
-      const singleSkuItem = (dto as any).singleSkuItem ?? {};
+
       let savedVariants: ProductVariantEntity[] = [];
 
       const candidateSkus = productType === ProductType.SINGLE
-        ? [singleSkuItem?.sku].filter((sku): sku is string => !!sku)
+        ? []
         : combos
           .map(c => c.sku)
           .filter((sku): sku is string => !!sku);
@@ -1014,21 +1029,22 @@ export class ProductsService {
         }
       }
 
+      let singleRow;
       if (productType === ProductType.SINGLE) {
         const defaultPrice = dto.salePrice !== undefined && dto.salePrice !== null
           ? Number(dto.salePrice)
           : 0;
-        const singleRow = pvRepo.create({
+        singleRow = pvRepo.create({
           adminId,
           productId: savedProduct.id,
           key: "default",
-          sku: singleSkuItem?.sku ?? null,
+          sku: savedProduct?.sku ?? null,
           price: defaultPrice,
           attributes: {},
           stockOnHand: 0,
           reserved: 0,
-          isActive: singleSkuItem?.isActive !== false,
-          deactivatedAt: singleSkuItem?.isActive === false ? new Date() : null,
+          isActive: true,
+          deactivatedAt: null,
         } as any);
         savedVariants = [await pvRepo.save(singleRow as any)];
       } else if (combos.length) {
@@ -1120,13 +1136,13 @@ export class ProductsService {
         // Map combinations to variant IDs for purchase items
         const purchaseItems = savedVariants.map(v => {
           const combo = productType === ProductType.SINGLE
-            ? singleSkuItem
+            ? singleRow
             : combos.find(c => this.canonicalKey(c.attributes) === v.key);
 
 
           return {
             variantId: v.id,
-            quantity: Number(combo?.stockOnHand) || 0,
+            quantity: productType === ProductType.SINGLE ? Number(dto.purchase.quantity || 0) : Number(combo?.stockOnHand) || 0,
             purchaseCost: Number(v.price) || 0, // Fallback to product wholesale price
           };
         }).filter(it => it.quantity > 0);
@@ -1181,7 +1197,7 @@ export class ProductsService {
           where: {
             adminId,
             slug: cleanSlug,
-            storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? (dto.storeId ?? null) : p.storeId,
+            // storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? (dto.storeId ?? null) : p.storeId,
             id: Not(id)
           }
         });
@@ -1484,7 +1500,7 @@ export class ProductsService {
     });
   }
 
-  async checkSlug(me: any, slug, storeId, productId) {
+  async checkSlug(me: any, slug, productId) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -1499,7 +1515,7 @@ export class ProductsService {
       where: {
         adminId,
         slug: slug.trim().toLowerCase(),
-        storeId: storeId ? storeId : IsNull()
+        // storeId: storeId ? storeId : IsNull()
       },
       select: ["id"] // نختار الـ id فقط لتحسين الأداء
     });
