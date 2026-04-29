@@ -4988,9 +4988,23 @@ export class OrdersService {
       hasMore,
     };
   }
+
+  ALLOWED_STATUS_CODES_FOR_ASSIGNMENT = new Set([
+    OrderStatus.CANCELLED,
+    OrderStatus.RETURNED,
+    OrderStatus.FAILED_DELIVERY,
+    OrderStatus.REJECTED,
+    OrderStatus.NO_ANSWER,
+    OrderStatus.NEW,
+    OrderStatus.UNDER_REVIEW,
+    OrderStatus.OUT_OF_DELIVERY_AREA,
+  ]);
+
+
   async manualAssignMany(me: any, dto: ManualAssignManyDto) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
+
 
     // collect all employee ids and all order ids from payload
     const employeeIds = [...new Set(dto.assignments.map((a) => a.userId))];
@@ -5024,6 +5038,7 @@ export class OrdersService {
       // 2) verify orders exist & belong to admin
       const freeOrders = await manager
         .createQueryBuilder(OrderEntity, "order")
+        .innerJoin("order.status", "status")
         .leftJoin(
           "order.assignments",
           "assignment",
@@ -5035,6 +5050,14 @@ export class OrdersService {
         .andWhere("assignment.id IS NULL") // This ensures the order is "free"
         .select(["order.id", "order.orderNumber"])
         .getMany();
+
+      for (const order of freeOrders) {
+        if (order.status && !this.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
+          throw new BadRequestException(
+            `Order #${order.orderNumber} has status "${order.status.name}" which is not allowed for assignment. Allowed statuses: ${[...this.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT].join(", ")}`,
+          );
+        }
+      }
 
       if (freeOrders.length !== allOrderIds.length) {
         throw new BadRequestException(
@@ -5095,6 +5118,7 @@ export class OrdersService {
       // 1. Find 'Free' Orders (No active assignments)
       const q = manager
         .createQueryBuilder(OrderEntity, "order")
+        .innerJoin("order.status", "status")
         .leftJoin(
           "order.assignments",
           "assignment",
@@ -5109,8 +5133,15 @@ export class OrdersService {
         .select(["order.id", "order.orderNumber"]);
       DateFilterUtil.applyToQueryBuilder(q, 'order.created_at', dto?.startDate, dto?.endDate);
 
-
       const freeOrders = await q.limit(dto.orderCount).getMany();
+
+      for (const order of freeOrders) {
+        if (order.status && !this.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
+          throw new BadRequestException(
+            `Order #${order.orderNumber} has status "${order.status.name}" which is not allowed for assignment. Allowed statuses: ${[...this.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT].join(", ")}`,
+          );
+        }
+      }
 
       if (freeOrders.length === 0) {
         throw new NotFoundException(
