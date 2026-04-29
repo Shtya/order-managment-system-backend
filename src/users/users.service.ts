@@ -4,7 +4,7 @@ import { Company, OnboardingStatus, OnboardingStep, Role, SystemRole, User } fro
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-import { Plan, Subscription, SubscriptionStatus } from 'entities/plans.entity';
+import { Plan, PlanType, Subscription, SubscriptionStatus } from 'entities/plans.entity';
 import { AdminCreateDto, UpdateMeUserDto, UpdateUserDto, UpsertCompanyDto } from 'dto/user.dto';
 import { SubscriptionsService } from 'src/subscription/subscription.service';
 import { unlink } from 'fs/promises';
@@ -961,17 +961,22 @@ export class UsersService {
 		}
 
 		let nextStep: OnboardingStep;
+		
+		if (wantedStepIndex > 0 && !user.activeSubscription) {
+			const freePlan = await this.plansRepo.findOne({ where: { type: PlanType.TRIAL } });
+			if(!freePlan) {
+				throw new BadRequestException('No free plan available, please contact support.');
+			}
+			this.subscriptionsService.subscribe(me, freePlan?.id);
+		}
 
 		switch (user.currentOnboardingStep) {
 			case OnboardingStep.WELCOME:
 				nextStep = OnboardingStep.PLAN;
 				break;
-
+				
 			case OnboardingStep.PLAN:
 				// Requirement: Must have a subscription/plan
-				if (!user.activeSubscription) {
-					throw new BadRequestException('Please select a plan to continue.');
-				}
 				nextStep = OnboardingStep.COMPANY;
 				break;
 

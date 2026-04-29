@@ -1514,7 +1514,30 @@ export class ProductsService {
     const exists = await this.prodRepo.findOne({
       where: {
         adminId,
-        slug: slug.trim().toLowerCase(),
+        slug: slug.trim(),
+        // storeId: storeId ? storeId : IsNull()
+      },
+      select: ["id"] // نختار الـ id فقط لتحسين الأداء
+    });
+
+    return { isUnique: !exists };
+  }
+
+  async checkSku(me: any, sku, productId) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    if (productId) {
+      const entity = await CRUD.findOne(this.prodRepo, "products", productId);
+      if (sku === entity.sku) return {
+        isUnique: true
+      }
+    }
+
+    const exists = await this.prodRepo.findOne({
+      where: {
+        adminId,
+        sku: sku.trim()
         // storeId: storeId ? storeId : IsNull()
       },
       select: ["id"] // نختار الـ id فقط لتحسين الأداء
