@@ -3054,7 +3054,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             slug: remote.handle,
             type: ProductType.VARIABLE,
             upsellings: [],
-            sku: firstVariant?.sku || "",
+            sku: "",
             thumb: remote.images?.nodes?.[0]?.url || "",
             images: (remote.images?.nodes || []).map((img: any) => img.url),
             categories: (remote.collections?.nodes || []).map((c: any) => ({

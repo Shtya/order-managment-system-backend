@@ -126,12 +126,12 @@ export class ProductsController {
   async checkSlug(
     @Req() req: any,
     @Query("slug") slug: string,
-    @Query("storeId") storeId?: string, // يأتي كـ string من الـ URL
+
     @Query("productId") productId?: string, // يأتي كـ string من الـ URL
   ) {
 
 
-    return this.products.checkSlug(req.user, slug, storeId, productId);
+    return this.products.checkSlug(req.user, slug, productId);
   }
 
   @Permissions("products.read")
@@ -228,6 +228,7 @@ export class ProductsController {
       slug: body.slug,
       type: body.type,
 
+      sku: body.sku,
       wholesalePrice: parseNumber(body.wholesalePrice) as any,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
@@ -250,7 +251,6 @@ export class ProductsController {
       imagesOrphanIds: parseJsonField(body.imagesOrphanIds, []),
       images: parseJsonField(body.imagesMeta, []),
       combinations: parseJsonField(body.combinations, []),
-      singleSkuItem: parseJsonField(body.singleSkuItem, undefined),
       purchase: parseJsonField(body.purchase, undefined),
     } as any;
 

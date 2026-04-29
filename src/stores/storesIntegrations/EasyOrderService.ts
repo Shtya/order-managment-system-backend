@@ -348,7 +348,7 @@ export class EasyOrderService extends BaseStoreProvider {
             }
         });
 
-        const variationsDef = Array.from(variationMap.entries()).map(([name, values]) => {
+        const attrebutes = Array.from(variationMap.entries()).map(([name, values]) => {
             const variationId = uuidv4();
             return {
                 id: variationId,
@@ -386,7 +386,7 @@ export class EasyOrderService extends BaseStoreProvider {
             // sale_price: Number(product.salePrice) || 0,
             description: product.description || "",
             slug: product.slug.replace(/_/g, '-'),
-            sku: `SKU-${product.slug.toUpperCase().substring(0, 8)}-${product.id}`?.trim(),
+            sku: product.sku,
             thumb: this.getImageUrl(product.mainImage?.trim() || ""),
             images: product.images?.map(img => this.getImageUrl(img.url?.trim())) || [],
             categories: categoryPayload,
@@ -397,7 +397,7 @@ export class EasyOrderService extends BaseStoreProvider {
             is_reviews_enabled: true,
             taager_code: String(product.id),
             // drop_shipping_provider: "MyStore",
-            variations: variationsDef,
+            variations: attrebutes,
             variants: variantsPayload
         };
     }
@@ -749,6 +749,7 @@ export class EasyOrderService extends BaseStoreProvider {
         const productDto: CreateProductDto = {
             name: remoteProduct.name,
             slug: remoteProduct.slug, // Crucial for matching
+            sku: remoteProduct.sku,
             description: remoteProduct.description,
             wholesalePrice: remoteProduct.price,
             salePrice: remoteProduct.sale_price || remoteProduct.price,

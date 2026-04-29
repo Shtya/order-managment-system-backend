@@ -735,8 +735,7 @@ export default class WooCommerceService extends BaseStoreProvider {
             type: isBundle ? "bundle" : (isVariable ? "variable" : "simple"),
             description: product.description || "",
             short_description: product.description || "",
-            // [2025-12-24] Generate clean unique SKU for WooCommerce
-            sku: `SKU-${product.slug?.toUpperCase().replace(/-/g, '').substring(0, 8)}-${product.id}${isBundle ? '-BUNDLE' : ''}`.trim(),
+            sku: product?.sku || "",
 
             // STOCK LOGIC: 
             // If variable or bundle, we don't manage stock at parent level (variants handle it)

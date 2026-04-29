@@ -68,6 +68,10 @@ export class CreateSkuItemDto {
 
 export class CreatePurchaseWithProductDto extends OmitType(CreatePurchaseDto, ['items']) {
 
+  @IsOptional()
+  @IsNumber()
+  quantity?: number;
+
 }
 export class SingleSkuItemDto {
   @IsString()
@@ -104,6 +108,15 @@ export class CreateProductDto {
     message: 'The slug must contain only lowercase English letters, numbers, underscores, and dashes (e.g., product-name-101)',
   })
   slug!: string;
+
+  @IsString()
+  @MaxLength(120)
+  @Matches(/^[a-zA-Z0-9-]+$/, {
+    message: "SKU must contain only English letters, numbers, and dashes",
+  })
+  @IsNotEmpty()
+  sku!: string;
+
 
   @IsOptional()
   @Min(0)
@@ -186,10 +199,6 @@ export class CreateProductDto {
   @Type(() => CreateSkuItemDto)
   combinations?: CreateSkuItemDto[];
 
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => SingleSkuItemDto)
-  singleSkuItem?: SingleSkuItemDto;
 
   @IsOptional()
   @ValidateNested()
@@ -198,18 +207,13 @@ export class CreateProductDto {
 }
 
 export class UpdateProductDto extends PartialType(
-  OmitType(CreateProductDto, ['singleSkuItem', 'type'] as const),
+  OmitType(CreateProductDto, ['type', 'sku'] as const),
 ) {
   // ✅ NEW: remove images by url
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
   removeImgs?: string[];
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => CreateSkuItemDto)
-  singleSkuItem?: CreateSkuItemDto;
 }
 
 export class UpsertSkuItemDto {

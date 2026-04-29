@@ -39,8 +39,8 @@ export enum ProductType {
 
 @Entity({ name: "products" })
 @Index(["adminId", "name"])
-@Index(["adminId", "slug"])
-@Index(["adminId", "storeId", "slug"], { unique: true })
+@Index(["adminId", "slug"], { unique: true })
+@Index(["adminId", "sku"], { unique: true })
 export class ProductEntity extends ActivatableEntity {
   @Column({ type: "varchar", length: 200 })
   @Index()
@@ -54,6 +54,9 @@ export class ProductEntity extends ActivatableEntity {
 
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   salePrice: number;
+
+  @Column({ type: "varchar", length: 120 })
+  sku!: string;
 
   @Column({
     type: "enum",
