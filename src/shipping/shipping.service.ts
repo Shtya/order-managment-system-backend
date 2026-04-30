@@ -385,10 +385,8 @@ export class ShippingService {
 
 			// Cancel previous shipment if exists
 			if (order.shippingCompanyId && order.trackingNumber) {
-				try {
-
-					const prevShipment = await this.shipmentsRepo.findOne({
-						where: {
+				const prevShipment = await this.shipmentsRepo.findOne({
+					where: {
 						orderId: order.id,
 						adminId,
 					},
@@ -396,14 +394,20 @@ export class ShippingService {
 					relations: ['shippingCompany']
 				});
 
-				if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
-					await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
-				}
-			} catch (e: any) {
-				throw new BadRequestException(`Cannot create a new shipment because the previous shipment could not be cancelled. Reason: ${e?.message || e}`);
+				try {
+
+
+					if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
+						await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
+					}
+				} catch (e: any) {
+					const prevTracking = prevShipment?.trackingNumber || prevShipment?.providerShipmentId;
+					throw new BadRequestException(
+						`Cannot create shipment. Previous shipment (${prevTracking}) not cancelled: ${e?.message || e}`
+					);
 				}
 			}
-			
+
 			// Setup provider and API key
 			const isNoneProvider = provider === 'none';
 			const p = !isNoneProvider ? this.getProvider(provider) : null;
@@ -607,16 +611,6 @@ export class ShippingService {
 				shipment.status = ShipmentStatus.CANCELLED;
 				shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
 				await manager.save(shipment);
-
-				for (const item of shipment.order.items) {
-					await manager.increment(
-						ProductVariantEntity,
-						{ id: item.variantId, adminId },
-						"stockOnHand",
-						item.quantity
-					);
-
-				}
 
 				const result = {
 					ok: true,
