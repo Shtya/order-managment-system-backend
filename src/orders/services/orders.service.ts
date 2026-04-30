@@ -1283,11 +1283,7 @@ export class OrdersService {
           );
         }
 
-        if (order.manifestId) {
-          throw new BadRequestException(
-            `Order ${order.orderNumber} is already on another return manifest.`
-          );
-        }
+
       }
 
 
