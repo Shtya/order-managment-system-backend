@@ -382,23 +382,7 @@ export class OrdersService {
       });
     }
 
-    if (forConfirm) {
-      let finalStatusCodes = this.ALLOWED_CONFIRM_STATUSES;
-
-      if (q?.status) {
-        // If user passed specific statuses, filter them against the allowed list
-        const passedStatuses = String(q.status).split(",").map((s) => s.trim());
-        const filtered = passedStatuses.filter((s) => this.ALLOWED_CONFIRM_STATUSES.includes(s));
-
-        // If we have valid filtered statuses, use them; otherwise, use the full allowed list
-        if (filtered.length > 0) {
-          finalStatusCodes = filtered;
-        }
-      }
-
-      qb.andWhere("status.code IN (:...statusCodes)", { statusCodes: finalStatusCodes });
-
-    } else if (q?.status) {
+    if (q?.status) {
       const statusParam = q.status;
       if (typeof statusParam === "string" && statusParam.includes(",")) {
         const statusCodes = statusParam.split(",").map((s) => s.trim());
@@ -625,10 +609,15 @@ export class OrdersService {
             // Fetch full orders with items to use the deduction method
 
 
-            await orderRepo.update(orderIds, {
-              statusId: shippedStatus.id,
-              shippedAt: new Date(),
-            });
+            await orderRepo.update(
+              {
+                id: In(orderIds),
+                statusId: packedStatus.id, // ✅ only update PICKED orders
+              },
+              {
+                statusId: shippedStatus.id,
+                shippedAt: new Date(),
+              });
 
             const statusLogs = orderIds.map((orderId) => ({
               adminId,
@@ -657,7 +646,10 @@ export class OrdersService {
           // 2. Update the Parent Orders
           if (orderIds?.length > 0) {
 
-            await orderRepo.update(orderIds, {
+            await orderRepo.update({
+              id: In(orderIds),
+              statusId: preparingStatus.id, // ✅ only update PICKED orders
+            }, {
               statusId: returnedStatus.id,
               returnedAt: new Date(),
               returnedById: userId,
@@ -1450,12 +1442,12 @@ export class OrdersService {
   async getPrintLifecycleStats(me: any) {
     const adminId = tenantId(me);
 
-    const [distributedStatus, preparingStatus] = await Promise.all([
+    const [distributedStatus, printedStatus] = await Promise.all([
       this.findStatusByCode(OrderStatus.DISTRIBUTED.trim(), adminId),
       this.findStatusByCode(OrderStatus.PRINTED.trim(), adminId),
     ]);
 
-    const [totalDistributed, printed, notPrinted] = await Promise.all([
+    const [notPrinted, printed ] = await Promise.all([
       this.orderRepo.count({
         where: {
           adminId,
@@ -1465,21 +1457,12 @@ export class OrdersService {
       this.orderRepo.count({
         where: {
           adminId,
-          statusId: preparingStatus?.id,
-          labelPrinted: Not(IsNull()),
-        },
-      }),
-      this.orderRepo.count({
-        where: {
-          adminId,
-          statusId: distributedStatus?.id,
-          labelPrinted: IsNull(),
+          statusId: printedStatus?.id,
         },
       }),
     ]);
 
     return {
-      totalDistributed,
       printed,
       notPrinted,
     };
@@ -3477,25 +3460,7 @@ export class OrdersService {
         userId: q.userId,
       });
     }
-    const forConfirm = String(q?.forConfirm) === "true";
-    // Apply same filters as list method
-    if (forConfirm) {
-      let finalStatusCodes = this.ALLOWED_CONFIRM_STATUSES;
-
-      if (q?.status) {
-        // If user passed specific statuses, filter them against the allowed list
-        const passedStatuses = String(q.status).split(",").map((s) => s.trim());
-        const filtered = passedStatuses.filter((s) => this.ALLOWED_CONFIRM_STATUSES.includes(s));
-
-        // If we have valid filtered statuses, use them; otherwise, use the full allowed list
-        if (filtered.length > 0) {
-          finalStatusCodes = filtered;
-        }
-      }
-
-      qb.andWhere("status.code IN (:...statusCodes)", { statusCodes: finalStatusCodes });
-
-    } else if (q?.status) {
+    if (q?.status) {
       const statusParam = q.status;
       if (typeof statusParam === "string" && statusParam.includes(",")) {
         const statusCodes = statusParam.split(",").map((s) => s.trim());
@@ -3518,15 +3483,39 @@ export class OrdersService {
       qb.andWhere("order.paymentMethod = :paymentMethod", {
         paymentMethod: q.paymentMethod,
       });
-    if (q?.shippingCompanyId)
-      qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
-        shippingCompanyId: q.shippingCompanyId,
-      });
-    if (q?.storeId)
-      qb.andWhere("order.storeId = :storeId", { storeId: q.storeId });
-
+     if (q?.shippingCompanyId && q.shippingCompanyId !== "all") {
+      if (q.shippingCompanyId === "none") {
+        qb.andWhere("order.shippingCompanyId IS NULL");
+      } else if (q.shippingCompanyId !== "all") {
+        qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
+          shippingCompanyId: q.shippingCompanyId,
+        });
+      }
+    }
+    if (q?.storeId) {
+      if (q.storeId === "none") {
+        qb.andWhere("order.storeId IS NULL");
+      } else if (q.storeId !== "all") {
+        qb.andWhere("order.storeId = :storeId", {
+          storeId: q.storeId,
+        });
+      }
+    }
     DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
 
+     if (q?.labelPrinted !== undefined && q.labelPrinted !== "all") {
+      if (q.labelPrinted === "true" || q.labelPrinted === true) {
+        qb.andWhere("order.labelPrinted IS NOT NULL");
+      } else if (q.labelPrinted === "false" || q.labelPrinted === false) {
+        qb.andWhere("order.labelPrinted IS NULL");
+      }
+    }
+
+ if (q?.productId && q.productId !== "all") {
+      qb.andWhere("variant.productId = :productId", {
+        productId: q.productId,
+      });
+    }
     // Search
     if (search) {
       qb.andWhere(
