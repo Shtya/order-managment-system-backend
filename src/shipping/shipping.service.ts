@@ -385,8 +385,10 @@ export class ShippingService {
 
 			// Cancel previous shipment if exists
 			if (order.shippingCompanyId && order.trackingNumber) {
-				const prevShipment = await this.shipmentsRepo.findOne({
-					where: {
+				try {
+
+					const prevShipment = await this.shipmentsRepo.findOne({
+						where: {
 						orderId: order.id,
 						adminId,
 					},
@@ -397,8 +399,11 @@ export class ShippingService {
 				if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
 					await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
 				}
+			} catch (e: any) {
+				throw new BadRequestException(`Cannot create a new shipment because the previous shipment could not be cancelled. Reason: ${e?.message || e}`);
+				}
 			}
-
+			
 			// Setup provider and API key
 			const isNoneProvider = provider === 'none';
 			const p = !isNoneProvider ? this.getProvider(provider) : null;
@@ -635,7 +640,7 @@ export class ShippingService {
 				shipment.failureReason = e?.message || 'Cancel shipment failed';
 				await manager.save(shipment);
 
-				throw new BadRequestException(`Cancellation Failed: ${shipment.failureReason}`);
+				throw new BadRequestException(`${shipment.failureReason}`);
 			}
 		});
 	}

@@ -90,6 +90,7 @@ export class SubscriptionsController {
   //         dto,
   //     );
   // }
+  
   @Permissions("subscriptions.create")
   @Post("subscribe")
   subscribe(@Req() req: any, @Body() dto: { planId }) {

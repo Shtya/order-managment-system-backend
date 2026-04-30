@@ -1046,10 +1046,15 @@ export class DashboardService {
     const startDate = start;
     const endDate = end;
 
+    const hasExcept = except.length > 0;
 
     const dynamicCountSql = `COUNT(DISTINCT 
         CASE 
-          WHEN status.code IN (:...except) THEN oa.id 
+           ${
+            hasExcept
+              ? `WHEN status.code IN (:...except) THEN oa.id`
+              : `WHEN FALSE THEN oa.id`
+          } 
           ELSE (
             CASE 
               WHEN (:startDate::timestamp IS NULL OR oa.lastActionAt >= :startDate::timestamp) 
