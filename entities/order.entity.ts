@@ -21,33 +21,46 @@ import { ShipmentEntity, ShippingCompanyEntity } from "./shipping.entity";
 import { OrderCollectionEntity } from "./order-collection.entity";
 import { MonthlyClosingEntity } from "./accounting.entity";
 
+
 // ✅ Order Status Enum
 export enum OrderStatus {
-  NEW = "new", //for confirm page
-  UNDER_REVIEW = "under_review", //for confirm page
-  // ✅ حالات مرحلة التأكيد الجديدة
-  CONFIRMED = "confirmed", // مؤكد //for confirm page
+  NEW = "new",   //
+  UNDER_REVIEW = "under_review", //
+  POSTPONED = "postponed", //
+  NO_ANSWER = "no_answer", //
+  WRONG_NUMBER = "wrong_number", //
+  OUT_OF_DELIVERY_AREA = "out_of_area", //
+  DUPLICATE = "duplicate", //
+  FAILED_DELIVERY = "failed_delivery", //
+  REJECTED = "rejected",//
+  DELIVERED = "delivered",//
+  CANCELLED = "cancelled", //
+  RETURNED = "returned",  // 
+  
+  CONFIRMED = "confirmed",
   DISTRIBUTED = "distributed",
-  POSTPONED = "postponed", // مؤجل //for confirm page
-  NO_ANSWER = "no_answer", // لا يوجد رد //for confirm page
-  WRONG_NUMBER = "wrong_number", // الرقم غلط //for confirm page
-  OUT_OF_DELIVERY_AREA = "out_of_area", // خارج نطاق التوصيل //for confirm page
-  DUPLICATE = "duplicate", // طلب مكرر //for confirm page
-  //
-  PREPARING = "preparing",
-
   PRINTED = "printed",
+  PREPARING = "preparing",
   READY = "ready",
   PACKED = "packed",
-  REJECTED = "rejected", 
-  SHIPPED = "shipped",
-  DELIVERED = "delivered",
-  FAILED_DELIVERY = "failed_delivery",
-  CANCELLED = "cancelled", //for confirm page
+  SHIPPED = "shipped", 
   RETURN_PREPARING = "return_preparing",
-  RETURNED = "returned", //for confirm page
 }
 
+
+export const WorkFlowOrderStatuses = [
+  OrderStatus.CONFIRMED, // Action to direct to distrebution page /warehouse?tab=distribution&subtab=unassigned
+  OrderStatus.DISTRIBUTED, // Action to direct to print page /warehouse?tab=print
+  OrderStatus.PRINTED, // Action to direct to scan page /warehouse?tab=preparation&subtab=scanning&scan=:orderId
+  OrderStatus.PREPARING, // action to direct to scan page (label - contineu preparing)  /warehouse?tab=preparation&subtab=scanning&scan=:orderId
+  OrderStatus.READY, // action to direct to outging scan page /warehouse?tab=outgoing&subtab=scan&scan=:orderId
+  OrderStatus.PACKED, // action to direct to create manifest popup /warehouse?tab=outgoing&subtab=scan&manifest=open
+  OrderStatus.SHIPPED, // action to see shippment detials (already exist)
+  OrderStatus.RETURN_PREPARING, // action to direct to create return manifest popup /warehouse?tab=returns&subtab=scan&manifest=open
+]
+
+
+//final (delivered)
 @Entity("order_statuses")
 @Index(["adminId", "code"], { unique: true })
 @Index(["adminId", "name"], { unique: true })
