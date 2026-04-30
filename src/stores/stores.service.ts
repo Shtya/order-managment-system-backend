@@ -10,7 +10,7 @@ import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.e
 import { OrderEntity, OrderStatus } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
 import { StoreQueueService } from "./storesIntegrations/queues";
-import { BaseStoreProvider, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
+import { BaseStoreProvider, ISkuFetch, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import WooCommerceService from "./storesIntegrations/WooCommerce";
@@ -68,6 +68,9 @@ export class StoresService {
     return crypto.randomBytes(24).toString("hex");
   }
 
+  isSkuFetchProvider(provider: any): provider is ISkuFetch {
+    return typeof provider.getProductBySku === 'function';
+  }
 
   public getProvider(provider: string): BaseStoreProvider {
     const key = (provider || '').toLowerCase().trim();

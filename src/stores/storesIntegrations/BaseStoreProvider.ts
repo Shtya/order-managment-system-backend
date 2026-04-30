@@ -19,6 +19,9 @@ export interface IBundleSyncProvider {
     deleteBundle(mainVaraintId: string, storeId: string, adminId: string): Promise<void>;
 }
 
+export interface ISkuFetch {
+    getProductBySku( store: StoreEntity, sku: string, retry?: boolean): Promise<{id}>
+}
 
 export type ShopifyAction =
     | "FULFILL"

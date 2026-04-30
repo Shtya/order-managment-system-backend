@@ -399,6 +399,10 @@ export class TurboProvider extends ShippingProvider {
     if (state === 24) {
       return UnifiedShippingStatus.DAMAGED;
     }
+    
+    if (state === 3) {
+      return UnifiedShippingStatus.IN_PROGRESS;
+    }
 
     // الحالة الافتراضية
     return UnifiedShippingStatus.IN_PROGRESS;

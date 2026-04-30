@@ -23,29 +23,29 @@ import { MonthlyClosingEntity } from "./accounting.entity";
 
 // ✅ Order Status Enum
 export enum OrderStatus {
-  NEW = "new",
-  UNDER_REVIEW = "under_review",
+  NEW = "new", //for confirm page
+  UNDER_REVIEW = "under_review", //for confirm page
   // ✅ حالات مرحلة التأكيد الجديدة
-  CONFIRMED = "confirmed", // مؤكد
+  CONFIRMED = "confirmed", // مؤكد //for confirm page
   DISTRIBUTED = "distributed",
-  POSTPONED = "postponed", // مؤجل
-  NO_ANSWER = "no_answer", // لا يوجد رد
-  WRONG_NUMBER = "wrong_number", // الرقم غلط
-  OUT_OF_DELIVERY_AREA = "out_of_area", // خارج نطاق التوصيل
-  DUPLICATE = "duplicate", // طلب مكرر
+  POSTPONED = "postponed", // مؤجل //for confirm page
+  NO_ANSWER = "no_answer", // لا يوجد رد //for confirm page
+  WRONG_NUMBER = "wrong_number", // الرقم غلط //for confirm page
+  OUT_OF_DELIVERY_AREA = "out_of_area", // خارج نطاق التوصيل //for confirm page
+  DUPLICATE = "duplicate", // طلب مكرر //for confirm page
   //
   PREPARING = "preparing",
 
   PRINTED = "printed",
   READY = "ready",
   PACKED = "packed",
-  REJECTED = "rejected",
+  REJECTED = "rejected", 
   SHIPPED = "shipped",
   DELIVERED = "delivered",
   FAILED_DELIVERY = "failed_delivery",
-  CANCELLED = "cancelled",
+  CANCELLED = "cancelled", //for confirm page
   RETURN_PREPARING = "return_preparing",
-  RETURNED = "returned",
+  RETURNED = "returned", //for confirm page
 }
 
 @Entity("order_statuses")

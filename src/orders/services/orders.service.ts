@@ -336,6 +336,21 @@ export class OrdersService {
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
+    const ALLOWED_CONFIRM_STATUSES: string[] = [
+      OrderStatus.NEW,
+      OrderStatus.CONFIRMED,
+      OrderStatus.UNDER_REVIEW,
+      OrderStatus.NO_ANSWER,
+      OrderStatus.POSTPONED,
+      OrderStatus.WRONG_NUMBER,
+      OrderStatus.OUT_OF_DELIVERY_AREA,
+      OrderStatus.DUPLICATE,
+      OrderStatus.CANCELLED,
+      OrderStatus.RETURNED,
+    ];
+
+    const forConfirm = String(q?.forConfirm) === "true";
+
     const qb = this.orderRepo
       .createQueryBuilder("order")
       .where("order.adminId = :adminId", { adminId })
@@ -365,9 +380,23 @@ export class OrdersService {
       });
     }
 
-    // Filters
-    // Status: accept numeric id or status code string, or comma separated list of codes
-    if (q?.status) {
+    if (forConfirm) {
+      let finalStatusCodes = ALLOWED_CONFIRM_STATUSES;
+
+      if (q?.status) {
+        // If user passed specific statuses, filter them against the allowed list
+        const passedStatuses = String(q.status).split(",").map((s) => s.trim());
+        const filtered = passedStatuses.filter((s) => ALLOWED_CONFIRM_STATUSES.includes(s));
+
+        // If we have valid filtered statuses, use them; otherwise, use the full allowed list
+        if (filtered.length > 0) {
+          finalStatusCodes = filtered;
+        }
+      }
+
+      qb.andWhere("status.code IN (:...statusCodes)", { statusCodes: finalStatusCodes });
+
+    } else if (q?.status) {
       const statusParam = q.status;
       if (typeof statusParam === "string" && statusParam.includes(",")) {
         const statusCodes = statusParam.split(",").map((s) => s.trim());
@@ -4995,6 +5024,7 @@ export class OrdersService {
     OrderStatus.FAILED_DELIVERY,
     OrderStatus.REJECTED,
     OrderStatus.NO_ANSWER,
+    OrderStatus.POSTPONED,
     OrderStatus.NEW,
     OrderStatus.UNDER_REVIEW,
     OrderStatus.OUT_OF_DELIVERY_AREA,
