@@ -322,6 +322,19 @@ export class OrdersService {
     return statuses;
   }
 
+    ALLOWED_CONFIRM_STATUSES: string[] = [
+      OrderStatus.NEW,
+      OrderStatus.CONFIRMED,
+      OrderStatus.UNDER_REVIEW,
+      OrderStatus.NO_ANSWER,
+      OrderStatus.POSTPONED,
+      OrderStatus.WRONG_NUMBER,
+      OrderStatus.OUT_OF_DELIVERY_AREA,
+      OrderStatus.DUPLICATE,
+      OrderStatus.CANCELLED,
+      OrderStatus.RETURNED,
+    ];
+
   // ========================================
   // ✅ LIST ORDERS
   // ========================================
@@ -336,18 +349,7 @@ export class OrdersService {
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-    const ALLOWED_CONFIRM_STATUSES: string[] = [
-      OrderStatus.NEW,
-      OrderStatus.CONFIRMED,
-      OrderStatus.UNDER_REVIEW,
-      OrderStatus.NO_ANSWER,
-      OrderStatus.POSTPONED,
-      OrderStatus.WRONG_NUMBER,
-      OrderStatus.OUT_OF_DELIVERY_AREA,
-      OrderStatus.DUPLICATE,
-      OrderStatus.CANCELLED,
-      OrderStatus.RETURNED,
-    ];
+  
 
     const forConfirm = String(q?.forConfirm) === "true";
 
@@ -381,12 +383,12 @@ export class OrdersService {
     }
 
     if (forConfirm) {
-      let finalStatusCodes = ALLOWED_CONFIRM_STATUSES;
+      let finalStatusCodes = this.ALLOWED_CONFIRM_STATUSES;
 
       if (q?.status) {
         // If user passed specific statuses, filter them against the allowed list
         const passedStatuses = String(q.status).split(",").map((s) => s.trim());
-        const filtered = passedStatuses.filter((s) => ALLOWED_CONFIRM_STATUSES.includes(s));
+        const filtered = passedStatuses.filter((s) => this.ALLOWED_CONFIRM_STATUSES.includes(s));
 
         // If we have valid filtered statuses, use them; otherwise, use the full allowed list
         if (filtered.length > 0) {
@@ -3474,11 +3476,30 @@ export class OrdersService {
         userId: q.userId,
       });
     }
-
+const forConfirm = String(q?.forConfirm) === "true";
     // Apply same filters as list method
-    if (q?.status) {
+    if (forConfirm) {
+      let finalStatusCodes = this.ALLOWED_CONFIRM_STATUSES;
+
+      if (q?.status) {
+        // If user passed specific statuses, filter them against the allowed list
+        const passedStatuses = String(q.status).split(",").map((s) => s.trim());
+        const filtered = passedStatuses.filter((s) => this.ALLOWED_CONFIRM_STATUSES.includes(s));
+
+        // If we have valid filtered statuses, use them; otherwise, use the full allowed list
+        if (filtered.length > 0) {
+          finalStatusCodes = filtered;
+        }
+      }
+
+      qb.andWhere("status.code IN (:...statusCodes)", { statusCodes: finalStatusCodes });
+
+    } else if (q?.status) {
       const statusParam = q.status;
-      if (!isNaN(Number(statusParam))) {
+      if (typeof statusParam === "string" && statusParam.includes(",")) {
+        const statusCodes = statusParam.split(",").map((s) => s.trim());
+        qb.andWhere("status.code IN (:...statusCodes)", { statusCodes });
+      } else if (!isNaN(Number(statusParam))) {
         qb.andWhere("order.statusId = :statusId", {
           statusId: Number(statusParam),
         });
