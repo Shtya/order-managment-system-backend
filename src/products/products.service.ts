@@ -1,5 +1,5 @@
 // --- File: src/products/products.service.ts ---
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository, Like, Not, IsNull, EntityManager, Brackets } from "typeorm";
 
@@ -30,8 +30,9 @@ import { DataSource } from "typeorm";
 import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
-import { ProductSyncStatus } from "entities/product_sync_error.entity";
+import { ProductSyncStateEntity, ProductSyncStatus } from "entities/product_sync_error.entity";
 import { RemoteImageHelper } from "common/emote-image.helper";
+import { StoresService } from "src/stores/stores.service";
 
 
 @Injectable()
@@ -65,6 +66,9 @@ export class ProductsService {
     private readonly purchasesService: PurchasesService,
     private readonly orphanFilesService: OrphanFilesService,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => StoresService))
+    private storesService: StoresService,
+     @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
   ) { }
 
 
@@ -852,7 +856,7 @@ export class ProductsService {
             adminId,
           },
         });
-
+        
         if (!category) {
           const slug = generateSlug(categoryName)
           category = catRepo.create({
@@ -860,13 +864,13 @@ export class ProductsService {
             slug: slug && slug !== "-" ? slug : `category-${Date.now()}`,
             adminId,
           });
-
+          
           category = await catRepo.save(category);
         }
       }
-
+      
       else if (dto.categoryId && dto.categoryId !== "none") {
-
+        
         category = await this.assertOwnedOrNull(
           catRepo,
           adminId,
@@ -875,10 +879,11 @@ export class ProductsService {
         );
       }
 
-      let store;
+      let store: StoreEntity;
       if (dto.storeId && dto.storeId !== 'none') {
         store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
       }
+      
       if (dto.warehouseId && dto.warehouseId !== 'none') {
         const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
       }
@@ -896,6 +901,14 @@ export class ProductsService {
           `This slug "${dto.slug}" is already in use by another product.`
         );
 
+      }
+
+      if(store) {
+        const provider = this.storesService.getProvider(store?.provider)
+        const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
+        if(remoteSlug?.id) {
+           throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+        }
       }
 
 
@@ -1209,6 +1222,57 @@ export class ProductsService {
         p.slug = cleanSlug;
       }
 
+        // --- 2. Handle Base Relations & Fields ---
+      if (dto.categoryId !== undefined && dto.categoryId !== 'none') {
+        const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
+        (p as any).categoryId = dto.categoryId ?? null;
+        (p as any).category = category ?? null;
+      } else if (dto.categoryId === 'none') {
+        (p as any).categoryId = null;
+        (p as any).category = null;
+      }
+
+      
+      if (dto.storeId !== undefined && dto.storeId !== 'none') {
+        const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+        (p as any).storeId = dto.storeId ?? null;
+        (p as any).store = store ?? null;
+      } else if (dto.storeId === 'none') {
+        (p as any).storeId = null;
+        (p as any).store = null;
+      }
+
+      if (dto.warehouseId !== undefined && dto.warehouseId !== 'none') {
+        const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
+        (p as any).warehouseId = dto.warehouseId ?? null;
+        (p as any).warehouse = warehouse ?? null;
+      } else if (dto.warehouseId === 'none') {
+        (p as any).warehouseId = null;
+        (p as any).warehouse = null;
+      }
+
+
+      if(p.storeId) {
+        let store: StoreEntity;
+        store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+        const provider = this.storesService.getProvider(store?.provider)
+        const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
+        
+        const productSyncState = await this.productSyncStateRepo.findOne({
+            where: {
+                productId: p.id,
+                storeId: store.id,
+                adminId: p.adminId,
+                externalStoreId: store?.externalStoreId
+            }
+        });
+        let externalId = productSyncState?.remoteProductId;
+        if(remoteSlug && remoteSlug?.id?.toString() !== externalId?.toString()) {
+           throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+        }
+
+      }
+
       // ✅ removeImgs
       const removeImgs = (dto as any).removeImgs as string[] | undefined;
       if (removeImgs?.length) {
@@ -1276,34 +1340,7 @@ export class ProductsService {
       }
       delete (dto as any).imagesOrphanIds;
 
-      // --- 2. Handle Base Relations & Fields ---
-      if (dto.categoryId !== undefined && dto.categoryId !== 'none') {
-        const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
-        (p as any).categoryId = dto.categoryId ?? null;
-        (p as any).category = category ?? null;
-      } else if (dto.categoryId === 'none') {
-        (p as any).categoryId = null;
-        (p as any).category = null;
-      }
-
-      if (dto.storeId !== undefined && dto.storeId !== 'none') {
-        const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
-        (p as any).storeId = dto.storeId ?? null;
-        (p as any).store = store ?? null;
-      } else if (dto.storeId === 'none') {
-        (p as any).storeId = null;
-        (p as any).store = null;
-      }
-
-      if (dto.warehouseId !== undefined && dto.warehouseId !== 'none') {
-        const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
-        (p as any).warehouseId = dto.warehouseId ?? null;
-        (p as any).warehouse = warehouse ?? null;
-      } else if (dto.warehouseId === 'none') {
-        (p as any).warehouseId = null;
-        (p as any).warehouse = null;
-      }
-
+    
       const patch: any = { ...dto };
       delete patch.categoryId;
       delete patch.storeId;

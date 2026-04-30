@@ -493,7 +493,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     // ===========================================================================
     // SYNC PRODUCT METHODS
     // ===========================================================================
-    private async getProductBySlug(store: StoreEntity, slug: string) {
+    public async getProductBySlug(store: StoreEntity, slug: string, retry: boolean =  true) {
         const cleanSlug = slug?.trim();
 
         const query = `
@@ -516,7 +516,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         `;
 
 
-        const response = await this.runGraphQL(store, false, query, { handle: cleanSlug });
+        const response = await this.runGraphQL(store, false, query, { handle: cleanSlug }, 0, retry);
         const product = response?.productByHandle || null;
 
         return product;

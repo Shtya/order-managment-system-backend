@@ -19,6 +19,7 @@ import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
 import { ProductSyncStateModule } from "src/product-sync-state/product-sync-state.module";
 import { RemoteImageHelper } from "common/emote-image.helper";
+import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { RemoteImageHelper } from "common/emote-image.helper";
       OrderItemEntity,
       User,
       OrphanFileEntity,
+      ProductSyncStateEntity
     ]),
   ],
   providers: [ProductsService, ProductSubscriber, VariantSubscriber, LowStockService, RemoteImageHelper, {
