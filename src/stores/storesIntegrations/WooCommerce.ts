@@ -1,5 +1,5 @@
 import { forwardRef, Inject, Injectable, InternalServerErrorException } from "@nestjs/common";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider, MappedProductDto } from "./BaseStoreProvider";
+import { BaseStoreProvider, ISkuFetch, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider, MappedProductDto } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
@@ -22,7 +22,7 @@ import { NotificationService } from "src/notifications/notification.service";
 
 
 @Injectable()
-export default class WooCommerceService extends BaseStoreProvider {
+export default class WooCommerceService extends BaseStoreProvider implements  ISkuFetch {
 
 
     maxBundleItems?: number;
@@ -53,6 +53,7 @@ export default class WooCommerceService extends BaseStoreProvider {
         super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.WOOCOMMERCE)
 
     }
+   
 
     public async getFullProductById(
         store: StoreEntity,
@@ -602,6 +603,18 @@ export default class WooCommerceService extends BaseStoreProvider {
             method: 'GET',
             url: '/products',
             params: { slug: slug.trim(), status: status, per_page: 100 },
+        }, 0, retry);
+
+        const products = response?.data ?? response;
+        return products?.length > 0 ? products[0] : null;
+    }
+     public async  getProductBySku(store: StoreEntity, sku: string, retry?: boolean): Promise<{ id: any; }> {
+          if (!sku) return null;
+        const status = 'any';
+        const response = await this.sendRequest(store, {
+            method: 'GET',
+            url: '/products',
+            params: { sku: sku.trim(), status: status, per_page: 100 },
         }, 0, retry);
 
         const products = response?.data ?? response;

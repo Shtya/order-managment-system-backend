@@ -68,7 +68,7 @@ export class ProductsService {
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => StoresService))
     private storesService: StoresService,
-     @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
   ) { }
 
 
@@ -836,6 +836,7 @@ export class ProductsService {
   }
 
 
+  
   async create(me: any, dto: CreateProductDto, manager?: EntityManager) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
@@ -856,7 +857,7 @@ export class ProductsService {
             adminId,
           },
         });
-        
+
         if (!category) {
           const slug = generateSlug(categoryName)
           category = catRepo.create({
@@ -864,13 +865,13 @@ export class ProductsService {
             slug: slug && slug !== "-" ? slug : `category-${Date.now()}`,
             adminId,
           });
-          
+
           category = await catRepo.save(category);
         }
       }
-      
+
       else if (dto.categoryId && dto.categoryId !== "none") {
-        
+
         category = await this.assertOwnedOrNull(
           catRepo,
           adminId,
@@ -883,7 +884,7 @@ export class ProductsService {
       if (dto.storeId && dto.storeId !== 'none') {
         store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
       }
-      
+
       if (dto.warehouseId && dto.warehouseId !== 'none') {
         const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
       }
@@ -903,12 +904,28 @@ export class ProductsService {
 
       }
 
-      if(store) {
+      if (store) {
         const provider = this.storesService.getProvider(store?.provider)
         const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
-        if(remoteSlug?.id) {
-           throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+        if (remoteSlug?.id) {
+          throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
         }
+
+        // 🔹 Slug check (if supported)
+        if (dto.sku && this.storesService.isSkuFetchProvider(provider)) {
+          const remoteSku = await provider.getProductBySku(
+            store,
+            dto.sku.trim(),
+            false
+          );
+
+          if (remoteSku?.id) {
+            throw new BadRequestException(
+              `This SKU "${dto.sku}" is already in use by "${store.name}" store.`
+            );
+          }
+        }
+
       }
 
 
@@ -925,6 +942,8 @@ export class ProductsService {
           `This SKU "${dto.sku}" is already in use by another product.`
         );
       }
+
+
 
       const p = prodRepo.create({
         adminId,
@@ -1222,7 +1241,7 @@ export class ProductsService {
         p.slug = cleanSlug;
       }
 
-        // --- 2. Handle Base Relations & Fields ---
+      // --- 2. Handle Base Relations & Fields ---
       if (dto.categoryId !== undefined && dto.categoryId !== 'none') {
         const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
         (p as any).categoryId = dto.categoryId ?? null;
@@ -1232,7 +1251,7 @@ export class ProductsService {
         (p as any).category = null;
       }
 
-      
+
       if (dto.storeId !== undefined && dto.storeId !== 'none') {
         const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
         (p as any).storeId = dto.storeId ?? null;
@@ -1252,23 +1271,23 @@ export class ProductsService {
       }
 
 
-      if(p.storeId) {
+      if (p.storeId) {
         let store: StoreEntity;
         store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
         const provider = this.storesService.getProvider(store?.provider)
         const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
-        
+
         const productSyncState = await this.productSyncStateRepo.findOne({
-            where: {
-                productId: p.id,
-                storeId: store.id,
-                adminId: p.adminId,
-                externalStoreId: store?.externalStoreId
-            }
+          where: {
+            productId: p.id,
+            storeId: store.id,
+            adminId: p.adminId,
+            externalStoreId: store?.externalStoreId
+          }
         });
         let externalId = productSyncState?.remoteProductId;
-        if(remoteSlug && remoteSlug?.id?.toString() !== externalId?.toString()) {
-           throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+        if (remoteSlug && remoteSlug?.id?.toString() !== externalId?.toString()) {
+          throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
         }
 
       }
@@ -1340,7 +1359,7 @@ export class ProductsService {
       }
       delete (dto as any).imagesOrphanIds;
 
-    
+
       const patch: any = { ...dto };
       delete patch.categoryId;
       delete patch.storeId;
