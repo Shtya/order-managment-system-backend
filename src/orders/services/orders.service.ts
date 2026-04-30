@@ -586,8 +586,6 @@ export class OrdersService {
     const adminId = tenantId(me);
     const userId = me.id;
 
-    const settings = await this.getSettings(me);
-
     // Wrap everything in a transaction to ensure manifest update and status logs are atomic
     return await this.dataSource.transaction(async (manager) => {
       // 1. Get repositories scoped to this manager
@@ -657,26 +655,29 @@ export class OrdersService {
           );
 
           // 2. Update the Parent Orders
-          await orderRepo.update(orderIds, {
-            statusId: returnedStatus.id,
-            returnedAt: new Date(),
-            returnedById: userId,
-            updatedByUserId: userId,
-            manifestId: manifest.id, // Ensure manifest linkage is saved
-          });
+          if (orderIds?.length > 0) {
 
-          // 3. Create Status Logs (Fixed from/to logic)
-          const statusLogs = orderIds.map((orderId) => ({
-            adminId,
-            orderId,
-            fromStatusId: preparingStatus.id, // ✅ Correct: coming from Preparing
-            toStatusId: returnedStatus.id, // ✅ Correct: moving to Returned
-            userId: userId,
-            notes: `Added to Return Manifest: ${manifestNumber}`,
-            createdAt: new Date(),
-          }));
+            await orderRepo.update(orderIds, {
+              statusId: returnedStatus.id,
+              returnedAt: new Date(),
+              returnedById: userId,
+              updatedByUserId: userId,
+              manifestId: manifest.id, // Ensure manifest linkage is saved
+            });
 
-          await statusHistoryRepo.insert(statusLogs);
+            // 3. Create Status Logs (Fixed from/to logic)
+            const statusLogs = orderIds.map((orderId) => ({
+              adminId,
+              orderId,
+              fromStatusId: preparingStatus.id, // ✅ Correct: coming from Preparing
+              toStatusId: returnedStatus.id, // ✅ Correct: moving to Returned
+              userId: userId,
+              notes: `Added to Return Manifest: ${manifestNumber}`,
+              createdAt: new Date(),
+            }));
+
+            await statusHistoryRepo.insert(statusLogs);
+          }
         }
 
         await this.logBulkOrderActions({
