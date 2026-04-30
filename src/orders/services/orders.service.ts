@@ -322,18 +322,18 @@ export class OrdersService {
     return statuses;
   }
 
-    ALLOWED_CONFIRM_STATUSES: string[] = [
-      OrderStatus.NEW,
-      OrderStatus.CONFIRMED,
-      OrderStatus.UNDER_REVIEW,
-      OrderStatus.NO_ANSWER,
-      OrderStatus.POSTPONED,
-      OrderStatus.WRONG_NUMBER,
-      OrderStatus.OUT_OF_DELIVERY_AREA,
-      OrderStatus.DUPLICATE,
-      OrderStatus.CANCELLED,
-      OrderStatus.RETURNED,
-    ];
+  ALLOWED_CONFIRM_STATUSES: string[] = [
+    OrderStatus.NEW,
+    OrderStatus.CONFIRMED,
+    OrderStatus.UNDER_REVIEW,
+    OrderStatus.NO_ANSWER,
+    OrderStatus.POSTPONED,
+    OrderStatus.WRONG_NUMBER,
+    OrderStatus.OUT_OF_DELIVERY_AREA,
+    OrderStatus.DUPLICATE,
+    OrderStatus.CANCELLED,
+    OrderStatus.RETURNED,
+  ];
 
   // ========================================
   // ✅ LIST ORDERS
@@ -349,7 +349,7 @@ export class OrdersService {
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-  
+
 
     const forConfirm = String(q?.forConfirm) === "true";
 
@@ -510,6 +510,7 @@ export class OrdersService {
       records,
     };
   }
+
   async listManifests(me: any, q?: any) {
     const adminId = tenantId(me);
     const page = Number(q?.page ?? 1);
@@ -540,11 +541,14 @@ export class OrdersService {
       ])
       .where("manifest.adminId = :adminId", { adminId });
 
-    // Filter: Shipping Company
     if (q?.shippingCompanyId && q.shippingCompanyId !== "all") {
-      qb.andWhere("manifest.shippingCompanyId = :coId", {
-        coId: q.shippingCompanyId,
-      });
+      if (q.shippingCompanyId === "none") {
+        qb.andWhere("manifest.shippingCompanyId IS NULL");
+      } else {
+        qb.andWhere("manifest.shippingCompanyId = :coId", {
+          coId: q.shippingCompanyId,
+        });
+      }
     }
     if (type && type !== "all") {
       qb.andWhere("manifest.type = :manifestType", {
@@ -3476,7 +3480,7 @@ export class OrdersService {
         userId: q.userId,
       });
     }
-const forConfirm = String(q?.forConfirm) === "true";
+    const forConfirm = String(q?.forConfirm) === "true";
     // Apply same filters as list method
     if (forConfirm) {
       let finalStatusCodes = this.ALLOWED_CONFIRM_STATUSES;
