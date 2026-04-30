@@ -1182,11 +1182,6 @@ export class OrdersService {
             `Order ${order.orderNumber} belongs to a different courier.`,
           );
         }
-        if (order.manifestId) {
-          throw new BadRequestException(
-            `Order ${order.orderNumber} is already on another manifest.`,
-          );
-        }
       }
 
       // 2. Generate Manifest Number (e.g., MAN-20260316-001)
