@@ -405,6 +405,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
     public abstract syncOrderStatus(order: OrderEntity, newStatusId: string)
     public abstract syncFullStore(store: StoreEntity)
+    public abstract getProductBySlug( store: StoreEntity, slug: string, retry?: boolean): Promise<{id}>
     public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
     public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload;

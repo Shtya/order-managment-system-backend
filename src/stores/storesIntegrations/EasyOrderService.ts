@@ -1027,7 +1027,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Reusable helper to fetch a single remote product from Easy Order using filters.
      */
-    private async fetchRemoteProductBySlug(store: StoreEntity, slug: string, retry = true): Promise<any | null> {
+    public async getProductBySlug(store: StoreEntity, slug: string, retry = true): Promise<any | null> {
         const cleanSlug = slug?.trim();
         const searchFilters = [`slug||eq||${cleanSlug}`];
 
@@ -1357,7 +1357,7 @@ export class EasyOrderService extends BaseStoreProvider {
         for (const slug of slugs) {
             try {
                 // 1. Fetch one by one using our helper
-                const remoteProduct = await this.fetchRemoteProductBySlug(store, slug);
+                const remoteProduct = await this.getProductBySlug(store, slug);
 
                 if (!remoteProduct) {
                     continue;

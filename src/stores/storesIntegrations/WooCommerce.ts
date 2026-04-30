@@ -595,14 +595,14 @@ export default class WooCommerceService extends BaseStoreProvider {
         return categories?.length > 0 ? categories[0] : null;
     }
 
-    private async getProductBySlug(store: StoreEntity, slug: string) {
+    public async getProductBySlug(store: StoreEntity, slug: string, retry = true) {
         if (!slug) return null;
         const status = 'any';
         const response = await this.sendRequest(store, {
             method: 'GET',
             url: '/products',
             params: { slug: slug.trim(), status: status, per_page: 100 },
-        });
+        }, 0, retry);
 
         const products = response?.data ?? response;
         return products?.length > 0 ? products[0] : null;
