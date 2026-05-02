@@ -34,6 +34,8 @@ export enum PaymentSource {
     OFFICE_PICKUP = "office_pickup",
 }
 
+import { Account } from "./safe.entity";
+
 @Entity({ name: "order_collections" })
 @Index(["adminId", "orderId"])
 @Index(["adminId", "shippingCompanyId"])
@@ -49,7 +51,7 @@ export class OrderCollectionEntity {
     @JoinColumn({ name: 'adminId' })
     admin: User;
 
-    @Column({type: 'uuid'})
+    @Column({ type: 'uuid' })
     orderId: string;
 
     @ManyToOne(() => OrderEntity)
@@ -62,6 +64,13 @@ export class OrderCollectionEntity {
     @ManyToOne(() => ShippingCompanyEntity, { nullable: true, onDelete: "SET NULL" })
     @JoinColumn({ name: "shippingCompanyId" })
     shippingCompany?: ShippingCompanyEntity | null;
+
+    @Column({ type: "uuid", nullable: true })
+    safeId: string;
+
+    @ManyToOne(() => Account, { nullable: true, onDelete: "SET NULL" })
+    @JoinColumn({ name: "safeId" })
+    safe: Account;
 
     @Column({ type: "decimal", precision: 10, scale: 2 })
     amount: number;
@@ -76,6 +85,6 @@ export class OrderCollectionEntity {
     @Column({ type: "text", nullable: true })
     notes: string;
 
-    @CreateDateColumn({ type: "timestamptz" })
+    @Column({ type: "timestamptz", default: () => "CURRENT_TIMESTAMP" })
     collectedAt: Date;
 }

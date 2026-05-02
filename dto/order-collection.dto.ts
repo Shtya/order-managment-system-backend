@@ -1,5 +1,5 @@
 // dtos/create-order-collection.dto.ts
-import { IsNumber, IsString, IsOptional, IsNotEmpty, Min, IsEnum, IsInt } from 'class-validator';
+import { IsNumber, IsString, IsOptional, IsNotEmpty, Min, IsEnum, IsDateString } from 'class-validator';
 import { PaymentSource } from 'entities/order-collection.entity';
 
 export class CreateOrderCollectionDto {
@@ -12,7 +12,12 @@ export class CreateOrderCollectionDto {
     amount: number;
 
     @IsString()
-    shippingCompanyId: string;
+    @IsOptional()
+    shippingCompanyId?: string;
+
+    @IsString()
+    @IsNotEmpty()
+    safeId: string;
 
     @IsEnum(PaymentSource)
     source: PaymentSource;
@@ -21,4 +26,7 @@ export class CreateOrderCollectionDto {
     @IsOptional()
     notes?: string;
 
+    @IsDateString()
+    @IsOptional()
+    collectedAt?: string;
 }
