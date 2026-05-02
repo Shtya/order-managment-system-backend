@@ -48,18 +48,6 @@ export enum OrderStatus {
 }
 
 
-export const WorkFlowOrderStatuses = [
-  OrderStatus.CONFIRMED, // Action to direct to distrebution page /warehouse?tab=distribution&subtab=unassigned
-  OrderStatus.DISTRIBUTED, // Action to direct to print page /warehouse?tab=print
-  OrderStatus.PRINTED, // Action to direct to scan page /warehouse?tab=preparation&subtab=scanning&scan=:orderId
-  OrderStatus.PREPARING, // action to direct to scan page (label - contineu preparing)  /warehouse?tab=preparation&subtab=scanning&scan=:orderId
-  OrderStatus.READY, // action to direct to outging scan page /warehouse?tab=outgoing&subtab=scan&scan=:orderId
-  OrderStatus.PACKED, // action to direct to create manifest popup /warehouse?tab=outgoing&subtab=scan&manifest=open
-  OrderStatus.SHIPPED, // action to see shippment detials (already exist)
-  OrderStatus.RETURN_PREPARING, // action to direct to create return manifest popup /warehouse?tab=returns&subtab=scan&manifest=open
-]
-
-
 //final (delivered)
 @Entity("order_statuses")
 @Index(["adminId", "code"], { unique: true })

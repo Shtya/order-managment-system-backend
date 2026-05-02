@@ -181,7 +181,7 @@ export class TransactionEntity {
     id: string;
 
     @Column({ type: "varchar", length: 100 })
-    number!: string; // e.g., ORD-20250124-001
+    number!: string; // e.g., TRX-20250124-001
 
     @Column({ type: 'uuid', nullable: true })
     userId: string;
