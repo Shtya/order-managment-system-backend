@@ -323,42 +323,78 @@ export class PurchaseReturnsService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const inv = await this.get(me, id);
-    if (inv.closingId) {
-      throw new BadRequestException("Cannot update a purchase return that has been closed.");
-    }
-
-    const oldStatus = inv.status;
-    const oldPaidAmount = Number(inv.paidAmount || 0);
-    const totalReturn = Number(inv.totalReturn || 0);
-
-    (inv as any).paidAmount = dto.paidAmount;
-    (inv as any).totalReturn = Number((inv as any).subtotal) + Number((inv as any).taxTotal);
-
-    const saved = await this.invRepo.save(inv as any);
-
-    // Sync supplier if status is ACCEPTED
-    if (oldStatus === ApprovalStatus.ACCEPTED) {
-      await this.syncSupplierFinancials({
-        oldStatus: ApprovalStatus.ACCEPTED,
-        newStatus: ApprovalStatus.ACCEPTED,
-        oldSupplierId: inv.supplierId,
-        newSupplierId: inv.supplierId,
-        totalReturn: 0, // No change in total items value
-        paidAmount: dto.paidAmount - oldPaidAmount, // Difference in refund
+    return await this.dataSource.transaction(async (manager) => {
+      const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
+        where: { id, adminId } as any,
       });
-    }
+      if (!inv) throw new BadRequestException("purchase return invoice not found");
+      if (inv.closingId) {
+        throw new BadRequestException("Cannot update a purchase return that has been closed.");
+      }
 
-    await this.log({
-      adminId,
-      invoiceId: saved.id,
-      userId: me?.id ?? null,
-      action: PurchaseReturnAuditAction.PAID_AMOUNT_UPDATED,
-      description: `Refunded amount updated to ${dto.paidAmount}`,
-      ipAddress,
+      const oldStatus = inv.status;
+      const oldPaidAmount = Number(inv.paidAmount || 0);
+      const newPaidAmount = Number(dto.paidAmount);
+
+      (inv as any).paidAmount = newPaidAmount;
+      (inv as any).totalReturn = Number((inv as any).subtotal) + Number((inv as any).taxTotal);
+
+      /** Refund to safe ↑ → deposit delta; correction ↓ → withdraw excess from safe */
+      if (oldStatus === ApprovalStatus.ACCEPTED && inv.safeId) {
+        const delta = Math.round((newPaidAmount - oldPaidAmount) * 100) / 100;
+        if (delta > 0) {
+          await this.safesService.deposit(
+            me,
+            {
+              accountId: inv.safeId,
+              amount: delta,
+              referenceType: TransactionReferenceType.PURCHASE_RETURN,
+              referenceId: inv.id,
+              notes: `Purchase return invoice #${inv.returnNumber} refunded amount adjustment (+${delta}).`,
+            },
+            manager,
+          );
+        } else if (delta < 0) {
+          await this.safesService.withdraw(
+            me,
+            {
+              accountId: inv.safeId,
+              amount: -delta,
+              referenceType: TransactionReferenceType.PURCHASE_RETURN,
+              referenceId: inv.id,
+              notes: `Purchase return invoice #${inv.returnNumber} refunded amount adjustment (${delta}).`,
+            },
+            manager,
+          );
+        }
+      }
+
+      const saved = await manager.save(PurchaseReturnInvoiceEntity, inv);
+
+      if (oldStatus === ApprovalStatus.ACCEPTED) {
+        await this.syncSupplierFinancials({
+          oldStatus: ApprovalStatus.ACCEPTED,
+          newStatus: ApprovalStatus.ACCEPTED,
+          oldSupplierId: inv.supplierId,
+          newSupplierId: inv.supplierId,
+          totalReturn: 0,
+          paidAmount: newPaidAmount - oldPaidAmount,
+          manager,
+        });
+      }
+
+      await this.log({
+        adminId,
+        invoiceId: saved.id,
+        userId: me?.id ?? null,
+        action: PurchaseReturnAuditAction.PAID_AMOUNT_UPDATED,
+        description: `Refunded amount updated to ${dto.paidAmount}`,
+        ipAddress,
+        manager,
+      });
+
+      return saved;
     });
-
-    return saved;
   }
 
   async create(me: any, dto: CreatePurchaseReturnDto, ipAddress?: string, manager?: EntityManager) {

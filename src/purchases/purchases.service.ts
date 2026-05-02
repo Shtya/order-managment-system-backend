@@ -469,42 +469,80 @@ export class PurchasesService {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
-		const inv = await this.get(me, id);
-		if (inv.closingId) {
-			throw new BadRequestException("Cannot update a purchase that has been closed.");
-		}
-
-		const total = (inv as any).total ?? 0;
-		const oldRemaining = inv.remainingAmount ?? 0;
-		const oldStatus = inv.status;
-		(inv as any).paidAmount = dto.paidAmount;
-		(inv as any).remainingAmount = total - dto.paidAmount;
-
-		const saved = await this.invRepo.save(inv as any);
-
-		// Only update supplier financials if status is ACCEPTED
-		if (oldStatus === ApprovalStatus.ACCEPTED) {
-			// Remove old value
-			await this.syncSupplierFinancials({
-				oldStatus: ApprovalStatus.ACCEPTED,
-				newStatus: ApprovalStatus.ACCEPTED,
-				oldSupplierId: inv.supplierId,
-				newSupplierId: inv.supplierId,
-				total: 0, // Keep purchaseValue stable
-				remainingAmount: saved.remainingAmount - oldRemaining,
+		return await this.dataSource.transaction(async (manager) => {
+			const inv = await manager.findOne(PurchaseInvoiceEntity, {
+				where: { id, adminId } as any,
 			});
-		}
+			if (!inv) throw new BadRequestException("purchase invoice not found");
+			if (inv.closingId) {
+				throw new BadRequestException("Cannot update a purchase that has been closed.");
+			}
 
-		await this.log({
-			adminId,
-			invoiceId: saved.id,
-			userId: me?.id ?? null,
-			action: PurchaseAuditAction.PAID_AMOUNT_UPDATED,
-			description: `Paid amount updated`,
-			ipAddress,
+			const total = (inv as any).total ?? 0;
+			const oldRemaining = inv.remainingAmount ?? 0;
+			const oldStatus = inv.status;
+			const oldPaidAmount = Number(inv.paidAmount || 0);
+			const newPaidAmount = Number(dto.paidAmount);
+
+			(inv as any).paidAmount = newPaidAmount;
+			(inv as any).remainingAmount = total - newPaidAmount;
+
+			/** Recorded supplier payment ↑ → withdraw delta from safe; correction ↓ → deposit back */
+			if (oldStatus === ApprovalStatus.ACCEPTED && inv.safeId) {
+				const delta = Math.round((newPaidAmount - oldPaidAmount) * 100) / 100;
+				if (delta > 0) {
+					await this.safesService.withdraw(
+						me,
+						{
+							accountId: inv.safeId,
+							amount: delta,
+							referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+							referenceId: inv.id,
+							notes: `Purchase invoice #${inv.receiptNumber} paid amount adjustment (+${delta}).`,
+						},
+						manager,
+					);
+				} else if (delta < 0) {
+					await this.safesService.deposit(
+						me,
+						{
+							accountId: inv.safeId,
+							amount: -delta,
+							referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+							referenceId: inv.id,
+							notes: `Purchase invoice #${inv.receiptNumber} paid amount adjustment (${delta}).`,
+						},
+						manager,
+					);
+				}
+			}
+
+			const saved = await manager.save(PurchaseInvoiceEntity, inv);
+
+			if (oldStatus === ApprovalStatus.ACCEPTED) {
+				await this.syncSupplierFinancials({
+					oldStatus: ApprovalStatus.ACCEPTED,
+					newStatus: ApprovalStatus.ACCEPTED,
+					oldSupplierId: inv.supplierId,
+					newSupplierId: inv.supplierId,
+					total: 0,
+					remainingAmount: saved.remainingAmount - oldRemaining,
+					manager,
+				});
+			}
+
+			await this.log({
+				adminId,
+				invoiceId: saved.id,
+				userId: me?.id ?? null,
+				action: PurchaseAuditAction.PAID_AMOUNT_UPDATED,
+				description: `Paid amount updated`,
+				ipAddress,
+				manager,
+			});
+
+			return saved;
 		});
-
-		return saved;
 	}
 
 	async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string, manager?: EntityManager) {
@@ -757,7 +795,7 @@ export class PurchasesService {
 					await this.safesService.deposit(me, {
 						accountId: inv.safeId,
 						amount: Number(inv.paidAmount),
-						referenceType: TransactionReferenceType.PURCHASE_RETURN,
+						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
 						referenceId: inv.id,
 						notes: `Purchase invoice #${inv.receiptNumber} status changed from ACCEPTED to ${status}. Refunded to safe.`,
 					}, manager);
@@ -835,7 +873,7 @@ export class PurchasesService {
 					await this.safesService.deposit(me, {
 						accountId: inv.safeId,
 						amount: Number(inv.paidAmount),
-						referenceType: TransactionReferenceType.PURCHASE_RETURN,
+						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
 						referenceId: inv.id,
 						notes: `Purchase invoice #${inv.receiptNumber} deleted. Refunded to safe.`,
 					}, manager);
