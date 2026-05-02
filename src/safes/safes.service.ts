@@ -184,7 +184,8 @@ export class SafesService {
             }));
         }
 
-        qb.orderBy('t.transactionDate', 'DESC').addOrderBy('t.createdAt', 'DESC');
+        // qb.orderBy('t.transactionDate', 'DESC').addOrderBy('t.createdAt', 'DESC');
+        qb.orderBy('t.createdAt', 'DESC');
 
         const [records, total] = await qb
             .skip((page - 1) * limit)
@@ -286,7 +287,9 @@ export class SafesService {
 
         const qb = this.transferRepo.createQueryBuilder('tr')
             .innerJoinAndSelect('tr.fromAccount', 'fa')
+            .leftJoinAndSelect('tr.outTransaction', 'outTrx')
             .innerJoinAndSelect('tr.toAccount', 'ta')
+            .leftJoinAndSelect('tr.inTransaction', 'inTrx')
             .leftJoinAndSelect('tr.createdBy', 'u')
             .where('fa.adminId = :adminId', { adminId });
 
