@@ -1,17 +1,21 @@
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, In, Brackets } from "typeorm";
+import { Repository, In, Brackets, EntityManager, DataSource } from "typeorm";
 import { SupplierEntity } from "entities/supplier.entity";
 import { SupplierCategoryEntity } from "entities/supplier.entity";
 import { CreateSupplierDto, UpdateSupplierDto, UpdateSupplierFinancialsDto } from "dto/supplier.dto";
 import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
+import { SafesService } from "src/safes/safes.service";
+import { TransactionReferenceType } from "entities/safe.entity";
 
 @Injectable()
 export class SuppliersService {
 	constructor(
 		@InjectRepository(SupplierEntity) private supplierRepo: Repository<SupplierEntity>,
 		@InjectRepository(SupplierCategoryEntity) private categoryRepo: Repository<SupplierCategoryEntity>,
+		private safesService: SafesService,
+		private dataSource: DataSource,
 	) { }
 
 	async list(me: any, q?: any) {
@@ -96,6 +100,36 @@ export class SuppliersService {
 
 		return categories;
 	}
+async paySupplier(me: any, id: string, dto: any, manager?: EntityManager) {
+        // 1. If no manager is passed, start a transaction and call this method again
+        if (!manager) {
+            return this.dataSource.transaction(async (transactionalEntityManager) => {
+                return this.paySupplier(me, id, dto, transactionalEntityManager);
+            });
+        }
+
+        // 2. From this point on, 'manager' is guaranteed to be defined and part of a transaction
+        const supplier = await manager.findOne(SupplierEntity, {
+            where: { id, adminId: me.adminId }
+        });
+
+        if (!supplier) throw new NotFoundException('Supplier not found');
+
+        // Perform the withdrawal
+        await this.safesService.withdraw(me, {
+            accountId: dto.accountId,
+            amount: Number(dto.amount),
+            referenceType: TransactionReferenceType?.VENDOR_PAYMENT,
+            referenceId: supplier.id, 
+            notes: dto.notes || `Payment to supplier ${supplier.name}`,
+        }, manager);
+
+        // Decrease the supplier's due balance
+        supplier.dueBalance = Number(supplier.dueBalance) - Number(dto.amount);
+        await manager.save(supplier);
+
+        return { success: true };
+    }
 
 	async create(me: any, dto: CreateSupplierDto) {
 		const adminId = tenantId(me);
