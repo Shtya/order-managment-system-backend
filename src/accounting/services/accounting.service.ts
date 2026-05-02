@@ -12,7 +12,7 @@ import { PurchaseReturnInvoiceEntity } from 'entities/purchase_return.entity';
 import { ShipmentEntity, ShipmentStatus } from 'entities/shipping.entity';
 import { SupplierEntity } from 'entities/supplier.entity';
 import { tenantId } from 'src/category/category.service';
-import { Between, DataSource, EntityManager, In, IsNull, Repository } from 'typeorm';
+import { Between, DataSource, EntityManager, In, IsNull, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
 @Injectable()
 export class AccountingService {
@@ -634,21 +634,47 @@ export class AccountingService {
                 finalBalance: finalBalance,
             });
 
+
             const savedClosing = await manager.save(closing);
             await manager.update(SupplierEntity, supplierId, {
                 lastClosingId: closing.id,
                 lastClosingEndDate: newEndDate
             });
 
+            const { start, end } = DateFilterUtil.getBoundaries(startDate, endDate);
+
             await Promise.all([
-                manager.update(PurchaseInvoiceEntity,
-                    { adminId, supplierId, statusUpdateDate: Between(newStartDate, newEndDate), status: ApprovalStatus.ACCEPTED, closingId: IsNull() },
+                manager.update(
+                    PurchaseInvoiceEntity,
+                    {
+                        adminId,
+                        supplierId,
+                        status: ApprovalStatus.ACCEPTED,
+                        closingId: IsNull(),
+                        statusUpdateDate: start && end
+                            ? Between(start, end)
+                            : start
+                                ? MoreThanOrEqual(start)
+                                : LessThanOrEqual(end),
+                    },
                     { closingId: closing.id }
                 ),
-                manager.update(PurchaseReturnInvoiceEntity,
-                    { adminId, supplierId, statusUpdateDate: Between(newStartDate, newEndDate), status: ApprovalStatus.ACCEPTED, closingId: IsNull() },
+
+                manager.update(
+                    PurchaseReturnInvoiceEntity,
+                    {
+                        adminId,
+                        supplierId,
+                        status: ApprovalStatus.ACCEPTED,
+                        closingId: IsNull(),
+                        statusUpdateDate: start && end
+                            ? Between(start, end)
+                            : start
+                                ? MoreThanOrEqual(start)
+                                : LessThanOrEqual(end),
+                    },
                     { closingId: closing.id }
-                )
+                ),
             ]);
 
             return savedClosing;
@@ -764,8 +790,8 @@ export class AccountingService {
             endDate
         );
 
-        purchaseQb.andWhere("p.status = :status", { status: ApprovalStatus.ACCEPTED })
-            .andWhere("p.closingId IS NULL");
+        purchaseQb.andWhere("p.status = :status", { status: ApprovalStatus.ACCEPTED });
+        // .andWhere("p.closingId IS NULL");
 
         const returnQb = returnRepo.createQueryBuilder("r")
             .select("SUM(r.totalReturn)", "totalReturns")
@@ -781,8 +807,8 @@ export class AccountingService {
         );
 
 
-        returnQb.andWhere("r.status = :status", { status: ApprovalStatus.ACCEPTED })
-            .andWhere("r.closingId IS NULL");
+        returnQb.andWhere("r.status = :status", { status: ApprovalStatus.ACCEPTED });
+        // .andWhere("r.closingId IS NULL");
 
 
         if (supplierId) {

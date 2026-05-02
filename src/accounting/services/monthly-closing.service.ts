@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Brackets, DataSource, EntityManager, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { MonthlyClosingEntity } from 'entities/accounting.entity';
-import { OrderEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
+import { OrderEntity, OrderItemEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
 import { ManualExpenseEntity } from 'entities/accounting.entity';
 import { PurchaseInvoiceEntity } from 'entities/purchase.entity';
 import { PurchaseReturnInvoiceEntity } from 'entities/purchase_return.entity';
@@ -28,6 +28,8 @@ export class MonthlyClosingService {
     private supplierRepo: Repository<SupplierEntity>,
     @InjectRepository(OrderEntity)
     private ordersRepo: Repository<OrderEntity>,
+    @InjectRepository(OrderItemEntity)
+    private orderItemsRepo: Repository<OrderItemEntity>,
     @InjectRepository(ManualExpenseEntity)
     private manualExpenseRepo: Repository<ManualExpenseEntity>,
     @InjectRepository(PurchaseInvoiceEntity)
@@ -176,157 +178,142 @@ export class MonthlyClosingService {
     const adminId = tenantId(me);
     const year = Number(payload.year);
     const month = Number(payload.month);
+
     if (!year || !month || month < 1 || month > 12) {
       throw new BadRequestException('Invalid year/month');
     }
+
     const { start, end } = getMonthRange(year, month);
-    //chack that closed month is not in future or this month is not end yet
+
     const now = new Date();
     if (end > now) {
       throw new BadRequestException('Cannot close a month that has not ended yet.');
     }
 
-    // Check duplicate closing
-    const existing = await this.monthlyRepo.findOne({ where: { adminId, year, month } });
+    const existing = await this.monthlyRepo.findOne({
+      where: { adminId, year, month }
+    });
+
     if (existing) {
       throw new BadRequestException('This month is already closed');
     }
 
-    // Validation: Ensure suppliers are closed up to the end date
-    // const suppliersNeedingClosure = await this.supplierRepo.createQueryBuilder('s')
-    //   .where('s.adminId = :adminId', { adminId })
-    //   .andWhere('(s.lastClosingEndDate IS NULL OR s.lastClosingEndDate < :end)', { end })
-    //   .getCount();
-    // if (suppliersNeedingClosure > 0) {
-    //   throw new BadRequestException('Cannot close month while some supplier closing periods are not completed up to period end.');
-    // }
-
-    // Fetch delivered status id (from system statuses) by code = 'delivered'
-    const deliveredStatus = await this.orderStatusRepo.findOne({
-      where: [{ code: OrderStatus.DELIVERED }],
-    });
-    const [unclosedPurchases, unclosedReturns] = await Promise.all([
-      this.purchaseRepo.createQueryBuilder('p')
-        .select('p.receiptNumber', 'num')
-        .where('p.adminId = :adminId', { adminId })
-        .andWhere('p.statusUpdateDate <= :end', { end })
-        .andWhere('p.closingId IS NULL')
-        .limit(5)
-        .getRawMany(),
-
-      this.purchaseReturnRepo.createQueryBuilder('r')
-        .select('r.returnNumber', 'num')
-        .where('r.adminId = :adminId', { adminId })
-        .andWhere('r.statusUpdateDate <= :end', { end })
-        .andWhere('r.closingId IS NULL')
-        .limit(5)
-        .getRawMany()
-    ]);
-    if (unclosedPurchases.length > 0) {
-      throw new BadRequestException(`Cannot close month while some purchases are not closed yet: ${unclosedPurchases.map(p => p.num).join(', ')}`);
-    }
-    if (unclosedReturns.length > 0) {
-      throw new BadRequestException(`Cannot close month while some returns are not closed yet: ${unclosedReturns.map(r => r.num).join(', ')}`);
-    }
     return await this.dataSource.transaction(async (manager) => {
-      // 1. Fetch all financial data in parallel
-      const { revenue, productCost, operationalExpenses, returnsCost, grossProfit, operatingProfit, netProfit } = await this.getMonthPreview(me, { year, month }, manager);
+
+      const preview = await this.getMonthPreview(me, { year, month }, manager);
+
       const closing = manager.getRepository(MonthlyClosingEntity).create({
         adminId,
         year,
         month,
         periodStart: new Date(start),
         periodEnd: new Date(end),
-        revenue,
-        productCost,
-        operationalExpenses,
-        returnsCost,
-        grossProfit,
-        operatingProfit,
-        netProfit,
+        revenue: preview.revenue,
+        productCost: preview.cogs,
+        operationalExpenses: preview.operationalExpenses,
+        returnsCost: preview.returnsCost,
+        grossProfit: preview.grossProfit,
+        netProfit: preview.netProfit,
         createdByUserId: me?.id,
       });
+
       const savedClosing = await manager.getRepository(MonthlyClosingEntity).save(closing);
 
-      // 2. Link all transactions to this closing in parallel
+      // ✅ مهم: نفس الفترة + نفس الشروط
       await Promise.all([
-        manager.getRepository(OrderEntity).update(
-          {
-            adminId,
-            statusId: deliveredStatus?.id,
-            deliveredAt: LessThanOrEqual(end),
-            monthlyClosingId: IsNull(),
-          },
-          { monthlyClosingId: savedClosing.id }
-        ),
 
-        manager.getRepository(ManualExpenseEntity).update(
-          {
-            adminId,
-            collectionDate: LessThanOrEqual(end),
-            monthlyClosingId: IsNull(),
-          },
-          { monthlyClosingId: savedClosing.id }
-        ),
+        manager.getRepository(OrderEntity)
+          .createQueryBuilder()
+          .update()
+          .set({ monthlyClosingId: savedClosing.id })
+          .where('adminId = :adminId', { adminId })
+          .andWhere('monthlyClosingId IS NULL')
+          .andWhere('deliveredAt BETWEEN :start AND :end', { start, end })
+          .execute(),
 
-        manager.getRepository(PurchaseReturnInvoiceEntity).update(
-          {
-            adminId,
-            statusUpdateDate: LessThanOrEqual(end),
-            monthlyClosingId: IsNull(),
-          },
-          { monthlyClosingId: savedClosing.id }
-        ),
+        manager.getRepository(ManualExpenseEntity)
+          .createQueryBuilder()
+          .update()
+          .set({ monthlyClosingId: savedClosing.id })
+          .where('adminId = :adminId', { adminId })
+          .andWhere('monthlyClosingId IS NULL')
+          .andWhere('collectionDate BETWEEN :start AND :end', { start, end })
+          .execute(),
 
-        manager.getRepository(PurchaseInvoiceEntity).update(
-          {
-            adminId,
-            statusUpdateDate: LessThanOrEqual(end),
-            monthlyClosingId: IsNull(),
-          },
-          { monthlyClosingId: savedClosing.id }
-        )
       ]);
 
       return savedClosing;
     });
   }
 
-  async getMonthPreview(me: any, { year, month }: { year: number; month: number }, manager?: EntityManager) {
+  async getMonthPreview(
+    me: any,
+    { year, month }: { year: number; month: number },
+    manager?: EntityManager
+  ) {
     const adminId = tenantId(me);
     const { start, end } = getMonthRange(year, month);
+
     const ordersRepo = manager ? manager.getRepository(OrderEntity) : this.ordersRepo;
+    const orderItemsRepo = manager ? manager.getRepository(OrderItemEntity) : this.orderItemsRepo;
     const manualExpenseRepo = manager ? manager.getRepository(ManualExpenseEntity) : this.manualExpenseRepo;
-    const purchaseRepo = manager ? manager.getRepository(PurchaseInvoiceEntity) : this.purchaseRepo;
-    const purchaseReturnRepo = manager ? manager.getRepository(PurchaseReturnInvoiceEntity) : this.purchaseReturnRepo;
+    const monthlyRepo = manager ? manager.getRepository(MonthlyClosingEntity) : this.monthlyRepo;
 
     const deliveredStatus = await this.orderStatusRepo.findOne({
-      where: [{ code: OrderStatus.DELIVERED }],
+      where: { code: OrderStatus.DELIVERED },
     });
 
+    if (!deliveredStatus) {
+      throw new BadRequestException('Delivered status not found');
+    }
 
-    const [revenueRow, productCostRow, operationalRow, returnsRow, isClosedRow] = await Promise.all([
-      // Revenue = sum of finalTotal of delivered orders in period
+    const existingClosing = await monthlyRepo.findOne({
+      where: { adminId, year, month }
+    });
+
+    if (existingClosing) {
+      return {
+        isClosed: true,
+        year,
+        month,
+        revenue: Number(existingClosing.revenue),
+        cogs: Number(existingClosing.productCost),
+        operationalExpenses: Number(existingClosing.operationalExpenses),
+        returnsCost: Number(existingClosing.returnsCost),
+        grossProfit: Number(existingClosing.grossProfit),
+        netProfit: Number(existingClosing.netProfit),
+        period: {
+          start: existingClosing.periodStart,
+          end: existingClosing.periodEnd
+        }
+      };
+    }
+
+    const [
+      revenueRow,
+      cogsRow,
+      operationalRow,
+      ReturnsRow,
+    ] = await Promise.all([
+
+      // ✅ Revenue
       ordersRepo.createQueryBuilder('o')
-        // Exclude shippingCost from finalTotal because the client pay it
-        .select('COALESCE(SUM(o.finalTotal - o.shippingCost), 0)', 'sum')
+        .select('COALESCE(SUM(o.finalTotal - COALESCE(o.shippingCost, 0)), 0)', 'sum')
         .where('o.adminId = :adminId', { adminId })
         .andWhere('o.monthlyClosingId IS NULL')
-        //Between start an end 
         .andWhere('o.deliveredAt BETWEEN :start AND :end', { start, end })
-        .andWhere('o.statusId = :deliveredId', { deliveredId: deliveredStatus?.id ?? -1 })
         .getRawOne(),
 
-      // Product cost = accepted purchases in period
-      purchaseRepo.createQueryBuilder('p')
-        .select('COALESCE(SUM(p.total), 0)', 'sum')
-        .where('p.adminId = :adminId', { adminId })
-        .andWhere('p.monthlyClosingId IS NULL')
-        .andWhere('p.statusUpdateDate BETWEEN :start AND :end', { start, end })
-        .andWhere('p.status = :status', { status: ApprovalStatus.ACCEPTED })
+      // ✅ COGS = تكلفة المنتجات اللي اتباعت (من order items)
+      orderItemsRepo.createQueryBuilder('oi')
+        .innerJoin('oi.order', 'o')
+        .select('COALESCE(SUM(oi.unitCost * oi.quantity), 0)', 'sum')
+        .where('o.adminId = :adminId', { adminId })
+        .andWhere('o.monthlyClosingId IS NULL')
+        .andWhere('o.deliveredAt BETWEEN :start AND :end', { start, end })
         .getRawOne(),
 
-      // Operational expenses = manual expenses in period
+      // ✅ Expenses
       manualExpenseRepo.createQueryBuilder('e')
         .select('COALESCE(SUM(e.amount), 0)', 'sum')
         .where('e.adminId = :adminId', { adminId })
@@ -334,89 +321,303 @@ export class MonthlyClosingService {
         .andWhere('e.collectionDate BETWEEN :start AND :end', { start, end })
         .getRawOne(),
 
-      // Returns = accepted purchase returns in period
-      purchaseReturnRepo.createQueryBuilder('r')
-        .select('COALESCE(SUM(r.totalReturn), 0)', 'sum')
-        .where('r.adminId = :adminId', { adminId })
-        .andWhere('r.monthlyClosingId IS NULL')
-        .andWhere('r.statusUpdateDate BETWEEN :start AND :end', { start, end })
-        .andWhere('r.status = :status', { status: ApprovalStatus.ACCEPTED })
-        .getRawOne(),
 
-      // Is closed = any closing exists for this month
-      this.monthlyRepo.createQueryBuilder('mc')
-        .select('mc.id IS NOT NULL', 'isClosed')
-        .where('mc.adminId = :adminId', { adminId })
-        .andWhere('mc.year = :year', { year })
-        .andWhere('mc.month = :month', { month })
-        .getRawOne()
+      // ✅ Returns 
+      orderItemsRepo.createQueryBuilder('oi')
+        .innerJoin('oi.order', 'o')
+        .select('COALESCE(SUM(oi.unitCost * oi.quantity), 0)', 'sum')
+        .where('o.adminId = :adminId', { adminId })
+        .andWhere('o.monthlyClosingId IS NULL')
+        .andWhere('o.deliveredAt IS NOT NULL')
+        .andWhere('o.deliveredAt <= o.returnedAt')
+        .andWhere('o.returnedAt BETWEEN :start AND :end', { start, end })
+        .getRawOne(),
     ]);
 
     const revenue = Number(revenueRow?.sum || 0);
-    const productCost = Number(productCostRow?.sum || 0);
+    const cogs = Number(cogsRow?.sum || 0);
     const operationalExpenses = Number(operationalRow?.sum || 0);
-    const returnsCost = Number(returnsRow?.sum || 0);
+    const returnsCost = Number(ReturnsRow?.sum || 0);
 
-    const grossProfit = revenue - productCost;
-    const operatingProfit = grossProfit - operationalExpenses;
-    const netProfit = operatingProfit - returnsCost;
+    // ✅ COGS النهائي
+    const finalCOGS = cogs + returnsCost;
 
+    const grossProfit = revenue - finalCOGS;
+    const netProfit = grossProfit - operationalExpenses;
 
     return {
-      isClosed: isClosedRow?.isClosed || false,
+      isClosed: !!existingClosing,
       year,
       month,
       revenue,
-      productCost,
+      cogs: finalCOGS,
       operationalExpenses,
       returnsCost,
       grossProfit,
-      operatingProfit,
       netProfit,
-      period: {
-        start,
-        end
-      }
-
+      period: { start, end }
     };
+  }
+
+  async exportDetailedClosing(me: any, q: { year: number; month: number }) {
+    const adminId = tenantId(me);
+    const year = Number(q.year);
+    const month = Number(q.month);
+    const { start, end } = getMonthRange(year, month);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+    // 1. Get Summary Data (Preview)
+    const preview = await this.getMonthPreview(me, { year, month });
+
+    // 2. Fetch Detailed Records
+    const existingClosing = await this.monthlyRepo.findOne({ where: { adminId, year, month } });
+    const closingId = existingClosing?.id;
+
+    const [revenueOrders, expenses, returnOrders] = await Promise.all([
+      // Revenue Orders
+      this.ordersRepo.createQueryBuilder('o')
+        .leftJoinAndSelect('o.admin', 'admin')
+        .select([
+          'o.id', 'o."orderNumber"', 'o."customerName"', 'o."finalTotal"', 'o."shippingCost"',
+          'o."deliveredAt"'
+        ])
+        .addSelect('(SELECT SUM(oi."unitCost" * oi.quantity) FROM order_items oi WHERE oi."orderId" = o.id)', 'itemsCost')
+        .addSelect('(SELECT SUM(oi.quantity) FROM order_items oi WHERE oi."orderId" = o.id)', 'itemCount')
+        .where('o."adminId" = :adminId', { adminId })
+        .andWhere(closingId ? 'o."monthlyClosingId" = :closingId' : 'o."monthlyClosingId" IS NULL', { closingId })
+        .andWhere('o."deliveredAt" BETWEEN :start AND :end', { start, end })
+        .getRawMany(),
+
+      // Expenses
+      this.manualExpenseRepo.createQueryBuilder('e')
+        .leftJoinAndSelect('e.category', 'cat')
+        .where('e."adminId" = :adminId', { adminId })
+        .andWhere(closingId ? 'e."monthlyClosingId" = :closingId' : 'e."monthlyClosingId" IS NULL', { closingId })
+        .andWhere('e."collectionDate" BETWEEN :start AND :end', { start, end })
+        .getMany(),
+
+      // Return Orders
+      this.ordersRepo.createQueryBuilder('o')
+        .select([
+          'o.id', 'o."orderNumber"', 'o."customerName"', 'o."deliveredAt"', 'o."returnedAt"'
+        ])
+        .addSelect('(SELECT SUM(oi."unitCost" * oi.quantity) FROM order_items oi WHERE oi."orderId" = o.id)', 'itemsCost')
+        .where('o."adminId" = :adminId', { adminId })
+        .andWhere(closingId ? 'o."monthlyClosingId" = :closingId' : 'o."monthlyClosingId" IS NULL', { closingId })
+        .andWhere('o."deliveredAt" IS NOT NULL')
+        .andWhere('o."deliveredAt" <= o."returnedAt"')
+        .andWhere('o."returnedAt" BETWEEN :start AND :end', { start, end })
+        .getRawMany(),
+    ]);
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Madar";
+    workbook.created = new Date();
+
+    // --- SHEET 1: Summary ---
+    const summarySheet = workbook.addWorksheet('Summary', {
+      views: [{ state: 'frozen', ySplit: 2 }]
+    });
+
+    const summaryColumns = [
+      { header: 'Metric', key: 'metric', width: 30 },
+      { header: 'Value', key: 'value', width: 25 },
+    ];
+    summarySheet.columns = summaryColumns;
+
+    // this.applyNoteRow(summarySheet, `Financial Summary Report for Period: ${month} / ${year}`, 2);
+    // this.applyHeaderStyle(summarySheet, 2);
+
+    summarySheet.addRows([
+      { metric: 'Status', value: preview.isClosed ? 'Closed (Finalized)' : 'Pending (Live Preview)' },
+      { metric: 'Total Revenue', value: preview.revenue },
+      { metric: 'Product Cost (COGS)', value: preview.cogs },
+      { metric: 'Operational Expenses', value: preview.operationalExpenses },
+      { metric: 'Returns Cost', value: preview.returnsCost },
+      { metric: 'Net Profit', value: preview.netProfit },
+    ]);
+
+    // --- SHEET 2: Revenue Orders ---
+    const revSheet = workbook.addWorksheet('Revenue Orders', {
+      views: [{ state: 'frozen', ySplit: 2 }]
+    });
+    const revColumns = [
+      { header: 'Order #', key: 'orderNumber', width: 18 },
+      { header: 'Customer', key: 'customerName', width: 25 },
+      { header: 'Revenue (Net)', key: 'revenue', width: 18 },
+      { header: 'Items Count', key: 'itemCount', width: 12 },
+      { header: 'Items Cost', key: 'itemsCost', width: 15 },
+      { header: 'Delivered At', key: 'deliveredAt', width: 22 },
+      { header: 'System Link', key: 'link', width: 20 },
+    ];
+    revSheet.columns = revColumns;
+    // this.applyNoteRow(revSheet, "List of all delivered orders contributing to this month's revenue (Total minus Shipping).", revColumns.length);
+    // this.applyHeaderStyle(revSheet, 2);
+
+    revenueOrders.forEach(o => {
+      const row = revSheet.addRow({
+        orderNumber: o.orderNumber,
+        customerName: o.customerName,
+        revenue: Number(o.finalTotal) - Number(o.shippingCost || 0),
+        itemCount: Number(o.itemCount || 0),
+        itemsCost: Number(o.itemsCost || 0),
+        deliveredAt: o.deliveredAt ? new Date(o.deliveredAt).toLocaleString() : '-',
+      });
+      row.getCell('link').value = {
+        text: 'View Order',
+        hyperlink: `${frontendUrl}/orders/details/${o.o_id}`,
+        tooltip: `${frontendUrl}/orders/details/${o.o_id}`,
+      };
+      row.getCell('link').font = { color: { argb: 'FF3b82f6' }, underline: true };
+    });
+
+    if (revenueOrders.length > 0) {
+      const revTotalRow = revSheet.addRow({
+        orderNumber: 'TOTALS',
+        revenue: { formula: `SUM(C2:C${revenueOrders.length + 1})` },
+        itemsCost: { formula: `SUM(E2:E${revenueOrders.length + 1})` },
+      });
+      revTotalRow.font = { bold: true };
+      revTotalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+    }
+
+    // --- SHEET 3: Operational Expenses ---
+    const expSheet = workbook.addWorksheet('Expenses', {
+      views: [{ state: 'frozen', ySplit: 2 }]
+    });
+    const expColumns = [
+      { header: 'Date', key: 'date', width: 18 },
+      { header: 'Category', key: 'category', width: 22 },
+      { header: 'Description', key: 'description', width: 45 },
+      { header: 'Amount', key: 'amount', width: 18 },
+    ];
+    expSheet.columns = expColumns;
+    // this.applyNoteRow(expSheet, "Detailed breakdown of manual/operational expenses recorded during this period.", expColumns.length);
+    // this.applyHeaderStyle(expSheet, 2);
+
+    expenses.forEach(e => {
+      expSheet.addRow({
+        date: new Date(e.collectionDate).toLocaleDateString(),
+        category: e.category?.name || '-',
+        description: e.description,
+        amount: Number(e.amount),
+      });
+    });
+
+    if (expenses.length > 0) {
+      const expTotalRow = expSheet.addRow({
+        description: 'TOTAL',
+        amount: { formula: `SUM(D2:D${expenses.length + 1})` },
+      });
+      expTotalRow.font = { bold: true };
+      expTotalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+    }
+
+    // --- SHEET 4: Returns ---
+    const retSheet = workbook.addWorksheet('Returns', {
+      views: [{ state: 'frozen', ySplit: 2 }]
+    });
+    const retColumns = [
+      { header: 'Order #', key: 'orderNumber', width: 18 },
+      { header: 'Customer', key: 'customerName', width: 25 },
+      { header: 'Delivered At', key: 'deliveredAt', width: 22 },
+      { header: 'Returned At', key: 'returnedAt', width: 22 },
+      { header: 'Return Cost', key: 'itemsCost', width: 18 },
+      { header: 'System Link', key: 'link', width: 20 },
+    ];
+    retSheet.columns = retColumns;
+    // this.applyNoteRow(retSheet, "List of returned orders and their product cost impact (COGS reversal).", retColumns.length);
+    // this.applyHeaderStyle(retSheet, 2);
+
+    returnOrders.forEach(o => {
+      const row = retSheet.addRow({
+        orderNumber: o.orderNumber,
+        customerName: o.customerName,
+        deliveredAt: o.deliveredAt ? new Date(o.deliveredAt).toLocaleString() : '-',
+        returnedAt: o.returnedAt ? new Date(o.returnedAt).toLocaleString() : '-',
+        itemsCost: Number(o.itemsCost || 0),
+      });
+      row.getCell('link').value = {
+        text: 'View Order',
+        hyperlink: `${frontendUrl}/orders/details/${o.o_id}`,
+        tooltip: `${frontendUrl}/orders/details/${o.o_id}`,
+      };
+      row.getCell('link').font = { color: { argb: 'FF3b82f6' }, underline: true };
+    });
+
+    if (returnOrders.length > 0) {
+      const retTotalRow = retSheet.addRow({
+        orderNumber: 'TOTAL',
+        itemsCost: { formula: `SUM(E2:E${returnOrders.length + 1})` },
+      });
+      retTotalRow.font = { bold: true };
+      retTotalRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } };
+    }
+
+    workbook.views = [{
+      x: 0, y: 0, width: 10000, height: 20000,
+      firstSheet: 0, activeTab: 0, visibility: 'visible'
+    }];
+
+    return await workbook.xlsx.writeBuffer();
+  }
+
+  private applyNoteRow(sheet: ExcelJS.Worksheet, note: string, colCount: number) {
+    const noteRow = sheet.getRow(1);
+    noteRow.values = [note];
+    sheet.mergeCells(1, 1, 1, colCount);
+    noteRow.font = { italic: true, color: { argb: 'FF6B7280' }, size: 10 };
+    noteRow.height = 25;
+    noteRow.alignment = { vertical: 'middle', horizontal: 'center' };
+  }
+
+  private applyHeaderStyle(sheet: ExcelJS.Worksheet, rowNum: number) {
+    const headerRow = sheet.getRow(rowNum);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    headerRow.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF3b82f6' }
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    headerRow.height = 30;
   }
 
   async getMonthStats(me: any) {
     const adminId = tenantId(me);
     const now = new Date();
+
     const currentYear = now.getFullYear();
     const currentMonth = now.getMonth() + 1;
-
 
     const lastClosing = await this.monthlyRepo.findOne({
       where: { adminId },
       order: { year: 'DESC', month: 'DESC' }
     });
 
-
     const currentPreview = await this.getMonthPreview(me, {
       year: currentYear,
       month: currentMonth
     });
 
-    const totalCosts = currentPreview.productCost + currentPreview.operationalExpenses;
+    const totalCosts =
+      (currentPreview.cogs ?? 0) +
+      (currentPreview.operationalExpenses ?? 0);
 
     return {
-
       lastMonthProfit: {
-        year: lastClosing?.year || null,
-        month: lastClosing?.month || null,
-        netProfit: Number(lastClosing?.netProfit || 0)
+        year: lastClosing?.year ?? null,
+        month: lastClosing?.month ?? null,
+        netProfit: lastClosing?.netProfit ?? 0
       },
 
       currentMonthStats: {
-        revenue: currentPreview.revenue,
-        totalCosts: totalCosts,
-        netProfit: currentPreview.netProfit,
-        productCost: currentPreview.productCost,
-        operationalExpenses: currentPreview.operationalExpenses,
-        returnsCost: currentPreview.returnsCost
-
+        revenue: currentPreview.revenue ?? 0,
+        totalCosts,
+        netProfit: currentPreview.netProfit ?? 0,
+        productCost: currentPreview.cogs ?? 0,
+        operationalExpenses: currentPreview.operationalExpenses ?? 0,
+        returnsCost: currentPreview.returnsCost ?? 0
       }
     };
   }

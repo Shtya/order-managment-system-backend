@@ -121,7 +121,7 @@ export class SupplierClosingEntity {
     totalPurchases: number; // إجمالي المشتريات
 
     @Column({ type: 'decimal', precision: 20, scale: 2 })
-    totalPaId: number;      // إجم  الي المدفوع للمورد
+    totalPaid: number;      // إجم  الي المدفوع للمورد
 
     @Column({ type: 'decimal', precision: 20, scale: 2 })
     totalReturns: number;   // إجمالي المرتجعات

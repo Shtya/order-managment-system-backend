@@ -37,6 +37,23 @@ export class MonthlyClosingController {
     res.end(buffer);
   }
 
+  @Get('export-detailed')
+  async exportDetailedClosing(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query() query: {
+      year: number;
+      month: number;
+    },
+  ) {
+    const buffer = await this.monthlyService.exportDetailedClosing(req.user, query);
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=detailed-monthly-closing-${query.month}-${query.year}.xlsx`);
+
+    res.end(buffer);
+  }
+
   @Get('preview')
   async getPreview(
     @Req() req: any,

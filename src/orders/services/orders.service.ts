@@ -1275,11 +1275,7 @@ export class OrdersService {
             `Order ${order.orderNumber} belongs to a different courier.`
           );
         }
-
-
       }
-
-
 
       // [2025-12-24] Generate a clean, trimmed manifest number
       const dateStr = Date.now();
@@ -1447,7 +1443,7 @@ export class OrdersService {
       this.findStatusByCode(OrderStatus.PRINTED.trim(), adminId),
     ]);
 
-    const [notPrinted, printed ] = await Promise.all([
+    const [notPrinted, printed] = await Promise.all([
       this.orderRepo.count({
         where: {
           adminId,
@@ -3483,7 +3479,7 @@ export class OrdersService {
       qb.andWhere("order.paymentMethod = :paymentMethod", {
         paymentMethod: q.paymentMethod,
       });
-     if (q?.shippingCompanyId && q.shippingCompanyId !== "all") {
+    if (q?.shippingCompanyId && q.shippingCompanyId !== "all") {
       if (q.shippingCompanyId === "none") {
         qb.andWhere("order.shippingCompanyId IS NULL");
       } else if (q.shippingCompanyId !== "all") {
@@ -3503,7 +3499,7 @@ export class OrdersService {
     }
     DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
 
-     if (q?.labelPrinted !== undefined && q.labelPrinted !== "all") {
+    if (q?.labelPrinted !== undefined && q.labelPrinted !== "all") {
       if (q.labelPrinted === "true" || q.labelPrinted === true) {
         qb.andWhere("order.labelPrinted IS NOT NULL");
       } else if (q.labelPrinted === "false" || q.labelPrinted === false) {
@@ -3511,7 +3507,7 @@ export class OrdersService {
       }
     }
 
- if (q?.productId && q.productId !== "all") {
+    if (q?.productId && q.productId !== "all") {
       qb.andWhere("variant.productId = :productId", {
         productId: q.productId,
       });
