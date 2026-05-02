@@ -16,7 +16,7 @@ export class CreatePurchaseDto {
 	supplierId?: string;
 
 	@IsString() @IsNotEmpty() receiptNumber: string;
-	safeId: any;
+	@IsString() @IsNotEmpty() safeId: string;
 
 	@IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) paidAmount?: number;
 	@IsOptional() @IsString() notes?: string;
@@ -34,7 +34,7 @@ export class CreatePurchaseDto {
 export class UpdatePurchaseDto {
 	@IsOptional() @IsString() supplierId?: string;
 	@IsOptional() @IsString() receiptNumber?: string;
-	@IsOptional() safeId?: any;
+	@IsString() @IsNotEmpty() safeId: string;
 
 	@IsOptional() @Type(() => Number) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) paidAmount?: number;
 	@IsOptional() @IsString() notes?: string;

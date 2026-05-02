@@ -1,6 +1,6 @@
 // dto/purchase_return.dto.ts
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import { IsArray, IsBoolean, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
 import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
 
 export class PurchaseReturnItemDto {
@@ -25,7 +25,7 @@ export class CreatePurchaseReturnDto {
   @IsOptional() @IsString() invoiceNumber?: string;
   @IsOptional() @IsString() returnReason?: string;
 
-  @IsOptional() @IsString() safeId?: string;
+  @IsString() @IsNotEmpty() safeId: string;
 
   @IsOptional() @IsEnum(PurchaseReturnType) returnType?: PurchaseReturnType;
 

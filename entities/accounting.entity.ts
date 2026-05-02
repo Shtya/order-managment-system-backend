@@ -3,6 +3,7 @@ import { PurchaseReturnInvoiceEntity } from './purchase_return.entity';
 import { PurchaseInvoiceEntity } from './purchase.entity';
 import { User } from './user.entity';
 import { SupplierEntity } from './supplier.entity';
+import { Account } from './safe.entity';
 
 @Entity({ name: 'manual_expenses' })
 export class ManualExpenseEntity {
@@ -26,7 +27,7 @@ export class ManualExpenseEntity {
     @Column({ type: 'varchar', nullable: true })
     attachment: string;
 
-    @Column({type: 'uuid'})
+    @Column({ type: 'uuid' })
     createdByUserId: string;
 
     @ManyToOne(() => User, {
@@ -41,8 +42,17 @@ export class ManualExpenseEntity {
     @JoinColumn({ name: 'categoryId' })
     category: Relation<ManualExpenseCategoryEntity>;
 
-    @Column({ type: 'uuid',nullable: true })
+    @Column({ type: 'uuid', nullable: true })
     categoryId: string;
+
+
+    @Column({ type: "uuid", nullable: true })
+    @Index()
+    safeId?: string | null;
+
+    @ManyToOne(() => Account, { nullable: true })
+    @JoinColumn({ name: "safeId" })
+    safe?: Account | null;
 
     @Column({
         type: "timestamptz",
@@ -51,7 +61,7 @@ export class ManualExpenseEntity {
     @Index()
     collectionDate: Date;
 
-    @Column({ type: 'uuid',nullable: true })
+    @Column({ type: 'uuid', nullable: true })
     monthlyClosingId: string | null;
 
     @ManyToOne(() => MonthlyClosingEntity)
@@ -68,7 +78,7 @@ export class ManualExpenseCategoryEntity {
     id: string;
 
     @Index()
-    @Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
+    @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
     adminId: string;
 
     @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
@@ -97,14 +107,14 @@ export class SupplierClosingEntity {
     id: string;
 
     @Index()
-    @Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
+    @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
     adminId: string;
 
     @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
     @JoinColumn({ name: 'adminId' })
     admin: User;
 
-    @Column({type: 'uuid'})
+    @Column({ type: 'uuid' })
     supplierId: string;
 
     @ManyToOne(() => SupplierEntity)
@@ -150,7 +160,7 @@ export class MonthlyClosingEntity {
     id: string;
 
     @Index()
-    @Column({ type: 'uuid',nullable: true }) // Set to false if adminId is mandatory
+    @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
     adminId: string;
 
     @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
