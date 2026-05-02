@@ -21,6 +21,12 @@ export class SuppliersController {
     return this.suppliersService.list(req.user, q);
   }
 
+  @Permissions("suppliers.update") // Or a specific 'suppliers.pay' permission
+  @Post(":id/pay")
+  async paySupplier(@Req() req: any, @Param("id") id: string, @Body() body: any) {
+    return this.suppliersService.paySupplier(req.user, id, body);
+  }
+
   @Permissions("suppliers.read")
   @Get("stats")
   stats(@Req() req: any) {
