@@ -27,6 +27,7 @@ export enum TransactionReferenceType {
     MANUAL_ADD = 'MANUAL_ADD',                 // إضافة رصيد يدوية
     SHIPPING_COLLECTION = 'SHIPPING_COLLECTION', // تحصيل من شركة شحن//
     CUSTOMER_COLLECTION = 'CUSTOMER_COLLECTION', // تحصيل من عميل
+    ORDER_COLLECTION = 'ORDER_COLLECTION',       // تحصيل طلب 
     PURCHASE_RETURN = 'PURCHASE_RETURN',       // مرتجع مشتريات
     TRANSFER_IN = 'TRANSFER_IN',               // تحويل وارد من حساب آخر
     DEPOSIT = 'DEPOSIT',                       // إيداع

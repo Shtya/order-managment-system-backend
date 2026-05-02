@@ -13,6 +13,9 @@ import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { UsersService } from 'src/users/users.service';
 
+import { Account, AccountStatus, TransactionReferenceType } from 'entities/safe.entity';
+import { SafesService } from 'src/safes/safes.service';
+
 @Injectable()
 export class CollectionService {
     constructor(
@@ -28,6 +31,7 @@ export class CollectionService {
 
         private readonly notificationService: NotificationService,
         private readonly usersService: UsersService,
+        private readonly safesService: SafesService,
     ) { }
 
     // collection.service.ts
@@ -73,26 +77,39 @@ export class CollectionService {
     async addCollection(me: any, dto: CreateOrderCollectionDto) {
         const adminId = tenantId(me)
         if (!adminId) throw new BadRequestException("Missing adminId");
-        // validate order exists — but do this inside transaction to lock it
+
         return await this.dataSource.transaction(async (manager) => {
-            // 1. Lock the order row
+            // 1. Lock and find the order
             const order = await manager.findOne(OrderEntity, {
-                where: { id: dto.orderId },
+                where: { id: dto.orderId, adminId },
             });
 
             if (!order) {
                 throw new NotFoundException(`Order #${dto.orderId} not found`);
             }
 
-            const shippingIntegration = await manager.findOne(ShippingIntegrationEntity, {
-                where: { shippingCompanyId: dto.shippingCompanyId },
+            // 2. Validate safe/account
+            const safe = await manager.findOne(Account, {
+                where: { id: dto.safeId, adminId } as any
             });
+            if (!safe) throw new BadRequestException("Safe/Account not found or not active");
 
-            if (!shippingIntegration) {
-                throw new NotFoundException(`You must integrate with the shipping company before assigning it to collections`);
+          if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+
+            // 3. Validate shipping company if provided
+            if (dto.shippingCompanyId) {
+                const shippingIntegration = await manager.findOne(ShippingIntegrationEntity, {
+                    where: { shippingCompanyId: dto.shippingCompanyId, adminId },
+                });
+
+                if (!shippingIntegration) {
+                    throw new NotFoundException(`You must integrate with the shipping company before assigning it to collections`);
+                }
             }
+
             const currency = await this.usersService.getCompanyCurrency(me, manager);
-            // 2. create collection
+
+            // 4. Create collection
             const collection = manager.create(OrderCollectionEntity, {
                 adminId,
                 orderId: dto.orderId,
@@ -100,16 +117,27 @@ export class CollectionService {
                 currency: currency,
                 source: dto.source,
                 notes: dto.notes?.trim(),
-                collectedAt: new Date(),
-                shippingCompanyId: dto.shippingCompanyId ? dto.shippingCompanyId : null,
+                collectedAt: dto.collectedAt ? new Date(dto.collectedAt) : new Date(),
+                shippingCompanyId: dto.shippingCompanyId || null,
+                safeId: dto.safeId,
             });
 
             const saved = await manager.save(collection);
 
-            // 3. update order.collectedAmount atomically
+            // 5. Update order collected amount
             order.collectedAmount = (Number(order.collectedAmount) || 0) + Number(dto.amount);
             await manager.save(order);
 
+            // 6. Deposit to safe
+            await this.safesService.deposit(me, {
+                accountId: dto.safeId,
+                amount: Number(dto.amount),
+                referenceType: TransactionReferenceType.ORDER_COLLECTION,
+                referenceId: saved.id,
+                notes: `Collection for order #${order.orderNumber}. ${dto.notes || ""}`.trim(),
+            }, manager);
+
+            // 7. Create notification
             await this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.COLLECTION_CREATED,
@@ -119,7 +147,6 @@ export class CollectionService {
                 relatedEntityId: String(order.id),
             });
 
-            // 4. return saved (optionally return order too)
             return saved;
         });
     }
