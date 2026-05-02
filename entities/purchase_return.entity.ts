@@ -9,6 +9,7 @@ import { ProductVariantEntity } from "./sku.entity";
 import { ApprovalStatus, PurchaseReturnType } from "common/enums";
 import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
 import { SupplierEntity } from "./supplier.entity";
+import { Account } from "./safe.entity";
 
 
 @Entity({ name: "purchase_return_invoices" })
@@ -51,8 +52,13 @@ export class PurchaseReturnInvoiceEntity {
   @Column({ type: "varchar", length: 80, nullable: true })
   returnReason?: string | null;
 
-  @Column({ type: "text", nullable: true })
-  safeId?: any | null;
+  @Column({ type: "uuid", nullable: true })
+  @Index()
+  safeId?: string | null;
+
+  @ManyToOne(() => Account, { nullable: true })
+  @JoinColumn({ name: "safeId" })
+  safe?: Account | null;
 
   @Column({ type: "varchar", length: 40, default: PurchaseReturnType.CASH_REFUND, nullable: true })
   returnType!: PurchaseReturnType;

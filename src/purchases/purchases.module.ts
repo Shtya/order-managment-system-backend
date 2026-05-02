@@ -11,6 +11,7 @@ import {
 } from "entities/purchase.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import { SupplierEntity } from "../../entities/supplier.entity";
+import { Account } from "entities/safe.entity";
 
 @Module({
   imports: [
@@ -19,7 +20,8 @@ import { SupplierEntity } from "../../entities/supplier.entity";
       PurchaseInvoiceItemEntity,
       PurchaseAuditLogEntity,
       ProductVariantEntity,
-      SupplierEntity
+      SupplierEntity,
+      Account
     ]),
   ],
   providers: [PurchasesService, PurchaseSubscriber],

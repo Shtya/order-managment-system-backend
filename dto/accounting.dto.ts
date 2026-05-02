@@ -47,6 +47,10 @@ export class CreateManualExpenseDto {
     @IsDateString()
     collectionDate?: string;
 
+    @IsString()
+    @IsNotEmpty()
+    safeId: string;
+
 }
 export class UpdateManualExpenseDto extends PartialType(CreateManualExpenseDto) { }
 

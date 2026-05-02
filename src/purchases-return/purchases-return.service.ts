@@ -2,13 +2,14 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, In, Repository } from "typeorm";
-import { CRUD } from "common/crud.service";
 import { PurchaseReturnInvoiceEntity, PurchaseReturnInvoiceItemEntity, PurchaseReturnAuditLogEntity, PurchaseReturnAuditAction } from "entities/purchase_return.entity";
 import { CreatePurchaseReturnDto, UpdatePaidAmountDto, UpdatePurchaseReturnDto } from "dto/purchase_return.dto";
-import { ApprovalStatus, PurchaseReturnType, ReturnStatus } from "common/enums";
+import { ApprovalStatus, PurchaseReturnType } from "common/enums";
 import { tenantId } from "../category/category.service"; // or duplicate helper locally
 import { ProductVariantEntity } from "entities/sku.entity";
 import { SupplierEntity } from "entities/supplier.entity";
+import { SafesService } from "../safes/safes.service";
+import { Account, AccountStatus, TransactionReferenceType } from "entities/safe.entity";
 import { DateFilterUtil } from "common/date-filter.util";
 import * as fs from "fs";
 import * as path from "path";
@@ -30,6 +31,8 @@ export class PurchaseReturnsService {
     @InjectRepository(PurchaseReturnAuditLogEntity) private auditRepo: Repository<PurchaseReturnAuditLogEntity>,
     @InjectRepository(ProductVariantEntity) private pvRepo: Repository<ProductVariantEntity>,
     @InjectRepository(SupplierEntity) private supplierRepo: Repository<SupplierEntity>,
+    @InjectRepository(Account) private accountRepo: Repository<Account>,
+    private safesService: SafesService,
   ) { }
 
   private async log(params: {
@@ -357,74 +360,94 @@ export class PurchaseReturnsService {
     return saved;
   }
 
-  async create(me: any, dto: CreatePurchaseReturnDto, ipAddress?: string) {
+  async create(me: any, dto: CreatePurchaseReturnDto, ipAddress?: string, manager?: EntityManager) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
     if (!dto.items?.length) throw new BadRequestException("Items are required");
 
-    const exists = await this.invRepo.findOne({ where: { adminId, returnNumber: dto.returnNumber } as any });
-    if (exists) throw new BadRequestException("returnNumber already exists");
+    const runWithManager = async (manager: EntityManager) => {
+      const invRepo = manager.getRepository(PurchaseReturnInvoiceEntity);
+      const itemRepo = manager.getRepository(PurchaseReturnInvoiceItemEntity);
+      const supplierRepo = manager.getRepository(SupplierEntity);
+      const accountRepo = manager.getRepository(Account);
 
-    if (dto.supplierId) {
-      const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } as any });
-      if (!supplier) throw new BadRequestException("supplier not found");
-    }
+      const exists = await invRepo.findOne({ where: { adminId, returnNumber: dto.returnNumber } as any });
+      if (exists) throw new BadRequestException("returnNumber already exists");
 
-    const items = dto.items.map((it) => {
-      const taxRate = it.taxRate ?? 5;
-      const taxInclusive = !!it.taxInclusive;
-      const { lineSubtotal, lineTax, lineTotal } = calcLine(it.unitCost, it.returnedQuantity, taxRate, taxInclusive);
+      if (dto.supplierId) {
+        const supplier = await supplierRepo.findOne({ where: { id: dto.supplierId } as any });
+        if (!supplier) throw new BadRequestException("supplier not found");
+      }
 
-      return this.itemRepo.create({
+      if (dto.safeId) {
+        const safe = await accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
+        if (!safe) throw new BadRequestException("Safe/Account not found");
+        if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+      }
+
+      const items = dto.items.map((it) => {
+        const taxRate = it.taxRate ?? 5;
+        const taxInclusive = !!it.taxInclusive;
+        const { lineSubtotal, lineTax, lineTotal } = calcLine(it.unitCost, it.returnedQuantity, taxRate, taxInclusive);
+
+        return itemRepo.create({
+          adminId,
+          variantId: it.variantId,
+          returnedQuantity: it.returnedQuantity,
+          unitCost: it.unitCost,
+          taxInclusive,
+          taxRate,
+          lineSubtotal,
+          lineTax,
+          lineTotal,
+        } as any);
+      });
+
+      const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
+      const taxTotal = items.reduce((s, x: any) => s + x.lineTax, 0);
+      const totalReturn = subtotal + taxTotal;
+
+      const inv = invRepo.create({
         adminId,
-        variantId: it.variantId,
-        returnedQuantity: it.returnedQuantity,
-        unitCost: it.unitCost,
-        taxInclusive,
-        taxRate,
-        lineSubtotal,
-        lineTax,
-        lineTotal,
+        returnNumber: dto.returnNumber,
+        supplierId: dto.supplierId ?? null,
+        supplierNameSnapshot: dto.supplierNameSnapshot ?? null,
+        supplierCodeSnapshot: dto.supplierCodeSnapshot ?? null,
+        invoiceNumber: dto.invoiceNumber ?? null,
+        returnReason: dto.returnReason ?? null,
+        safeId: dto.safeId ?? null,
+        returnType: dto.returnType ?? null,
+        status: ApprovalStatus.PENDING,
+        notes: dto.notes ?? null,
+        paidAmount: dto.paidAmount ?? 0,
+        receiptAsset: dto.receiptAsset ?? null,
+        subtotal,
+        taxTotal,
+        totalReturn,
+        createdByUserId: me?.id ?? null,
+        items,
       } as any);
-    });
 
-    const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
-    const taxTotal = items.reduce((s, x: any) => s + x.lineTax, 0);
-    const totalReturn = subtotal + taxTotal;
+      const saved: any = await invRepo.save(inv);
 
-    const inv = this.invRepo.create({
-      adminId,
-      returnNumber: dto.returnNumber,
-      supplierId: dto.supplierId ?? null,
-      supplierNameSnapshot: dto.supplierNameSnapshot ?? null,
-      supplierCodeSnapshot: dto.supplierCodeSnapshot ?? null,
-      invoiceNumber: dto.invoiceNumber ?? null,
-      returnReason: dto.returnReason ?? null,
-      safeId: dto.safeId ?? null,
-      returnType: dto.returnType ?? null,
-      status: ApprovalStatus.PENDING,
-      notes: dto.notes ?? null,
-      paidAmount: dto.paidAmount ?? 0,
-      receiptAsset: dto.receiptAsset ?? null,
-      subtotal,
-      taxTotal,
-      totalReturn,
-      createdByUserId: me?.id ?? null,
-      items,
-    } as any);
+      await this.log({
+        adminId,
+        invoiceId: saved.id,
+        userId: me?.id ?? null,
+        action: PurchaseReturnAuditAction.CREATED,
+        description: `Purchase return invoice created`,
+        ipAddress,
+        manager,
+      });
 
-    const saved: any = await this.invRepo.save(inv);
+      return saved;
+    };
 
-    await this.log({
-      adminId,
-      invoiceId: saved.id,
-      userId: me?.id ?? null,
-      action: PurchaseReturnAuditAction.CREATED,
-      description: `Purchase return invoice created`,
-      ipAddress,
-    });
-
-    return saved;
+    if (manager) {
+      return runWithManager(manager);
+    } else {
+      return this.dataSource.transaction(runWithManager);
+    }
   }
 
   async update(me: any, id: string, dto: UpdatePurchaseReturnDto, ipAddress?: string) {
@@ -511,11 +534,11 @@ export class PurchaseReturnsService {
     return saved;
   }
 
-  async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string) {
+  async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string, manager?: EntityManager) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    return this.dataSource.transaction(async (manager) => {
+    const runWithManager = async (manager: EntityManager) => {
       const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
         where: { id, adminId } as any,
         relations: ["items", "items.variant"],
@@ -587,6 +610,17 @@ export class PurchaseReturnsService {
           ipAddress,
           manager,
         });
+
+        // Deposit to safe if paidAmount > 0 and safeId is provided
+        if (Number(inv.paidAmount) > 0 && inv.safeId) {
+          await this.safesService.deposit(me, {
+            accountId: inv.safeId,
+            amount: Number(inv.paidAmount),
+            referenceType: TransactionReferenceType.PURCHASE_RETURN,
+            referenceId: inv.id,
+            notes: `Purchase return invoice #${inv.returnNumber} accepted.`,
+          }, manager);
+        }
       }
 
       // =========================================================
@@ -641,6 +675,17 @@ export class PurchaseReturnsService {
             manager,
           });
         }
+
+        // Withdraw from safe if paidAmount > 0 and safeId is provided (Reversing the return deposit)
+        if (Number(inv.paidAmount) > 0 && inv.safeId) {
+          await this.safesService.withdraw(me, {
+            accountId: inv.safeId,
+            amount: Number(inv.paidAmount),
+            referenceType: TransactionReferenceType.PURCHASE_RETURN,
+            referenceId: inv.id,
+            notes: `Purchase return invoice #${inv.returnNumber} rolled back.`,
+          }, manager);
+        }
       }
 
       // =========================================================
@@ -672,26 +717,74 @@ export class PurchaseReturnsService {
       });
 
       return saved;
-    });
+    };
+
+    if (manager) {
+      return runWithManager(manager);
+    } else {
+      return this.dataSource.transaction(runWithManager);
+    }
   }
 
-  async remove(me: any, id: string, ipAddress?: string) {
+  async remove(me: any, id: string, ipAddress?: string, manager?: EntityManager) {
     const adminId = tenantId(me);
-    const inv = await this.get(me, id);
-    if (inv.closingId) {
-      throw new BadRequestException("Cannot delete a purchase return that has been closed.");
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const runWithManager = async (manager: EntityManager) => {
+      const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
+        where: { id, adminId } as any,
+        relations: ["items", "items.variant"],
+      });
+      if (!inv) throw new BadRequestException("purchase return invoice not found");
+
+      if (inv.closingId) {
+        throw new BadRequestException("Cannot delete a purchase return that has been closed.");
+      }
+
+      // Rollback supplier financials if invoice was ACCEPTED before deletion
+      if (inv.status === ApprovalStatus.ACCEPTED) {
+        await this.syncSupplierFinancials({
+          oldStatus: inv.status,
+          newStatus: undefined, // It's being deleted
+          oldSupplierId: inv.supplierId,
+          newSupplierId: null,
+          totalReturn: Number(inv.totalReturn || 0),
+          paidAmount: Number(inv.paidAmount || 0),
+          manager,
+        });
+
+        // Withdraw from safe if paidAmount > 0 and safeId was provided (Reversing the return deposit)
+        if (Number(inv.paidAmount) > 0 && inv.safeId) {
+          await this.safesService.withdraw(me, {
+            accountId: inv.safeId,
+            amount: Number(inv.paidAmount),
+            referenceType: TransactionReferenceType.PURCHASE_RETURN,
+            referenceId: inv.id,
+            notes: `Purchase return invoice #${inv.returnNumber} deleted. Withdrawn from safe.`,
+          }, manager);
+        }
+      }
+
+      await manager.delete(PurchaseReturnInvoiceEntity, { id, adminId });
+
+      await this.log({
+        adminId,
+        invoiceId: id,
+        userId: me?.id ?? null,
+        action: PurchaseReturnAuditAction.DELETED,
+        description: `Purchase return invoice deleted`,
+        ipAddress,
+        manager,
+      });
+
+      return { ok: true };
+    };
+
+    if (manager) {
+      return runWithManager(manager);
+    } else {
+      return this.dataSource.transaction(runWithManager);
     }
-
-    await this.log({
-      adminId,
-      invoiceId: inv.id,
-      userId: me?.id ?? null,
-      action: PurchaseReturnAuditAction.DELETED,
-      description: `Purchase return invoice deleted`,
-      ipAddress,
-    });
-
-    return CRUD.delete(this.invRepo, "purchase_return_invoices", id);
   }
 
   async exportPurchaseReturns(me: any, q?: any) {

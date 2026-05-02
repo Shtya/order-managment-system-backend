@@ -9,6 +9,7 @@ import { ProductVariantEntity } from "./sku.entity";
 import { ApprovalStatus } from "common/enums";
 import { SupplierEntity } from "./supplier.entity";
 import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
+import { Account } from "./safe.entity";
 
 
 @Entity({ name: "purchase_invoices" })
@@ -39,8 +40,13 @@ export class PurchaseInvoiceEntity {
 	@Column({ type: "text", nullable: true })
 	receiptAsset?: any | null;
 
-	@Column({ type: "text", nullable: true })
-	safeId?: any | null;
+	@Column({ type: "uuid", nullable: true })
+	@Index()
+	safeId?: string | null;
+
+	@ManyToOne(() => Account, { nullable: true })
+	@JoinColumn({ name: "safeId" })
+	safe?: Account | null;
 
 	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	paidAmount!: number;

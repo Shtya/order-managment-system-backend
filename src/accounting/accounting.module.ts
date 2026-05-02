@@ -14,10 +14,11 @@ import { SupplierEntity } from 'entities/supplier.entity';
 import { ShipmentEntity } from 'entities/shipping.entity';
 import { MonthlyClosingService } from './services/monthly-closing.service';
 import { MonthlyClosingController } from './controllers/monthly-closing.controller';
+import { Account } from 'entities/safe.entity';
 
 @Module({
   imports: [TypeOrmModule.forFeature([PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, ManualExpenseEntity, OrderEntity, OrderItemEntity,
-    ManualExpenseCategoryEntity, SupplierClosingEntity, SupplierEntity, ShipmentEntity, MonthlyClosingEntity, OrderStatusEntity])],
+    ManualExpenseCategoryEntity, SupplierClosingEntity, SupplierEntity, ShipmentEntity, MonthlyClosingEntity, OrderStatusEntity, Account])],
   controllers: [AccountingController, ExpensesController, ExpenseCategoriesController, MonthlyClosingController],
   providers: [AccountingService, ExpensesService, ExpenseCategoriesService, MonthlyClosingService],
 })

@@ -9,6 +9,8 @@ import { CreatePurchaseDto, UpdatePurchaseDto, UpdatePaidAmountDto } from "dto/p
 import { ApprovalStatus } from "common/enums";
 import { DateFilterUtil } from "common/date-filter.util";
 import { SupplierEntity } from "../../entities/supplier.entity";
+import { SafesService } from "../safes/safes.service";
+import { Account, AccountStatus, TransactionReferenceType } from "entities/safe.entity";
 import * as fs from "fs";
 import * as path from "path";
 import * as ExcelJS from "exceljs";
@@ -41,6 +43,11 @@ export class PurchasesService {
 
 		@InjectRepository(ProductVariantEntity)
 		private pvRepo: Repository<ProductVariantEntity>,
+
+		@InjectRepository(Account)
+		private accountRepo: Repository<Account>,
+
+		private safesService: SafesService,
 	) { }
 
 	private async log(params: {
@@ -283,67 +290,83 @@ export class PurchasesService {
 		if (!adminId) throw new BadRequestException("Missing adminId");
 		if (!dto.items?.length) throw new BadRequestException("Items are required");
 
-		const repo = manager ? manager.getRepository(PurchaseInvoiceEntity) : this.invRepo;
-		const itemRepo = manager ? manager.getRepository(PurchaseInvoiceItemEntity) : this.itemRepo;
+		const runWithManager = async (manager: EntityManager) => {
+			const repo = manager.getRepository(PurchaseInvoiceEntity);
+			const itemRepo = manager.getRepository(PurchaseInvoiceItemEntity);
+			const accountRepo = manager.getRepository(Account);
+			const supplierRepo = manager.getRepository(SupplierEntity);
 
-		const exists = await repo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
-		if (exists) throw new BadRequestException("receiptNumber already exists");
+			const exists = await repo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
+			if (exists) throw new BadRequestException("receiptNumber already exists");
 
-		if (dto.supplierId) {
-			const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } as any });
-			if (!supplier) throw new BadRequestException("supplier not found");
-		}
+			if (dto.supplierId) {
+				const supplier = await supplierRepo.findOne({ where: { id: dto.supplierId } as any });
+				if (!supplier) throw new BadRequestException("supplier not found");
+			}
 
-		const items = (dto.items || []).map((it) => {
-			const lineSubtotal = it.purchaseCost * it.quantity;
-			const lineTotal = lineSubtotal;
+			if (dto.safeId) {
+				const safe = await accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
+				if (!safe) throw new BadRequestException("Safe/Account not found");
+				if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+			}
 
-			return itemRepo.create({
+			const items = (dto.items || []).map((it) => {
+				const lineSubtotal = it.purchaseCost * it.quantity;
+				const lineTotal = lineSubtotal;
+
+				return itemRepo.create({
+					adminId,
+					variantId: it.variantId,
+					quantity: it.quantity,
+					purchaseCost: it.purchaseCost,
+					lineSubtotal,
+					lineTotal,
+				} as any);
+			});
+
+			const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
+			const total = subtotal;
+
+			const paidAmount = dto.paidAmount ?? 0;
+			const remainingAmount = total - paidAmount;
+
+			const inv = repo.create({
 				adminId,
-				variantId: it.variantId,
-				quantity: it.quantity,
-				purchaseCost: it.purchaseCost,
-				lineSubtotal,
-				lineTotal,
+				supplierId: dto.supplierId ?? null,
+				receiptNumber: dto.receiptNumber,
+				receiptAsset: dto.receiptAsset ?? null,
+				safeId: dto.safeId ?? null,
+				paidAmount,
+				subtotal,
+				total,
+				remainingAmount,
+				status: ApprovalStatus.PENDING,
+				notes: dto.notes ?? null,
+				items,
 			} as any);
-		});
 
-		const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
-		const total = subtotal;
-
-		const paidAmount = dto.paidAmount ?? 0;
-		const remainingAmount = total - paidAmount;
-
-		const inv = repo.create({
-			adminId,
-			supplierId: dto.supplierId ?? null,
-			receiptNumber: dto.receiptNumber,
-			receiptAsset: dto.receiptAsset ?? null,
-			safeId: dto.safeId ?? null,
-			paidAmount,
-			subtotal,
-			total,
-			remainingAmount,
-			status: ApprovalStatus.PENDING,
-			notes: dto.notes ?? null,
-			items,
-		} as any);
-
-		const saved: any = await repo.save(inv);
+			const saved: any = await repo.save(inv);
 
 
-		await this.log({
-			adminId,
-			invoiceId: saved.id,
-			userId: me?.id ?? null,
-			action: PurchaseAuditAction.CREATED,
-			newData: { id: saved.id, status: saved.status },
-			description: `Purchase invoice created (status: ${saved.status})`,
-			ipAddress,
-			manager
-		});
+			await this.log({
+				adminId,
+				invoiceId: saved.id,
+				userId: me?.id ?? null,
+				action: PurchaseAuditAction.CREATED,
+				newData: { id: saved.id, status: saved.status },
+				description: `Purchase invoice created (status: ${saved.status})`,
+				ipAddress,
+				manager
+			});
 
-		return saved;
+			return saved;
+		};
+
+		if (manager) {
+			return runWithManager(manager);
+		} else {
+			return this.dataSource.transaction(runWithManager);
+		}
 	}
 
 	async update(me: any, id: string, dto: UpdatePurchaseDto, ipAddress?: string) {
@@ -483,21 +506,19 @@ export class PurchasesService {
 		return saved;
 	}
 
-	async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string) {
+	async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string, manager?: EntityManager) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
-		const inv = await this.get(me, id);
-		if (inv.closingId) {
-			throw new BadRequestException("Cannot update a purchase that has been closed.");
-		}
-
-		return this.dataSource.transaction(async (manager) => {
+		const runWithManager = async (manager: EntityManager) => {
 			const inv = await manager.findOne(PurchaseInvoiceEntity, {
 				where: { id, adminId } as any,
 				relations: ["items", "items.variant"],
 			});
 			if (!inv) throw new BadRequestException("purchase invoice not found");
+			if (inv.closingId) {
+				throw new BadRequestException("Cannot update a purchase that has been closed.");
+			}
 
 			const oldStatus = inv.status;
 			if (oldStatus === status) return inv;
@@ -606,6 +627,17 @@ export class PurchasesService {
 						manager
 					});
 				}
+
+				// Withdraw from safe if paidAmount > 0 and safeId is provided
+				if (Number(inv.paidAmount) > 0 && inv.safeId) {
+					await this.safesService.withdraw(me, {
+						accountId: inv.safeId,
+						amount: Number(inv.paidAmount),
+						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+						referenceId: inv.id,
+						notes: `Purchase invoice #${inv.receiptNumber} accepted.`,
+					}, manager);
+				}
 			}
 
 			// =========================================================
@@ -666,6 +698,7 @@ export class PurchasesService {
 						changes: stockChanges,
 						description: `Stock removed (status left ACCEPTED)`,
 						ipAddress,
+						manager
 					});
 
 					// ✅ Price rollback when leaving ACCEPTED to (REJECTED or PENDING)
@@ -711,10 +744,22 @@ export class PurchasesService {
 									changes: priceChanges,
 									description: `Price rollback applied (status -> ${status})`,
 									ipAddress,
+									manager
 								});
 							}
 						}
 					}
+				}
+
+				// Refund to safe if paidAmount > 0 and safeId was provided
+				if (Number(inv.paidAmount) > 0 && inv.safeId) {
+					await this.safesService.deposit(me, {
+						accountId: inv.safeId,
+						amount: Number(inv.paidAmount),
+						referenceType: TransactionReferenceType.PURCHASE_RETURN,
+						referenceId: inv.id,
+						notes: `Purchase invoice #${inv.receiptNumber} status changed from ACCEPTED to ${status}. Refunded to safe.`,
+					}, manager);
 				}
 			}
 
@@ -747,44 +792,75 @@ export class PurchasesService {
 				manager
 			});
 			return saved;
-		});
+		};
+
+		if (manager) {
+			return runWithManager(manager);
+		} else {
+			return this.dataSource.transaction(runWithManager);
+		}
 	}
 
 
-	async remove(me: any, id: string, ipAddress?: string) {
+	async remove(me: any, id: string, ipAddress?: string, manager?: EntityManager) {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException("Missing adminId");
 
-		const inv = await this.get(me, id);
-
-		if (inv.closingId) {
-			throw new BadRequestException("Cannot delete a purchase that has been closed.");
-		}
-
-		// Rollback supplier financials if invoice was ACCEPTED before deletion
-		if (inv.status === ApprovalStatus.ACCEPTED) {
-			await this.syncSupplierFinancials({
-				oldStatus: inv.status,
-				newStatus: undefined, // It's being deleted
-				oldSupplierId: inv.supplierId,
-				newSupplierId: null,
-				total: inv.total ?? 0,
-				remainingAmount: inv.remainingAmount ?? 0,
+		const runWithManager = async (manager: EntityManager) => {
+			const inv = await manager.findOne(PurchaseInvoiceEntity, {
+				where: { id, adminId } as any,
+				relations: ["items", "items.variant"],
 			});
+			if (!inv) throw new BadRequestException("purchase invoice not found");
+
+			if (inv.closingId) {
+				throw new BadRequestException("Cannot delete a purchase that has been closed.");
+			}
+
+			// Rollback supplier financials if invoice was ACCEPTED before deletion
+			if (inv.status === ApprovalStatus.ACCEPTED) {
+				await this.syncSupplierFinancials({
+					oldStatus: inv.status,
+					newStatus: undefined, // It's being deleted
+					oldSupplierId: inv.supplierId,
+					newSupplierId: null,
+					total: inv.total ?? 0,
+					remainingAmount: inv.remainingAmount ?? 0,
+					manager,
+				});
+
+				// Refund to safe if paidAmount > 0 and safeId was provided
+				if (Number(inv.paidAmount) > 0 && inv.safeId) {
+					await this.safesService.deposit(me, {
+						accountId: inv.safeId,
+						amount: Number(inv.paidAmount),
+						referenceType: TransactionReferenceType.PURCHASE_RETURN,
+						referenceId: inv.id,
+						notes: `Purchase invoice #${inv.receiptNumber} deleted. Refunded to safe.`,
+					}, manager);
+				}
+			}
+
+			await manager.delete(PurchaseInvoiceEntity, { id, adminId });
+
+			await this.log({
+				adminId,
+				invoiceId: id,
+				userId: me?.id ?? null,
+				action: PurchaseAuditAction.DELETED,
+				description: `Purchase invoice deleted`,
+				ipAddress,
+				manager,
+			});
+
+			return { ok: true };
+		};
+
+		if (manager) {
+			return runWithManager(manager);
+		} else {
+			return this.dataSource.transaction(runWithManager);
 		}
-
-		await this.invRepo.delete({ id, adminId } as any);
-
-		await this.log({
-			adminId,
-			invoiceId: id,
-			userId: me?.id ?? null,
-			action: PurchaseAuditAction.DELETED,
-			description: `Purchase invoice deleted`,
-			ipAddress,
-		});
-
-		return { ok: true };
 	}
 
 	/**

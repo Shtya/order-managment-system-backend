@@ -25,8 +25,7 @@ export enum TransactionDirection {
 export enum TransactionReferenceType {
     // حركات داخلة (IN)
     MANUAL_ADD = 'MANUAL_ADD',                 // إضافة رصيد يدوية
-    FEE = 'FEE',                               // رسوم
-    SHIPPING_COLLECTION = 'SHIPPING_COLLECTION', // تحصيل من شركة شحن
+    SHIPPING_COLLECTION = 'SHIPPING_COLLECTION', // تحصيل من شركة شحن//
     CUSTOMER_COLLECTION = 'CUSTOMER_COLLECTION', // تحصيل من عميل
     PURCHASE_RETURN = 'PURCHASE_RETURN',       // مرتجع مشتريات
     TRANSFER_IN = 'TRANSFER_IN',               // تحويل وارد من حساب آخر

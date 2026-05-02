@@ -210,12 +210,12 @@ export class SafesService {
         return trx;
     }
 
-    async deposit(me: any, dto: CreateTransactionDto) {
-        return await this.createTransaction(me, { ...dto, direction: TransactionDirection.IN });
+    async deposit(me: any, dto: CreateTransactionDto, manager?: EntityManager) {
+        return await this.createTransaction(me, { ...dto, direction: TransactionDirection.IN }, manager);
     }
 
-    async withdraw(me: any, dto: CreateTransactionDto) {
-        return await this.createTransaction(me, { ...dto, direction: TransactionDirection.OUT });
+    async withdraw(me: any, dto: CreateTransactionDto, manager?: EntityManager) {
+        return await this.createTransaction(me, { ...dto, direction: TransactionDirection.OUT }, manager);
     }
 
     private async createTransaction(me: any, data: CreateTransactionDto & { direction: TransactionDirection, skipCommission?: boolean }, manager?: EntityManager) {
@@ -236,7 +236,9 @@ export class SafesService {
 
             const totalDeduction = amount + commission;
             if (data.direction === TransactionDirection.OUT && Number(account.currentBalance) < totalDeduction) {
-                throw new BadRequestException('Insufficient balance (including commission)');
+                throw new BadRequestException(
+                    `Insufficient balance in "${account.name}": available ${account.currentBalance}, required ${totalDeduction} (incl. commission).`
+                );
             }
 
             const number = await this.generateTrxNumber(em);
