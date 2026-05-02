@@ -52,13 +52,13 @@ export class PurchaseReturnInvoiceEntity {
   @Column({ type: "varchar", length: 80, nullable: true })
   returnReason?: string | null;
 
-  @Column({ type: "uuid", nullable: true })
+  @Column({ type: "uuid" })
   @Index()
-  safeId?: string | null;
+  safeId: string;
 
-  @ManyToOne(() => Account, { nullable: true })
+  @ManyToOne(() => Account)
   @JoinColumn({ name: "safeId" })
-  safe?: Account | null;
+  safe: Account;
 
   @Column({ type: "varchar", length: 40, default: PurchaseReturnType.CASH_REFUND, nullable: true })
   returnType!: PurchaseReturnType;

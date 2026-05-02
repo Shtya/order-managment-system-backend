@@ -40,13 +40,13 @@ export class PurchaseInvoiceEntity {
 	@Column({ type: "text", nullable: true })
 	receiptAsset?: any | null;
 
-	@Column({ type: "uuid", nullable: true })
+	@Column({ type: "uuid" })
 	@Index()
-	safeId?: string | null;
+	safeId: string;
 
-	@ManyToOne(() => Account, { nullable: true })
+	@ManyToOne(() => Account)
 	@JoinColumn({ name: "safeId" })
-	safe?: Account | null;
+	safe: Account;
 
 	@Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
 	paidAmount!: number;
