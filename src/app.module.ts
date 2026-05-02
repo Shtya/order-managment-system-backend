@@ -45,6 +45,7 @@ import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
 import { ProductSyncStateModule } from './product-sync-state/product-sync-state.module';
 import { minutes, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { SafesModule } from './safes/safes.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -107,7 +108,8 @@ import { APP_GUARD } from '@nestjs/core';
 		RedisModule,
 		AdminSettingsModule,
 		AccountingModule,
-		ProductSyncStateModule
+		ProductSyncStateModule,
+		SafesModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService, {
