@@ -187,6 +187,7 @@ export class PurchaseReturnsService {
       .createQueryBuilder("inv")
       .where("inv.adminId = :adminId", { adminId })
       .leftJoinAndSelect("inv.supplier", "supplier")
+      .leftJoinAndSelect("inv.safe", "safe")
       .leftJoinAndSelect("inv.createdBy", "createdBy");
 
     if (supplierId && supplierId != 'none')

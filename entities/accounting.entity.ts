@@ -46,13 +46,13 @@ export class ManualExpenseEntity {
     categoryId: string;
 
 
-    @Column({ type: "uuid", nullable: true })
+    @Column({ type: "uuid" })
     @Index()
-    safeId?: string | null;
+    safeId: string;
 
-    @ManyToOne(() => Account, { nullable: true })
+    @ManyToOne(() => Account)
     @JoinColumn({ name: "safeId" })
-    safe?: Account | null;
+    safe: Account;
 
     @Column({
         type: "timestamptz",

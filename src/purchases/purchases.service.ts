@@ -113,7 +113,7 @@ export class PurchasesService {
 			.createQueryBuilder("inv")
 			.where("inv.adminId = :adminId", { adminId })
 			// ✅ THIS is what brings supplier data
-			.leftJoinAndSelect("inv.supplier", "supplier");
+			.leftJoinAndSelect("inv.safe", "safe");
 
 		if (supplierId && supplierId != 'none')
 			qb.andWhere("inv.supplierId = :supplierId", { supplierId });
