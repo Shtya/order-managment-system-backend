@@ -9,14 +9,14 @@ import { ManualExpenseCategoryEntity, ManualExpenseEntity, SupplierClosingEntity
 import { PurchaseReturnInvoiceEntity } from 'entities/purchase_return.entity';
 import { PurchaseInvoiceEntity } from 'entities/purchase.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { OrderEntity, OrderStatusEntity } from 'entities/order.entity';
+import { OrderEntity, OrderItemEntity, OrderStatusEntity } from 'entities/order.entity';
 import { SupplierEntity } from 'entities/supplier.entity';
 import { ShipmentEntity } from 'entities/shipping.entity';
 import { MonthlyClosingService } from './services/monthly-closing.service';
 import { MonthlyClosingController } from './controllers/monthly-closing.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, ManualExpenseEntity, OrderEntity,
+  imports: [TypeOrmModule.forFeature([PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, ManualExpenseEntity, OrderEntity, OrderItemEntity,
     ManualExpenseCategoryEntity, SupplierClosingEntity, SupplierEntity, ShipmentEntity, MonthlyClosingEntity, OrderStatusEntity])],
   controllers: [AccountingController, ExpensesController, ExpenseCategoriesController, MonthlyClosingController],
   providers: [AccountingService, ExpensesService, ExpenseCategoriesService, MonthlyClosingService],
