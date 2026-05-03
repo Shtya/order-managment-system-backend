@@ -13,6 +13,7 @@ import {
   BeforeUpdate,
   OneToOne,
   Relation,
+  DeleteDateColumn,
 } from "typeorm";
 import { ProductVariantEntity } from "./sku.entity";
 import { StoreEntity } from "./stores.entity";
@@ -20,6 +21,7 @@ import { User } from "./user.entity";
 import { ShipmentEntity, ShippingCompanyEntity } from "./shipping.entity";
 import { OrderCollectionEntity } from "./order-collection.entity";
 import { MonthlyClosingEntity } from "./accounting.entity";
+import { ActivatableEntity } from "./base.entity";
 
 
 // ✅ Order Status Enum
@@ -36,14 +38,14 @@ export enum OrderStatus {
   DELIVERED = "delivered",//
   CANCELLED = "cancelled", //
   RETURNED = "returned",  // 
-  
+
   CONFIRMED = "confirmed",
   DISTRIBUTED = "distributed",
   PRINTED = "printed",
   PREPARING = "preparing",
   READY = "ready",
   PACKED = "packed",
-  SHIPPED = "shipped", 
+  SHIPPED = "shipped",
   RETURN_PREPARING = "return_preparing",
 }
 
@@ -52,23 +54,12 @@ export enum OrderStatus {
 @Entity("order_statuses")
 @Index(["adminId", "code"], { unique: true })
 @Index(["adminId", "name"], { unique: true })
-export class OrderStatusEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
-
+export class OrderStatusEntity extends ActivatableEntity {
   @Column({ type: "varchar", length: 50 })
   name: string; // e.g., "Ready for Pickup"
 
   @Column({ type: "varchar", length: 50 })
   code: string; // as slug e.g., "ready-for-pickup"
-
-  @Index()
-  @Column({ type: 'uuid', nullable: true }) // Set to false if adminId is mandatory
-  adminId: string;
-
-  @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
-  @JoinColumn({ name: 'adminId' })
-  admin: User;
 
   @Column({ type: "text", nullable: true })
   description?: string;
@@ -378,6 +369,10 @@ export class OrderEntity {
   @ManyToOne(() => MonthlyClosingEntity)
   @JoinColumn({ name: 'monthlyClosingId' })
   monthlyClosing: Relation<MonthlyClosingEntity>;
+
+  
+  @DeleteDateColumn({ name: "deleted_at", nullable: true })
+  deleted_at?: Date;
 }
 
 // ✅ Order Items Entity
@@ -440,6 +435,7 @@ export class OrderItemEntity {
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
+
 }
 
 export enum ScanLogType {
