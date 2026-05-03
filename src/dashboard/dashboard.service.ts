@@ -613,20 +613,16 @@ export class DashboardService {
   ) {
     const adminId = tenantId(user);
     const points = filters.points || 12;
-    const { start: startDate, end: endDate } = DateFilterUtil.getBoundaries(
-      filters.startDate,
-      filters.endDate
-    );
 
     let { start, end } = calculateRange(filters.range);
 
     const finalStartDate =
       start ||
-      (startDate
-        ? new Date(startDate)
+      (filters.startDate
+        ? new Date(filters.startDate)
         : subDays(new Date(), 30));
     const finalEndDate =
-      end || (endDate ? new Date(endDate) : new Date());
+      end || (filters.endDate ? new Date(filters.endDate) : new Date());
 
 
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
