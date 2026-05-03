@@ -227,9 +227,9 @@ export class BostaProvider extends ShippingProvider {
       // Bosta docs: if webhook configured in dashboard, no need to include webhookUrl in creation. :contentReference[oaicite:6]{index=6}
       // So we do NOT inject env webhook by default anymore.
       // If you still want fallback per-admin (optional), you can add it later.
-      webhookUrl,
-      webhookCustomHeaders,
-      businessLocationId: order?.shippingMetadata?.locationId
+      // webhookUrl,
+      // webhookCustomHeaders,
+      // businessLocationId: order?.shippingMetadata?.locationId
     };
 
 

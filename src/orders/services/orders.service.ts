@@ -1400,7 +1400,7 @@ export class OrdersService {
   async getShippingSummary(me: any) {
     const adminId = tenantId(me);
     const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    todayStart?.setHours(0, 0, 0, 0);
 
     //
     const [readyStatus, shippedStatus] = await Promise.all([
