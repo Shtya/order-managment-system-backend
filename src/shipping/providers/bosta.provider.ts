@@ -207,7 +207,11 @@ export class BostaProvider extends ShippingProvider {
         size: dto.size || "MEDIUM",
         packageDetails: {
           itemsCount: itemsCount,
+          description: order.items.map(item => `${item.quantity}x ${item.variant?.product?.name}`).join(" - "),
         },
+      },
+      goodsInfo: {
+        amount: order.finalTotal - order.shippingCost
       },
       dropOffAddress: {
         cityId: order.shippingMetadata?.cityId,
@@ -278,7 +282,7 @@ export class BostaProvider extends ShippingProvider {
     const providerShipmentId = body?._id ?? null;
     const trackingNumber = body?.trackingNumber ? String(body.trackingNumber) : null;
     const state = body?.state;
-    const unified = this.mapBostaStateToUnified(state);
+    const unified = body?.isConfirmedDelivery ? UnifiedShippingStatus?.DELIVERED : this.mapBostaStateToUnified(state);
 
     return {
       unifiedStatus: unified,
