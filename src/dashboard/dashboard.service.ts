@@ -153,8 +153,7 @@ export class DashboardService {
         ? new Date(filters.startDate)
         : subDays(new Date(), 30));
     const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
-    finalStartDate?.setHours(0, 0, 0, 0);
-    finalEndDate?.setHours(23, 59, 59, 999);
+
     // 2. بناء بارامترات الاستعلام الخام (Raw Query)
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
@@ -241,22 +240,24 @@ export class DashboardService {
   async getTopProducts(
     user,
     filters: {
-      storeId?: string;
-      startDate?: string;
-      endDate?: string;
-      range?: string;
-      search?: string;
-      limit?: number;
-    },
-  ) {
+     storeId?: string;
+     startDate?: string;
+     endDate?: string;
+     range?: string;
+     search?: string;
+     limit?: number;
+   } , ) {
     const adminId = tenantId(user);
     const limit = filters.limit || 5;
 
     let { start, end } = calculateRange(filters.range);
-    const finalStartDate = new Date(start || filters.startDate);
-    const finalEndDate = new Date(end || filters.endDate);
-    finalStartDate?.setHours(0, 0, 0, 0);
-    finalEndDate?.setHours(23, 59, 59, 999);
+    const finalStartDate =
+      start ||
+      (filters.startDate
+        ? new Date(filters.startDate)
+        : subDays(new Date(), 30));
+    const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
+
 
     // 1️⃣ بناء الاستعلام الأساسي المشترك
     const baseQuery = this.orderRepo.manager
@@ -536,8 +537,7 @@ export class DashboardService {
       start || (filters.startDate ? new Date(filters.startDate) : null);
     const finalEndDate =
       end || (filters.endDate ? new Date(filters.endDate) : null);
-    finalStartDate?.setHours(0, 0, 0, 0);
-    finalEndDate?.setHours(23, 59, 59, 999);
+
     // 2. بناء شروط الـ JOIN ديناميكياً
     // نستخدم مصفوفة لتجميع الشروط التي ستوضع داخل الـ ON الخاص بالـ Join
     let joinConditions = "o.statusId = status.id AND o.adminId = :adminId";
@@ -619,6 +619,7 @@ export class DashboardService {
     );
 
     let { start, end } = calculateRange(filters.range);
+
     const finalStartDate =
       start ||
       (startDate
@@ -627,8 +628,7 @@ export class DashboardService {
     const finalEndDate =
       end || (endDate ? new Date(endDate) : new Date());
 
-    finalStartDate?.setHours(0, 0, 0, 0);
-    finalEndDate?.setHours(23, 59, 59, 999);
+
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
 
