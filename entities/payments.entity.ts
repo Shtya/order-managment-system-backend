@@ -132,7 +132,7 @@ export class PaymentSessionEntity {
     @Column({ type: 'jsonb', nullable: true })
     metadata: any;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 }
 
@@ -246,10 +246,10 @@ export class TransactionEntity {
     notes?: string;
 
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 
-    @UpdateDateColumn()
+    @UpdateDateColumn({ type: "timestamptz" })
     updatedAt: Date;
 
 }
@@ -279,7 +279,7 @@ export class WebhookEvents {
     @Column({ type: 'jsonb', nullable: true })
     payload: any;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 }
 
@@ -308,7 +308,7 @@ export class Wallet {
     @Column('numeric', { precision: 12, scale: 2, default: 0 })
     totalWithdrawn: number;
 
-    @UpdateDateColumn()
+    @UpdateDateColumn({ type: "timestamptz" })
     updatedAt: Date;
 }
 

@@ -196,10 +196,10 @@ export class User {
 	// 🔗 Relation to Wallet
 	@OneToOne(() => Wallet, (wallet) => wallet.user, { cascade: true })
 	wallet: Relation<Wallet>;
-	@CreateDateColumn()
+	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;
 
-	@UpdateDateColumn()
+	@UpdateDateColumn({ type: "timestamptz" })
 	updatedAt: Date;
 }
 
@@ -252,10 +252,10 @@ export class PendingUser {
 	role: Role;
 
 
-	@CreateDateColumn()
+	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;
 
-	@UpdateDateColumn()
+	@UpdateDateColumn({ type: "timestamptz" })
 	updatedAt: Date;
 }
 
@@ -292,10 +292,10 @@ export class Company {
 	@JoinColumn()
 	user: User;
 
-	@CreateDateColumn()
+	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;
 
-	@UpdateDateColumn()
+	@UpdateDateColumn({ type: "timestamptz" })
 	updatedAt: Date;
 
 	@Column({ type: 'varchar', nullable: true })

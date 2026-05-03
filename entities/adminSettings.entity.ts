@@ -21,6 +21,6 @@ export class AdminSettingsEntity {
     youtube?: string;
   };
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: "timestamptz" })
   updatedAt: Date;
 }

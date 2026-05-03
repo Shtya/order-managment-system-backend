@@ -147,8 +147,8 @@ export class AccountingService {
         const rawEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
 
         // 2. ENFORCE BOUNDARIES: Align them to the absolute start and end of the local day
-        rawStartDate?.setHours(0, 0, 0, 0);
-        rawEndDate?.setHours(23, 59, 59, 999);
+        // rawStartDate.setHours(0, 0, 0, 0);
+        // rawEndDate.setHours(23, 59, 59, 999);
         const params: any[] = [rawStartDate, rawEndDate, points, adminId];
 
 
@@ -181,7 +181,8 @@ export class AccountingService {
                     c.start_date 
                     + ((g.idx + 1) * (c.segment_days || ' days')::interval),
                     c.end_date
-                ) AS seg_end
+                ) AS seg_end,
+                c.end_date AS final_end
 
             FROM calc c,
             generate_series(
@@ -222,7 +223,10 @@ export class AccountingService {
         FROM segments s
         LEFT JOIN financial_events e 
         ON e.event_date >= s.seg_start 
-        AND e.event_date < s.seg_end
+        AND (
+            e.event_date < s.seg_end
+            OR (s.seg_end = s.final_end AND e.event_date <= s.seg_end) -- ✅ only last segment inclusive
+        )
 
         GROUP BY s.idx, s.seg_start
         ORDER BY s.seg_start ASC;
@@ -253,7 +257,7 @@ export class AccountingService {
 
         if (filters.startDate) {
             const start = new Date(filters.startDate);
-            start?.setHours(0, 0, 0, 0);
+            start.setHours(0, 0, 0, 0);
 
             dateFilter += ` AND "statusUpdateDate" >= $${paramIndex++}`;
             params.push(start);
@@ -262,7 +266,7 @@ export class AccountingService {
         // 2. Enforce End of Day
         if (filters.endDate) {
             const end = new Date(filters.endDate);
-            end?.setHours(23, 59, 59, 999);
+            end.setHours(23, 59, 59, 999);
 
             dateFilter += ` AND "statusUpdateDate" <= $${paramIndex++}`;
             params.push(end);
