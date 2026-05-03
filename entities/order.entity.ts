@@ -371,7 +371,7 @@ export class OrderEntity {
   monthlyClosing: Relation<MonthlyClosingEntity>;
 
   
-  @DeleteDateColumn({ name: "deleted_at", nullable: true })
+  @DeleteDateColumn({ name: "deleted_at", nullable: true,  type: "timestamptz" })
   deleted_at?: Date;
 }
 
@@ -712,7 +712,7 @@ export class OrderRetrySettingsEntity {
     warehouseDefaultShippingCompanyId: string | null;
   };
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: "timestamptz" })
   updated_at: Date;
 }
 
@@ -817,7 +817,7 @@ export class OrderReplacementEntity {
   })
   items: OrderReplacementItemEntity[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
 }
 
@@ -1018,7 +1018,7 @@ export class ReturnRequestEntity {
   })
   items: ReturnRequestItemEntity[];
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
 }
 

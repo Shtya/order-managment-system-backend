@@ -19,9 +19,9 @@ export class Asset {
 	@ManyToOne(() => User, user => user.uploads, { eager: false, onDelete: 'SET NULL' })
 	user: User;
 
-	@CreateDateColumn()
+	@CreateDateColumn({ type: "timestamptz" })
 	created_at: Date;
 
-	@UpdateDateColumn()
+	@UpdateDateColumn({ type: "timestamptz" })
 	updated_at: Date;
 }

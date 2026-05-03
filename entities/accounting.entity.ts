@@ -67,7 +67,7 @@ export class ManualExpenseEntity {
     @ManyToOne(() => MonthlyClosingEntity)
     @JoinColumn({ name: 'monthlyClosingId' })
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 }
 
@@ -142,7 +142,7 @@ export class SupplierClosingEntity {
     @Column({ type: 'decimal', precision: 20, scale: 2 })
     finalBalance: number;   // الرصيد النهائي
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 
     @OneToMany(() => PurchaseInvoiceEntity, (purchase) => purchase.closing)
@@ -212,6 +212,6 @@ export class MonthlyClosingEntity {
     @JoinColumn({ name: 'createdByUserId' })
     user: Relation<User>;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 }

@@ -62,7 +62,8 @@ export class ExpensesService {
         const sortOrder = q?.sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
         // 3. الترتيب والتنفيذ بشكل آمن
-        qb.orderBy(`expense.${sortBy}`, sortOrder)
+        qb.orderBy(`expense.collectionDate`, sortOrder)
+            .addOrderBy(`expense.createdAt`, "DESC")
             .skip((page - 1) * limit)
             .take(limit);
 

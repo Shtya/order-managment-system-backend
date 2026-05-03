@@ -123,10 +123,10 @@ export class Plan {
 	@OneToMany(() => Subscription, (sub) => sub.plan)
 	subscriptions: Relation<Subscription>[];
 
-	@CreateDateColumn()
+	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;
 
-	@UpdateDateColumn()
+	@UpdateDateColumn({ type: "timestamptz" })
 	updatedAt: Date;
 }
 
@@ -222,10 +222,10 @@ export class Subscription {
 	transactions: Relation<TransactionEntity>[];
 
 
-	@CreateDateColumn()
+	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;
 
-	@UpdateDateColumn()
+	@UpdateDateColumn({ type: "timestamptz" })
 	updatedAt: Date;
 }
 

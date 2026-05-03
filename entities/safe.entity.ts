@@ -116,10 +116,10 @@ export class Account {
     @JoinColumn({ name: 'adminId' })
     admin: User;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 
-    @UpdateDateColumn()
+    @UpdateDateColumn({ type: "timestamptz" })
     updatedAt: Date;
 }
 
@@ -189,7 +189,7 @@ export class FinancialTransaction {
     // @Column({ type: 'uuid', nullable: true })
     // reversedTransactionId: string;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 }
 
@@ -257,6 +257,6 @@ export class AccountTransfer {
     @JoinColumn({ name: 'createdById' })
     createdBy: User;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 }

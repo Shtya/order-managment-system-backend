@@ -175,10 +175,10 @@ export class StoreSyncLogEntity {
   @Column({ type: "int", default: 1 })
   retryCount!: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: "timestamptz" })
   updated_at!: Date;
 }
 ```
@@ -208,10 +208,10 @@ export class WebhookEventEntity {
   @Column({ type: "text", nullable: true })
   errorMessage?: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ type: "timestamptz" })
   received_at!: Date;
 
-  @UpdateDateColumn()
+  @UpdateDateColumn({ type: "timestamptz" })
   processed_at?: Date;
 }
 ```

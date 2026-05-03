@@ -75,9 +75,9 @@ export class Notification {
     @Column({ type: 'uuid', name: 'related_entity_id', nullable: true })
     relatedEntityId: string;
 
-    @CreateDateColumn()
+    @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;
 
-    @UpdateDateColumn()
+    @UpdateDateColumn({ type: "timestamptz" })
     updatedAt: Date;
 }
