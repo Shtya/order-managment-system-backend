@@ -162,14 +162,14 @@ export class AccountingService {
       ),
       financial_events AS (
           -- أ. المشتريات (تكلفة منتجات موجبة)
-          SELECT "statusUpdateDate" AS event_date, total AS product_cost, 0 AS manual_expense
+          SELECT "statusUpdateDate"::timestamptz AS event_date, COALESCE(total, 0)::numeric  AS product_cost, 0::numeric AS manual_expense
           FROM purchase_invoices 
           WHERE "adminId" = $4 AND status = 'accepted'
           
           UNION ALL
           
           -- ج. المصاريف اليدوية
-          SELECT "collectionDate" AS event_date, 0 AS product_cost, amount AS manual_expense
+          SELECT "collectionDate"::timestamptz AS event_date, 0::numeric AS product_cost, COALESCE(amount, 0)::numeric  AS manual_expense
           FROM manual_expenses 
           WHERE "adminId" = $4
       )
