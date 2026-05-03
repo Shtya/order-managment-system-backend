@@ -121,13 +121,21 @@ export class TurboProvider extends ShippingProvider {
 
     // التأكد من وجود البيانات الجغرافية (المحافظة والمنطقة)
     // Turbo يتطلب الأسماء كنصوص (Strings) في طلب إضافة الطلب
-    if (!meta?.cityId || !meta?.zoneId) {
+
+      if (!meta?.cityId) {
       return {
         success: false,
-        error: "Missing required shipping geography names (Government or Area). Please update the order details."
+        error: "City is required for Turbo shipping. Please update the order details.",
       };
-
     }
+
+    if (!meta?.zoneId) {
+      return {
+        success: false,
+        error: "Area is required for Turbo shipping. Please update the order details.",
+      };
+    }
+
 
     // جلب كود العميل الرئيسي من إعدادات التكامل
     const accountId = integration?.credentials?.accountId;

@@ -181,13 +181,21 @@ export class BostaProvider extends ShippingProvider {
     };
     const meta = order.shippingMetadata;
 
-    if (!meta?.cityId || !meta?.districtId || !meta?.zoneId) {
+    if (!meta?.cityId) {
       return {
         success: false,
-        error: "Missing required shipping geography (City, District, or Zone)."
+        error: "City is required for Bosta shipping. Please update the order details.",
       };
     }
 
+    if (!meta?.districtId) {
+      return {
+        success: false,
+        error: "District is required for Bosta shipping. Please update the order details.",
+      };
+    }
+
+    
     const payload = {
       type: isExchange ? BostaDeliveryType.Exchange : BostaDeliveryType.Deliver,
       businessReference: order.orderNumber,
@@ -196,7 +204,7 @@ export class BostaProvider extends ShippingProvider {
       cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? order.finalTotal - order.shippingCost : 0,
       specs: {
         packageType: "Parcel",
-        size: dto.size || "SMALL",
+        size: dto.size || "MEDIUM",
         packageDetails: {
           itemsCount: itemsCount,
         },
