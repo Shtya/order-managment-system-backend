@@ -201,7 +201,8 @@ export class DashboardService {
                     c.start_date 
                     + ((g.idx + 1) * (c.segment_days || ' days')::interval),
                     c.end_date
-                ) AS seg_end
+                ) AS seg_end,
+                 c.end_date AS final_end
 
             FROM calc c,
             generate_series(
@@ -217,7 +218,11 @@ export class DashboardService {
                 COUNT(o.id) AS "orders",
                 COALESCE(SUM(CASE WHEN st.code = 'delivered' THEN o."finalTotal" ELSE 0 END), 0) AS "sales"
             FROM segments s
-            LEFT JOIN orders o ON o.created_at >= s.seg_start AND o.created_at < s.seg_end AND o."adminId" = $4 ${extraFilters}
+            LEFT JOIN orders o ON o.created_at >= s.seg_start  
+            AND (
+            o.created_at < s.seg_end
+            OR (s.seg_end = s.final_end AND o.created_at <= s.seg_end) -- ✅ only last segment inclusive
+            ) AND o."adminId" = $4 ${extraFilters}
             LEFT JOIN order_statuses st ON st.id = o."statusId"
             GROUP BY s.idx, s.seg_start
             ORDER BY s.seg_start ASC;
@@ -379,7 +384,8 @@ export class DashboardService {
                     c.start_date 
                     + ((g.idx + 1) * (c.segment_days || ' days')::interval),
                     c.end_date
-                ) AS seg_end
+                ) AS seg_end,
+                 c.end_date AS final_end
 
             FROM calc c,
             generate_series(
@@ -402,7 +408,14 @@ export class DashboardService {
                 FROM order_items oi WHERE oi."orderId" = o.id
             ) ELSE 0 END), 0) AS "costs"
         FROM segments s
-        LEFT JOIN orders o ON o."deliveredAt" BETWEEN s.seg_start AND s.seg_end AND o."adminId" = $4 ${extraFilters}
+        LEFT JOIN 
+        orders o ON o."deliveredAt" >= s.seg_start 
+         AND (
+            o."deliveredAt" < s.seg_end
+            OR (s.seg_end = s.final_end AND o."deliveredAt" <= s.seg_end) -- ✅ only last segment inclusive
+        )
+
+        AND o."adminId" = $4 ${extraFilters}
         LEFT JOIN order_statuses st ON st.id = o."statusId"
         GROUP BY s.idx, s.seg_start, s.seg_end
         ORDER BY s.seg_start ASC;
@@ -659,7 +672,8 @@ export class DashboardService {
                     c.start_date 
                     + ((g.idx + 1) * (c.segment_days || ' days')::interval),
                     c.end_date
-                ) AS seg_end
+                ) AS seg_end,
+                 c.end_date AS final_end
 
             FROM calc c,
             generate_series(
@@ -677,7 +691,17 @@ export class DashboardService {
         -- تم إزالة الفاصلة من نهاية السطر التالي
         COUNT(CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "delivered_orders"
     FROM segments s
-    LEFT JOIN orders o ON o.created_at >= s.seg_start AND o.created_at < s.seg_end AND o."adminId" = $4 ${extraFilters}
+    LEFT JOIN orders o 
+
+    ON o.created_at >= s.seg_start 
+    AND 
+
+    (
+      o.created_at < s.seg_end
+      OR (s.seg_end = s.final_end AND o.created_at <= s.seg_end) -- ✅ only last segment inclusive
+      )
+
+    AND o."adminId" = $4 ${extraFilters}
     LEFT JOIN order_statuses st ON st.id = o."statusId"
     GROUP BY s.idx, s.seg_start
     ORDER BY s.seg_start ASC;
