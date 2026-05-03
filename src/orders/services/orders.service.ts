@@ -1684,7 +1684,7 @@ export class OrdersService {
         relations: ["items", "items.variant", "status"],
         select: ["id", "statusId", "adminId"],
       });
-
+      console.log("scan order: ", order.id, "sku: ", sku)
       if (!order) throw new NotFoundException("Order not found");
       const oldStatusId = order.statusId;
       const allowedStatuses = [OrderStatus.PRINTED, OrderStatus.PREPARING];
@@ -1756,12 +1756,51 @@ export class OrdersService {
         return { success: false, message: "Item already fully scanned" };
       }
 
-      item.scannedQuantity += 1;
-      await manager.save(item);
+      const result = await manager
+        .createQueryBuilder()
 
-      const isOrderComplete = order.items.every(
-        (i) => i.scannedQuantity >= i.quantity,
-      );
+        .update(OrderItemEntity)
+        .set({
+          scannedQuantity: () => "COALESCE(scannedQuantity, 0) + 1",
+        })
+        .where("orderId = :orderId", { orderId })
+        .andWhere(
+          `"variantId" IN (
+          SELECT v.id FROM product_variants v WHERE v.sku = :sku
+          )`,
+          { sku: sku.trim() }
+        )
+        .andWhere("COALESCE(scannedQuantity, 0) < quantity")
+        .returning(["id", "scannedQuantity", "quantity"])
+        .execute();
+
+      console.log(result)
+      if (result.affected === 0) {
+        await this.logFailedScan(
+          manager,
+          orderId,
+          sku,
+          userId,
+          adminId,
+          ScanReason.ALREADY_FULLY_SCANNED,
+          ScanLogType.PREPARATION,
+        );
+
+        return { success: false, message: "Item already fully scanned" };
+      }
+
+      const newScannedQuantity = result.raw[0].scannedQuantity;
+
+      const remainingCount = await manager
+        .createQueryBuilder()
+        .select("COUNT(1)", "count")
+        .from(OrderItemEntity, "oi")
+        .where("oi.orderId = :orderId", { orderId })
+        .andWhere("COALESCE(oi.scannedQuantity, 0) < oi.quantity")
+        .getRawOne();
+
+      const isOrderComplete = Number(remainingCount.count) === 0;
+
       if (isOrderComplete) {
         // Use your internal helper method and pass the manager to keep it in the transaction
         const readyStatus = await this.findStatusByCode(
@@ -1773,6 +1812,7 @@ export class OrdersService {
         await manager.update(OrderEntity, order.id, {
           statusId: readyStatus.id,
         });
+
         await this.logStatusChange({
           adminId,
           orderId: order.id,
@@ -1793,10 +1833,10 @@ export class OrdersService {
           details: "Preparation phase completed successfully.",
         });
       }
-
+      console.log("success")
       return {
         success: true,
-        scanned: item.scannedQuantity,
+        scanned: newScannedQuantity,
         total: item.quantity,
         isOrderComplete,
       };
@@ -1866,12 +1906,37 @@ export class OrdersService {
         };
       }
 
-      item.shippingScannedQuantity += 1;
-      await manager.save(item);
+      const result = await manager
+        .createQueryBuilder()
+        .update(OrderItemEntity)
+        .set({
+          shippingScannedQuantity: () => "COALESCE(shippingScannedQuantity, 0) + 1",
+        })
+        .where("orderId = :orderId", { orderId })
+        .andWhere(`"variantId" IN (SELECT v.id FROM product_variants v WHERE v.sku = :sku)`, { sku: sku.trim() })
+        .andWhere("COALESCE(shippingScannedQuantity, 0) < quantity")
+        .returning(["id", "shippingScannedQuantity", "quantity"])
+        .execute();
 
-      const isShippingReady = order.items.every(
-        (i) => i.shippingScannedQuantity >= i.quantity,
-      );
+      if (result.affected === 0) {
+        await this.logFailedScan(
+          manager, orderId, sku, userId, adminId, ScanReason.ALREADY_FULLY_SCANNED,
+          ScanLogType.SHIPPING,
+        );
+        return { success: false, message: "Item already fully scanned for shipping" };
+      }
+
+
+      const remainingCount = await manager
+        .createQueryBuilder()
+        .select("COUNT(1)", "count")
+        .from(OrderItemEntity, "oi")
+        .where("oi.orderId = :orderId", { orderId })
+        .andWhere("COALESCE(oi.shippingScannedQuantity, 0) < oi.quantity")
+        .getRawOne();
+      const newShippingScannedQuantity = result.raw[0].shippingScannedQuantity;
+      const isShippingReady = Number(remainingCount.count) === 0;
+
       if (isShippingReady) {
         const packedStatus = await manager.findOneBy(OrderStatusEntity, {
           code: OrderStatus.PACKED,
@@ -1897,7 +1962,7 @@ export class OrdersService {
 
       return {
         success: true,
-        scanned: item.shippingScannedQuantity,
+        scanned: newShippingScannedQuantity,
         total: item.quantity,
         isShippingReady,
       };
