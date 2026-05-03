@@ -8,8 +8,8 @@ export class DateFilterUtil {
         let start = startDate ? new Date(startDate) : null;
         let end = endDate ? new Date(endDate) : null;
 
-        if (start) start.setHours(0, 0, 0, 0);
-        if (end) end.setHours(23, 59, 59, 999);
+        if (start) start?.setHours(0, 0, 0, 0);
+        if (end) end?.setHours(23, 59, 59, 999);
 
         return { start, end };
     }

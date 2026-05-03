@@ -147,42 +147,86 @@ export class AccountingService {
         const rawEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
 
         // 2. ENFORCE BOUNDARIES: Align them to the absolute start and end of the local day
-        rawStartDate.setHours(0, 0, 0, 0);
-        rawEndDate.setHours(23, 59, 59, 999);
+        rawStartDate?.setHours(0, 0, 0, 0);
+        rawEndDate?.setHours(23, 59, 59, 999);
         const params: any[] = [rawStartDate, rawEndDate, points, adminId];
 
 
-        const query = `
-      WITH segments AS (
-          SELECT 
-              g.idx,
-              $1::timestamptz + (g.idx * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_start,
-              $1::timestamptz + ((g.idx + 1) * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_end
-          FROM generate_series(0, $3 - 1) AS g(idx)
-      ),
-      financial_events AS (
-          -- أ. المشتريات (تكلفة منتجات موجبة)
-          SELECT "statusUpdateDate"::timestamptz AS event_date, COALESCE(total, 0)::numeric  AS product_cost, 0::numeric AS manual_expense
-          FROM purchase_invoices 
-          WHERE "adminId" = $4 AND status = 'accepted'
-          
-          UNION ALL
-          
-          -- ج. المصاريف اليدوية
-          SELECT "collectionDate"::timestamptz AS event_date, 0::numeric AS product_cost, COALESCE(amount, 0)::numeric  AS manual_expense
-          FROM manual_expenses 
-          WHERE "adminId" = $4
-      )
-      SELECT 
-          s.seg_start AS "date",
-          COALESCE(SUM(e.product_cost), 0) AS "productCost",
-          COALESCE(SUM(e.manual_expense), 0) AS "manualExpenses",
-          (COALESCE(SUM(e.product_cost), 0) + COALESCE(SUM(e.manual_expense), 0)) AS "totalCost"
-      FROM segments s
-      LEFT JOIN financial_events e ON e.event_date >= s.seg_start AND e.event_date < s.seg_end
-      GROUP BY s.idx, s.seg_start
-      ORDER BY s.seg_start ASC;
-    `;
+      const query = `
+        WITH params AS (
+            SELECT
+                $1::timestamptz AS start_date,
+                $2::timestamptz AS end_date,
+                $3::int AS points
+        ),
+        calc AS (
+            SELECT
+                start_date,
+                end_date,
+                points,
+                CEIL(
+                    EXTRACT(EPOCH FROM (end_date - start_date)) 
+                    / (points * 86400.0)
+                )::int AS segment_days
+            FROM params
+        ),
+        segments AS (
+            SELECT 
+                g.idx,
+
+                c.start_date 
+                + (g.idx * (c.segment_days || ' days')::interval) AS seg_start,
+
+                LEAST(
+                    c.start_date 
+                    + ((g.idx + 1) * (c.segment_days || ' days')::interval),
+                    c.end_date
+                ) AS seg_end
+
+            FROM calc c,
+            generate_series(
+                0,
+                FLOOR(
+                    EXTRACT(EPOCH FROM (c.end_date - c.start_date)) 
+                    / (c.segment_days * 86400.0)
+                )
+            ) AS g(idx)
+        ),
+
+        financial_events AS (
+            -- أ. المشتريات
+            SELECT 
+                "statusUpdateDate"::timestamptz AS event_date, 
+                COALESCE(total, 0)::numeric AS product_cost, 
+                0::numeric AS manual_expense
+            FROM purchase_invoices 
+            WHERE "adminId" = $4 AND status = 'accepted'
+            
+            UNION ALL
+            
+            -- ب. المصاريف اليدوية
+            SELECT 
+                "collectionDate"::timestamptz AS event_date, 
+                0::numeric AS product_cost, 
+                COALESCE(amount, 0)::numeric AS manual_expense
+            FROM manual_expenses 
+            WHERE "adminId" = $4
+        )
+
+        SELECT 
+            s.seg_start AS "date",
+            COALESCE(SUM(e.product_cost), 0) AS "productCost",
+            COALESCE(SUM(e.manual_expense), 0) AS "manualExpenses",
+            (COALESCE(SUM(e.product_cost), 0) + COALESCE(SUM(e.manual_expense), 0)) AS "totalCost"
+
+        FROM segments s
+        LEFT JOIN financial_events e 
+        ON e.event_date >= s.seg_start 
+        AND e.event_date < s.seg_end
+
+        GROUP BY s.idx, s.seg_start
+        ORDER BY s.seg_start ASC;
+        `;
 
         // ستحتاج إلى حقن الـ DataSource في الـ constructor لتشغيل الاستعلام
         // constructor(private dataSource: DataSource) {}
@@ -190,10 +234,7 @@ export class AccountingService {
 
         // 4. تنسيق المخرجات للرسم البياني
         return result.map((row) => ({
-            label: new Date(row.date).toLocaleDateString("ar-EG", {
-                day: "numeric",
-                month: "short",
-            }),
+            date: row.date,
             productCost: parseFloat(row.productCost),
             manualExpenses: parseFloat(row.manualExpenses),
             totalCost: parseFloat(row.totalCost),
@@ -212,7 +253,7 @@ export class AccountingService {
 
         if (filters.startDate) {
             const start = new Date(filters.startDate);
-            start.setHours(0, 0, 0, 0);
+            start?.setHours(0, 0, 0, 0);
 
             dateFilter += ` AND "statusUpdateDate" >= $${paramIndex++}`;
             params.push(start);
@@ -221,7 +262,7 @@ export class AccountingService {
         // 2. Enforce End of Day
         if (filters.endDate) {
             const end = new Date(filters.endDate);
-            end.setHours(23, 59, 59, 999);
+            end?.setHours(23, 59, 59, 999);
 
             dateFilter += ` AND "statusUpdateDate" <= $${paramIndex++}`;
             params.push(end);

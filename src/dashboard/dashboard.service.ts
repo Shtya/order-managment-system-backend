@@ -153,8 +153,8 @@ export class DashboardService {
         ? new Date(filters.startDate)
         : subDays(new Date(), 30));
     const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
-    finalStartDate.setHours(0, 0, 0, 0);
-    finalEndDate.setHours(23, 59, 59, 999);
+    finalStartDate?.setHours(0, 0, 0, 0);
+    finalEndDate?.setHours(23, 59, 59, 999);
     // 2. بناء بارامترات الاستعلام الخام (Raw Query)
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
@@ -173,13 +173,45 @@ export class DashboardService {
 
     // 3. الاستعلام الشامل (يستخدم generate_series لإنشاء جداول زمنية متساوية)
     const query = `
-            WITH segments AS (
-                SELECT 
-                    g.idx,
-                    $1::timestamptz + (g.idx * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_start,
-                    $1::timestamptz + ((g.idx + 1) * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_end
-                FROM generate_series(0, $3 - 1) AS g(idx)
-            )
+            WITH params AS (
+            SELECT
+                $1::timestamptz AS start_date,
+                $2::timestamptz AS end_date,
+                $3::int AS points
+        ),
+        calc AS (
+            SELECT
+                start_date,
+                end_date,
+                points,
+                CEIL(
+                    EXTRACT(EPOCH FROM (end_date - start_date)) 
+                    / (points * 86400.0)
+                )::int AS segment_days
+            FROM params
+        ),
+        segments AS (
+            SELECT 
+                g.idx,
+
+                c.start_date 
+                + (g.idx * (c.segment_days || ' days')::interval) AS seg_start,
+
+                LEAST(
+                    c.start_date 
+                    + ((g.idx + 1) * (c.segment_days || ' days')::interval),
+                    c.end_date
+                ) AS seg_end
+
+            FROM calc c,
+            generate_series(
+                0,
+                FLOOR(
+                    EXTRACT(EPOCH FROM (c.end_date - c.start_date)) 
+                    / (c.segment_days * 86400.0)
+                )
+            ) AS g(idx)
+        )
             SELECT 
                 s.seg_start AS "date",
                 COUNT(o.id) AS "orders",
@@ -195,10 +227,7 @@ export class DashboardService {
 
     // 4. تنسيق المخرجات لتناسب الـ Chart (Trimmed Output)
     return result.map((row) => ({
-      label: new Date(row.date).toLocaleDateString("ar-EG", {
-        day: "numeric",
-        month: "short",
-      }),
+      date: row.date,
       orders: parseInt(row.orders),
       sales: parseFloat(row.sales),
     }));
@@ -221,8 +250,8 @@ export class DashboardService {
     let { start, end } = calculateRange(filters.range);
     const finalStartDate = new Date(start || filters.startDate);
     const finalEndDate = new Date(end || filters.endDate);
-    finalStartDate.setHours(0, 0, 0, 0);
-    finalEndDate.setHours(23, 59, 59, 999);
+    finalStartDate?.setHours(0, 0, 0, 0);
+    finalEndDate?.setHours(23, 59, 59, 999);
 
     // 1️⃣ بناء الاستعلام الأساسي المشترك
     const baseQuery = this.orderRepo.manager
@@ -312,8 +341,8 @@ export class DashboardService {
     const finalEndDate =
       end ||
       (filters.endDate ? new Date(filters.endDate) : endOfMonth(new Date()));
-    finalStartDate.setHours(0, 0, 0, 0);
-    finalEndDate.setHours(23, 59, 59, 999);
+    finalStartDate?.setHours(0, 0, 0, 0);
+    finalEndDate?.setHours(23, 59, 59, 999);
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let extraFilters = "";
     if (filters.storeId) {
@@ -322,12 +351,44 @@ export class DashboardService {
     }
 
     const query = `
-        WITH segments AS (
+        WITH params AS (
+            SELECT
+                $1::timestamptz AS start_date,
+                $2::timestamptz AS end_date,
+                $3::int AS points
+        ),
+        calc AS (
+            SELECT
+                start_date,
+                end_date,
+                points,
+                CEIL(
+                    EXTRACT(EPOCH FROM (end_date - start_date)) 
+                    / (points * 86400.0)
+                )::int AS segment_days
+            FROM params
+        ),
+        segments AS (
             SELECT 
                 g.idx,
-                $1::timestamptz + (g.idx * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_start,
-                $1::timestamptz + ((g.idx + 1) * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_end
-            FROM generate_series(0, $3 - 1) AS g(idx)
+
+                c.start_date 
+                + (g.idx * (c.segment_days || ' days')::interval) AS seg_start,
+
+                LEAST(
+                    c.start_date 
+                    + ((g.idx + 1) * (c.segment_days || ' days')::interval),
+                    c.end_date
+                ) AS seg_end
+
+            FROM calc c,
+            generate_series(
+                0,
+                FLOOR(
+                    EXTRACT(EPOCH FROM (c.end_date - c.start_date)) 
+                    / (c.segment_days * 86400.0)
+                )
+            ) AS g(idx)
         )
         SELECT 
             s.idx,
@@ -462,8 +523,8 @@ export class DashboardService {
       start || (filters.startDate ? new Date(filters.startDate) : null);
     const finalEndDate =
       end || (filters.endDate ? new Date(filters.endDate) : null);
-    finalStartDate.setHours(0, 0, 0, 0);
-    finalEndDate.setHours(23, 59, 59, 999);
+    finalStartDate?.setHours(0, 0, 0, 0);
+    finalEndDate?.setHours(23, 59, 59, 999);
     // 2. بناء شروط الـ JOIN ديناميكياً
     // نستخدم مصفوفة لتجميع الشروط التي ستوضع داخل الـ ON الخاص بالـ Join
     let joinConditions = "o.statusId = status.id AND o.adminId = :adminId";
@@ -553,8 +614,8 @@ export class DashboardService {
     const finalEndDate =
       end || (endDate ? new Date(endDate) : new Date());
 
-    finalStartDate.setHours(0, 0, 0, 0);
-    finalEndDate.setHours(23, 59, 59, 999);
+    finalStartDate?.setHours(0, 0, 0, 0);
+    finalEndDate?.setHours(23, 59, 59, 999);
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
 
@@ -570,13 +631,45 @@ export class DashboardService {
     }
 
     const query = `
-    WITH segments AS (
-        SELECT 
-            g.idx,
-            $1::timestamptz + (g.idx * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_start,
-            $1::timestamptz + ((g.idx + 1) * (($2::timestamptz - $1::timestamptz) / $3)) AS seg_end
-        FROM generate_series(0, $3 - 1) AS g(idx)
-    )
+    WITH params AS (
+            SELECT
+                $1::timestamptz AS start_date,
+                $2::timestamptz AS end_date,
+                $3::int AS points
+        ),
+        calc AS (
+            SELECT
+                start_date,
+                end_date,
+                points,
+                CEIL(
+                    EXTRACT(EPOCH FROM (end_date - start_date)) 
+                    / (points * 86400.0)
+                )::int AS segment_days
+            FROM params
+        ),
+        segments AS (
+            SELECT 
+                g.idx,
+
+                c.start_date 
+                + (g.idx * (c.segment_days || ' days')::interval) AS seg_start,
+
+                LEAST(
+                    c.start_date 
+                    + ((g.idx + 1) * (c.segment_days || ' days')::interval),
+                    c.end_date
+                ) AS seg_end
+
+            FROM calc c,
+            generate_series(
+                0,
+                FLOOR(
+                    EXTRACT(EPOCH FROM (c.end_date - c.start_date)) 
+                    / (c.segment_days * 86400.0)
+                )
+            ) AS g(idx)
+        )
     SELECT 
         s.seg_start AS "date",
         COUNT(o.id) AS "total_orders",
@@ -593,10 +686,7 @@ export class DashboardService {
     const result = await this.dataSource.query(query, params);
 
     return result.map((row) => ({
-      label: new Date(row.date).toLocaleDateString("ar-EG", {
-        day: "numeric",
-        month: "short",
-      }),
+      date: row.date,
       newOrders: parseInt(row.new_orders),
       deliveredOrders: parseInt(row.delivered_orders),
     }));
@@ -624,8 +714,8 @@ export class DashboardService {
     const finalEndDate =
       end ||
       (filters.endDate ? new Date(filters.endDate) : endOfMonth(new Date()));
-    finalStartDate.setHours(0, 0, 0, 0);
-    finalEndDate.setHours(23, 59, 59, 999);
+    finalStartDate?.setHours(0, 0, 0, 0);
+    finalEndDate?.setHours(23, 59, 59, 999);
     const params: any[] = [finalStartDate, finalEndDate, adminId, limit];
     let extraFilters = "";
     if (filters.storeId) {
