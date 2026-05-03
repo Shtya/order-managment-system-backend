@@ -85,6 +85,7 @@ import { NotificationService } from "src/notifications/notification.service";
 import { StoresService } from "src/stores/stores.service";
 import { ShippingService } from "src/shipping/shipping.service";
 import { StoreQueueService } from "src/stores/storesIntegrations/queues";
+import { CRUD } from "common/crud.service";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -277,6 +278,7 @@ export class OrdersService {
           );
         }),
       )
+      .andWhere("status.isActive = :isActive", { isActive: true })
       // GROUP BY every non-aggregated selected column (Postgres requires this)
       .groupBy("status.id")
       .addGroupBy("status.name")
@@ -316,6 +318,7 @@ export class OrdersService {
           );
         }),
       )
+      .andWhere("status.isActive = :isActive", { isActive: true })
       .orderBy("status.sortOrder", "ASC")
       .getRawMany();
 
@@ -3258,15 +3261,29 @@ export class OrdersService {
 
     const order = await this.get(me, id);
 
-    // Only allow deleting new/cancelled orders
-    if (
-      ![OrderStatus.NEW, OrderStatus.CANCELLED].includes(
-        order.status.code as OrderStatus,
-      )
-    ) {
-      throw new BadRequestException("Can only delete new or cancelled orders");
-    }
+    const DELETABLE_STATUSES: OrderStatus[] = [
+      OrderStatus.NEW,
+      OrderStatus.UNDER_REVIEW,
+      OrderStatus.DISTRIBUTED,
+      OrderStatus.POSTPONED,
+      OrderStatus.NO_ANSWER,
+      OrderStatus.WRONG_NUMBER,
+      OrderStatus.OUT_OF_DELIVERY_AREA,
+      OrderStatus.DUPLICATE,
+      OrderStatus.CANCELLED, // keep this too if needed
+    ];
 
+    const isDeletableStatus = DELETABLE_STATUSES.includes(
+      order.status.code as OrderStatus,
+    );
+
+    const isNonSystemStatus = order.status.system === false;
+
+    if (!isDeletableStatus && !isNonSystemStatus) {
+      throw new BadRequestException(
+        "This order status cannot be deleted"
+      );
+    }
     // Release reserved stock
     for (const item of order.items) {
       const variant = await this.variantRepo.findOne({
@@ -3278,7 +3295,8 @@ export class OrdersService {
       }
     }
 
-    await this.orderRepo.delete({ id, adminId } as any);
+
+    await this.orderRepo.softDelete({ id, adminId } as any);
 
     await this.notificationService.create({
       userId: adminId,
@@ -3367,9 +3385,41 @@ export class OrdersService {
 
   async createStatus(me: any, dto: CreateStatusDto) {
     const adminId = tenantId(me);
-    const name = dto.name.trim(); // [2025-12-24] Trim
-
+    const name = dto.name.trim();
     const code = slugify(name);
+
+    const existing = await this.statusRepo
+      .createQueryBuilder("status")
+      .where("status.adminId = :adminId", { adminId })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where("status.name = :name", { name })
+            .orWhere("status.code = :code", { code });
+        }),
+      )
+      .withDeleted() // IMPORTANT if you use soft delete
+      .getOne();
+
+    if (existing) {
+      existing.isActive = true;
+      existing.name = dto.name.trim();
+      existing.description = dto.description?.trim();
+      existing.color = dto.color.trim();
+      existing.sortOrder = dto.sortOrder;
+      existing.system = false;
+
+      const saved = await this.statusRepo.save(existing);
+
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.ORDER_STATUS_CREATED,
+        title: "Status Reactivated",
+        message: `Status "${saved.name}" has been reactivated and updated.`,
+      });
+
+      return saved;
+    }
+
     await this.validateStatusUniqueness(name, code, adminId);
     // Check if name already exists for this admin or system
 
@@ -3479,15 +3529,18 @@ export class OrdersService {
     if (status.system)
       throw new ForbiddenException("System statuses cannot be deleted.");
 
-    // [2025-12-24] Trim Risk: Check if orders are using this status
-    const usageCount = await this.orderRepo.countBy({ statusId: id });
-    if (usageCount > 0) {
-      throw new BadRequestException(
-        `Cannot delete: ${usageCount} orders are currently in this status.`,
-      );
-    }
 
-    return await this.statusRepo.remove(status);
+
+    return await this.dataSource.transaction(async (manager) => {
+      await CRUD.toggleStatus(
+        manager,
+        OrderStatusEntity,
+        id,
+        adminId,
+        false, // Deactivate
+        [],
+      );
+    });
   }
 
   // ========================================
