@@ -5,6 +5,8 @@ import { SubscriptionGuard } from 'common/subscription.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { Response } from 'express';
+
+
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('accounting')
 export class AccountingController {
