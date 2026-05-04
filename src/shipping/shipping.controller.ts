@@ -2,7 +2,7 @@
 import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ShippingService } from './shipping.service';
-import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, PrintMassAWBDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
 import { tenantId } from 'src/category/category.service';
 import { ProviderCode } from './providers/shipping-provider.interface';
 
@@ -179,6 +179,12 @@ export class ShippingController {
 	trackShipment(@Req() req: any, @Param('trackingNumber') trackingNumber: string) {
 		const adminId = tenantId(req.user);
 		return this.shipping.getShipmentByTrackingNumber(adminId, trackingNumber);
+	}
+
+	@Permissions("shipping-companies.read")
+	@Post('providers/:provider/mass-awb')
+	printMassAWB(@Req() req: any, @Param('provider') provider: string, @Body() dto: PrintMassAWBDto) {
+		return this.shipping.printMassAWB(req.user, provider, dto);
 	}
 
 }

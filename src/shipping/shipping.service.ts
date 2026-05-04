@@ -14,8 +14,8 @@ import {
 	UnifiedShippingStatus,
 } from '../../entities/shipping.entity';
 
-import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto } from './shipping.dto';
-import { ProviderCode, ShippingProvider } from './providers/shipping-provider.interface';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, PrintMassAWBDto } from './shipping.dto';
+import { IMassAWBProvider, ProviderCode, ShippingProvider } from './providers/shipping-provider.interface';
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
@@ -124,6 +124,72 @@ export class ShippingService {
 		return {
 			ok: true,
 			integrations: result
+		};
+	}
+
+	async getShipmentStatus(adminId: string, provider: string, trackingNumber: string) {
+		const p = this.getProvider(provider);
+		const { apiKey } = await this.requireApiKey(adminId, provider);
+
+		return p.getShipmentStatus(apiKey, trackingNumber);
+	}
+
+	async printMassAWB(me: any, providerCode: string, dto: PrintMassAWBDto) {
+		const adminId = tenantId(me);
+		const p = this.getProvider(providerCode);
+
+		// Check if provider supports mass AWB
+		if (!('printMassAWB' in p)) {
+			throw new BadRequestException(`Provider ${providerCode} does not support mass AWB printing.`);
+		}
+
+		const massAWBProvider = p as unknown as IMassAWBProvider;
+
+		if (dto.orderIds.length > 50) {
+			throw new BadRequestException('Supports a maximum of 50 orders per mass AWB request.');
+		}
+
+		// Fetch orders and validate
+		const orders = await this.ordersRepo.find({
+			where: {
+				id: In(dto.orderIds),
+				adminId,
+				shippingCompany: { code: providerCode }
+			},
+			relations: ['status', 'shippingCompany']
+		});
+
+		if (orders.length !== dto.orderIds.length) {
+			throw new BadRequestException('Some orders were not found or do not belong to the selected provider.');
+		}
+
+		const trackingNumbers: string[] = [];
+		for (const order of orders) {
+			if (!order.trackingNumber) {
+				throw new BadRequestException(`Order ${order.orderNumber} does not have a tracking number.`);
+			}
+			// Status check: must be distributed or later in the flow
+			// Assuming distributed or shipped are valid for AWB printing
+			if (![OrderStatus.DISTRIBUTED, OrderStatus.SHIPPED, OrderStatus.PRINTED].includes(order.status?.code as OrderStatus)) {
+				throw new BadRequestException(`Order ${order.orderNumber} is not in a valid status for AWB printing (current status: ${order.status?.code}).`);
+			}
+			trackingNumbers.push(order.trackingNumber);
+		}
+
+		const { apiKey } = await this.requireApiKey(adminId, providerCode);
+
+		const result = await massAWBProvider.printMassAWB(apiKey, trackingNumbers, {
+			requestedAwbType: dto.requestedAwbType,
+			lang: dto.lang
+		});
+
+		if (!result.success) {
+			throw new BadRequestException(result.error);
+		}
+
+		return {
+			success: true,
+			data: result.data
 		};
 	}
 

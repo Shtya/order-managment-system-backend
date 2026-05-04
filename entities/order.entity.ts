@@ -360,6 +360,7 @@ export class OrderEntity {
     districtId?: string;
     zoneId?: string;
     locationId?: string;
+    orderSize?: string;
   };
 
   // Add this to your OrderEntity
