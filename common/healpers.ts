@@ -245,3 +245,25 @@ export const GLOBAL_CUSTOM_ALLOWED = [
     OrderStatus.CANCELLED,
     OrderStatus.REJECTED,
 ];
+
+export function formatReferenceMeta(meta: Record<string, any> = {}) {
+    if(!meta) return null;
+
+    const keyMap: Record<string, string> = {
+        orderNumber: "Order No",
+        purchaseNumber: "Purchase No",
+        purchaseReturnNumber: "Purchase Return No",
+        trackingNumber: "Tracking No",
+        shippingCompanyProvider: "Shipping Company",
+        category: "Category",
+        supplierName: "Supplier",
+    };
+
+    return Object.entries(meta)
+        .filter(([_, value]) => value !== null && value !== undefined)
+        .map(([key, value]) => {
+            const label = keyMap[key] || key;
+            return `${label}: ${value}`;
+        })
+        .join(" | ");
+}

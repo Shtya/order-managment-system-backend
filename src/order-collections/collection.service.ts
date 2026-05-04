@@ -81,7 +81,7 @@ export class CollectionService {
         return await this.dataSource.transaction(async (manager) => {
             // 1. Lock and find the order
             const order = await manager.findOne(OrderEntity, {
-                where: { id: dto.orderId, adminId },
+                where: { id: dto.orderId, adminId }
             });
 
             if (!order) {
@@ -94,12 +94,14 @@ export class CollectionService {
             });
             if (!safe) throw new BadRequestException("Safe/Account not found or not active");
 
-          if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+            if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
 
             // 3. Validate shipping company if provided
+            let shippingIntegration: ShippingIntegrationEntity | null = null;
             if (dto.shippingCompanyId) {
-                const shippingIntegration = await manager.findOne(ShippingIntegrationEntity, {
+                shippingIntegration = await manager.findOne(ShippingIntegrationEntity, {
                     where: { shippingCompanyId: dto.shippingCompanyId, adminId },
+                    relations: ['shippingCompany'],
                 });
 
                 if (!shippingIntegration) {
@@ -134,6 +136,11 @@ export class CollectionService {
                 amount: Number(dto.amount),
                 referenceType: TransactionReferenceType.ORDER_COLLECTION,
                 referenceId: saved.id,
+                referenceMeta: {
+                    shippingCompanyProvider: shippingIntegration?.shippingCompany?.code || null,
+                    trackingNumber: order.trackingNumber || null,
+                    orderNumber: order.orderNumber || null,
+                },
                 notes: `Collection for order #${order.orderNumber}. ${dto.notes || ""}`.trim(),
             }, manager);
 

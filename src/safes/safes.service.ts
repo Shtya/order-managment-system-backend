@@ -5,6 +5,7 @@ import { Account, FinancialTransaction, AccountTransfer, AccountStatus, Transact
 import { CreateAccountDto, UpdateAccountDto, CreateTransactionDto, CreateTransferDto, AccountFilterDto, TransactionFilterDto, TransferFilterDto } from 'dto/safe.dto';
 import { tenantId } from 'src/category/category.service';
 import * as ExcelJS from 'exceljs';
+import { formatReferenceMeta } from 'common/healpers';
 
 @Injectable()
 export class SafesService {
@@ -129,7 +130,7 @@ export class SafesService {
                 const financialDto: CreateTransactionDto = {
                     accountId: savedAccount.id,
                     amount: dto.initialBalance || 0,
-                    referenceType: TransactionReferenceType.MANUAL_ADD,
+                    referenceType: TransactionReferenceType.INITIAL_DEPOSIT,
                     notes: 'Initial Balance',
                 }
                 await this.createTransaction(me, { ...financialDto, direction: TransactionDirection.IN }, manager);
@@ -242,24 +243,9 @@ export class SafesService {
                 );
             }
 
-            const number = await this.generateTrxNumber(em);
-            const trx = em.create(FinancialTransaction, {
-                ...data,
-                number: number,
-                commission: commission,
-                currency: account.currency,
-                accountId: data.accountId,
-                adminId,
-                transactionDate: data.transactionDate || new Date(),
-                createdBy: { id: me.id },
-                status: TransactionStatus.COMPLETED,
-            });
-
-            const savedTrx = await em.save(trx);
-
             // Update Account Balance
             const balanceChange = data.direction === TransactionDirection.IN ? amount : -totalDeduction;
-            await em
+            const result = await em
                 .createQueryBuilder()
                 .update(Account)
                 .set({
@@ -267,7 +253,30 @@ export class SafesService {
                         `currentBalance ${balanceChange >= 0 ? "+" : "-"} ${Math.abs(balanceChange)}`
                 })
                 .where("id = :id", { id: account.id })
+                .returning(["currentBalance"])
                 .execute();
+
+            const newBalance = result.raw[0].currentBalance;
+
+            const number = await this.generateTrxNumber(em);
+            const trx = em.create(FinancialTransaction, {
+                ...data,
+                number: number,
+                commission: commission,
+                commissionRate: account.commissionRate,
+                currency: account.currency,
+                accountId: data.accountId,
+                adminId,
+                referenceMeta: data.referenceMeta || {},
+                balanceAfter: Number(newBalance),
+                transactionDate: data.transactionDate || new Date(),
+                createdById: me.id,
+                status: TransactionStatus.COMPLETED,
+            });
+
+            const savedTrx = await em.save(trx);
+
+
 
             return { ...savedTrx, commission };
         };
@@ -353,11 +362,13 @@ export class SafesService {
                 fromAccount: { id: dto.fromAccountId },
                 toAccount: { id: dto.toAccountId },
                 amount: dto.amount,
+                adminId,
+                commissionRate: outTrx.commissionRate || 0,
                 commission: outTrx.commission || 0,
                 outTransaction: { id: outTrx.id },
                 inTransaction: { id: inTrx.id },
                 notes: dto.notes,
-                createdBy: { id: me.id },
+                createdById: me.id,
             });
 
             return await em.save(transfer);
@@ -375,25 +386,73 @@ export class SafesService {
         const sheet = workbook.addWorksheet('Accounts');
 
         sheet.columns = [
-            { header: 'Name', key: 'name', width: 25 },
+            { header: 'Account Name', key: 'name', width: 25 },
             { header: 'Type', key: 'type', width: 15 },
-            { header: 'Status', key: 'status', width: 12 },
             { header: 'Currency', key: 'currency', width: 10 },
+            { header: 'Balance', key: 'balance', width: 15 },
             { header: 'Initial Balance', key: 'initialBalance', width: 15 },
-            { header: 'Current Balance', key: 'currentBalance', width: 15 },
+            { header: 'Bank Name', key: 'bankName', width: 20 },
+            { header: 'Owner', key: 'accountOwnerName', width: 25 },
+            { header: 'Number', key: 'accountNumber', width: 25 },
+            { header: 'Commission Rate', key: 'commissionRate', width: 15 },
             { header: 'Total In', key: 'totalIn', width: 15 },
             { header: 'Total Out', key: 'totalOut', width: 15 },
-            { header: 'Bank Name', key: 'bankName', width: 20 },
-            { header: 'Account Number', key: 'accountNumber', width: 20 },
+            { header: 'Status', key: 'status', width: 12 },
         ];
 
-        records.forEach(acc => {
+        records.forEach(a => {
             sheet.addRow({
-                ...acc,
-                initialBalance: Number(acc.initialBalance),
-                currentBalance: Number(acc.currentBalance),
-                totalIn: Number(acc.totalIn),
-                totalOut: Number(acc.totalOut),
+                name: a.name,
+                type: a.type,
+                currency: a.currency,
+                balance: Number(a.currentBalance),
+                initialBalance: Number(a.initialBalance),
+                bankName: a.bankName,
+                accountOwnerName: a.accountOwnerName,
+                accountNumber: a.accountNumber,
+                commissionRate: Number(a.commissionRate),
+                totalIn: Number(a.totalIn),
+                totalOut: Number(a.totalOut),
+                status: a.status,
+            });
+        });
+
+        return await workbook.xlsx.writeBuffer();
+    }
+
+    async exportTransfers(me: any, q: TransferFilterDto) {
+        const { records } = await this.listTransfers(me, { ...q, limit: 10000 });
+
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Transfers');
+
+        sheet.columns = [
+            { header: 'ID', key: 'id', width: 10 },
+            { header: 'Date', key: 'date', width: 22 },
+            { header: 'From Account', key: 'fromAccount', width: 25 },
+            { header: 'Balance After (From)', key: 'fromBalanceAfter', width: 20 },
+            { header: 'To Account', key: 'toAccount', width: 25 },
+            { header: 'Balance After (To)', key: 'toBalanceAfter', width: 20 },
+            { header: 'Amount', key: 'amount', width: 15 },
+            { header: 'Commission', key: 'commission', width: 15 },
+            { header: 'Currency', key: 'currency', width: 10 },
+            { header: 'Created By', key: 'createdBy', width: 25 },
+            { header: 'Notes', key: 'notes', width: 40 },
+        ];
+
+        records.forEach(tr => {
+            sheet.addRow({
+                id: tr.id,
+                date: new Date(tr.createdAt).toLocaleString(),
+                fromAccount: tr.fromAccount?.name,
+                fromBalanceAfter: tr.outTransaction ? Number(tr.outTransaction.balanceAfter) : null,
+                toAccount: tr.toAccount?.name,
+                toBalanceAfter: tr.inTransaction ? Number(tr.inTransaction.balanceAfter) : null,
+                amount: Number(tr.amount),
+                commission: Number(tr.commission),
+                currency: tr.fromAccount?.currency,
+                createdBy: tr.createdBy?.name,
+                notes: tr.notes,
             });
         });
 
@@ -408,12 +467,17 @@ export class SafesService {
 
         sheet.columns = [
             { header: 'TRX #', key: 'number', width: 18 },
-            { header: 'Date', key: 'date', width: 18 },
+            { header: 'Date', key: 'date', width: 22 },
             { header: 'Account', key: 'accountName', width: 25 },
+            { header: 'Type', key: 'referenceType', width: 20 },
+            { header: 'Metadata', key: 'referenceMeta', width: 35 },
             { header: 'Direction', key: 'direction', width: 12 },
             { header: 'Amount', key: 'amount', width: 15 },
-            { header: 'Ref Type', key: 'referenceType', width: 20 },
-            { header: 'Counterparty', key: 'counterparty', width: 25 },
+            { header: 'Commission', key: 'commission', width: 15 },
+            { header: 'CommissionRate', key: 'commissionRate', width: 15 },
+            { header: 'Currency', key: 'currency', width: 10 },
+            { header: 'Balance After', key: 'balanceAfter', width: 15 },
+            { header: 'Created By', key: 'createdBy', width: 25 },
             { header: 'Notes', key: 'notes', width: 40 },
         ];
 
@@ -422,10 +486,15 @@ export class SafesService {
                 number: t.number,
                 date: new Date(t.transactionDate).toLocaleString(),
                 accountName: t.account?.name,
+                referenceType: t.referenceType,
+                referenceMeta: formatReferenceMeta(t.referenceMeta),
                 direction: t.direction,
                 amount: Number(t.amount),
-                referenceType: t.referenceType,
-                counterparty: t.counterparty,
+                commission: Number(t.commission),
+                commissionRate: Number(t.commissionRate),
+                currency: t.account?.currency || t.currency,
+                balanceAfter: Number(t.balanceAfter),
+                createdBy: t.createdBy?.name,
                 notes: t.notes,
             });
         });

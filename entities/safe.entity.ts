@@ -24,6 +24,7 @@ export enum TransactionDirection {
 // enums/transaction-reference-type.enum.ts
 export enum TransactionReferenceType {
     // حركات داخلة (IN)
+    INITIAL_DEPOSIT = 'INITIAL_DEPOSIT', // إيداع مبداية 
     MANUAL_ADD = 'MANUAL_ADD',                 // إضافة رصيد يدوية
     SHIPPING_COLLECTION = 'SHIPPING_COLLECTION', // تحصيل من شركة شحن//
     CUSTOMER_COLLECTION = 'CUSTOMER_COLLECTION', // تحصيل من عميل
@@ -123,7 +124,6 @@ export class Account {
     updatedAt: Date;
 }
 
-
 @Entity('financial_transactions')
 export class FinancialTransaction {
     @PrimaryGeneratedColumn('uuid')
@@ -146,6 +146,12 @@ export class FinancialTransaction {
     @Column({ type: 'decimal', precision: 15, scale: 2 })
     amount: number; // المبلغ
 
+    @Column({ type: 'decimal', precision: 15, scale: 2 })
+    balanceAfter: number; // الرصيد بعد تنفيذ الحركة
+
+    @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+    commissionRate: number; // عمولة الحساب (لو بنك أو محفظة)
+
     @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
     commission: number; // عمولة الحركة إن وجدت
 
@@ -157,6 +163,13 @@ export class FinancialTransaction {
 
     @Column({ type: 'varchar', length: 255, nullable: true })
     referenceId: string; // رقم المرجع (مثل ID فاتورة المشتريات أو ID المصروف)
+
+    @Column({ type: 'jsonb', nullable: true })
+    referenceMeta: Record<string, any>;
+    // for examble 
+    // referenceMeta: 
+    //{ "purchaseNumber": "PUR-2026-015", "supplierName": "ABC Supplier" }
+    //{ "expenseNumber": "EXP-2026-001", "category": "Marketing"}
 
     @Column({ type: 'varchar', length: 255, nullable: true })
     counterparty: string; // الطرف المقابل (اسم المورد، اسم شركة الشحن، اسم العميل)
@@ -172,6 +185,9 @@ export class FinancialTransaction {
 
     @Column({ type: 'timestamp' })
     transactionDate: Date; // تاريخ الحركة الفعلي (غير تاريخ الإنشاء في الداتا بيز)
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    createdById: string;
 
     @ManyToOne(() => User)
     @JoinColumn({ name: 'createdById' })
@@ -219,6 +235,9 @@ export class AccountTransfer {
 
     @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
     commission: number; // العمولة البنكية إن وجدت
+
+    @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+    commissionRate: number; // عمولة الحساب (لو بنك أو محفظة)
 
     @Index()
     @Column({ type: 'uuid', nullable: true })

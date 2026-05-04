@@ -343,25 +343,29 @@ export class PurchaseReturnsService {
       if (oldStatus === ApprovalStatus.ACCEPTED && inv.safeId) {
         const delta = Math.round((newPaidAmount - oldPaidAmount) * 100) / 100;
         if (delta > 0) {
-          await this.safesService.deposit(
-            me,
+          await this.safesService.deposit(me,
             {
               accountId: inv.safeId,
               amount: delta,
               referenceType: TransactionReferenceType.PURCHASE_RETURN,
               referenceId: inv.id,
+              referenceMeta: {
+                purchaseReturnNumber: inv.returnNumber || null,
+              },
               notes: `Purchase return invoice #${inv.returnNumber} refunded amount adjustment (+${delta}).`,
             },
             manager,
           );
         } else if (delta < 0) {
-          await this.safesService.withdraw(
-            me,
+          await this.safesService.withdraw(me,
             {
               accountId: inv.safeId,
               amount: -delta,
               referenceType: TransactionReferenceType.PURCHASE_RETURN,
               referenceId: inv.id,
+              referenceMeta: {
+                purchaseReturnNumber: inv.returnNumber || null,
+              },
               notes: `Purchase return invoice #${inv.returnNumber} refunded amount adjustment (${delta}).`,
             },
             manager,
@@ -655,6 +659,9 @@ export class PurchaseReturnsService {
             amount: Number(inv.paidAmount),
             referenceType: TransactionReferenceType.PURCHASE_RETURN,
             referenceId: inv.id,
+            referenceMeta: {
+              purchaseReturnNumber: inv.returnNumber || null,
+            },
             notes: `Purchase return invoice #${inv.returnNumber} accepted.`,
           }, manager);
         }
@@ -720,6 +727,9 @@ export class PurchaseReturnsService {
             amount: Number(inv.paidAmount),
             referenceType: TransactionReferenceType.PURCHASE_RETURN,
             referenceId: inv.id,
+            referenceMeta: {
+              purchaseReturnNumber: inv.returnNumber || null,
+            },
             notes: `Purchase return invoice #${inv.returnNumber} rolled back.`,
           }, manager);
         }
@@ -797,6 +807,9 @@ export class PurchaseReturnsService {
             amount: Number(inv.paidAmount),
             referenceType: TransactionReferenceType.PURCHASE_RETURN,
             referenceId: inv.id,
+            referenceMeta: {
+              purchaseReturnNumber: inv.returnNumber || null,
+            },
             notes: `Purchase return invoice #${inv.returnNumber} deleted. Withdrawn from safe.`,
           }, manager);
         }

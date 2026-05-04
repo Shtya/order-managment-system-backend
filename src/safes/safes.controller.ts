@@ -61,6 +61,13 @@ export class SafesController {
   async listTransactions(@Req() req: any, @Query() q: TransactionFilterDto) {
     return await this.safesService.listTransactions(req.user, q);
   }
+  @Get('transactions/export')
+  async exportTransactions(@Req() req: any, @Res() res: Response, @Query() q: TransactionFilterDto) {
+    const buffer = await this.safesService.exportTransactions(req.user, q);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=transactions-${Date.now()}.xlsx`);
+    res.end(buffer);
+  }
 
   @Get('transactions/:id')
   async getTransactionById(@Req() req: any, @Param('id') id: string) {
@@ -77,13 +84,7 @@ export class SafesController {
     return await this.safesService.withdraw(req.user, dto);
   }
 
-  @Get('transactions/export')
-  async exportTransactions(@Req() req: any, @Res() res: Response, @Query() q: TransactionFilterDto) {
-    const buffer = await this.safesService.exportTransactions(req.user, q);
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename=transactions-${Date.now()}.xlsx`);
-    res.end(buffer);
-  }
+
 
   // ─────────────────────────────────────────────────────────────────────────
   // TRANSFERS
@@ -97,5 +98,13 @@ export class SafesController {
   @Post('transfers')
   async transfer(@Req() req: any, @Body() dto: CreateTransferDto) {
     return await this.safesService.transfer(req.user, dto);
+  }
+
+  @Get('transfers/export')
+  async exportTransfers(@Req() req: any, @Res() res: Response, @Query() q: TransferFilterDto) {
+    const buffer = await this.safesService.exportTransfers(req.user, q);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename=transfers-${Date.now()}.xlsx`);
+    res.end(buffer);
   }
 }

@@ -461,8 +461,6 @@ export class ShippingService {
 				});
 
 				try {
-
-
 					if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
 						await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
 					}
