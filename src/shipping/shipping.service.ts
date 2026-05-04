@@ -1000,6 +1000,7 @@ export class ShippingService {
 							item.quantity
 						);
 					}
+
 				} else {
 					// تحديث طبيعي للحالات الأخرى
 					shipment.unifiedStatus = mapped.unifiedStatus;
@@ -1013,6 +1014,7 @@ export class ShippingService {
 						shipment.order.statusId = deliveredStatus.id;
 						shipment.order.deliveredAt = new Date(); // Set delivery timestamp
 					}
+					
 				} else if (
 					mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
 					mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
@@ -1020,6 +1022,16 @@ export class ShippingService {
 					const failedStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.FAILED_DELIVERY } });
 					if (failedStatus) {
 						shipment.order.statusId = failedStatus.id;
+					}
+
+					// 2. إعادة المخزون
+					for (const item of shipment.order.items) {
+						await manager.increment(
+							ProductVariantEntity,
+							{ id: item.variantId, adminId: shipment.adminId },
+							"stockOnHand",
+							item.quantity
+						);
 					}
 				}
 
