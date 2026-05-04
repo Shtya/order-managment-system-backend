@@ -170,7 +170,7 @@ export class PurchasesService {
 
 		const inv = await this.invRepo.findOne({
 			where: { id, adminId } as any,
-			relations: ["items", "items.variant", "items.variant.product"], // ✅ better details modal
+			relations: ["items", "items.variant", "items.variant.product", "safe"], // ✅ better details modal
 		});
 
 		const supplier = await this.supplierRepo.findOne({
