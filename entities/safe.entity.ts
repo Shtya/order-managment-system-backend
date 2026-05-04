@@ -146,7 +146,7 @@ export class FinancialTransaction {
     @Column({ type: 'decimal', precision: 15, scale: 2 })
     amount: number; // المبلغ
 
-    @Column({ type: 'decimal', precision: 15, scale: 2 })
+    @Column({ type: 'decimal', precision: 15, scale: 2, default: 0 })
     balanceAfter: number; // الرصيد بعد تنفيذ الحركة
 
     @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
