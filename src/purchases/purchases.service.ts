@@ -200,7 +200,7 @@ export class PurchasesService {
 
 		const inv = await this.invRepo.findOne({
 			where: { id, adminId } as any,
-			relations: ["items", "items.variant"],
+			relations: ["items", "items.variant", "safe"],
 		});
 		if (!inv) throw new BadRequestException("purchase invoice not found");
 
@@ -283,6 +283,7 @@ export class PurchasesService {
 			currentStatus: inv.status,
 			canApply: inv.status !== ApprovalStatus.ACCEPTED,
 			rows,
+			invoice: inv,
 		};
 	}
 
@@ -725,7 +726,7 @@ export class PurchasesService {
 
 						if (next < 0) {
 							throw new BadRequestException(
-								`Cannot remove stock below zero for variantId=${variantId} (oldStock=${oldStock}, remove=${removeQty})`
+								`Cannot remove stock below zero for sku=${v.sku} (oldStock=${oldStock}, remove=${removeQty})`
 							);
 						}
 
