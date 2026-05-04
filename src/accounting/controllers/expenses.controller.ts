@@ -29,6 +29,13 @@ export class ExpensesController {
     return await this.expensesService.listExpenses(req.user, q);
   }
 
+  @Get(':id')
+  async getExpense(@Req() req: any, @Param('id') id: string) {
+    return await this.expensesService.getExpense(req.user, id);
+  }
+
+
+
   @Post()
   @UseInterceptors(FileInterceptor('attachment', {
     storage: diskStorage({

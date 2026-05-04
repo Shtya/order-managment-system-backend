@@ -491,25 +491,29 @@ export class PurchasesService {
 			if (oldStatus === ApprovalStatus.ACCEPTED && inv.safeId) {
 				const delta = Math.round((newPaidAmount - oldPaidAmount) * 100) / 100;
 				if (delta > 0) {
-					await this.safesService.withdraw(
-						me,
+					await this.safesService.withdraw(me,
 						{
 							accountId: inv.safeId,
 							amount: delta,
 							referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
 							referenceId: inv.id,
+							referenceMeta: {
+								purchaseNumber: inv.receiptNumber || null,
+							},
 							notes: `Purchase invoice #${inv.receiptNumber} paid amount adjustment (+${delta}).`,
 						},
 						manager,
 					);
 				} else if (delta < 0) {
-					await this.safesService.deposit(
-						me,
+					await this.safesService.deposit(me,
 						{
 							accountId: inv.safeId,
 							amount: -delta,
 							referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
 							referenceId: inv.id,
+							referenceMeta: {
+								purchaseNumber: inv.receiptNumber || null,
+							},
 							notes: `Purchase invoice #${inv.receiptNumber} paid amount adjustment (${delta}).`,
 						},
 						manager,
@@ -674,6 +678,9 @@ export class PurchasesService {
 						amount: Number(inv.paidAmount),
 						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
 						referenceId: inv.id,
+						referenceMeta: {
+							purchaseNumber: inv.receiptNumber || null,
+						},
 						notes: `Purchase invoice #${inv.receiptNumber} accepted.`,
 					}, manager);
 				}
@@ -797,6 +804,9 @@ export class PurchasesService {
 						amount: Number(inv.paidAmount),
 						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
 						referenceId: inv.id,
+						referenceMeta: {
+							purchaseNumber: inv.receiptNumber || null,
+						},
 						notes: `Purchase invoice #${inv.receiptNumber} status changed from ACCEPTED to ${status}. Refunded to safe.`,
 					}, manager);
 				}
@@ -875,6 +885,9 @@ export class PurchasesService {
 						amount: Number(inv.paidAmount),
 						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
 						referenceId: inv.id,
+						referenceMeta: {
+							purchaseNumber: inv.receiptNumber || null,
+						},
 						notes: `Purchase invoice #${inv.receiptNumber} deleted. Refunded to safe.`,
 					}, manager);
 				}

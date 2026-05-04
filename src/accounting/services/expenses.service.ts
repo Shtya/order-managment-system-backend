@@ -77,6 +77,18 @@ export class ExpensesService {
         };
     }
 
+
+    async getExpense(me: any, id: string) {
+        const expense = await this.expenseRepo.findOne({
+            where: {
+                id,
+                adminId: tenantId(me),
+            },
+            relations: ["category", "user", "safe"],
+        });
+        if (!expense) throw new NotFoundException("Expense not found");
+        return expense;
+    }
     async exportExpenses(me: any, q?: any) {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
@@ -182,6 +194,9 @@ export class ExpensesService {
                     accountId: savedExpense.safeId,
                     amount: Number(savedExpense.amount),
                     referenceType: TransactionReferenceType.OPERATING_EXPENSE,
+                    referenceMeta: {
+                        category: category?.name || "N/A",
+                    },
                     referenceId: savedExpense.id,
                     notes: `Expense ${savedExpense.amount} for category ${category?.name || "N/A"} accepted.`,
                 }, manager);
@@ -196,7 +211,8 @@ export class ExpensesService {
 
         return this.dataSource.transaction(async (manager) => {
             const expense = await manager.findOne(ManualExpenseEntity, {
-                where: { id, adminId }
+                where: { id, adminId },
+                relations: ['category']
             });
 
             if (!expense) {
@@ -233,6 +249,9 @@ export class ExpensesService {
                     amount: oldAmount,
                     referenceType: TransactionReferenceType.EXPENSE_REFUND,
                     referenceId: expense.id,
+                    referenceMeta: {
+                        category: expense.category?.name || "N/A",
+                    },
                     notes: `Reversing old expense amount ${oldAmount} due to update.`,
                 }, manager);
             }
@@ -247,13 +266,16 @@ export class ExpensesService {
             // Apply new safe transaction
             if (Number(savedExpense.amount) > 0 && savedExpense.safeId) {
                 const category = await manager.findOne(ManualExpenseCategoryEntity, {
-                    where: { id: savedExpense.categoryId, adminId }
+                    where: { id: savedExpense.categoryId, adminId },
                 });
                 await this.safesService.withdraw(me, {
                     accountId: savedExpense.safeId,
                     amount: Number(savedExpense.amount),
                     referenceType: TransactionReferenceType.OPERATING_EXPENSE,
                     referenceId: savedExpense.id,
+                    referenceMeta: {
+                        category: category?.name || "N/A",
+                    },
                     notes: `Expense ${savedExpense.amount} for category ${category?.name || "N/A"} updated.`,
                 }, manager);
             }
@@ -267,7 +289,8 @@ export class ExpensesService {
 
         return this.dataSource.transaction(async (manager) => {
             const expense = await manager.findOne(ManualExpenseEntity, {
-                where: { id, adminId }
+                where: { id, adminId },
+                relations: ['category']
             });
 
             if (!expense) {
@@ -288,6 +311,9 @@ export class ExpensesService {
                     amount: amount,
                     referenceType: TransactionReferenceType.EXPENSE_REFUND,
                     referenceId: expense.id,
+                    referenceMeta: {
+                        category: expense.category?.name || "N/A",
+                    },
                     notes: `Expense ${amount} deleted. Refunding to safe.`,
                 }, manager);
             }

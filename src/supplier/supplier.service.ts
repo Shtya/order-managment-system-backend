@@ -100,36 +100,39 @@ export class SuppliersService {
 
 		return categories;
 	}
-async paySupplier(me: any, id: string, dto: any, manager?: EntityManager) {
-        // 1. If no manager is passed, start a transaction and call this method again
-        if (!manager) {
-            return this.dataSource.transaction(async (transactionalEntityManager) => {
-                return this.paySupplier(me, id, dto, transactionalEntityManager);
-            });
-        }
+	async paySupplier(me: any, id: string, dto: any, manager?: EntityManager) {
+		// 1. If no manager is passed, start a transaction and call this method again
+		if (!manager) {
+			return this.dataSource.transaction(async (transactionalEntityManager) => {
+				return this.paySupplier(me, id, dto, transactionalEntityManager);
+			});
+		}
 
-        // 2. From this point on, 'manager' is guaranteed to be defined and part of a transaction
-        const supplier = await manager.findOne(SupplierEntity, {
-            where: { id, adminId: me.adminId }
-        });
+		// 2. From this point on, 'manager' is guaranteed to be defined and part of a transaction
+		const supplier = await manager.findOne(SupplierEntity, {
+			where: { id, adminId: me.adminId }
+		});
 
-        if (!supplier) throw new NotFoundException('Supplier not found');
+		if (!supplier) throw new NotFoundException('Supplier not found');
 
-        // Perform the withdrawal
-        await this.safesService.withdraw(me, {
-            accountId: dto.accountId,
-            amount: Number(dto.amount),
-            referenceType: TransactionReferenceType?.VENDOR_PAYMENT,
-            referenceId: supplier.id, 
-            notes: dto.notes || `Payment to supplier ${supplier.name}`,
-        }, manager);
+		// Perform the withdrawal
+		await this.safesService.withdraw(me, {
+			accountId: dto.accountId,
+			amount: Number(dto.amount),
+			referenceType: TransactionReferenceType?.VENDOR_PAYMENT,
+			referenceId: supplier.id,
+			referenceMeta: {
+				supplierName: supplier.name,
+			},
+			notes: dto.notes || `Payment to supplier ${supplier.name}`,
+		}, manager);
 
-        // Decrease the supplier's due balance
-        supplier.dueBalance = Number(supplier.dueBalance) - Number(dto.amount);
-        await manager.save(supplier);
+		// Decrease the supplier's due balance
+		supplier.dueBalance = Number(supplier.dueBalance) - Number(dto.amount);
+		await manager.save(supplier);
 
-        return { success: true };
-    }
+		return { success: true };
+	}
 
 	async create(me: any, dto: CreateSupplierDto) {
 		const adminId = tenantId(me);

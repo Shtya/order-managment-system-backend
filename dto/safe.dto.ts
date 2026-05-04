@@ -116,6 +116,9 @@ export class CreateTransactionDto {
 
     @IsOptional()
     transactionDate?: Date;
+
+    @IsOptional()
+    referenceMeta?: Record<string, any>;
 }
 
 export class CreateTransferDto {
