@@ -50,6 +50,10 @@ export type ProviderCapabilitiesResponse = {
 	raw?: any;
 };
 
+export interface IMassAWBProvider {
+	printMassAWB(apiKey: string, trackingNumbers: string[], options: { requestedAwbType?: 'A4' | 'A6'; lang?: 'ar' | 'en' }): Promise<{ success: boolean; data?: string; error?: string }>;
+}
+
 export abstract class ShippingProvider {
 	abstract readonly code: ProviderCode;
 	abstract readonly displayName: string;

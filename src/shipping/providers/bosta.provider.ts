@@ -9,6 +9,7 @@ import {
   ShippingProvider,
   UnifiedGeography,
   UnifiedPickupLocation,
+  IMassAWBProvider,
 } from './shipping-provider.interface';
 import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
 import { OrderEntity, PaymentMethod } from 'entities/order.entity';
@@ -30,7 +31,7 @@ export enum BostaDeliveryType {
 
 
 @Injectable()
-export class BostaProvider extends ShippingProvider {
+export class BostaProvider extends ShippingProvider implements IMassAWBProvider {
 
   code: ProviderCode = 'bosta';
   displayName = 'Bosta';
@@ -195,7 +196,7 @@ export class BostaProvider extends ShippingProvider {
       };
     }
 
-    
+
     const payload = {
       type: isExchange ? BostaDeliveryType.Exchange : BostaDeliveryType.Deliver,
       businessReference: order.orderNumber,
@@ -204,7 +205,7 @@ export class BostaProvider extends ShippingProvider {
       cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? order.finalTotal - order.shippingCost : 0,
       specs: {
         packageType: "Parcel",
-        size: dto.size || "MEDIUM",
+        size: order.shippingMetadata?.orderSize || "MEDIUM",
         packageDetails: {
           itemsCount: itemsCount,
           description: order.items.map(item => `${item.quantity}x ${item.variant?.product?.name}`).join(" - "),
@@ -399,6 +400,29 @@ export class BostaProvider extends ShippingProvider {
       trackingNumber: shipment.trackingNumber,
       providerShipmentId: shipment._id,
     };
+  }
+
+  async printMassAWB(apiKey: string, trackingNumbers: string[], options: { requestedAwbType?: 'A4' | 'A6'; lang?: 'ar' | 'en' }): Promise<{ success: boolean; data?: string; error?: string }> {
+    const url = `${this.baseUrl}/deliveries/mass-awb`;
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post(url, {
+          trackingNumbers: trackingNumbers.join(','),
+          requestedAwbType: options.requestedAwbType || 'A4',
+          lang: options.lang || 'ar'
+        }, {
+          headers: { Authorization: apiKey }
+        })
+      );
+
+      if (data.success) {
+        return { success: true, data: data.data };
+      }
+
+      return { success: false, error: data.message || 'Failed to print waybill' };
+    } catch (error) {
+      return { success: false, error: error.response?.data?.message || error.message };
+    }
   }
 
   private mapBostaStateToUnified(state: number): UnifiedShippingStatus {

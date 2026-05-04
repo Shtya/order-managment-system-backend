@@ -106,6 +106,10 @@ export class ShippingMetadataDto {
   @IsOptional()
   @IsString()
   secondPhone?: string;
+
+  @IsOptional()
+  @IsString()
+  orderSize?: string;
 }
 
 // ✅ Create Order DTO
@@ -246,6 +250,10 @@ export class BulkUpdateShippingMetadataDto {
   @IsOptional()
   @IsString()
   zoneId?: string;
+
+  @IsOptional()
+  @IsString()
+  orderSize?: string;
 }
 
 export class BulkUpdateShippingFieldItemDto {

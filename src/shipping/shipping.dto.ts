@@ -1,6 +1,6 @@
 // --- File: backend/src/shipping/shipping.dto.ts ---
 import { Type } from 'class-transformer';
-import { IsArray, IsBoolean, IsNumber, IsObject, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
 
 export class SetActiveDto {
 	@IsBoolean()
@@ -46,4 +46,18 @@ export class BulkAssignOrderDto {
 	@ValidateNested({ each: true })
 	@Type(() => BulkAssignItemDto)
 	items: BulkAssignItemDto[];
+}
+
+export class PrintMassAWBDto {
+	@IsArray()
+	@IsString({ each: true })
+	orderIds: string[];
+
+	@IsOptional()
+	@IsEnum(['A4', 'A6'])
+	requestedAwbType?: 'A4' | 'A6' = 'A4';
+
+	@IsOptional()
+	@IsEnum(['ar', 'en'])
+	lang?: 'ar' | 'en' = 'ar';
 }
