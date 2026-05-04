@@ -263,7 +263,7 @@ export class SafesService {
                 ...data,
                 number: number,
                 commission: commission,
-                commissionRate: account.commissionRate,
+                commissionRate: data.direction === TransactionDirection.OUT ? account.commissionRate : null,
                 currency: account.currency,
                 accountId: data.accountId,
                 adminId,
