@@ -86,6 +86,7 @@ import { StoresService } from "src/stores/stores.service";
 import { ShippingService } from "src/shipping/shipping.service";
 import { StoreQueueService } from "src/stores/storesIntegrations/queues";
 import { CRUD } from "common/crud.service";
+import { randomBytes } from "crypto";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -179,25 +180,41 @@ export class OrdersService {
 
   }
   // ✅ Generate unique order number
-  private async generateOrderNumber(adminId: string): Promise<string> {
-    const dateStr = Date.now(); // YYYYMMDD
-    const prefix = `ORD-${dateStr}`;
 
-    const lastOrder = await this.orderRepo
-      .createQueryBuilder("o")
-      .where("o.adminId = :adminId", { adminId })
-      .andWhere("o.orderNumber LIKE :prefix", { prefix: `${prefix}%` })
-      .orderBy("o.id", "DESC")
-      .getOne();
+private generateRandomAlphanumeric(length: number): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // avoids confusing chars like O/0 and I/1
+  const bytes = randomBytes(length);
 
-    let sequence = 1;
-    if (lastOrder) {
-      const lastNum = lastOrder.orderNumber.split("-").pop();
-      sequence = parseInt(lastNum || "0") + 1;
-    }
-
-    return `${prefix}-${String(sequence).padStart(3, "0")}`;
+  let result = "";
+  for (let i = 0; i < length; i++) {
+    result += chars[bytes[i] % chars.length];
   }
+
+  return result;
+}
+
+private async generateOrderNumber(adminId: string): Promise<string> {
+  const prefix = "ORD"; // 3 fixed chars
+  const totalLength = 10;
+  const randomPartLength = totalLength - prefix.length;
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const orderNumber = `${prefix}${this.generateRandomAlphanumeric(randomPartLength)}`;
+
+    const existingOrder = await this.orderRepo.findOne({
+      where: {
+        adminId,
+        orderNumber,
+      },
+    });
+
+    if (!existingOrder) {
+      return orderNumber;
+    }
+  }
+
+  throw new Error("Failed to generate unique order number");
+}
 
   // ✅ Calculate totals
   private calculateTotals(items: any[], shippingCost = 0, discount = 0) {
@@ -353,8 +370,6 @@ export class OrdersService {
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
 
-
-    const forConfirm = String(q?.forConfirm) === "true";
 
     const qb = this.orderRepo
       .createQueryBuilder("order")
