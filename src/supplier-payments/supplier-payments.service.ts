@@ -193,7 +193,7 @@ export class SupplierPaymentsService {
             s.name ILIKE :search
             OR EXISTS (
                 SELECT 1
-                FROM supplier_payment_allocation spa
+                FROM supplier_payment_allocations spa
                 LEFT JOIN invoice i ON i.id = spa.invoiceId
                 WHERE spa.paymentId = p.id
                 AND i.receiptNumber ILIKE :search
