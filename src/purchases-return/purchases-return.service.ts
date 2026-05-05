@@ -29,8 +29,8 @@ export class PurchaseReturnsService {
     @InjectRepository(PurchaseReturnInvoiceEntity) private invRepo: Repository<PurchaseReturnInvoiceEntity>,
     @InjectRepository(PurchaseReturnInvoiceItemEntity) private itemRepo: Repository<PurchaseReturnInvoiceItemEntity>,
     @InjectRepository(PurchaseReturnAuditLogEntity) private auditRepo: Repository<PurchaseReturnAuditLogEntity>,
-    @InjectRepository(ProductVariantEntity) private pvRepo: Repository<ProductVariantEntity>,
     @InjectRepository(SupplierEntity) private supplierRepo: Repository<SupplierEntity>,
+    @InjectRepository(ProductVariantEntity) private pvRepo: Repository<ProductVariantEntity>,
     @InjectRepository(Account) private accountRepo: Repository<Account>,
     private safesService: SafesService,
   ) { }
