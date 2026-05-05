@@ -10,6 +10,7 @@ import { ApprovalStatus } from "common/enums";
 import { SupplierEntity } from "./supplier.entity";
 import { MonthlyClosingEntity, SupplierClosingEntity } from "./accounting.entity";
 import { Account } from "./safe.entity";
+import { SupplierPaymentAllocationEntity } from "./supplier_payments.entity";
 
 
 @Entity({ name: "purchase_invoices" })
@@ -86,6 +87,9 @@ export class PurchaseInvoiceEntity {
 	@ManyToOne(() => MonthlyClosingEntity)
 	@JoinColumn({ name: 'monthlyClosingId' })
 	monthlyClosing: Relation<MonthlyClosingEntity>;
+
+	@OneToMany(() => SupplierPaymentAllocationEntity, (alloc) => alloc.invoice)
+	allocations: SupplierPaymentAllocationEntity[];
 
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;
