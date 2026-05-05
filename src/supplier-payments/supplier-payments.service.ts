@@ -194,7 +194,7 @@ export class SupplierPaymentsService {
             OR EXISTS (
                 SELECT 1
                 FROM supplier_payment_allocations spa
-                LEFT JOIN invoice i ON i.id = spa.invoiceId
+                LEFT JOIN invoices i ON i.id = spa.invoiceId
                 WHERE spa.paymentId = p.id
                 AND i.receiptNumber ILIKE :search
             )
