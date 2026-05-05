@@ -108,6 +108,7 @@ export class PurchasesService {
 		const startDate = q?.startDate ? String(q.startDate) : null; // YYYY-MM-DD
 		const endDate = q?.endDate ? String(q.endDate) : null;
 		const hasReceipt = q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null; // yes/no
+		const payed = q?.payed && q.payed !== "all" ? String(q.payed) : null; // yes/no
 
 		const qb = this.invRepo
 			.createQueryBuilder("inv")
@@ -126,6 +127,9 @@ export class PurchasesService {
 
 		if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
 		if (hasReceipt === "no") qb.andWhere("inv.receiptAsset IS NULL");
+
+		if (payed === "yes") qb.andWhere("inv.remainingAmount <= 0");
+		if (payed === "no") qb.andWhere("inv.remainingAmount > 0");
 
 		DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
 
@@ -392,8 +396,7 @@ export class PurchasesService {
 		}
 
 		// Save old values for financial sync
-		const oldTotal = inv.total ?? 0;
-		const oldRemaining = inv.remainingAmount ?? 0;
+
 		const oldSupplierId = inv.supplierId;
 		const oldStatus = inv.status;
 

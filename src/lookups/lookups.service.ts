@@ -68,6 +68,7 @@ export class LookupsService {
 				's.phone AS phone',
 				's.email AS email',
 				's.address AS address',
+				's."dueBalance" AS "dueBalance"',
 			])
 			.orderBy('s.id', 'DESC')
 			.limit(params.limit);
@@ -93,6 +94,7 @@ export class LookupsService {
 			phone: x.phone ?? null,
 			email: x.email ?? null,
 			address: x.address ?? null,
+			dueBalance: x.dueBalance ?? 0,
 		}));
 	}
 

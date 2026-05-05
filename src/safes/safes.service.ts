@@ -255,7 +255,7 @@ export class SafesService {
                 .where("id = :id", { id: account.id })
                 .returning(["currentBalance"])
                 .execute();
-
+                
             const newBalance = result.raw[0].currentBalance;
 
             const number = await this.generateTrxNumber(em);

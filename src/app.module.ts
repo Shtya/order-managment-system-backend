@@ -46,6 +46,7 @@ import { ProductSyncStateModule } from './product-sync-state/product-sync-state.
 import { minutes, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { SafesModule } from './safes/safes.module';
+import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -109,7 +110,8 @@ import { SafesModule } from './safes/safes.module';
 		AdminSettingsModule,
 		AccountingModule,
 		ProductSyncStateModule,
-		SafesModule
+		SafesModule,
+		SupplierPaymentsModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService, {
