@@ -194,9 +194,9 @@ export class SupplierPaymentsService {
             OR EXISTS (
                 SELECT 1
                 FROM supplier_payment_allocations spa
-                LEFT JOIN invoices i ON i.id = spa.invoiceId
-                WHERE spa.paymentId = p.id
-                AND i.receiptNumber ILIKE :search
+                LEFT JOIN purchase_invoices i ON i.id = spa."invoiceId"
+                WHERE spa."paymentId" = p.id
+                AND i."receiptNumber" ILIKE :search
             )
         )
     `, { search: `%${q.search}%` });
