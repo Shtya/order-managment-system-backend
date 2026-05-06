@@ -705,8 +705,9 @@ export class StoresService {
     store: StoreEntity,
     payload: WebhookOrderPayload,
     rawBody: any,
+    isWebhook = false,
     failureLog?: WebhookOrderFailureEntity,
-    manager?: EntityManager
+    manager?: EntityManager,
 
   ): Promise<{ ok: boolean; ignored?: boolean; reason?: string; orderId?: string }> {
 
@@ -715,7 +716,7 @@ export class StoresService {
         if (manager) return work(manager);
         return this.dataSource.transaction(work);
       };
-      
+
       return await runInTransaction(async (manager) => {
         const existingOrder = await this.ordersService.findByExternalId(payload.externalOrderId);
         if (existingOrder) {
@@ -817,12 +818,22 @@ export class StoresService {
       const errorMessage = getErrorMessage(error);
       this.logger.error(`[Webhook Order Create] Error processing webhook order: ${errorMessage}`, error.stack);
       if (failureLog) {
-        console.log("try update")
+        
         failureLog.status = OrderFailStatus.FAILED;
         failureLog.lastRetryFailedReason = errorMessage;
         await this.failureRepo.save(failureLog);
+        if (!isWebhook) {
+          await this.notificationService.create({
+            userId: adminId,
+            type: NotificationType.ORDER_CREATTION_FAILED,
+            title: "Retry Order Creation Failed",
+            message: `Failed to retry order creation for ${store.name}: ${errorMessage}`,
+            relatedEntityType: "webhook_order_failures",
+            relatedEntityId: String(failureLog.id),
+          });
+        }
       } else {
-        console.log("try create")
+
         const externalId = payload?.externalOrderId || 'UNKNOWN';
         const customerName = payload?.fullName?.trim() || 'N/A';
         await this.logFailedWebhookOrder(
@@ -864,7 +875,7 @@ export class StoresService {
     }
 
     const payload = await p.mapWebhookCreate(body, store);
-    return this.processMappedWebhookOrder(adminId, store, payload, body);
+    return this.processMappedWebhookOrder(adminId, store, payload, body, true);
   }
 
   async handleWebhookOrderUpdate(
@@ -1249,6 +1260,7 @@ export class StoresService {
           store,
           payload,
           failureLog.rawPayload,
+          false,
           failureLog,
           manager
         );
