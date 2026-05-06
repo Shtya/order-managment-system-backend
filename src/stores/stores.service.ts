@@ -266,6 +266,8 @@ export class StoresService {
 
     // 3. Transactional Save & Connection Validation
     return await this.dataSource.transaction(async (manager) => {
+      const validateConnection = p.code !== StoreProvider.SHOPIFY;
+
       const store = manager.create(StoreEntity, {
         adminId,
         name: dto.name.trim(),
@@ -273,9 +275,9 @@ export class StoresService {
         storeUrl: dto.storeUrl.trim(),
         provider: dto.provider,
         credentials, // Direct jsonb assignment
-        isActive: p.code === StoreProvider.WOOCOMMERCE, // Only WOOCOMMERCE not wait webhook validation
+        isActive: validateConnection,
         syncNewProducts: dto.syncNewProducts,
-        isIntegrated: p.code !== StoreProvider.EASYORDER,
+        isIntegrated: validateConnection,
         syncStatus: SyncStatus.PENDING,
       });
 
@@ -283,14 +285,21 @@ export class StoresService {
 
       // 4. Validate Provider Connection
       // If the API key is wrong, this throws and rolls back the save
-      try {
-        const isAuth = await p.validateProviderConnection(savedStore);
-        if (!isAuth) {
-          throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
+      if (validateConnection) {
+        try {
+          const isAuth = await p.validateProviderConnection(savedStore);
+          if (!isAuth) {
+            throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
+          }
+        } catch (error: any) {
+          this.logger.error(`Validation failed for ${dto.provider}: ${error.message}`);
+          //the message too long
+          throw new BadRequestException(
+            dto.provider === StoreProvider.SHOPIFY
+              ? `Unable to validate the Shopify connection. Please install the app and verify your credentials and store URL.`
+              : `Unable to validate the connection to ${p.displayName}. Please verify your credentials and settings.`
+          );
         }
-      } catch (error: any) {
-        this.logger.error(`Validation failed for ${dto.provider}: ${error.message}`);
-        throw new BadRequestException(`Unable to validate the integration to ${p.displayName}. This could be due to an invalid key, or incorrect provider settings.`);
       }
 
       // Return the store without sensitive keys in the response
@@ -432,7 +441,11 @@ export class StoresService {
             throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
           }
         } catch (error) {
-          throw new BadRequestException(`Unable to validate the integration to ${p.displayName}. This could be due to an invalid key, or incorrect provider settings.`);
+          throw new BadRequestException(
+            store.provider === StoreProvider.SHOPIFY
+              ? `Unable to validate the Shopify connection. Please install the app and verify your credentials and store URL.`
+              : `Unable to validate the connection to ${p.displayName}. Please verify your credentials and settings.`
+          );
         }
 
 
@@ -818,7 +831,7 @@ export class StoresService {
       const errorMessage = getErrorMessage(error);
       this.logger.error(`[Webhook Order Create] Error processing webhook order: ${errorMessage}`, error.stack);
       if (failureLog) {
-        
+
         failureLog.status = OrderFailStatus.FAILED;
         failureLog.lastRetryFailedReason = errorMessage;
         await this.failureRepo.save(failureLog);
