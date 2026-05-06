@@ -1398,6 +1398,7 @@ export class EasyOrderService extends BaseStoreProvider {
             `${apiBase}/stores/webhooks/${adminId}/easyorders/orders/status`
         ];
 
+        this.logger.log(apiBase, webhooksToDelete[0], webhooksToDelete[1])
         try {
             // 3. Call Easy Orders DELETE endpoint for each webhook
             await Promise.all(
