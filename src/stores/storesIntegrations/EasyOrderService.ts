@@ -1414,7 +1414,8 @@ export class EasyOrderService extends BaseStoreProvider {
 
             return true;
         } catch (error: any) {
-            this.logger.error(`Failed to cancel Easy Orders integration: ${error.message}`);
+            const message  = this.getErrorMessage(error)
+            this.logger.error(`Failed to cancel Easy Orders integration: ${message}`);
             return false;
         }
     }
@@ -1429,7 +1430,8 @@ export class EasyOrderService extends BaseStoreProvider {
 
             return this.mapRemoteProductToDto(response);
         } catch (error: any) {
-            this.logger.error(`[Product] Failed to fetch product by id ${id}: ${error.message}`);
+            const message  = this.getErrorMessage(error)
+            this.logger.error(`[Product] Failed to fetch product by id ${id}: ${message}`);
             throw error;
         }
     }
