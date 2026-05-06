@@ -627,7 +627,8 @@ export class ProductsService {
     // =========================================
     if (type === "PRODUCT_IDLE" && idleDate) {
       qb.andWhere(`
-      NOT EXISTS (
+      product."created_at" <= :idleDate
+      AND  NOT EXISTS (
         SELECT 1
         FROM order_items oi
         INNER JOIN product_variants pv ON pv.id = oi."variantId"
