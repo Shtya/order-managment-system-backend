@@ -1394,8 +1394,8 @@ export class EasyOrderService extends BaseStoreProvider {
 
 
         const webhooksToDelete = [
-            `${apiBase}/stores/webhooks/${adminId}/easyorders/orders/create`,
-            `${apiBase}/stores/webhooks/${adminId}/easyorders/orders/status`
+            `${apiBase}/stores/webhooks/${adminId}/easyorder/orders/create`,
+            `${apiBase}/stores/webhooks/${adminId}/easyorder/orders/status`
         ];
 
         this.logger.log(apiBase, webhooksToDelete[0], webhooksToDelete[1])
