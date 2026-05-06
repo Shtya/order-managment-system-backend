@@ -358,7 +358,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     };
   }
 
-  async verifyCredentials(apiKey: string, accountId: string): Promise<boolean> {
+  async verifyCredentials(apiKey: string, accountId?: string): Promise<{ valid: boolean, message: string }> {
     if (!apiKey) throw new BadRequestException('Missing apiKey');
 
     try {
@@ -372,10 +372,11 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
           },
         }),
       );
-      return true;
+      return { valid: true, message: 'Credentials verified successfully' };
     } catch (error) {
+      const errorMessage = this.getErrorMessage(error);
       // If the status is 401 (Unauthorized), the key is definitely wrong
-      return false;
+      return { valid: false, message: errorMessage };
     }
   }
 

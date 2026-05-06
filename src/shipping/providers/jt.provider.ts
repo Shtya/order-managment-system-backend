@@ -70,7 +70,7 @@ export class JtProvider extends ShippingProvider {
     };
   }
 
-  async verifyCredentials(apiKey: string): Promise<boolean> {
-    return true;
+  async verifyCredentials(apiKey: string): Promise<{ valid: boolean, message: string }> {
+    return { valid: true, message: 'Credentials verified successfully' };
   }
 }
