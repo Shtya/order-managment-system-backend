@@ -60,7 +60,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
 
 
-    private async getStoreForSync(adminId: string): Promise<StoreEntity | null> {
+    private async getStoreForSync(adminId: string, isActive: boolean = true): Promise<StoreEntity | null> {
         const cleanAdminId = adminId?.trim();
         if (!cleanAdminId) return null;
 
@@ -87,7 +87,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             return { url: `${frontendBaseUrl}/store-integration?error=shopify_invalid_session` };
         }
 
-        const store = await this.getStoreForSync(adminId);
+        const store = await this.getStoreForSync(adminId, false);
         if (!store) {
             return {
                 url: `${frontendBaseUrl}/store-integration?error=shopify_store_not_found&shop=${encodeURIComponent(shop)}`
@@ -493,7 +493,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     // ===========================================================================
     // SYNC PRODUCT METHODS
     // ===========================================================================
-    public async getProductBySlug(store: StoreEntity, slug: string, retry: boolean =  true) {
+    public async getProductBySlug(store: StoreEntity, slug: string, retry: boolean = true) {
         const cleanSlug = slug?.trim();
 
         const query = `
