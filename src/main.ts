@@ -19,7 +19,7 @@ async function bootstrap() {
 	// CORS + global prefix + validation
 	app.enableCors(
 		{
-			origin: ['http://localhost:3000', 'https://madartest.online'], // Allowed origins
+			origin: '*', // Allowed origins
 			methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
 			credentials: true,
 			allowedHeaders: '*',

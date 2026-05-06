@@ -27,7 +27,7 @@ export class StoreWebhooksController {
         return this.storesService.saveEasyOrdersCredentials(adminId, { apiKey: body.api_key, storeId: body.store_id });
         // return res.redirect(result.url);
     }
-
+    
 
     @Get(':adminId/shopify/init')
     async handleInit(
