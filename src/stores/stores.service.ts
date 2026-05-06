@@ -687,15 +687,15 @@ export class StoresService {
       customerName,
       phoneNumber,
     });
-    await this.failureRepo.save(record);
+    const created = await this.failureRepo.save(record);
     this.logger.warn(`[Webhook Order Failure] recorded for admin ${adminId} store ${store?.id} reason=${reason}`);
     await this.notificationService.create({
       userId: adminId,
-      type: NotificationType.SYSTEM_ERROR,
+      type: NotificationType.ORDER_CREATTION_FAILED,
       title: "Order Creation Failed",
       message: `Failed to process order from ${store.name}: ${reason}`,
-      relatedEntityType: "store",
-      relatedEntityId: String(store.id),
+      relatedEntityType: "webhook_order_failures",
+      relatedEntityId: String(created.id),
     });
     return record;
   }
@@ -715,7 +715,7 @@ export class StoresService {
         if (manager) return work(manager);
         return this.dataSource.transaction(work);
       };
-      console.log("process")
+      
       return await runInTransaction(async (manager) => {
         const existingOrder = await this.ordersService.findByExternalId(payload.externalOrderId);
         if (existingOrder) {
