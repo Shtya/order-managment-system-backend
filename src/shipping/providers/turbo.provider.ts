@@ -122,7 +122,7 @@ export class TurboProvider extends ShippingProvider {
     // التأكد من وجود البيانات الجغرافية (المحافظة والمنطقة)
     // Turbo يتطلب الأسماء كنصوص (Strings) في طلب إضافة الطلب
 
-      if (!meta?.cityId) {
+    if (!meta?.cityId) {
       return {
         success: false,
         error: "City is required for Turbo shipping. Please update the order details.",
@@ -325,7 +325,7 @@ export class TurboProvider extends ShippingProvider {
 
   // --- File: backend/src/shipping/providers/turbo.provider.ts ---
 
-  async verifyCredentials(apiKey: string, accountId: string): Promise<boolean> {
+  async verifyCredentials(apiKey: string, accountId?: string): Promise<{ valid: boolean, message: string }> {
     const url = `${this.mainBaseUrl}/external-api/search-order`;
     if (!apiKey) throw new BadRequestException('Missing apiKey');
     if (!accountId) throw new BadRequestException('Missing accountId');
@@ -339,16 +339,13 @@ export class TurboProvider extends ShippingProvider {
         })
       );
 
-      return data?.success === true;
+      return { valid: data?.success === true, message: 'Credentials verified successfully' };
 
     } catch (error: any) {
       // في حال كان الخطأ 401 (Unauthorized)
-      if (error.response?.status === 401 || error.response?.status === 403) {
-        return false;
-      }
+      return { valid: false, message: this.getErrorMessage(error) };
 
     }
-    return true;
   }
   /**
  * خريطة تحويل حالات Turbo Express إلى الحالات الموحدة للنظام
@@ -407,7 +404,7 @@ export class TurboProvider extends ShippingProvider {
     if (state === 24) {
       return UnifiedShippingStatus.DAMAGED;
     }
-    
+
     if (state === 3) {
       return UnifiedShippingStatus.IN_PROGRESS;
     }

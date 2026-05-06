@@ -271,10 +271,10 @@ export class ShippingService {
 		const accountId = integ?.credentials?.accountId ? String(integ?.credentials?.accountId).trim() : (integ?.credentials?.accountId || undefined)
 		const apiKey = integ?.credentials?.apiKey;
 
-		const isValid = await p.verifyCredentials(apiKey, accountId);
-		if (!isValid) {
+		const { valid, message } = await p.verifyCredentials(apiKey, accountId);
+		if (!valid) {
 			throw new BadRequestException(
-				`Unable to validate the integration to ${p.displayName}. This could be due to an invalid API key, or incorrect provider settings.`
+				message || `Unable to validate the integration to ${p.displayName}.`,
 			);
 		}
 
@@ -1012,7 +1012,7 @@ export class ShippingService {
 						shipment.order.statusId = deliveredStatus.id;
 						shipment.order.deliveredAt = new Date(); // Set delivery timestamp
 					}
-					
+
 				} else if (
 					mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
 					mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED

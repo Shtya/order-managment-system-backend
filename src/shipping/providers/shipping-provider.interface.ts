@@ -57,7 +57,9 @@ export interface IMassAWBProvider {
 export abstract class ShippingProvider {
 	abstract readonly code: ProviderCode;
 	abstract readonly displayName: string;
-
+	protected getErrorMessage(error: any): string {
+		return error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
+	}
 	// Geography & Capabilities
 	// abstract getAreas(countryId: string): Promise<UnifiedGeography[]>;
 
@@ -69,7 +71,7 @@ export abstract class ShippingProvider {
 	abstract getCapabilities(apiKey: string): Promise<ProviderCapabilitiesResponse>;
 	abstract getServices(apiKey: string): Promise<string[]>;
 
-	abstract verifyCredentials(apiKey: string, accountId?: string): Promise<boolean>;
+	abstract verifyCredentials(apiKey: string, accountId?: string): Promise<{ valid: boolean, message: string }>;
 
 	// Shipment Creation
 	abstract createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult>;
