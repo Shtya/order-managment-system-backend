@@ -689,6 +689,14 @@ export class StoresService {
     });
     await this.failureRepo.save(record);
     this.logger.warn(`[Webhook Order Failure] recorded for admin ${adminId} store ${store?.id} reason=${reason}`);
+    await this.notificationService.create({
+      userId: adminId,
+      type: NotificationType.SYSTEM_ERROR,
+      title: "Order Creation Failed",
+      message: `Failed to process order from ${store.name}: ${reason}`,
+      relatedEntityType: "store",
+      relatedEntityId: String(store.id),
+    });
     return record;
   }
 
@@ -707,7 +715,7 @@ export class StoresService {
         if (manager) return work(manager);
         return this.dataSource.transaction(work);
       };
-
+      console.log("process")
       return await runInTransaction(async (manager) => {
         const existingOrder = await this.ordersService.findByExternalId(payload.externalOrderId);
         if (existingOrder) {
@@ -808,20 +816,13 @@ export class StoresService {
     } catch (error: any) {
       const errorMessage = getErrorMessage(error);
       this.logger.error(`[Webhook Order Create] Error processing webhook order: ${errorMessage}`, error.stack);
-      await this.notificationService.create({
-        userId: adminId,
-        type: NotificationType.SYSTEM_ERROR,
-        title: "Order Creation Failed",
-        message: `Failed to process order from ${store.name}: ${getErrorMessage(error)}`,
-        relatedEntityType: "store",
-        relatedEntityId: String(store.id),
-      });
-
       if (failureLog) {
+        console.log("try update")
         failureLog.status = OrderFailStatus.FAILED;
         failureLog.lastRetryFailedReason = errorMessage;
         await this.failureRepo.save(failureLog);
       } else {
+        console.log("try create")
         const externalId = payload?.externalOrderId || 'UNKNOWN';
         const customerName = payload?.fullName?.trim() || 'N/A';
         await this.logFailedWebhookOrder(
@@ -1529,7 +1530,7 @@ export class StoresService {
 
     return await this.storesRepo.save(store);
   }
-  
+
 
   public async getFullProductById(userContext: any, provider: StoreProvider, id: string) {
     const adminId = tenantId(userContext);
