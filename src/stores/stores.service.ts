@@ -1239,10 +1239,10 @@ export class StoresService {
       try {
 
         if (!failureLog || !failureLog.store) {
-          throw new NotFoundException("Failure log or associated store not found");
+          throw new NotFoundException(`Failed order or store not found`);
         }
         if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
-          throw new BadRequestException(`Store ${failureLog.store.id} is inactive or missing integration`);
+          throw new BadRequestException(`Store ${failureLog.store.name} is inactive or missing integration`);
         }
 
         if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
@@ -1389,7 +1389,7 @@ export class StoresService {
       throw new BadRequestException(`Cannot retry. Current status is: ${failureLog.status}`);
     }
     if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
-      throw new BadRequestException(`Store ${failureLog.store.id} is inactive or missing integration`);
+      throw new BadRequestException(`Store ${failureLog.store.name} is inactive or missing integration`);
     }
 
     if (problems.length > 0) {
