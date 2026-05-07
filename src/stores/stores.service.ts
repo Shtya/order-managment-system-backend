@@ -1565,7 +1565,7 @@ export class StoresService {
       where: { adminId, provider }
     });
     if (!store) {
-      throw new BadRequestException(`Store not found for adminId: ${adminId}, provider: ${provider}`);
+      throw new BadRequestException(`Store not found, provider: ${provider}`);
     }
 
     if (!store.isIntegrated) {
