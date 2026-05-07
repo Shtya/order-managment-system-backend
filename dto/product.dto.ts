@@ -1,5 +1,5 @@
 // --- File: src/dto/product.dto.ts ---
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import {
   IsArray,
   IsBoolean,
@@ -101,6 +101,7 @@ export class CreateProductDto {
   @MaxLength(200)
   name!: string;
 
+  @Transform(({ value }) => typeof value === 'string' ? value.toLowerCase().trim() : value)
   @IsString()
   @IsNotEmpty()
   @MaxLength(300)

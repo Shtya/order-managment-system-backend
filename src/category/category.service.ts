@@ -132,10 +132,11 @@ export class CategoriesService {
 
 	async checkSlug(me: any, slug, categoryId) {
 		const adminId = tenantId(me);
+		const formatedSlug = slug.trim().toLowerCase();
 		if (!adminId) throw new BadRequestException("Missing adminId");
 		if (categoryId) {
 			const cat = await this.get(me, categoryId);
-			if (slug === cat.slug) return {
+			if (formatedSlug === cat.slug) return {
 				isUnique: true
 			}
 		}
@@ -143,7 +144,7 @@ export class CategoriesService {
 		const exists = await this.catRepo.findOne({
 			where: {
 				adminId,
-				slug: slug.trim().toLowerCase(),
+				slug: formatedSlug,
 			},
 			select: ["id"] // نختار الـ id فقط لتحسين الأداء
 		});

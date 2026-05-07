@@ -1,3 +1,4 @@
+import { Transform } from "class-transformer";
 import { IsBoolean, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from "class-validator";
 
 export class CreateCategoryDto {
@@ -6,6 +7,7 @@ export class CreateCategoryDto {
   @MaxLength(160)
   name!: string;
 
+  @Transform(({ value }) => typeof value === 'string' ? value.toLowerCase().trim() : value)
   @IsNotEmpty()
   @IsString()
   @MaxLength(200)
@@ -27,6 +29,7 @@ export class UpdateCategoryDto {
   @MaxLength(160)
   name?: string;
 
+  @Transform(({ value }) => typeof value === 'string' ? value.toLowerCase().trim() : value)
   @IsOptional()
   @IsString()
   @MaxLength(200)

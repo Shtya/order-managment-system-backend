@@ -1559,11 +1559,12 @@ export class ProductsService {
 
   async checkSlug(me: any, slug, productId) {
     const adminId = tenantId(me);
+    const formatedSlug = slug.trim().toLowerCase();
     if (!adminId) throw new BadRequestException("Missing adminId");
 
     if (productId) {
       const entity = await CRUD.findOne(this.prodRepo, "products", productId);
-      if (slug === entity.slug) return {
+      if (formatedSlug === entity.slug) return {
         isUnique: true
       }
     }
@@ -1571,7 +1572,7 @@ export class ProductsService {
     const exists = await this.prodRepo.findOne({
       where: {
         adminId,
-        slug: slug.trim(),
+        slug: formatedSlug,
         // storeId: storeId ? storeId : IsNull()
       },
       select: ["id"] // نختار الـ id فقط لتحسين الأداء
