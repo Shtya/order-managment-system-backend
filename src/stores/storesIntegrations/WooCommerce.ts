@@ -745,7 +745,7 @@ export default class WooCommerceService extends BaseStoreProvider implements  IS
         return {
             name: product.name.trim(),
             slug: product.slug?.trim(),
-            type: isBundle ? "bundle" : (isVariable ? "variable" : "simple"),
+            type: isBundle ? "bundle" : (isVariable ? "variable" : "simple"), //
             description: product.description || "",
             short_description: product.description || "",
             sku: product?.sku || "",

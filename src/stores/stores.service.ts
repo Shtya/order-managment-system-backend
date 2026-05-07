@@ -768,13 +768,8 @@ export class StoresService {
             throw new BadRequestException(`The Product "${item.name}" is no longer active.`);
           }
 
-          let matchedVariant = null;
-          if (localProduct.type === ProductType.SINGLE) {
-            matchedVariant = localProduct.variants?.[0];
-          } else if (item.variant && item.variant.variation_props && item.variant.variation_props.length > 0) {
-            const key = item.variant.key;
-            matchedVariant = localProduct.variants.find(v => v.key === key);
-          }
+          const key = item.variant.key;
+          const matchedVariant = localProduct.variants.find(v => v.key === key);
 
           if (!matchedVariant?.isActive) {
             throw new BadRequestException(
