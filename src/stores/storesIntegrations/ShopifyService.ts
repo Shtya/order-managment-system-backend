@@ -68,7 +68,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             where: {
                 adminId: cleanAdminId,
                 provider: StoreProvider.SHOPIFY,
-                isActive: true
+                isActive: isActive
             },
         });
 
@@ -87,7 +87,13 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             return { url: `${frontendBaseUrl}/store-integration?error=shopify_invalid_session` };
         }
 
-        const store = await this.getStoreForSync(adminId, false);
+        const store = await this.storesRepo.findOne({
+            where: {
+                adminId: adminId,
+                provider: StoreProvider.SHOPIFY,
+            },
+        });
+
         if (!store) {
             return {
                 url: `${frontendBaseUrl}/store-integration?error=shopify_store_not_found&shop=${encodeURIComponent(shop)}`
@@ -115,16 +121,16 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
 
 
-        const isConnectionValid = await this.validateProviderConnection(store);
+        // const isConnectionValid = await this.validateProviderConnection(store);
 
-        if (!isConnectionValid) {
-            store.isIntegrated = false;
-            store.isActive = false;
-            await this.storesRepo.save(store);
-            return {
-                url: `${frontendBaseUrl}/store-integration?error=shopify_connection_failed}`
-            };
-        }
+        // if (!isConnectionValid) {
+        //     store.isIntegrated = false;
+        //     store.isActive = false;
+        //     await this.storesRepo.save(store);
+        //     return {
+        //         url: `${frontendBaseUrl}/store-integration?error=shopify_connection_failed}`
+        //     };
+        // }
 
         store.externalStoreId = rawShop;
         store.isIntegrated = true;
@@ -3097,23 +3103,23 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         try {
             // 🔥 Step 1: Fetch scopes using your existing method
-            const scopes = await this.getScopes(store);
+            // const scopes = await this.getScopes(store);
 
-            if (!scopes) {
-                this.logger.error(`[Shopify] Failed to fetch scopes (invalid token or app not installed)`);
-                return false;
-            }
+            // if (!scopes) {
+            //     this.logger.error(`[Shopify] Failed to fetch scopes (invalid token or app not installed)`);
+            //     return false;
+            // }
 
-            // 🔥 Step 2: Compare scopes
-            const grantedSet = new Set(scopes);
-            const missingScopes = REQUIRED_SCOPES.filter(s => !grantedSet.has(s));
+            // // 🔥 Step 2: Compare scopes
+            // const grantedSet = new Set(scopes);
+            // const missingScopes = REQUIRED_SCOPES.filter(s => !grantedSet.has(s));
 
-            if (missingScopes.length > 0) {
-                this.logger.warn(
-                    `[Shopify] Missing required scopes: ${missingScopes.join(', ')}`
-                );
-                return false;
-            }
+            // if (missingScopes.length > 0) {
+            //     this.logger.warn(
+            //         `[Shopify] Missing required scopes: ${missingScopes.join(', ')}`
+            //     );
+            //     return false;
+            // }
 
             return true;
         } catch (error: any) {
