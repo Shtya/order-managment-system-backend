@@ -46,6 +46,17 @@ export class StoresController {
     return this.storesService.retryFailedOrder(req.user, id);
   }
 
+  // Update failed order payload
+  @Permissions("orders.update")
+  @Patch("failed-orders/:id")
+  async updateFailedOrderPayload(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() payload: any,
+  ) {
+    return this.storesService.updateFailedOrderPayload(req.user, id, payload);
+  }
+
   // Failed orders statistics
   @Permissions("orders.read")
   @Get("failed-orders/statistics")

@@ -1195,6 +1195,32 @@ export class StoresService {
     };
   }
 
+  async updateFailedOrderPayload(me: any, id: string, payload: WebhookOrderPayload) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const failure = await this.failureRepo.findOne({
+      where: { id, adminId },
+    });
+
+    if (!failure) {
+      throw new NotFoundException("Failed order not found");
+    }
+
+    if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failure.status as any)) {
+      throw new BadRequestException(`Cannot update payload. Current status is: ${failure.status}`);
+    }
+
+    failure.payload = payload;
+
+    // If it was previously failed, move it back to pending so it can be retried
+    if (failure.status === OrderFailStatus.FAILED) {
+      failure.status = OrderFailStatus.PENDING;
+    }
+
+    return await this.failureRepo.save(failure);
+  }
+
   async getFailedOrdersStatistics(me: any) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
