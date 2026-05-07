@@ -837,7 +837,7 @@ export class ProductsService {
   }
 
 
-  
+
   async create(me: any, dto: CreateProductDto, manager?: EntityManager) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
@@ -1367,6 +1367,13 @@ export class ProductsService {
       delete patch.warehouseId;
       delete patch.combinations;
 
+      const combos = dto.combinations;
+      const hasRealVariants = Array.isArray(combos) && combos.some(c => Object.keys(c.attributes || {}).length > 0);
+
+      if (p.type === ProductType.SINGLE && hasRealVariants) {
+        p.type = ProductType.VARIABLE;
+      }
+
       Object.assign(p as any, patch, { updatedByUserId: me?.id ?? null });
       const savedProduct = await prodRepo.save(p as any);
 
@@ -1399,9 +1406,12 @@ export class ProductsService {
 
         for (const c of combos) {
           const attrs = c.attributes ?? {};
-          if (!Object.keys(attrs).length) throw new BadRequestException("Each combination must have attributes");
+          const key = Object.keys(attrs).length > 0 ? this.canonicalKey(attrs) : (c.key === 'default' ? 'default' : null);
 
-          const key = this.canonicalKey(attrs);
+          if (!key) {
+            throw new BadRequestException("Each combination must have attributes or be a default variant");
+          }
+
           if (keysInRequest.has(key)) throw new BadRequestException(`Found duplicate attributes in request: ${key}`);
           keysInRequest.add(key);
 
@@ -1436,7 +1446,9 @@ export class ProductsService {
         const variantsToSave: ProductVariantEntity[] = [];
 
         for (const c of combos) {
-          const key = this.canonicalKey(c.attributes ?? {});
+          const attrs = c.attributes ?? {};
+          const key = Object.keys(attrs).length > 0 ? this.canonicalKey(attrs) : 'default';
+
           const existing = existingVariantMap.get(key);
 
           if (existing) {

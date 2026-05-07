@@ -36,10 +36,10 @@ export class UpsellingProductDto {
 
 
 export class CreateSkuItemDto {
-  // @IsOptional()
-  // @IsString()
-  // @MaxLength(500)
-  // key?: string; // allow generating from attributes
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  key?: string; // allow generating from attributes
 
   @IsString()
   @MaxLength(120)
