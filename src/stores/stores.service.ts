@@ -356,7 +356,7 @@ export class StoresService {
     const store = await this.storesRepo.findOne({ where: { adminId, provider: StoreProvider.EASYORDER } });
 
     if (!store) {
-      throw new BadRequestException("Store not integrated.");
+      throw new BadRequestException("No integrated store was found. Please connect your store first..");
     }
 
     await this.easyOrderService.cancelIntegration(adminId);
@@ -649,7 +649,9 @@ export class StoresService {
 
     if (!store.isActive) throw new BadRequestException("Cannot sync: store is inactive");
 
-    if (!store.isIntegrated) throw new BadRequestException("Cannot sync: store is not integrated");
+    if (!store.isIntegrated) throw new BadRequestException(
+      `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
+    );
 
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueFullStoreSync(store);
@@ -1567,7 +1569,9 @@ export class StoresService {
     }
 
     if (!store.isIntegrated) {
-      throw new BadRequestException("Store not integrated");
+      throw new BadRequestException(
+        `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
+      );
     }
     if (!store.isActive) {
       throw new BadRequestException("Store not active");
