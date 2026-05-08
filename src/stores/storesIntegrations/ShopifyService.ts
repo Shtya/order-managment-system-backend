@@ -3053,6 +3053,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         );
 
         return {
+            id: String(remote.id),
             name: remote.title?.trim(),
             price: productPrice,
             expense: productExpense,
@@ -3128,4 +3129,92 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             return false;
         }
     }
+
+
+    public async getAllMappedProducts(store: StoreEntity, filters?: string[]): Promise<MappedProductDto[]> {
+        let allProducts: MappedProductDto[] = [];
+        let hasNextPage = true;
+        let after: string | null = null;
+
+        const query = `
+            query PaginatedProducts($first: Int!, $after: String) {
+                products(first: $first, after: $after) {
+                    nodes {
+                        id
+                        handle
+                        title
+                        descriptionHtml
+                        productType
+                        vendor
+                        images(first: 20) {
+                            nodes {
+                                id
+                                url
+                                altText
+                            }
+                        }
+                        variants(first: 100) {
+                            nodes {
+                                id
+                                sku
+                                title
+                                price
+                                inventoryQuantity
+                                inventoryItem {
+                                    unitCost {
+                                        amount
+                                        currencyCode
+                                    }   
+                                }
+                                selectedOptions {
+                                    name
+                                    value
+                                }
+                            }
+                        }
+                        collections(first: 5) {
+                            nodes {
+                                id
+                                handle
+                                title
+                            }
+                        }
+                    }
+                    pageInfo {
+                        hasNextPage
+                        endCursor
+                    }
+                }
+            }
+        `;
+
+        while (hasNextPage) {
+            try {
+                const response = await this.runGraphQL(
+                    store,
+                    false, // query
+                    query,
+                    { first: 50, after },
+                );
+
+                const productsData = response?.products || response?.data?.products;
+                const nodes = productsData?.nodes || [];
+
+                allProducts.push(...nodes.map(p => this.mapRemoteProductToDto(p)));
+
+                const pageInfo = productsData?.pageInfo;
+                hasNextPage = pageInfo?.hasNextPage || false;
+                after = pageInfo?.endCursor || null;
+
+            } catch (error: any) {
+                const message = this.getErrorMessage(error);
+                this.logger.error(`[Shopify] Failed to fetch products batch: ${message}`);
+                hasNextPage = false; // Stop on error
+            }
+        }
+
+        return allProducts;
+    }
+
+
 }

@@ -102,7 +102,6 @@ export class EasyOrderService extends BaseStoreProvider {
     }
 
 
-
     private async getStoreForSync(adminId: string): Promise<StoreEntity | null> {
         const cleanAdminId = adminId; // Remember to trim
         if (!cleanAdminId) return null;
@@ -545,14 +544,15 @@ export class EasyOrderService extends BaseStoreProvider {
      * - notnull (Is Not Null)         ['description||notnull']
      * * Example: getAllProducts(store, ['parent_id||isnull', 'hidden||eq||false'])
      */
-    private async getAllProducts(store: StoreEntity, filters: string[] = [], retry = true) {
-        const filterStr = filters.length > 0 ? ` with filters: [${filters.join(', ')}]` : '';
-
+    private async getAllProducts(store: StoreEntity, filters: string[] = [], page?: number, limit?: number, join: string = "", retry = true) {
         const response = await this.sendRequest(store, {
             method: 'GET',
             url: '/products/',
             params: {
-                filter: filters
+                filter: filters,
+                page,
+                limit,
+                join
             },
             // Custom serializer to ensure the format filter=val1&filter=val2 
             // instead of the default filter[]=val1
@@ -562,7 +562,6 @@ export class EasyOrderService extends BaseStoreProvider {
         }, 0, retry);
 
         return response;
-
     }
 
     private async getProduct(store: StoreEntity, remoteProductId: string) {
@@ -619,7 +618,8 @@ export class EasyOrderService extends BaseStoreProvider {
 
             // Bulk check existence: Use slug 
             const ids = localBatch.map(p => p.syncState?.remoteProductId).filter(Boolean).join(',');
-            const remoteItems = ids ? await this.getAllProducts(store, [`id||$in||${ids}`]) : [];
+            const remoteResponse = ids ? await this.getAllProducts(store, [`id||$in||${ids}`]) : { data: [] };
+            const remoteItems = remoteResponse?.data || [];
             const remoteMap = new Map<string, any>(remoteItems.map((r: any) => [String(r.id), r]));
 
             for (const product of localBatch) {
@@ -1031,7 +1031,8 @@ export class EasyOrderService extends BaseStoreProvider {
         const cleanSlug = slug?.trim();
         const searchFilters = [`slug||eq||${cleanSlug}`];
 
-        const existingProducts = await this.getAllProducts(store, searchFilters, retry);
+        const response = await this.getAllProducts(store, searchFilters, undefined, undefined, undefined, retry);
+        const existingProducts = response?.data || [];
         return existingProducts?.length > 0 ? existingProducts[0] : null;
     }
 
@@ -1413,7 +1414,7 @@ export class EasyOrderService extends BaseStoreProvider {
 
             return true;
         } catch (error: any) {
-            const message  = this.getErrorMessage(error)
+            const message = this.getErrorMessage(error)
             this.logger.error(`Failed to cancel Easy Orders integration: ${message}`);
             return false;
         }
@@ -1429,10 +1430,43 @@ export class EasyOrderService extends BaseStoreProvider {
 
             return this.mapRemoteProductToDto(response);
         } catch (error: any) {
-            const message  = this.getErrorMessage(error)
+            const message = this.getErrorMessage(error)
             this.logger.error(`[Product] Failed to fetch product by id ${id}: ${message}`);
             throw error;
         }
+    }
+
+    public async getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]> {
+        let allProducts: MappedProductDto[] = [];
+        let currentPage = 1;
+        let hasNextPage = true;
+
+        while (hasNextPage) {
+            try {
+                const response = await this.getAllProducts(
+                    store,
+                    [],
+                    currentPage,
+                    50,
+                    "Variations.Props,Variants.VariationProps,categories"
+                );
+
+                const remoteProducts = response.data || [];
+                allProducts.push(...remoteProducts.map(p => this.mapRemoteProductToDto(p)));
+
+                if (response.next_page && response.page < response.totalPages) {
+                    currentPage++;
+                } else {
+                    hasNextPage = false;
+                }
+            } catch (error: any) {
+                const message = this.getErrorMessage(error);
+                this.logger.error(`[Product] Failed to fetch products page ${currentPage}: ${message}`);
+                hasNextPage = false; // Stop on error
+            }
+        }
+
+        return allProducts;
     }
 
     private mapRemoteProductToDto(remote: any): MappedProductDto {
@@ -1447,6 +1481,9 @@ export class EasyOrderService extends BaseStoreProvider {
             })),
         }));
 
+        // Detect if it's a single product: 0 variants, or 1 variant with no attributes
+        const isSingle = variants.length === 0 || (variants.length === 1 && (variants[0].variation_props?.length || 0) === 0);
+
         const variations = (remote.variations || []).map((v: any) => ({
             id: v.id,
             name: v.name?.trim(),
@@ -1458,13 +1495,14 @@ export class EasyOrderService extends BaseStoreProvider {
         }));
 
         return {
+            id: String(remote.id),
             name: remote.name?.trim(),
             price: Number(remote.price) || 0,
             expense: Number(remote.expense) || 0,
             description: remote.description || "",
             slug: remote.slug,
-            type: ProductType.VARIABLE,
-            sku: remote.sku || "",
+            type: isSingle ? ProductType.SINGLE : ProductType.VARIABLE,
+            sku: isSingle ? (variants[0]?.sku || remote.sku || "") : (remote.sku || ""),
             upsellings: [],
             thumb: remote.thumb || "",
             images: remote.images || [],
@@ -1473,8 +1511,8 @@ export class EasyOrderService extends BaseStoreProvider {
                 name: c.name,
             })),
             quantity: Number(remote.quantity) || 0,
-            variations,
-            variants,
+            variations: isSingle ? [] : variations,
+            variants: isSingle ? [] : variants,
         };
     }
 }

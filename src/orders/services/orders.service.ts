@@ -87,6 +87,7 @@ import { ShippingService } from "src/shipping/shipping.service";
 import { StoreQueueService } from "src/stores/storesIntegrations/queues";
 import { CRUD } from "common/crud.service";
 import { randomBytes } from "crypto";
+import { generateRandomAlphanumeric } from "common/healpers";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -181,17 +182,6 @@ export class OrdersService {
   }
   // ✅ Generate unique order number
 
-  private generateRandomAlphanumeric(length: number): string {
-    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // avoids confusing chars like O/0 and I/1
-    const bytes = randomBytes(length);
-
-    let result = "";
-    for (let i = 0; i < length; i++) {
-      result += chars[bytes[i] % chars.length];
-    }
-
-    return result;
-  }
 
   private async generateOrderNumber(adminId: string): Promise<string> {
     const prefix = "ORD"; // 3 fixed chars
@@ -199,7 +189,7 @@ export class OrdersService {
     const randomPartLength = totalLength - prefix.length;
 
     for (let attempt = 0; attempt < 10; attempt++) {
-      const orderNumber = `${prefix}${this.generateRandomAlphanumeric(randomPartLength)}`;
+      const orderNumber = `${prefix}${generateRandomAlphanumeric(randomPartLength)}`;
 
       const existingOrder = await this.orderRepo.findOne({
         where: {

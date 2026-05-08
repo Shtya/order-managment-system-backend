@@ -24,15 +24,20 @@ import { WebSocketModule } from "common/websocket.module";
 import { BundleEntity } from "entities/bundle.entity";
 
 import { ProductSyncStateModule } from "src/product-sync-state/product-sync-state.module";
+import { PurchasesModule } from "src/purchases/purchases.module";
+import { SafesModule } from "src/safes/safes.module";
+import { Account } from "entities/safe.entity";
 
 @Module({
   imports: [
     forwardRef(() => OrdersModule),
     forwardRef(() => ProductsModule),
     forwardRef(() => CategoryModule),
+    forwardRef(() => PurchasesModule),
+    forwardRef(() => SafesModule),
     ProductSyncStateModule,
     WebSocketModule,
-    TypeOrmModule.forFeature([StoreEntity, ProductSyncStateEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity]),
+    TypeOrmModule.forFeature([StoreEntity, ProductSyncStateEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity, Account]),
   ],
   providers: [
     StoresService,

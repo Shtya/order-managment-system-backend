@@ -166,4 +166,9 @@ export class StoreQueueService {
             failureId,
         }, { jobId });
     }
+
+    async enqueueFullProductSyncLocally(adminId: string, provider: StoreProvider) {
+        const jobId = `syncProductsLocally:${provider}:${adminId}`;
+        await this.addJob(adminId, "sync-products-locally", provider, {}, { jobId });
+    }
 }

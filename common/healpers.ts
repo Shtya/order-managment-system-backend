@@ -5,6 +5,7 @@ import { copyFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
 import { extname, join } from 'path';
 import { OrderStatus } from 'entities/order.entity';
+import { randomBytes } from 'crypto';
 
 export function calculateRange(range?: string): { start?: Date; end?: Date } {
     const now = new Date();
@@ -158,6 +159,29 @@ export function generateSlug(value: string): string {
         .replace(/-+/g, '-');
 }
 
+export function generateRandomAlphanumeric(length: number): string {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // avoids confusing chars like O/0 and I/1
+    const bytes = randomBytes(length);
+
+    let result = "";
+    for (let i = 0; i < length; i++) {
+        result += chars[bytes[i] % chars.length];
+    }
+
+    return result;
+}
+
+export function normalizeSku(sku: string) {
+    return sku
+        .normalize("NFKD")
+        .replace(/[^a-zA-Z0-9-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .toUpperCase();
+}
+
+
+
 export const STATUS_TRANSITIONS = {
     [OrderStatus.NEW]: [
         OrderStatus.UNDER_REVIEW,
@@ -247,7 +271,7 @@ export const GLOBAL_CUSTOM_ALLOWED = [
 ];
 
 export function formatReferenceMeta(meta: Record<string, any> = {}) {
-    if(!meta) return null;
+    if (!meta) return null;
 
     const keyMap: Record<string, string> = {
         orderNumber: "Order No",
