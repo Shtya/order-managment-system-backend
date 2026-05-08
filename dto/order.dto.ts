@@ -281,6 +281,11 @@ export class BulkUpdateShippingFieldItemDto {
   phoneNumber?: string;
 
   @IsOptional()
+  @IsEmail()
+  @MaxLength(200)
+  email?: string;
+
+  @IsOptional()
   @ValidateNested()
   @Type(() => BulkUpdateShippingMetadataDto)
   shippingMetadata?: BulkUpdateShippingMetadataDto;
