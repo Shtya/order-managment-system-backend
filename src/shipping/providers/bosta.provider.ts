@@ -449,7 +449,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       }
 
       return { success: false, error: data.message || 'Failed to print waybill' };
-    } catch (error) {
+    } catch (error: any) {
       return { success: false, error: error.response?.data?.message || error.message };
     }
   }

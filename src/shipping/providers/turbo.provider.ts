@@ -42,29 +42,30 @@ export class TurboProvider extends ShippingProvider {
     super();
   }
 
-  /**
-   * 1 & 2 - Get Governments (Mapped to Cities)
-   * URL: https://backoffice.turbo-eg.com/external-api/get-government
-   */
+
   async getCities(apiKey: string): Promise<UnifiedGeography[]> {
     const url = `${this.geoBaseUrl}/external-api/get-government`;
+    try {
 
-    const { data } = await firstValueFrom(
-      this.http.get(url, {
-        params: { authentication_key: apiKey },
-      }),
-    );
+      const { data } = await firstValueFrom(
+        this.http.get(url, {
+          params: { authentication_key: apiKey },
+        }),
+      );
 
-    if (!data.success) return [];
+      if (!data.success) return [];
 
-    // Mapping the "feed" array to UnifiedGeography
-    return data.feed.map((city: any) => ({
-      id: String(city.id),
-      nameAr: city.name,
-      nameEn: city.name,
-      dropOff: true,
-      pickup: true,
-    }));
+      // Mapping the "feed" array to UnifiedGeography
+      return data.feed.map((city: any) => ({
+        id: String(city.id),
+        nameAr: city.name,
+        nameEn: city.name,
+        dropOff: true,
+        pickup: true,
+      }));
+    } catch (error) {
+      return [];
+    }
   }
 
   /**
@@ -73,23 +74,26 @@ export class TurboProvider extends ShippingProvider {
    */
   async getZones(apiKey: string, cityId: string): Promise<UnifiedGeography[]> {
     const url = `${this.geoBaseUrl}/external-api/get-area/${cityId}`;
+    try {
+      const { data } = await firstValueFrom(
+        this.http.get(url, {
+          params: { authentication_key: apiKey },
+        }),
+      );
 
-    const { data } = await firstValueFrom(
-      this.http.get(url, {
-        params: { authentication_key: apiKey },
-      }),
-    );
+      if (!data.success) return [];
 
-    if (!data.success) return [];
-
-    return data.feed.map((area: any) => ({
-      id: String(area.id),
-      nameAr: area.name,
-      nameEn: area.name,
-      parentId: cityId, // Linking back to the city
-      dropOff: true,
-      pickup: true,
-    }));
+      return data.feed.map((area: any) => ({
+        id: String(area.id),
+        nameAr: area.name,
+        nameEn: area.name,
+        parentId: cityId, // Linking back to the city
+        dropOff: true,
+        pickup: true,
+      }));
+    } catch (error) {
+      return [];
+    }
   }
 
   async cancelShipment(apiKey: string, providerShipmentId: string, accountId?: string): Promise<boolean> {
@@ -149,12 +153,12 @@ export class TurboProvider extends ShippingProvider {
 
     const payload: any = {
       main_client_code: accountId,
-      receiver: order.customerName,
+      receiver: order.customerName || "",
       phone1: order.phoneNumber,
       government: meta.cityId, // اسم المحافظة بالعربي
       area: meta.zoneId,       // اسم المنطقة بالعربي
-      address: order.address,
-      notes: [dto.notes, order.customerNotes].filter(Boolean).join(" | "),
+      address: order.address || "",
+      notes: [dto.notes, order.customerNotes].filter(Boolean).join(" | ") || "",
       invoice_number: order.orderNumber,
       // تعديل سطر ملخص الطلب في TurboProvider
       order_summary: order.items
@@ -165,8 +169,8 @@ export class TurboProvider extends ShippingProvider {
 
           return `${quantity}x ${productName}`;
         })
-        .join(", "),
-      amount_to_be_collected: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? order.finalTotal - order.shippingCost : 0,
+        .join(", ") || "",
+      amount_to_be_collected: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.shippingCost) || 0 : 0,
       return_amount: 0, // يمكن تخصيصه في حالة المرتجعات
       is_order: TurboOrderType.STANDARD, // القيمة الافتراضية
       weight: dto.weightKg || 1,
@@ -214,26 +218,30 @@ export class TurboProvider extends ShippingProvider {
   async getShipmentStatus(apiKey: string, trackingNumber: string, mainClientCode: string): Promise<ProviderWebhookResult> {
     const url = `${this.mainBaseUrl}/external-api/search-order`;
 
-    const { data } = await firstValueFrom(
-      this.http.post(url, {
-        authentication_key: apiKey,
-        search_key: trackingNumber,
-        main_client_code: mainClientCode
-      })
-    );
+    try {
+      const { data } = await firstValueFrom(
+        this.http.post(url, {
+          authentication_key: apiKey,
+          search_key: trackingNumber,
+          main_client_code: mainClientCode
+        })
+      );
 
-    if (!data.success || !data.result || data.result.length === 0) {
-      throw new Error('Shipment not found in Turbo');
+      if (!data.success || !data.result || data.result.length === 0) {
+        throw new Error('Shipment not found in Turbo');
+      }
+
+      const shipment = data.result[0];
+
+      return {
+        unifiedStatus: shipment.status_code ? this.mapTurboStateToUnified(Number(shipment.status_code)) : this.mapTurboTextStateToUnified(shipment.status),
+        rawState: shipment.status,
+        trackingNumber: shipment.bar_code || shipment.code,
+        providerShipmentId: shipment.bar_code || shipment.code,
+      };
+    } catch (error) {
+      throw error;
     }
-
-    const shipment = data.result[0];
-
-    return {
-      unifiedStatus: shipment.status_code ? this.mapTurboStateToUnified(Number(shipment.status_code)) : this.mapTurboTextStateToUnified(shipment.status),
-      rawState: shipment.status,
-      trackingNumber: shipment.bar_code || shipment.code,
-      providerShipmentId: shipment.bar_code || shipment.code,
-    };
   }
 
   /**
@@ -241,35 +249,39 @@ export class TurboProvider extends ShippingProvider {
    */
   async createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult> {
     const url = `${this.mainBaseUrl}/external-api/add-order`;
+    try {
 
-    // Turbo يتوقع مفتاح المصادقة داخل الـ Body
-    const requestBody = {
-      ...payload,
-      authentication_key: apiKey
-    };
+      // Turbo يتوقع مفتاح المصادقة داخل الـ Body
+      const requestBody = {
+        ...payload,
+        authentication_key: apiKey
+      };
 
-    const { data } = await firstValueFrom(
-      this.http.post(url, requestBody, {
-        headers: { 'Content-Type': 'application/json' },
-      }),
-    );
-
-
-    if (!data?.result?.bar_code && !data?.result?.code) {
-      throw new BadRequestException(
-        `Turbo Error: ${data?.error_msg || data?.message || 'Failed to create shipment'}`
+      const { data } = await firstValueFrom(
+        this.http.post(url, requestBody, {
+          headers: { 'Content-Type': 'application/json' },
+        }),
       );
+
+
+      if (!data?.result?.bar_code && !data?.result?.code) {
+        throw new BadRequestException(
+          `Turbo Error: ${data?.error_msg || data?.message || 'Failed to create shipment'}`
+        );
+      }
+
+      const result = data.result;
+
+      return {
+        // نستخدم toString() لأن الواجهة تتوقع string والقيم القادمة أرقام
+        // نستخدم bar_code للتتبع و code كمعرف للمزود
+        trackingNumber: result?.bar_code?.toString() || result?.code?.toString() || null,
+        providerShipmentId: result?.bar_code?.toString() || result?.code?.toString() || null,
+        providerRaw: data, // نحتفظ بالرد كامل للرجوع إليه
+      };
+    } catch (error) {
+      throw error;
     }
-
-    const result = data.result;
-
-    return {
-      // نستخدم toString() لأن الواجهة تتوقع string والقيم القادمة أرقام
-      // نستخدم bar_code للتتبع و code كمعرف للمزود
-      trackingNumber: result?.bar_code?.toString() || result?.code?.toString() || null,
-      providerShipmentId: result?.bar_code?.toString() || result?.code?.toString() || null,
-      providerRaw: data, // نحتفظ بالرد كامل للرجوع إليه
-    };
   }
 
   async getPickupLocations(apiKey: string): Promise<UnifiedPickupLocation[]> {
@@ -342,8 +354,11 @@ export class TurboProvider extends ShippingProvider {
       return { valid: data?.success === true, message: 'Credentials verified successfully' };
 
     } catch (error: any) {
+      if(error.status !== 404) {
+        return { valid: false, message: this.getErrorMessage(error) };
+      }
+      return { valid: true,  message: 'Credentials verified successfully' };
       // في حال كان الخطأ 401 (Unauthorized)
-      return { valid: false, message: this.getErrorMessage(error) };
 
     }
   }

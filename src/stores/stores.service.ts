@@ -149,6 +149,8 @@ export class StoresService {
     // 2. Multi-tenant Filter
     qb.where("store.adminId = :adminId", { adminId });
 
+    if (q.isActive === 'true') qb.andWhere('store.isActive = :isActive', { isActive: q.isActive });
+
     // 3. Optional Filter: Platform/Provider
     if (q?.provider) {
       qb.andWhere("store.provider = :provider", { provider: q.provider });
@@ -1588,7 +1590,7 @@ export class StoresService {
     store.externalStoreId = credentials.storeId;
 
     const newStore = await this.storesRepo.save(store);;
-    this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
+    // this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
     return newStore;
   }
 
