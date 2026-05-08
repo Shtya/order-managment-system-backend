@@ -2360,12 +2360,12 @@ export class OrdersService {
         .leftJoinAndSelect("order.items", "items")
         .leftJoinAndSelect("items.variant", "variant")
         .leftJoinAndSelect("variant.product", "product")
-        .leftJoinAndSelect("order.statusHistory", "statusHistory")
-        .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
-        .leftJoinAndSelect("statusHistory.toStatus", "toStatus")
+        // .leftJoinAndSelect("order.statusHistory", "statusHistory")
+        // .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
+        // .leftJoinAndSelect("statusHistory.toStatus", "toStatus")
+        // .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
+        // .leftJoinAndSelect("order.store", "store")
         .leftJoinAndSelect("order.status", "status")
-        .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
-        .leftJoinAndSelect("order.store", "store")
         .where("order.id = :id", { id })
         .andWhere("order.adminId = :adminId", { adminId })
         .getOne();
@@ -2570,8 +2570,9 @@ export class OrdersService {
         }
 
         // Save all new/updated order items at once
+
         if (itemsToSave.length > 0) {
-          await manager.save(OrderItemEntity, itemsToSave);
+            await manager.save(OrderItemEntity, itemsToSave);
         }
       }
 
