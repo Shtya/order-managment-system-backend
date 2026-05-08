@@ -2723,6 +2723,10 @@ export class OrdersService {
           order.address = item.address;
         }
 
+        if (item.email !== undefined) {
+          order.email = item.email;
+        }
+
         if (item.shippingMetadata !== undefined) {
           const cleanShippingMetadata = Object.fromEntries(
             Object.entries(item.shippingMetadata).filter(
