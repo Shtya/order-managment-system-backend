@@ -906,25 +906,32 @@ export class ProductsService {
       }
 
       if (store && !dto.skipRemoteCheck) {
-        const provider = this.storesService.getProvider(store?.provider)
-        const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
-        if (remoteSlug?.id) {
-          throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
-        }
+        try {
 
-        // 🔹 Slug check (if supported)
-        if (dto.sku && this.storesService.isSkuFetchProvider(provider)) {
-          const remoteSku = await provider.getProductBySku(
-            store,
-            dto.sku.trim(),
-            false
-          );
 
-          if (remoteSku?.id) {
-            throw new BadRequestException(
-              `This SKU "${dto.sku}" is already in use by "${store.name}" store.`
-            );
+          const provider = this.storesService.getProvider(store?.provider)
+          const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
+          if (remoteSlug?.id) {
+            throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
           }
+
+          // 🔹 Slug check (if supported)
+          if (dto.sku && this.storesService.isSkuFetchProvider(provider)) {
+            const remoteSku = await provider.getProductBySku(
+              store,
+              dto.sku.trim(),
+              false
+            );
+
+            if (remoteSku?.id) {
+              throw new BadRequestException(
+                `This SKU "${dto.sku}" is already in use by "${store.name}" store.`
+              );
+            }
+          }
+
+        } catch {
+
         }
 
       }
