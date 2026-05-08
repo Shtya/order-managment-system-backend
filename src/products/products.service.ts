@@ -21,7 +21,7 @@ import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import * as ExcelJS from "exceljs";
 import { OrderItemEntity, OrderStatus } from "entities/order.entity";
-import { deletePhysicalFiles, generateSlug } from "common/healpers";
+import { deletePhysicalFiles, generateSlug, getErrorMessage } from "common/healpers";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { PurchaseReturnsService } from "src/purchases-return/purchases-return.service";
@@ -930,8 +930,9 @@ export class ProductsService {
             }
           }
 
-        } catch {
-
+        } catch (e) {
+          const errorMsg = getErrorMessage(e);
+          throw new BadRequestException(errorMsg || "Error checking remote product.");
         }
 
       }
