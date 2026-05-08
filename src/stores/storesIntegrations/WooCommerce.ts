@@ -22,7 +22,7 @@ import { NotificationService } from "src/notifications/notification.service";
 
 
 @Injectable()
-export default class WooCommerceService extends BaseStoreProvider implements  ISkuFetch {
+export default class WooCommerceService extends BaseStoreProvider implements ISkuFetch {
 
 
     maxBundleItems?: number;
@@ -53,7 +53,7 @@ export default class WooCommerceService extends BaseStoreProvider implements  IS
         super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.WOOCOMMERCE)
 
     }
-   
+
 
     public async getFullProductById(
         store: StoreEntity,
@@ -86,6 +86,8 @@ export default class WooCommerceService extends BaseStoreProvider implements  IS
             throw error;
         }
     }
+
+
     public async getProduct(store: StoreEntity, id: string) {
         try {
             if (!id) return null;
@@ -159,6 +161,7 @@ export default class WooCommerceService extends BaseStoreProvider implements  IS
         // }
 
         return {
+            id: String(remote.id),
             name: remote.name?.trim(),
             price: Number(remote.price) || 0,
             type: remote.type === 'simple' ? ProductType.SINGLE : ProductType.VARIABLE,
@@ -608,8 +611,8 @@ export default class WooCommerceService extends BaseStoreProvider implements  IS
         const products = response?.data ?? response;
         return products?.length > 0 ? products[0] : null;
     }
-     public async  getProductBySku(store: StoreEntity, sku: string, retry?: boolean): Promise<{ id: any; }> {
-          if (!sku) return null;
+    public async getProductBySku(store: StoreEntity, sku: string, retry?: boolean): Promise<{ id: any; }> {
+        if (!sku) return null;
         const status = 'any';
         const response = await this.sendRequest(store, {
             method: 'GET',
@@ -1663,5 +1666,9 @@ export default class WooCommerceService extends BaseStoreProvider implements  IS
 
             return false;
         }
+    }
+
+    public async getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]> {
+        return [];
     }
 }

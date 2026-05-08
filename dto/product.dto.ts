@@ -205,6 +205,10 @@ export class CreateProductDto {
   @ValidateNested()
   @Type(() => CreatePurchaseWithProductDto)
   purchase?: CreatePurchaseWithProductDto;
+
+  @IsOptional()
+  @IsBoolean()
+  skipRemoteCheck?: boolean;
 }
 
 export class UpdateProductDto extends PartialType(

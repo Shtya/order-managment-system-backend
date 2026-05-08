@@ -20,7 +20,7 @@ export interface IBundleSyncProvider {
 }
 
 export interface ISkuFetch {
-    getProductBySku( store: StoreEntity, sku: string, retry?: boolean): Promise<{id}>
+    getProductBySku(store: StoreEntity, sku: string, retry?: boolean): Promise<{ id }>
 }
 
 export type ShopifyAction =
@@ -32,6 +32,7 @@ export type ShopifyAction =
 
 
 export interface MappedProductDto {
+    id: string;
     name: string;
     price: number;
     expense?: number;
@@ -408,8 +409,9 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
     public abstract syncOrderStatus(order: OrderEntity, newStatusId: string)
     public abstract syncFullStore(store: StoreEntity)
-    public abstract getProductBySlug( store: StoreEntity, slug: string, retry?: boolean): Promise<{id}>
+    public abstract getProductBySlug(store: StoreEntity, slug: string, retry?: boolean): Promise<{ id }>
     public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
+    public abstract getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]>;
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
     public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload;
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;

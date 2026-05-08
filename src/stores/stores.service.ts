@@ -16,16 +16,23 @@ import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import WooCommerceService from "./storesIntegrations/WooCommerce";
 import { OrdersService } from "src/orders/services/orders.service";
 import { ProductsService } from "src/products/products.service";
+import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
+import { PurchasesService } from "src/purchases/purchases.service";
+import { SafesService } from "src/safes/safes.service";
 import { CreateOrderDto } from "dto/order.dto";
-import { UpsertProductSkusDto } from "dto/product.dto";
+import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
+import { CreatePurchaseDto, PurchaseItemDto } from "dto/purchase.dto";
+import { CreateAccountDto } from "dto/safe.dto";
+import { Account, AccountType } from "entities/safe.entity";
 import * as crypto from "crypto";
 import * as ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
-import { getErrorMessage } from "common/healpers";
-import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
+import { generateRandomAlphanumeric, generateSlug, getErrorMessage, normalizeSku } from "common/healpers";
+import { ProductSyncStatus, ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
+import { convert } from "html-to-text";
 
 @Injectable()
 export class StoresService {
@@ -38,6 +45,9 @@ export class StoresService {
     protected readonly storeQueueService: StoreQueueService,
     private readonly appGateway: AppGateway,
     private readonly notificationService: NotificationService,
+    private readonly productSyncStateService: ProductSyncStateService,
+    private readonly purchasesService: PurchasesService,
+    private readonly safesService: SafesService,
     private readonly shopifyService: ShopifyService,
     private readonly easyOrderService: EasyOrderService,
     private readonly woocommerceService: WooCommerceService,
@@ -47,6 +57,7 @@ export class StoresService {
     @InjectRepository(WebhookOrderFailureEntity) private readonly failureRepo: Repository<WebhookOrderFailureEntity>,
     @InjectRepository(ProductSyncStateEntity) private readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
     @InjectRepository(OrderEntity) private readonly ordersRepo: Repository<OrderEntity>,
+    @InjectRepository(Account) private readonly safesRepo: Repository<Account>,
 
     @Inject(forwardRef(() => OrdersService))
     protected readonly ordersService: OrdersService,
@@ -1576,7 +1587,9 @@ export class StoresService {
     store.isIntegrated = true;
     store.externalStoreId = credentials.storeId;
 
-    return await this.storesRepo.save(store);
+    const newStore = await this.storesRepo.save(store);;
+    this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
+    return newStore;
   }
 
 
@@ -1618,6 +1631,226 @@ export class StoresService {
 
       throw new BadRequestException(`Failed to fetch product from ${provider}: ${message}`);
     }
+  }
+
+  public async syncStoreProductsLocally(adminId: string, provider: StoreProvider) {
+    const store = await this.storesRepo.findOne({
+      where: { adminId, provider }
+    });
+    if (!store) {
+      throw new BadRequestException(`Store not found, provider: ${provider}`);
+    }
+
+    if (!store.isIntegrated) {
+      throw new BadRequestException(
+        `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
+      );
+    }
+    if (!store.isActive) {
+      throw new BadRequestException("Store not active");
+    }
+
+    const p = this.getProvider(provider);
+    const remoteProducts = await p.getAllMappedProducts(store);
+
+    let successCount = 0;
+    let failedCount = 0;
+    const errors: string[] = [];
+
+    const me = { id: adminId, adminId, role: { name: 'admin' } };
+    const purchaseItems: PurchaseItemDto[] = [];
+    const allProductsmap = new Map<string, Map<string, number>>();
+    for (const remoteProduct of remoteProducts) {
+      try {
+        const remoteId = String(remoteProduct.id);
+
+        // 1. Check if linked via ProductSyncState
+        let syncState = await this.productSyncStateRepo.findOne({
+          where: { adminId, storeId: store.id, remoteProductId: remoteId, externalStoreId: store.externalStoreId }
+        });
+
+        let localProduct: any = null;
+        if (syncState) {
+          // UPDATE (Mocked for now as requested)
+          // await this.productsService.update(me, localProduct.id, this.mapMappedProductToCreateDto(remoteProduct, store));
+          this.logger.log(`[Sync] Product "${remoteProduct.name}" locally already exists with ID: ${syncState.productId}.`);
+          // localProduct = await this.productsRepo.findOne({ where: { id: syncState.productId, adminId }, relations: ['skus'] });
+        } else {
+          // CREATE
+          const { product: createDto, skuQuantityMap } = this.mapMappedProductToCreateDto(remoteProduct, store);
+          createDto.skipRemoteCheck = true; // Skip redundant remote slug/sku checks during local sync
+          localProduct = await this.productsService.create(me, createDto);
+          allProductsmap.set(localProduct.id, skuQuantityMap);
+
+        }
+
+        // 3. Upsert sync state to link remote product to local product
+        if (localProduct) {
+          await this.productSyncStateService.upsertSyncState(
+            { adminId, productId: localProduct.id, storeId: store.id, externalStoreId: store.externalStoreId },
+            {
+              remoteProductId: remoteId,
+              status: ProductSyncStatus.SYNCED,
+              lastError: null,
+              lastSynced_at: new Date(),
+            }
+          );
+
+          // Collect SKUs for purchase if they have remote stock
+          if (localProduct.type === ProductType.SINGLE) {
+            const sku = localProduct.skus?.[0];
+            const quantity = allProductsmap.get(localProduct.id)?.get(sku?.sku) || 0;
+            if (sku && quantity > 0) {
+              purchaseItems.push({
+                variantId: sku.id,
+                quantity: quantity,
+                purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
+              });
+            }
+          } else if (localProduct.type === ProductType.VARIABLE && localProduct.skus?.length > 0) {
+            for (const localVariant of localProduct.skus) {
+              const localQuantity = allProductsmap.get(localProduct.id)?.get(localVariant.sku) || 0;
+              if (localQuantity > 0) {
+                const localSku = localProduct.skus?.find(s => s.key === localVariant.key);
+                if (localSku) {
+                  purchaseItems.push({
+                    variantId: localSku.id,
+                    quantity: localQuantity,
+                    purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        successCount++;
+      } catch (error: any) {
+        failedCount++;
+        const errMsg = getErrorMessage(error);
+        const stack = error?.stack || 'No stack trace';
+        errors.push(`Product "${remoteProduct.name}" (Remote ID: ${remoteProduct.id}): ${errMsg}`);
+        this.logger.error(`[Sync] Failed to sync product "${remoteProduct.name}": ${errMsg}`, stack);
+      }
+    }
+
+    // 5. Generate purchase for initial stock if items exist
+    if (purchaseItems.length > 0) {
+      try {
+        // Find or create default safe
+        const safeName = "الخزنة الرئيسية";
+        let defaultSafe = await this.safesRepo.findOne({ where: { adminId } as any });
+
+        if (!defaultSafe) {
+          const createAccountDto: CreateAccountDto = {
+            name: safeName,
+            type: AccountType.CASH,
+            initialBalance: 0,
+          };
+          defaultSafe = await this.safesService.createAccount(me, createAccountDto);
+        }
+
+        const totalCost = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.purchaseCost), 0);
+
+        const randomCode = generateRandomAlphanumeric(8);
+        const createPurchaseDto: CreatePurchaseDto = {
+          receiptNumber: `SYNC-${randomCode}`,
+          safeId: defaultSafe.id,
+          items: purchaseItems,
+          paidAmount: totalCost,
+          notes: `Initial stock sync from ${store.name} store`,
+        };
+
+        await this.purchasesService.create(me, createPurchaseDto);
+        this.logger.log(`[Sync] Successfully generated initial stock purchase for ${purchaseItems.length} SKUs.`);
+      } catch (purchaseError: any) {
+        this.logger.error(`[Sync] Failed to generate initial stock purchase: ${getErrorMessage(purchaseError)}`);
+      }
+    }
+
+    // 6. Send final summary notification
+    const total = remoteProducts.length;
+    await this.notificationService.create({
+      userId: adminId,
+      type: NotificationType.REMOTE_SYNC_END,
+      title: `Full Store Sync Finished: ${store.name}`,
+      message: `Sync process completed. Total: ${total}, Success: ${successCount}, Failed: ${failedCount}, Please check the purchase details.`,
+    });
+
+    return { total, successCount, failedCount, errors };
+  }
+
+
+  private mapMappedProductToCreateDto(p: MappedProductDto, store: StoreEntity): { product: CreateProductDto, skuQuantityMap: Map<string, number> } {
+    //qunatity map 
+    const skuQuantityMap = new Map<string, number>();
+
+    // Simple HTML strip for description
+    const cleanDescription = convert(p.description, {
+      wordwrap: false,
+      selectors: [
+        { selector: 'img', format: 'skip' },
+        { selector: 'a', options: { ignoreHref: true } },
+      ],
+    }).replace(/\n{2,}/g, '\n')   // 👈 collapse multiple newlines into one
+      .trim()
+
+    // Safe slug/sku generation
+    const slug = p.slug || generateSlug(p.name);
+    // then rand  8numbers and letters 
+
+    let sku = normalizeSku(p.sku || "");
+
+    if (!sku) {
+      sku = `SKU-${generateRandomAlphanumeric(8)}`;
+    }
+
+
+    const combinations: CreateSkuItemDto[] = p.variants?.map(v => {
+      const attrs = v.variation_props.reduce((acc, vp) => {
+        if (vp.variation && vp.variation_prop) {
+          const key = this.productsService.slugifyKey(vp.variation);
+          const value = this.productsService.slugifyKey(vp.variation_prop);
+          acc[key] = value;
+        }
+        return acc;
+      }, {});
+      let normalized = normalizeSku(v.sku || "");
+      if (!normalized) {
+        normalized = `${sku}-${generateRandomAlphanumeric(5)}`;
+      }
+
+      skuQuantityMap.set(
+        normalized,
+        v.quantity ?? 0,
+      );
+      return {
+        sku: normalized,
+        price: v.price,
+        stockOnHand: 0,
+        isActive: true,
+        attributes: attrs,
+      }
+    }) || [];
+
+    const product = {
+      name: p.name,
+      slug: slug,
+      sku: sku,
+      type: p.type || (combinations.length > 0 ? ProductType.VARIABLE : ProductType.SINGLE),
+      salePrice: p.price,
+      wholesalePrice: p.expense || p.price,
+      lowestPrice: p.price,
+      description: cleanDescription,
+      categoryName: p.categories?.[0]?.name,
+      storeId: store.id,
+      remoteId: String(p.id),
+      mainImage: p.thumb,
+      images: p.images?.map(url => ({ url })),
+      combinations: combinations.length > 0 ? combinations : undefined,
+    };
+
+    return { product, skuQuantityMap }
   }
 
 }

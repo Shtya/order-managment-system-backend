@@ -33,38 +33,43 @@ export class RemoteImageHelper {
         }
 
         // 📥 2. Download image
-        const response = await axios.get(url, {
-            responseType: "arraybuffer",
-            timeout: 8000,
-            maxContentLength: this.MAX_SIZE,
-            validateStatus: (s) => s >= 200 && s < 300,
-        });
+        try {
+            const response = await axios.get(url, {
+                responseType: "arraybuffer",
+                timeout: 8000,
+                maxContentLength: this.MAX_SIZE,
+                validateStatus: (s) => s >= 200 && s < 300,
+            });
 
-        const contentType = response.headers["content-type"];
-        if (!contentType?.startsWith("image/")) {
-            throw new BadRequestException("Only image types are allowed");
+            const contentType = response.headers["content-type"];
+            if (!contentType?.startsWith("image/")) {
+                throw new BadRequestException("Only image types are allowed");
+            }
+
+            const size = Buffer.byteLength(response.data);
+            if (size > this.MAX_SIZE) {
+                throw new BadRequestException("Image too large");
+            }
+
+            // 🧾 3. Generate file name
+            const ext = this.getExtension(contentType);
+            const fileName = `${Date.now()}-${randomUUID()}.${ext}`;
+
+            // 📁 4. Save file locally
+            const uploadDir = path.join(process.cwd(), this.publicBaseUrl);
+            await fs.promises.mkdir(uploadDir, { recursive: true });
+
+            const filePath = path.join(uploadDir, fileName);
+            await fs.promises.writeFile(filePath, response.data);
+
+            // 🌐 5. Public URL (adjust based on your server)
+            const publicUrl = `${this.publicBaseUrl}/${fileName}`;
+
+            return { url: publicUrl };
+        } catch (error) {
+            throw new BadRequestException(`Failed to download image ${url}`);
         }
 
-        const size = Buffer.byteLength(response.data);
-        if (size > this.MAX_SIZE) {
-            throw new BadRequestException("Image too large");
-        }
-
-        // 🧾 3. Generate file name
-        const ext = this.getExtension(contentType);
-        const fileName = `${Date.now()}-${randomUUID()}.${ext}`;
-
-        // 📁 4. Save file locally
-        const uploadDir = path.join(process.cwd(), this.publicBaseUrl);
-        await fs.promises.mkdir(uploadDir, { recursive: true });
-
-        const filePath = path.join(uploadDir, fileName);
-        await fs.promises.writeFile(filePath, response.data);
-
-        // 🌐 5. Public URL (adjust based on your server)
-        const publicUrl = `${this.publicBaseUrl}/${fileName}`;
-
-        return { url: publicUrl };
     }
 
     private getExtension(type: string): string {

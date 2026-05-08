@@ -216,6 +216,12 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     }
                     break;
 
+                case "sync-products-locally":
+                    if (orderAdminId && storeType) {
+                        await this.storesService.syncStoreProductsLocally(orderAdminId, storeType);
+                        this.logger.log(`[Sync Products Locally] Provider: ${storeType} | Admin: ${orderAdminId} | Successfully processed`);
+                    }
+                    break;
 
                 case "retry-failed-order":
                     const { failureId, adminId } = payload;

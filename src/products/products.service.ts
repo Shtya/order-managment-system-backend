@@ -905,7 +905,7 @@ export class ProductsService {
 
       }
 
-      if (store) {
+      if (store && !dto.skipRemoteCheck) {
         const provider = this.storesService.getProvider(store?.provider)
         const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
         if (remoteSlug?.id) {
