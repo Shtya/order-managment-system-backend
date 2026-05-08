@@ -3132,6 +3132,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
 
     public async getAllMappedProducts(store: StoreEntity, filters?: string[]): Promise<MappedProductDto[]> {
+        return [];
         let allProducts: MappedProductDto[] = [];
         let hasNextPage = true;
         let after: string | null = null;
