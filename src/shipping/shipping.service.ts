@@ -645,7 +645,7 @@ export class ShippingService {
 				relatedEntityId: String(order?.id),
 			});
 
-			throw error;
+			throw new BadRequestException(errorMessage);
 		}
 	}
 
