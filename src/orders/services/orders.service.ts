@@ -5531,10 +5531,15 @@ export class OrdersService {
       }
     }
 
-    // Fetch lightweight products
+    // Fetch lightweight products with SKUs to calculate stock
     const upsellingProducts = upsellingIds.size
       ? await this.productRepo
         .createQueryBuilder("product")
+        .leftJoinAndSelect(
+          "product.variants",
+          "skus",
+          "skus.isActive = true",
+        )
         .select([
           "product.id",
           "product.name",
@@ -5543,6 +5548,9 @@ export class OrdersService {
           "product.mainImage",
           "product.lowestPrice",
           "product.salePrice",
+          "skus.id",
+          "skus.stockOnHand",
+          "skus.reserved",
         ])
         .where("product.id IN (:...ids)", {
           ids: [...upsellingIds],
@@ -5551,7 +5559,14 @@ export class OrdersService {
       : [];
 
     const productMap = new Map(
-      upsellingProducts.map((p) => [p.id, p]),
+      upsellingProducts.map((p) => {
+        // Calculate total available stock across all SKUs
+        const totalAvailable = (p.variants || []).reduce((sum, sku) => {
+          const avail = (sku.stockOnHand || 0) - (sku.reserved || 0);
+          return sum + Math.max(0, avail);
+        }, 0);
+        return [p.id, { ...p, totalAvailable }];
+      }),
     );
 
     // Attach product info
