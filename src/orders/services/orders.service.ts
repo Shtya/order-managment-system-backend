@@ -2081,6 +2081,8 @@ export class OrdersService {
     const repo = manager ? manager.getRepository(OrderEntity) : this.orderRepo;
     if (!adminId) throw new BadRequestException("Missing adminId");
 
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
     const order = await repo
       .createQueryBuilder("order")
       .leftJoinAndSelect("order.items", "items")
@@ -2119,7 +2121,15 @@ export class OrdersService {
         { adminId }
       )
       .leftJoinAndSelect("shipments.shippingCompany", "shipmentShippingCompany")
-      .where("order.id = :id", { id })
+      .where(new Brackets(qb => {
+        if (isUuid) {
+          qb.where("order.id = :id", { id });
+        } else {
+          qb.where("order.orderNumber = :id", { id })
+            .orWhere("order.trackingNumber = :id", { id })
+            .orWhere("shipments.trackingNumber = :id", { id });
+        }
+      }))
       // 🔥 تصحيح: كان هناك مسافة في كلمة "ord er" تسببت في خطأ أيضاً
       .andWhere("order.adminId = :adminId", { adminId })
       .getOne();
@@ -2572,7 +2582,7 @@ export class OrdersService {
         // Save all new/updated order items at once
 
         if (itemsToSave.length > 0) {
-            await manager.save(OrderItemEntity, itemsToSave);
+          await manager.save(OrderItemEntity, itemsToSave);
         }
       }
 
@@ -5479,7 +5489,7 @@ export class OrdersService {
 
     const orders = await this.orderRepo
       .createQueryBuilder("order")
-      .innerJoin(
+      .innerJoinAndSelect(
         "order.assignments",
         "assignment",
         `
