@@ -76,9 +76,10 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
 
-    emitStoreSyncStatus(userId: string, payload: { storeId: string; provider: string; status: string }) {
+    emitStoreSyncStatus(userId: string, payload: { storeId: string; provider: string; status: string, type: "local" | "remote" }) {
         this.server.to(`user_${userId}`).emit("store:sync-status", {
             ...payload,
+            type: payload.type || "remote",
             timestamp: new Date(),
         });
     }

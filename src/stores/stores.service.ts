@@ -30,7 +30,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
 import { generateRandomAlphanumeric, generateSlug, getErrorMessage, normalizeSku } from "common/healpers";
-import { ProductSyncStatus, ProductSyncStateEntity } from "entities/product_sync_error.entity";
+import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntityType } from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
 import { convert } from "html-to-text";
 
@@ -141,6 +141,8 @@ export class StoresService {
       "store.isIntegrated",
       "store.syncNewProducts",
       "store.syncStatus",
+      "store.localSyncStatus",
+      "store.localSyncStatusAt",
       "store.lastSyncAttemptAt",
       "store.created_at",
       "store.updated_at"
@@ -666,6 +668,10 @@ export class StoresService {
       `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
     );
 
+    if (store.localSyncStatus === SyncStatus.SYNCING)
+      throw new BadRequestException("Cannot sync: store is already syncing");
+
+
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueFullStoreSync(store);
 
@@ -676,6 +682,82 @@ export class StoresService {
 
     return {
       message: `Full synchronization job for "${store.name}" has been queued.`,
+      storeId: id
+    };
+  }
+
+  async manualSyncFromStore(me: any, id: string) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const store = await this.storesRepo.findOne({ where: { id, adminId } });
+    if (!store) throw new NotFoundException(`Store with ID ${id} not found`);
+
+    if (!store.isActive) throw new BadRequestException("Cannot sync: store is inactive");
+
+    if (!store.isIntegrated) throw new BadRequestException(
+      `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
+    );
+
+    if (store.syncStatus === SyncStatus.SYNCING)
+      throw new BadRequestException("Cannot sync: store is already syncing");
+
+
+    await this.storesRepo.update(store.id, {
+      syncStatus: SyncStatus.SYNCING,
+      lastSyncAttemptAt: new Date()
+    });
+
+
+    // Route to the correct queue based on Provider
+    await this.storeQueueService.enqueueFullProductSyncLocally(adminId, store.provider);
+
+    this.logger.log(
+      `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
+      `initiated by Admin: ${adminId}.`
+    );
+
+    return {
+      message: `Full synchronization job for "${store.name}" has been queued.`,
+      storeId: id
+    };
+  }
+
+  async manualSyncSpecificProducts(me: any, id: string, productIds: string[]) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    if (!productIds || productIds.length === 0) {
+      throw new BadRequestException("No product IDs provided for sync");
+    }
+
+    if (productIds.length > 50) {
+      throw new BadRequestException("Max 50 product allowed to sync at one time");
+    }
+
+    const store = await this.storesRepo.findOne({ where: { id, adminId } });
+    if (!store) throw new NotFoundException(`Store with ID ${id} not found`);
+
+    if (!store.isActive) throw new BadRequestException("Cannot sync: store is inactive");
+
+    if (!store.isIntegrated) throw new BadRequestException(
+      `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
+    );
+
+    // We don't necessarily block partial sync if a full sync is running, 
+    // but it's safer to check.
+    if (store.localSyncStatus === SyncStatus.SYNCING)
+      throw new BadRequestException("Cannot sync: store is already syncing");
+
+    await this.storeQueueService.enqueueFullStoreSync(store, productIds);
+
+    this.logger.log(
+      `[Manual Partial Sync] Dispatched sync for ${productIds.length} products in Store: "${store.name}" (ID: ${id}) ` +
+      `initiated by Admin: ${adminId}.`
+    );
+
+    return {
+      message: `Sync job for ${productIds.length} products has been queued for "${store.name}".`,
       storeId: id
     };
   }
@@ -1590,7 +1672,7 @@ export class StoresService {
     store.externalStoreId = credentials.storeId;
 
     const newStore = await this.storesRepo.save(store);;
-    // this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
+    this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
     return newStore;
   }
 
@@ -1652,134 +1734,193 @@ export class StoresService {
       throw new BadRequestException("Store not active");
     }
 
-    const p = this.getProvider(provider);
-    const remoteProducts = await p.getAllMappedProducts(store);
+    try {
 
-    let successCount = 0;
-    let failedCount = 0;
-    const errors: string[] = [];
 
-    const me = { id: adminId, adminId, role: { name: 'admin' } };
-    const purchaseItems: PurchaseItemDto[] = [];
-    const allProductsmap = new Map<string, Map<string, number>>();
-    for (const remoteProduct of remoteProducts) {
-      try {
-        const remoteId = String(remoteProduct.id);
+      const p = this.getProvider(provider);
+      const remoteProducts = await p.getAllMappedProducts(store);
 
-        // 1. Check if linked via ProductSyncState
-        let syncState = await this.productSyncStateRepo.findOne({
-          where: { adminId, storeId: store.id, remoteProductId: remoteId, externalStoreId: store.externalStoreId }
-        });
+      let successCount = 0;
+      let failedCount = 0;
+      let newTotal = 0;
+      let newSuccess = 0;
+      let newFailed = 0;
+      const errors: string[] = [];
 
-        let localProduct: any = null;
-        if (syncState) {
-          // UPDATE (Mocked for now as requested)
-          // await this.productsService.update(me, localProduct.id, this.mapMappedProductToCreateDto(remoteProduct, store));
-          this.logger.log(`[Sync] Product "${remoteProduct.name}" locally already exists with ID: ${syncState.productId}.`);
-          // localProduct = await this.productsRepo.findOne({ where: { id: syncState.productId, adminId }, relations: ['skus'] });
-        } else {
-          // CREATE
-          const { product: createDto, skuQuantityMap } = this.mapMappedProductToCreateDto(remoteProduct, store);
-          createDto.skipRemoteCheck = true; // Skip redundant remote slug/sku checks during local sync
-          localProduct = await this.productsService.create(me, createDto);
-          allProductsmap.set(localProduct.id, skuQuantityMap);
+      const me = { id: adminId, adminId, role: { name: 'admin' } };
+      const purchaseItems: PurchaseItemDto[] = [];
+      const allProductsmap = new Map<string, Map<string, number>>();
+      for (const remoteProduct of remoteProducts) {
+        let isNew = false;
+        try {
+          const remoteId = String(remoteProduct.id);
 
-        }
+          // 1. Check if linked via ProductSyncState
+          let syncState = await this.productSyncStateRepo.findOne({
+            where: { adminId, storeId: store.id, remoteProductId: remoteId, externalStoreId: store.externalStoreId }
+          });
 
-        // 3. Upsert sync state to link remote product to local product
-        if (localProduct) {
-          await this.productSyncStateService.upsertSyncState(
-            { adminId, productId: localProduct.id, storeId: store.id, externalStoreId: store.externalStoreId },
-            {
-              remoteProductId: remoteId,
-              status: ProductSyncStatus.SYNCED,
-              lastError: null,
-              lastSynced_at: new Date(),
-            }
-          );
+          isNew = !syncState;
+          if (isNew) newTotal++;
 
-          // Collect SKUs for purchase if they have remote stock
-          if (localProduct.type === ProductType.SINGLE) {
-            const sku = localProduct.skus?.[0];
-            const quantity = allProductsmap.get(localProduct.id)?.get(sku?.sku) || 0;
-            if (sku && quantity > 0) {
-              purchaseItems.push({
-                variantId: sku.id,
-                quantity: quantity,
-                purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
-              });
-            }
-          } else if (localProduct.type === ProductType.VARIABLE && localProduct.skus?.length > 0) {
-            for (const localVariant of localProduct.skus) {
-              const localQuantity = allProductsmap.get(localProduct.id)?.get(localVariant.sku) || 0;
-              if (localQuantity > 0) {
-                const localSku = localProduct.skus?.find(s => s.key === localVariant.key);
-                if (localSku) {
-                  purchaseItems.push({
-                    variantId: localSku.id,
-                    quantity: localQuantity,
-                    purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
-                  });
+          let localProduct: any = null;
+          if (syncState) {
+            // UPDATE (Mocked for now as requested)
+            // await this.productsService.update(me, localProduct.id, this.mapMappedProductToCreateDto(remoteProduct, store));
+            this.logger.log(`[Sync] Product "${remoteProduct.name}" locally already exists with ID: ${syncState.productId}.`);
+            // localProduct = await this.productsRepo.findOne({ where: { id: syncState.productId, adminId }, relations: ['skus'] });
+          } else {
+            // CREATE
+            const { product: createDto, skuQuantityMap } = this.mapMappedProductToCreateDto(remoteProduct, store);
+            createDto.skipRemoteCheck = true; // Skip redundant remote slug/sku checks during local sync
+            localProduct = await this.productsService.create(me, createDto);
+            allProductsmap.set(localProduct.id, skuQuantityMap);
+
+          }
+
+          // 3. Upsert sync state to link remote product to local product
+          if (localProduct) {
+            await this.productSyncStateService.upsertSyncState(
+              { adminId, productId: localProduct.id, storeId: store.id, externalStoreId: store.externalStoreId },
+              {
+                remoteProductId: remoteId,
+                status: ProductSyncStatus.SYNCED,
+                lastError: null,
+                lastSynced_at: new Date(),
+              }
+            );
+
+            // Collect SKUs for purchase if they have remote stock
+            if (localProduct.type === ProductType.SINGLE) {
+              const sku = localProduct.skus?.[0];
+              const quantity = allProductsmap.get(localProduct.id)?.get(sku?.sku) || 0;
+              if (sku && quantity > 0) {
+                purchaseItems.push({
+                  variantId: sku.id,
+                  quantity: quantity,
+                  purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
+                });
+              }
+            } else if (localProduct.type === ProductType.VARIABLE && localProduct.skus?.length > 0) {
+              for (const localVariant of localProduct.skus) {
+                const localQuantity = allProductsmap.get(localProduct.id)?.get(localVariant.sku) || 0;
+                if (localQuantity > 0) {
+                  const localSku = localProduct.skus?.find(s => s.key === localVariant.key);
+                  if (localSku) {
+                    purchaseItems.push({
+                      variantId: localSku.id,
+                      quantity: localQuantity,
+                      purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
+                    });
+                  }
                 }
               }
             }
           }
+
+          successCount++;
+          if (isNew) newSuccess++;
+        } catch (error: any) {
+          failedCount++;
+          if (isNew) newFailed++;
+          const errMsg = getErrorMessage(error);
+          const stack = error?.stack || 'No stack trace';
+          errors.push(`Product "${remoteProduct.name}" (Remote ID: ${remoteProduct.id}): ${errMsg}`);
+          // LOG THE ERROR
+          await this.productSyncStateService.upsertSyncErrorLog(
+            { adminId, productId: null, storeId: store.id, entityType: SyncEntityType.PULL },
+            {
+              remoteProductId: remoteProduct.id || null,
+              action: ProductSyncAction.PULL,
+              errorMessage: errMsg,
+              userMessage: `Failed to sync product "${remoteProduct.name}" to ${store.name}: ${errMsg}`,
+              responseStatus: error?.response?.status,
+              requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+            }
+          );
+
+
+          this.logger.error(`[Sync] Failed to sync product "${remoteProduct.name}": ${errMsg}`, stack);
         }
-
-        successCount++;
-      } catch (error: any) {
-        failedCount++;
-        const errMsg = getErrorMessage(error);
-        const stack = error?.stack || 'No stack trace';
-        errors.push(`Product "${remoteProduct.name}" (Remote ID: ${remoteProduct.id}): ${errMsg}`);
-        this.logger.error(`[Sync] Failed to sync product "${remoteProduct.name}": ${errMsg}`, stack);
       }
-    }
 
-    // 5. Generate purchase for initial stock if items exist
-    if (purchaseItems.length > 0) {
-      try {
-        // Find or create default safe
-        const safeName = "الخزنة الرئيسية";
-        let defaultSafe = await this.safesRepo.findOne({ where: { adminId } as any });
+      // 5. Generate purchase for initial stock if items exist
+      if (purchaseItems.length > 0) {
+        try {
+          // Find or create default safe
+          const safeName = "الخزنة الرئيسية";
+          let defaultSafe = await this.safesRepo.findOne({ where: { adminId } as any });
 
-        if (!defaultSafe) {
-          const createAccountDto: CreateAccountDto = {
-            name: safeName,
-            type: AccountType.CASH,
-            initialBalance: 0,
+          if (!defaultSafe) {
+            const createAccountDto: CreateAccountDto = {
+              name: safeName,
+              type: AccountType.CASH,
+              initialBalance: 0,
+            };
+            defaultSafe = await this.safesService.createAccount(me, createAccountDto);
+          }
+
+          const totalCost = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.purchaseCost), 0);
+
+          const randomCode = generateRandomAlphanumeric(8);
+          const createPurchaseDto: CreatePurchaseDto = {
+            receiptNumber: `SYNC-${randomCode}`,
+            safeId: defaultSafe.id,
+            items: purchaseItems,
+            paidAmount: totalCost,
+            saveAsDraft: true,
+            notes: `Initial stock sync from ${store.name} store`,
           };
-          defaultSafe = await this.safesService.createAccount(me, createAccountDto);
+
+          await this.purchasesService.create(me, createPurchaseDto);
+          this.logger.log(`[Sync] Successfully generated initial stock purchase for ${purchaseItems.length} SKUs.`);
+        } catch (purchaseError: any) {
+          this.logger.error(`[Sync] Failed to generate initial stock purchase: ${getErrorMessage(purchaseError)}`);
         }
-
-        const totalCost = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.purchaseCost), 0);
-
-        const randomCode = generateRandomAlphanumeric(8);
-        const createPurchaseDto: CreatePurchaseDto = {
-          receiptNumber: `SYNC-${randomCode}`,
-          safeId: defaultSafe.id,
-          items: purchaseItems,
-          paidAmount: totalCost,
-          notes: `Initial stock sync from ${store.name} store`,
-        };
-
-        await this.purchasesService.create(me, createPurchaseDto);
-        this.logger.log(`[Sync] Successfully generated initial stock purchase for ${purchaseItems.length} SKUs.`);
-      } catch (purchaseError: any) {
-        this.logger.error(`[Sync] Failed to generate initial stock purchase: ${getErrorMessage(purchaseError)}`);
       }
+
+      // 6. Send final summary notification
+      const total = remoteProducts.length;
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.REMOTE_SYNC_END,
+        title: `Full Store Sync Finished: ${store.name}`,
+        message: `Sync process completed. Total: ${total}, New Products: ${newTotal} (Success: ${newSuccess}, Failed: ${newFailed}), Already Linked: ${total - newTotal}. Please check the purchase details.`,
+      });
+
+
+      await this.storesRepo.update(store.id, {
+        syncStatus: SyncStatus.SYNCED,
+      });
+
+      // Notify admin via websocket about the new sync status
+      if (store.adminId) {
+        this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+          storeId: store.id,
+          provider: store.provider,
+          status: SyncStatus.SYNCED,
+          type: "remote",
+        });
+      }
+
+
+      return { total, successCount, failedCount, newTotal, newSuccess, newFailed, errors };
+    } catch (error) {
+      await this.storesRepo.update(store.id, {
+        syncStatus: SyncStatus.FAILED,
+      });
+
+      if (store.adminId) {
+        this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+          storeId: store.id,
+          provider: store.provider,
+          status: SyncStatus.FAILED,
+          type: "remote",
+        });
+      }
+      throw error;
     }
 
-    // 6. Send final summary notification
-    const total = remoteProducts.length;
-    await this.notificationService.create({
-      userId: adminId,
-      type: NotificationType.REMOTE_SYNC_END,
-      title: `Full Store Sync Finished: ${store.name}`,
-      message: `Sync process completed. Total: ${total}, Success: ${successCount}, Failed: ${failedCount}, Please check the purchase details.`,
-    });
-
-    return { total, successCount, failedCount, errors };
   }
 
 
@@ -1835,13 +1976,18 @@ export class StoresService {
       }
     }) || [];
 
+    skuQuantityMap.set(
+      sku,
+      p.quantity ?? 0,
+    );
+
     const product = {
       name: p.name,
       slug: slug,
       sku: sku,
       type: p.type || (combinations.length > 0 ? ProductType.VARIABLE : ProductType.SINGLE),
       salePrice: p.price,
-      wholesalePrice: p.expense || p.price,
+      wholesalePrice: p.expense || 0,
       lowestPrice: p.price,
       description: cleanDescription,
       categoryName: p.categories?.[0]?.name,

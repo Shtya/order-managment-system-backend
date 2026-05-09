@@ -96,12 +96,15 @@ export class ProductSyncStateEntity {
 export enum ProductSyncAction {
 	CREATE = 'create',
 	UPDATE = 'update',
+	// add new one for get from remote store to locale 
+	PULL = 'pull',
 	BUNDLE_SYNC = 'bundle_sync',
 }
 
 export enum SyncEntityType {
 	PRODUCT = "product",
 	BUNDLE = "bundle",
+	PULL = "pull",
 }
 
 @Entity("product_sync_error_logs")

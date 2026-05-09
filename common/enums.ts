@@ -1,5 +1,6 @@
 // common/enums.ts
 export enum ApprovalStatus {
+  DRAFT = "draft",
   ACCEPTED = "accepted",
   PENDING = "pending",
   REJECTED = "rejected",

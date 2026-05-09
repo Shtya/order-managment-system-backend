@@ -1241,7 +1241,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
     }
 
 
-    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>) {
+    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>, productIds?: string[]) {
         this.logCtx(`[Sync] Starting product synchronization (Individual API calls)`, store);
 
         let lastId = "";
@@ -1263,11 +1263,18 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                     "syncState.productId = product.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
                     { storeId: store.id, adminId: store.adminId, externalStoreId: store.externalStoreId }
                 )
-                .where("product.storeId = :storeId", { storeId: store.id })
+            if (productIds.length === 0) {
+                qb.where("product.storeId = :storeId", { storeId: store.id })
+            }
+            qb.andWhere("product.adminId = :adminId", { adminId: store.adminId })
                 .andWhere("product.adminId = :adminId", { adminId: store.adminId })
                 .andWhere("product.isActive = :isActive", { isActive: true })
                 .orderBy("product.id", "ASC")
                 .take(20);
+
+            if (productIds && productIds.length > 0) {
+                qb.andWhere("product.id IN (:...productIds)", { productIds });
+            }
 
             if (lastId) {
                 qb.andWhere("product.id > :lastId", { lastId });
@@ -1374,12 +1381,12 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         this.logCtx(`[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Errors: ${totalErrors}`, store);
     }
 
-    public async syncFullStore(store: StoreEntity) {
+    public async syncFullStore(store: StoreEntity, productIds?: string[]) {
         if (!store || !store.isActive) {
             throw new Error("Store not found or inactive")
         }
-
-        if (store.syncStatus === SyncStatus.SYNCING) {
+        const hasProductIds = productIds?.length > 0;
+        if (store.localSyncStatus === SyncStatus.SYNCING) {
             return;
         }
 
@@ -1387,17 +1394,20 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             const syncStartTime = Date.now();
 
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.SYNCING,
-                lastSyncAttemptAt: new Date()
+                localSyncStatus: SyncStatus.SYNCING,
+                localSyncStatusAt: new Date()
             });
 
-            const categoryMap = await this.syncCategoriesCursor(store);
+            let categoryMap = new Map<string, string>();
+            if (!hasProductIds) {
+                categoryMap = await this.syncCategoriesCursor(store);
+            }
 
-            await this.syncProductsCursor(store, categoryMap);
+            await this.syncProductsCursor(store, categoryMap, productIds);
 
-            const syncDuration = Date.now() - syncStartTime;
+
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.SYNCED,
+                localSyncStatus: SyncStatus.SYNCED,
             });
 
 
@@ -1406,13 +1416,14 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                     storeId: store.id,
                     provider: store.provider,
                     status: SyncStatus.SYNCED,
+                    type: "remote",
                 });
             }
         } catch (error) {
             const message = this.getErrorMessage(error);
 
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.FAILED,
+                localSyncStatus: SyncStatus.FAILED,
             });
 
             if (store.adminId) {
@@ -1420,6 +1431,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                     storeId: store.id,
                     provider: store.provider,
                     status: SyncStatus.FAILED,
+                    type: "remote",
                 });
             }
         }

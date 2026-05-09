@@ -123,6 +123,7 @@ export class PurchasesController {
 			notes: body.notes ?? undefined,
 			items: parseJsonField(body.items, []),
 			receiptAsset: body.receiptAsset ?? undefined,
+			saveAsDraft: body.saveAsDraft ?? false,
 		} as any;
 
 		if (!dto.receiptNumber) throw new BadRequestException("receiptNumber is required");

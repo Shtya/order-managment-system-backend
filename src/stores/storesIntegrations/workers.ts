@@ -110,7 +110,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     protected async processJob(payload: any): Promise<void> {
-        const { type, storeType, storeId, newStatusId, productId, bundleId, oldBundleData, category, slug, orderId, adminId: orderAdminId } = payload;
+        const { type, storeType, storeId, newStatusId, productId, bundleId, oldBundleData, category, slug, orderId, adminId: orderAdminId, productIds } = payload;
 
         try {
             // 1. Resolve which service to use
@@ -209,9 +209,10 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                     break;
 
                 case "sync-full-store":
+                    const { productIds } = payload;
                     const store = await this.storesRepo.findOneBy({ id: storeId });
                     if (store) {
-                        await service?.syncFullStore(store);
+                        await service?.syncFullStore(store, productIds);
                         this.logger.log(`[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`);
                     }
                     break;

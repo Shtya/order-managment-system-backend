@@ -23,7 +23,6 @@ export function tenantId(me: any): any | null {
 	return me.adminId;
 }
 
-
 @Injectable()
 export class PurchasesService {
 	constructor(
@@ -346,13 +345,12 @@ export class PurchasesService {
 				subtotal,
 				total,
 				remainingAmount,
-				status: ApprovalStatus.PENDING,
+				status: dto.saveAsDraft ? ApprovalStatus.DRAFT : ApprovalStatus.PENDING,
 				notes: dto.notes ?? null,
 				items,
 			} as any);
 
 			const saved: any = await repo.save(inv);
-
 
 			await this.log({
 				adminId,
@@ -409,6 +407,21 @@ export class PurchasesService {
 			throw new BadRequestException("Cannot modify items of an ACCEPTED purchase. Change status first.");
 		}
 
+		if (dto.supplierId) {
+			const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } as any });
+			if (!supplier) throw new BadRequestException("supplier not found");
+			inv.supplierId = dto.supplierId;
+			inv.supplier = supplier;
+		}
+
+		if (dto.safeId) {
+			const safe = await this.accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
+			if (!safe) throw new BadRequestException("Safe/Account not found");
+			if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+			inv.safeId = dto.safeId;
+			inv.safe = safe;
+		}
+
 		let saved;
 		if (dto.items) {
 			await this.itemRepo.delete({ invoiceId: id } as any);
@@ -445,8 +458,7 @@ export class PurchasesService {
 		}
 
 		// --- Sync supplier financials only if status is ACCEPTED ---
-		const newSupplierId = saved.supplierId;
-		const newStatus = saved.status;
+
 		await this.syncSupplierFinancials({
 			oldStatus: oldStatus,
 			newStatus: saved.status,
@@ -751,8 +763,8 @@ export class PurchasesService {
 						manager
 					});
 
-					// ✅ Price rollback when leaving ACCEPTED to (REJECTED or PENDING)
-					if (status === ApprovalStatus.REJECTED || status === ApprovalStatus.PENDING) {
+					// ✅ Price rollback when leaving ACCEPTED to (REJECTED or PENDING or DRAFT)
+					if (status === ApprovalStatus.REJECTED || status === ApprovalStatus.PENDING || status === ApprovalStatus.DRAFT) {
 						const lastPriceLog = await manager.findOne(PurchaseAuditLogEntity, {
 							where: { adminId, invoiceId: inv.id, action: "price_updated" as any } as any,
 							order: { created_at: "DESC" },

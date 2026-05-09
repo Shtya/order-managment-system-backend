@@ -153,10 +153,11 @@ export class StoreQueueService {
         });
     }
 
-    async enqueueFullStoreSync(store: StoreEntity) {
-        const jobId = `fullSync:${store.provider}:${store.id}`;
+    async enqueueFullStoreSync(store: StoreEntity, productIds?: string[]) {
+        const jobId = `fullSync:${store.provider}:${store.id}:${Date.now()}`;
         await this.addJob(store.adminId, "sync-full-store", store.provider, {
             storeId: store.id,
+            productIds,
         }, { jobId });
     }
 

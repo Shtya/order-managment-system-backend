@@ -250,13 +250,18 @@ export class ProductSyncStateService {
         const stats = {
             create: 0,
             update: 0,
+            pull: 0,
+            bundle_sync: 0,
             total: 0,
         };
 
         raw.forEach((row) => {
             const action = String(row.action).toLowerCase();
             if (action === 'create') stats.create = Number(row.count);
-            if (action === 'update') stats.update = Number(row.count);
+            else if (action === 'update') stats.update = Number(row.count);
+            else if (action === 'pull') stats.pull = Number(row.count);
+            else if (action === 'bundle_sync') stats.bundle_sync = Number(row.count);
+
             stats.total += Number(row.count);
         });
 
@@ -387,14 +392,14 @@ export class ProductSyncStateService {
         await this.notificationService.create({
             userId: adminId,
             type: NotificationType.PRODUCT_SYNC_FAILED, // you can later split this if needed
-            title: isProduct ? "Product Sync Failed" : "Bundle Sync Failed",
+            title: entityType === SyncEntityType.PULL ? "Pull Product Sync Failed" : isProduct ? "Product Sync Failed" : "Bundle Sync Failed",
             message:
-                userMessage ||
-                (isProduct
-                    ? "Failed to sync product"
-                    : "Failed to sync bundle"),
-            relatedEntityType: isProduct ? "product" : "bundle",
-            relatedEntityId: String(isProduct ? productId : bundleId),
+                !!userMessage ? userMessage :  entityType === SyncEntityType.PULL ? "Failed to pull product" :
+                    isProduct
+                        ? "Failed to sync product"
+                        : "Failed to sync bundle",
+            relatedEntityType: entityType === SyncEntityType.PULL ? null : isProduct ? "product" : "bundle",
+            relatedEntityId: entityType === SyncEntityType.PULL ? null : isProduct ? productId : bundleId,
         });
 
         return this.syncErrorLogRepo.save(log);

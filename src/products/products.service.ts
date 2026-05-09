@@ -522,7 +522,8 @@ export class ProductsService {
     const filters: Record<string, any> = {};
     const type = q?.type ?? "PRODUCT";
 
-
+    const ids = q?.ids?.split(',') || [];
+   
     if (q?.categoryId && q?.categoryId != "none")
       filters.categoryId = q.categoryId;
 
@@ -586,6 +587,9 @@ export class ProductsService {
       .andWhere("product.isActive = :isActive", { isActive: isActiveFilter });
 
     // Apply normal filters manually (since we use QueryBuilder now)
+    if (!!ids && ids?.length > 0)
+      qb.andWhere("product.id IN (:...ids)", { ids: ids });
+
     if (filters.categoryId)
       qb.andWhere("product.categoryId = :categoryId", { categoryId: filters.categoryId });
 
