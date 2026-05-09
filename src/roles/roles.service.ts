@@ -73,19 +73,29 @@ export class RolesService implements OnModuleInit {
 				{
 					name: 'call center',
 					description: 'Can confirm orders',
-					permissionNames: ["orders.confirm-incoming", "products.lookup", "orders.update", "orders.readSettings"],
+					permissionNames: ["orders.confirm-incoming", "products.lookup", "orders.update", "orders.readSettings", "products.read"],
 				}
 			];
-
 		for (const r of predefined) {
-			const exists = await this.rolesRepo.findOne({ where: { name: r.name } });
-			if (!exists) {
+			const exists = await this.rolesRepo.findOne({
+				where: { name: r.name },
+			});
+
+			if (exists) {
+				await this.rolesRepo.save({
+					...exists,
+					description: r.description,
+					permissionNames: r.permissionNames,
+					isGlobal: true,
+					adminId: null,
+				});
+			} else {
 				await this.rolesRepo.save(
 					this.rolesRepo.create({
 						name: r.name,
 						description: r.description,
 						permissionNames: r.permissionNames,
-						adminId: null, // Global roles
+						adminId: null,
 						isGlobal: true,
 					}),
 				);

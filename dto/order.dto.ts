@@ -126,6 +126,7 @@ export class CreateOrderDto {
   phoneNumber: string;
 
   @IsOptional()
+  @Transform(({ value }) => value === "" ? undefined : value)
   @IsEmail()
   @MaxLength(200)
   email?: string;

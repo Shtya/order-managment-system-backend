@@ -5487,7 +5487,7 @@ export class OrdersService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const orders = await this.orderRepo
+    const order = await this.orderRepo
       .createQueryBuilder("order")
       .innerJoinAndSelect(
         "order.assignments",
@@ -5517,7 +5517,55 @@ export class OrdersService {
       .addOrderBy("order.id", "ASC")
       .getOne();
 
-    return orders;
+    if (!order) return null;
+
+    // Collect upselling product ids
+    const upsellingIds = new Set<string>();
+
+    for (const item of order.items || []) {
+      if (!item.variant?.product?.upsellingEnabled) continue;
+      for (const upsell of item.variant?.product?.upsellingProducts || []) {
+        if (upsell.productId) {
+          upsellingIds.add(upsell.productId);
+        }
+      }
+    }
+
+    // Fetch lightweight products
+    const upsellingProducts = upsellingIds.size
+      ? await this.productRepo
+        .createQueryBuilder("product")
+        .select([
+          "product.id",
+          "product.name",
+          "product.sku",
+          "product.type",
+          "product.mainImage",
+          "product.lowestPrice",
+          "product.salePrice",
+        ])
+        .where("product.id IN (:...ids)", {
+          ids: [...upsellingIds],
+        })
+        .getMany()
+      : [];
+
+    const productMap = new Map(
+      upsellingProducts.map((p) => [p.id, p]),
+    );
+
+    // Attach product info
+    for (const item of order.items || []) {
+      (item as any).upsellingProducts = item.variant?.product?.upsellingProducts || [];
+      (item as any).upsellingProducts = ((item as any).upsellingProducts || []).map(
+        (upsell) => ({
+          ...upsell,
+          product: productMap.get(upsell.productId) || null,
+        }),
+      );
+    }
+
+    return order;
   }
 
   /**
