@@ -174,19 +174,19 @@ export class ProductsController {
     return this.products.restore(req.user, id);
   }
 
-  @Permissions("products.read")
+  @Permissions("products.read", "products.getonly")
   @Get("by-sku/:sku")
   getBySku(@Req() req: any, @Param("sku") sku: string) {
     return this.products.getBySku(req.user, sku);
   }
 
-  @Permissions("products.read")
+  @Permissions("products.read", "products.getonly")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
     return this.products.get(req.user, id);
   }
 
-  @Permissions("products.read")
+  @Permissions("products.read", "products.getonly")
   @Get(":id/skus")
   getSkus(@Req() req: any, @Param("id") id: string) {
     return this.products.getSkus(req.user, id);
