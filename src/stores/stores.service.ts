@@ -828,7 +828,7 @@ export class StoresService {
       };
 
       return await runInTransaction(async (manager) => {
-        const existingOrder = await this.ordersService.findByExternalId(payload.externalOrderId);
+        const existingOrder = await this.ordersService.findByExternalId(payload.externalOrderId, adminId);
         if (existingOrder) {
           //notification here
           return { ok: true, ignored: true, reason: 'order_exists' };
@@ -994,7 +994,7 @@ export class StoresService {
       const p = this.getProvider(provider);
 
       const externalOrderId = body.id || body?.order_id
-      const order = await this.ordersService.findByExternalId(externalOrderId);
+      const order = await this.ordersService.findByExternalId(externalOrderId, adminId);
 
       if (!order) {
         throw new Error(`Unknown order ${externalOrderId}`);
