@@ -578,9 +578,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Sync Products: Fetch 20 by 20 with Variants
      */
-    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>) {
-
-
+    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>, productIds?: string[]) {
         let lastId = "";
         let hasMore = true;
         let totalProcessed = 0;
@@ -599,11 +597,17 @@ export class EasyOrderService extends BaseStoreProvider {
                     "syncState.productId = product.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
                     { storeId: store.id, adminId: store.adminId, externalStoreId: store.externalStoreId }
                 )
-                .where("product.storeId = :storeId", { storeId: store.id })
-                .andWhere("product.adminId = :adminId", { adminId: store.adminId })
+            if (productIds.length === 0) {
+                qb.where("product.storeId = :storeId", { storeId: store.id })
+            }
+            qb.andWhere("product.adminId = :adminId", { adminId: store.adminId })
                 .andWhere("product.isActive = :isActive", { isActive: true })
                 .orderBy("product.id", "ASC")
                 .take(20);
+
+            if (productIds && productIds.length > 0) {
+                qb.andWhere("product.id IN (:...productIds)", { productIds });
+            }
 
             if (lastId) {
                 qb.andWhere("product.id > :lastId", { lastId });
@@ -619,7 +623,7 @@ export class EasyOrderService extends BaseStoreProvider {
             // Bulk check existence: Use slug 
             const ids = localBatch.map(p => p.syncState?.remoteProductId).filter(Boolean).join(',');
             const remoteResponse = ids ? await this.getAllProducts(store, [`id||$in||${ids}`]) : { data: [] };
-            const remoteItems = remoteResponse?.data || [];
+            const remoteItems = Array.isArray(remoteResponse) ? remoteResponse || [] : remoteResponse?.data || [];
             const remoteMap = new Map<string, any>(remoteItems.map((r: any) => [String(r.id), r]));
 
             for (const product of localBatch) {
@@ -1053,30 +1057,34 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
     * Main entry point for full store synchronization using Cursor Pagination
     */
-    public async syncFullStore(store: StoreEntity) {
+    public async syncFullStore(store: StoreEntity, productIds?: string[]) {
         if (!store || !store.isActive) {
             throw new Error(`Store is inactive or null`);
         }
-
-        if (store.syncStatus === SyncStatus.SYNCING) {
+        const hasProductIds = productIds?.length > 0;
+        if (store.localSyncStatus === SyncStatus.SYNCING) {
             throw new Error(`Store is already syncing. Skipping.`);
         }
 
         try {
 
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.SYNCING,
-                lastSyncAttemptAt: new Date()
+                localSyncStatus: SyncStatus.SYNCING,
+                localSyncStatusAt: new Date()
             });
 
-            // 1. Sync Categories with Cursor (Batch 30)
-            const categoryMap = await this.syncCategoriesCursor(store);
+            // 1. Sync Categories (Build ID mapping)
+            let categoryMap = new Map<string, string>();
+            if (!hasProductIds) {
+                categoryMap = await this.syncCategoriesCursor(store);
+            }
 
-            // 2. Sync Products with Cursor (Batch 20)
-            await this.syncProductsCursor(store, categoryMap);
+            await this.syncProductsCursor(store, categoryMap, productIds);
+
+            // 2. Sync Products (Cursor based)
 
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.SYNCED,
+                localSyncStatus: SyncStatus.SYNCED,
             });
 
             // Notify admin via websocket about the new sync status
@@ -1085,11 +1093,12 @@ export class EasyOrderService extends BaseStoreProvider {
                     storeId: store.id,
                     provider: store.provider,
                     status: SyncStatus.SYNCED,
+                    type: "local",
                 });
             }
         } catch (error) {
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.FAILED,
+                localSyncStatus: SyncStatus.FAILED,
             });
 
             if (store.adminId) {
@@ -1097,6 +1106,7 @@ export class EasyOrderService extends BaseStoreProvider {
                     storeId: store.id,
                     provider: store.provider,
                     status: SyncStatus.FAILED,
+                    type: "local",
                 });
             }
             throw error;
@@ -1443,16 +1453,30 @@ export class EasyOrderService extends BaseStoreProvider {
 
         while (hasNextPage) {
             try {
+                // Fetch basic product list without joins to get IDs
                 const response = await this.getAllProducts(
                     store,
                     [],
                     currentPage,
                     50,
-                    "Variations.Props,Variants.VariationProps,categories"
+                    ""
                 );
 
                 const remoteProducts = response.data || [];
-                allProducts.push(...remoteProducts.map(p => this.mapRemoteProductToDto(p)));
+
+                // Process in chunks of 10 to get full details for each product
+                for (let i = 0; i < remoteProducts.length; i += 10) {
+                    const chunk = remoteProducts.slice(i, i + 10);
+                    const chunkPromises = chunk.map(p => this.getFullProductById(store, String(p.id)));
+                    const results = await Promise.allSettled(chunkPromises);
+                    const successfulProducts = results
+                        .filter(
+                            (r): r is PromiseFulfilledResult<MappedProductDto> =>
+                                r.status === 'fulfilled'
+                        )
+                        .map(r => r.value);
+                    allProducts.push(...successfulProducts);
+                }
 
                 if (response.next_page && response.page < response.totalPages) {
                     currentPage++;
@@ -1498,11 +1522,11 @@ export class EasyOrderService extends BaseStoreProvider {
             id: String(remote.id),
             name: remote.name?.trim(),
             price: Number(remote.price) || 0,
-            expense: Number(remote.expense) || 0,
-            description: remote.description || "",
+            expense: Number(remote.expense) || 0,//
+            description: remote.description || "",//
             slug: remote.slug,
             type: isSingle ? ProductType.SINGLE : ProductType.VARIABLE,
-            sku: isSingle ? (variants[0]?.sku || remote.sku || "") : (remote.sku || ""),
+            sku: isSingle ? (variants[0]?.sku || remote.sku || "") : (remote.sku || ""),//
             upsellings: [],
             thumb: remote.thumb || "",
             images: remote.images || [],

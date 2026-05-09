@@ -16,11 +16,28 @@ import { StoreProvider } from "entities/stores.entity";
 export class StoresController {
   constructor(private storesService: StoresService) { }
 
+  // @Permissions("stores.update") // Requires update permissions
+  // @Post(":id/sync")
+  // async syncStore(@Req() req: any, @Param("id") id: string) {
+  //   return this.storesService.manualSync(req.user, id);
+  // }
+  //sync from store endpoint
   @Permissions("stores.update") // Requires update permissions
   @Post(":id/sync")
-  async syncStore(@Req() req: any, @Param("id") id: string) {
-    return this.storesService.manualSync(req.user, id);
+  async syncFromStore(@Req() req: any, @Param("id") id: string) {
+    return this.storesService.manualSyncFromStore(req.user, id);
   }
+
+  @Permissions("stores.update")
+  @Post(":id/sync-products")
+  async syncSpecificProducts(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body("productIds") productIds: string[]
+  ) {
+    return this.storesService.manualSyncSpecificProducts(req.user, id, productIds);
+  }
+
 
   @Permissions("stores.read")
   @Get('providers')

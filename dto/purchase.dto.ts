@@ -1,6 +1,6 @@
 // dto/purchase.dto.ts
 import { Type } from "class-transformer";
-import { IsArray, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import { IsArray, IsBoolean, IsEnum, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from "class-validator";
 import { ApprovalStatus } from "common/enums";
 
 export class PurchaseItemDto {
@@ -28,6 +28,10 @@ export class CreatePurchaseDto {
 	@ValidateNested({ each: true })
 	@Type(() => PurchaseItemDto)
 	items: PurchaseItemDto[];
+
+	@IsOptional()
+	@IsBoolean()
+	saveAsDraft?: boolean;
 }
 
 

@@ -342,10 +342,16 @@ export abstract class BaseStoreProvider implements OnModuleInit {
 
         try {
             const stuckStores = await this.storesRepo.find({
-                where: {
-                    provider: this.storeProvider,
-                    syncStatus: SyncStatus.SYNCING
-                }
+                where: [
+                    {
+                        provider: this.storeProvider,
+                        syncStatus: SyncStatus.SYNCING
+                    },
+                    {
+                        provider: this.storeProvider,
+                        localSyncStatus: SyncStatus.SYNCING
+                    }
+                ]
             });
 
             if (stuckStores.length === 0) {
@@ -355,13 +361,20 @@ export abstract class BaseStoreProvider implements OnModuleInit {
 
             for (const store of stuckStores) {
                 this.logCtxWarn(
-                    `[Recovery] Found store stuck in SYNCING for ${Math.floor((Date.now() - store.lastSyncAttemptAt.getTime()) / 1000)}s. Resetting to FAILED status...`,
+                    `[Recovery] Found store "${store.name}" stuck  in SYNCING. Resetting to FAILED status...`,
                     store
                 );
+                if(store.syncStatus  === SyncStatus.SYNCING) {
 
-                await this.storesRepo.update(store.id, {
-                    syncStatus: SyncStatus.FAILED,
-                });
+                    await this.storesRepo.update(store.id, {
+                        syncStatus: SyncStatus.FAILED,
+                    });
+                } else {
+                    
+                    await this.storesRepo.update(store.id, {
+                        localSyncStatus: SyncStatus.FAILED,
+                    });
+                }
             }
 
             this.logger.log(`[Recovery] ✓ Successfully recovered ${stuckStores.length} stuck store(s)`);
@@ -408,7 +421,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
     public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
     public abstract syncOrderStatus(order: OrderEntity, newStatusId: string)
-    public abstract syncFullStore(store: StoreEntity)
+    public abstract syncFullStore(store: StoreEntity, productIds?: string[])
     public abstract getProductBySlug(store: StoreEntity, slug: string, retry?: boolean): Promise<{ id }>
     public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
     public abstract getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]>;

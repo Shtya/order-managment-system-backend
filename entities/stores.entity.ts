@@ -97,6 +97,16 @@ export class StoreEntity {
 	@Column({ type: "timestamptz", nullable: true })
 	lastSyncAttemptAt?: Date;
 
+	@Column({
+		type: "enum",
+		enum: SyncStatus,
+		default: SyncStatus.PENDING,
+	})
+	localSyncStatus!: SyncStatus;
+
+	@Column({ type: "timestamptz", nullable: true })
+	localSyncStatusAt?: Date;
+
 	@Column({ type: "varchar", nullable: true })
 	externalStoreId?: string;
 

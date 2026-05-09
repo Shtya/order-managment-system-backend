@@ -1104,6 +1104,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     private async syncProductsCursor(
         store: StoreEntity,
         categoryMap: Map<string, string>, // Map<localCategoryIdAsString, externalCollectionId>
+        productIds?: string[]
     ) {
         let lastId = "";
         let hasMore = true;
@@ -1131,11 +1132,17 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                         externalStoreId: store.externalStoreId,
                     },
                 )
-                .where("product.storeId = :storeId", { storeId: store.id })
-                .andWhere("product.adminId = :adminId", { adminId: store.adminId })
+            if (productIds.length === 0) {
+                qb.where("product.storeId = :storeId", { storeId: store.id })
+            }
+            qb.andWhere("product.adminId = :adminId", { adminId: store.adminId })
                 .andWhere("product.isActive = :isActive", { isActive: true })
                 .orderBy("product.id", "ASC")
                 .take(20);
+
+            if (productIds && productIds.length > 0) {
+                qb.andWhere("product.id IN (:...productIds)", { productIds });
+            }
 
             if (lastId) {
                 qb.andWhere("product.id > :lastId", { lastId });
@@ -2398,27 +2405,30 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
 
 
-    public async syncFullStore(store: StoreEntity) {
+    public async syncFullStore(store: StoreEntity, productIds?: string[]) {
         if (!store || !store.isActive) {
             throw new Error(`Store is inactive or null`);
         }
-
-        if (store.syncStatus === SyncStatus.SYNCING) {
+        const hasProductIds = productIds?.length > 0;
+        if (store.localSyncStatus === SyncStatus.SYNCING) {
             throw new Error(`Store is already syncing. Skipping.`);
         }
 
         try {
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.SYNCING,
-                lastSyncAttemptAt: new Date()
+                localSyncStatus: SyncStatus.SYNCING,
+                localSyncStatusAt: new Date()
             });
 
-            const categoryMap = await this.syncCategoriesCursor(store);
+            let categoryMap = new Map<string, string>();
+            if (!hasProductIds) {
+                categoryMap = await this.syncCategoriesCursor(store);
+            }
 
-            await this.syncProductsCursor(store, categoryMap);
+            await this.syncProductsCursor(store, categoryMap, productIds);
 
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.SYNCED,
+                localSyncStatus: SyncStatus.SYNCED,
             });
 
 
@@ -2427,13 +2437,14 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     storeId: store.id,
                     provider: store.provider,
                     status: SyncStatus.SYNCED,
+                    type: "local",
                 });
             }
         } catch (error) {
             const message = this.getErrorMessage(error);
 
             await this.storesRepo.update(store.id, {
-                syncStatus: SyncStatus.FAILED,
+                localSyncStatus: SyncStatus.FAILED,
             });
 
             if (store.adminId) {
@@ -2441,6 +2452,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     storeId: store.id,
                     provider: store.provider,
                     status: SyncStatus.FAILED,
+                    type: "local",
                 });
             }
         }
