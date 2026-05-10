@@ -151,7 +151,7 @@ export class StoresService {
     // 2. Multi-tenant Filter
     qb.where("store.adminId = :adminId", { adminId });
 
-    if (q.isActive === 'true') qb.andWhere('store.isActive = :isActive', { isActive: q.isActive });
+    if (q?.isActive === 'true') qb.andWhere('store.isActive = :isActive', { isActive: q?.isActive });
 
     // 3. Optional Filter: Platform/Provider
     if (q?.provider) {
@@ -160,7 +160,7 @@ export class StoresService {
 
     // 4. Optional Filter: Status
     if (q?.syncStatus) {
-      qb.andWhere("store.syncStatus = :syncStatus", { syncStatus: q.syncStatus });
+      qb.andWhere("store.syncStatus = :syncStatus", { syncStatus: q?.syncStatus });
     }
 
     // 5. Search (Name, Code, or URL)
