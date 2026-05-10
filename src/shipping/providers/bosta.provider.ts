@@ -226,7 +226,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
       notes: [dto.notes, order.customerNotes].filter(Boolean).join(" |\n "),
-      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.shippingCost) || 0 : 0,
+      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.shippingCost - order.deposit ) || 0 : 0,
       specs: {
         packageType: "Parcel",
         size: order.shippingMetadata?.orderSize || "MEDIUM",
@@ -236,7 +236,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         },
       },
       goodsInfo: {
-        amount: (order.finalTotal - order.shippingCost) || 0,
+        amount: (order.finalTotal - order.shippingCost - order.deposit ) || 0,
       },
       dropOffAddress: {
         cityId: order.shippingMetadata?.cityId,
@@ -249,7 +249,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         firstName: order.customerName.split(" ")[0] || "",
         lastName: order.customerName.split(" ").slice(1).join(" ") || "",
         phone: order.phoneNumber || "",
-        email: order.email || "",
+        email: order.email || undefined,
       },
 
       // IMPORTANT:
