@@ -602,8 +602,8 @@ export class OrdersService {
 
       if (!manifest.lastPrintedAt) {
         if (manifest.type === ShipmentManifestType.SHIPPING) {
-          const packedStatus = await this.findStatusByCode(
-            OrderStatus.PACKED,
+          const readyStatus = await this.findStatusByCode(
+            OrderStatus.READY,
             adminId,
             manager,
           );
@@ -620,7 +620,7 @@ export class OrdersService {
             await orderRepo.update(
               {
                 id: In(orderIds),
-                statusId: packedStatus.id, // ✅ only update PICKED orders
+                statusId: readyStatus.id, // ✅ only update PICKED orders
               },
               {
                 statusId: shippedStatus.id,
@@ -630,7 +630,7 @@ export class OrdersService {
             const statusLogs = orderIds.map((orderId) => ({
               adminId,
               orderId,
-              fromStatusId: packedStatus.id,
+              fromStatusId: readyStatus.id,
               toStatusId: shippedStatus.id,
               userId: userId,
               notes: `Bulk assigned to Manifest: ${manifestNumber}`,
@@ -1178,7 +1178,7 @@ export class OrdersService {
       }
 
       for (const order of orders) {
-        if (order.status.code !== OrderStatus.PACKED) {
+        if (order.status.code !== OrderStatus.READY) {
           throw new BadRequestException(
             `Order ${order.orderNumber} cannot be shipped. Current status: ${order.status.name}. It must be PACKED first.`,
           );
