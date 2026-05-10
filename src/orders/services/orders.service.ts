@@ -1692,7 +1692,7 @@ export class OrdersService {
         relations: ["items", "items.variant", "status"],
         select: ["id", "statusId", "adminId"],
       });
-      console.log("scan order: ", order.id, "sku: ", sku)
+
       if (!order) throw new NotFoundException("Order not found");
       const oldStatusId = order.statusId;
       const allowedStatuses = [OrderStatus.PRINTED, OrderStatus.PREPARING];
@@ -1710,6 +1710,7 @@ export class OrdersService {
         );
         return {
           success: false,
+          code: ScanReason.INVALID_STATUS,
           message: "Order must be Printed or Preparing",
         };
       }
@@ -1748,7 +1749,7 @@ export class OrdersService {
           ScanReason.SKU_NOT_IN_ORDER,
           ScanLogType.PREPARATION,
         );
-        return { success: false, message: `SKU ${sku} not in order` };
+        return { success: false, code: ScanReason.SKU_NOT_IN_ORDER, message: `SKU ${sku} not in order` };
       }
 
       if (item.scannedQuantity >= item.quantity) {
@@ -1761,7 +1762,7 @@ export class OrdersService {
           ScanReason.ALREADY_FULLY_SCANNED,
           ScanLogType.PREPARATION,
         );
-        return { success: false, message: "Item already fully scanned" };
+        return { success: false, code: ScanReason.ALREADY_FULLY_SCANNED, message: "Item already fully scanned" };
       }
 
       const result = await manager
@@ -1782,7 +1783,7 @@ export class OrdersService {
         .returning(["id", "scannedQuantity", "quantity"])
         .execute();
 
-      console.log(result)
+
       if (result.affected === 0) {
         await this.logFailedScan(
           manager,
@@ -1793,8 +1794,7 @@ export class OrdersService {
           ScanReason.ALREADY_FULLY_SCANNED,
           ScanLogType.PREPARATION,
         );
-
-        return { success: false, message: "Item already fully scanned" };
+        return { success: false, code: ScanReason.ALREADY_FULLY_SCANNED, message: "Item already fully scanned" };
       }
 
       const newScannedQuantity = result.raw[0].scannedQuantity;
@@ -1841,11 +1841,11 @@ export class OrdersService {
           details: "Preparation phase completed successfully.",
         });
       }
-      console.log("success")
+
       return {
         success: true,
+        code: "success",
         scanned: newScannedQuantity,
-        total: item.quantity,
         isOrderComplete,
       };
     });
@@ -2000,27 +2000,21 @@ export class OrdersService {
 
     await manager.save(logEntry);
 
-    // 2. Fetch the order to update the JSON column
-    const order = await manager.findOne(OrderEntity, {
-      where: { id: orderId },
-      select: ["id", "failedScanCounts"],
-    });
+    // 2. Update the JSON column atomically in the database
+    const fieldKey = phase === ScanLogType.PREPARATION ? "preparation" : "shipping";
 
-    if (order) {
-      // Initialize if null
-      const counts = order.failedScanCounts || { preparation: 0, shipping: 0 };
-
-      // Increment based on phase
-      if (phase === ScanLogType.PREPARATION) {
-        counts.preparation = (counts.preparation || 0) + 1;
-      } else {
-        counts.shipping = (counts.shipping || 0) + 1;
-      }
-
-      // Assign back and SAVE
-      order.failedScanCounts = counts;
-      await manager.save(OrderEntity, order);
-    }
+    await manager
+      .createQueryBuilder()
+      .update(OrderEntity)
+      .set({
+        failedScanCounts: () => `jsonb_set(
+          COALESCE("failedScanCounts", '{"preparation": 0, "shipping": 0}'::jsonb),
+          '{${fieldKey}}',
+          (COALESCE(("failedScanCounts"->>'${fieldKey}')::int, 0) + 1)::text::jsonb
+        )`,
+      })
+      .where("id = :orderId", { orderId })
+      .execute();
   }
   async getOrderScanLogs(orderId: string, phase: ScanLogType, me: any) {
     const adminId = tenantId(me);
