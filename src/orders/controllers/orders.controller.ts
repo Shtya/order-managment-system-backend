@@ -60,6 +60,14 @@ export class OrdersController {
     return this.svc.getStats(req.user);
   }
 
+  @Get(':id/history')
+  async getHistory(
+    @Param("id") orderId: string,
+   @Req() req: any
+  ) {
+    return await this.svc.getOrderHistory(orderId, req.user);
+  }
+
   @Get("statuses")
   @Permissions("orders.read")
   statuses(@Req() req: any) {
