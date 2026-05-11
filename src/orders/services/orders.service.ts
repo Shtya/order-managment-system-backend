@@ -150,6 +150,8 @@ export class OrdersService {
     @InjectRepository(OrderActionLogEntity)
     private orderActionLogRepo: Repository<OrderActionLogEntity>,
 
+
+
     @Inject(forwardRef(() => ShippingQueueService))
     private shippingQueueService: ShippingQueueService,
 
@@ -374,7 +376,7 @@ export class OrdersService {
       .leftJoinAndSelect(
         "order.assignments",
         "assignment",
-        "assignment.isAssignmentActive = true",
+        `assignment.id = (SELECT sub.id FROM order_assignments sub WHERE sub."orderId" = order.id ORDER BY sub."assignedAt" DESC LIMIT 1)`
       )
       .leftJoinAndSelect("assignment.employee", "employee");
 
@@ -502,6 +504,27 @@ export class OrdersService {
       records,
     };
   }
+
+  async getOrderHistory(orderId: string, me: any) {
+  const adminId = tenantId(me);
+  if (!adminId) throw new BadRequestException("Missing adminId");
+
+  return await this.historyRepo.find({
+    where: {
+      orderId,
+      adminId,
+    },
+    relations: {
+      changedByUser: true, // The user who performed the action
+      fromStatus: true,    // Previous status relation
+      toStatus: true,      // New status relation
+      shippingCompany: true // Optional: shipping company context
+    },
+    order: {
+      created_at: 'DESC', // Newest logs first
+    },
+  });
+}
 
   async listManifests(me: any, q?: any) {
     const adminId = tenantId(me);
