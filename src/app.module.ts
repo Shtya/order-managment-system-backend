@@ -47,6 +47,7 @@ import { minutes, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { SafesModule } from './safes/safes.module';
 import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
+import { WhatsappModule } from './whatsapp/whatsapp.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -111,7 +112,8 @@ import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.mo
 		AccountingModule,
 		ProductSyncStateModule,
 		SafesModule,
-		SupplierPaymentsModule
+		SupplierPaymentsModule,
+		WhatsappModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService, {
