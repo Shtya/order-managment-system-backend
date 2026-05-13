@@ -880,28 +880,22 @@ export class DashboardService {
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
     const { start, end } = DateFilterUtil.getBoundaries(q?.startDate, q?.endDate);
-    const startStr = start?.toISOString() || '';
-    const endStr = end?.toISOString() || '';
 
     const qb = this.usersRepo.createQueryBuilder("u");
 
-    // Joins
-    qb.leftJoin("u.assignments", "oa")
+    // Scope assignments to the selected period on lastActionAt (same rows as totalAssigned)
+    const oaRangeParts: string[] = [];
+    if (start) oaRangeParts.push("oa.lastActionAt >= :empPerfRangeStart");
+    if (end) oaRangeParts.push("oa.lastActionAt <= :empPerfRangeEnd");
+    const oaJoinOn = oaRangeParts.length > 0 ? oaRangeParts.join(" AND ") : "1=1";
+
+    qb.leftJoin("u.assignments", "oa", oaJoinOn)
       .leftJoin("oa.lastStatus", "la")
       .leftJoin("oa.order", "o")
       .leftJoin("o.status", "st");
 
-    if (q?.startDate) {
-      qb.andWhere("oa.lastActionAt >= :startDate", {
-        startDate: startStr,
-      });
-    }
-
-    if (q?.endDate) {
-      qb.andWhere("oa.lastActionAt <= :endDate", {
-        endDate: endStr,
-      });
-    }
+    if (start) qb.setParameter("empPerfRangeStart", start);
+    if (end) qb.setParameter("empPerfRangeEnd", end);
 
     // Filters
     qb.where("u.adminId = :adminId", { adminId });
@@ -930,15 +924,15 @@ export class DashboardService {
         "totalAssigned"
       )
       .addSelect(
-        `COUNT(DISTINCT CASE WHEN la.code = '${OrderStatus.CONFIRMED}' ${q?.startDate ? `AND oa.lastActionAt >= '${startStr}'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${endStr}'` : ''} THEN oa.id END)`,
+        `COUNT(DISTINCT CASE WHEN la.code = '${OrderStatus.CONFIRMED}' THEN oa.id END)`,
         "confirmedCount",
       )
       .addSelect(
-        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' ${q?.startDate ? `AND oa.lastActionAt >= '${startStr}'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${endStr}'` : ''} THEN oa.id END)`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN oa.id END)`,
         "shippedCount",
       )
       .addSelect(
-        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' ${q?.startDate ? `AND oa.lastActionAt >= '${startStr}'` : ''} ${q?.endDate ? `AND oa.lastActionAt <= '${endStr}'` : ''} THEN oa.id END)`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN oa.id END)`,
         "deliveredCount",
       )
       .addSelect((sub) => {
@@ -956,22 +950,28 @@ export class DashboardService {
           .andWhere("oa_locked.lockedUntil > CURRENT_TIMESTAMP");
       }, "lockedAssignments")
       .addSelect((sub) => {
-        return sub
+        const s = sub
           .select("COUNT(sl.id)", "prepFailedCount")
           .from(OrderScanLogEntity, "sl")
           .where("sl.userId = u.id")
-          .andWhere("sl.phase = 'PREPARATION'")
-          .andWhere(q?.startDate ? `sl.createdAt >= '${startStr}'` : '1=1')
-          .andWhere(q?.endDate ? `sl.createdAt <= '${endStr}'` : '1=1');
+          .andWhere("sl.phase = :prepPhase", { prepPhase: ScanLogType.PREPARATION });
+        if (q?.startDate && start)
+          s.andWhere("sl.createdAt >= :empPerfRangeStart");
+        if (q?.endDate && end)
+          s.andWhere("sl.createdAt <= :empPerfRangeEnd");
+        return s;
       }, "preparationFailedCount")
       .addSelect((sub) => {
-        return sub
+        const s = sub
           .select("COUNT(sl.id)", "outFailedCount")
           .from(OrderScanLogEntity, "sl")
           .where("sl.userId = u.id")
-          .andWhere("sl.phase = 'SHIPPING'")
-          .andWhere(q?.startDate ? `sl.createdAt >= '${startStr}'` : '1=1')
-          .andWhere(q?.endDate ? `sl.createdAt <= '${endStr}'` : '1=1');
+          .andWhere("sl.phase = :shipPhase", { shipPhase: ScanLogType.SHIPPING });
+        if (q?.startDate && start)
+          s.andWhere("sl.createdAt >= :empPerfRangeStart");
+        if (q?.endDate && end)
+          s.andWhere("sl.createdAt <= :empPerfRangeEnd");
+        return s;
       }, "outgoingFailedCount");
 
     // Grouping
@@ -987,7 +987,7 @@ export class DashboardService {
 
       // استعلام البيانات (Data Query)
       qb
-        .orderBy("COUNT(oa.id)", "DESC")
+        .orderBy("COUNT(DISTINCT oa.id)", "DESC")
         .offset((page - 1) * limit)
         .limit(limit)
         .getRawMany(),
@@ -1052,60 +1052,12 @@ export class DashboardService {
   }
 
   async exportEmployeePerformance(user: any, q: any) {
-    const adminId = tenantId(user);
-    const qb = this.usersRepo
-      .createQueryBuilder("u")
-      .leftJoin("u.assignments", "oa")
-      .leftJoin("oa.lastStatus", "la")
-      .leftJoin("oa.order", "o")
-      .leftJoin("o.status", "st")
-      .select(["u.id AS id", "u.name AS name"])
-      .addSelect("COUNT(oa.id)", "totalAssigned")
-      .addSelect(
-        `COUNT(CASE WHEN la.code = '${OrderStatus.CONFIRMED}' THEN oa.id END)`,
-        "confirmedCount",
-      )
-      .addSelect(
-        `COUNT(CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN oa.id END)`,
-        "shippedCount",
-      )
-      .addSelect(
-        `COUNT(CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN oa.id END)`,
-        "deliveredCount",
-      )
-      .where("u.adminId = :adminId", { adminId });
-
-    // تطبيق الفلاتر (نفس منطق الـ list تماماً)
-    if (q?.search) {
-      qb.andWhere(
-        new Brackets((sq) => {
-          sq.where("u.name ILIKE :s", { s: `%${q.search}%` }).orWhere(
-            "o.orderNumber ILIKE :s",
-            { s: `%${q.search}%` },
-          );
-        }),
-      );
-    }
-    if (q?.storeId)
-      qb.andWhere("o.storeId = :storeId", { storeId: q.storeId });
-    const { start, end } = DateFilterUtil.getBoundaries(q.startDate, q.endDate);
-    const startStr = start?.toISOString() || '';
-    const endStr = end?.toISOString() || '';
-
-    if (q?.startDate)
-      qb.andWhere("o.created_at >= :startDate", {
-        startDate: startStr,
-      });
-    if (q?.endDate)
-      qb.andWhere("o.created_at <= :endDate", {
-        endDate: endStr,
-      });
-
-    const stats = await qb
-      .groupBy("u.id")
-      .addGroupBy("u.name")
-      .orderBy("COUNT(oa.id)", "DESC")
-      .getRawMany();
+    const exportLimit = Math.min(Number(q?.exportLimit ?? 100_000), 500_000);
+    const { records: stats } = await this.getEmployeePerformance(user, {
+      ...q,
+      page: 1,
+      limit: exportLimit,
+    });
 
     // --- إنشاء ملف ExcelJS ---
     const workbook = new ExcelJS.Workbook();
@@ -1132,8 +1084,9 @@ export class DashboardService {
 
     stats.forEach((row) => {
       const total = Number(row.totalAssigned) || 0;
-      const delivered = Number(row.deliveredCount) || 0;
-      const confirmed = Number(row.confirmedCount) || 0;
+      const delivered = Number(row.delivered?.count) || 0;
+      const confirmed = Number(row.confirmed?.count) || 0;
+      const shipped = Number(row.shipped?.count) || 0;
       const rate = total > 0 ? Math.round((delivered / total) * 100) : 0;
 
       const newRow = worksheet.addRow({
@@ -1142,7 +1095,7 @@ export class DashboardService {
         confirmedCount: confirmed,
         confirmedPercent:
           total > 0 ? `${Math.round((confirmed / total) * 100)}%` : "0%",
-        shippedCount: Number(row.shippedCount) || 0,
+        shippedCount: shipped,
         deliveredCount: delivered,
         deliveryRate: `${rate}%`,
       });
@@ -1173,30 +1126,26 @@ export class DashboardService {
       OrderStatus.CANCELLED,
     ];
 
-    const except = Array.isArray(q.except) ? q.except : (typeof q.except === 'string' ? [q.except] : []);
+    const rawExcept = q?.except;
+    const exceptCodes: string[] = Array.isArray(rawExcept)
+      ? rawExcept.map((c) => String(c).trim().toLowerCase()).filter(Boolean)
+      : typeof rawExcept === "string" && rawExcept.length > 0
+        ? rawExcept.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+        : [];
 
+      
     const { start, end } = DateFilterUtil.getBoundaries(q.startDate, q.endDate);
     const startDate = start;
     const endDate = end;
 
-    const hasExcept = except.length > 0;
+    const dateMatchedAssignments = `(:startDate::timestamp IS NULL OR oa.lastActionAt >= :startDate::timestamp) AND (:endDate::timestamp IS NULL OR oa.lastActionAt <= :endDate::timestamp)`;
 
-    const dynamicCountSql = `COUNT(DISTINCT 
-        CASE 
-           ${hasExcept
-        ? `WHEN status.code IN (:...except) THEN oa.id`
-        : `WHEN FALSE THEN oa.id`
-      } 
-          ELSE (
-            CASE 
-              WHEN (:startDate::timestamp IS NULL OR oa.lastActionAt >= :startDate::timestamp) 
-                   AND (:endDate::timestamp IS NULL OR oa.lastActionAt <= :endDate::timestamp) 
-              THEN oa.id 
-            END
-          )
-        END
-      )`;
+    const assignmentCountExpr =
+      exceptCodes.length > 0
+        ? `COUNT(DISTINCT CASE WHEN status.code IN (:...exceptCodes) THEN oa.id WHEN ${dateMatchedAssignments} THEN oa.id END)`
+        : `COUNT(DISTINCT CASE WHEN ${dateMatchedAssignments} THEN oa.id END)`;
 
+      
     const qb = this.statusRepo
       .createQueryBuilder("status")
       .leftJoin(
@@ -1211,10 +1160,9 @@ export class DashboardService {
         "status.color AS color",
         "status.sortOrder AS sortOrder",
       ])
-      .addSelect(dynamicCountSql, "count");
+      .addSelect(assignmentCountExpr, "count");
 
-    if (except.length > 0)
-      qb.setParameter("except", except)
+    if (exceptCodes.length > 0) qb.setParameter("exceptCodes", exceptCodes);
 
     qb.setParameter("adminId", adminId)
       .setParameter("startDate", startDate)
@@ -1230,13 +1178,15 @@ export class DashboardService {
       }),
     );
 
-    const totalCountQb = this.dataSource.getRepository(OrderAssignmentEntity)
+    const totalCountQb = this.dataSource
+      .getRepository(OrderAssignmentEntity)
       .createQueryBuilder("oa")
       .leftJoin("oa.lastStatus", "status")
       .where("oa.assignedByAdminId = :adminId", { adminId: adminId })
-      .select(dynamicCountSql.replace("count", "totalCount"), "totalCount");
+      .select(assignmentCountExpr, "totalCount");
 
-    if (except.length > 0) totalCountQb.setParameter("except", except);
+    if (exceptCodes.length > 0)
+      totalCountQb.setParameter("exceptCodes", exceptCodes);
 
     totalCountQb
       .setParameter("adminId", adminId)
