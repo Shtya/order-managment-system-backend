@@ -17,6 +17,7 @@ import {
   OrderStatus,
   OrderStatusEntity,
   OrderScanLogEntity,
+  ScanLogType,
 } from "entities/order.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
@@ -240,13 +241,13 @@ export class DashboardService {
   async getTopProducts(
     user,
     filters: {
-     storeId?: string;
-     startDate?: string;
-     endDate?: string;
-     range?: string;
-     search?: string;
-     limit?: number;
-   } , ) {
+      storeId?: string;
+      startDate?: string;
+      endDate?: string;
+      range?: string;
+      search?: string;
+      limit?: number;
+    },) {
     const adminId = tenantId(user);
     const limit = filters.limit || 5;
 
@@ -878,6 +879,9 @@ export class DashboardService {
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
+    const { start, end } = DateFilterUtil.getBoundaries(q?.startDate, q?.endDate);
+    const startStr = start?.toISOString() || '';
+    const endStr = end?.toISOString() || '';
 
     const qb = this.usersRepo.createQueryBuilder("u");
 
@@ -886,6 +890,18 @@ export class DashboardService {
       .leftJoin("oa.lastStatus", "la")
       .leftJoin("oa.order", "o")
       .leftJoin("o.status", "st");
+
+    if (q?.startDate) {
+      qb.andWhere("oa.lastActionAt >= :startDate", {
+        startDate: startStr,
+      });
+    }
+
+    if (q?.endDate) {
+      qb.andWhere("oa.lastActionAt <= :endDate", {
+        endDate: endStr,
+      });
+    }
 
     // Filters
     qb.where("u.adminId = :adminId", { adminId });
@@ -907,9 +923,6 @@ export class DashboardService {
 
 
 
-    const { start, end } = DateFilterUtil.getBoundaries(q?.startDate, q?.endDate);
-    const startStr = start?.toISOString() || '';
-    const endStr = end?.toISOString() || '';
 
     qb.select(["u.id AS id", "u.name AS name", "u.avatarUrl AS avatarUrl", "u.isActive AS isActive"])
       .addSelect(
@@ -991,8 +1004,18 @@ export class DashboardService {
       const delivered = Number(row.deliveredCount) || 0;
       const activeCount = Number(row.activeAssignments) || 0;
       const lockedCount = Number(row.lockedAssignments) || 0;
-      const prepFailedRate = Number(row.preparationFailedRate) || 0;
-      const outFailedRate = Number(row.outgoingFailedRate) || 0;
+      const prepFailedCount =
+        Number(
+          row.preparationfailedcount ??
+            row.preparationFailedCount ??
+            row.preparationFailedRate,
+        ) || 0;
+      const outFailedCount =
+        Number(
+          row.outgoingfailedcount ??
+            row.outgoingFailedCount ??
+            row.outgoingFailedRate,
+        ) || 0;
 
       return {
         id: row.id,
@@ -1002,8 +1025,8 @@ export class DashboardService {
         totalAssigned: total,
         activeAssignments: activeCount,
         lockedAssignments: lockedCount,
-        preparationFailedRate: prepFailedRate,
-        outgoingFailedRate: outFailedRate,
+        preparationFailedRate: prepFailedCount,
+        outgoingFailedRate: outFailedCount,
         confirmed: {
           count: confirmed,
           percent: total > 0 ? Math.round((confirmed / total) * 100) : 0,
@@ -1160,11 +1183,10 @@ export class DashboardService {
 
     const dynamicCountSql = `COUNT(DISTINCT 
         CASE 
-           ${
-            hasExcept
-              ? `WHEN status.code IN (:...except) THEN oa.id`
-              : `WHEN FALSE THEN oa.id`
-          } 
+           ${hasExcept
+        ? `WHEN status.code IN (:...except) THEN oa.id`
+        : `WHEN FALSE THEN oa.id`
+      } 
           ELSE (
             CASE 
               WHEN (:startDate::timestamp IS NULL OR oa.lastActionAt >= :startDate::timestamp) 
@@ -1177,7 +1199,11 @@ export class DashboardService {
 
     const qb = this.statusRepo
       .createQueryBuilder("status")
-      .leftJoin(OrderAssignmentEntity, "oa", "oa.lastStatusId = status.id")
+      .leftJoin(
+        OrderAssignmentEntity,
+        "oa",
+        "oa.lastStatusId = status.id AND oa.assignedByAdminId = :adminId",
+      )
       .select([
         "status.id AS id",
         "status.name AS name",
@@ -1190,7 +1216,8 @@ export class DashboardService {
     if (except.length > 0)
       qb.setParameter("except", except)
 
-    qb.setParameter("startDate", startDate)
+    qb.setParameter("adminId", adminId)
+      .setParameter("startDate", startDate)
       .setParameter("endDate", endDate)
       .where("status.code IN (:...codes)", { codes: targetCodes });
 
@@ -1207,13 +1234,13 @@ export class DashboardService {
       .createQueryBuilder("oa")
       .leftJoin("oa.lastStatus", "status")
       .where("oa.assignedByAdminId = :adminId", { adminId: adminId })
-      .andWhere("status.code IN (:...codes)", { codes: targetCodes })
       .select(dynamicCountSql.replace("count", "totalCount"), "totalCount");
 
-    if (except.length > 0)
-      totalCountQb.setParameter("except", except)
+    if (except.length > 0) totalCountQb.setParameter("except", except);
 
-    totalCountQb.setParameter("startDate", startDate)
+    totalCountQb
+      .setParameter("adminId", adminId)
+      .setParameter("startDate", startDate)
       .setParameter("endDate", endDate);
 
     const scanStatsQb = this.dataSource.getRepository(OrderScanLogEntity)
@@ -1221,10 +1248,17 @@ export class DashboardService {
       .where("sl.adminId = :adminId", { adminId })
       .andWhere(startDate ? "sl.createdAt >= :startDate" : "1=1", { startDate })
       .andWhere(endDate ? "sl.createdAt <= :endDate" : "1=1", { endDate })
-      .select([
-        "COUNT(sl.id) AS preparationFailedCount",
-        "COUNT(sl.id) AS outgoingFailedCount"
-      ]);
+      .select([])
+      .addSelect(
+        `COUNT(sl.id) FILTER (WHERE sl.phase = :prepPhase)`,
+        "preparationFailedCount",
+      )
+      .addSelect(
+        `COUNT(sl.id) FILTER (WHERE sl.phase = :shipPhase)`,
+        "outgoingFailedCount",
+      )
+      .setParameter("prepPhase", ScanLogType.PREPARATION)
+      .setParameter("shipPhase", ScanLogType.SHIPPING);
 
     const [stats, totalRes, scanRes] = await Promise.all([
       qb
@@ -1241,13 +1275,22 @@ export class DashboardService {
 
     const totalCount = Number(totalRes?.totalCount || 0);
 
-    const formattedStats = stats.map((stat) => ({
-      id: stat.id,
-      name: stat.name,
-      code: stat.code,
-      color: stat.color,
-      count: Number(stat.count) || 0,
-    }));
+    const calculatePercent = (count: number) => {
+      if (totalCount === 0) return 0;
+      return parseFloat(((count / totalCount) * 100).toFixed(2));
+    };
+
+    const formattedStats = stats.map((stat) => {
+      const count = Number(stat.count) || 0;
+      return {
+        id: stat.id,
+        name: stat.name,
+        code: stat.code,
+        color: stat.color,
+        count: count,
+        percent: calculatePercent(count),
+      };
+    });
 
     formattedStats.unshift({
       id: 0,
@@ -1255,6 +1298,7 @@ export class DashboardService {
       code: "total",
       color: "var(--primary)",
       count: totalCount,
+      percent: 0,
     });
 
     formattedStats.push({
@@ -1263,6 +1307,7 @@ export class DashboardService {
       code: "preparationFailedCount",
       color: "#f59e0b",
       count: Number(scanRes?.preparationFailedCount || 0),
+      percent: 0,
     });
 
     formattedStats.push({
@@ -1271,6 +1316,7 @@ export class DashboardService {
       code: "outgoingFailedCount",
       color: "#ef4444",
       count: Number(scanRes?.outgoingFailedCount || 0),
+      percent: 0,
     });
 
     return formattedStats;
