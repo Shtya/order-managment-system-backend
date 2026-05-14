@@ -20,6 +20,8 @@ import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
 import { ProductSyncStateModule } from "src/product-sync-state/product-sync-state.module";
 import { RemoteImageHelper } from "common/emote-image.helper";
 import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
+import { PurchaseInvoiceItemEntity } from "entities/purchase.entity";
+import { PurchaseReturnInvoiceItemEntity } from "entities/purchase_return.entity";
 
 @Module({
   imports: [
@@ -36,7 +38,9 @@ import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
       OrderItemEntity,
       User,
       OrphanFileEntity,
-      ProductSyncStateEntity
+      ProductSyncStateEntity,
+      PurchaseInvoiceItemEntity,
+      PurchaseReturnInvoiceItemEntity,
     ]),
   ],
   providers: [ProductsService, ProductSubscriber, VariantSubscriber, LowStockService, RemoteImageHelper, {

@@ -1068,6 +1068,7 @@ export class StoresService {
           statusId: statusEntity.id,
           notes: `Updated via webhook (${payload.remoteStatus})`,
         });
+
       }
 
       // 💰 Payment status

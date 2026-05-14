@@ -376,6 +376,11 @@ export class OrdersService {
         "assignment",
         `assignment.id = (SELECT sub.id FROM order_assignments sub WHERE sub."orderId" = order.id ORDER BY sub."assignedAt" DESC LIMIT 1)`
       )
+      .leftJoinAndSelect(
+        "order.shipments", // افترضنا وجود علاقة (Relation) باسم shipments في Entity الطلب
+        "shipment",
+        `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
+      )
       .leftJoinAndSelect("assignment.employee", "employee");
 
     // Allowed columns mapping
@@ -504,25 +509,25 @@ export class OrdersService {
   }
 
   async getOrderHistory(orderId: string, me: any) {
-  const adminId = tenantId(me);
-  if (!adminId) throw new BadRequestException("Missing adminId");
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
 
-  return await this.historyRepo.find({
-    where: {
-      orderId,
-      adminId,
-    },
-    relations: {
-      changedByUser: true, // The user who performed the action
-      fromStatus: true,    // Previous status relation
-      toStatus: true,      // New status relation
-      shippingCompany: true // Optional: shipping company context
-    },
-    order: {
-      created_at: 'DESC', // Newest logs first
-    },
-  });
-}
+    return await this.historyRepo.find({
+      where: {
+        orderId,
+        adminId,
+      },
+      relations: {
+        changedByUser: true, // The user who performed the action
+        fromStatus: true,    // Previous status relation
+        toStatus: true,      // New status relation
+        shippingCompany: true // Optional: shipping company context
+      },
+      order: {
+        created_at: 'DESC', // Newest logs first
+      },
+    });
+  }
 
   async listManifests(me: any, q?: any) {
     const adminId = tenantId(me);
@@ -657,6 +662,9 @@ export class OrdersService {
               notes: `Bulk assigned to Manifest: ${manifestNumber}`,
               createdAt: new Date(),
             }));
+
+            await this.deductStockForMultipleOrders(manager, orderIds, adminId);
+
 
             await statusHistoryRepo.insert(statusLogs);
           }
@@ -2889,6 +2897,10 @@ export class OrdersService {
         relatedEntityId: String(order.id),
       });
 
+      if (newStatusCode === OrderStatus.SHIPPED || newStatusCode === OrderStatus.CONFIRMED) {
+        await this.deductStockForOrder(manager, order?.id, adminId);
+      }
+
       return saved;
     });
   }
@@ -3220,6 +3232,10 @@ export class OrdersService {
       );
 
       await Promise.all(notificationPromises);
+
+      if (newStatus.code === OrderStatus.SHIPPED || newStatus.code === OrderStatus.CONFIRMED) {
+        await this.deductStockForOrder(manager, order?.id, adminId);
+      }
 
       return savedOrder;
     });
@@ -4836,66 +4852,133 @@ export class OrdersService {
 
   public async deductStockForOrder(
     manager: EntityManager,
-    order: OrderEntity,
+    orderId: string,
+    adminId: string
   ) {
-    const variantsMap = new Map<string, ProductVariantEntity>();
-    const itemsToUpdate: OrderItemEntity[] = [];
+    const settings = await this.getSettings({ adminId, manager });
+
+    // 1. جلب الطلب مع التحقق من الـ adminId للأمان
+    const order = await manager.getRepository(OrderEntity).findOne({
+      where: { id: orderId, adminId },
+      relations: ['status', 'items', 'items.variant'],
+    });
+
+    if (!order) throw new NotFoundException("Order not found");
+
+    // 2. التحقق من استراتيجية خصم المخزون
+    const shouldDedicate = (
+      (settings.stockDeductionStrategy === StockDeductionStrategy.ON_CONFIRMATION && order.status.code === OrderStatus.CONFIRMED) ||
+      (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT && order.status.code === OrderStatus.SHIPPED)
+    );
+
+    if (!shouldDedicate) return;
+
+    // Map لتجميع الكميات (في حال تكرار نفس المنتج في أسطر مختلفة بالطلب)
+    const variantDeductions = new Map<string, number>();
+    const itemsToUpdateIds: string[] = [];
 
     for (const item of order.items) {
       if (item.stockDeducted || !item.variant) continue;
 
-      // Get variant from map if already processed in this loop, otherwise use item.variant
-      const variant = variantsMap.get(item.variant.id) || item.variant;
+      const variantId = item.variant.id;
+      const qty = item.quantity || 0;
 
-      // Logic: Deduct from stockOnHand and release reservation
-      variant.stockOnHand = Math.max(0, (variant.stockOnHand || 0) - item.quantity);
-      variant.reserved = Math.max(0, (variant.reserved || 0) - item.quantity);
+      const currentTotal = variantDeductions.get(variantId) || 0;
+      variantDeductions.set(variantId, currentTotal + qty);
 
-      item.stockDeducted = true;
-
-      variantsMap.set(variant.id, variant);
-      itemsToUpdate.push(item);
+      itemsToUpdateIds.push(item.id);
     }
 
-    if (itemsToUpdate.length > 0) {
-      // Bulk save: TypeORM handles these in optimized chunks
-      await Promise.all([
-        manager.save(ProductVariantEntity, Array.from(variantsMap.values())),
-        manager.save(OrderItemEntity, itemsToUpdate),
-      ]);
+    if (itemsToUpdateIds.length > 0) {
+      // 3. تنفيذ التحديثات في قاعدة البيانات مباشرة (Atomic Updates)
+      const variantUpdates = Array.from(variantDeductions.entries()).map(([id, qty]) => {
+        return manager
+          .createQueryBuilder()
+          .update(ProductVariantEntity)
+          .set({
+            // نستخدم SQL مباشرة لضمان الدقة ومنع تضارب القيم
+            stockOnHand: () => `GREATEST(0, "stockOnHand" - ${qty})`,
+            reserved: () => `GREATEST(0, "reserved" - ${qty})`,
+          })
+          .where("id = :id", { id })
+          .execute();
+      });
+
+      // 4. تحديث حالة أسطر الطلب
+      const itemsUpdate = manager
+        .createQueryBuilder()
+        .update(OrderItemEntity)
+        .set({ stockDeducted: true })
+        .where("id IN (:...ids)", { ids: itemsToUpdateIds })
+        .execute();
+
+      // تشغيل جميع الاستعلامات بالتوازي لسرعة الأداء
+      await Promise.all([...variantUpdates, itemsUpdate]);
     }
   }
 
   public async deductStockForMultipleOrders(
     manager: EntityManager,
-    orders: OrderEntity[],
+    orderIds: string[],
+    adminId: string
   ) {
-    const variantsMap = new Map<string, ProductVariantEntity>();
-    const itemsToUpdate: OrderItemEntity[] = [];
+    const settings = await this.getSettings({ adminId, manager });
+
+    // Map لتخزين إجمالي الكمية المراد خصمها لكل Variant
+    // Key: variantId, Value: totalQty
+    const variantDeductions = new Map<string, number>();
+    const itemsToUpdateIds: string[] = [];
+
+    const orders = await manager.getRepository(OrderEntity).find({
+      where: { id: In(orderIds), adminId }, // تأكد من إضافة adminId للأمان
+      relations: ['status', 'items', 'items.variant'],
+    });
 
     for (const order of orders) {
+      const shouldDedicate = (
+        (settings.stockDeductionStrategy === StockDeductionStrategy.ON_CONFIRMATION && order.status.code === OrderStatus.CONFIRMED) ||
+        (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT && order.status.code === OrderStatus.SHIPPED)
+      );
+
+      if (!shouldDedicate) continue;
+
       for (const item of order.items) {
         if (item.stockDeducted || !item.variant) continue;
 
-        // Use the map to ensure we are cumulative across different orders
-        const variant = variantsMap.get(item.variant.id) || item.variant;
+        const variantId = item.variant.id;
+        const qty = item.quantity || 0;
 
-        variant.stockOnHand = Math.max(0, (variant.stockOnHand || 0) - item.quantity);
-        variant.reserved = Math.max(0, (variant.reserved || 0) - item.quantity);
+        // تجميع الكميات لكل VariantID
+        const currentTotal = variantDeductions.get(variantId) || 0;
+        variantDeductions.set(variantId, currentTotal + qty);
 
-        item.stockDeducted = true;
-
-        variantsMap.set(variant.id, variant);
-        itemsToUpdate.push(item);
+        itemsToUpdateIds.push(item.id);
       }
     }
 
-    if (itemsToUpdate.length > 0) {
-      // Save all unique variants and all modified items in parallel
-      await Promise.all([
-        manager.save(ProductVariantEntity, Array.from(variantsMap.values())),
-        manager.save(OrderItemEntity, itemsToUpdate),
-      ]);
+    if (itemsToUpdateIds.length > 0) {
+
+      const variantUpdates = Array.from(variantDeductions.entries()).map(([id, qty]) => {
+        return manager
+          .createQueryBuilder()
+          .update(ProductVariantEntity)
+          .set({
+            stockOnHand: () => `GREATEST(0, "stockOnHand" - ${qty})`,
+            reserved: () => `GREATEST(0, "reserved" - ${qty})`,
+          })
+          .where("id = :id", { id })
+          .execute();
+      });
+
+      // 2. تحديث عناصر الطلب (Order Items) لتجنب الخصم المتكرر
+      const itemUpdate = manager
+        .createQueryBuilder()
+        .update(OrderItemEntity)
+        .set({ stockDeducted: true })
+        .where("id IN (:...ids)", { ids: itemsToUpdateIds })
+        .execute();
+
+      await Promise.all([...variantUpdates, itemUpdate]);
     }
   }
 

@@ -64,19 +64,19 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
             if (!fullOrder) return;
 
-            try {
+            // try {
 
-                const settings = await this.ordersService.getSettings({ adminId: fullOrder.adminId, manager: event.manager });
-                const newStatus = await this.ordersService.findStatusById(newStatusId, fullOrder.adminId, event.manager);
+            //     const settings = await this.ordersService.getSettings({ adminId: fullOrder.adminId, manager: event.manager });
+            //     const newStatus = await this.ordersService.findStatusById(newStatusId, fullOrder.adminId, event.manager);
 
-                if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_CONFIRMATION && newStatus.code === OrderStatus.CONFIRMED) {
-                    await this.ordersService.deductStockForOrder(event.manager, fullOrder);
-                } else if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT && newStatus.code === OrderStatus.SHIPPED) {
-                    await this.ordersService.deductStockForOrder(event.manager, fullOrder);
-                }
-            } catch (error) {
-                console.error("Error in stock deduction logic:", error);
-            }
+            //     if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_CONFIRMATION && newStatus.code === OrderStatus.CONFIRMED) {
+            //         await this.ordersService.deductStockForOrder(event.manager, fullOrder);
+            //     } else if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT && newStatus.code === OrderStatus.SHIPPED) {
+            //         await this.ordersService.deductStockForOrder(event.manager, fullOrder);
+            //     }
+            // } catch (error) {
+            //     console.error("Error in stock deduction logic:", error);
+            // }
 
             try {
                 if (fullOrder.externalId) {
