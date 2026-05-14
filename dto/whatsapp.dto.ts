@@ -1,0 +1,150 @@
+
+import {
+    IsArray,
+    IsBoolean,
+    IsEnum,
+    IsIn,
+    IsNotEmpty,
+    IsObject,
+    IsOptional,
+    IsString,
+    IsUUID,
+    MaxLength,
+    ValidateNested,
+    IsUrl,
+    IsNumber,
+    Min,
+    Max,
+    ArrayMaxSize,
+} from "class-validator";
+import { Type } from "class-transformer";
+import { TemplateCategory, TemplateSubCategory } from "entities/whatsapp.entity";
+
+
+
+export class TemplateButtonDto {
+    @IsEnum([
+        "CUSTOM",
+        "PHONE_NUMBER",
+        "VISIT_WEBSITE",
+        "WHATSAPP_CALL",
+    ])
+    type:
+        | "CUSTOM"
+        | "PHONE_NUMBER"
+        | "VISIT_WEBSITE"
+        | "WHATSAPP_CALL";
+
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(25)
+    text: string;
+
+    // URL
+    @IsOptional()
+    @IsUrl()
+    url?: string;
+
+    @IsOptional()
+    @IsEnum(["Static", "Dynamic"])
+    urlType?: "Static" | "Dynamic";
+
+    @IsOptional()
+    @IsString()
+    urlExample?: string;
+
+    // Active for days
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    @Max(30)
+    activeForDays?: number;
+
+    // Phone
+    @IsOptional()
+    @IsString()
+    @MaxLength(10)
+    countryCode?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(20)
+    phoneNumber?: string;
+}
+
+
+export class TemplateConfigDto {
+    @IsOptional()
+    @IsEnum(["TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION"])
+    headerType?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
+
+    // TEXT HEADER
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    headerText?: string;
+
+    @IsOptional()
+    @IsString()
+    headerExample?: string;
+
+    // MEDIA HEADER
+    @IsOptional()
+    @IsString()
+    headerUrl?: string;
+
+    // BODY
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(1024)
+    bodyText: string;
+
+    // FOOTER
+    @IsOptional()
+    @IsString()
+    @MaxLength(60)
+    footerText?: string;
+
+    // VARIABLES
+    @IsOptional()
+    @IsObject()
+    examples?: Record<string, string>;
+
+    // BUTTONS
+    @IsOptional()
+    @IsArray()
+    @ArrayMaxSize(10)
+    @ValidateNested({ each: true })
+    @Type(() => TemplateButtonDto)
+    buttons?: TemplateButtonDto[];
+}
+
+export class CreateWhatsappTemplateDto {
+    @IsUUID()
+    accountId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    @MaxLength(512)
+    name: string;
+
+
+    @IsEnum(TemplateCategory)
+    category: TemplateCategory;
+
+    @IsEnum(TemplateSubCategory)
+    subCategory: TemplateSubCategory;
+
+    @IsIn(["ar", "en"])
+    language: "ar" | "en";
+
+    @ValidateNested()
+    @Type(() => TemplateConfigDto)
+    templateConfig: TemplateConfigDto;
+}
+
+export class UpdateWhatsappTemplateDto {
+    @ValidateNested()
+    @Type(() => TemplateConfigDto)
+    templateConfig: TemplateConfigDto;
+}

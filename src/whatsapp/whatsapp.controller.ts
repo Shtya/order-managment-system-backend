@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpException, HttpStatus, Post, Query, Res } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 import { Response } from 'express';
 
@@ -63,8 +63,7 @@ export class WhatsappController {
   }
 
   @Post('webhook')
-  handleEvents(@Body() body: any) {
-    console.log('Incoming WhatsApp event:', body);
-    return 'OK';
+  handleEvents(@Body() body: any, @Headers() headers: Record<string, string>) {
+    return this.whatsappService.handleEvents(body, headers);
   }
 }

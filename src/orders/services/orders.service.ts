@@ -361,8 +361,6 @@ export class OrdersService {
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-
-
     const qb = this.orderRepo
       .createQueryBuilder("order")
       .where("order.adminId = :adminId", { adminId })
