@@ -1100,13 +1100,13 @@ export class ShippingService {
 		if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
 			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
 			shipment.status = ShipmentStatus.CANCELLED;
-			await returnStock();
 			const cancelledStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.CANCELLED } });
 			if (cancelledStatus) {
 				order.statusId = cancelledStatus.id;
 				order.status = cancelledStatus;
 			}
 			await manager.save(order);
+			await returnStock();
 		} else {
 			shipment.unifiedStatus = mapped.unifiedStatus;
 			shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
@@ -1119,8 +1119,8 @@ export class ShippingService {
 				order.status = deliveredStatus;
 				order.deliveredAt = new Date();
 			}
-			this.ordersService.deductStockForOrder(manager, order?.id, shipment?.adminId)
 			await manager.save(order);
+			this.ordersService.deductStockForOrder(manager, order?.id, shipment?.adminId)
 		} else if (
 			mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
 			mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
