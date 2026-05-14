@@ -1119,6 +1119,7 @@ export class ShippingService {
 				order.status = deliveredStatus;
 				order.deliveredAt = new Date();
 			}
+			this.ordersService.deductStockForOrder(manager, order?.id, shipment?.adminId)
 			await manager.save(order);
 		} else if (
 			mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
