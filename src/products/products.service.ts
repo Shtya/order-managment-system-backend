@@ -179,6 +179,115 @@ export class ProductsService {
     return products;
   }
 
+  private buildEmptyProductStockSummary() {
+    return {
+      productCount: 1,
+      inventory: { reserved: 0, available: 0, totalOnHand: 0 },
+      orders: { soldQuantity: 0, inTransitQuantity: 0 },
+      purchases: { acceptedQuantity: 0 },
+      purchaseReturns: { acceptedReturnedQuantity: 0 },
+    };
+  }
+
+  private async getStockSummariesForProductIds(adminId: string, productIds: string[]): Promise<Map<string, any>> {
+    const map = new Map<string, any>();
+    for (const id of productIds) {
+      map.set(id, this.buildEmptyProductStockSummary());
+    }
+
+    const [invRows, ordRows, purRows, retRows] = await Promise.all([
+      this.pvRepo
+        .createQueryBuilder('pv')
+        .select('pv.productId', 'productId')
+        .addSelect('COALESCE(SUM(pv.reserved), 0)', 'reserved')
+        .addSelect('COALESCE(SUM(pv.stockOnHand - pv.reserved), 0)', 'available')
+        .addSelect('COALESCE(SUM(pv.stockOnHand), 0)', 'totalOnHand')
+        .where('pv.adminId = :adminId', { adminId })
+        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
+        .groupBy('pv.productId')
+        .getRawMany(),
+      this.orderItemRepo
+        .createQueryBuilder('oi')
+        .innerJoin('oi.order', 'order')
+        .innerJoin('order.status', 'status')
+        .innerJoin('oi.variant', 'pv')
+        .select('pv.productId', 'productId')
+        .addSelect(`SUM(CASE WHEN status.code = :delivered THEN oi.quantity ELSE 0 END)`, 'sold')
+        .addSelect(`SUM(CASE WHEN status.code = :shipped THEN oi.quantity ELSE 0 END)`, 'inTransit')
+        .where('oi.adminId = :adminId', { adminId })
+        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
+        .groupBy('pv.productId')
+        .setParameters({ delivered: OrderStatus.DELIVERED, shipped: OrderStatus.SHIPPED })
+        .getRawMany(),
+      this.purchaseItemRepo
+        .createQueryBuilder('pii')
+        .innerJoin('pii.invoice', 'pi')
+        .innerJoin('pii.variant', 'pv')
+        .select('pv.productId', 'productId')
+        .addSelect('COALESCE(SUM(pii.quantity), 0)', 'qty')
+        .where('pii.adminId = :adminId', { adminId })
+        .andWhere('pi.adminId = :adminId', { adminId })
+        .andWhere('pi.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
+        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
+        .groupBy('pv.productId')
+        .getRawMany(),
+      this.purchaseReturnItemRepo
+        .createQueryBuilder('prii')
+        .innerJoin('prii.invoice', 'pri')
+        .innerJoin('prii.variant', 'pv')
+        .select('pv.productId', 'productId')
+        .addSelect('COALESCE(SUM(prii.returnedQuantity), 0)', 'qty')
+        .where('prii.adminId = :adminId', { adminId })
+        .andWhere('pri.adminId = :adminId', { adminId })
+        .andWhere('pri.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
+        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
+        .groupBy('pv.productId')
+        .getRawMany(),
+    ]);
+
+    const pidOf = (row: any) => row.productId ?? row.productid;
+    for (const row of invRows) {
+      const pid = pidOf(row);
+      const s = map.get(pid);
+      if (!s) continue;
+      s.inventory.reserved = Number(row.reserved || 0);
+      s.inventory.available = Number(row.available || 0);
+      s.inventory.totalOnHand = Number(row.totalOnHand || 0);
+    }
+    for (const row of ordRows) {
+      const pid = pidOf(row);
+      const s = map.get(pid);
+      if (!s) continue;
+      s.orders.soldQuantity = Number(row.sold || 0);
+      s.orders.inTransitQuantity = Number(row.inTransit || 0);
+    }
+    for (const row of purRows) {
+      const pid = pidOf(row);
+      const s = map.get(pid);
+      if (!s) continue;
+      s.purchases.acceptedQuantity = Number(row.qty || 0);
+    }
+    for (const row of retRows) {
+      const pid = pidOf(row);
+      const s = map.get(pid);
+      if (!s) continue;
+      s.purchaseReturns.acceptedReturnedQuantity = Number(row.qty || 0);
+    }
+
+    return map;
+  }
+
+  private async attachStockSummariesToProducts(me: any, products: any[]) {
+    const adminId = tenantId(me);
+    const ids = (products ?? []).map((p) => p.id).filter(Boolean);
+    if (!adminId || !ids.length) return products;
+    const summaries = await this.getStockSummariesForProductIds(adminId, ids);
+    for (const p of products) {
+      p.stockSummary = summaries.get(p.id) ?? this.buildEmptyProductStockSummary();
+    }
+    return products;
+  }
+
   private async attachSkusToProduct(me: any, product: any, manager?: EntityManager) {
     if (!product?.id) return product;
 
@@ -697,9 +806,10 @@ export class ProductsService {
     const [records, total] = await qb.getManyAndCount();
 
     const enriched = await this.attachSkusToProducts(me, records);
+    const withSummaries = await this.attachStockSummariesToProducts(me, enriched);
 
     return {
-      records: enriched,
+      records: withSummaries,
       total_records: total,
       current_page: q?.page ?? 1,
       per_page: q?.limit ?? 10,

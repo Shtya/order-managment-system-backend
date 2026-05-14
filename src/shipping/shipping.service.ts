@@ -1,7 +1,7 @@
 // --- File: backend/src/shipping/shipping.service.ts ---
 import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 import * as crypto from 'crypto';
 
 
@@ -14,7 +14,7 @@ import {
 	UnifiedShippingStatus,
 } from '../../entities/shipping.entity';
 
-import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, PrintMassAWBDto } from './shipping.dto';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto } from './shipping.dto';
 import { IMassAWBProvider, ProviderCode, ShippingProvider } from './providers/shipping-provider.interface';
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
@@ -27,6 +27,7 @@ import { ShippingQueueService } from './queues/shipping.queues';
 import { AppGateway } from '../../common/app.gateway';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
+import { generateRandomAlphanumeric } from 'common/healpers';
 
 @Injectable()
 export class ShippingService {
@@ -449,19 +450,21 @@ export class ShippingService {
 				throw new BadRequestException(`Cannot create shipment for order in status "${order.status?.code}". Only orders in "confirmed" or "failed_delivery" status can be assigned for shipping.`)
 			}
 
-			// Cancel previous shipment if exists
-			if (order.shippingCompanyId && order.trackingNumber) {
-				const prevShipment = await this.shipmentsRepo.findOne({
-					where: {
-						orderId: order.id,
-						adminId,
-					},
-					order: { created_at: 'DESC' as any },
-					relations: ['shippingCompany']
-				});
+			// Cancel previous shipment if exists (latest for this order)
+			const prevShipment = await this.shipmentsRepo.findOne({
+				where: {
+					orderId: order.id,
+					adminId,
+				},
+				order: { created_at: 'DESC' as any },
+				relations: ['shippingCompany'],
+			});
 
+			if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
 				try {
-					if (prevShipment && ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(prevShipment.status)) {
+					if (!prevShipment.shippingCompanyId) {
+						await this.cancelManualShipment(me, prevShipment.id);
+					} else {
 						await this.cancelShipment({ id: adminId, adminId, role: { name: 'admin' } }, prevShipment.shippingCompany.code, prevShipment.id);
 					}
 				} catch (e: any) {
@@ -485,40 +488,60 @@ export class ShippingService {
 				const newStatusCode = settings.orderFlowPath === OrderFlowPath.SHIPPING ? OrderStatus.SHIPPED : OrderStatus.DISTRIBUTED;
 
 				if (isNoneProvider) {
-					const status = await this.ordersService.findStatusByCode(newStatusCode, adminId, manager)
+					const status = await this.ordersService.findStatusByCode(newStatusCode, adminId, manager);
 
-					await manager.update(OrderEntity,
+
+
+					const trackingNumber = await this.generateUniqueManualTrackingNumber(adminId, manager);
+
+					const manualShipment = await manager.save(
+						manager.create(ShipmentEntity, {
+							adminId,
+							orderId,
+							shippingCompanyId: null,
+							status: ShipmentStatus.CREATED,
+							unifiedStatus: UnifiedShippingStatus.IN_PROGRESS,
+							trackingNumber,
+							providerRaw: { manual: true },
+						}),
+					);
+
+					await manager.update(
+						OrderEntity,
 						{ id: orderId, adminId },
 						{
 							statusId: status.id,
-							trackingNumber: null,
+							trackingNumber,
 							shippingCompanyId: null,
 							distributed_at: new Date(),
-						}
+						},
 					);
 
 					await this.ordersService.logOrderAction({
-						manager, adminId, userId, orderId,
+						manager,
+						adminId,
+						userId,
+						orderId,
 						actionType: OrderActionType.COURIER_ASSIGNED,
 						result: OrderActionResult.SUCCESS,
-						details: `Assigned for Manual Shipping (No Provider)`
+						details: `Assigned for Manual Shipping (No Provider). Tracking: ${trackingNumber}`,
 					});
 
-					await this.notificationService.create({
-						userId: adminId,
-						type: NotificationType.SHIPMENT_CREATED,
-						title: "Order Distributed for Manual Shipping",
-						message: `Order #${order.orderNumber} has been assigned for manual shipping without a provider.`,
-						relatedEntityType: "order",
-						relatedEntityId: String(order?.id),
-					});
+					await manager.save(
+						manager.create(ShipmentEventEntity, {
+							shipmentId: manualShipment.id,
+							source: 'system' as any,
+							eventType: 'status_changed',
+							payload: { manualCreated: true, trackingNumber },
+						}),
+					);
 
 					return {
 						ok: true,
-						shipmentId: null,
+						shipmentId: manualShipment.id,
 						orderId: orderId,
 						provider: 'none',
-						trackingNumber: null,
+						trackingNumber,
 						status: UnifiedShippingStatus.IN_PROGRESS,
 					};
 				}
@@ -601,7 +624,7 @@ export class ShippingService {
 				type: NotificationType.SHIPMENT_CREATED,
 				title: provider === 'none' ? "Order Distributed" : "Shipment Created",
 				message: provider === 'none'
-					? `Order #${order.orderNumber} has been assigned for manual shipping.`
+					? `Order #${order.orderNumber} has been assigned for manual shipping. Tracking: ${result.trackingNumber ?? '—'}.`
 					: `Shipment for order #${order.orderNumber} has been created successfully. Tracking: ${result.trackingNumber}`,
 				relatedEntityType: "order",
 				relatedEntityId: String(order.id),
@@ -983,101 +1006,194 @@ export class ShippingService {
 			}
 			// تشغيل كل شيء داخل Transaction واحدة
 			await this.dataSource.transaction(async (manager) => {
-
-				if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
-					// 1. تحديث الحالات في حالة الإلغاء
-					shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
-					shipment.status = ShipmentStatus.CANCELLED;
-
-					// 2. إعادة المخزون
-					for (const item of shipment.order.items) {
-						await manager.increment(
-							ProductVariantEntity,
-							{ id: item.variantId, adminId: shipment.adminId },
-							"stockOnHand",
-							item.quantity
-						);
-					}
-
-				} else {
-					// تحديث طبيعي للحالات الأخرى
-					shipment.unifiedStatus = mapped.unifiedStatus;
-					shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
-				}
-
-				if (mapped.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
-					// You should fetch the status ID for 'delivered' from your status table or enum
-					const deliveredStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.DELIVERED } });
-					if (deliveredStatus) {
-						shipment.order.statusId = deliveredStatus.id;
-						shipment.order.deliveredAt = new Date(); // Set delivery timestamp
-					}
-
-				} else if (
-					mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
-					mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
-				) {
-					const failedStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.FAILED_DELIVERY } });
-					if (failedStatus) {
-						shipment.order.statusId = failedStatus.id;
-					}
-
-					// 2. تجميع المنتجات التي تم خصم مخزونها فقط لإعادتها
-					const itemsToRestock = shipment.order.items.filter(item => item.stockDeducted && item.variantId);
-
-					if (itemsToRestock.length > 0) {
-						const restockMap = new Map<string, number>();
-						itemsToRestock.forEach(item => {
-							const current = restockMap.get(item.variantId) || 0;
-							restockMap.set(item.variantId, current + item.quantity);
-						});
-
-						// 3. إنشاء مصفوفة الوعود (Promises) باستخدام QueryBuilder لكل منتج في الـ Map
-						const restockUpdates = Array.from(restockMap.entries()).map(([id, qty]) => {
-							return manager
-								.createQueryBuilder()
-								.update(ProductVariantEntity)
-								.set({
-									// زيادة المخزون المتوفر (إعادة ما تم خصمه)
-									stockOnHand: () => `"stockOnHand" + ${qty}`
-								})
-								.where("id = :id AND adminId = :adminId", { id, adminId: shipment.adminId })
-								.execute();
-						});
-
-						// 4. تحديث حالة عناصر الطلب لضمان عدم إعادة المخزون مرة أخرى
-						const itemsUpdate = manager
-							.createQueryBuilder()
-							.update(OrderItemEntity)
-							.set({ stockDeducted: false })
-							.where("id IN (:...ids)", { ids: itemsToRestock.map(i => i.id) })
-							.execute();
-
-						// تنفيذ جميع العمليات بالتوازي
-						await Promise.all([...restockUpdates, itemsUpdate]);
-					}
-				}
-
-				// 3. حفظ الشحنة (سواء كانت ملغاة أو حالة أخرى)
-				await manager.save(shipment.order);
-				await manager.save(shipment);
-
-				// 4. تسجيل الحدث (Event) داخل نفس الـ Transaction
-				await manager.save(
-					manager.create(ShipmentEventEntity, {
-						shipmentId: shipment.id,
-						source: provider as any,
-						eventType: 'status_changed',
-						payload: body,
-					}),
-				);
+				const s = await manager.findOne(ShipmentEntity, {
+					where: { id: shipment.id }
+				});
+				if (!s) return;
+				await this.applyMappedUnifiedStatusInTransaction(manager, s as any, mapped, {
+					eventSource: provider,
+					payload: body,
+				});
 			});
-
 
 			return { ok: true };
 		} catch (e) {
 			console.log(e)
 		}
+	}
+
+	private async generateUniqueManualTrackingNumber(adminId: string, manager?: EntityManager): Promise<string> {
+		const shipRepo = manager ? manager.getRepository(ShipmentEntity) : this.shipmentsRepo;
+		const orderRepo = manager ? manager.getRepository(OrderEntity) : this.ordersRepo;
+		for (let attempt = 0; attempt < 20; attempt++) {
+			const trackingNumber = `MNL${generateRandomAlphanumeric(7)}`;
+			const [dupShip, dupOrder] = await Promise.all([
+				shipRepo.findOne({ where: { adminId, trackingNumber } }),
+				orderRepo.findOne({ where: { adminId, trackingNumber } }),
+			]);
+			if (!dupShip && !dupOrder) return trackingNumber;
+		}
+		throw new BadRequestException('Could not allocate a unique manual tracking number');
+	}
+
+	async cancelManualShipment(me: any, shipmentId: string) {
+		const adminId = tenantId(me);
+		return this.dataSource.transaction(async (manager) => {
+			const shipment = await manager.findOne(ShipmentEntity, {
+				where: { id: shipmentId, adminId },
+				relations: ['order', 'order.items', 'shippingCompany'],
+			});
+			if (!shipment) throw new NotFoundException('Shipment not found');
+			if (shipment.status === ShipmentStatus.CANCELLED) {
+				return { ok: true, message: 'Already cancelled', shipmentId: shipment.id };
+			}
+
+			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
+			shipment.status = ShipmentStatus.CANCELLED;
+			for (const item of shipment.order.items ?? []) {
+				if (!item.variantId) continue;
+				await manager.increment(ProductVariantEntity, { id: item.variantId, adminId }, 'stockOnHand', item.quantity);
+			}
+			await manager.save(shipment);
+			return { ok: true, shipmentId: shipment.id, message: 'Manual shipment cancelled.' };
+		});
+	}
+
+	private async applyMappedUnifiedStatusInTransaction(
+		manager: EntityManager,
+		shipment: ShipmentEntity & { order: OrderEntity & { items: OrderItemEntity[] } },
+		mapped: { unifiedStatus: UnifiedShippingStatus },
+		eventMeta: { eventSource: string; payload: any },
+	): Promise<void> {
+
+		//get order to also update its status with shipment;
+		const order = await this.ordersRepo.findOne({
+			where: { id: shipment.orderId },
+		});
+		const returnStock = async () => {
+			const itemsToRestock = (order.items ?? []).filter((item) => item.stockDeducted && item.variantId);
+			if (itemsToRestock.length > 0) {
+				const restockMap = new Map<string, number>();
+				itemsToRestock.forEach((item) => {
+					const current = restockMap.get(item.variantId) || 0;
+					restockMap.set(item.variantId, current + item.quantity);
+				});
+				const restockUpdates = Array.from(restockMap.entries()).map(([id, qty]) =>
+					manager
+						.createQueryBuilder()
+						.update(ProductVariantEntity)
+						.set({ stockOnHand: () => `"stockOnHand" + ${qty}` })
+						.where('id = :id AND adminId = :adminId', { id, adminId: shipment.adminId })
+						.execute(),
+				);
+				const itemsUpdate = manager
+					.createQueryBuilder()
+					.update(OrderItemEntity)
+					.set({ stockDeducted: false })
+					.where('id IN (:...ids)', { ids: itemsToRestock.map((i) => i.id) })
+					.execute();
+				await Promise.all([...restockUpdates, itemsUpdate]);
+			}
+		}
+
+
+		if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
+			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
+			shipment.status = ShipmentStatus.CANCELLED;
+			await returnStock();
+			const cancelledStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.CANCELLED } });
+			if (cancelledStatus) {
+				order.statusId = cancelledStatus.id;
+				order.status = cancelledStatus;
+			}
+			await manager.save(order);
+		} else {
+			shipment.unifiedStatus = mapped.unifiedStatus;
+			shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
+		}
+
+		if (mapped.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
+			const deliveredStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.DELIVERED } });
+			if (deliveredStatus) {
+				order.statusId = deliveredStatus.id;
+				order.status = deliveredStatus;
+				order.deliveredAt = new Date();
+			}
+			await manager.save(order);
+		} else if (
+			mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
+			mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
+		) {
+			const failedStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.FAILED_DELIVERY } });
+			if (failedStatus) {
+				order.statusId = failedStatus.id;
+				order.status = failedStatus;
+			}
+			await manager.save(order);
+
+			await returnStock();
+		}
+
+		// await manager.save(shipment.order);
+		await manager.save(shipment);
+		await manager.save(
+			manager.create(ShipmentEventEntity, {
+				shipmentId: shipment.id,
+				source: eventMeta.eventSource as any,
+				eventType: 'status_changed',
+				payload: eventMeta.payload,
+			}),
+		);
+	}
+
+	async updateShipmentStatusManually(me: any, shipmentId: string, dto: ManualUpdateShipmentStatusDto) {
+		const adminId = tenantId(me);
+		const shipment = await this.shipmentsRepo.findOne({
+			where: { id: shipmentId, adminId },
+			relations: ['shippingCompany'],
+		});
+		if (!shipment) throw new NotFoundException('Shipment not found');
+		if (shipment.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
+			throw new BadRequestException('Cannot change shipment status after it has been delivered.');
+		}
+		if (dto.status === shipment.unifiedStatus) {
+			return {
+				ok: true,
+				skipped: true,
+				shipment: { id: shipment.id, unifiedStatus: shipment.unifiedStatus, status: shipment.status, trackingNumber: shipment.trackingNumber },
+			};
+		}
+		await this.dataSource.transaction(async (manager) => {
+			const s = await manager.findOne(ShipmentEntity, {
+				where: { id: shipmentId, adminId }
+			});
+			if (!s) throw new NotFoundException('Shipment not found');
+			if (s.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
+				throw new BadRequestException('Cannot change shipment status after it has been delivered.');
+			}
+			await this.applyMappedUnifiedStatusInTransaction(manager, s as any, { unifiedStatus: dto.status }, {
+				eventSource: 'system',
+				payload: { manual: true, requestedStatus: dto.status },
+			});
+		});
+		const refreshed = await this.shipmentsRepo.findOne({
+			where: { id: shipmentId, adminId },
+			relations: ['order', 'order.status'],
+		});
+		return {
+			ok: true,
+			shipment: refreshed
+				? {
+					id: refreshed.id,
+					unifiedStatus: refreshed.unifiedStatus,
+					status: refreshed.status,
+					trackingNumber: refreshed.trackingNumber,
+				}
+				: null,
+			order: refreshed?.order
+				? { id: refreshed.order.id, status: refreshed.order.status, deliveredAt: refreshed.order.deliveredAt }
+				: null,
+		};
 	}
 
 	private mapUnifiedToLegacy(u: UnifiedShippingStatus): ShipmentStatus {
