@@ -242,7 +242,7 @@ export class ProductsController {
       type: body.type,
 
       sku: body.sku,
-      wholesalePrice: parseNumber(body.wholesalePrice) as any,
+      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ?  parseNumber(body.wholesalePrice || 0) as any : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack ?? null,
@@ -291,7 +291,7 @@ export class ProductsController {
     const dto: UpdateProductDto = {
       name: body.name,
       slug: body.slug,
-      wholesalePrice: parseNumber(body.wholesalePrice) as any,
+      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ?  parseNumber(body.wholesalePrice || 0) as any : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack,

@@ -1188,7 +1188,7 @@ export class ProductsService {
           return {
             variantId: v.id,
             quantity: productType === ProductType.SINGLE ? Number(dto.purchase.quantity || 0) : Number(combo?.stockOnHand) || 0,
-            purchaseCost: Number(v.price) || 0, // Fallback to product wholesale price
+            purchaseCost: Number(dto.purchase.wholesalePrice || 0) || 0, // Fallback to product wholesale price
           };
         }).filter(it => it.quantity > 0);
 

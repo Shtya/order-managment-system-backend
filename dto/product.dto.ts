@@ -72,6 +72,10 @@ export class CreatePurchaseWithProductDto extends OmitType(CreatePurchaseDto, ['
   @IsNumber()
   quantity?: number;
 
+  @IsOptional()
+  @Min(0)
+  wholesalePrice?: Money;
+
 }
 export class SingleSkuItemDto {
   @IsString()
