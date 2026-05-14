@@ -21,6 +21,9 @@ import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import * as ExcelJS from "exceljs";
 import { OrderItemEntity, OrderStatus } from "entities/order.entity";
+import { PurchaseInvoiceItemEntity } from "entities/purchase.entity";
+import { PurchaseReturnInvoiceItemEntity } from "entities/purchase_return.entity";
+import { ApprovalStatus } from "common/enums";
 import { deletePhysicalFiles, generateSlug, getErrorMessage } from "common/healpers";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
@@ -55,6 +58,12 @@ export class ProductsService {
 
     @InjectRepository(OrderItemEntity)
     private orderItemRepo: Repository<OrderItemEntity>,
+
+    @InjectRepository(PurchaseInvoiceItemEntity)
+    private purchaseItemRepo: Repository<PurchaseInvoiceItemEntity>,
+
+    @InjectRepository(PurchaseReturnInvoiceItemEntity)
+    private purchaseReturnItemRepo: Repository<PurchaseReturnInvoiceItemEntity>,
 
     @InjectRepository(OrphanFileEntity)
     private orphanRepo: Repository<OrphanFileEntity>,
@@ -188,7 +197,13 @@ export class ProductsService {
     const adminId = tenantId(me);
 
     // Run all queries in parallel for better performance
-    const [totalProducts, inventoryStats, orderStats] = await Promise.all([
+    const [
+      totalProducts,
+      inventoryStats,
+      orderStats,
+      acceptedPurchaseStats,
+      acceptedReturnStats,
+    ] = await Promise.all([
       // 1. Total Products Count
       this.prodRepo.count({ where: { adminId } }),
 
@@ -197,6 +212,7 @@ export class ProductsService {
         .createQueryBuilder('pv')
         .select('SUM(pv.reserved)', 'totalReserved')
         .addSelect('SUM(pv.stockOnHand - pv.reserved)', 'totalAvailable')
+        .addSelect('SUM(pv.stockOnHand)', 'totalStockOnHand')
         .where('pv.adminId = :adminId', { adminId })
         .getRawOne(),
 
@@ -220,6 +236,27 @@ export class ProductsService {
           shipped: OrderStatus.SHIPPED,
         })
         .getRawOne(),
+
+      // 4. Accepted purchase invoices — total line quantity
+      this.purchaseItemRepo
+        .createQueryBuilder('pii')
+        .innerJoin('pii.invoice', 'pi')
+        .select('COALESCE(SUM(pii.quantity), 0)', 'totalAcceptedPurchaseQty')
+        .where('pii.adminId = :adminId', { adminId })
+        .andWhere('pi.adminId = :adminId', { adminId })
+        .andWhere('pi.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
+        .getRawOne(),
+
+      // 5. Accepted purchase return invoices — total returned quantity
+      this.purchaseReturnItemRepo
+        .createQueryBuilder('prii')
+        .innerJoin('prii.invoice', 'pri')
+        .select('COALESCE(SUM(prii.returnedQuantity), 0)', 'totalAcceptedReturnQty')
+        .where('prii.adminId = :adminId', { adminId })
+        .andWhere('pri.adminId = :adminId', { adminId })
+        .andWhere('pri.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
+        .getRawOne(),
+
     ]);
 
     return {
@@ -227,10 +264,17 @@ export class ProductsService {
       inventory: {
         reserved: Number(inventoryStats?.totalReserved || 0),
         available: Number(inventoryStats?.totalAvailable || 0),
+        totalOnHand: Number(inventoryStats?.totalStockOnHand || 0),
       },
       orders: {
         soldQuantity: Number(orderStats?.totalDelivered || 0),
         inTransitQuantity: Number(orderStats?.totalShipped || 0),
+      },
+      purchases: {
+        acceptedQuantity: Number(acceptedPurchaseStats?.totalAcceptedPurchaseQty || 0),
+      },
+      purchaseReturns: {
+        acceptedReturnedQuantity: Number(acceptedReturnStats?.totalAcceptedReturnQty || 0),
       },
     };
   }

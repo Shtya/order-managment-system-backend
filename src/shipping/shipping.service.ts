@@ -20,7 +20,7 @@ import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
 import { tenantId } from 'src/category/category.service';
-import { OrderActionResult, OrderActionType, OrderEntity, OrderFlowPath, OrderReplacementEntity, OrderStatus, OrderStatusEntity, StockDeductionStrategy } from 'entities/order.entity';
+import { OrderActionResult, OrderActionType, OrderEntity, OrderFlowPath, OrderItemEntity, OrderReplacementEntity, OrderStatus, OrderStatusEntity, StockDeductionStrategy } from 'entities/order.entity';
 import { ProductVariantEntity } from 'entities/sku.entity';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { ShippingQueueService } from './queues/shipping.queues';
@@ -1022,14 +1022,39 @@ export class ShippingService {
 						shipment.order.statusId = failedStatus.id;
 					}
 
-					// 2. إعادة المخزون
-					for (const item of shipment.order.items) {
-						await manager.increment(
-							ProductVariantEntity,
-							{ id: item.variantId, adminId: shipment.adminId },
-							"stockOnHand",
-							item.quantity
-						);
+					// 2. تجميع المنتجات التي تم خصم مخزونها فقط لإعادتها
+					const itemsToRestock = shipment.order.items.filter(item => item.stockDeducted && item.variantId);
+
+					if (itemsToRestock.length > 0) {
+						const restockMap = new Map<string, number>();
+						itemsToRestock.forEach(item => {
+							const current = restockMap.get(item.variantId) || 0;
+							restockMap.set(item.variantId, current + item.quantity);
+						});
+
+						// 3. إنشاء مصفوفة الوعود (Promises) باستخدام QueryBuilder لكل منتج في الـ Map
+						const restockUpdates = Array.from(restockMap.entries()).map(([id, qty]) => {
+							return manager
+								.createQueryBuilder()
+								.update(ProductVariantEntity)
+								.set({
+									// زيادة المخزون المتوفر (إعادة ما تم خصمه)
+									stockOnHand: () => `"stockOnHand" + ${qty}`
+								})
+								.where("id = :id AND adminId = :adminId", { id, adminId: shipment.adminId })
+								.execute();
+						});
+
+						// 4. تحديث حالة عناصر الطلب لضمان عدم إعادة المخزون مرة أخرى
+						const itemsUpdate = manager
+							.createQueryBuilder()
+							.update(OrderItemEntity)
+							.set({ stockDeducted: false })
+							.where("id IN (:...ids)", { ids: itemsToRestock.map(i => i.id) })
+							.execute();
+
+						// تنفيذ جميع العمليات بالتوازي
+						await Promise.all([...restockUpdates, itemsUpdate]);
 					}
 				}
 
