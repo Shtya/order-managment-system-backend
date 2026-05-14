@@ -39,6 +39,10 @@ export enum NotificationType {
     PRODUCT_SYNC_SUCCESS = 'product_sync_success',
     ORDER_CREATTION_FAILED = 'order_creation_failed',
     REMOTE_SYNC_END = 'remote_sync_end',
+    TEMPLATE_DELETED = 'template_deleted',
+    TEMPLATE_FLAGGED = 'template_flagged',
+    TEMPLATE_QUALITY_UPDATED = 'template_quality_updated',
+    TEMPLATE_STATUS_UPDATED = 'template_status_updated',
 }
 
 @Entity('notifications')
