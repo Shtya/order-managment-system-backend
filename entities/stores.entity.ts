@@ -84,7 +84,7 @@ export class StoreEntity {
 	@Column({ type: "boolean", default: false })
 	isIntegrated!: boolean;
 
-	@Column({ type: "boolean", default: true })
+	@Column({ type: "boolean", default: false })
 	syncNewProducts!: boolean;
 
 	@Column({
