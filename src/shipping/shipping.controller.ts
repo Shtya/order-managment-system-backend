@@ -1,8 +1,8 @@
 // --- File: backend/src/shipping/shipping.controller.ts ---
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ShippingService } from './shipping.service';
-import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, PrintMassAWBDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
 import { tenantId } from 'src/category/category.service';
 import { ProviderCode } from './providers/shipping-provider.interface';
 
@@ -173,6 +173,12 @@ export class ShippingController {
 		return this.shipping.getPickupLocations(adminId, provider);
 	}
 
+
+	@Permissions("shipping-companies.update")
+	@Patch('shipments/:id/status')
+	updateShipmentStatus(@Req() req: any, @Param('id') id: string, @Body() dto: ManualUpdateShipmentStatusDto) {
+		return this.shipping.updateShipmentStatusManually(req.user, id, dto);
+	}
 
 	@Permissions("shipping-companies.read")
 	@Get('shipments/:trackingNumber/track')

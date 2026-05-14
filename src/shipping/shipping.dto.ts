@@ -1,6 +1,7 @@
 // --- File: backend/src/shipping/shipping.dto.ts ---
 import { Type } from 'class-transformer';
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, MinLength, ValidateNested } from 'class-validator';
+import { UnifiedShippingStatus } from '../../entities/shipping.entity';
 
 export class SetActiveDto {
 	@IsBoolean()
@@ -35,6 +36,11 @@ export class CreateShipmentDto {
 }
 
 export class AssignOrderDto extends CreateShipmentDto { }
+
+export class ManualUpdateShipmentStatusDto {
+	@IsEnum(UnifiedShippingStatus)
+	status!: UnifiedShippingStatus;
+}
 
 export class BulkAssignItemDto extends CreateShipmentDto {
 	@IsString()
