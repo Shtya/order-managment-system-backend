@@ -84,7 +84,7 @@ export class ShippingCompanyEntity {
 
 
 @Entity({ name: 'shipping_integrations' })
-@Index(['adminId', 'shippingCompanyId'], { unique: true })
+@Index(['adminId', 'shippingCompanyId'], { unique: true,  where: `"shippingCompanyId" IS NULL` })
 export class ShippingIntegrationEntity {
 	@PrimaryGeneratedColumn('uuid')
 	id: string;
@@ -97,11 +97,11 @@ export class ShippingIntegrationEntity {
 	@JoinColumn({ name: 'adminId' })
 	admin: User;
 
-	@Column({ type: 'int' })
+	@Column({ type: 'int', nullable: true })
 	@Index()
 	shippingCompanyId: string;
 
-	@ManyToOne(() => ShippingCompanyEntity, { onDelete: 'CASCADE', eager: true })
+	@ManyToOne(() => ShippingCompanyEntity, { onDelete: 'CASCADE', nullable: true, eager: true })
 	@JoinColumn({ name: 'shippingCompanyId' })
 	shippingCompany: ShippingCompanyEntity;
 
