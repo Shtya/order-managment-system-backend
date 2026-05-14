@@ -4871,7 +4871,8 @@ export class OrdersService {
       (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT && order.status.code === OrderStatus.SHIPPED)
     );
 
-    if (!shouldDedicate) return;
+    const isDellivered = order.status.code === OrderStatus.DELIVERED;
+    if (!shouldDedicate && !isDellivered) return;
 
     // Map لتجميع الكميات (في حال تكرار نفس المنتج في أسطر مختلفة بالطلب)
     const variantDeductions = new Map<string, number>();
