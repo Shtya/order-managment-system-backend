@@ -20,7 +20,7 @@ export const whatsappTemplateHeaderStorage = diskStorage({
 /** Allowed MIME types for WhatsApp template header media (IMAGE / VIDEO / DOCUMENT) */
 export const whatsappTemplateHeaderMulterOptions = {
   storage: whatsappTemplateHeaderStorage,
-  limits: { fileSize: 16 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const ok =
       /^image\/(jpeg|jpg|png)$/i.test(file.mimetype) ||

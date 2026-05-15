@@ -16,6 +16,12 @@ import { CreateWhatsappTemplateDto, UpdateWhatsappTemplateDto } from 'dto/whatsa
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { normalizePhone } from 'common/whatsapp.helper';
+import {
+    defaultOtpCopyButtonText,
+    isCallPermissionDbSubcategory,
+    messageSendTtlSecondsFromConfig,
+    metaSubCategoryForPayload,
+} from '../utils/whatsapp-template-meta.util';
 
 @Injectable()
 export class WhatsappTemplateService {
@@ -201,6 +207,9 @@ export class WhatsappTemplateService {
             } as any);
 
             payload.components = mapped.components;
+            if (mapped.message_send_ttl_seconds != null) {
+                payload.message_send_ttl_seconds = mapped.message_send_ttl_seconds;
+            }
         }
 
         // nothing to update
@@ -327,7 +336,7 @@ export class WhatsappTemplateService {
 
         //header
         if (cfg.headerType === 'TEXT') {
-            let header: HeaderTextComponentDto = { type: 'HEADER', text: cfg.headerText, format: "text" }
+            let header: HeaderTextComponentDto = { type: 'HEADER', text: cfg.headerText, format: "TEXT" }
             if (cfg?.headerExample)
                 //Property 'example' does not exist on type '{ type: string; text: string; }'.
                 header.example = {
@@ -373,9 +382,12 @@ export class WhatsappTemplateService {
                     .map((key) => cfg.examples[key]);
 
                 body.example = {
-                    body_text: sortedValues,
+                    body_text: [sortedValues],
                 };
             }
+            components.push(body)
+        } else if(cfg?.addSecurityRecommendation) {
+            const body: BodyComponentDto = { type: 'BODY', add_security_recommendation: true,  }
             components.push(body)
         }
 
@@ -383,26 +395,60 @@ export class WhatsappTemplateService {
         if (cfg?.footerText) {
             let footer: FooterComponentDto = { type: 'FOOTER', text: cfg.footerText }
             components.push(footer)
+        } else if(cfg?.addExpirationTime && cfg?.expirationMinutes) {
+            let footer: FooterComponentDto = { type: 'FOOTER', code_expiration_minutes: cfg.expirationMinutes, text: cfg.footerText }
+            components.push(footer)
+        }
+
+
+        if (isCallPermissionDbSubcategory(data.subCategory)) {
+            components.push({ type: "CALL_PERMISSION_REQUEST" } as any);
         }
 
         //buttons
-        if (cfg?.buttons) {
-            let buttons = this.mapButtons(cfg.buttons);
-            if (buttons) {
-                components.push(buttons)
+        let buttonsComp: ButtonsComponentDto | null = null;
+        if (cfg?.buttons?.length) {
+            buttonsComp = this.mapButtons(cfg.buttons);
+        }
+
+        const catLower = String(data.category || "").toLowerCase();
+        if (catLower === "authentication") {
+            const otpType = cfg.authMethod === "NO_ACTION" ? "zero_tap" : "copy_code";
+            const text =
+                (cfg.otpCopyButtonText && String(cfg.otpCopyButtonText).trim()) ||
+                defaultOtpCopyButtonText();
+            const otpBtn = {
+                type: "otp" as const,
+                otp_type: otpType,
+                // text: text.slice(0, 25),
+            };
+            if (buttonsComp) {
+                (buttonsComp.buttons as any[]).push(otpBtn);
+            } else {
+                buttonsComp = {
+                    type: "BUTTONS",
+                    buttons: [otpBtn] as any,
+                };
             }
         }
+
+        if (buttonsComp) {
+            components.push(buttonsComp);
+        }
+
+        const ttl = messageSendTtlSecondsFromConfig(cfg as any);
 
         return {
             name: data.name,
             language: data.language,
             category: data.category.toUpperCase() as any,
-            sub_category: data.subCategory.toUpperCase(),
-            display_format: "ORDER_DETAILS",
+            sub_category: metaSubCategoryForPayload(data.category, data.subCategory),
+            ...(ttl != null ? { message_send_ttl_seconds: ttl } : {}),
+            // display_format: "ORDER_DETAILS",
             parameter_format: "POSITIONAL",
             allow_category_change: false,
-            cta_url_link_tracking_opted_out: false,
-            send_type: "DIRECT",
+            // cta_url_link_tracking_opted_out: false,
+            // send_type: "DIRECT",
             components: components
         };
     }
@@ -423,11 +469,11 @@ export class WhatsappTemplateService {
                     metaButtons.push({
                         type: "PHONE_NUMBER",
                         text: btn.text.slice(0, 25),
-                        phone_number: normalizePhone(btn.phoneNumber),
+                        phone_number: normalizePhone(btn.countryCode + btn.phoneNumber),
                     });
                     break;
 
-                case "VISIT_WEBSITE": {
+                case "VISIT_WEBSITE": { 
                     const url = btn.url || "";
 
                     // If dynamic URL → encode example

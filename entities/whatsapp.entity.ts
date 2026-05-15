@@ -101,6 +101,20 @@ export type TemplateConfig = {
 
     examples?: Record<string, string>;
 
+    /** UI subcategory id for edit/preview (e.g. MARKETING_CALL_PERMISSIONS) */
+    uiSubcategory?: string;
+
+    useCustomValidity?: boolean;
+    validityPeriod?: string;
+
+    authMethod?: string;
+    /** Label for Meta OTP / copy-code button (optional; default applied server-side) */
+    otpCopyButtonText?: string;
+
+    addSecurityRecommendation?: boolean;
+    addExpirationTime?: boolean;
+    expirationMinutes?: number;
+
     buttons?: Array<{
         type:
         | "CUSTOM"

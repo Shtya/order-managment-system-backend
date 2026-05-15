@@ -95,7 +95,7 @@ export class TemplateConfigDto {
 
     // BODY
     @IsString()
-    @IsNotEmpty()
+    @IsOptional()
     @MaxLength(1024)
     bodyText: string;
 
@@ -117,6 +117,41 @@ export class TemplateConfigDto {
     @ValidateNested({ each: true })
     @Type(() => TemplateButtonDto)
     buttons?: TemplateButtonDto[];
+
+    @IsOptional()
+    @IsString()
+    uiSubcategory?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    useCustomValidity?: boolean;
+
+    @IsOptional()
+    @IsString()
+    validityPeriod?: string;
+
+    @IsOptional()
+    @IsString()
+    authMethod?: string;
+
+    @IsOptional()
+    @IsString()
+    @MaxLength(25)
+    otpCopyButtonText?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    addSecurityRecommendation?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    addExpirationTime?: boolean;
+
+    @IsOptional()
+    @IsNumber()
+    @Min(1)
+    @Max(90)
+    expirationMinutes?: number;
 }
 
 export class CreateWhatsappTemplateDto {
