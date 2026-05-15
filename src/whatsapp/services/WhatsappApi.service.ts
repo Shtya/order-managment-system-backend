@@ -168,43 +168,47 @@ export class WhatsappApiService {
     if (!fileType) {
       throw new BadRequestException("Unsupported file type");
     }
+    try {
 
-    // 3. Start upload session
-    const sessionRes = await axios.post(
-      `https://graph.facebook.com/${version}/${appId}/uploads`,
-      null,
-      {
-        params: {
-          file_name: fileName,
-          file_length: fileLength,
-          file_type: fileType,
-          access_token: accessToken,
+      // 3. Start upload session
+      const sessionRes = await axios.post(
+        `https://graph.facebook.com/${version}/${appId}/uploads`,
+        null,
+        {
+          params: {
+            file_name: fileName,
+            file_length: fileLength,
+            file_type: fileType,
+            access_token: accessToken,
+          },
         },
-      },
-    );
+      );
 
-    const sessionId = sessionRes.data.id; // upload:xxxx
+      const sessionId = sessionRes.data.id; // upload:xxxx
 
-    // 4. Upload file
-    const uploadRes = await axios.post(
-      `https://graph.facebook.com/${version}/${sessionId}`,
-      fileBuffer,
-      {
-        headers: {
-          Authorization: `OAuth ${accessToken}`,
-          "file_offset": "0",
-          "Content-Type": "application/octet-stream",
+      // 4. Upload file
+      const uploadRes = await axios.post(
+        `https://graph.facebook.com/${version}/${sessionId}`,
+        fileBuffer,
+        {
+          headers: {
+            Authorization: `OAuth ${accessToken}`,
+            "file_offset": "0",
+            "Content-Type": "application/octet-stream",
+          },
+          maxBodyLength: Infinity,
         },
-        maxBodyLength: Infinity,
-      },
-    );
+      );
 
-    // 5. Return file handle
-    return uploadRes.data.h;
+      // 5. Return file handle
+      return uploadRes.data.h;
+
+
+    } catch (e) {
+      this.handleError(e, "uploadMediaToMeta");
+    }
   }
-
 }
-
 //2083073232550708|FZA1J48hbXlZvAxAb03saMhXJUM
 
 export type WhatsappTemplateComponentDto =
@@ -213,7 +217,12 @@ export type WhatsappTemplateComponentDto =
   | HeaderLocationComponentDto
   | BodyComponentDto
   | FooterComponentDto
-  | ButtonsComponentDto;
+  | ButtonsComponentDto
+  | TypeComponentDto;
+
+export class TypeComponentDto {
+  type: string;
+}
 
 export class ButtonsComponentDto {
   type: "BUTTONS";
@@ -239,13 +248,18 @@ export class ButtonsComponentDto {
       text: string;
       ttl_minutes: number;
     }
+    | {
+      type: "otp";
+      otp_type: string;
+      text?: string;
+    }
   >;
 }
 
 export class HeaderTextComponentDto {
   type: "HEADER";
 
-  format: "text";
+  format: "TEXT";
 
   text: string;
 
@@ -277,11 +291,12 @@ export class HeaderLocationComponentDto {
 
 export class BodyComponentDto {
   type: "BODY";
-
-  text: string;
+  add_security_recommendation?: boolean;
+  text?: string;
 
   example?: {
-    body_text?: string[];
+
+    body_text?: string[][];
 
     body_text_named_params?: Array<{
       param_name: string;
@@ -292,7 +307,7 @@ export class BodyComponentDto {
 
 export class FooterComponentDto {
   type: "FOOTER";
-
+  code_expiration_minutes?: number;
   text: string;
 }
 export class WhatsappTemplateRemoteDto {
@@ -303,6 +318,9 @@ export class WhatsappTemplateRemoteDto {
   category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
 
   sub_category?: string;
+
+  /** WhatsApp template message send TTL (seconds), when custom validity is enabled */
+  message_send_ttl_seconds?: number;
 
   parameter_format?: "POSITIONAL" | "NAMED";
 
