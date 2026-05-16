@@ -9,7 +9,7 @@ export enum TriggerType {
 }
 
 
-export enum Status {
+export enum AutomationStatus {
     DRAFT = 'draft',
     PUBLISHED = 'published',
     PAUSED = 'paused',
@@ -35,8 +35,8 @@ export class AutomationFlowEntity {
     @Column({ type: 'enum', enum: TriggerType, default: TriggerType.ORDER_CREATED })
     triggerType: TriggerType;
 
-    @Column({ type: 'enum', enum: Status, default: Status.DRAFT })
-    status: Status;
+    @Column({ type: 'enum', enum: AutomationStatus, default: AutomationStatus.DRAFT })
+    status: AutomationStatus;
 
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
