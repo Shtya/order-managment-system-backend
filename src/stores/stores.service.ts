@@ -140,6 +140,7 @@ export class StoresService {
       "store.isActive",
       "store.isIntegrated",
       "store.syncNewProducts",
+      "store.syncRemoteProducts",
       "store.syncStatus",
       "store.localSyncStatus",
       "store.localSyncStatusAt",
@@ -292,6 +293,7 @@ export class StoresService {
         credentials, // Direct jsonb assignment
         isActive: validateConnection,
         syncNewProducts: dto.syncNewProducts,
+        syncRemoteProducts: dto.syncRemoteProducts,
         isIntegrated: validateConnection,
         syncStatus: SyncStatus.PENDING,
       });
@@ -343,7 +345,8 @@ export class StoresService {
       store.name = dto.name.trim();
       store.storeUrl = dto.storeUrl.trim();
       store.syncNewProducts = dto.syncNewProducts;
-      return await this.storesRepo.save(store);
+      store.syncRemoteProducts = dto.syncRemoteProducts;
+      return  this.storesRepo.save(store);
     }
 
     const storeToSave = {
@@ -357,6 +360,8 @@ export class StoresService {
       isIntegrated: false,
       isActive: false,
       syncNewProducts: dto.syncNewProducts,
+      syncRemoteProducts: dto.syncRemoteProducts,
+
     };
 
     const savedStore = await this.storesRepo.save(storeToSave);
@@ -530,6 +535,7 @@ export class StoresService {
       lastSyncAttemptAt: store.lastSyncAttemptAt,
       isIntegrated: store.isIntegrated,
       syncNewProducts: store.syncNewProducts,
+      syncRemoteProducts: store.syncRemoteProducts,
       created_at: store.created_at,
       updated_at: store.updated_at,
       credentials: masked // Renamed for frontend consistency
@@ -709,12 +715,6 @@ export class StoresService {
       lastSyncAttemptAt: new Date()
     });
 
-
-    if (!store.syncRemoteProducts) {
-      throw new BadRequestException(
-        `Remote product synchronization is disabled for this store. Please enable "Get remote products locally" in settings.`
-      );
-    }
 
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueFullProductSyncLocally(adminId, store.provider);
