@@ -48,6 +48,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { SafesModule } from './safes/safes.module';
 import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
+import { AutomationModule } from './automation/automation.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -113,7 +114,8 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 		ProductSyncStateModule,
 		SafesModule,
 		SupplierPaymentsModule,
-		WhatsappModule
+		WhatsappModule,
+		AutomationModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService, {

@@ -87,6 +87,7 @@ export interface WebhookOrderPayload {
         price: number;
         variant?: {
             key?: string;
+            sku?: string,
             variation_props?: { name: string; value: string }[];
         };
     }[];

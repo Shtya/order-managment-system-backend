@@ -430,6 +430,10 @@ export class UpsertOrderRetrySettingsDto {
   @IsOptional()
   orderFlowPath?: OrderFlowPath;
 
+  @IsBoolean()
+  @IsOptional()
+  storeOrderSkuFallback?: boolean;
+
   @IsObject()
   @IsOptional()
   workingHours?: {

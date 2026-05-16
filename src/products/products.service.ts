@@ -676,7 +676,7 @@ export class ProductsService {
     const type = q?.type ?? "PRODUCT";
 
     const ids = q?.ids?.split(',') || [];
-   
+
     if (q?.categoryId && q?.categoryId != "none")
       filters.categoryId = q.categoryId;
 
@@ -736,6 +736,17 @@ export class ProductsService {
       .leftJoinAndSelect("product.category", "category")
       .leftJoinAndSelect("product.store", "store")
       .leftJoinAndSelect("product.warehouse", "warehouse")
+      .leftJoinAndMapMany(
+        "product.syncStates",
+        ProductSyncStateEntity,
+        "syncState",
+        `
+    "syncState"."productId" = product.id
+    AND "syncState"."adminId" = product."adminId"
+    AND "syncState"."storeId" = product."storeId"
+    AND "syncState"."externalStoreId" = "store"."externalStoreId"
+  `
+      )
       .where("product.adminId = :adminId", { adminId })
       .andWhere("product.isActive = :isActive", { isActive: isActiveFilter });
 

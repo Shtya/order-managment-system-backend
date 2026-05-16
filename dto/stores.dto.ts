@@ -52,6 +52,10 @@ export class CreateStoreDto {
   @IsBoolean()
   @IsOptional()
   syncNewProducts?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  syncRemoteProducts?: boolean;
 }
 
 export class IntegrateDto {
@@ -72,8 +76,11 @@ export class IntegrateDto {
   @IsBoolean()
   @IsOptional()
   syncNewProducts?: boolean;
-}
 
+  @IsBoolean()
+  @IsOptional()
+  syncRemoteProducts?: boolean;
+}
 
 export class UpdateStoreDto {
   @IsString()
@@ -100,6 +107,10 @@ export class UpdateStoreDto {
   @IsBoolean()
   @IsOptional()
   syncNewProducts?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  syncRemoteProducts?: boolean;
 }
 
 

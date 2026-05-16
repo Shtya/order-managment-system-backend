@@ -424,6 +424,7 @@ export class StoresService {
       if (dto.name) store.name = dto.name.trim();
       if (dto.storeUrl) store.storeUrl = dto.storeUrl.trim();
       if (dto.syncNewProducts !== undefined) store.syncNewProducts = dto.syncNewProducts;
+      if (dto.syncRemoteProducts !== undefined) store.syncRemoteProducts = dto.syncRemoteProducts;
       if (dto.isActive !== undefined) store.isActive = dto.isActive;
       if (p.code === StoreProvider.WOOCOMMERCE) store.externalStoreId = this.extractDomain(store.storeUrl)
 
@@ -709,6 +710,12 @@ export class StoresService {
     });
 
 
+    if (!store.syncRemoteProducts) {
+      throw new BadRequestException(
+        `Remote product synchronization is disabled for this store. Please enable "Get remote products locally" in settings.`
+      );
+    }
+
     // Route to the correct queue based on Provider
     await this.storeQueueService.enqueueFullProductSyncLocally(adminId, store.provider);
 
@@ -810,6 +817,90 @@ export class StoresService {
     return record;
   }
 
+  /**
+   * Resolves a webhook cart line to a local variant.
+   * Uses product sync state first; optional SKU fallback when enabled and no sync link exists.
+   */
+  private async resolveWebhookCartLineItem(
+    manager: EntityManager,
+    adminId: string,
+    item: WebhookOrderPayload['cartItems'][number],
+    productMap: Map<string, ProductEntity>,
+    skuFallbackEnabled: boolean,
+  ): Promise<{ variantId: string; quantity: number; unitPrice: number; unitCost: number }> {
+    const pvRepo = manager.getRepository(ProductVariantEntity);
+
+    const sku = item.variant?.sku?.trim();
+
+    const findVariantBySku = async (): Promise<ProductVariantEntity | null> => {
+      if (!skuFallbackEnabled || !sku) return null;
+
+      return await pvRepo
+        .createQueryBuilder('v')
+        .innerJoinAndSelect('v.product', 'p')
+        .where('LOWER(v.sku) = LOWER(:sku)', { sku })
+        .andWhere('p.adminId = :adminId', { adminId })
+        .getOne();
+    };
+
+    let localProduct = productMap.get(item.remoteProductId);
+    let matchedVariant: ProductVariantEntity | null = null;
+
+    // First: try normal ID/key matching
+    if (localProduct?.isActive) {
+      const key = item.variant.key;
+
+      matchedVariant =
+        localProduct.variants.find(
+          v => v.key === key && v.isActive,
+        ) || null;
+    }
+
+    // Fallback to SKU if:
+    // - product not found
+    // - product inactive
+    // - variant not found
+    // - variant inactive
+    if (!matchedVariant) {
+      matchedVariant = await findVariantBySku();
+
+      if (matchedVariant?.product) {
+        localProduct = matchedVariant.product;
+      }
+    }
+
+    if (!localProduct) {
+      throw new BadRequestException(
+        `The product "${item.name}" could not be found in your system.`,
+      );
+    }
+
+    if (!localProduct.isActive) {
+      throw new BadRequestException(
+        `The Product "${item.name}" is no longer active.`,
+      );
+    }
+
+    if (!matchedVariant) {
+      throw new BadRequestException(
+        `No valid variant found for product "${item.name}".`,
+      );
+    }
+
+    if (!matchedVariant.isActive) {
+      throw new BadRequestException(
+        `The selected variant for "${item.name}" is no longer active.`,
+      );
+    }
+
+    return {
+      variantId: matchedVariant.id,
+      quantity: item.quantity,
+      unitPrice: item.price,
+      unitCost: 0,
+    };
+  }
+
   private async processMappedWebhookOrder(
     adminId: string,
     store: StoreEntity,
@@ -837,11 +928,11 @@ export class StoresService {
         const remoteIds = payload.cartItems.map(item => item.remoteProductId);
         const safeRemoteIds = remoteIds.length > 0 ? remoteIds : [null];
 
-        const syncStates = await this.productSyncStateRepo.find({
+        const syncStates = await manager.getRepository(ProductSyncStateEntity).find({
           where: {
             adminId,
-            storeId: existingOrder?.statusId,
-            externalStoreId: existingOrder?.store?.externalStoreId,
+            storeId: store.id,
+            externalStoreId: store.externalStoreId,
             remoteProductId: In(safeRemoteIds),
           },
           relations: ['product', 'product.variants'],
@@ -851,38 +942,22 @@ export class StoresService {
           syncStates?.filter(s => s.remoteProductId).map(s => [s?.remoteProductId, s?.product])
         );
 
+        const retrySettings = await this.ordersService.getSettings(
+          { id: adminId, role: { name: 'admin' } },
+          manager,
+        );
+        const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
+
         const items = [];
         for (const item of payload.cartItems) {
-          const localProduct = productMap.get(item.remoteProductId);
-          if (!localProduct) {
-            throw new BadRequestException(
-              `The product "${item.name}" could not be found in your system.`
-            );
-          }
-          if (!localProduct?.isActive) {
-            throw new BadRequestException(`The Product "${item.name}" is no longer active.`);
-          }
-
-          const key = item.variant.key;
-          const matchedVariant = localProduct.variants.find(v => v.key === key);
-
-          if (!matchedVariant?.isActive) {
-            throw new BadRequestException(
-              `The selected variant for "${item.name}" is no longer active..`
-            );
-          }
-
-          if (!matchedVariant) {
-            const reason = `No valid variant found for product ${item.name}`;
-            throw new BadRequestException(reason);
-          }
-
-          items.push({
-            variantId: matchedVariant.id, // Internal Database ID
-            quantity: item.quantity,
-            unitPrice: item.price,
-            unitCost: 0,
-          });
+          const line = await this.resolveWebhookCartLineItem(
+            manager,
+            adminId,
+            item,
+            productMap,
+            skuFallbackEnabled,
+          );
+          items.push(line);
         }
 
         //  Create Order
@@ -1169,6 +1244,7 @@ export class StoresService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
+
     const failure = await this.failureRepo.findOne({
       where: { id, adminId },
       relations: ['store'],
@@ -1181,6 +1257,12 @@ export class StoresService {
     const storeId = failure.store?.id;
     const payload = failure.payload;
     const problems = [];
+
+    const retrySettings = await this.ordersService.getSettings(
+      { id: adminId, role: { name: 'admin' } },
+    );
+    const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
+
 
     if (payload && payload.cartItems) {
       const remoteIds = payload.cartItems.map(item => String(item.remoteProductId));
@@ -1198,7 +1280,33 @@ export class StoresService {
       const productMap = new Map(syncStates.map(s => [s.remoteProductId, s.product]));
 
       for (const item of payload.cartItems) {
-        const localProduct = productMap.get(item.remoteProductId);
+        const sku = item.variant?.sku?.trim();
+
+        let localProduct = productMap.get(item.remoteProductId);
+        let matchedVariant = null;
+        let matchedBySku = false;
+
+        if (localProduct?.isActive) {
+          matchedVariant =
+            localProduct.variants.find(
+              v => v.key === item.variant.key,
+            ) || null;
+        }
+
+        if (!matchedVariant && sku && skuFallbackEnabled) {
+          matchedVariant = await this.pvRepo
+            .createQueryBuilder('v')
+            .innerJoinAndSelect('v.product', 'p')
+            .where('LOWER(v.sku) = LOWER(:sku)', { sku })
+            .andWhere('p.adminId = :adminId', { adminId })
+            .getOne();
+
+          if (matchedVariant?.product) {
+            localProduct = matchedVariant.product;
+            matchedBySku = true;
+          }
+        }
+
 
         if (!localProduct) {
           problems.push({
@@ -1230,13 +1338,8 @@ export class StoresService {
         // Add local product ID to the item's variant for the UI/frontend
         if (!item.variant) item.variant = {};
         (item.variant as any).localProductId = localProduct.id;
+        (item.variant as any).matchedBySku = matchedBySku;
 
-        let matchedVariant = null;
-        if (localProduct.type === ProductType.SINGLE) {
-          matchedVariant = localProduct.variants?.[0];
-        } else if (item.variant && item.variant.key) {
-          matchedVariant = localProduct.variants.find(v => v.key === item.variant.key);
-        }
 
         if (!matchedVariant) {
           problems.push({
@@ -1673,7 +1776,9 @@ export class StoresService {
     store.externalStoreId = credentials.storeId;
 
     const newStore = await this.storesRepo.save(store);;
-    this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
+    if (newStore.syncRemoteProducts) {
+      this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
+    }
     return newStore;
   }
 
@@ -1846,39 +1951,39 @@ export class StoresService {
       }
 
       // 5. Generate purchase for initial stock if items exist
-      if (purchaseItems.length > 0) {
-        try {
-          // Find or create default safe
-          const safeName = "الخزنة الرئيسية";
-          let defaultSafe = await this.safesRepo.findOne({ where: { adminId } as any });
+      // if (purchaseItems.length > 0) {
+      //   try {
+      //     // Find or create default safe
+      //     const safeName = "الخزنة الرئيسية";
+      //     let defaultSafe = await this.safesRepo.findOne({ where: { adminId } as any });
 
-          if (!defaultSafe) {
-            const createAccountDto: CreateAccountDto = {
-              name: safeName,
-              type: AccountType.CASH,
-              initialBalance: 0,
-            };
-            defaultSafe = await this.safesService.createAccount(me, createAccountDto);
-          }
+      //     if (!defaultSafe) {
+      //       const createAccountDto: CreateAccountDto = {
+      //         name: safeName,
+      //         type: AccountType.CASH,
+      //         initialBalance: 0,
+      //       };
+      //       defaultSafe = await this.safesService.createAccount(me, createAccountDto);
+      //     }
 
-          const totalCost = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.purchaseCost), 0);
+      //     const totalCost = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.purchaseCost), 0);
 
-          const randomCode = generateRandomAlphanumeric(8);
-          const createPurchaseDto: CreatePurchaseDto = {
-            receiptNumber: `SYNC-${randomCode}`,
-            safeId: defaultSafe.id,
-            items: purchaseItems,
-            paidAmount: totalCost,
-            saveAsDraft: true,
-            notes: `Initial stock sync from ${store.name} store`,
-          };
+      //     const randomCode = generateRandomAlphanumeric(8);
+      //     const createPurchaseDto: CreatePurchaseDto = {
+      //       receiptNumber: `SYNC-${randomCode}`,
+      //       safeId: defaultSafe.id,
+      //       items: purchaseItems,
+      //       paidAmount: totalCost,
+      //       saveAsDraft: true,
+      //       notes: `Initial stock sync from ${store.name} store`,
+      //     };
 
-          await this.purchasesService.create(me, createPurchaseDto);
-          this.logger.log(`[Sync] Successfully generated initial stock purchase for ${purchaseItems.length} SKUs.`);
-        } catch (purchaseError: any) {
-          this.logger.error(`[Sync] Failed to generate initial stock purchase: ${getErrorMessage(purchaseError)}`);
-        }
-      }
+      //     await this.purchasesService.create(me, createPurchaseDto);
+      //     this.logger.log(`[Sync] Successfully generated initial stock purchase for ${purchaseItems.length} SKUs.`);
+      //   } catch (purchaseError: any) {
+      //     this.logger.error(`[Sync] Failed to generate initial stock purchase: ${getErrorMessage(purchaseError)}`);
+      //   }
+      // }
 
       // 6. Send final summary notification
       const total = remoteProducts.length;
