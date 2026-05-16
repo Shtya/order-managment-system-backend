@@ -838,7 +838,7 @@ export class StoresService {
       return await pvRepo
         .createQueryBuilder('v')
         .innerJoinAndSelect('v.product', 'p')
-        .where('LOWER(v.sku) = LOWER(:sku)', { sku })
+        .where('v.sku = :sku', { sku })
         .andWhere('p.adminId = :adminId', { adminId })
         .getOne();
     };
@@ -1297,7 +1297,7 @@ export class StoresService {
           matchedVariant = await this.pvRepo
             .createQueryBuilder('v')
             .innerJoinAndSelect('v.product', 'p')
-            .where('LOWER(v.sku) = LOWER(:sku)', { sku })
+            .where('v.sku = :sku', { sku })
             .andWhere('p.adminId = :adminId', { adminId })
             .getOne();
 
