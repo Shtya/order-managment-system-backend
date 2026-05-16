@@ -1,6 +1,6 @@
 import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Validate, ValidateNested, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, Status, TriggerType } from 'entities/automation.entity';
+import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, TriggerType } from 'entities/automation.entity';
 import { OmitType } from '@nestjs/mapped-types';
 
 @ValidatorConstraint({ name: 'UniqueNodeIds', async: false })
@@ -295,4 +295,4 @@ export class CreateAutomationDto {
 }
 
 
-export class UpdateAutomationDto extends OmitType(CreateAutomationDto, ['flow',] as const) { }
+export class UpdateAutomationDto extends OmitType(CreateAutomationDto, ['publish'] as const) { }

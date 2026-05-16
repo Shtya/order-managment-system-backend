@@ -5,6 +5,7 @@ import { PermissionsGuard } from 'common/permissions.guard';
 import { SubscriptionGuard } from 'common/subscription.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
+import { AutomationStatus } from 'entities/automation.entity';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('automation')
@@ -39,5 +40,12 @@ export class AutomationController {
   @Permissions('automation.update')
   update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateAutomationDto) {
     return this.automationService.update(req.user, id, dto);
+  }
+
+
+  @Post(':id/:status')
+  @Permissions('automation.update')
+  changeStatus(@Req() req: any, @Param('id') id: string, @Param('status') status: AutomationStatus) {
+    return this.automationService.changeStatus(req.user, id, status);
   }
 }

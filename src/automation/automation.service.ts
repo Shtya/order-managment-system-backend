@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AutomationFlowEntity, Status } from 'entities/automation.entity';
+import { AutomationFlowEntity, AutomationStatus } from 'entities/automation.entity';
 import { Brackets, Repository } from 'typeorm';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
@@ -23,6 +23,7 @@ export class AutomationService {
         const existing = await this.automationRepo.findOne({
             where: { name: dto.name, adminId },
         });
+
         if (existing) {
             throw new BadRequestException('Automation name already exists');
         }
@@ -31,7 +32,7 @@ export class AutomationService {
             adminId,
             name: dto.name,
             triggerType: dto.triggerType,
-            status: dto.publish ? Status.PUBLISHED : Status.DRAFT,
+            status: dto.publish ? AutomationStatus.PUBLISHED : AutomationStatus.DRAFT,
             flow: {
                 nodes: dto.flow.nodes,
                 edges: dto.flow.edges,
@@ -41,10 +42,39 @@ export class AutomationService {
         return await this.automationRepo.save(entity);
     }
 
-    async update(me: any, id: string, dto: any) {
+    async update(me: any, id: string, dto: UpdateAutomationDto) {
+        const adminId = tenantId(me);
+        if (!adminId) {
+            throw new BadRequestException('AdminId not found');
+        }
+
         const automation = await this.findOne(me, id);
+
         if (!automation) {
             throw new Error('Automation not found');
+        }
+
+        if (dto.name && dto.name !== automation.name) {
+            const existing = await this.automationRepo.findOne({
+                where: { name: dto.name, adminId },
+            });
+
+            if (existing) {
+                throw new BadRequestException('Automation name already exists');
+            }
+
+            automation.name = dto.name;
+        }
+
+        if (dto.triggerType) {
+            automation.triggerType = dto.triggerType;
+        }
+
+        if (dto.flow) {
+            automation.flow = {
+                nodes: dto.flow.nodes,
+                edges: dto.flow.edges,
+            };
         }
 
         return await this.automationRepo.save(automation);
@@ -125,5 +155,15 @@ export class AutomationService {
         return await this.automationRepo.delete({ id, adminId });
     }
 
+    async changeStatus(me: any, id: string, status: AutomationStatus) {
+        const automation = await this.findOne(me, id);
+
+        if (!automation) {
+            throw new Error('Automation not found');
+        }
+
+        automation.status = status;
+        return await this.automationRepo.save(automation);
+    }
 
 }
