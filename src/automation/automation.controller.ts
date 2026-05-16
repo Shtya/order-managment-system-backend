@@ -1,0 +1,43 @@
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { AutomationService } from './automation.service';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { PermissionsGuard } from 'common/permissions.guard';
+import { SubscriptionGuard } from 'common/subscription.guard';
+import { Permissions } from 'common/permissions.decorator';
+import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
+
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+@Controller('automation')
+export class AutomationController {
+  constructor(private readonly automationService: AutomationService) { }
+
+  @Post()
+  @Permissions('automation.create')
+  create(@Req() req: any, @Body() dto: CreateAutomationDto) {
+    return this.automationService.create(req.user, dto);
+  }
+
+  @Get()
+  @Permissions('automation.read')
+  findAll(@Req() req: any, @Query() q: any) {
+    return this.automationService.findAll(req.user, q);
+  }
+
+  @Get(':id')
+  @Permissions('automation.read')
+  findOne(@Req() req: any, @Param('id') id: string) {
+    return this.automationService.findOne(req.user, id);
+  }
+
+  @Delete(':id')
+  @Permissions('automation.delete')
+  remove(@Req() req: any, @Param('id') id: string) {
+    return this.automationService.delete(req.user, id);
+  }
+
+  @Post(':id')
+  @Permissions('automation.update')
+  update(@Req() req: any, @Param('id') id: string, @Body() dto: UpdateAutomationDto) {
+    return this.automationService.update(req.user, id, dto);
+  }
+}

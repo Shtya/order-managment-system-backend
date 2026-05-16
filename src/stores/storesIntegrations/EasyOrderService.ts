@@ -1320,9 +1320,11 @@ export class EasyOrderService extends BaseStoreProvider {
                     remoteProductId: item.product_id,
                     variant: item.variant ? {
                         key: key || "default",
+                        sku:  String(item.variant.taager_code || item.variant.sku || ""),
                         variation_props: variationProps
                     } : {
                         key: "default",
+                        sku: item.product?.sku,
                         variation_props: []
                     }
                 };

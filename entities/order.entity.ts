@@ -689,6 +689,10 @@ export class OrderRetrySettingsEntity {
   })
   orderFlowPath: OrderFlowPath;
 
+  /** When true, store webhook orders match line items by variant SKU if no product sync link exists. */
+  @Column({ type: "boolean", default: true })
+  storeOrderSkuFallback: boolean;
+
   @Column({
     type: "jsonb",
     default: {

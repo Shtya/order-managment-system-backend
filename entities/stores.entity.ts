@@ -87,6 +87,9 @@ export class StoreEntity {
 	@Column({ type: "boolean", default: false })
 	syncNewProducts!: boolean;
 
+	@Column({ type: "boolean", default: false })
+	syncRemoteProducts!: boolean;
+
 	@Column({
 		type: "enum",
 		enum: SyncStatus,

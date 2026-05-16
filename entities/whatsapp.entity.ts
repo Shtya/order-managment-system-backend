@@ -185,7 +185,6 @@ export class WhatsappTemplateEntity {
     @Column({ type: 'enum', enum: TemplateQuality, default: TemplateQuality.UNKNOWN })
     quality: TemplateQuality;
 
-
     @Column({ type: 'varchar', nullable: true })
     metaId: string; // المعرف الفريد للقالب من طرف Meta
 
@@ -207,3 +206,4 @@ export class WhatsappTemplateEntity {
     @UpdateDateColumn({ type: 'timestamp' })
     updatedAt: Date;
 }
+
