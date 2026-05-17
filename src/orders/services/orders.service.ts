@@ -339,12 +339,7 @@ export class OrdersService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const status = await this.statusRepo.findOne({
-      where: {
-        id,
-        adminId,
-      },
-    });
+   const status = await this.findStatusById(id, adminId)
     if (!status) throw new NotFoundException("Status not found");
 
     return status;

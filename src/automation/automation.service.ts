@@ -5,6 +5,7 @@ import { Brackets, Repository } from 'typeorm';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
+import * as ExcelJS from 'exceljs';
 
 @Injectable()
 export class AutomationService {
@@ -163,8 +164,47 @@ export class AutomationService {
             throw new Error('Automation not found');
         }
 
-        automation.status = status;
+        // status logic: if status is PUBLISHED, toggle to PAUSED, if DRAFT or PAUSED, toggle to PUBLISHED
+        let nextStatus: AutomationStatus = status;
+
+        if (status === undefined || status === null) {
+            if (automation.status === AutomationStatus.PUBLISHED) {
+                nextStatus = AutomationStatus.PAUSED;
+            } else {
+                nextStatus = AutomationStatus.PUBLISHED;
+            }
+        }
+
+        automation.status = nextStatus;
         return await this.automationRepo.save(automation);
+    }
+
+    async export(me: any, q: any) {
+        const { records } = await this.findAll(me, { ...q, limit: 1000, page: 1 });
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("Automations");
+
+        worksheet.columns = [
+            { header: "Name", key: "name", width: 25 },
+            { header: "Trigger Type", key: "triggerType", width: 25 },
+            { header: "Status", key: "status", width: 15 },
+            { header: "Created At", key: "createdAt", width: 25 },
+        ];
+        worksheet.getRow(1).font = { bold: true };
+        worksheet.getRow(1).fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFE0E0E0" },
+        };
+
+        const exportData = records.map(t => ({
+            "name": t.name,
+            "triggerType": t.triggerType,
+            "status": t.status,
+            "createdAt": t.createdAt,
+        }));
+        exportData.forEach(t => worksheet.addRow(t));
+        return await workbook.xlsx.writeBuffer();
     }
 
 }
