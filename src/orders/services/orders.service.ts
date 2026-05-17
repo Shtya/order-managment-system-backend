@@ -334,6 +334,21 @@ export class OrdersService {
     return statuses;
   }
 
+  async getStatus(me: any, id: string) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const status = await this.statusRepo.findOne({
+      where: {
+        id,
+        adminId,
+      },
+    });
+    if (!status) throw new NotFoundException("Status not found");
+
+    return status;
+  }
+
   ALLOWED_CONFIRM_STATUSES: string[] = [
     OrderStatus.NEW,
     OrderStatus.CONFIRMED,
