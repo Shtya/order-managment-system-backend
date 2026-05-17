@@ -39,8 +39,8 @@ export enum ProductType {
 
 @Entity({ name: "products" })
 @Index(["adminId", "name"])
-@Index(["adminId", "slug"], { unique: true })
-@Index(["adminId", "sku"], { unique: true })
+@Index(["adminId", "slug"], { unique: true, where: '"isActive" = true' })
+@Index(["adminId", "sku"], { unique: true, where: '"isActive" = true' })
 export class ProductEntity extends ActivatableEntity {
   @Column({ type: "varchar", length: 200 })
   @Index()
@@ -130,8 +130,8 @@ export class ProductEntity extends ActivatableEntity {
 }
 
 @Entity({ name: "product_variants" })
-@Index(["adminId", "sku"], { unique: true, where: `"sku" IS NOT NULL` })
-@Index(["adminId", "productId", "key"], { unique: true })
+@Index(["adminId", "sku"], { unique: true, where: '"sku" IS NOT NULL AND "isActive" = true' })
+@Index(["adminId", "productId", "key"], { unique: true, where: '"isActive" = true' })
 export class ProductVariantEntity extends ActivatableEntity {
   @Column({ type: "int" })
   @Index()

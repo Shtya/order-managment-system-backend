@@ -74,11 +74,11 @@ export class BundlesController {
     return this.bundles.create(req.user, dto);
   }
 
-  @Permissions("products.update")
-  @Patch(":id/restore")
-  restore(@Req() req: any, @Param("id") id: string) {
-    return this.bundles.restore(req.user, id);
-  }
+  // @Permissions("products.update")
+  // @Patch(":id/restore")
+  // restore(@Req() req: any, @Param("id") id: string) {
+  //   return this.bundles.restore(req.user, id);
+  // }
 
   @Permissions("products.update")
   @Patch(":id")
