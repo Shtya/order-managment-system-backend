@@ -850,16 +850,28 @@ export class ShippingService {
 	async getCompanyDistribution(me: any) {
 		const adminId = tenantId(me);
 
-		const stats = await this.companiesRepo
-			.createQueryBuilder('company')
+		const stats = await this.integrationsRepo
+			.createQueryBuilder('integ')
+			.leftJoin('integ.shippingCompany', 'company')
 			.leftJoin('company.orders', 'order', 'order.adminId = :adminId', { adminId })
-			.leftJoin('order.status', 'status', 'status.code = :dCode', {
-				dCode: OrderStatus.DISTRIBUTED
+			.leftJoin('order.status', 'status', 'status.code NOT IN (:...excluded)', {
+				excluded: [OrderStatus.DELIVERED, OrderStatus.CANCELLED]
 			})
+			.leftJoinAndSelect(
+				"order.shipments", // افترضنا وجود علاقة (Relation) باسم shipments في Entity الطلب
+				"shipment",
+				`shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
+			)
 			.select('company.id', 'companyId')
 			.addSelect('company.name', 'companyName')
 			.addSelect('company.code', 'code')
-			.addSelect('COUNT(order.id)', 'count')
+			.addSelect('COUNT(status.id)', 'count')
+			.where('integ."isActive" = true')
+			.andWhere('integ."adminId" = :adminId', { adminId })
+			.andWhere("shipment.id IS NOT NULL")
+			.andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
+				shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
+			})
 			.groupBy('company.id')
 			.addGroupBy('company.name')
 			.getRawMany();
@@ -868,12 +880,33 @@ export class ShippingService {
 			companyId: s.companyId,
 			companyName: s.companyName,
 			code: s.code,
+			count: s.count,
 		}));
 	}
 
 
 	async getShipmentLifecycleStats(me: any) {
 		const adminId = tenantId(me);
+
+		// Helper for distributed counts (assigned to active integrations and not finished)
+		const getDistributedBaseQuery = () =>
+			this.ordersRepo.createQueryBuilder('order')
+				.innerJoin('order.status', 'status')
+				.innerJoin('shipping_integrations', 'integ', 'integ.shippingCompanyId = order.shippingCompanyId AND integ.adminId = :adminId AND integ.isActive = true', { adminId })
+				.leftJoinAndSelect(
+					"order.shipments", // افترضنا وجود علاقة (Relation) باسم shipments في Entity الطلب
+					"shipment",
+					`shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
+				)
+				.where('order.adminId = :adminId', { adminId })
+				.andWhere('status.code NOT IN (:...excluded)', {
+					excluded: [OrderStatus.DELIVERED, OrderStatus.CANCELLED]
+				})
+				.andWhere("shipment.id IS NOT NULL")
+				.andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
+					shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
+				})
+
 
 		// Run all three counts in parallel
 		const [confirmed, distributed, distributedNotPrinted] = await Promise.all([
@@ -885,22 +918,13 @@ export class ShippingService {
 				}
 			}),
 
-			// 2. Total Distributed (Assigned to companies)
-			this.ordersRepo.count({
-				where: {
-					adminId,
-					status: { code: OrderStatus.DISTRIBUTED }
-				}
-			}),
+			// 2. Total Distributed (Assigned to active companies and not finished)
+			getDistributedBaseQuery().getCount(),
 
 			// 3. Distributed but Label NOT printed (طباعة البوالص)
-			this.ordersRepo.count({
-				where: {
-					adminId,
-					status: { code: OrderStatus.DISTRIBUTED },
-					labelPrinted: IsNull()
-				}
-			})
+			getDistributedBaseQuery()
+				.andWhere('order.labelPrinted IS NULL')
+				.getCount()
 		]);
 
 		return {
@@ -909,8 +933,6 @@ export class ShippingService {
 			distributedNotPrinted
 		};
 	}
-
-
 
 	// -----------------------
 	// Webhook setup helpers (NEW)

@@ -885,8 +885,8 @@ export class DashboardService {
 
     // Scope assignments to the selected period on lastActionAt (same rows as totalAssigned)
     const oaRangeParts: string[] = [];
-    if (start) oaRangeParts.push("oa.lastActionAt >= :empPerfRangeStart");
-    if (end) oaRangeParts.push("oa.lastActionAt <= :empPerfRangeEnd");
+    if (start) oaRangeParts.push(`oa."lastActionAt" >= :empPerfRangeStart`);
+    if (end) oaRangeParts.push(`oa."lastActionAt" <= :empPerfRangeEnd`);
     const oaJoinOn = oaRangeParts.length > 0 ? oaRangeParts.join(" AND ") : "1=1";
 
     qb.leftJoin("u.assignments", "oa", oaJoinOn)
@@ -914,9 +914,6 @@ export class DashboardService {
     if (q?.storeId) {
       qb.andWhere("o.storeId = :storeId", { storeId: q.storeId });
     }
-
-
-
 
     qb.select(["u.id AS id", "u.name AS name", "u.avatarUrl AS avatarUrl", "u.isActive AS isActive"])
       .addSelect(
@@ -998,30 +995,28 @@ export class DashboardService {
 
     // Format output
     const records = stats.map((row) => {
-      const total = Number(row.totalAssigned) || 0;
-      const confirmed = Number(row.confirmedCount) || 0;
-      const shipped = Number(row.shippedCount) || 0;
-      const delivered = Number(row.deliveredCount) || 0;
-      const activeCount = Number(row.activeAssignments) || 0;
-      const lockedCount = Number(row.lockedAssignments) || 0;
+      const total = Number(row?.totalAssigned) || 0;
+      const confirmed = Number(row?.confirmedCount) || 0;
+      const shipped = Number(row?.shippedCount) || 0;
+      const delivered = Number(row?.deliveredCount) || 0;
+      const activeCount = Number(row?.activeAssignments) || 0;
+      const lockedCount = Number(row?.lockedAssignments) || 0;
       const prepFailedCount =
         Number(
-          row.preparationfailedcount ??
-            row.preparationFailedCount ??
-            row.preparationFailedRate,
+          row?.preparationfailedcount ??
+          row?.preparationFailedRate,
         ) || 0;
       const outFailedCount =
         Number(
-          row.outgoingfailedcount ??
-            row.outgoingFailedCount ??
-            row.outgoingFailedRate,
+          row?.outgoingfailedcount ??
+          row?.outgoingFailedRate,
         ) || 0;
 
       return {
-        id: row.id,
-        name: row.name,
-        avatarUrl: row.avatarurl,
-        isActive: row.isactive,
+        id: row?.id,
+        name: row?.name,
+        avatarUrl: row?.avatarurl,
+        isActive: row?.isactive,
         totalAssigned: total,
         activeAssignments: activeCount,
         lockedAssignments: lockedCount,
@@ -1133,32 +1128,32 @@ export class DashboardService {
         ? rawExcept.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
         : [];
 
-      
+
     const { start, end } = DateFilterUtil.getBoundaries(q.startDate, q.endDate);
     const startDate = start;
     const endDate = end;
 
-    const dateMatchedAssignments = `(:startDate::timestamp IS NULL OR oa.lastActionAt >= :startDate::timestamp) AND (:endDate::timestamp IS NULL OR oa.lastActionAt <= :endDate::timestamp)`;
+    const dateMatchedAssignments = `(:startDate::timestamp IS NULL OR oa."lastActionAt" >= :startDate::timestamp) AND (:endDate::timestamp IS NULL OR oa."lastActionAt" <= :endDate::timestamp)`;
 
     const assignmentCountExpr =
       exceptCodes.length > 0
         ? `COUNT(DISTINCT CASE WHEN status.code IN (:...exceptCodes) THEN oa.id WHEN ${dateMatchedAssignments} THEN oa.id END)`
         : `COUNT(DISTINCT CASE WHEN ${dateMatchedAssignments} THEN oa.id END)`;
 
-      
+
     const qb = this.statusRepo
       .createQueryBuilder("status")
       .leftJoin(
         OrderAssignmentEntity,
         "oa",
-        "oa.lastStatusId = status.id AND oa.assignedByAdminId = :adminId",
+        `oa."lastStatusId" = status.id AND oa."assignedByAdminId" = :adminId`,
       )
       .select([
         "status.id AS id",
         "status.name AS name",
         "status.code AS code",
         "status.color AS color",
-        "status.sortOrder AS sortOrder",
+        `status."sortOrder" AS sortOrder`,
       ])
       .addSelect(assignmentCountExpr, "count");
 
