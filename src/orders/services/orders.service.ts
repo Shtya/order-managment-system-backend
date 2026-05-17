@@ -75,6 +75,7 @@ import {
   ShipmentEntity,
   ShippingCompanyEntity,
   ShippingIntegrationEntity,
+  UnifiedShippingStatus,
 } from "entities/shipping.entity";
 import { BulkUploadUsage, SubscriptionStatus } from "entities/plans.entity";
 import { DateFilterUtil } from "common/date-filter.util";
@@ -425,6 +426,35 @@ export class OrdersService {
         });
       }
     }
+
+    if (q?.excludeStatus) {
+      const statusParam = q.excludeStatus;
+      if (typeof statusParam === "string" && statusParam.includes(",")) {
+        const statusCodes = statusParam.split(",").map((s) => s.trim());
+        qb.andWhere("status.code NOT IN (:...statusCodes)", { statusCodes });
+      } else if (!isNaN(Number(statusParam))) {
+        qb.andWhere("order.statusId NOT :statusId", {
+          statusId: Number(statusParam),
+        });
+      } else {
+        qb.andWhere("status.code NOT LIKE :statusCode", {
+          statusCode: `${String(statusParam).trim()}`,
+        });
+      }
+    }
+
+    // do not select
+    if (q?.activeIntegration) {
+      qb.leftJoin("shipping.integrations", "integrations")
+        .andWhere(`integrations."isActive" = true`)
+        .andWhere(`integrations."adminId" = :adminId`, { adminId })
+        .andWhere("shipment.id IS NOT NULL")
+        .andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
+          shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
+        });
+    }
+
+
     if (q?.paymentStatus) {
       if (q?.paymentStatus === PaymentMethod.CASH_ON_DELIVERY) {
         qb.andWhere("order.paymentMethod = :paymentMethod", {

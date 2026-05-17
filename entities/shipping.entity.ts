@@ -75,7 +75,8 @@ export class ShippingCompanyEntity {
 	@UpdateDateColumn({ type: "timestamptz" })
 	updated_at: Date;
 
-
+	@OneToMany(() => ShippingIntegrationEntity, (integration) => integration.shippingCompany)
+	integrations: ShippingIntegrationEntity[];
 
 	@OneToMany(() => OrderEntity, (order) => order.shippingCompany)
 	orders: OrderEntity[];
