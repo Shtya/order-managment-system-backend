@@ -1,6 +1,6 @@
 import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Validate, ValidateNested, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, TriggerType } from 'entities/automation.entity';
+import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, NodeConfig, SendWhatsappTemplateConfig, TriggerType } from 'entities/automation.entity';
 import { OmitType } from '@nestjs/mapped-types';
 
 @ValidatorConstraint({ name: 'UniqueNodeIds', async: false })
@@ -76,10 +76,17 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
 
             // 6. Branch ID validation (sourceHandle must match node branches if any)
             const sourceNode = nodeMap.get(edge.source);
-            if (sourceNode?.data?.config?.branches) {
-                const branches = sourceNode.data.config.branches;
-                if (!branches.includes(edge.sourceHandle)) {
-                    this.errorMessage = `Invalid sourceHandle "${edge.sourceHandle}" for node "${edge.source}". Expected one of: ${branches.join(', ')}`;
+
+            const branches = (sourceNode.data.config as SendWhatsappTemplateConfig).branches;
+            if (!!branches && branches.length > 0) {
+
+                const branchIds = branches.map((b) => b.id);
+
+                if (!branchIds.includes(edge.sourceHandle)) {
+                    this.errorMessage =
+                        `Invalid sourceHandle "${edge.sourceHandle}" for node "${edge.source}". ` +
+                        `Expected one of: ${branchIds.join(', ')}`;
+
                     return false;
                 }
             }
@@ -157,33 +164,6 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
         return this.errorMessage;
     }
 }
-
-class FlowNodePositionDto {
-    @IsNumber()
-    x: number;
-
-    @IsNumber()
-    y: number;
-}
-
-class FlowNodeDataDto {
-    @IsNotEmpty()
-    @IsEnum(
-        {
-            ...TriggerType,
-            ...ActionType,
-            ...ConditionType,
-        },
-        {
-            message: 'Invalid flow node data type',
-        },
-    )
-    type: FlowNodeDataType;
-
-    @IsObject()
-    config: Record<string, any>;
-}
-
 @ValidatorConstraint({ name: 'NodeDataMatchesNodeType', async: false })
 export class NodeDataMatchesNodeTypeConstraint
     implements ValidatorConstraintInterface {
@@ -209,6 +189,39 @@ export class NodeDataMatchesNodeTypeConstraint
         return `Invalid data.type "${data?.type}" for node.type "${node?.type}"`;
     }
 }
+
+
+class FlowNodePositionDto {
+    @IsNumber()
+    x: number;
+
+    @IsNumber()
+    y: number;
+}
+
+class FlowNodeDataDto {
+    @IsNotEmpty()
+    @IsString()
+    label: string;
+
+    @IsNotEmpty()
+    @IsEnum(
+        {
+            ...TriggerType,
+            ...ActionType,
+            ...ConditionType,
+        },
+        {
+            message: 'Invalid flow node data type',
+        },
+    )
+    type: FlowNodeDataType;
+
+    @IsNotEmpty()
+    @IsObject()
+    config: NodeConfig;
+}
+
 
 
 class FlowNodeDto {
@@ -256,8 +269,6 @@ class FlowEdgeDto {
 }
 
 class FlowDefinitionDto {
-    //min 2 notes
-
     @Validate(ValidFlowGraphConstraint)
     @ValidateNested({ each: true })
     @Validate(UniqueNodeIdsConstraint)
@@ -275,6 +286,9 @@ class FlowDefinitionDto {
     @Type(() => FlowEdgeDto)
     edges: FlowEdgeDto[];
 
+    @IsNumber()
+    @IsOptional()
+    version?: number;
 }
 
 export class CreateAutomationDto {
@@ -295,4 +309,8 @@ export class CreateAutomationDto {
 }
 
 
-export class UpdateAutomationDto extends OmitType(CreateAutomationDto, ['publish'] as const) { }
+export class UpdateAutomationDto extends OmitType(CreateAutomationDto, ['publish'] as const) {
+    @ValidateNested()
+    @Type(() => FlowDefinitionDto)
+    flow: Omit<FlowDefinitionDto, 'version'>;
+}

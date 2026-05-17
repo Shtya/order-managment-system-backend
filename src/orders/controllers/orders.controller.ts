@@ -63,7 +63,7 @@ export class OrdersController {
   @Get(':id/history')
   async getHistory(
     @Param("id") orderId: string,
-   @Req() req: any
+    @Req() req: any
   ) {
     return await this.svc.getOrderHistory(orderId, req.user);
   }
@@ -72,6 +72,12 @@ export class OrdersController {
   @Permissions("orders.read")
   statuses(@Req() req: any) {
     return this.svc.getStatuses(req.user);
+  }
+
+  @Get("statuses/:id")
+  @Permissions("orders.read")
+  status(@Param("id") id: string, @Req() req: any) {
+    return this.svc.getStatus(req.user, id);
   }
 
   // employee-orders.controller.ts

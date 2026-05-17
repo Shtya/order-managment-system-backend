@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
+import { TemplateConfig } from "./whatsapp.entity";
 
 
 export enum TriggerType {
@@ -7,7 +8,6 @@ export enum TriggerType {
     ORDER_UPDATED = 'order_updated',
     TEMPLATE_RESPONSE = 'template_response',
 }
-
 
 export enum AutomationStatus {
     DRAFT = 'draft',
@@ -46,6 +46,19 @@ export class AutomationFlowEntity {
 
     @Column({ type: 'jsonb' })
     flow: FlowDefinition;
+
+    @Column({ type: 'int', default: 0 })
+    version: number;
+}
+
+export enum ActionType {
+    UPDATE_ORDER_STATUS = 'update_order_status',
+    SEND_WHATSAPP_TEMPLATE = 'send_whatsapp_template',
+}
+
+export enum ConditionType {
+    QUICK_ORDER_STATUS = 'quick_order_status',
+    ORDER_CHECK = 'order_check',
 }
 
 export enum FlowNodeType {
@@ -53,21 +66,8 @@ export enum FlowNodeType {
     ACTION = 'action',
     CONDITION = 'condition',
 }
-export type FlowNodeDataType =
-    TriggerType |
-    ActionType |
-    ConditionType
 
-
-export enum ActionType {
-    UPDATE_ORDER = 'update_order',
-    SEND_TEMPLATE_MESSAGE = 'send_template_message',
-}
-
-export enum ConditionType {
-    CHECK_ORDER_STATUS = 'check_order_status',
-    CHECK_ORDER_DATA = 'check_order_data',
-}
+export type FlowNodeDataType = TriggerType | ActionType | ConditionType;
 
 export interface FlowDefinition {
     nodes: FlowNode[];
@@ -77,35 +77,78 @@ export interface FlowDefinition {
 export interface FlowNode {
     id: string;
     type: FlowNodeType;
-
     position: {
         x: number;
         y: number;
     };
-
     measured?: {
         width: number;
         height: number;
     };
-
     data: {
         type: FlowNodeDataType;
-        config: Record<string, any>;
+        label: string;
+        config: NodeConfig;
     };
+}
 
+export type NodeConfig =
+    OrderCreatedConfig |
+    OrderUpdatedConfig |
+    UpdateOrderStatusConfig |
+    SendWhatsappTemplateConfig |
+    QuickOrderStatusConfig |
+    OrderCheckConfig;
+
+export interface OrderCreatedConfig {
+    store?: string;
+    storeId?: string;
+}
+
+export interface OrderUpdatedConfig {
+    status?: string;
+    statusId?: string;
+}
+
+export interface UpdateOrderStatusConfig {
+    newStatus: string;
+    newStatusId: string;
+}
+
+export interface SendWhatsappTemplateConfig {
+    templateId: string;
+    templateName: string;
+    recipientNumber: string;
+    templateData: TemplateConfig;
+    branches?: {
+        id: string;
+        label: string;
+        condition: string;
+        sourceButton: any;
+    }[];
+}
+
+export interface QuickOrderStatusConfig {
+    status: string;
+    statusId: string;
+}
+
+export type OperationType = ">" | "<" | ">=" | "<=" | "!=" | "contains" | "not_contains" | "starts_with" | "=="
+
+export interface OrderCheckConfig {
+    checks: {
+        field: string;
+        fieldLabel: string;
+        operator: OperationType;
+        targetValue: any;
+        targetLabel?: string;
+    }[];
 }
 
 export interface FlowEdge {
     id: string;
     source: string;
     target: string;
-
-    /**
-     * 👇 THIS is critical for branches
-     * example: button_click_0, true, false
-     */
-
     sourceHandle?: string;
-
     targetHandle?: string;
 }

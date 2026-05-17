@@ -37,6 +37,7 @@ export class AutomationService {
                 nodes: dto.flow.nodes,
                 edges: dto.flow.edges,
             },
+            version: dto.flow.version || 0,
         });
 
         return await this.automationRepo.save(entity);
@@ -72,8 +73,8 @@ export class AutomationService {
 
         if (dto.flow) {
             automation.flow = {
-                nodes: dto.flow.nodes,
-                edges: dto.flow.edges,
+                nodes: dto.flow.nodes as any,
+                edges: dto.flow.edges as any,
             };
         }
 
