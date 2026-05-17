@@ -346,7 +346,7 @@ export class StoresService {
       store.storeUrl = dto.storeUrl.trim();
       store.syncNewProducts = dto.syncNewProducts;
       store.syncRemoteProducts = dto.syncRemoteProducts;
-      return  this.storesRepo.save(store);
+      return this.storesRepo.save(store);
     }
 
     const storeToSave = {
@@ -1308,7 +1308,7 @@ export class StoresService {
         }
 
 
-        if (!localProduct) {
+        if (!localProduct || !localProduct?.isActive) {
           problems.push({
             remoteId: item.remoteProductId,
             key: item?.variant?.key,

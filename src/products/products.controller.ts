@@ -168,11 +168,11 @@ export class ProductsController {
     return this.products.searchWithSkus(req.user, q);
   }
 
-  @Permissions("products.update")
-  @Patch(":id/restore")
-  restore(@Req() req: any, @Param("id") id: string) {
-    return this.products.restore(req.user, id);
-  }
+  // @Permissions("products.update")
+  // @Patch(":id/restore")
+  // restore(@Req() req: any, @Param("id") id: string) {
+  //   return this.products.restore(req.user, id);
+  // }
 
   @Permissions("products.read", "products.getonly")
   @Get("by-sku/:sku")
@@ -242,7 +242,7 @@ export class ProductsController {
       type: body.type,
 
       sku: body.sku,
-      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ?  parseNumber(body.wholesalePrice || 0) as any : null,
+      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ? parseNumber(body.wholesalePrice || 0) as any : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack ?? null,
@@ -291,7 +291,7 @@ export class ProductsController {
     const dto: UpdateProductDto = {
       name: body.name,
       slug: body.slug,
-      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ?  parseNumber(body.wholesalePrice || 0) as any : null,
+      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ? parseNumber(body.wholesalePrice || 0) as any : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageRack: body.storageRack,

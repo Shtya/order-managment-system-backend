@@ -1063,6 +1063,7 @@ export class ProductsService {
         where: {
           adminId,
           slug: dto.slug.trim(),
+          isActive: true,
           // storeId: dto.storeId === "none" ? IsNull() : dto.storeId,
         }
       });
@@ -1111,6 +1112,7 @@ export class ProductsService {
         where: {
           sku: dto.sku.trim(),
           adminId,
+          isActive: true,
           // storeId: dto.storeId === "none" ? IsNull() : dto.storeId,
         }
       });
@@ -1407,6 +1409,7 @@ export class ProductsService {
           where: {
             adminId,
             slug: cleanSlug,
+            isActive: true,
             // storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? (dto.storeId ?? null) : p.storeId,
             id: Not(id)
           }
@@ -1762,6 +1765,7 @@ export class ProductsService {
       where: {
         adminId,
         slug: formatedSlug,
+        isActive: true
         // storeId: storeId ? storeId : IsNull()
       },
       select: ["id"] // نختار الـ id فقط لتحسين الأداء
@@ -1784,7 +1788,8 @@ export class ProductsService {
     const exists = await this.prodRepo.findOne({
       where: {
         adminId,
-        sku: sku.trim()
+        sku: sku.trim(),
+        isActive: true
         // storeId: storeId ? storeId : IsNull()
       },
       select: ["id"] // نختار الـ id فقط لتحسين الأداء
