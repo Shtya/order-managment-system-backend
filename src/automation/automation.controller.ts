@@ -34,6 +34,18 @@ export class AutomationController {
     return this.automationService.findAll(req.user, q);
   }
 
+  @Get('runs')
+  @Permissions('automation.read')
+  findAllRuns(@Req() req: any, @Query() q: any) {
+    return this.automationService.findAllRuns(req.user, q);
+  }
+
+  @Get('runs/:id')
+  @Permissions('automation.read')
+  findOneRun(@Req() req: any, @Param('id') id: string) {
+    return this.automationService.findOneRun(req.user, id);
+  }
+
   @Get(':id')
   @Permissions('automation.read')
   findOne(@Req() req: any, @Param('id') id: string, @Query('version') version?: string) {

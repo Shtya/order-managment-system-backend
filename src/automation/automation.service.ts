@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationStatus, TriggerType, VersionIncrementType } from 'entities/automation.entity';
+import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationStatus, TriggerType, VersionIncrementType } from 'entities/automation.entity';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
@@ -15,6 +15,8 @@ export class AutomationService {
         private readonly automationRepo: Repository<AutomationFlowEntity>,
         @InjectRepository(AutomationFlowVersionEntity)
         private readonly versionRepo: Repository<AutomationFlowVersionEntity>,
+        @InjectRepository(AutomationRunEntity)
+        private readonly runRepo: Repository<AutomationRunEntity>,
     ) { }
 
     async create(me: any, dto: CreateAutomationDto) {
@@ -354,6 +356,91 @@ export class AutomationService {
 
         automation.status = nextStatus;
         return await this.automationRepo.save(automation);
+    }
+
+    async findAllRuns(me: any, q?: any) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const page = Number(q?.page ?? 1);
+        const limit = Number(q?.limit ?? 10);
+        const search = String(q?.search ?? "").trim();
+        const sortBy = String(q?.sortBy ?? "startedAt");
+        const sortDir: "ASC" | "DESC" =
+            String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+        const qb = this.runRepo
+            .createQueryBuilder("run")
+            .leftJoinAndSelect('run.automationFlow', 'automationFlow')
+            .leftJoinAndSelect('run.version', 'version')
+            .where("run.automationFlowId IN (SELECT id FROM automation_flows WHERE \"adminId\" = :adminId)", { adminId });
+
+        // Filters
+        if (q?.status) {
+            qb.andWhere("run.status = :status", { status: q.status });
+        }
+
+        if (q?.automationFlowId) {
+            qb.andWhere("run.automationFlowId = :automationFlowId", { automationFlowId: q.automationFlowId });
+        }
+
+        // Date range
+        DateFilterUtil.applyToQueryBuilder(qb, "run.startedAt", q?.startDate, q?.endDate);
+
+        // Search (by triggerEntityId)
+        if (search) {
+            qb.andWhere("run.triggerEntityId ILIKE :s", { s: `%${search}%` });
+        }
+
+        // Sorting
+        const sortColumns: Record<string, string> = {
+            startedAt: "run.startedAt",
+            status: "run.status",
+            completedAt: "run.completedAt",
+        };
+
+        if (sortColumns[sortBy]) {
+            qb.orderBy(sortColumns[sortBy], sortDir);
+        } else {
+            qb.orderBy("run.startedAt", "DESC");
+        }
+
+        const total = await qb.getCount();
+        const records = await qb
+            .skip((page - 1) * limit)
+            .take(limit)
+            .getMany();
+
+        return {
+            total_records: total,
+            current_page: page,
+            per_page: limit,
+            records,
+        };
+    }
+
+    async findOneRun(me: any, id: string) {
+        const adminId = tenantId(me);
+
+        const run = await this.runRepo.findOne({
+            where: { id },
+            relations: ['automationFlow', 'version', 'steps']
+        });
+
+        if (!run) {
+            throw new NotFoundException("Automation run not found");
+        }
+
+        // Security check: ensure the run belongs to an automation flow owned by the admin
+        const flow = await this.automationRepo.findOne({
+            where: { id: run.automationFlowId, adminId }
+        });
+
+        if (!flow) {
+            throw new BadRequestException("Access denied or automation flow not found");
+        }
+
+        return run;
     }
 
     async export(me: any, q: any) {

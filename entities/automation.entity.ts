@@ -1,12 +1,13 @@
 import { Column, CreateDateColumn, DeleteDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, Relation, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
 import { TemplateConfig } from "./whatsapp.entity";
+import { OrderEntity } from "./order.entity";
 
 
 export enum TriggerType {
     ORDER_CREATED = 'order_created',
     ORDER_UPDATED = 'order_updated',
-    TEMPLATE_RESPONSE = 'template_response',
+    // TEMPLATE_RESPONSE = 'template_response',
 }
 
 export enum AutomationStatus {
@@ -29,7 +30,6 @@ export class AutomationFlowVersionEntity {
     @ManyToOne(
         () => AutomationFlowEntity,
         (flow) => flow.versions,
-        { onDelete: 'CASCADE' },
     )
     @JoinColumn({ name: 'automationFlowId' })
     automationFlow: Relation<AutomationFlowEntity>;
@@ -112,13 +112,13 @@ export enum ConditionType {
     ORDER_CHECK = 'order_check',
 }
 
+export type FlowNodeDataType = TriggerType | ActionType | ConditionType;
+
 export enum FlowNodeType {
     TRIGGER = 'trigger',
     ACTION = 'action',
     CONDITION = 'condition',
 }
-
-export type FlowNodeDataType = TriggerType | ActionType | ConditionType;
 
 export interface FlowDefinition {
     nodes: FlowNode[];
@@ -166,11 +166,21 @@ export interface UpdateOrderStatusConfig {
     newStatusId: string;
 }
 
+export interface VariableDetails {
+    type: 'direct' | 'variable';
+    label: string;
+    value: string;
+    example: string;
+    variablePath: string;
+}
+
 export interface SendWhatsappTemplateConfig {
     templateId: string;
     templateName: string;
     recipientNumber: string;
     templateData: TemplateConfig;
+    bodyVariables?: Record<string, VariableDetails>;
+    headerVariables?: Record<string, VariableDetails>;
     branches?: {
         id: string;
         label: string;
@@ -205,3 +215,150 @@ export interface FlowEdge {
 }
 
 export type VersionIncrementType = 'major' | 'minor';
+
+export enum RunStatus {
+    PENDING = 'pending',       // في طابور الانتظار للبدء
+    RUNNING = 'running',       // قيد التنفيذ حالياً
+    COMPLETED = 'completed',   // اكتملت جميع الخطوات بنجاح
+    FAILED = 'failed',         // توقفت بسبب خطأ في إحدى الخطوات
+    CANCELLED = 'cancelled',   // تم إيقافها يدوياً أو بسبب تجاوز الوقت
+    PAUSED = 'paused',         // تم توقفها مدةً
+}
+
+export enum StepStatus {
+    SUCCESS = 'success',
+    FAILED = 'failed',
+    SKIPPED = 'skipped',       // تم تخطيها (مثلاً مسار آخر في Condition تحقق)
+}
+
+export enum TriggerEntityType {
+    ORDER = 'order',
+}
+
+export interface StepExecutionResult {
+    type: FlowNodeDataType;
+    executedAt: string; // ISO Timestamp
+    output: any;
+    error?: string; // يسجل هنا لو فشلت الخطوة بعينها
+}
+
+export interface ExecutionState {
+    trigger: {
+        nodeId: string;
+        type: TriggerType;
+        output: OrderEntity;
+    };
+    // قاموس (Dictionary) مفتاحه هو الـ Node ID وقيمته هي تفاصيل تشغيل الخطوة
+    steps: Record<string, StepExecutionResult>;
+}
+
+@Entity('automation_runs')
+export class AutomationRunEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    // 🌟 ارتباط مباشر بالـ Flow الأساسي والنسخة المحددة
+    @Column({ type: 'uuid' })
+    automationFlowId: string;
+
+    @ManyToOne(() => AutomationFlowEntity)
+    @JoinColumn({ name: 'automationFlowId' })
+    automationFlow: AutomationFlowEntity;
+
+    @Column({ type: 'uuid' })
+    versionId: string;
+
+    @ManyToOne(() => AutomationFlowVersionEntity)
+    @JoinColumn({ name: 'versionId' })
+    version: AutomationFlowVersionEntity;
+
+    @Column({ type: 'enum', enum: RunStatus, default: RunStatus.PENDING })
+    status: RunStatus;
+
+    // 🌟 التتبع السياقي (Context Tracking)
+    // الكيان الذي أطلق هذه الأتمتة (مثال: 'order')
+    @Column({ type: 'enum', enum: TriggerEntityType })
+    triggerEntityType: TriggerEntityType;
+
+    // المعرف الخاص بالكيان (مثال: رقم الطلب 'ord_123xyz')
+    @Index()
+    @Column({ type: 'varchar', length: 255 })
+    triggerEntityId: string;
+
+    // البيانات الأولية التي بدأت بها الأتمتة (مهمة جداً لإعادة التشغيل Retry)
+    @Column({ type: 'jsonb' })
+    initialPayload: any;
+
+    // 🌟 تتبع مسار العمل (State Tracking)
+    // لتخزين الـ ID الخاص بالعقدة التي يعمل عليها المحرك حالياً أو توقف عندها
+    @Column({ type: 'varchar', length: 255, nullable: true })
+    currentNodeId: string;
+
+    // مصفوفة بأسماء العقد التي تمت بنجاح لمعرفة المتبقي
+    @Column({ type: 'jsonb', default: [] })
+    completedNodeIds: string[];
+
+    // سياق البيانات المتراكم (المخرجات التي تمر من خطوة لأخرى)
+    @Column({ type: 'jsonb', default: {} })
+    executionState: ExecutionState;
+
+    @Column({ type: 'text', nullable: true })
+    errorMessage: string;
+
+    @CreateDateColumn({ type: 'timestamp' })
+    startedAt: Date;
+
+    @Column({ type: 'timestamp', nullable: true })
+    completedAt: Date;
+
+    @OneToMany(() => AutomationRunStepEntity, step => step.run)
+    steps: AutomationRunStepEntity[];
+}
+
+@Entity('automation_run_steps')
+export class AutomationRunStepEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Index()
+    @Column({ type: 'uuid' })
+    runId: string;
+
+    @ManyToOne(() => AutomationRunEntity, run => run.steps)
+    @JoinColumn({ name: 'runId' })
+    run: AutomationRunEntity;
+
+    // معرف العقدة في الـ JSON (مثلاً: 'node_abc123')
+    @Column({ type: 'varchar', length: 255 })
+    nodeId: string;
+
+    // نوع الخطوة (action, condition)
+    @Column({ type: 'enum', enum: FlowNodeType })
+    nodeType: FlowNodeType;
+
+    // نوع البيانات التي تتم استلمها هذه الخطوة
+
+    @Column({ type: 'varchar' })
+    dataType: FlowNodeDataType;
+
+    @Column({ type: 'enum', enum: StepStatus })
+    status: StepStatus;
+
+    // البيانات التي استلمتها هذه الخطوة بالتحديد
+    @Column({ type: 'jsonb', nullable: true })
+    inputData: any;
+
+    // البيانات التي أنتجتها هذه الخطوة (ليتم دمجها في الـ executionState)
+    @Column({ type: 'jsonb', nullable: true })
+    outputData: any;
+
+    @Column({ type: 'text', nullable: true })
+    errorMessage: string;
+
+    @CreateDateColumn({ type: 'timestamp' })
+    executedAt: Date;
+
+    // الوقت المستغرق لتنفيذ الخطوة بالملي ثانية (مهم لتحليل الأداء Performance)
+    @Column({ type: 'int', default: 0 })
+    executionTimeMs: number;
+}

@@ -38,10 +38,12 @@ import { OrderReturnsController } from "./controllers/order-return.controller";
 import { SubscriptionsModule } from "src/subscription/subscription.module";
 import { WalletModule } from "src/wallet/wallet.module";
 import { BulkUploadUsage } from "entities/plans.entity";
+import { AutomationModule } from "src/automation/automation.module";
 
 @Module({
   imports: [
     forwardRef(() => StoresModule),
+    forwardRef(() => AutomationModule),
     forwardRef(() => ShippingModule),
     forwardRef(() => WalletModule),
     forwardRef(() => AuthModule),

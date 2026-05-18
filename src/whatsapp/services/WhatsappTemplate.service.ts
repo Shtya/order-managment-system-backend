@@ -128,7 +128,7 @@ export class WhatsappTemplateService {
 
         const payload = await this.mapToMetaPayload(dto as any);
 
-        const metaResponse = await this.whatsappApi.request(
+        const metaResponse = await this.whatsappApi.request<{ id }>(
             {
                 accountId: dto.accountId,
                 endpoint: "message_templates",
@@ -386,8 +386,8 @@ export class WhatsappTemplateService {
                 };
             }
             components.push(body)
-        } else if(cfg?.addSecurityRecommendation) {
-            const body: BodyComponentDto = { type: 'BODY', add_security_recommendation: true,  }
+        } else if (cfg?.addSecurityRecommendation) {
+            const body: BodyComponentDto = { type: 'BODY', add_security_recommendation: true, }
             components.push(body)
         }
 
@@ -395,7 +395,7 @@ export class WhatsappTemplateService {
         if (cfg?.footerText) {
             let footer: FooterComponentDto = { type: 'FOOTER', text: cfg.footerText }
             components.push(footer)
-        } else if(cfg?.addExpirationTime && cfg?.expirationMinutes) {
+        } else if (cfg?.addExpirationTime && cfg?.expirationMinutes) {
             let footer: FooterComponentDto = { type: 'FOOTER', code_expiration_minutes: cfg.expirationMinutes, text: cfg.footerText }
             components.push(footer)
         }
@@ -473,7 +473,7 @@ export class WhatsappTemplateService {
                     });
                     break;
 
-                case "VISIT_WEBSITE": { 
+                case "VISIT_WEBSITE": {
                     const url = btn.url || "";
 
                     // If dynamic URL → encode example
