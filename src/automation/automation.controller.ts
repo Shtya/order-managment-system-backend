@@ -36,8 +36,8 @@ export class AutomationController {
 
   @Get(':id')
   @Permissions('automation.read')
-  findOne(@Req() req: any, @Param('id') id: string) {
-    return this.automationService.findOne(req.user, id);
+  findOne(@Req() req: any, @Param('id') id: string, @Query('version') version?: string) {
+    return this.automationService.findOne(req.user, id, version);
   }
 
   @Delete(':id')

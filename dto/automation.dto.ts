@@ -286,9 +286,6 @@ class FlowDefinitionDto {
     @Type(() => FlowEdgeDto)
     edges: FlowEdgeDto[];
 
-    @IsNumber()
-    @IsOptional()
-    version?: number;
 }
 
 export class CreateAutomationDto {
@@ -309,8 +306,12 @@ export class CreateAutomationDto {
 }
 
 
-export class UpdateAutomationDto extends OmitType(CreateAutomationDto, ['publish'] as const) {
+export class UpdateAutomationDto {
     @ValidateNested()
     @Type(() => FlowDefinitionDto)
-    flow: Omit<FlowDefinitionDto, 'version'>;
+    flow: FlowDefinitionDto;
+
+    @IsOptional()
+    @IsString()
+    version?: string;
 }
