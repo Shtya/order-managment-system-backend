@@ -207,3 +207,184 @@ export class WhatsappTemplateEntity {
     updatedAt: Date;
 }
 
+
+export enum MessageDirection {
+    INBOUND = 'inbound',   // من العميل إلى النظام (رسالة واردة)
+    OUTBOUND = 'outbound'  // من النظام إلى العميل (رسالة صادرة)
+}
+
+export enum MessageStatus {
+    ACCEPTED = 'accepted',   // تم القبول من Meta
+    SENT = 'sent',           // تم الإرسال للشبكة
+    DELIVERED = 'delivered', // وصلت لهاتف العميل
+    READ = 'read',           // العميل قرأ الرسالة
+    FAILED = 'failed',       // فشل الإرسال
+    RECEIVED = 'received',    // رسالة واردة جديدة من العميل
+    DELETED = 'deleted',      // تم الحذف من Meta
+    UNSUPPORTED = 'unsupported', // الرسالة غير مدعم من Meta
+}
+
+export enum WhatsappMessageType {
+    TEXT = 'text',
+    IMAGE = 'image',
+    AUDIO = 'audio',
+    VIDEO = 'video',
+    DOCUMENT = 'document',
+    STICKER = 'sticker',
+    CONTACTS = 'contacts',
+    LOCATION = 'location',
+    REACTION = 'reaction',
+    INTERACTIVE = 'interactive',
+    BUTTON = 'button',
+    ORDER = 'order',
+    SYSTEM = 'system',
+    UNKNOWN = 'unknown',
+    UNSUPPORTED = 'unsupported'
+}
+
+@Entity('whatsapp_messages')
+export class WhatsappMessageEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
+    // 1. العلاقات (Relationships)
+    @Index()
+    @Column({ type: 'uuid' })
+    accountId: string;
+
+    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'accountId' })
+    account: WhatsappAccountEntity;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    automationRunId: string; // 🌟 لربط الرسالة بمسار أتمتة معين إن وُجد
+
+    // 2. معرفات ميتا (Meta Identifiers)
+    @Index({ unique: true })
+    @Column({ type: 'varchar', length: 255 })
+    messageId: string; // الـ wamid الفريد القادم من Meta
+
+    @Index()
+    @Column({ type: 'varchar', length: 50 })
+    contactNumber: string; // رقم هاتف العميل (سواء كان مرسلاً أو مستقبلاً)
+
+    // 3. تفاصيل التوجيه والحالة (Routing & Status)
+    @Column({ type: 'enum', enum: MessageDirection })
+    direction: MessageDirection;
+
+    @Index()
+    @Column({ type: 'enum', enum: MessageStatus, default: MessageStatus.ACCEPTED })
+    status: MessageStatus;
+
+    @Column({ type: 'enum', enum: WhatsappMessageType, default: WhatsappMessageType.TEXT })
+    messageType: WhatsappMessageType;
+
+    // 4. المحتوى والأخطاء (Payloads)
+    @Column({ type: 'jsonb', nullable: true })
+    content: any; // محتوى الرسالة (النص، الزر المضغوط، تفاصيل القالب)
+
+    @Column({ type: 'varchar', nullable: true })
+    error: string; // لتخزين أخطاء Meta في حال كانت الحالة FAILED
+
+    // 5. التوقيتات (Timestamps)
+    @Column({ type: 'timestamp', nullable: true })
+    deliveredAt: Date; // يتحدث عبر الـ Webhook
+
+    @Column({ type: 'timestamp', nullable: true })
+    readAt: Date; // يتحدث عبر الـ Webhook
+
+    @CreateDateColumn({ type: 'timestamp' })
+    createdAt: Date;
+
+    @Column({ type: 'timestamp', nullable: true })
+    sentAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamp' })
+    updatedAt: Date;
+}
+
+export enum WebhookEventStatus {
+    PENDING = 'pending',
+    PROCESSED = 'processed',
+    FAILED = 'failed'
+}
+
+export enum WebhookEventType {
+    ACCOUNT_ALERTS = 'account_alerts',
+    MESSAGES = 'messages',
+    STATUSES = 'statuses',
+    MESSAGE_ECHOES = 'message_echoes',
+    CALLS = 'calls',
+    CONSUMER_PROFILE = 'consumer_profile',
+    MESSAGING_HANDOVERS = 'messaging_handovers',
+    GROUP_LIFECYCLE_UPDATE = 'group_lifecycle_update',
+    GROUP_PARTICIPANTS_UPDATE = 'group_participants_update',
+    GROUP_SETTINGS_UPDATE = 'group_settings_update',
+    GROUP_STATUS_UPDATE = 'group_status_update',
+    SMB_MESSAGE_ECHOES = 'smb_message_echoes',
+    SMB_APP_STATE_SYNC = 'smb_app_state_sync',
+    HISTORY = 'history',
+    ACCOUNT_SETTINGS_UPDATE = 'account_settings_update',
+    MESSAGE_TEMPLATE_STATUS_UPDATE = 'message_template_status_update',
+    MESSAGE_TEMPLATE_QUALITY_UPDATE = 'message_template_quality_update',
+    MESSAGE_TEMPLATE_COMPONENTS_UPDATE = 'message_template_components_update',
+    TEMPLATE_CATEGORY_UPDATE = 'template_category_update',
+    ACCOUNT_UPDATE = 'account_update',
+    ACCOUNT_REVIEW_UPDATE = 'account_review_update'
+}
+
+@Entity('whatsapp_webhook_events')
+export class WhatsappWebhookEventEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
+    // 1. العلاقات (Relationships)
+    @Index()
+    @Column({ type: 'uuid' })
+    accountId: string;
+
+    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'accountId' })
+    account: WhatsappAccountEntity;
+
+    @Index()
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    wabaId: string; // لمعرفة الحساب التابع له فوراً
+
+    @Index()
+    @Column({ type: 'enum', enum: WebhookEventType })
+    eventType: WebhookEventType; // 'message', 'delivery', 'read', 'react', etc.
+
+    @Column({ type: 'jsonb' })
+    rawPayload: any; // تخزين الـ body القادم من ميتا بالكامل كما هو دون تعديل
+
+    @Column({
+        type: 'enum',
+        enum: WebhookEventStatus,
+        default: WebhookEventStatus.PENDING
+    })
+    processingStatus: WebhookEventStatus;
+
+    @Column({ type: 'text', nullable: true })
+    processingError: string; // لتسجيل سبب الفشل إن حدث خطأ أثناء تشغيل الأتمتة
+
+    @CreateDateColumn({ type: 'timestamp' })
+    createdAt: Date;
+}

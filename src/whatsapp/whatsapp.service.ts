@@ -1,20 +1,27 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from "crypto";
 import { WhatsappApiService } from './services/WhatsappApi.service';
-import { WhatsappAccountEntity } from 'entities/whatsapp.entity';
+import { MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappWebhookEventEntity } from 'entities/whatsapp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
+import { getErrorMessage } from 'common/healpers';
+import { FlowExecutionQueueService } from 'src/automation/engine/triggerDispatcher.service';
 
 @Injectable()
 export class WhatsappService {
-     protected readonly logger = new Logger(this.constructor.name);
+    protected readonly logger = new Logger(this.constructor.name);
     constructor(
         private readonly whatsappApi: WhatsappApiService,
         @InjectRepository(WhatsappAccountEntity)
         private readonly accountRepo: Repository<WhatsappAccountEntity>,
+        @InjectRepository(WhatsappMessageEntity)
+        private readonly messageRepo: Repository<WhatsappMessageEntity>,
+        @InjectRepository(WhatsappWebhookEventEntity)
+        private readonly webhookRepo: Repository<WhatsappWebhookEventEntity>,
 
         private readonly templateService: WhatsappTemplateService,
+        private readonly flowQueue: FlowExecutionQueueService,
     ) {
 
     }
@@ -176,83 +183,98 @@ export class WhatsappService {
             const changes = entry?.changes || [];
 
             for (const change of changes) {
-                const field = change?.field;
+                const field = change?.field as WebhookEventType;
                 const value = change?.value;
+
+                // Save raw webhook event
+                const webhookEvent = this.webhookRepo.create({
+                    adminId: account.adminId,
+                    accountId: account.id,
+                    wabaId: entry.id,
+                    eventType: field,
+                    rawPayload: change,
+                    processingStatus: WebhookEventStatus.PENDING,
+                });
+                await this.webhookRepo.save(webhookEvent);
+
                 try {
                     switch (field) {
 
-                        case "account_alerts":
+                        case WebhookEventType.ACCOUNT_ALERTS:
                             await this.handleAccountAlerts(value, account)
                             break;
-                        case "messages":
+                        case WebhookEventType.MESSAGES:
                             await this.handleMessages(value, account)
                             break;
-                        case "statuses":
-                            await this.handleStatuses(value, account)
-                            break;
-                        case "message_echoes":
-                            await this.handleMessageEchoes(value, account)
-                            break;
-                        case "calls":
+                        case WebhookEventType.CALLS:
                             await this.handleCalls(value, account)
                             break;
-                        case "consumer_profile":
+                        case WebhookEventType.CONSUMER_PROFILE:
                             await this.handleConsumerProfile(value, account)
                             break;
-                        case "messaging_handovers":
+                        case WebhookEventType.MESSAGING_HANDOVERS:
                             await this.handleMessagingHandovers(value, account)
                             break;
-                        case "group_lifecycle_update":
+                        case WebhookEventType.GROUP_LIFECYCLE_UPDATE:
                             await this.handleGroupLifecycleUpdate(value, account)
                             break;
-                        case "group_participants_update":
+                        case WebhookEventType.GROUP_PARTICIPANTS_UPDATE:
                             await this.handleGroupParticipantsUpdate(value, account)
                             break;
-                        case "group_settings_update":
+                        case WebhookEventType.GROUP_SETTINGS_UPDATE:
                             await this.handleGroupSettingsUpdate(value, account)
                             break;
-                        case "group_status_update":
+                        case WebhookEventType.GROUP_STATUS_UPDATE:
                             await this.handleGroupStatusUpdate(value, account)
                             break;
-                        case "smb_message_echoes":
+                        case WebhookEventType.SMB_MESSAGE_ECHOES:
                             await this.handleSmbMessageEchoes(value, account)
                             break;
-                        case "smb_app_state_sync":
+                        case WebhookEventType.SMB_APP_STATE_SYNC:
                             await this.handleSmbAppStateSync(value, account)
                             break;
-                        case "history":
+                        case WebhookEventType.HISTORY:
                             await this.handleHistory(value, account)
                             break;
-                        case "account_settings_update":
+                        case WebhookEventType.ACCOUNT_SETTINGS_UPDATE:
                             await this.handleAccountSettingsUpdate(value, account)
                             break;
-                        case "message_template_status_update":
+                        case WebhookEventType.MESSAGE_TEMPLATE_STATUS_UPDATE:
                             await this.handleTemplateStatusUpdate(value, account)
                             break;
-                        case "message_template_quality_update":
+                        case WebhookEventType.MESSAGE_TEMPLATE_QUALITY_UPDATE:
                             await this.handleTemplateQualityUpdate(value, account)
                             break;
-                        case "message_template_components_update":
+                        case WebhookEventType.MESSAGE_TEMPLATE_COMPONENTS_UPDATE:
                             await this.handleTemplateComponentsUpdate(value, account)
                             break;
-                        case "template_category_update":
+                        case WebhookEventType.TEMPLATE_CATEGORY_UPDATE:
                             await this.handleTemplateCategoryUpdate(value, account)
                             break;
-                        case "account_update":
+                        case WebhookEventType.ACCOUNT_UPDATE:
                             await this.handleAccountUpdate(value, account)
                             break;
-                        case "account_review_update":
-                        case "account_alerts":
+                        case WebhookEventType.ACCOUNT_REVIEW_UPDATE:
+                            await this.handleAccountReviewUpdate(value, account)
+                            break;
                         default:
                             this.logger.warn(
                                 `Unhandled webhook field: ${field}`,
                             );
                     }
+
+                    // Mark as processed
+                    webhookEvent.processingStatus = WebhookEventStatus.PROCESSED;
+                    await this.webhookRepo.save(webhookEvent);
+
                 } catch (error) {
                     this.logger.error(
                         `Error processing webhook field: ${field}`,
                         error,
                     );
+                    webhookEvent.processingStatus = WebhookEventStatus.FAILED;
+                    webhookEvent.processingError = getErrorMessage(error);
+                    await this.webhookRepo.save(webhookEvent);
                 }
             }
         }
@@ -274,20 +296,86 @@ export class WhatsappService {
         );
     }
 
-    private async handleAccountAlerts(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("account_alerts event");
-    }
 
     private async handleMessages(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("messages event");
+        const messages = value?.messages || [];
+        const statuses = value?.statuses || [];
+        if (messages.length === 0 && statuses.length === 0) return;
+        await this.handleStatuses(value, account)
+        for (const metaMsg of messages) {
+            const messageId = metaMsg.id;
+            const from = metaMsg.from;
+            const type = metaMsg.type as WhatsappMessageType;
+
+            const existing = await this.messageRepo.findOne({ where: { messageId } });
+            if (existing) continue;
+
+            const message = this.messageRepo.create({
+                adminId: account.adminId,
+                accountId: account.id,
+                messageId,
+                contactNumber: from,
+                direction: MessageDirection.INBOUND,
+                status: MessageStatus.RECEIVED,
+                messageType: type,
+                content: metaMsg,
+            });
+
+            await this.messageRepo.save(message);
+
+            if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'button_reply') {
+                const originalMessageId = metaMsg.context?.id;
+                const buttonReply = metaMsg.interactive.button_reply;
+
+                if (originalMessageId) {
+                    // Push resume job to queue instead of direct execution
+                    await this.flowQueue.add({
+                        type: 'resume',
+                        adminId: account.adminId,
+                        resumeData: {
+                            originalMessageId,
+                            buttonText: buttonReply.title,
+                            buttonId: buttonReply.id
+                        }
+                    });
+                }
+            }
+        }
     }
 
     private async handleStatuses(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("statuses event");
+        const statuses = value?.statuses || [];
+
+        for (const statusUpdate of statuses) {
+            const messageId = statusUpdate.id;
+            const status = statusUpdate.status as MessageStatus;
+            const timestamp = statusUpdate.timestamp;
+            const date = new Date(parseInt(timestamp) * 1000);
+
+            const message = await this.messageRepo.findOne({ where: { messageId } });
+            if (!message) {
+                this.logger.warn(`Received status update for unknown message: ${messageId}`);
+                continue;
+            }
+
+            message.status = status;
+            if (status === MessageStatus.DELIVERED) {
+                message.deliveredAt = date;
+            } else if (status === MessageStatus.READ) {
+                message.readAt = date;
+            } else if (status === MessageStatus.FAILED) {
+                message.error = JSON.stringify(statusUpdate.errors || statusUpdate);
+            } else if (status === MessageStatus.SENT) {
+                message.sentAt = date;
+            }
+
+            await this.messageRepo.save(message);
+        }
     }
 
-    private async handleMessageEchoes(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("message_echoes event");
+
+    private async handleAccountAlerts(value: any, account: WhatsappAccountEntity) {
+        this.logger.log("reactions event");
     }
 
     private async handleCalls(value: any, account: WhatsappAccountEntity) {
@@ -356,5 +444,83 @@ export class WhatsappService {
         this.logger.log("account_review_update event");
     }
 
+    async findAllMessages(me: any, q?: any) {
+        const adminId = me.adminId || me.id; // Basic tenant resolving
+        if (!adminId) throw new BadRequestException("Missing adminId");
 
+        const page = Number(q?.page ?? 1);
+        const limit = Number(q?.limit ?? 10);
+        const search = String(q?.search ?? "").trim();
+        const sortBy = String(q?.sortBy ?? "createdAt");
+        const sortDir: "ASC" | "DESC" =
+            String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+        const qb = this.messageRepo
+            .createQueryBuilder("message")
+            .leftJoinAndSelect('message.account', 'account')
+            .where("message.adminId = :adminId", { adminId });
+
+        // Filters
+        if (q?.status) {
+            qb.andWhere("message.status = :status", { status: q.status });
+        }
+
+        if (q?.accountId) {
+            qb.andWhere("message.accountId = :accountId", { accountId: q.accountId });
+        }
+
+        if (q?.direction) {
+            qb.andWhere("message.direction = :direction", { direction: q.direction });
+        }
+
+        // Search (by contactNumber or messageId)
+        if (search) {
+            qb.andWhere(
+                new Brackets((sq) => {
+                    sq.where("message.contactNumber ILIKE :s", { s: `%${search}%` })
+                        .orWhere("message.messageId ILIKE :s", { s: `%${search}%` });
+                }),
+            );
+        }
+
+        // Sorting
+        const sortColumns: Record<string, string> = {
+            createdAt: "message.createdAt",
+            status: "message.status",
+        };
+
+        if (sortColumns[sortBy]) {
+            qb.orderBy(sortColumns[sortBy], sortDir);
+        } else {
+            qb.orderBy("message.createdAt", "DESC");
+        }
+
+        const total = await qb.getCount();
+        const records = await qb
+            .skip((page - 1) * limit)
+            .take(limit)
+            .getMany();
+
+        return {
+            total_records: total,
+            current_page: page,
+            per_page: limit,
+            records,
+        };
+    }
+
+    async findOneMessage(me: any, id: string) {
+        const adminId = me.adminId || me.id;
+
+        const message = await this.messageRepo.findOne({
+            where: { id, adminId },
+            relations: ['account']
+        });
+
+        if (!message) {
+            throw new NotFoundException("WhatsApp message not found");
+        }
+
+        return message;
+    }
 }

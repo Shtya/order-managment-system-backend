@@ -1,11 +1,29 @@
-import { Body, Controller, Get, Headers, HttpException, HttpStatus, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpException, HttpStatus, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 import { Response } from 'express';
+import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
+import { PermissionsGuard } from 'common/permissions.guard';
+import { SubscriptionGuard } from 'common/subscription.guard';
+import { Permissions } from 'common/permissions.decorator';
 
 @Controller('whatsapp')
 export class WhatsappController {
   constructor(private readonly whatsappService: WhatsappService) {
 
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('messages')
+  @Permissions('whatsapp.read')
+  findAllMessages(@Req() req: any, @Query() q: any) {
+    return this.whatsappService.findAllMessages(req.user, q);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('messages/:id')
+  @Permissions('whatsapp.read')
+  findOneMessage(@Req() req: any, @Param('id') id: string) {
+    return this.whatsappService.findOneMessage(req.user, id);
   }
 
   @Get('embedded-signup')

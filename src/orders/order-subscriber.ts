@@ -3,6 +3,7 @@ import {
     EventSubscriber,
     UpdateEvent,
     DataSource,
+    InsertEvent,
 } from 'typeorm';
 
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
@@ -13,6 +14,8 @@ import { ShippingService } from 'src/shipping/shipping.service';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
+import { TriggerDispatcherService } from 'src/automation/engine/triggerDispatcher.service';
+import { TriggerEntityType, TriggerType } from 'entities/automation.entity';
 
 @EventSubscriber()
 @Injectable()
@@ -21,6 +24,8 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
         private dataSource: DataSource,
         @Inject(forwardRef(() => StoresService))
         private readonly storesService: StoresService,
+        @Inject(forwardRef(() => TriggerDispatcherService))
+        private readonly triggerDispatcher: TriggerDispatcherService,
         @Inject(forwardRef(() => ShippingService))
         private readonly shippingService: ShippingService,
         @Inject(forwardRef(() => OrdersService))
@@ -41,7 +46,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
      */
     async afterUpdate(event: UpdateEvent<OrderEntity>) {
         // Check if the status column was actually updated
-
+        console.log("After update called")
         const previousOrder = event.databaseEntity;
         const currentOrder = event.entity;
 
@@ -63,6 +68,24 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             });
 
             if (!fullOrder) return;
+
+
+            await this.triggerDispatcher.dispatch({
+                type: TriggerType.ORDER_UPDATED,
+
+                entityType: TriggerEntityType.ORDER,
+
+                entityId: fullOrder.id,
+
+                adminId: fullOrder.adminId,
+
+                payload: {
+                    ...fullOrder,
+
+                    previousStatusId: oldStatusId,
+                    currentStatusId: newStatusId,
+                },
+            });
 
             // try {
 
@@ -89,122 +112,36 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
         }
     }
 
-    private async handleAutoShipping(order: OrderEntity, settings: OrderRetrySettingsEntity) {
-        let shouldTrigger = false;
-        let companyId: string | null = null;
 
-        const activeResult = await this.shippingService.activeIntegrations({ adminId: order.adminId });
-        const activeIntegrations = activeResult.integrations || [];
+    async afterInsert(event: InsertEvent<OrderEntity>) {
+        const order = event.entity;
 
-        if (activeIntegrations.length === 1) {
-            if (settings.orderFlowPath === OrderFlowPath.SHIPPING && (order.status?.name?.toLocaleLowerCase() === settings.shipping.triggerStatus?.toLocaleLowerCase() || String(order.status?.id) === settings.shipping.triggerStatus)) {
-                shouldTrigger = true;
-                companyId = activeIntegrations[0].providerId;
-            }
-            else if (settings.orderFlowPath === OrderFlowPath.WAREHOUSE) {
-                companyId = activeIntegrations[0].providerId;
-            }
-        } else {
-            // Standard logic for multiple or no integrations
-            if (settings.orderFlowPath === OrderFlowPath.SHIPPING) {
-                // 1. Classic Shipping Flow trigger
-                if (order.status?.name?.toLocaleLowerCase() === settings.shipping.triggerStatus?.toLocaleLowerCase() || String(order.status?.id) === settings.shipping.triggerStatus) {
-                    shouldTrigger = true;
-                    companyId = settings.shipping.shippingCompanyId;
-                }
-            } else if (settings.orderFlowPath === OrderFlowPath.WAREHOUSE) {
-                // 2. Warehouse Flow trigger (Auto-ship after packing)
-                if (settings.shipping.autoShipAfterWarehouse && (order.status?.code === OrderStatus.CONFIRMED)) {
-                    shouldTrigger = true;
-                    companyId = settings.shipping.warehouseDefaultShippingCompanyId;
-                }
-            }
+        if (!order) {
+            return;
         }
 
-        if (!shouldTrigger || !companyId) return;
-
-        // Check if already sent to shipping (has tracking or shipping company assigned)
-        if (order.trackingNumber) return;
-
-        // Payment validation
-        if (settings.orderFlowPath === OrderFlowPath.SHIPPING) {
-
-            const { requireFullPayment, partialPaymentThreshold } = settings.shipping;
-
-            if (requireFullPayment) {
-                if (order.paymentStatus !== PaymentStatus.PAID) {
-                    await this.logAndNotifyFailure(order, "Order must be fully paid before auto-shipping.");
-                    return;
-                }
-            } else if (partialPaymentThreshold > 0) {
-                // partialPaymentThreshold is now a percentage
-                const total = Number(order.finalTotal || 0);
-                const deposit = Number(order.deposit || 0);
-                const paidPercentage = total > 0 ? (deposit / total) * 100 : 0;
-
-                if (paidPercentage < partialPaymentThreshold) {
-                    await this.logAndNotifyFailure(order, `Deposit (${paidPercentage.toFixed(2)}%) is below the required threshold (${partialPaymentThreshold}%).`);
-                    return;
-                }
-            }
-        }
-
-        // Trigger shipping
-        try {
-            const company = await this.dataSource.getRepository('ShippingCompanyEntity').findOne({
-                where: { id: companyId }
-            });
-
-            if (!company) {
-                await this.logAndNotifyFailure(order, "Configured shipping company not found.");
-                return;
-            }
-
-            // Call createShipment from ShippingService
-            // Mocking 'me' object for the service
-            const systemUser = { id: order.adminId, adminId: order.adminId, role: { name: 'admin' } };
-            await this.shippingService.createShipment(
-                systemUser,
-                company.code as any,
-                {}, // empty dto for defaults
-                order.id,
-                { emitSocket: true }
-            );
-
-            // Notify success
-            await this.notificationService.create({
-                userId: order.adminId, // Notify the admin
-                type: NotificationType.SHIPPING_AUTO_SENT,
-                title: "Auto-Shipping Success",
-                message: `Order #${order.orderNumber} has been automatically sent to ${company.name}.`,
-                relatedEntityType: "order",
-                relatedEntityId: String(order.id)
-            });
-
-            // Auto-generate label if configured
-            if (settings.shipping.autoGenerateLabel) {
-                try {
-                    await this.ordersService.bulkPrint(systemUser, [order.orderNumber]);
-                } catch (printError) {
-                    console.error("Auto-generate label failed:", printError);
-                    // Optionally notify about print failure, but don't fail the whole shipping process
-                }
-            }
-
-        } catch (error: any) {
-            console.error("Auto-shipping failed:", error);
-            await this.logAndNotifyFailure(order, `Auto-shipping failed: ${error.message}`);
-        }
-    }
-
-    private async logAndNotifyFailure(order: OrderEntity, reason: string) {
-        await this.notificationService.create({
-            userId: order.adminId,
-            type: NotificationType.SHIPPING_AUTO_FAILED,
-            title: "Auto-Shipping Failed",
-            message: `Order #${order.orderNumber} failed auto-shipping: ${reason}`,
-            relatedEntityType: "order",
-            relatedEntityId: String(order.id)
+        // Load full order with required relations
+        const fullOrder = await event.manager.findOne(OrderEntity, {
+            where: { id: order.id },
+            relations: ['status', 'store'],
         });
+
+        if (!fullOrder) {
+            return;
+        }
+
+        // 🚀 Dispatch automation trigger
+        await this.triggerDispatcher.dispatch({
+            type: TriggerType.ORDER_CREATED,
+
+            entityType: TriggerEntityType.ORDER,
+
+            entityId: fullOrder.id,
+
+            adminId: fullOrder.adminId,
+
+            payload: fullOrder,
+        });
+
     }
 }
