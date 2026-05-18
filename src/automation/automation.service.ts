@@ -1,7 +1,7 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AutomationFlowEntity, AutomationStatus } from 'entities/automation.entity';
-import { Brackets, Repository } from 'typeorm';
+import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationStatus, TriggerType, VersionIncrementType } from 'entities/automation.entity';
+import { Brackets, DataSource, Repository } from 'typeorm';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
@@ -10,8 +10,11 @@ import * as ExcelJS from 'exceljs';
 @Injectable()
 export class AutomationService {
     constructor(
+        private dataSource: DataSource,
         @InjectRepository(AutomationFlowEntity)
         private readonly automationRepo: Repository<AutomationFlowEntity>,
+        @InjectRepository(AutomationFlowVersionEntity)
+        private readonly versionRepo: Repository<AutomationFlowVersionEntity>,
     ) { }
 
     async create(me: any, dto: CreateAutomationDto) {
@@ -21,43 +24,11 @@ export class AutomationService {
             throw new BadRequestException('AdminId not found');
         }
 
-        const existing = await this.automationRepo.findOne({
-            where: { name: dto.name, adminId },
-        });
+        return await this.dataSource.transaction(async (manager) => {
+            const automationRepo = manager.getRepository(AutomationFlowEntity);
+            const versionRepo = manager.getRepository(AutomationFlowVersionEntity);
 
-        if (existing) {
-            throw new BadRequestException('Automation name already exists');
-        }
-
-        const entity = this.automationRepo.create({
-            adminId,
-            name: dto.name,
-            triggerType: dto.triggerType,
-            status: dto.publish ? AutomationStatus.PUBLISHED : AutomationStatus.DRAFT,
-            flow: {
-                nodes: dto.flow.nodes,
-                edges: dto.flow.edges,
-            },
-            version: dto.flow.version || 0,
-        });
-
-        return await this.automationRepo.save(entity);
-    }
-
-    async update(me: any, id: string, dto: UpdateAutomationDto) {
-        const adminId = tenantId(me);
-        if (!adminId) {
-            throw new BadRequestException('AdminId not found');
-        }
-
-        const automation = await this.findOne(me, id);
-
-        if (!automation) {
-            throw new Error('Automation not found');
-        }
-
-        if (dto.name && dto.name !== automation.name) {
-            const existing = await this.automationRepo.findOne({
+            const existing = await automationRepo.findOne({
                 where: { name: dto.name, adminId },
             });
 
@@ -65,21 +36,132 @@ export class AutomationService {
                 throw new BadRequestException('Automation name already exists');
             }
 
-            automation.name = dto.name;
-        }
+            const automation = automationRepo.create({
+                adminId,
+                name: dto.name,
+                triggerType: dto.triggerType,
+                status: dto.publish
+                    ? AutomationStatus.PUBLISHED
+                    : AutomationStatus.DRAFT,
+            });
 
-        if (dto.triggerType) {
-            automation.triggerType = dto.triggerType;
-        }
+            const savedAutomation = await automationRepo.save(automation);
 
-        if (dto.flow) {
-            automation.flow = {
-                nodes: dto.flow.nodes as any,
-                edges: dto.flow.edges as any,
+            // 1 - do not take version for create and make it create the first version (1.0)
+            const version = versionRepo.create({
+                automationFlowId: savedAutomation.id,
+                versionString: '1.0',
+                flow: {
+                    nodes: dto.flow.nodes,
+                    edges: dto.flow.edges,
+                },
+            });
+
+            const savedVersion = await versionRepo.save(version);
+
+            savedAutomation.latestVersionId = savedVersion.id;
+            await automationRepo.save(savedAutomation);
+
+            return {
+                ...savedAutomation,
+                latestVersion: savedVersion,
             };
+        });
+    }
+
+    async update(me: any, id: string, dto: UpdateAutomationDto) {
+        const adminId = tenantId(me);
+
+        if (!adminId) {
+            throw new BadRequestException('AdminId not found');
         }
 
-        return await this.automationRepo.save(automation);
+        return await this.dataSource.transaction(async (manager) => {
+            const automationRepo = manager.getRepository(AutomationFlowEntity);
+            const versionRepo = manager.getRepository(AutomationFlowVersionEntity);
+
+            const automation = await automationRepo.findOne({
+                where: { id, adminId },
+                relations: ['latestVersion'],
+            });
+
+            if (!automation) {
+                throw new BadRequestException('Automation not found');
+            }
+
+            if (dto.flow) {
+                const triggerNode = dto.flow.nodes.find(
+                    (n) => n.type === 'trigger',
+                );
+
+                if (
+                    triggerNode &&
+                    triggerNode.data?.type !== automation.triggerType
+                ) {
+                    throw new BadRequestException(
+                        'Trigger type in flow nodes must match automation trigger type',
+                    );
+                }
+            }
+
+            if (dto.flow) {
+                let parentVersion = automation.latestVersion;
+                if (dto.version) {
+                    parentVersion = await versionRepo.findOne({
+                        where: { versionString: dto.version, automationFlowId: id },
+                    });
+                    if (!parentVersion) {
+                        throw new BadRequestException('Parent version not found');
+                    }
+                    parentVersion = parentVersion.id === automation.latestVersionId ? null : parentVersion;
+                }
+
+                let nextVersion = '';
+                if (parentVersion.id !== automation.latestVersionId) {
+                    nextVersion = await this.generateNextPatchVersion(
+                        automation.id,
+                        parentVersion.versionString,
+                    );
+                } else {
+                    nextVersion = this.generateNextVersion(
+                        automation.latestVersion?.versionString,
+                        "major",
+                    );
+                }
+
+                const newVersion = versionRepo.create({
+                    automationFlowId: id,
+                    versionString: nextVersion,
+                    flow: {
+                        nodes: dto.flow.nodes as any,
+                        edges: dto.flow.edges as any,
+                    },
+                    parentVersionId: parentVersion?.id || null,
+                });
+
+                const savedVersion = await versionRepo.save(newVersion);
+
+                // Update latestVersion if it's a major update or if we're fixing the current latest version
+                if (!dto.version || (parentVersion && parentVersion.id === automation.latestVersionId)) {
+                    automation.latestVersionId = savedVersion.id;
+                    automation.latestVersion = savedVersion;
+                }
+
+                await automationRepo.save(automation);
+
+                return {
+                    ...automation,
+                    newVersion: savedVersion // for compatibility if needed
+                };
+            }
+
+            await automationRepo.save(automation);
+
+            return await automationRepo.findOne({
+                where: { id, adminId },
+                relations: ['latestVersion'],
+            });
+        });
     }
 
     async findAll(me: any, q?: any) {
@@ -95,6 +177,7 @@ export class AutomationService {
 
         const qb = this.automationRepo
             .createQueryBuilder("automation")
+            .leftJoinAndSelect('automation.latestVersion', 'latestVersion')
             .where("automation.adminId = :adminId", { adminId });
 
         // Filters
@@ -145,16 +228,110 @@ export class AutomationService {
         };
     }
 
-    async findOne(me: any, id: string) {
+    async findOne(me: any, id: string, version?: string) {
         const adminId = tenantId(me);
-        return await this.automationRepo.findOne({
-            where: { id, adminId },
-        });
+
+        const query = this.automationRepo.createQueryBuilder('automation')
+            .withDeleted()
+            .where('automation.id = :id', { id })
+            .andWhere('automation.adminId = :adminId', { adminId });
+
+        if (version) {
+            query.leftJoinAndSelect(
+                'automation.versions',
+                'version',
+                'version.versionString = :version',
+                { version }
+            );
+        } else {
+            query.leftJoinAndSelect('automation.latestVersion', 'version');
+        }
+
+        const automation = await query.getOne();
+
+        if (!automation) {
+            throw new BadRequestException("Automation not found");
+        }
+
+        // 2. التحقق من وجود الإصدار (سواء كان المحدد أو الأحدث) وإطلاق الخطأ بدقة
+        if (version) {
+            if (!automation.versions || automation.versions.length === 0) {
+                throw new BadRequestException(`Automation found, but the specified version (${version}) does not exist`);
+            }
+        } else {
+            // في حالة عدم تمرير إصدار، نتحقق من حقل الـ latestVersion المباشر
+            if (!automation.latestVersion) {
+                throw new BadRequestException("Automation found, but it does not have an active published version");
+            }
+            automation.versions = [automation.latestVersion];
+        }
+
+
+        return automation;
+    }
+
+    private generateNextVersion(
+        versionString: string,
+        type: VersionIncrementType = 'minor',
+    ): string {
+        const parts = versionString.split('.');
+
+        const major = parseInt(parts[0] || '1', 10);
+        const minor = parseInt(parts[1] || '0', 10);
+
+        if (type === 'major') {
+            return `${major + 1}.0`;
+        }
+
+        return `${major}.${minor + 1}`;
+    }
+
+    async generateNextPatchVersion(automationFlowId: string, targetVersionString: string) {
+        // 1. استخراج الرقم الرئيسي (Major) من النسخة المستهدفة (مثلاً "1.0" تعطينا "1")
+        const majorVersion = targetVersionString.split('.')[0];
+
+        // 2. البحث عن أعلى نسخة فرعية موجودة في قاعدة البيانات تبدأ بنفس الرقم الرئيسي
+        const latestPatch = await this.versionRepo.createQueryBuilder('version')
+            .where('version.automationFlowId = :automationFlowId', { automationFlowId })
+            .andWhere('version.versionString LIKE :pattern', { pattern: `${majorVersion}.%` })
+            .orderBy('CAST(SPLIT_PART(version.versionString, \'.\', 2) AS INTEGER)', 'DESC') // ترتيب بناءً على رقم الـ Minor كـ Integer
+            .getOne();
+
+        if (!latestPatch) {
+            throw new NotFoundException("Base version line not found");
+        }
+
+        // 3. استخراج الـ Minor الحالي وزيادته بمقدار 1
+        const currentMinor = parseInt(latestPatch.versionString.split('.')[1], 10);
+        const nextMinor = currentMinor + 1;
+
+        const nextVersionString = `${majorVersion}.${nextMinor}`; // ستصبح "1.2"
+
+        return nextVersionString;
     }
 
     async delete(me: any, id: string) {
         const adminId = tenantId(me);
-        return await this.automationRepo.delete({ id, adminId });
+
+        return await this.automationRepo.manager.transaction(async (transactionalManager) => {
+
+            const automation = await transactionalManager.findOne(AutomationFlowEntity, {
+                where: { id, adminId }
+            });
+
+            if (!automation) {
+                throw new NotFoundException('Automation not found');
+            }
+
+            automation.status = AutomationStatus.ARCHIVED;
+            await transactionalManager.save(AutomationFlowEntity, automation);
+
+            await transactionalManager.softDelete(AutomationFlowEntity, id);
+
+            return {
+                message: 'Automation deleted successfully',
+            };
+        });
     }
 
     async changeStatus(me: any, id: string, status: AutomationStatus) {

@@ -1,4 +1,4 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { Column, CreateDateColumn, DeleteDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, Relation, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
 import { TemplateConfig } from "./whatsapp.entity";
 
@@ -13,9 +13,48 @@ export enum AutomationStatus {
     DRAFT = 'draft',
     PUBLISHED = 'published',
     PAUSED = 'paused',
+    ARCHIVED = 'archived',
 }
 
-@Index(['name', 'adminId'], { unique: true })
+
+@Index(['versionString', 'automationFlowId'], { unique: true })
+@Entity('automation_flow_versions')
+export class AutomationFlowVersionEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Column({ type: 'uuid' })
+    automationFlowId: string;
+
+    @ManyToOne(
+        () => AutomationFlowEntity,
+        (flow) => flow.versions,
+        { onDelete: 'CASCADE' },
+    )
+    @JoinColumn({ name: 'automationFlowId' })
+    automationFlow: Relation<AutomationFlowEntity>;
+
+    // شكل الإصدار كـ String لدعم Major.Minor (مثال: "1.0", "1.1", "5.0")
+    @Column({ type: 'varchar', length: 50 })
+    versionString: string;
+
+    @Column({ type: 'jsonb' })
+    flow: FlowDefinition;
+
+    // 🌟 حقل التفرع للإصلاحات العاجلة (Hotfixes)
+    // يشير إلى النسخة التي تم اشتقاق هذا الإصلاح منها
+    @Column({ type: 'uuid', nullable: true })
+    parentVersionId: string;
+
+    @ManyToOne(() => AutomationFlowVersionEntity, { onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'parentVersionId' })
+    parentVersion: AutomationFlowVersionEntity;
+
+    @CreateDateColumn({ type: 'timestamp' })
+    createdAt: Date;
+}
+
+@Index(['name', 'adminId'], { unique: true, where: `"deletedAt" IS NULL` })
 @Entity('automation_flows')
 export class AutomationFlowEntity {
     @PrimaryGeneratedColumn('uuid')
@@ -44,12 +83,24 @@ export class AutomationFlowEntity {
     @UpdateDateColumn({ type: 'timestamp' })
     updatedAt: Date;
 
-    @Column({ type: 'jsonb' })
-    flow: FlowDefinition;
+    @Column({ type: 'uuid', nullable: true })
+    latestVersionId: string | null;
 
-    @Column({ type: 'int', default: 0 })
-    version: number;
+    @ManyToOne(() => AutomationFlowVersionEntity, {
+        nullable: true,
+        onDelete: 'SET NULL',
+    })
+    @JoinColumn({ name: 'latestVersionId' })
+    latestVersion: AutomationFlowVersionEntity | null;
+
+    @OneToMany(() => AutomationFlowVersionEntity, (version) => version.automationFlow)
+    versions: AutomationFlowVersionEntity[];
+
+    //soft Delete
+    @DeleteDateColumn({ type: 'timestamp', nullable: true })
+    deletedAt: Date;
 }
+
 
 export enum ActionType {
     UPDATE_ORDER_STATUS = 'update_order_status',
@@ -152,3 +203,5 @@ export interface FlowEdge {
     sourceHandle?: string;
     targetHandle?: string;
 }
+
+export type VersionIncrementType = 'major' | 'minor';
