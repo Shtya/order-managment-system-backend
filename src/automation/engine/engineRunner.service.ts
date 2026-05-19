@@ -214,6 +214,13 @@ export class EngineRunnerService {
                 output: result.output || {},
                 error: result.error,
             };
+
+            // 🌟 Update completed node tracking
+            if (result.success) {
+                if (!run.completedNodeIds) run.completedNodeIds = [];
+                run.completedNodeIds.push(node.id);
+            }
+
             await manager.getRepository(AutomationRunEntity).save(run);
 
             // إنشاء سجل منفصل للـ Audit Log والـ UI
