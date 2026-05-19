@@ -384,6 +384,10 @@ export class AutomationService {
             qb.andWhere("run.automationFlowId = :automationFlowId", { automationFlowId: q.automationFlowId });
         }
 
+        if (q?.triggerType) {
+            qb.andWhere("automationFlow.triggerType = :triggerType", { triggerType: q.triggerType });
+        }
+
         // Date range
         DateFilterUtil.applyToQueryBuilder(qb, "run.startedAt", q?.startDate, q?.endDate);
 
@@ -466,6 +470,44 @@ export class AutomationService {
             "triggerType": t.triggerType,
             "status": t.status,
             "createdAt": t.createdAt,
+        }));
+        exportData.forEach(t => worksheet.addRow(t));
+        return await workbook.xlsx.writeBuffer();
+    }
+
+    async exportRuns(me: any, q: any) {
+        const { records } = await this.findAllRuns(me, { ...q, limit: 1000, page: 1 });
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet("Automation Runs");
+
+        worksheet.columns = [
+            { header: "Automation", key: "automationName", width: 25 },
+            { header: "Trigger Type", key: "triggerType", width: 25 },
+            // { header: "Entity Type", key: "entityType", width: 25 },
+            { header: "Version", key: "version", width: 10 },
+            { header: "Status", key: "status", width: 15 },
+            { header: "Steps Completed", key: "steps", width: 15 },
+            { header: "Started At", key: "startedAt", width: 25 },
+            { header: "Completed At", key: "completedAt", width: 25 },
+            { header: "Error", key: "error", width: 40 },
+        ];
+        worksheet.getRow(1).font = { bold: true };
+        worksheet.getRow(1).fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFE0E0E0" },
+        };
+
+        const exportData = records.map(r => ({
+            "automationName": r.automationFlow?.name || 'N/A',
+            "triggerType": r.automationFlow?.triggerType || 'N/A',
+            // "entityType": r.triggerEntityType || 'N/A',
+            "version": r.version?.versionString || 'N/A',
+            "status": r.status,
+            "steps": r.completedNodeIds?.length || 0,
+            "startedAt": r.startedAt,
+            "completedAt": r.completedAt,
+            "error": r.errorMessage || '',
         }));
         exportData.forEach(t => worksheet.addRow(t));
         return await workbook.xlsx.writeBuffer();
