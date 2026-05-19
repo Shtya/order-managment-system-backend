@@ -110,6 +110,8 @@ export class AutomationService {
 
             if (dto.flow) {
                 let parentVersion = automation.latestVersion;
+                let isPatch = false;
+
                 if (dto.version) {
                     parentVersion = await versionRepo.findOne({
                         where: { versionString: dto.version, automationFlowId: id },
@@ -117,20 +119,27 @@ export class AutomationService {
                     if (!parentVersion) {
                         throw new BadRequestException('Parent version not found');
                     }
-                    parentVersion = parentVersion.id === automation.latestVersionId ? null : parentVersion;
+                    isPatch = true;
+                }
+
+                // 2- if passed flow exactly as previous so nothing to update so just skip update
+                if (parentVersion && this.isFlowEqual(dto.flow, parentVersion.flow)) {
+                    return {
+                        ...automation,
+                        skipped: true,
+                        message: 'Flow is identical to the base version, update skipped'
+                    };
                 }
 
                 let nextVersion = '';
-                if (parentVersion && parentVersion?.id !== automation.latestVersionId) {
+                // 1- if user pass version ... so get it and create sub version from it but it not pass any thing create major version
+                if (isPatch) {
                     nextVersion = await this.generateNextPatchVersion(
                         automation.id,
                         parentVersion.versionString,
                     );
                 } else {
-                    nextVersion = this.generateNextVersion(
-                        automation.latestVersion?.versionString,
-                        "major",
-                    );
+                    nextVersion = await this.generateNextVersion(automation.id);
                 }
 
                 const newVersion = versionRepo.create({
@@ -287,20 +296,33 @@ export class AutomationService {
         return automation;
     }
 
-    private generateNextVersion(
-        versionString: string,
-        type: VersionIncrementType = 'minor',
-    ): string {
-        const parts = versionString.split('.');
+    private isFlowEqual(flow1: any, flow2: any): boolean {
+        if (!flow1 || !flow2) return false;
+        const nodes1 = flow1.nodes || [];
+        const nodes2 = flow2.nodes || [];
+        const edges1 = flow1.edges || [];
+        const edges2 = flow2.edges || [];
 
-        const major = parseInt(parts[0] || '1', 10);
-        const minor = parseInt(parts[1] || '0', 10);
-
-        if (type === 'major') {
-            return `${major + 1}.0`;
+        if (nodes1.length !== nodes2.length || edges1.length !== edges2.length) {
+            return false;
         }
 
-        return `${major}.${minor + 1}`;
+        return JSON.stringify(nodes1) === JSON.stringify(nodes2) &&
+            JSON.stringify(edges1) === JSON.stringify(edges2);
+    }
+
+    private async generateNextVersion(
+        automationFlowId: string,
+    ): Promise<string> {
+
+        const latestVersion = await this.versionRepo.createQueryBuilder('version')
+            .where('version.automationFlowId = :automationFlowId', { automationFlowId })
+            .orderBy('CAST(SPLIT_PART(version.versionString, \'.\', 1) AS INTEGER)', 'DESC')
+            .getOne();
+
+        const currentMajor = latestVersion ? parseInt(latestVersion.versionString.split('.')[0], 10) : 0;
+        return `${currentMajor + 1}.0`;
+
     }
 
     async generateNextPatchVersion(automationFlowId: string, targetVersionString: string) {
