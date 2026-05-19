@@ -39,6 +39,9 @@ export class WhatsappService {
                 method: 'GET',
             },
         );
+        const data = await response.json();
+        console.log(data);
+
 
         return response.json();
     }

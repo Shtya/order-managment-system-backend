@@ -37,6 +37,9 @@ export class WhatsappAccountEntity {
     @Index({ unique: true, where: `"wabaId" IS NOT NULL` })
     @Column({ type: 'varchar', length: 100, nullable: true })
     wabaId: string;
+    
+    @Column({ type: 'varchar', nullable: true })
+    businessId: string; // المعرف الفريد للقالب من طرف Meta
 
     @Column({ type: 'boolean', default: true })
     isActive: boolean;
@@ -187,6 +190,7 @@ export class WhatsappTemplateEntity {
 
     @Column({ type: 'varchar', nullable: true })
     metaId: string; // المعرف الفريد للقالب من طرف Meta
+
 
     /**
      * Full template configuration object
