@@ -3,10 +3,13 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AutomationFlowVersionEntity, AutomationRunEntity, AutomationRunStepEntity, FlowDefinition, FlowEdge, FlowNode, NodeConfig, RunStatus, SendWhatsappTemplateConfig, StepStatus } from 'entities/automation.entity';
+import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationRunStepEntity, FlowDefinition, FlowEdge, FlowNode, NodeConfig, RunStatus, SendWhatsappTemplateConfig, StepStatus } from 'entities/automation.entity';
 import { Repository, DataSource } from 'typeorm';
 import { VariableHydratorService } from './variableHydrator.service';
 import { NodeHandlerResponse, NodeHandlersRegistry } from './nodeHandlers.registry';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'entities/notifications.entity';
+import { AppGateway } from 'common/app.gateway';
 
 @Injectable()
 export class EngineRunnerService {
@@ -18,10 +21,14 @@ export class EngineRunnerService {
         private readonly runRepo: Repository<AutomationRunEntity>,
         @InjectRepository(AutomationFlowVersionEntity)
         private readonly versionRepo: Repository<AutomationFlowVersionEntity>,
+        @InjectRepository(AutomationFlowEntity)
+        private readonly automationRepo: Repository<AutomationFlowEntity>,
         @InjectRepository(AutomationRunStepEntity)
         private readonly stepRepo: Repository<AutomationRunStepEntity>,
         private readonly hydrator: VariableHydratorService,
         private readonly registry: NodeHandlersRegistry,
+        private readonly notificationService: NotificationService,
+        private readonly appGateway: AppGateway,
     ) { }
 
     /**
@@ -31,8 +38,15 @@ export class EngineRunnerService {
         const run = await this.runRepo.findOne({ where: { id: runId } });
         if (!run || run.status !== RunStatus.PENDING) return;
 
+        await this.sendAutomationNotification(
+            run,
+            NotificationType.AUTOMATION_RUN_STARTED,
+            'Automation Run Started',
+            'A new automation execution has started.',
+        );
         run.status = RunStatus.RUNNING;
         await this.runRepo.save(run);
+
 
         const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
         if (!version) {
@@ -53,6 +67,8 @@ export class EngineRunnerService {
     }
 
     async resumeFromWhatsappInteraction(originalMessageId: string, buttonText: string, buttonId?: string): Promise<void> {
+
+
         // 1. البحث السريع عن الخطوة التي أنتجت هذه الرسالة باستخدام JSONB Query (سريع جداً في Postgres)
         const step = await this.stepRepo.createQueryBuilder('step')
             .where(`step."outputData"->>'messageId' = :messageId`, { messageId: originalMessageId })
@@ -96,7 +112,12 @@ export class EngineRunnerService {
             chosenBranchId: chosenBranch.id
         };
         await this.runRepo.save(run);
-
+        await this.sendAutomationNotification(
+            run,
+            NotificationType.AUTOMATION_RUN_RESUMED,
+            'Automation Run Resumed',
+            'A paused automation execution has been resumed.',
+        );
         // 5. إيقاظ الأتمتة وتوجيهها للمسار الصحيح
         await this.resumeExecution(run.id, step.nodeId, chosenBranch.id);
     }
@@ -130,7 +151,7 @@ export class EngineRunnerService {
      */
     private async runLoop(run: AutomationRunEntity, flow: FlowDefinition, startNodeId: string): Promise<void> {
         let currentNodeId = startNodeId;
-        const completedNodeIds =  [];
+        const completedNodeIds = [];
         if (run.status === RunStatus.COMPLETED) return;
 
         while (currentNodeId) {
@@ -162,6 +183,7 @@ export class EngineRunnerService {
                     currentNodeId = this.findNextNodeId(flow.edges, currentNodeId, savedStep.chosenBranch);
                     continue;
                 }
+                //add delay 500ms to simulate real-time execution
 
                 // 2. Track current node
                 run.currentNodeId = currentNodeId;
@@ -176,11 +198,13 @@ export class EngineRunnerService {
                 // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
                 await this.saveStepResult(run, node, result, nodeConfig);
                 completedNodeIds.push(currentNodeId);
+                await this.emitRunUpdate(run);
 
                 // 6. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
                 if (result.shouldPause) {
                     run.status = RunStatus.PAUSED;
                     await this.runRepo.save(run);
+                    await this.emitRunUpdate(run);
                     this.logger.log(`Run ${run.id} is now PAUSED at node ${currentNodeId}`);
                     return; // كسر الحلقة تماماً وفك الـ Thread
                 }
@@ -210,7 +234,15 @@ export class EngineRunnerService {
         run.status = RunStatus.COMPLETED;
         run.completedAt = new Date();
         await this.runRepo.save(run);
+        await this.emitRunUpdate(run);
         this.logger.log(`Run ${run.id} completed successfully`);
+
+        await this.sendAutomationNotification(
+            run,
+            NotificationType.AUTOMATION_RUN_COMPLETED,
+            'Automation Run Completed',
+            'Automation execution finished successfully.',
+        );
     }
 
     /**
@@ -224,6 +256,43 @@ export class EngineRunnerService {
             return e.source === currentNodeId;
         });
         return edge ? edge.target : null;
+    }
+
+    private async sendAutomationNotification(run: AutomationRunEntity, type: NotificationType, title: string, message: string) {
+        try {
+            const automation = await this.automationRepo.findOne({ where: { id: run.automationFlowId } });
+            if (!automation) return;
+
+            await this.notificationService.create({
+                userId: automation.adminId,
+                type,
+                title,
+                message: `${message} (Automation: ${automation.name}, Version: v${run.version?.versionString || ''})`,
+                relatedEntityType: 'automation_run',
+                relatedEntityId: run.id,
+            });
+        } catch (error) {
+            this.logger.error(`Failed to send automation notification: ${error.message}`);
+        }
+    }
+
+    private async emitRunUpdate(run: AutomationRunEntity) {
+        try {
+            const automation = await this.automationRepo.findOne({ where: { id: run.automationFlowId } });
+            if (!automation) return;
+
+            this.appGateway.emitAutomationRunStatus(automation.adminId, {
+                runId: run.id,
+                automationFlowId: run.automationFlowId,
+                status: run.status,
+                currentNodeId: run.currentNodeId,
+                completedNodeIds: run.completedNodeIds,
+                errorMessage: run.errorMessage,
+                executionState: run.executionState,
+            });
+        } catch (error) {
+            this.logger.error(`Failed to emit run update: ${error.message}`);
+        }
     }
 
     private async saveStepResult(run: AutomationRunEntity, node: FlowNode, result: NodeHandlerResponse, input?: any) {
@@ -269,6 +338,14 @@ export class EngineRunnerService {
         run.status = RunStatus.FAILED;
         run.errorMessage = errorMessage;
         await this.runRepo.save(run);
+        await this.emitRunUpdate(run);
         this.logger.error(`Run ${run.id} failed: ${errorMessage}`);
+
+        await this.sendAutomationNotification(
+            run,
+            NotificationType.AUTOMATION_RUN_FAILED,
+            'Automation Run Failed',
+            `Automation execution failed: ${errorMessage}`,
+        );
     }
 }

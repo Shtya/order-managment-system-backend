@@ -43,6 +43,10 @@ export enum NotificationType {
     TEMPLATE_FLAGGED = 'template_flagged',
     TEMPLATE_QUALITY_UPDATED = 'template_quality_updated',
     TEMPLATE_STATUS_UPDATED = 'template_status_updated',
+    AUTOMATION_RUN_STARTED = 'automation_run_started',
+    AUTOMATION_RUN_FAILED = 'automation_run_failed',
+    AUTOMATION_RUN_COMPLETED = 'automation_run_completed',
+    AUTOMATION_RUN_RESUMED = 'automation_run_resumed',
 }
 
 @Entity('notifications')

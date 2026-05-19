@@ -12,12 +12,16 @@ import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, TriggerMatchers
 import { OrdersModule } from 'src/orders/orders.module';
 import { WhatsappModule } from 'src/whatsapp/whatsapp.module';
 import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
+import { NotificationModule } from 'src/notifications/notification.module';
+import { WebSocketModule } from 'common/websocket.module';
 
 
 @Module({
   imports: [
     forwardRef(() => OrdersModule),
     forwardRef(() => WhatsappModule),
+    NotificationModule,
+    WebSocketModule,
     TypeOrmModule.forFeature([
       AutomationFlowEntity,
       AutomationFlowVersionEntity,
