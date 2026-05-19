@@ -57,6 +57,9 @@ export class WhatsappController {
     @Query('code') code: string,
     @Query('state') state: string,
   ) {
+    console.log("code", code)
+    console.log("state", state)
+    
     if (!code) {
       throw new HttpException(
         'Missing authorization code',
