@@ -141,19 +141,23 @@ export class EngineRunnerService {
                 return;
             }
 
-            // 1. معالجة وحقن البيانات الخاصة بالإعدادات عبر الـ Hydrator
+            // 1. Track current node
+            run.currentNodeId = currentNodeId;
+            await this.runRepo.save(run);
+
+            // 2. معالجة وحقن البيانات الخاصة بالإعدادات عبر الـ Hydrator
             // const hydratedConfig = this.hydrator.hydrate(node.data.config, run.executionState);
 
             try {
-                // 2. جلب الـ Handler المسؤول وتنفيذه
+                // 3. جلب الـ Handler المسؤول وتنفيذه
                 const handler = this.registry.getHandler(node.data.type);
                 // const result = await handler.execute(hydratedConfig, run);
                 const result = await handler.execute(node.data.config, run);
 
-                // 3. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
+                // 4. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
                 await this.saveStepResult(run, node, result);
 
-                // 4. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
+                // 5. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
                 if (result.shouldPause) {
                     run.status = RunStatus.PAUSED;
                     await this.runRepo.save(run);

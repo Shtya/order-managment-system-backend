@@ -1,10 +1,11 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AutomationFlowEntity, AutomationRunEntity, AutomationStatus, FlowNodeType, OrderCreatedConfig, OrderUpdatedConfig, RunStatus, TriggerEntityType, TriggerType } from 'entities/automation.entity';
+import { AutomationFlowEntity, AutomationRunEntity, AutomationStatus, FlowNodeType, RunStatus, TriggerEntityType, TriggerType } from 'entities/automation.entity';
 import { Repository, DataSource } from 'typeorm';
 import { Queue } from 'groupmq';
 import Redis from 'ioredis';
 import { OrderEntity } from 'entities/order.entity';
+import { TriggerMatchersRegistry } from './triggerMatchers.registry';
 
 
 export interface FlowExecutionJob {
@@ -74,6 +75,7 @@ export class TriggerDispatcherService {
         private readonly runRepo: Repository<AutomationRunEntity>,
 
         private readonly flowQueue: FlowExecutionQueueService,
+        private readonly triggerMatchers: TriggerMatchersRegistry,
     ) { }
 
     /**
@@ -198,48 +200,11 @@ export class TriggerDispatcherService {
             return false;
         }
 
-        const config = triggerNode.data.config;
-
-        switch (trigger.type) {
-
-            /**
-             * ORDER CREATED
-             */
-            case TriggerType.ORDER_CREATED: {
-                const order = trigger.payload as OrderEntity;
-
-                // Store filter
-                if (
-                    (config as OrderCreatedConfig).storeId &&
-                    order.storeId !== (config as OrderCreatedConfig).storeId
-                ) {
-                    return false;
-                }
-
-                return true;
-            }
-
-            /**
-             * ORDER UPDATED
-             */
-            case TriggerType.ORDER_UPDATED: {
-                const order = trigger.payload as OrderEntity;
-
-                // Status filter
-                if (
-                    (config as OrderUpdatedConfig).statusId &&
-                    order.statusId !== (config as OrderUpdatedConfig).statusId
-                ) {
-                    return false;
-                }
-
-
-                return true;
-            }
-
-
-            default:
-                return false;
+        try {
+            const matcher = this.triggerMatchers.getMatcher(trigger.type);
+            return matcher.shouldRun(triggerNode.data.config, trigger.payload);
+        } catch (error) {
+            return false;
         }
     }
 }
