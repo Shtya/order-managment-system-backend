@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationStatus, TriggerType, VersionIncrementType } from 'entities/automation.entity';
+import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationStatus, RunStatus, TriggerType, VersionIncrementType } from 'entities/automation.entity';
 import { Brackets, DataSource, Repository } from 'typeorm';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
-import { TriggerDispatcherService } from './engine/triggerDispatcher.service';
+import { FlowExecutionQueueService, TriggerDispatcherService } from './engine/triggerDispatcher.service';
 
 @Injectable()
 export class AutomationService {
@@ -19,6 +19,7 @@ export class AutomationService {
         @InjectRepository(AutomationRunEntity)
         private readonly runRepo: Repository<AutomationRunEntity>,
         private readonly dispatcher: TriggerDispatcherService,
+        private readonly flowQueue: FlowExecutionQueueService,
     ) { }
 
     async create(me: any, dto: CreateAutomationDto) {
@@ -188,6 +189,42 @@ export class AutomationService {
         }
 
         return result;
+    }
+
+    async retryRun(me: any, runId: string) {
+        const adminId = tenantId(me);
+
+        const run = await this.runRepo.findOne({
+            where: { id: runId, automationFlow: { adminId } },
+            relations: ['automationFlow', 'version'],
+        });
+
+        if (!run) {
+            throw new NotFoundException('Automation run not found');
+        }
+
+        if (run.status !== RunStatus.FAILED) {
+            throw new BadRequestException('Only failed runs can be retried');
+        }
+
+        // Reset status and clear error
+        run.status = RunStatus.PENDING;
+        run.errorMessage = null;
+        await this.runRepo.save(run);
+
+        // Add to queue
+        await this.flowQueue.add({
+            type: 'start',
+            runId: run.id,
+            automationFlowId: run.automationFlowId,
+            versionId: run.versionId,
+            adminId,
+        });
+
+        return {
+            message: 'Run has been queued for retry',
+            run,
+        };
     }
 
     async findAll(me: any, q?: any) {

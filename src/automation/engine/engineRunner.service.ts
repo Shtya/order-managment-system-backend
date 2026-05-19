@@ -130,7 +130,7 @@ export class EngineRunnerService {
      */
     private async runLoop(run: AutomationRunEntity, flow: FlowDefinition, startNodeId: string): Promise<void> {
         let currentNodeId = startNodeId;
-
+        const completedNodeIds =  [];
         if (run.status === RunStatus.COMPLETED) return;
 
         while (currentNodeId) {
@@ -143,7 +143,7 @@ export class EngineRunnerService {
                 return;
             }
             // infinite loop detection
-            if (run.completedNodeIds.includes(currentNodeId)) {
+            if (completedNodeIds.includes(currentNodeId)) {
                 await this.failRun(
                     run,
                     `The automation detected an infinite loop at node ${node.data.label}.`,
@@ -175,6 +175,7 @@ export class EngineRunnerService {
 
                 // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
                 await this.saveStepResult(run, node, result, nodeConfig);
+                completedNodeIds.push(currentNodeId);
 
                 // 6. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
                 if (result.shouldPause) {

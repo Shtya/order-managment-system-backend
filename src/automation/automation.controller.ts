@@ -55,6 +55,12 @@ export class AutomationController {
     return this.automationService.findOneRun(req.user, id);
   }
 
+  @Post('runs/:id/retry')
+  @Permissions('automation.update')
+  retryRun(@Req() req: any, @Param('id') id: string) {
+    return this.automationService.retryRun(req.user, id);
+  }
+
   @Get(':id')
   @Permissions('automation.read')
   findOne(@Req() req: any, @Param('id') id: string, @Query('version') version?: string) {
