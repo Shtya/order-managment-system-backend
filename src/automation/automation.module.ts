@@ -8,6 +8,7 @@ import { EngineRunnerService } from './engine/engineRunner.service';
 import { FlowWorkerService } from './engine/flowWorker.service';
 import { VariableHydratorService } from './engine/variableHydrator.service';
 import { ActionSendWhatsappTemplateMessageHandler, ActionUpdateOrderStatusHandler, ConditionOrderCheckHandler, ConditionQuickOrderStatusHandler, NodeHandlersRegistry } from './engine/nodeHandlers.registry';
+import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, TriggerMatchersRegistry } from './engine/triggerMatchers.registry';
 import { OrdersModule } from 'src/orders/orders.module';
 import { WhatsappModule } from 'src/whatsapp/whatsapp.module';
 import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
@@ -28,11 +29,9 @@ import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
   controllers: [AutomationController],
   providers: [AutomationService, TriggerDispatcherService, FlowExecutionQueueService,
     EngineRunnerService, FlowWorkerService, VariableHydratorService,
-    NodeHandlersRegistry,
-    ConditionQuickOrderStatusHandler,
-    ConditionOrderCheckHandler,
-    ActionUpdateOrderStatusHandler,
-    ActionSendWhatsappTemplateMessageHandler
+    NodeHandlersRegistry, ConditionQuickOrderStatusHandler, ConditionOrderCheckHandler,
+    ActionUpdateOrderStatusHandler, ActionSendWhatsappTemplateMessageHandler,
+    TriggerMatchersRegistry, OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher
   ],
   exports: [AutomationService, TriggerDispatcherService, FlowExecutionQueueService,
     EngineRunnerService, VariableHydratorService,
