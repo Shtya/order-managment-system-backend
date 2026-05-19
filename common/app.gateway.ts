@@ -118,6 +118,21 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
     }
 
+    emitAutomationRunStatus(userId: string, payload: {
+        runId: string;
+        automationFlowId: string;
+        status: string;
+        currentNodeId?: string;
+        completedNodeIds?: string[];
+        errorMessage?: string;
+        executionState?: any;
+    }) {
+        this.server.to(`user_${userId}`).emit("automation:run-status", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
     // --- Helper Methods ---
 
     private broadcastStatus(userId: string, status: 'online' | 'offline') {
