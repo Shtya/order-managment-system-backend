@@ -22,6 +22,15 @@ export class AutomationController {
     return res.send(buffer);
   }
 
+  @Get('runs/export')
+  @Permissions('automation.read')
+  async exportRuns(@Req() req: any, @Query() q: any, @Res() res: Response) {
+    const buffer = await this.automationService.exportRuns(req.user, q);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=automation_runs_export_${Date.now()}.xlsx`);
+    return res.send(buffer);
+  }
+
   @Post()
   @Permissions('automation.create')
   create(@Req() req: any, @Body() dto: CreateAutomationDto) {
