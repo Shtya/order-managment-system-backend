@@ -6,6 +6,7 @@ import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
+import { TriggerDispatcherService } from './engine/triggerDispatcher.service';
 
 @Injectable()
 export class AutomationService {
@@ -17,6 +18,7 @@ export class AutomationService {
         private readonly versionRepo: Repository<AutomationFlowVersionEntity>,
         @InjectRepository(AutomationRunEntity)
         private readonly runRepo: Repository<AutomationRunEntity>,
+        private readonly dispatcher: TriggerDispatcherService,
     ) { }
 
     async create(me: any, dto: CreateAutomationDto) {
@@ -78,7 +80,7 @@ export class AutomationService {
             throw new BadRequestException('AdminId not found');
         }
 
-        return await this.dataSource.transaction(async (manager) => {
+        const result = await this.dataSource.transaction(async (manager) => {
             const automationRepo = manager.getRepository(AutomationFlowEntity);
             const versionRepo = manager.getRepository(AutomationFlowVersionEntity);
 
@@ -119,7 +121,7 @@ export class AutomationService {
                 }
 
                 let nextVersion = '';
-                if (parentVersion.id !== automation.latestVersionId) {
+                if (parentVersion && parentVersion?.id !== automation.latestVersionId) {
                     nextVersion = await this.generateNextPatchVersion(
                         automation.id,
                         parentVersion.versionString,
@@ -164,6 +166,19 @@ export class AutomationService {
                 relations: ['latestVersion'],
             });
         });
+
+        // Trigger automatic retry/migration logic for failed runs
+        // We do this after the transaction to ensure the latestVersion is accessible
+        if (dto.flow) {
+            try {
+                await this.dispatcher.autoRetryFailedRuns(adminId, id)
+            } catch (e) {
+                console.error(`Failed to auto-retry runs for automation ${id}:`, e);
+            };
+
+        }
+
+        return result;
     }
 
     async findAll(me: any, q?: any) {
@@ -376,8 +391,18 @@ export class AutomationService {
             .where("run.automationFlowId IN (SELECT id FROM automation_flows WHERE \"adminId\" = :adminId)", { adminId });
 
         // Filters
+        // if (q?.status) {
+        //     qb.andWhere("run.status = :status", { status: q.status });
+        // }
+
         if (q?.status) {
-            qb.andWhere("run.status = :status", { status: q.status });
+            const statusParam = q.status;
+            if (typeof statusParam === "string" && statusParam.includes(",")) {
+                const statusCodes = statusParam.split(",").map((s) => s.trim());
+                qb.andWhere("run.status IN (:...statusCodes)", { statusCodes });
+            } else {
+                qb.andWhere("run.status = :status", { status: statusParam });
+            }
         }
 
         if (q?.automationFlowId) {

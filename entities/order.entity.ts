@@ -371,8 +371,8 @@ export class OrderEntity {
   @JoinColumn({ name: 'monthlyClosingId' })
   monthlyClosing: Relation<MonthlyClosingEntity>;
 
-  
-  @DeleteDateColumn({ name: "deleted_at", nullable: true,  type: "timestamptz" })
+
+  @DeleteDateColumn({ name: "deleted_at", nullable: true, type: "timestamptz" })
   deleted_at?: Date;
 }
 
@@ -616,6 +616,12 @@ export enum StockDeductionStrategy {
   ON_SHIPMENT = "on_shipment",
 }
 
+export enum AutomationMigrationStrategy {
+  LATEST_MAJOR = "latest_major",
+  LATEST_PATCH = "latest_patch",
+  MANUAL = "manual",
+}
+
 @Entity({ name: "order_retry_settings" })
 export class OrderRetrySettingsEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -692,6 +698,16 @@ export class OrderRetrySettingsEntity {
   /** When true, store webhook orders match line items by variant SKU if no product sync link exists. */
   @Column({ type: "boolean", default: true })
   storeOrderSkuFallback: boolean;
+
+  @Column({
+    type: "enum",
+    enum: AutomationMigrationStrategy,
+    default: AutomationMigrationStrategy.LATEST_PATCH,
+  })
+  automationMigrationStrategy: AutomationMigrationStrategy;
+
+  @Column({ type: "uuid", nullable: true })
+  defaultWhatsAppAccountId: string;
 
   @Column({
     type: "jsonb",

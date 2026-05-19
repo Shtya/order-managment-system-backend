@@ -339,7 +339,7 @@ export class OrdersService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-   const status = await this.findStatusById(id, adminId)
+    const status = await this.findStatusById(id, adminId)
     if (!status) throw new NotFoundException("Status not found");
 
     return status;
@@ -3439,15 +3439,16 @@ export class OrdersService {
   async findStatusById(
     id: string,
     adminId: string,
-    manager?: EntityManager
+    manager?: EntityManager,
+    active?: boolean
   ): Promise<OrderStatusEntity> {
     // [2025-12-24] Trim input and ensure case-insensitive matching if needed
 
     const repo = manager ? manager.getRepository(OrderStatusEntity) : this.statusRepo;
     const status = await repo.findOne({
       where: [
-        { id: id, system: true }, // Condition 1: Global System Status
-        { id: id, adminId: adminId }, // Condition 2: Admin-specific Status
+        { id: id, system: true, ...(active ? { isActive: true } : {}) }, // Condition 1: Global System Status
+        { id: id, adminId: adminId, ...(active ? { isActive: true } : {}) }, // Condition 2: Admin-specific Status
       ],
     });
 

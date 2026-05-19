@@ -27,6 +27,7 @@ import {
   PaymentMethod,
   OrderFlowPath,
   StockDeductionStrategy,
+  AutomationMigrationStrategy,
 } from "entities/order.entity";
 
 export class CreateStatusDto {
@@ -446,6 +447,14 @@ export class UpsertOrderRetrySettingsDto {
   @ValidateNested()
   @Type(() => ShippingSettingsDto)
   shipping?: ShippingSettingsDto;
+
+  @IsEnum(AutomationMigrationStrategy)
+  @IsOptional()
+  automationMigrationStrategy?: AutomationMigrationStrategy;
+
+  @IsString()
+  @IsOptional()
+  defaultWhatsAppAccountId?: string;
 }
 export class ManualAssignItemDto {
   @IsNotEmpty()
