@@ -232,7 +232,7 @@ export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
             }
 
             // 2. Validate target status
-            const statusEntity = await this.ordersService.findStatusById(hydratedConfig.newStatusId, orderData.adminId);
+            const statusEntity = await this.ordersService.findStatusById(hydratedConfig.newStatusId, orderData.adminId, null, true);
 
             if (!statusEntity) {
                 return {

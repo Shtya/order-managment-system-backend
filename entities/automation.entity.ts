@@ -238,7 +238,10 @@ export enum TriggerEntityType {
 export interface StepExecutionResult {
     type: FlowNodeDataType;
     executedAt: string; // ISO Timestamp
+    input?: any;
     output: any;
+    chosenBranch?: string;
+    success: boolean;
     error?: string; // يسجل هنا لو فشلت الخطوة بعينها
 }
 

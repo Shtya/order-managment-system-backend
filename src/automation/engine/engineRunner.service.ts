@@ -131,6 +131,8 @@ export class EngineRunnerService {
     private async runLoop(run: AutomationRunEntity, flow: FlowDefinition, startNodeId: string): Promise<void> {
         let currentNodeId = startNodeId;
 
+        if (run.status === RunStatus.COMPLETED) return;
+
         while (currentNodeId) {
             const node = flow.nodes.find(n => n.id === currentNodeId);
             if (!node) {
@@ -140,24 +142,41 @@ export class EngineRunnerService {
                 );
                 return;
             }
+            // infinite loop detection
+            if (run.completedNodeIds.includes(currentNodeId)) {
+                await this.failRun(
+                    run,
+                    `The automation detected an infinite loop at node ${node.data.label}.`,
+                );
+                return;
+            }
 
-            // 1. Track current node
-            run.currentNodeId = currentNodeId;
-            await this.runRepo.save(run);
-
-            // 2. معالجة وحقن البيانات الخاصة بالإعدادات عبر الـ Hydrator
+            // 1. معالجة وحقن البيانات الخاصة بالإعدادات عبر الـ Hydrator
             // const hydratedConfig = this.hydrator.hydrate(node.data.config, run.executionState);
 
             try {
-                // 3. جلب الـ Handler المسؤول وتنفيذه
+                // 3. Skip if already finished successfully
+                const savedStep = run.executionState.steps[currentNodeId];
+                if (savedStep && savedStep.success) {
+                    this.logger.log(`Node ${currentNodeId} already completed successfully. Skipping to next.`);
+                    currentNodeId = this.findNextNodeId(flow.edges, currentNodeId, savedStep.chosenBranch);
+                    continue;
+                }
+
+                // 2. Track current node
+                run.currentNodeId = currentNodeId;
+                await this.runRepo.save(run);
+
+                // 4. جلب الـ Handler المسؤول وتنفيذه
                 const handler = this.registry.getHandler(node.data.type);
+                const nodeConfig = node.data.config;
                 // const result = await handler.execute(hydratedConfig, run);
-                const result = await handler.execute(node.data.config, run);
+                const result = await handler.execute(nodeConfig, run);
 
-                // 4. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
-                await this.saveStepResult(run, node, result);
+                // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
+                await this.saveStepResult(run, node, result, nodeConfig);
 
-                // 5. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
+                // 6. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
                 if (result.shouldPause) {
                     run.status = RunStatus.PAUSED;
                     await this.runRepo.save(run);
@@ -174,7 +193,7 @@ export class EngineRunnerService {
                     return;
                 }
 
-                // 5. الانتقال للعقدة التالية بناءً على الـ edges والـ chosenBranch (إن وجد في حالات الشروط)
+                // 7. الانتقال للعقدة التالية بناءً على الـ edges والـ chosenBranch (إن وجد في حالات الشروط)
                 currentNodeId = this.findNextNodeId(flow.edges, currentNodeId, result.chosenBranch);
 
             } catch (error) {
@@ -188,6 +207,7 @@ export class EngineRunnerService {
 
         // إذا انتهت الحلقة ولم يعد هناك عقد تالية، تكتمل الأتمتة بنجاح
         run.status = RunStatus.COMPLETED;
+        run.completedAt = new Date();
         await this.runRepo.save(run);
         this.logger.log(`Run ${run.id} completed successfully`);
     }
@@ -205,12 +225,15 @@ export class EngineRunnerService {
         return edge ? edge.target : null;
     }
 
-    private async saveStepResult(run: AutomationRunEntity, node: FlowNode, result: NodeHandlerResponse) {
+    private async saveStepResult(run: AutomationRunEntity, node: FlowNode, result: NodeHandlerResponse, input?: any) {
         await this.dataSource.transaction(async (manager) => {
             // تحديث كائن الـ executionState التراكمي
             run.executionState.steps[node.id] = {
                 type: node.data.type,
                 executedAt: new Date().toISOString(),
+                success: result.success,
+                chosenBranch: result.chosenBranch,
+                input: input || {},
                 output: result.output || {},
                 error: result.error,
             };
@@ -218,7 +241,9 @@ export class EngineRunnerService {
             // 🌟 Update completed node tracking
             if (result.success) {
                 if (!run.completedNodeIds) run.completedNodeIds = [];
+                // save all ids even redendant to save number of steps
                 run.completedNodeIds.push(node.id);
+
             }
 
             await manager.getRepository(AutomationRunEntity).save(run);
@@ -230,6 +255,7 @@ export class EngineRunnerService {
                 nodeType: node.type,
                 dataType: node.data.type,
                 status: result.success ? StepStatus.SUCCESS : StepStatus.FAILED,
+                inputData: input,
                 outputData: result.output,
                 errorMessage: result.error,
                 executedAt: new Date()
