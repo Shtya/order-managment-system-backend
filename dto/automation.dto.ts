@@ -223,7 +223,6 @@ class FlowNodeDataDto {
 }
 
 
-
 class FlowNodeDto {
     @IsString()
     @IsNotEmpty()

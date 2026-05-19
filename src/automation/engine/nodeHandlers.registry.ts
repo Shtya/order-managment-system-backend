@@ -336,7 +336,8 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 return { success: false, error: 'WhatsApp template is not approved' };
             }
 
-            if ((template.templateConfig.buttons?.length || 0) != (hydratedConfig.branches?.length || 0)) {
+            const buttons = template.templateConfig.buttons?.filter(btn => btn.type === 'CUSTOM') || [];
+            if ((buttons.length || 0) != (hydratedConfig.branches?.length || 0)) {
                 return { success: false, error: 'WhatsApp template buttons and configuration buttons count do not match' };
             }
             const bodyVarsLength = template.templateConfig.examples?.length || 0;
