@@ -132,6 +132,19 @@ export class AutomationService {
                     };
                 }
 
+                // If automation is in DRAFT status, update the latest version instead of creating a new one
+                if (automation.status === AutomationStatus.DRAFT && automation.latestVersion && !dto.version) {
+                    automation.latestVersion.flow = {
+                        nodes: dto.flow.nodes as any,
+                        edges: dto.flow.edges as any,
+                    };
+                    const savedVersion = await versionRepo.save(automation.latestVersion);
+                    return {
+                        ...automation,
+                        newVersion: savedVersion
+                    };
+                }
+
                 let nextVersion = '';
                 // 1- if user pass version ... so get it and create sub version from it but it not pass any thing create major version
                 if (isPatch) {
@@ -344,8 +357,28 @@ export class AutomationService {
             return false;
         }
 
-        return JSON.stringify(nodes1) === JSON.stringify(nodes2) &&
-            JSON.stringify(edges1) === JSON.stringify(edges2);
+        const normalizeNodes = (nodes) =>
+            nodes.map(n => ({
+                id: n.id,
+                type: n.type,
+                data: n.data,
+            }));
+
+        const normalizeEdges = (edges) =>
+            edges.map(e => ({
+                source: e.source,
+                target: e.target,
+                sourceHandle: e.sourceHandle,
+                targetHandle: e.targetHandle,
+            }));
+
+
+        return (
+            JSON.stringify(normalizeNodes(nodes1)) ===
+            JSON.stringify(normalizeNodes(nodes2)) &&
+            JSON.stringify(normalizeEdges(edges1)) ===
+            JSON.stringify(normalizeEdges(edges2))
+        );
     }
 
     private async generateNextVersion(
