@@ -37,7 +37,7 @@ export class WhatsappAccountEntity {
     @Index({ unique: true, where: `"wabaId" IS NOT NULL` })
     @Column({ type: 'varchar', length: 100, nullable: true })
     wabaId: string;
-    
+
     @Column({ type: 'varchar', nullable: true })
     businessId: string; // المعرف الفريد للقالب من طرف Meta
 
@@ -395,42 +395,45 @@ export class WhatsappWebhookEventEntity {
 
 
 export class MetaTemplateLibraryQueryDto {
-  search?: string;
-  topic?: string;
-  usecase?: string;
-  industry?: string;
-  language?: string;
-  category?: string;
-  name?: string;
+    search?: string;
+    topic?: string;
+    usecase?: string;
+    industry?: string;
+    language?: string;
+    category?: string;
+    name?: string;
 
-  // your local account
-  accountId?: string;
+    // your local account
+    accountId?: string;
 }
-
 export type MetaTemplateLibraryButtonDto = {
-  type: string;
-  text: string;
-  url?: string;
-  phone_number?: string;
+    type: 'CUSTOM' | 'PHONE_NUMBER' | 'URL' | 'WHATSAPP_CALL';
+    text: string;
+    url?: string;
+    phone_number?: string;
+    country_code?: string;
 };
 
+
 export type MetaTemplateLibraryItemDto = {
-  id: string;
-  name: string;
-  language: string;
-  category: string;
-  topic?: string;
-  usecase?: string;
-  industry?: string[];
+    id: string;
+    name: string;
+    language: 'ar' | 'en';
+    category: string;
+    topic?: string;
+    usecase?: string;
+    industry?: string[];
 
-  header?: string;
-  body?: string;
-  footer?: string;
+    header?: string;
+    header_type?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'LOCATION';
+    body?: string;
+    footer?: string;
 
-  body_params?: string[];
-  body_param_types?: string[];
+    body_params?: string[];
+    body_param_types?: string[];
 
-  buttons?: MetaTemplateLibraryButtonDto[];
+    buttons?: MetaTemplateLibraryButtonDto[];
 
-  templateConfig: TemplateConfig;
+    // This perfectly matches the templateConfig column structure in WhatsappTemplateEntity
+    templateConfig: TemplateConfig;
 };

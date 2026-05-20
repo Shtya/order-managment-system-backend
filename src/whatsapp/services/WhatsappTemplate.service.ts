@@ -9,7 +9,8 @@ import {
     WhatsappAccountEntity,
     TemplateQuality,
     MetaTemplateLibraryQueryDto,
-    MetaTemplateLibraryItemDto
+    MetaTemplateLibraryItemDto,
+    MetaTemplateLibraryButtonDto
 } from 'entities/whatsapp.entity';
 
 import { tenantId } from 'src/category/category.service';
@@ -160,36 +161,43 @@ export class WhatsappTemplateService {
             node: 'none',
         });
 
+        //filter out AUTHENTICATION
         const templates = Array.isArray(response) ? response : (response?.data ?? []);
 
-        return templates.map((tpl: any) => this.mapMetaLibraryTemplate(tpl));
+        const filteredTemplates = templates.filter(tpl => tpl.category !== 'AUTHENTICATION');
+
+        return filteredTemplates.map((tpl: any) => this.mapMetaLibraryTemplate(tpl));
     }
 
     private mapMetaLibraryTemplate(tpl: any): MetaTemplateLibraryItemDto {
+        // 1. Determine header string structure and type
+        const headerType = tpl.header_type || (tpl.header ? 'TEXT' : undefined);
+
         const templateConfig: TemplateConfig = {
+            headerType: headerType,
+            headerText: headerType === 'TEXT' ? tpl.header : undefined,
             bodyText: tpl.body ?? '',
             footerText: tpl.footer ?? undefined,
             examples: this.mapBodyExamples(tpl.body_params, tpl.body_param_types),
             buttons: this.mapButtonsFromMeta(tpl.buttons),
-            // preserve extra meta info if needed in jsonb
-            uiSubcategory: tpl.usecase,
+            uiSubcategory: tpl.usecase, // preserved meta key context for frontend dialog structures
         };
-
 
         return {
             id: tpl.id,
             name: tpl.name,
-            language: tpl.language,
+            language: tpl.language === 'en' ? 'en' : 'ar', // Safely structural fallback matching entity constraint
             category: tpl.category,
             topic: tpl.topic,
             usecase: tpl.usecase,
-            industry: tpl.industry,
+            industry: Array.isArray(tpl.industry) ? tpl.industry : tpl.industry ? [tpl.industry] : [],
             header: tpl.header,
+            header_type: headerType,
             body: tpl.body,
             footer: tpl.footer,
             body_params: tpl.body_params,
             body_param_types: tpl.body_param_types,
-            buttons: tpl.buttons,
+            buttons: this.mapMetaDtoButtons(tpl.buttons),
             templateConfig,
         };
     }
@@ -206,6 +214,22 @@ export class WhatsappTemplateService {
         });
 
         return out;
+    }
+
+
+    /**
+     * Maps the buttons cleanly to mirror MetaTemplateLibraryButtonDto flat payload.
+     */
+    private mapMetaDtoButtons(buttons?: any[]): MetaTemplateLibraryButtonDto[] | undefined {
+        if (!buttons?.length) return undefined;
+
+        return buttons.map((btn) => ({
+            type: ['PHONE_NUMBER', 'URL', 'WHATSAPP_CALL'].includes(btn.type) ? btn.type : 'CUSTOM',
+            text: btn.text ?? '',
+            url: btn.url,
+            phone_number: btn.phone_number,
+            country_code: btn.country_code
+        }));
     }
 
 
