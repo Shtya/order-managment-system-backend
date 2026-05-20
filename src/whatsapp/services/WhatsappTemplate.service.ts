@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Brackets } from 'typeorm';
 import * as ExcelJS from 'exceljs';
@@ -7,7 +7,9 @@ import {
     TemplateStatus,
     TemplateConfig,
     WhatsappAccountEntity,
-    TemplateQuality
+    TemplateQuality,
+    MetaTemplateLibraryQueryDto,
+    MetaTemplateLibraryItemDto
 } from 'entities/whatsapp.entity';
 
 import { tenantId } from 'src/category/category.service';
@@ -22,6 +24,7 @@ import {
     messageSendTtlSecondsFromConfig,
     metaSubCategoryForPayload,
 } from '../utils/whatsapp-template-meta.util';
+import { OrdersService } from 'src/orders/services/orders.service';
 
 @Injectable()
 export class WhatsappTemplateService {
@@ -33,6 +36,9 @@ export class WhatsappTemplateService {
         private readonly templateRepo: Repository<WhatsappTemplateEntity>,
         private readonly whatsappApi: WhatsappApiService,
         private readonly notificationService: NotificationService,
+
+        @Inject(forwardRef(() => OrdersService))
+        private readonly orderService: OrdersService,
     ) { }
 
     async list(me: any, q?: any) {
@@ -107,6 +113,101 @@ export class WhatsappTemplateService {
         if (!template) throw new NotFoundException("Template not found");
         return template;
     }
+
+    async metaLibrary(me: any, q: MetaTemplateLibraryQueryDto) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException('Missing adminId');
+
+        let accountId = q.accountId;
+        if (!accountId) {
+            const settings = await this.orderService.getSettings(adminId);
+            accountId = settings?.defaultWhatsAppAccountId;
+            if (!accountId) {
+                //get first active account
+                const activeAccount = await this.accountRepo.findOne({
+                    where: { adminId, isActive: true },
+                });
+                accountId = activeAccount?.id;
+            }
+        }
+
+        if (!accountId) {
+            throw new BadRequestException('Missing accountId');
+        }
+        const language = q?.language ?? 'ar';
+        const allowedLanguages = ['ar', 'en'];
+
+        if (language && !allowedLanguages.includes(language)) {
+            throw new BadRequestException(
+                'Only Arabic and English template library languages are supported.',
+            );
+        }
+
+        const params: Record<string, any> = {};
+        if (q.search) params.search = q.search;
+        if (q.topic) params.topic = q.topic;
+        if (q.usecase) params.usecase = q.usecase;
+        if (q.industry) params.industry = q.industry;
+        if (q.category) params.category = q.category;
+        if (language) params.language = q.language;
+        if (q.name) params.name = q.name;
+
+        const response = await this.whatsappApi.request<any>({
+            accountId,
+            method: 'GET',
+            endpoint: '/message_template_library',
+            params,
+            node: 'none',
+        });
+
+        const templates = Array.isArray(response) ? response : (response?.data ?? []);
+
+        return templates.map((tpl: any) => this.mapMetaLibraryTemplate(tpl));
+    }
+
+    private mapMetaLibraryTemplate(tpl: any): MetaTemplateLibraryItemDto {
+        const templateConfig: TemplateConfig = {
+            bodyText: tpl.body ?? '',
+            footerText: tpl.footer ?? undefined,
+            examples: this.mapBodyExamples(tpl.body_params, tpl.body_param_types),
+            buttons: this.mapButtonsFromMeta(tpl.buttons),
+            // preserve extra meta info if needed in jsonb
+            uiSubcategory: tpl.usecase,
+        };
+
+
+        return {
+            id: tpl.id,
+            name: tpl.name,
+            language: tpl.language,
+            category: tpl.category,
+            topic: tpl.topic,
+            usecase: tpl.usecase,
+            industry: tpl.industry,
+            header: tpl.header,
+            body: tpl.body,
+            footer: tpl.footer,
+            body_params: tpl.body_params,
+            body_param_types: tpl.body_param_types,
+            buttons: tpl.buttons,
+            templateConfig,
+        };
+    }
+
+    private mapBodyExamples(
+        bodyParams?: string[],
+        bodyParamTypes?: string[],
+    ): Record<string, string> | undefined {
+        if (!bodyParams?.length) return undefined;
+
+        const out: Record<string, string> = {};
+        bodyParams.forEach((v, i) => {
+            out[String(i + 1)] = v;
+        });
+
+        return out;
+    }
+
 
     async create(me: any, dto: CreateWhatsappTemplateDto) {
         const adminId = tenantId(me);
@@ -556,6 +657,44 @@ export class WhatsappTemplateService {
             type: "BUTTONS",
             buttons: metaButtons,
         };
+    }
+
+    private mapButtonsFromMeta(buttons?: any[]): TemplateConfig['buttons'] {
+        if (!buttons?.length) return undefined;
+
+        return buttons.map((btn) => {
+            if (btn.type === 'PHONE_NUMBER') {
+                return {
+                    type: 'PHONE_NUMBER',
+                    text: btn.text,
+                    phoneNumber: btn.phone_number,
+                };
+            }
+
+            if (btn.type === 'URL') {
+                return {
+                    type: 'VISIT_WEBSITE',
+                    text: btn.text,
+                    url: btn.url,
+                    urlType: btn.url?.includes('{{') ? 'Dynamic' : 'Static',
+                };
+            }
+
+            if (btn.type === 'WHATSAPP_CALL') {
+                return {
+                    type: 'WHATSAPP_CALL',
+                    text: btn.text,
+                    countryCode: btn.country_code,
+                    phoneNumber: btn.phone_number,
+                };
+            }
+
+            // FLOW / FORMS / unknown Meta button types
+            return {
+                type: 'CUSTOM',
+                text: btn.text,
+            } as any;
+        });
     }
 
     private qualityFromMeta(metaQuality?: string): TemplateQuality {
