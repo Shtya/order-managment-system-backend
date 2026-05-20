@@ -603,7 +603,7 @@ export class WhatsappApiService {
       endpoint,
       data,
       params,
-      node = 'wabaId',
+      node = 'wabaId', //phoneNumberId - wabaId  -none
       nodeId,
       raw = false,
     } = options;

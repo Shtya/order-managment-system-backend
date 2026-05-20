@@ -97,11 +97,19 @@ export class WhatsappTemplateController {
         return { headerUrl: `uploads/whatsapp-templates/${f.filename}` };
     }
 
+    
+    @Get('meta-library')
+    @Permissions('whatsapp.read')
+    async metaLibrary(@Req() req: any, @Query() q: any) {
+        return await this.svc.metaLibrary(req.user, q);
+    }
+    
     @Get(':id')
     @Permissions("whatsapp.read")
     async getOne(@Req() req: any, @Param('id') id: string) {
         return await this.svc.findOne(req.user, id);
     }
+    
 
     @Post()
     @Permissions("whatsapp.templates.create")
@@ -136,7 +144,7 @@ export class WhatsappTemplateController {
         return await this.svc.create(req.user, dto);
     }
 
-    
+
     @Patch(':id')
     @Permissions("whatsapp.templates.update")
     async update(

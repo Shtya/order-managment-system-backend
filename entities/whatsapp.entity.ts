@@ -392,3 +392,45 @@ export class WhatsappWebhookEventEntity {
     @CreateDateColumn({ type: 'timestamp' })
     createdAt: Date;
 }
+
+
+export class MetaTemplateLibraryQueryDto {
+  search?: string;
+  topic?: string;
+  usecase?: string;
+  industry?: string;
+  language?: string;
+  category?: string;
+  name?: string;
+
+  // your local account
+  accountId?: string;
+}
+
+export type MetaTemplateLibraryButtonDto = {
+  type: string;
+  text: string;
+  url?: string;
+  phone_number?: string;
+};
+
+export type MetaTemplateLibraryItemDto = {
+  id: string;
+  name: string;
+  language: string;
+  category: string;
+  topic?: string;
+  usecase?: string;
+  industry?: string[];
+
+  header?: string;
+  body?: string;
+  footer?: string;
+
+  body_params?: string[];
+  body_param_types?: string[];
+
+  buttons?: MetaTemplateLibraryButtonDto[];
+
+  templateConfig: TemplateConfig;
+};
