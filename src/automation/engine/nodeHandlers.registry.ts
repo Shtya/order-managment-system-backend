@@ -336,16 +336,31 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 return { success: false, error: 'WhatsApp template is not approved' };
             }
 
-            const buttons = template.templateConfig.buttons?.filter(btn => btn.type === 'CUSTOM') || [];
-            if ((buttons.length || 0) != (hydratedConfig.branches?.length || 0)) {
+            const buttons = template.templateConfig.buttons || [];
+            const customButtons = template.templateConfig.buttons?.filter(btn => btn.type === 'CUSTOM') || [];
+            if ((customButtons.length || 0) != (hydratedConfig.branches?.length || 0)) {
                 return { success: false, error: 'WhatsApp template buttons and configuration buttons count do not match' };
             }
-            const bodyVarsLength = template.templateConfig.examples?.length || 0;
-            const headerVarsLength = template.templateConfig.headerExample ? 1 : 0;
+            const bodyVarsLength = (Array.isArray(template.templateConfig.examples) 
+                ? template.templateConfig.examples?.length 
+                : Object.keys(template.templateConfig.examples || {}).length) || 0;
+
+
+            const headerVarsLength = (Array.isArray(template.templateConfig.headerExample) 
+                ? template.templateConfig.headerExample?.length 
+                : Object.keys(template.templateConfig.headerExample || {}).length) || 0;
 
             if (bodyVarsLength !== Object.keys(hydratedConfig.bodyVariables || {}).length) {
                 return { success: false, error: 'WhatsApp template body variables count does not match' };
             }
+
+            const dynamicUrlButtons = buttons.filter(btn => btn.type === 'VISIT_WEBSITE' && btn.urlType === 'Dynamic');
+            const configButtonVarsCount = Object.keys(hydratedConfig.buttonVariables || {}).length;
+
+            if (dynamicUrlButtons.length !== configButtonVarsCount) {
+                return { success: false, error: 'WhatsApp template dynamic URL buttons variables count does not match' };
+            }
+
 
             if (headerVarsLength !== Object.keys(hydratedConfig.headerVariables || {}).length) {
                 return { success: false, error: 'WhatsApp template header variables count does not match' };
@@ -367,6 +382,28 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                     components.push({ type: 'body', parameters: bodyParams });
                 }
             }
+
+            if (hydratedConfig.buttonVariables && configButtonVarsCount > 0) {
+                Object.entries(hydratedConfig.buttonVariables).forEach(([buttonIndex, varDetails]: [string, any]) => {
+
+                    const singleButtonParamContainer = this.mapVariablesToParams({ [buttonIndex]: varDetails }, orderData);
+
+                    if (singleButtonParamContainer && singleButtonParamContainer.length > 0) {
+                        components.push({
+                            type: 'button',
+                            sub_type: 'url',
+                            index: String(buttonIndex), // الترتيب الصِفري للزر في مصفوفة أزرار ميتا
+                            parameters: [
+                                {
+                                    type: 'text',
+                                    text: singleButtonParamContainer[0].text // النص الديناميكي المستبدل (كود التتبع، الرقم التعريفي.. إلخ)
+                                }
+                            ]
+                        });
+                    }
+                });
+            }
+
 
             // 3. Determine Recipient
             const to = hydratedConfig.recipientNumber || orderData.phoneNumber;

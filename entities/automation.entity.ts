@@ -23,7 +23,7 @@ export enum AutomationStatus {
 export class AutomationFlowVersionEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
-
+    
     @Column({ type: 'uuid' })
     automationFlowId: string;
 
@@ -181,6 +181,7 @@ export interface SendWhatsappTemplateConfig {
     templateData: TemplateConfig;
     bodyVariables?: Record<string, VariableDetails>;
     headerVariables?: Record<string, VariableDetails>;
+    buttonVariables?: Record<string, VariableDetails>;
     branches?: {
         id: string;
         label: string;
