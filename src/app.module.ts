@@ -49,6 +49,7 @@ import { SafesModule } from './safes/safes.module';
 import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { AutomationModule } from './automation/automation.module';
+import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -115,7 +116,8 @@ import { AutomationModule } from './automation/automation.module';
 		SafesModule,
 		SupplierPaymentsModule,
 		WhatsappModule,
-		AutomationModule
+		AutomationModule,
+		SystemErorrsModule
 	],
 	providers: [
 		QueryFailedErrorFilter, EncryptionService, {
