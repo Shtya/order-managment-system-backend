@@ -1,4 +1,4 @@
-// src/common/QueryFailedErrorFilter.ts
+// src/common/GlobalExceptionFilter .ts
 import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Injectable, NestInterceptor, CallHandler, ExecutionContext } from '@nestjs/common';
 import { Response } from 'express';
 import { QueryFailedError } from 'typeorm';
@@ -19,9 +19,9 @@ export class RequestContextInterceptor implements NestInterceptor {
   }
 }
 
+
 @Injectable()
-@Catch(QueryFailedError)
-export class QueryFailedErrorFilter implements ExceptionFilter {
+export class GlobalExceptionFilter implements ExceptionFilter {
   constructor(private readonly systemErorrsService: SystemErorrsService) { }
 
   catch(exception: any, host: ArgumentsHost) {
@@ -119,16 +119,15 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
 
 
     const httpStatus =
-      exception?.status ||
-      exception?.statusCode ||
-      res?.statusCode ||
+        exception?.status ||
+      exception?.statusCode || 
       500;
 
 
     let severity: 'fatal' | 'error' | 'warn';
 
     if (httpStatus >= 500) {
-      severity = 'error';
+      severity = 'fatal';
     } else if (httpStatus >= 400) {
       severity = 'warn';
     } else {
@@ -141,7 +140,7 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
     ) {
       severity = 'fatal';
     }
-    const responseData = exception?.response 
+    const responseData = exception?.response
 
     const dbContext =
       exception?.query || exception?.parameters || exception?.driverError
@@ -165,7 +164,7 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
 
     const originalUrl = req.originalUrl || null;
     const routePath = req.route?.path || null;
-    
+
     try {
       const adminId = tenantId(req.user);
       routePath
@@ -189,18 +188,14 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
         environment: process.env.NODE_ENV || null,
         exceptionName: exception.name || 'QueryFailedError',
         errorCode: code || null,
-        controllerName: req.controllerName || null,
-        handlerName: req.handlerName || null,
         durationMs,
         severity,
         httpStatus,
         responseData,
         dbContext,
-        requestSize:
-        req.headers['content-length']
-            ? Number(req.headers['content-length'])
-            : null,
-
+        controllerName: req.controllerName || null,
+        handlerName: req.handlerName || null,
+        requestSize: req.headers['content-length'] ? Number(req.headers['content-length']) : null,
         responseSize: res.getHeader?.('content-length') || null,
         referer: req.headers['referer'] || null,
       };
