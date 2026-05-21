@@ -3,7 +3,7 @@ import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { QueryFailedErrorFilter } from 'common/QueryFailedErrorFilter';
+import { QueryFailedErrorFilter, RequestContextInterceptor } from 'common/QueryFailedErrorFilter';
 import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 async function bootstrap() {
@@ -42,6 +42,15 @@ async function bootstrap() {
 				req.rawBody = buf;
 			},
 		}),
+	);
+
+	app.use((req: any, res, next) => {
+		req.startTime = Date.now();
+		next();
+	});
+
+	app.useGlobalInterceptors(
+		new RequestContextInterceptor(),
 	);
 
 	app.use(helmet());
