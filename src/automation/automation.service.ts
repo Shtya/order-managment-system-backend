@@ -251,6 +251,7 @@ export class AutomationService {
     async findAll(me: any, q?: any) {
         const adminId = tenantId(me);
         const isSuperAdminFlag = isSuperAdmin(me);
+    
         if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
 
         const page = Number(q?.page ?? 1);
