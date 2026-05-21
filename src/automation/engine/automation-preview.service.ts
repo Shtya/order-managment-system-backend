@@ -51,6 +51,7 @@ import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { Repository } from 'typeorm';
 import { AppGateway } from 'common/app.gateway';
 import { RedisService } from 'common/redis/RedisService';
+import { User } from 'entities/user.entity';
 
 export interface CreatePreviewInput {
   adminId: string;
@@ -107,6 +108,7 @@ export interface PreviewRunDocument {
   adminId: string;
   automationFlowId: string;
   versionId: string;
+  userId: string;
   versionString?: string;
   automationFlow: { id: string; name: string };
   status: RunStatus;
@@ -153,13 +155,14 @@ export class AutomationPreviewService {
    * Create a new preview run in Redis and immediately execute it.
    * The whole preview is ephemeral and expires after 60 seconds unless heartbeated.
    */
-  async createPreview(input: CreatePreviewInput): Promise<PreviewRunDocument> {
+  async createPreview(user: User, input: CreatePreviewInput): Promise<PreviewRunDocument> {
     const previewId = randomUUID();
     const now = new Date().toISOString();
 
     const doc: PreviewRunDocument = {
       previewId,
       adminId: input.adminId,
+      userId: user.id,
       automationFlowId: input.automationFlowId,
       versionId: input.version.id,
       versionString: input.version.versionString,
@@ -445,7 +448,7 @@ export class AutomationPreviewService {
 
   private async emitPreviewUpdate(preview: PreviewRunDocument): Promise<void> {
     try {
-      this.gateway.server.to(`user_${preview.adminId}`).emit('automation:preview:update', {
+      this.gateway.server.to(`user_${preview.adminId || preview.userId}`).emit('automation:preview:update', {
         previewId: preview.previewId,
         status: preview.status,
         automationFlowId: preview.automationFlowId,

@@ -26,6 +26,7 @@ import {
     metaSubCategoryForPayload,
 } from '../utils/whatsapp-template-meta.util';
 import { OrdersService } from 'src/orders/services/orders.service';
+import { SystemRole, User } from 'entities/user.entity';
 
 @Injectable()
 export class WhatsappTemplateService {
@@ -42,9 +43,17 @@ export class WhatsappTemplateService {
         private readonly orderService: OrdersService,
     ) { }
 
-    async list(me: any, q?: any) {
+
+    private isSuperAdmin(me: User) {
+        return me.role?.name === SystemRole.SUPER_ADMIN;
+    }
+
+
+    async list(me: any, q?: any, superAdmin?: boolean) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        const isSuperAdmin = this.isSuperAdmin(me);
+
+        if (!isSuperAdmin && !adminId) throw new BadRequestException("Missing adminId");
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -58,8 +67,13 @@ export class WhatsappTemplateService {
         const language = q?.language;
         const qb = this.templateRepo
             .createQueryBuilder("tpl")
-            .leftJoinAndSelect("tpl.account", "account")
-            .where("tpl.adminId = :adminId", { adminId });
+            .leftJoinAndSelect("tpl.account", "account");
+
+        if (isSuperAdmin || superAdmin) {
+            qb.where("tpl.adminId IS NULL");
+        } else {
+            qb.where("tpl.adminId = :adminId", { adminId });
+        }
 
         if (category && category !== 'all') {
             qb.andWhere("tpl.category = :category", { category });
@@ -107,8 +121,9 @@ export class WhatsappTemplateService {
 
     async findOne(me: any, id: string) {
         const adminId = tenantId(me);
+        const isSuperAdmin = this.isSuperAdmin(me);
         const template = await this.templateRepo.findOne({
-            where: { id, adminId },
+            where: isSuperAdmin ? { id } : { id, adminId },
             relations: ['account']
         });
         if (!template) throw new NotFoundException("Template not found");
@@ -235,12 +250,16 @@ export class WhatsappTemplateService {
 
     async create(me: any, dto: CreateWhatsappTemplateDto) {
         const adminId = tenantId(me);
-
-        if (!adminId) {
+        const isSuperAdmin = this.isSuperAdmin(me);
+        if (!isSuperAdmin && !adminId) {
             throw new BadRequestException("Missing adminId");
         }
 
         let account: WhatsappAccountEntity;
+        if (!isSuperAdmin && !dto.accountId) {
+            throw new BadRequestException("AccountId is required");
+        }
+
         if (dto.accountId) {
             account = await this.accountRepo.findOne({
                 where: { id: dto.accountId, adminId },
@@ -251,27 +270,30 @@ export class WhatsappTemplateService {
         let metaId: string | null = null;
         let status = TemplateStatus.PENDING;
 
-        const payload = await this.mapToMetaPayload(dto as any);
+        if (!isSuperAdmin) {
 
-        const metaResponse = await this.whatsappApi.request<{ id }>(
-            {
-                accountId: dto.accountId,
-                endpoint: "message_templates",
-                method: "POST",
-                data: payload,
+            const payload = await this.mapToMetaPayload(dto as any);
 
-            }
-        );
+            const metaResponse = await this.whatsappApi.request<{ id }>(
+                {
+                    accountId: dto.accountId,
+                    endpoint: "message_templates",
+                    method: "POST",
+                    data: payload,
 
-        metaId = metaResponse?.id || null;
+                }
+            );
+            metaId = metaResponse?.id || null;
+        }
+
 
         status = TemplateStatus.IN_REVIEW;
 
         const newTemplate = this.templateRepo.create({
             adminId,
-            accountId: dto.accountId,
+            accountId: dto.accountId || null,
             name: dto.name,
-            mobileNumber: account.mobileNumber,
+            mobileNumber: account?.mobileNumber || null,
             category: dto.category,
             subCategory: dto.subCategory,
             language: dto.language,
@@ -289,8 +311,8 @@ export class WhatsappTemplateService {
      */
     async update(me: any, id: string, dto: UpdateWhatsappTemplateDto) {
         const adminId = tenantId(me);
-
-        if (!adminId) {
+        const isSuperAdmin = this.isSuperAdmin(me);
+        if (!isSuperAdmin && !adminId) {
             throw new BadRequestException("Missing adminId");
         }
 
@@ -305,7 +327,7 @@ export class WhatsappTemplateService {
             throw new NotFoundException("Template not found");
         }
 
-        if (template.status === TemplateStatus.LOCKED) {
+        if (!isSuperAdmin && template.status === TemplateStatus.LOCKED) {
             throw new BadRequestException("Locked templates cannot be edited");
         }
         // Meta restriction
@@ -315,7 +337,7 @@ export class WhatsappTemplateService {
             TemplateStatus.PAUSED,
         ];
 
-        if (!editableStatuses.includes(template.status)) {
+        if (!isSuperAdmin && !editableStatuses.includes(template.status)) {
             throw new BadRequestException(
                 "Only APPROVED, REJECTED, or PAUSED templates can be edited",
             );
@@ -325,7 +347,7 @@ export class WhatsappTemplateService {
         const payload: any = {};
 
         // components (FULL replacement)
-        if (dto.templateConfig) {
+        if (!isSuperAdmin && dto.templateConfig) {
             const mapped = await this.mapToMetaPayload({
                 ...template,
                 templateConfig: dto.templateConfig,
@@ -335,34 +357,43 @@ export class WhatsappTemplateService {
             if (mapped.message_send_ttl_seconds != null) {
                 payload.message_send_ttl_seconds = mapped.message_send_ttl_seconds;
             }
+
+            // nothing to update
+            if (Object.keys(payload).length === 0) {
+                throw new BadRequestException("Nothing to update");
+            }
         }
 
-        // nothing to update
-        if (Object.keys(payload).length === 0) {
-            throw new BadRequestException("Nothing to update");
-        }
 
         // Meta edit endpoint
         // POST /{WABA_ID}/message_templates
         // with existing template name
-        await this.whatsappApi.request(
-            {
-                accountId: template.accountId,
-                endpoint: `message_templates?name=${template.name}`,
-                method: "POST",
-                node: "none",
-                data: payload,
-            }
-        );
-
+        if (!isSuperAdmin) {
+            await this.whatsappApi.request(
+                {
+                    accountId: template.accountId,
+                    endpoint: `message_templates?name=${template.name}`,
+                    method: "POST",
+                    node: "none",
+                    data: payload,
+                }
+            );
+        }
 
         if (dto.templateConfig) {
             template.templateConfig = dto.templateConfig as any;
         }
 
+        if (isSuperAdmin) {
+            if (dto.name) template.name = dto.name;
+            if (dto.category) template.category = dto.category;
+            if (dto.subCategory) template.subCategory = dto.subCategory;
+            if (dto.language) template.language = dto.language as any;
+        }
+
         // after editing approved/paused:
         // Meta auto re-approves unless review fails
-        if (
+        if (!isSuperAdmin &&
             template.status === TemplateStatus.APPROVED ||
             template.status === TemplateStatus.PAUSED
         ) {
@@ -376,39 +407,44 @@ export class WhatsappTemplateService {
      * حذف القالب محلياً ومن ميتا
      */
     async delete(me: any, id: string) {
-        const template = await this.findOne(me, id);
 
-        if (template.status === TemplateStatus.DISABLED) {
+        const template = await this.findOne(me, id);
+        const isSuperAdmin = this.isSuperAdmin(me);
+        if (!isSuperAdmin && template.status === TemplateStatus.DISABLED) {
             throw new BadRequestException("DISABLED templates can't be deleted");
         }
 
-        await this.whatsappApi.request(
-            {
-                accountId: template.accountId,
-                endpoint: `message_templates?name=${template.name}&hsm_id=${template.metaId}`,
-                method: "DELETE",
-                node: "none",
-            }
-        );
+        if (!isSuperAdmin) {
+
+            await this.whatsappApi.request(
+                {
+                    accountId: template.accountId,
+                    endpoint: `message_templates?name=${template.name}&hsm_id=${template.metaId}`,
+                    method: "DELETE",
+                    node: "none",
+                }
+            );
+        }
         return await this.templateRepo.remove(template);
     }
     /**
      * تصدير القوالب لـ Excel
      */
     async export(me: any, q: any) {
+        const isSuperAdmin = this.isSuperAdmin(me);
         const { records } = await this.list(me, { ...q, limit: 1000, page: 1 });
         const workbook = new ExcelJS.Workbook();
         const worksheet = workbook.addWorksheet("WhatsApp Templates");
 
         worksheet.columns = [
             { header: "Name", key: "name", width: 25 },
-            { header: "Mobile Number", key: "mobileNumber", width: 25 },
+            ...(isSuperAdmin ? [{ header: "Mobile Number", key: "mobileNumber", width: 25 }] : []),
             { header: "Is Active", key: "isActive", width: 25 },
             { header: "Category", key: "category", width: 15 },
             { header: "SubCategory", key: "subCategory", width: 25 },
             { header: "Language", key: "language", width: 10 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Quality", key: "quality", width: 15 },
+            ...(isSuperAdmin ? [{ header: "Status", key: "status", width: 15 }] : []),
+            ...(isSuperAdmin ? [{ header: "Quality", key: "quality", width: 15 }] : []),
             { header: "Created At", key: "createdAt", width: 25 },
         ];
         worksheet.getRow(1).font = { bold: true };
@@ -460,7 +496,7 @@ export class WhatsappTemplateService {
         let components: WhatsappTemplateComponentDto[] = [];
 
         //header
-        if (cfg.headerType === 'TEXT') {
+        if (cfg.headerType === 'TEXT' && !!cfg.headerText) {
             let header: HeaderTextComponentDto = { type: 'HEADER', text: cfg.headerText, format: "TEXT" }
             if (cfg?.headerExample)
                 //Property 'example' does not exist on type '{ type: string; text: string; }'.

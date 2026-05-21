@@ -17,13 +17,12 @@ export enum AutomationStatus {
     ARCHIVED = 'archived',
 }
 
-
 @Index(['versionString', 'automationFlowId'], { unique: true })
 @Entity('automation_flow_versions')
 export class AutomationFlowVersionEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
-    
+
     @Column({ type: 'uuid' })
     automationFlowId: string;
 

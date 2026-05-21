@@ -156,13 +156,13 @@ export class TemplateConfigDto {
 
 export class CreateWhatsappTemplateDto {
     @IsUUID()
-    accountId: string;
+    @IsOptional()
+    accountId?: string;
 
     @IsString()
     @IsNotEmpty()
     @MaxLength(512)
     name: string;
-
 
     @IsEnum(TemplateCategory)
     category: TemplateCategory;
@@ -179,6 +179,24 @@ export class CreateWhatsappTemplateDto {
 }
 
 export class UpdateWhatsappTemplateDto {
+
+    @IsString()
+    @IsOptional()
+    @MaxLength(512)
+    name: string;
+
+    @IsEnum(TemplateCategory)
+    @IsOptional()
+    category: TemplateCategory;
+
+    @IsEnum(TemplateSubCategory)
+    @IsOptional()
+    subCategory: TemplateSubCategory;
+
+    @IsIn(["ar", "en"])
+    @IsOptional()
+    language: "ar" | "en";
+
     @ValidateNested()
     @Type(() => TemplateConfigDto)
     templateConfig: TemplateConfigDto;

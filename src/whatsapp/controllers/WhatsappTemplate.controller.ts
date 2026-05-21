@@ -17,6 +17,9 @@ import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { CreateWhatsappTemplateDto, UpdateWhatsappTemplateDto } from 'dto/whatsapp.dto';
 import { whatsappTemplateHeaderMulterOptions } from './whatsapp-template-upload.config';
+import axios from 'axios';
+import * as path from 'path';
+import * as fs from 'fs';
 
 function collectValidationMessages(errors: ValidationError[]): string[] {
     const out: string[] = [];
@@ -67,6 +70,12 @@ export class WhatsappTemplateController {
     async getAll(@Req() req: any, @Query() q: any) {
         return await this.svc.list(req.user, q);
     }
+    
+    @Get("/library")
+    @Permissions("whatsapp.read")
+    async getAllLibrary(@Req() req: any, @Query() q: any) {
+        return await this.svc.list(req.user, q, true);
+    }
 
     @Get('export')
     @Permissions("whatsapp.read")
@@ -97,19 +106,18 @@ export class WhatsappTemplateController {
         return { headerUrl: `uploads/whatsapp-templates/${f.filename}` };
     }
 
-    
     @Get('meta-library')
     @Permissions('whatsapp.read')
     async metaLibrary(@Req() req: any, @Query() q: any) {
         return await this.svc.metaLibrary(req.user, q);
     }
-    
+
     @Get(':id')
     @Permissions("whatsapp.read")
     async getOne(@Req() req: any, @Param('id') id: string) {
         return await this.svc.findOne(req.user, id);
     }
-    
+
 
     @Post()
     @Permissions("whatsapp.templates.create")
@@ -127,9 +135,41 @@ export class WhatsappTemplateController {
         const b = req.body || {};
         let templateConfig = parseTemplateConfig(b.templateConfig);
 
+        // Handle file upload
         if (files?.headerMedia?.[0]) {
             const rel = `uploads/whatsapp-templates/${files.headerMedia[0].filename}`;
             templateConfig = { ...templateConfig, headerUrl: rel };
+        }
+        
+        // Handle URL or relative path
+        else if (b.headerUrl) {
+            const headerUrl = String(b.headerUrl).trim();
+            // If it's a full URL, download and save locally
+            if (headerUrl.startsWith('http://') || headerUrl.startsWith('https://')) {
+                try {
+                    const response = await axios({ method: 'get', url: headerUrl, responseType: 'arraybuffer' });
+                    const ext = this.getFileExtension(response.headers['content-type'] || headerUrl);
+                    const filename = `${Date.now()}_header${ext}`;
+                    const filePath = path.join(process.cwd(), 'uploads', 'whatsapp-templates', filename);
+                    
+                    // Ensure directory exists
+                    const dir = path.dirname(filePath);
+                    if (!fs.existsSync(dir)) {
+                        fs.mkdirSync(dir, { recursive: true });
+                    }
+                    
+                    fs.writeFileSync(filePath, response.data);
+                    const rel = `uploads/whatsapp-templates/${filename}`;
+                    templateConfig = { ...templateConfig, headerUrl: rel };
+                } catch (error) {
+                    console.error('Error downloading header media:', error);
+                    throw new BadRequestException('Failed to download header media from URL');
+                }
+            }
+            // If it's already a relative path (uploads/... or /uploads/...), use as is
+            else if (headerUrl.startsWith('uploads/') || headerUrl.startsWith('/uploads/')) {
+                templateConfig = { ...templateConfig, headerUrl: headerUrl.startsWith('/') ? headerUrl.slice(1) : headerUrl };
+            }
         }
 
         const dto = await validateDto(CreateWhatsappTemplateDto, {
@@ -144,15 +184,70 @@ export class WhatsappTemplateController {
         return await this.svc.create(req.user, dto);
     }
 
+    private getFileExtension(contentType: string, url: string = ''): string {
+        const mimeTypes: Record<string, string> = {
+            'image/jpeg': '.jpg',
+            'image/jpg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'video/mp4': '.mp4',
+            'video/quicktime': '.mov',
+            'application/pdf': '.pdf',
+        };
+        
+        if (mimeTypes[contentType]) {
+            return mimeTypes[contentType];
+        }
+        
+        // Try to extract from URL
+        const urlMatch = url.match(/\.(jpg|jpeg|png|gif|mp4|mov|pdf)$/i);
+        if (urlMatch) {
+            return urlMatch[0];
+        }
+        
+        return '.jpg'; // Default
+    }
+
 
     @Patch(':id')
     @Permissions("whatsapp.templates.update")
+    // 1. أضفنا الـ Interceptor لقراءة الـ FormData والملفات المرفوعة أثناء التعديل
+    @UseInterceptors(
+        FileFieldsInterceptor(
+            [{ name: 'headerMedia', maxCount: 1 }],
+            whatsappTemplateHeaderMulterOptions,
+        ),
+    )
     async update(
         @Req() req: any,
         @Param('id') id: string,
-        @Body() data: UpdateWhatsappTemplateDto,
+        @UploadedFiles()
+        files: { headerMedia?: Express.Multer.File[] },
     ) {
-        return await this.svc.update(req.user, id, data);
+        const b = req.body || {};
+
+        
+        let templateConfig = undefined;
+        if (b.templateConfig) {
+            templateConfig = parseTemplateConfig(b.templateConfig);
+        }
+
+
+        if (files?.headerMedia?.[0]) {
+            const rel = `uploads/whatsapp-templates/${files.headerMedia[0].filename}`;
+            templateConfig = { ...(templateConfig || {}), headerUrl: rel };
+        }
+
+
+        const dto = await validateDto(UpdateWhatsappTemplateDto, {
+            name: b.name || undefined,
+            category: b.category || undefined,
+            subCategory: b.subCategory || undefined,
+            language: b.language || undefined,
+            ...(templateConfig && { templateConfig }),
+        });
+
+        return await this.svc.update(req.user, id, dto);
     }
 
     @Delete(':id')

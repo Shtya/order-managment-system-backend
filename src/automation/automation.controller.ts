@@ -25,7 +25,7 @@ export class AutomationController {
     @Body() dto: CreatePreviewInput,
   ) {
     const adminId = tenantId(req.user);
-    return this.automationPreviewService.createPreview({ ...dto, adminId });
+    return this.automationPreviewService.createPreview(req.user,{ ...dto, adminId });
   }
 
   @Get('preview/:previewId')
