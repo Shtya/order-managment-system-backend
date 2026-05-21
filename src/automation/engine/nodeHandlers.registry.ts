@@ -1,7 +1,7 @@
 // factory pattern. A registry that holds the actual execution logic for each FlowNodeType (e.g., WhatsappHandler, UpdateOrderStatusHandler, ConditionHandler).
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
-import { forwardRef, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { ActionType, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -10,6 +10,9 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { TemplateStatus, WhatsappTemplateEntity } from "entities/whatsapp.entity";
 import { Repository } from "typeorm";
 import { WhatsappTemplateComponent } from "src/whatsapp/services/WhatsappApi.service";
+import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
+import { AutomationAdapter } from "./adapters/automation-adapters.interface";
+import { ProductionAutomationAdapter } from "./adapters/production.adapters";
 
 export interface NodeHandlerResponse {
     success: boolean;
@@ -111,11 +114,11 @@ export class ConditionOrderCheckHandler implements FlowNodeHandler {
 
             // 2. المرور على جميع الشروط (المنطق هنا هو AND: يجب أن تتطابق جميع الشروط)
             for (const check of checks) {
-                const actualValue = this.getActualFieldValue(check.field, orderData);  // مثلاً: orderData['items_count']
+                const actualValue = getActualFieldValue(check.field, orderData);  // مثلاً: orderData['items_count']
                 const targetValue = check.targetValue;      // القيمة المدخلة من المستخدم
                 const operator = check.operator;
 
-                const isMatch = this.evaluateCondition(actualValue, operator, targetValue);
+                const isMatch = evaluateCondition(actualValue, operator, targetValue, this.logger);
 
                 if (!isMatch) {
                     allChecksPassed = false;
@@ -147,61 +150,6 @@ export class ConditionOrderCheckHandler implements FlowNodeHandler {
             };
         }
     }
-
-    private getActualFieldValue(field: string, orderData: OrderEntity): any {
-        switch (field) {
-            case "shippingCompany":
-                return orderData.shippingCompanyId;
-            case "productsTotal":
-                return orderData.productsTotal;
-            case "items_count":
-                return orderData.items.length;
-            default:
-                return orderData[field] || orderData[field.toLowerCase()];
-        }
-    }
-    /**
-     * دالة التقييم: تقوم بترجمة الـ Operators الخاصة بالـ Frontend إلى منطق برمجي
-     */
-    private evaluateCondition(actualValue: any, operator: string, targetValue: any): boolean {
-        // تحويل القيم كصص لتسهيل مقارنة الـ IDs وحفوظة من قيم الـ null/undefined
-        const actualStr = actualValue !== null && actualValue !== undefined ? String(actualValue).trim() : '';
-        const targetStr = targetValue !== null && targetValue !== undefined ? String(targetValue).trim() : '';
-
-        // تجهيز القيم كأرقام في حال كان الـ Operator رياضي (مثل الأكبر والأصغر)
-        const actualNum = Number(actualValue);
-        const targetNum = Number(targetValue);
-
-        switch (operator) {
-            // 1. المعاملات العامة (النصوص، القوائم Select، والـ Booleans)
-            case '==':
-                return actualStr === targetStr; // استخدام === مع String يضمن تطابق الـ Boolean والأرقام بشكل آمن
-            case '!=':
-                return actualStr !== targetStr;
-
-            // 2. المعاملات الرياضية (للحقول مثل items_count و productsTotal)
-            case '>':
-                return !isNaN(actualNum) && !isNaN(targetNum) && actualNum > targetNum;
-            case '<':
-                return !isNaN(actualNum) && !isNaN(targetNum) && actualNum < targetNum;
-            case '>=':
-                return !isNaN(actualNum) && !isNaN(targetNum) && actualNum >= targetNum;
-            case '<=':
-                return !isNaN(actualNum) && !isNaN(targetNum) && actualNum <= targetNum;
-
-            // 3. معاملات البحث النصي (للحقول مثل city و discount)
-            case 'contains':
-                return actualStr.toLowerCase().includes(targetStr.toLowerCase());
-            case 'not_contains':
-                return !actualStr.toLowerCase().includes(targetStr.toLowerCase());
-            case 'starts_with':
-                return actualStr.toLowerCase().startsWith(targetStr.toLowerCase());
-
-            default:
-                this.logger.warn(`Unknown operator used in condition step: ${operator}`);
-                return false;
-        }
-    }
 }
 
 @Injectable()
@@ -209,10 +157,8 @@ export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
     private readonly logger = new Logger(ActionUpdateOrderStatusHandler.name);
 
     constructor(
-        @Inject(forwardRef(() => OrdersService))
-        protected readonly ordersService: OrdersService,
-
-    ) { }
+        private readonly adapter: AutomationAdapter,
+    ) {}
 
     async execute(
         hydratedConfig: UpdateOrderStatusConfig,
@@ -232,7 +178,7 @@ export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
             }
 
             // 2. Validate target status
-            const statusEntity = await this.ordersService.findStatusById(hydratedConfig.newStatusId, orderData.adminId, null, true);
+            const statusEntity = await this.adapter.findStatusById(hydratedConfig.newStatusId, orderData.adminId);
 
             if (!statusEntity) {
                 return {
@@ -257,8 +203,8 @@ export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
                 };
             }
 
-            // 4. Execute status update
-            await this.ordersService.changeStatus(
+            // 4. Execute status update using adapter
+            await this.adapter.changeStatus(
                 {
                     adminId: run.initialPayload?.adminId,
                     id: run.initialPayload?.userId || null,
@@ -305,11 +251,8 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
     private readonly logger = new Logger(ActionSendWhatsappTemplateMessageHandler.name);
 
     constructor(
-        @Inject(forwardRef(() => WhatsappApiService))
-        private readonly whatsappApiService: WhatsappApiService,
-        @InjectRepository(WhatsappTemplateEntity)
-        private readonly templateRepo: Repository<WhatsappTemplateEntity>,
-    ) { }
+        private readonly adapter: AutomationAdapter,
+    ) {}
 
     async execute(hydratedConfig: SendWhatsappTemplateConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
         try {
@@ -318,11 +261,8 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 return { success: false, error: 'Order data not found in trigger output' };
             }
 
-            // 1. Get Template and Account
-            const template = await this.templateRepo.findOne({
-                where: { id: hydratedConfig.templateId },
-                relations: ['account']
-            });
+            // 1. Get Template and Account using adapter
+            const template = await this.adapter.getTemplateById(hydratedConfig.templateId);
 
             if (!template) {
                 return { success: false, error: 'WhatsApp template not found' };
@@ -346,9 +286,7 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 : Object.keys(template.templateConfig.examples || {}).length) || 0;
 
 
-            const headerVarsLength = (Array.isArray(template.templateConfig.headerExample) 
-                ? template.templateConfig.headerExample?.length 
-                : Object.keys(template.templateConfig.headerExample || {}).length) || 0;
+            const headerVarsLength = template.templateConfig.headerExample ? 1 : 0;
 
             if (bodyVarsLength !== Object.keys(hydratedConfig.bodyVariables || {}).length) {
                 return { success: false, error: 'WhatsApp template body variables count does not match' };
@@ -411,26 +349,28 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 return { success: false, error: 'Recipient phone number not found' };
             }
 
-            // 4. Send Message
-            const response = await this.whatsappApiService.sendTemplateFromEntity(template.accountId, {
-                to,
-                template,
-                components: components.length > 0 ? components : undefined,
-            });
-
-            const messageId = response.messages?.[0]?.id;
+            // 4. Send Message using adapter
+            const adapterResponse = await this.adapter.sendTemplateFromEntity(
+                template.accountId,
+                {
+                    to,
+                    template,
+                    components: components.length > 0 ? components : undefined,
+                },
+            );
 
             return {
                 success: true,
                 shouldPause: hydratedConfig.branches?.length > 0,
                 output: {
-                    messageId,
+                    messageId: adapterResponse.messageId,
                     recipient: to,
                     templateId: template.id,
                     templateName: template.name,
                     variables: {
                         header: hydratedConfig.headerVariables,
-                        body: hydratedConfig.bodyVariables
+                        body: hydratedConfig.bodyVariables,
+                        button: hydratedConfig.buttonVariables,
                     }
                 }
             };
@@ -491,19 +431,17 @@ export class NodeHandlersRegistry {
     private readonly handlers = new Map<FlowNodeDataType, FlowNodeHandler>();
 
     constructor(
-        private readonly conditionQuickOrderStatusHandler: ConditionQuickOrderStatusHandler,
-        private readonly conditionOrderCheckHandler: ConditionOrderCheckHandler,
-        private readonly actionUpdateOrderStatusHandler: ActionUpdateOrderStatusHandler,
-        private readonly actionSendWhatsappTemplateMessageHandler: ActionSendWhatsappTemplateMessageHandler,
+        private readonly adapter: ProductionAutomationAdapter,
     ) {
         this.registerHandlers();
     }
 
     private registerHandlers() {
-        this.handlers.set(ConditionType.QUICK_ORDER_STATUS, this.conditionQuickOrderStatusHandler);
-        this.handlers.set(ConditionType.ORDER_CHECK, this.conditionOrderCheckHandler);
-        this.handlers.set(ActionType.UPDATE_ORDER_STATUS, this.actionUpdateOrderStatusHandler);
-        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, this.actionSendWhatsappTemplateMessageHandler);
+        // Create handlers with the adapter
+        this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler());
+        this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler());
+        this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter));
+        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter));
     }
 
     /**

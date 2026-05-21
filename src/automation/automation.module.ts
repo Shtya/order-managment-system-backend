@@ -7,13 +7,15 @@ import { FlowExecutionQueueService, TriggerDispatcherService } from './engine/tr
 import { EngineRunnerService } from './engine/engineRunner.service';
 import { FlowWorkerService } from './engine/flowWorker.service';
 import { VariableHydratorService } from './engine/variableHydrator.service';
-import { ActionSendWhatsappTemplateMessageHandler, ActionUpdateOrderStatusHandler, ConditionOrderCheckHandler, ConditionQuickOrderStatusHandler, NodeHandlersRegistry } from './engine/nodeHandlers.registry';
+import { ConditionOrderCheckHandler, ConditionQuickOrderStatusHandler, NodeHandlersRegistry } from './engine/nodeHandlers.registry';
 import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, TriggerMatchersRegistry } from './engine/triggerMatchers.registry';
 import { OrdersModule } from 'src/orders/orders.module';
 import { WhatsappModule } from 'src/whatsapp/whatsapp.module';
 import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { NotificationModule } from 'src/notifications/notification.module';
 import { WebSocketModule } from 'common/websocket.module';
+import { ProductionAutomationAdapter } from './engine/adapters/production.adapters';
+import { AutomationPreviewService } from './engine/automation-preview.service';
 
 
 @Module({
@@ -34,7 +36,7 @@ import { WebSocketModule } from 'common/websocket.module';
   providers: [AutomationService, TriggerDispatcherService, FlowExecutionQueueService,
     EngineRunnerService, FlowWorkerService, VariableHydratorService,
     NodeHandlersRegistry, ConditionQuickOrderStatusHandler, ConditionOrderCheckHandler,
-    ActionUpdateOrderStatusHandler, ActionSendWhatsappTemplateMessageHandler,
+    ProductionAutomationAdapter, AutomationPreviewService,
     TriggerMatchersRegistry, OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher
   ],
   exports: [AutomationService, TriggerDispatcherService, FlowExecutionQueueService,

@@ -406,7 +406,12 @@ export class OrdersService {
       });
     }
 
-    if (q?.status) {
+    if(q?.statusId) {
+      qb.andWhere("order.statusId = :statusId", {
+        statusId: q.statusId,
+      });
+    }
+    else  if (q?.status) {
       const statusParam = q.status;
       if (typeof statusParam === "string" && statusParam.includes(",")) {
         const statusCodes = statusParam.split(",").map((s) => s.trim());
