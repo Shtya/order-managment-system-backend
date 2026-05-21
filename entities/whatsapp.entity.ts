@@ -151,11 +151,11 @@ export class WhatsappTemplateEntity {
     admin: User;
 
     @Index()
-    @Column({ type: 'uuid' })
+    @Column({ type: 'uuid', nullable: true })
     accountId: string;
 
     // العلاقة مع حساب الواتساب
-    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'SET NULL' })
+    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'SET NULL', nullable: true })
     @JoinColumn({ name: 'accountId' })
     account: WhatsappAccountEntity;
 

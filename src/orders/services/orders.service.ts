@@ -88,7 +88,7 @@ import { ShippingService } from "src/shipping/shipping.service";
 import { StoreQueueService } from "src/stores/storesIntegrations/queues";
 import { CRUD } from "common/crud.service";
 import { randomBytes } from "crypto";
-import { generateRandomAlphanumeric } from "common/healpers";
+import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -308,7 +308,8 @@ export class OrdersService {
   }
   async getStatuses(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    const superAdmin = isSuperAdmin(me);
+    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
 
     const statuses = await this.statusRepo
       .createQueryBuilder("status")
@@ -322,10 +323,13 @@ export class OrdersService {
       ])
       .where(
         new Brackets((qb) => {
+          superAdmin ?
+          qb.where("status.system = :system", { system: true })
+          : 
           qb.where("status.adminId = :adminId", { adminId }).orWhere(
             "status.system = :system",
             { system: true },
-          );
+          )
         }),
       )
       .andWhere("status.isActive = :isActive", { isActive: true })
@@ -337,7 +341,8 @@ export class OrdersService {
 
   async getStatus(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    const superAdmin = isSuperAdmin(me);
+    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
 
     const status = await this.findStatusById(id, adminId)
     if (!status) throw new NotFoundException("Status not found");
@@ -406,12 +411,12 @@ export class OrdersService {
       });
     }
 
-    if(q?.statusId) {
+    if (q?.statusId) {
       qb.andWhere("order.statusId = :statusId", {
         statusId: q.statusId,
       });
     }
-    else  if (q?.status) {
+    else if (q?.status) {
       const statusParam = q.status;
       if (typeof statusParam === "string" && statusParam.includes(",")) {
         const statusCodes = statusParam.split(",").map((s) => s.trim());

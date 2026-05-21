@@ -7,6 +7,7 @@ import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
 import { FlowExecutionQueueService, TriggerDispatcherService } from './engine/triggerDispatcher.service';
+import { isSuperAdmin } from 'common/healpers';
 
 @Injectable()
 export class AutomationService {
@@ -24,8 +25,9 @@ export class AutomationService {
 
     async create(me: any, dto: CreateAutomationDto) {
         const adminId = tenantId(me);
+        const isSuperAdminFlag = isSuperAdmin(me);
 
-        if (!adminId) {
+        if (!isSuperAdminFlag && !adminId) {
             throw new BadRequestException('AdminId not found');
         }
 
@@ -76,8 +78,9 @@ export class AutomationService {
 
     async update(me: any, id: string, dto: UpdateAutomationDto) {
         const adminId = tenantId(me);
+        const isSuperAdminFlag = isSuperAdmin(me);
 
-        if (!adminId) {
+        if (!isSuperAdminFlag && !adminId) {
             throw new BadRequestException('AdminId not found');
         }
 
@@ -242,7 +245,8 @@ export class AutomationService {
 
     async findAll(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        const isSuperAdminFlag = isSuperAdmin(me);
+        if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -253,8 +257,12 @@ export class AutomationService {
 
         const qb = this.automationRepo
             .createQueryBuilder("automation")
-            .leftJoinAndSelect('automation.latestVersion', 'latestVersion')
-            .where("automation.adminId = :adminId", { adminId });
+            .leftJoinAndSelect('automation.latestVersion', 'latestVersion');
+
+        if (isSuperAdminFlag)
+            qb.where("automation.adminId Is NULL")
+        else
+            qb.where("automation.adminId = :adminId", { adminId })
 
         // Filters
         if (q?.status) {
@@ -306,11 +314,13 @@ export class AutomationService {
 
     async findOne(me: any, id: string, version?: string) {
         const adminId = tenantId(me);
+        const isSuperAdminFlag = isSuperAdmin(me);
+        if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
 
         const query = this.automationRepo.createQueryBuilder('automation')
             .withDeleted()
             .where('automation.id = :id', { id })
-            .andWhere('automation.adminId = :adminId', { adminId });
+            .andWhere(isSuperAdminFlag ? 'automation.adminId Is NULL' : 'automation.adminId = :adminId', { adminId });
 
         if (version) {
             query.leftJoinAndSelect(
@@ -467,7 +477,8 @@ export class AutomationService {
 
     async findAllRuns(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        const isSuperAdminFlag = isSuperAdmin(me);
+        if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);

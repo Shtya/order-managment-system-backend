@@ -268,11 +268,11 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 return { success: false, error: 'WhatsApp template not found' };
             }
 
-            if (!template.account) {
+            if (template.adminId && !template.account) {
                 return { success: false, error: 'WhatsApp account not found' };
             }
 
-            if (template.status !== TemplateStatus.APPROVED) {
+            if (template.adminId && template.status !== TemplateStatus.APPROVED) {
                 return { success: false, error: 'WhatsApp template is not approved' };
             }
 

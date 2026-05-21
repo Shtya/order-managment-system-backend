@@ -27,7 +27,7 @@ import { ShippingQueueService } from './queues/shipping.queues';
 import { AppGateway } from '../../common/app.gateway';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
-import { generateRandomAlphanumeric } from 'common/healpers';
+import { generateRandomAlphanumeric,  isSuperAdmin } from 'common/healpers';
 
 @Injectable()
 export class ShippingService {
@@ -100,33 +100,51 @@ export class ShippingService {
 		return { ok: true, integrations: result };
 	}
 
-	async activeIntegrations(user: any) {
-		const adminId = tenantId(user)
-		const integrations = await this.integrationsRepo.find({
-			where: {
-				adminId,
-				isActive: true
-			},
-			relations: ['shippingCompany'] // Ensure we have company details like code/name
-		});
+async activeIntegrations(user: any) {
+    const superAdmin = isSuperAdmin(user);
 
-		// 3. Filter and format the result
-		// We only return those that actually have an API key configured
-		const result = integrations
-			.filter(integ => !!integ.credentials?.apiKey)
-			.map((integ) => ({
-				id: integ.id,
-				provider: integ.shippingCompany.code,
-				providerId: integ.shippingCompany.id,
-				name: integ.shippingCompany.name,
-				logo: integ.shippingCompany.logo,
-			}));
+    if (superAdmin) {
+        const companies = await this.companiesRepo.find();
 
-		return {
-			ok: true,
-			integrations: result
-		};
-	}
+        const result = companies.map((company) => ({
+            id: company.id, 
+            provider: company.code,
+            providerId: company.id,
+            name: company.name,
+            logo: company.logo,
+        }));
+
+        return {
+            ok: true,
+            integrations: result
+        };
+    }
+
+    // 2. إذا كان مستخدم عادي (Tenant)، يستمر المنطق القديم بالتقيد بالـ adminId الخاص به والـ API Key
+    const adminId = tenantId(user);
+    const integrations = await this.integrationsRepo.find({
+        where: {
+            adminId,
+            isActive: true
+        },
+        relations: ['shippingCompany']
+    });
+
+    const result = integrations
+        .filter(integ => !!integ.credentials?.apiKey)
+        .map((integ) => ({
+            id: integ.id,
+            provider: integ.shippingCompany?.code,
+            providerId: integ.shippingCompany?.id,
+            name: integ.shippingCompany?.name,
+            logo: integ.shippingCompany?.logo,
+        }));
+
+    return {
+        ok: true,
+        integrations: result
+    };
+}
 
 	async getShipmentStatus(adminId: string, provider: string, trackingNumber: string) {
 		const p = this.getProvider(provider);

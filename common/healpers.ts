@@ -6,6 +6,7 @@ import { existsSync } from 'fs';
 import { extname, join } from 'path';
 import { OrderStatus } from 'entities/order.entity';
 import { randomBytes } from 'crypto';
+import { SystemRole, User } from 'entities/user.entity';
 
 export function calculateRange(range?: string): { start?: Date; end?: Date } {
     const now = new Date();
@@ -290,4 +291,8 @@ export function formatReferenceMeta(meta: Record<string, any> = {}) {
             return `${label}: ${value}`;
         })
         .join(" | ");
+}
+
+export function isSuperAdmin(me: User) {
+    return me.role?.name === SystemRole.SUPER_ADMIN;
 }
