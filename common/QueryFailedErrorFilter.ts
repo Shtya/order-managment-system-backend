@@ -1,15 +1,18 @@
 // src/common/QueryFailedErrorFilter.ts
-import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus } from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Injectable } from '@nestjs/common';
 import { Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 import * as fs from 'fs';
+import { SystemErorrsService } from 'src/system-erorrs/system-erorrs.service';
 
+@Injectable()
 @Catch(QueryFailedError)
 export class QueryFailedErrorFilter implements ExceptionFilter {
+  constructor(private readonly systemErorrsService: SystemErorrsService) {}
+
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-
     const req = ctx.getRequest<any>();
 
     const files = req.files as any;
@@ -22,9 +25,11 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
       });
     }
 
-
     const code = exception?.driverError?.code as string | undefined;
     const detail = exception?.driverError?.detail ?? exception?.message;
+
+    // Log the error to database
+    this.logSystemError(exception, req, code, detail);
 
     // Map of common Postgres error codes → friendly messages
     const pgMap: Record<string, { status: number; message: string; error: string }> = {
@@ -91,5 +96,37 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
       code,
       details: detail,
     });
+  }
+
+  private logSystemError(exception: any, req: any, code: string | undefined, detail: string) {
+    try {
+      const errorData = {
+        userId: req.user?.id || null,
+        adminId: req.user?.adminId || null,
+        endpoint: req.url || null,
+        method: req.method || null,
+        requestPayload: req.body || null,
+        headers: req.headers || null,
+        pathParams: req.params || null,
+        searchParams: req.query || null,
+        errorMessage: detail || exception.message,
+        stackTrace: exception.stack || null,
+        ipAddress: req.ip || req.connection?.remoteAddress || null,
+        userAgent: req.headers['user-agent'] || null,
+        contentType: req.headers['content-type'] || null,
+        environment: process.env.NODE_ENV || null,
+        httpStatus: null, // Will be set after response
+        serviceName: 'order-management-backend',
+        exceptionName: exception.name || 'QueryFailedError',
+        errorCode: code || null,
+        severity: 'error' as const,
+        referer: req.headers['referer'] || null,
+      };
+
+      this.systemErorrsService.logError(errorData);
+    } catch (e) {
+      // Silently fail to avoid infinite loops
+      console.error('Failed to log system error:', e);
+    }
   }
 }
