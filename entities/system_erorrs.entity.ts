@@ -62,7 +62,10 @@ export class SystemErrorEntity {
     httpStatus: number | null;
 
     @Column({ type: 'varchar', nullable: true })
-    serviceName: string | null;
+    controllerName: string | null;
+
+    @Column({ type: 'varchar', nullable: true })
+    handlerName: string | null;
 
     @Column({ type: 'varchar', nullable: true })
     exceptionName: string | null;
@@ -84,12 +87,30 @@ export class SystemErrorEntity {
 
     @Column({ type: 'jsonb', nullable: true })
     dbContext: Record<string, any> | null;
-    
+
     @Column({ type: 'varchar', nullable: true })
     referer: string | null;
 
     @Column({ type: 'varchar', nullable: true })
+    frontendRoute: string | null;
+
+    @Column({ type: 'jsonb', nullable: true })
+    responseData: Record<string, any> | null;
+
+    @Column({ type: 'varchar', nullable: true })
     severity: 'fatal' | 'error' | 'warn' | null;
+
+    @Column({ type: 'int', nullable: true })
+    responseSize: number | null;
+
+    @Column({ type: 'int', nullable: true })
+    requestSize: number | null;
+
+    @Column({ type: 'varchar', nullable: true })
+    routePath: string | null;
+
+    @Column({ type: 'varchar', nullable: true })
+    originalUrl: string | null;
 
     @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date; // The exact time of the exception

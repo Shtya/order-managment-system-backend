@@ -460,7 +460,6 @@ export class AutomationService {
         throw new Error('Automation not found');
     }
 
-
     let nextStatus: AutomationStatus = status;
 
     if (status === undefined || status === null) {

@@ -1,14 +1,28 @@
 // src/common/QueryFailedErrorFilter.ts
-import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Injectable } from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Injectable, NestInterceptor, CallHandler, ExecutionContext } from '@nestjs/common';
 import { Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 import * as fs from 'fs';
 import { SystemErorrsService } from 'src/system-erorrs/system-erorrs.service';
+import { tenantId } from 'src/purchases/purchases.service';
+import { Observable } from 'rxjs';
+
+@Injectable()
+export class RequestContextInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    const req = context.switchToHttp().getRequest();
+
+    req.controllerName = context.getClass().name;
+    req.handlerName = context.getHandler().name;
+
+    return next.handle();
+  }
+}
 
 @Injectable()
 @Catch(QueryFailedError)
 export class QueryFailedErrorFilter implements ExceptionFilter {
-  constructor(private readonly systemErorrsService: SystemErorrsService) {}
+  constructor(private readonly systemErorrsService: SystemErorrsService) { }
 
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -29,7 +43,7 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
     const detail = exception?.driverError?.detail ?? exception?.message;
 
     // Log the error to database
-    this.logSystemError(exception, req, code, detail);
+    this.logSystemError(exception, req, response, code, detail);
 
     // Map of common Postgres error codes → friendly messages
     const pgMap: Record<string, { status: number; message: string; error: string }> = {
@@ -98,12 +112,69 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
     });
   }
 
-  private logSystemError(exception: any, req: any, code: string | undefined, detail: string) {
+  private logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string) {
+    const durationMs = req.startTime
+      ? Date.now() - req.startTime
+      : null;
+
+
+    const httpStatus =
+      exception?.status ||
+      exception?.statusCode ||
+      res?.statusCode ||
+      500;
+
+
+    let severity: 'fatal' | 'error' | 'warn';
+
+    if (httpStatus >= 500) {
+      severity = 'error';
+    } else if (httpStatus >= 400) {
+      severity = 'warn';
+    } else {
+      severity = 'error';
+    }
+
+    if (
+      exception?.name === 'QueryFailedError' &&
+      !exception?.driverError?.code
+    ) {
+      severity = 'fatal';
+    }
+    const responseData = exception?.response 
+
+    const dbContext =
+      exception?.query || exception?.parameters || exception?.driverError
+        ? {
+          query: exception?.query || null,
+          parameters: exception?.parameters || null,
+          driverError: exception?.driverError || null,
+          raw: exception?.driverError?.routine || null,
+          postgres: {
+            code: exception?.driverError?.code || null,
+            detail: exception?.driverError?.detail || null,
+            hint: exception?.driverError?.hint || null,
+            table: exception?.driverError?.table || null,
+            column: exception?.driverError?.column || null,
+            constraint: exception?.driverError?.constraint || null,
+            schema: exception?.driverError?.schema || null,
+            dataType: exception?.driverError?.dataType || null,
+          },
+        }
+        : null;
+
+    const originalUrl = req.originalUrl || null;
+    const routePath = req.route?.path || null;
+    
     try {
+      const adminId = tenantId(req.user);
+      routePath
       const errorData = {
         userId: req.user?.id || null,
-        adminId: req.user?.adminId || null,
+        adminId: adminId || null,
         endpoint: req.url || null,
+        originalUrl,
+        routePath,
         method: req.method || null,
         requestPayload: req.body || null,
         headers: req.headers || null,
@@ -114,12 +185,23 @@ export class QueryFailedErrorFilter implements ExceptionFilter {
         ipAddress: req.ip || req.connection?.remoteAddress || null,
         userAgent: req.headers['user-agent'] || null,
         contentType: req.headers['content-type'] || null,
+        frontendRoute: req.headers['x-frontend-route'] || null,
         environment: process.env.NODE_ENV || null,
-        httpStatus: null, // Will be set after response
-        serviceName: 'order-management-backend',
         exceptionName: exception.name || 'QueryFailedError',
         errorCode: code || null,
-        severity: 'error' as const,
+        controllerName: req.controllerName || null,
+        handlerName: req.handlerName || null,
+        durationMs,
+        severity,
+        httpStatus,
+        responseData,
+        dbContext,
+        requestSize:
+        req.headers['content-length']
+            ? Number(req.headers['content-length'])
+            : null,
+
+        responseSize: res.getHeader?.('content-length') || null,
         referer: req.headers['referer'] || null,
       };
 
