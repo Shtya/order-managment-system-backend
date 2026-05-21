@@ -10,6 +10,7 @@ import { NodeHandlerResponse, NodeHandlersRegistry } from './nodeHandlers.regist
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { AppGateway } from 'common/app.gateway';
+import { findNextNodeId } from './automation-helpers';
 
 @Injectable()
 export class EngineRunnerService {
@@ -55,7 +56,7 @@ export class EngineRunnerService {
         }
 
         // البحث عن أول عقدة تلي الـ Trigger مباشرة
-        const firstNodeId = this.findNextNodeId(version.flow.edges, run.executionState.trigger.nodeId);
+        const firstNodeId = findNextNodeId(version.flow.edges, run.executionState.trigger.nodeId);
         if (!firstNodeId) {
             run.status = RunStatus.COMPLETED;
             await this.runRepo.save(run);
@@ -135,7 +136,7 @@ export class EngineRunnerService {
         const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
 
         // عند الاستيقاظ، نتحرك فوراً إلى العقدة التالية للعقدة التي سببت الإيقاف
-        const nextNodeId = this.findNextNodeId(version.flow.edges, resumedNodeId, chosenBranchId);
+        const nextNodeId = findNextNodeId(version.flow.edges, resumedNodeId, chosenBranchId);
 
         if (!nextNodeId) {
             run.status = RunStatus.COMPLETED;
@@ -180,7 +181,7 @@ export class EngineRunnerService {
                 const savedStep = run.executionState.steps[currentNodeId];
                 if (savedStep && savedStep.success) {
                     this.logger.log(`Node ${currentNodeId} already completed successfully. Skipping to next.`);
-                    currentNodeId = this.findNextNodeId(flow.edges, currentNodeId, savedStep.chosenBranch);
+                    currentNodeId = findNextNodeId(flow.edges, currentNodeId, savedStep.chosenBranch);
                     continue;
                 }
                 //add delay 500ms to simulate real-time execution
@@ -219,7 +220,7 @@ export class EngineRunnerService {
                 }
 
                 // 7. الانتقال للعقدة التالية بناءً على الـ edges والـ chosenBranch (إن وجد في حالات الشروط)
-                currentNodeId = this.findNextNodeId(flow.edges, currentNodeId, result.chosenBranch);
+                currentNodeId = findNextNodeId(flow.edges, currentNodeId, result.chosenBranch);
 
             } catch (error) {
                 await this.failRun(
@@ -245,18 +246,6 @@ export class EngineRunnerService {
         );
     }
 
-    /**
-     * محرك البحث عن العقدة التالية داخل مصفوفة الـ Edges
-     */
-    private findNextNodeId(edges: FlowEdge[], currentNodeId: string, sourceHandle?: string): string | null {
-        const edge = edges.find(e => {
-            if (sourceHandle) {
-                return e.source === currentNodeId && e.sourceHandle === sourceHandle;
-            }
-            return e.source === currentNodeId;
-        });
-        return edge ? edge.target : null;
-    }
 
     private async sendAutomationNotification(run: AutomationRunEntity, type: NotificationType, title: string, message: string) {
         try {

@@ -7,11 +7,67 @@ import { Permissions } from 'common/permissions.decorator';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { AutomationStatus } from 'entities/automation.entity';
 import { Response } from 'express';
+import { AutomationPreviewService, CreatePreviewInput, PreviewResumeInput } from './engine/automation-preview.service';
+import { tenantId } from 'src/category/category.service';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('automation')
 export class AutomationController {
-  constructor(private readonly automationService: AutomationService) { }
+  constructor(
+    private readonly automationService: AutomationService,
+    private readonly automationPreviewService: AutomationPreviewService,
+  ) { }
+
+  @Post('preview')
+  @Permissions('automation.read')
+  async createPreview(
+    @Req() req: any,
+    @Body() dto: CreatePreviewInput,
+  ) {
+    const adminId = tenantId(req.user);
+    return this.automationPreviewService.createPreview({ ...dto, adminId });
+  }
+
+  @Get('preview/:previewId')
+  @Permissions('automation.read')
+  async getPreview(
+    @Param('previewId') previewId: string,
+  ) {
+    return this.automationPreviewService.getPreview(previewId);
+  }
+
+  @Post('preview/:previewId/heartbeat')
+  @Permissions('automation.read')
+  async heartbeatPreview(
+    @Param('previewId') previewId: string,
+  ) {
+    return this.automationPreviewService.touchPreview(previewId);
+  }
+
+  @Delete('preview/:previewId')
+  @Permissions('automation.read')
+  async deletePreview(
+    @Param('previewId') previewId: string,
+  ) {
+    await this.automationPreviewService.deletePreview(previewId);
+
+    return {
+      success: true,
+    };
+  }
+
+  @Post('preview/:previewId/resume')
+  @Permissions('automation.read')
+  async resumePreview(
+    @Param('previewId') previewId: string,
+    @Body() dto: PreviewResumeInput,
+  ) {
+    return this.automationPreviewService.resumeFromWhatsappInteraction({
+      previewId,
+      buttonText: dto.buttonText,
+      buttonId: dto.buttonId,
+    });
+  }
 
   @Get('export')
   @Permissions('automation.read')
