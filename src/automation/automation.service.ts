@@ -112,6 +112,22 @@ export class AutomationService {
                 }
             }
 
+
+            // If automation is in DRAFT status, update the latest version instead of creating a new one
+            if (automation.status === AutomationStatus.DRAFT && automation.latestVersion) {
+                automation.latestVersion.flow = {
+                    nodes: dto.flow.nodes as any,
+                    edges: dto.flow.edges as any,
+                };
+                automation.status = AutomationStatus.PUBLISHED;
+                await automationRepo.save(automation);
+                const savedVersion = await versionRepo.save(automation.latestVersion);
+                return {
+                    ...automation,
+                    newVersion: savedVersion
+                };
+            }
+
             if (dto.flow) {
                 let parentVersion = automation.latestVersion;
                 let isPatch = false;
@@ -135,20 +151,7 @@ export class AutomationService {
                     };
                 }
 
-                // If automation is in DRAFT status, update the latest version instead of creating a new one
-                if (automation.status === AutomationStatus.DRAFT && automation.latestVersion && !dto.version) {
-                    automation.latestVersion.flow = {
-                        nodes: dto.flow.nodes as any,
-                        edges: dto.flow.edges as any,
-                    };
-                    automation.status = AutomationStatus.PUBLISHED;
-                    await automationRepo.save(automation);
-                    const savedVersion = await versionRepo.save(automation.latestVersion);
-                    return {
-                        ...automation,
-                        newVersion: savedVersion
-                    };
-                }
+
 
                 let nextVersion = '';
                 // 1- if user pass version ... so get it and create sub version from it but it not pass any thing create major version
@@ -455,30 +458,30 @@ export class AutomationService {
         });
     }
 
- async changeStatus(me: any, id: string, status: AutomationStatus) {
-    const automation = await this.findOne(me, id);
+    async changeStatus(me: any, id: string, status: AutomationStatus) {
+        const automation = await this.findOne(me, id);
 
-    if (!automation) {
-        throw new Error('Automation not found');
-    }
-
-    let nextStatus: AutomationStatus = status;
-
-    if (status === undefined || status === null) {
-        if (automation.status === AutomationStatus.PUBLISHED) {
-            nextStatus = AutomationStatus.PAUSED;
-        } else {
-            nextStatus = AutomationStatus.PUBLISHED;
+        if (!automation) {
+            throw new Error('Automation not found');
         }
+
+        let nextStatus: AutomationStatus = status;
+
+        if (status === undefined || status === null) {
+            if (automation.status === AutomationStatus.PUBLISHED) {
+                nextStatus = AutomationStatus.PAUSED;
+            } else {
+                nextStatus = AutomationStatus.PUBLISHED;
+            }
+        }
+
+        // التعديل هنا: تحديث حقل الـ status فقط بناءً على الـ id مباشرة دون عمل save للكائن بالكامل
+        await this.automationRepo.update(id, { status: nextStatus });
+
+        // تحديث الحالة محلياً في الكائن قبل إرجاعه لتكون الاستجابة (Response) دقيقة ومطابقة لقاعدة البيانات
+        automation.status = nextStatus;
+        return automation;
     }
-
-    // التعديل هنا: تحديث حقل الـ status فقط بناءً على الـ id مباشرة دون عمل save للكائن بالكامل
-    await this.automationRepo.update(id, { status: nextStatus });
-
-    // تحديث الحالة محلياً في الكائن قبل إرجاعه لتكون الاستجابة (Response) دقيقة ومطابقة لقاعدة البيانات
-    automation.status = nextStatus;
-    return automation;
-}
 
 
     async findAllRuns(me: any, q?: any) {
