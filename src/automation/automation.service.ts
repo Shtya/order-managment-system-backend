@@ -453,27 +453,32 @@ export class AutomationService {
         });
     }
 
-    async changeStatus(me: any, id: string, status: AutomationStatus) {
-        const automation = await this.findOne(me, id);
+ async changeStatus(me: any, id: string, status: AutomationStatus) {
+    const automation = await this.findOne(me, id);
 
-        if (!automation) {
-            throw new Error('Automation not found');
-        }
-
-        // status logic: if status is PUBLISHED, toggle to PAUSED, if DRAFT or PAUSED, toggle to PUBLISHED
-        let nextStatus: AutomationStatus = status;
-
-        if (status === undefined || status === null) {
-            if (automation.status === AutomationStatus.PUBLISHED) {
-                nextStatus = AutomationStatus.PAUSED;
-            } else {
-                nextStatus = AutomationStatus.PUBLISHED;
-            }
-        }
-
-        automation.status = nextStatus;
-        return await this.automationRepo.save(automation);
+    if (!automation) {
+        throw new Error('Automation not found');
     }
+
+
+    let nextStatus: AutomationStatus = status;
+
+    if (status === undefined || status === null) {
+        if (automation.status === AutomationStatus.PUBLISHED) {
+            nextStatus = AutomationStatus.PAUSED;
+        } else {
+            nextStatus = AutomationStatus.PUBLISHED;
+        }
+    }
+
+    // التعديل هنا: تحديث حقل الـ status فقط بناءً على الـ id مباشرة دون عمل save للكائن بالكامل
+    await this.automationRepo.update(id, { status: nextStatus });
+
+    // تحديث الحالة محلياً في الكائن قبل إرجاعه لتكون الاستجابة (Response) دقيقة ومطابقة لقاعدة البيانات
+    automation.status = nextStatus;
+    return automation;
+}
+
 
     async findAllRuns(me: any, q?: any) {
         const adminId = tenantId(me);
