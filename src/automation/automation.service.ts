@@ -141,6 +141,8 @@ export class AutomationService {
                         nodes: dto.flow.nodes as any,
                         edges: dto.flow.edges as any,
                     };
+                    automation.status = AutomationStatus.PUBLISHED;
+                    await automationRepo.save(automation);
                     const savedVersion = await versionRepo.save(automation.latestVersion);
                     return {
                         ...automation,
@@ -646,3 +648,7 @@ export class AutomationService {
     }
 
 }
+
+// قيد التغيل
+
+// و الاعدادات التغيل التلقاءي
