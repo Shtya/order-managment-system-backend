@@ -72,10 +72,6 @@ export class SystemErorrsService {
             query.andWhere("errors.environment = :environment", { environment: q.environment });
         }
 
-        if (q?.controllerName) {
-            query.andWhere("errors.controllerName = :controllerName", { controllerName: q.controllerName });
-        }
-
         if (q?.severity) {
             query.andWhere("errors.severity = :severity", { severity: q.severity });
         }
@@ -104,8 +100,6 @@ export class SystemErorrsService {
                         .orWhere("errors.originalUrl ILIKE :search", { search: `%${q.search}%` })
                         .orWhere("errors.exceptionName ILIKE :search", { search: `%${q.search}%` })
                         .orWhere("errors.errorCode ILIKE :search", { search: `%${q.search}%` })
-                        .orWhere("errors.controllerName ILIKE :search", { search: `%${q.search}%` })
-                        .orWhere("errors.handlerName ILIKE :search", { search: `%${q.search}%` })
                         .orWhere("errors.referer ILIKE :search", { search: `%${q.search}%` })
                 })
             );
@@ -199,8 +193,6 @@ export class SystemErorrsService {
             { header: "Route Path", key: "routePath", width: 30 },
             { header: "Exception", key: "exceptionName", width: 30 },
             { header: "Environment", key: "environment", width: 15 },
-            { header: "Controller", key: "controllerName", width: 25 },
-            { header: "Handler", key: "handlerName", width: 25 },
             { header: "Error Code", key: "errorCode", width: 15 },
             { header: "Duration (ms)", key: "durationMs", width: 15 },
             { header: "IP Address", key: "ipAddress", width: 15 },
@@ -248,8 +240,6 @@ export class SystemErorrsService {
             routePath: r.routePath,
             exceptionName: r.exceptionName,
             environment: r.environment,
-            controllerName: r.controllerName,
-            handlerName: r.handlerName,
             errorCode: r.errorCode,
             durationMs: r.durationMs,
             ipAddress: r.ipAddress,
@@ -292,18 +282,16 @@ export class SystemErorrsService {
             return q.getRawMany();
         };
 
-        const [routePaths, exceptionNames, environments, controllers] = await Promise.all([
+        const [routePaths, exceptionNames, environments] = await Promise.all([
             buildBaseQuery('routePath'),
             buildBaseQuery('exceptionName'),
             buildBaseQuery('environment'),
-            buildBaseQuery('controllerName'),
         ]);
 
         return {
             routePaths: routePaths.map(r => r.routePath),
             exceptionNames: exceptionNames.map(r => r.exceptionName),
             environments: environments.map(r => r.environment),
-            controllers: controllers.map(r => r.controllerName),
         };
     }
 

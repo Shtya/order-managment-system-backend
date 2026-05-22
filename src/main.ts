@@ -3,13 +3,13 @@ import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
 import { NestExpressApplication } from '@nestjs/platform-express';
-import { GlobalExceptionFilter  } from 'common/GlobalExceptionFilter';
+import { GlobalExceptionFilter } from 'common/GlobalExceptionFilter';
 import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 async function bootstrap() {
 	const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
-	app.useGlobalFilters(app.get(GlobalExceptionFilter ));
+	app.useGlobalFilters(app.get(GlobalExceptionFilter));
 
 	// Static files (fix the path: no leading "/uploads")
 	app.useStaticAssets(join(__dirname, '..', '..', 'uploads'), {
@@ -48,6 +48,7 @@ async function bootstrap() {
 		req.startTime = Date.now();
 		next();
 	});
+
 
 	app.use(helmet());
 	// VPS / PM2: we ALWAYS listen here

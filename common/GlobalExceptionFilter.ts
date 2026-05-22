@@ -1,23 +1,12 @@
 // src/common/GlobalExceptionFilter .ts
 import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Injectable, NestInterceptor, CallHandler, ExecutionContext } from '@nestjs/common';
+import { ExecutionContext as NestExecutionContext } from '@nestjs/common';
 import { Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 import * as fs from 'fs';
 import { SystemErorrsService } from 'src/system-erorrs/system-erorrs.service';
 import { tenantId } from 'src/purchases/purchases.service';
 import { Observable } from 'rxjs';
-
-@Injectable()
-export class RequestContextInterceptor implements NestInterceptor {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const req = context.switchToHttp().getRequest();
-
-    req.controllerName = context.getClass().name;
-    req.handlerName = context.getHandler().name;
-
-    return next.handle();
-  }
-}
 
 
 @Injectable()
@@ -28,6 +17,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const req = ctx.getRequest<any>();
+
+
 
     const files = req.files as any;
     if (files) {
