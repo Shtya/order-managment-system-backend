@@ -554,6 +554,10 @@ export class SubscriptionsService {
                 relations: ['plan']
             });
 
+            if(!subscription) {
+                throw new BadRequestException("You do not have active subscription")
+            }
+
             if (!this.isSuperAdmin(user) && subscription.userId !== user.id) {
                 throw new ForbiddenException('You do not have permission');
             }
