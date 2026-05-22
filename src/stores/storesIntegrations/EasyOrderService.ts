@@ -368,7 +368,7 @@ export class EasyOrderService extends BaseStoreProvider {
             productQuantity += (v.stockOnHand - v.reserved);
             return {
                 price: Number(v.price) || Number(product.salePrice) || 0,
-                expense: Number(product.wholesalePrice) || 0,
+                expense: Number(v.unitCost) || 0,
                 quantity: v.stockOnHand - v.reserved,
                 taager_code: String(v.sku),
                 variation_props: Object.entries(v.attributes || {}).map(([key, val]) => ({

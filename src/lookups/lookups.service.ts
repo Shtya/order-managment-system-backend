@@ -111,6 +111,7 @@ export class LookupsService {
 				'v.key AS "key"',
 				'v.stockOnHand AS "stockOnHand"',
 				'p.wholesalePrice AS "wholesalePrice"',
+				'v.unitCost AS "unitCost"',
 				'v.reserved AS reserved',
 				'v.price AS price',
 				'p.name AS "productName"'
@@ -170,6 +171,7 @@ export class LookupsService {
 			reserved: Number(x.reserved ?? 0),
 			price: Number(x.price ?? 0),
 			wholesalePrice: Number(x.wholesalePrice ?? 0),
+			unitCost: Number(x.unitCost ?? 0),
 			available: Math.max(0, Number(x.stockOnHand ?? 0) - Number(x.reserved ?? 0)),
 			name: x.productName ?? null,
 		}));

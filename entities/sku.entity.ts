@@ -152,6 +152,9 @@ export class ProductVariantEntity extends ActivatableEntity {
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   price!: number;
 
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+  unitCost!: number;
+
   @Column({ type: "simple-json", nullable: false, default: "{}" })
   attributes!: Record<string, string>;
 
