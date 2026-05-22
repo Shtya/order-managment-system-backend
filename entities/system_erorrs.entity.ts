@@ -78,13 +78,6 @@ export class SystemErrorEntity {
 
     @Index()
     @Column({ type: 'varchar', nullable: true })
-    controllerName: string | null;
-
-    @Column({ type: 'varchar', nullable: true })
-    handlerName: string | null;
-
-    @Index()
-    @Column({ type: 'varchar', nullable: true })
     exceptionName: string | null;
 
     @Column({ type: 'jsonb', nullable: true })

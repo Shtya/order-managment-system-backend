@@ -120,7 +120,7 @@ import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
 		SystemErorrsModule
 	],
 	providers: [
-		GlobalExceptionFilter, EncryptionService, {
+	GlobalExceptionFilter, EncryptionService, {
 			provide: APP_GUARD,
 			useClass: ThrottlerGuard
 		}
