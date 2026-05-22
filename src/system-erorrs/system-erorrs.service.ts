@@ -5,6 +5,7 @@ import { SystemErrorEntity } from 'entities/system_erorrs.entity';
 import { tenantId } from '../category/category.service';
 import { isSuperAdmin } from 'common/healpers';
 import * as ExcelJS from 'exceljs';
+import { DateFilterUtil } from 'common/date-filter.util';
 
 @Injectable()
 export class SystemErorrsService {
@@ -68,6 +69,10 @@ export class SystemErorrsService {
             query.andWhere("errors.exceptionName = :exceptionName", { exceptionName: q.exceptionName });
         }
 
+        if (q?.routePath) {
+            query.andWhere("errors.routePath = :routePath", { routePath: q.routePath });
+        }
+
         if (q?.environment) {
             query.andWhere("errors.environment = :environment", { environment: q.environment });
         }
@@ -106,14 +111,8 @@ export class SystemErorrsService {
         }
 
         // Date range filters
-        if (q?.startDate) {
-            query.andWhere("errors.createdAt >= :startDate", { startDate: new Date(q.startDate) });
-        }
-
-        if (q?.endDate) {
-            query.andWhere("errors.createdAt <= :endDate", { endDate: new Date(q.endDate) });
-        }
-
+        
+        DateFilterUtil.applyToQueryBuilder(query, 'errors.createdAt', q?.startDate, q?.endDate);
         // Sorting & Pagination
         const sortBy = q?.sortBy || "createdAt";
         const sortOrder = q?.sortOrder?.toUpperCase() === "ASC" ? "ASC" : "DESC";
@@ -346,6 +345,55 @@ export class SystemErorrsService {
             count48h,
             total30d,
             fatal48h
+        };
+    }
+
+    async delete(me: any, id: string) {
+        if (!isSuperAdmin(me)) {
+            throw new ForbiddenException("You do not have permission");
+        }
+        const adminId = tenantId(me);
+
+        const deleteQuery = this.systemErrorRepo.createQueryBuilder()
+            .delete()
+            .where("id = :id", { id });
+
+        if (adminId) {
+            deleteQuery.andWhere("adminId = :adminId", { adminId });
+        }
+
+        const result = await deleteQuery.execute();
+
+        if (result.affected === 0) {
+            throw new Error('System error not found or you do not have permission to delete it');
+        }
+
+        return { message: 'Error deleted successfully' };
+    }
+
+    async bulkDelete(me: any, ids: string[]) {
+        if (!isSuperAdmin(me)) {
+            throw new ForbiddenException("You do not have permission");
+        }
+
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+            return { message: 'No errors selected for deletion', affected: 0 };
+        }
+
+        const adminId = tenantId(me);
+
+        const deleteQuery = this.systemErrorRepo.createQueryBuilder()
+            .delete()
+            .where("id IN (:...ids)", { ids });
+
+        if (adminId) {
+            deleteQuery.andWhere("adminId = :adminId", { adminId });
+        }
+
+        const result = await deleteQuery.execute();
+        return {
+            message: `${result.affected} errors deleted successfully`,
+            affected: result.affected
         };
     }
 }

@@ -188,7 +188,34 @@ export class PurchaseReturnsService {
       .where("inv.adminId = :adminId", { adminId })
       .leftJoinAndSelect("inv.supplier", "supplier")
       .leftJoinAndSelect("inv.safe", "safe")
-      .leftJoinAndSelect("inv.createdBy", "createdBy");
+      .leftJoinAndSelect("inv.createdBy", "createdBy")
+      .leftJoin("inv.items", "items")
+      .addSelect([
+        "items.id",
+        "items.invoiceId",
+        "items.unitCost",
+        "items.taxRate",
+        "items.taxInclusive",
+				"items.lineSubtotal",
+				"items.returnedQuantity",
+				"items.lineTotal"
+			])
+			.leftJoin("items.variant", "variant")
+			.addSelect([
+				"variant.id",
+				"variant.productId",
+				"variant.stockOnHand",
+				"variant.sku",
+				"variant.price"
+			])
+			.leftJoin("variant.product", "product")
+			.addSelect([
+				"product.id",
+				"product.name",
+				"product.wholesalePrice",
+				"product.salePrice",
+				"product.sku"
+			]);
 
     if (supplierId && supplierId != 'none')
       qb.andWhere("inv.supplierId = :supplierId", { supplierId });
@@ -204,11 +231,12 @@ export class PurchaseReturnsService {
     DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
 
     if (search) {
-      qb.andWhere(
-        "(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR inv.supplierNameSnapshot ILIKE :s OR inv.notes ILIKE :s)",
-        { s: `%${search}%` }
-      );
-    }
+			qb.andWhere(
+				"(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR supplier.name ILIKE :s OR variant.sku ILIKE :s OR product.name ILIKE :s)",
+				{ s: `%${search}%` }
+			);
+		}
+
 
     if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: q?.closingId });
     else {

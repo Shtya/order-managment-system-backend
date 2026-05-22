@@ -114,7 +114,32 @@ export class PurchasesService {
 			.where("inv.adminId = :adminId", { adminId })
 			// ✅ THIS is what brings supplier data
 			.leftJoinAndSelect("inv.safe", "safe")
-			.leftJoinAndSelect("inv.supplier", "supplier");
+			.leftJoinAndSelect("inv.supplier", "supplier")
+			.leftJoin("inv.items", "items")
+			.addSelect([
+				"items.id",
+				"items.invoiceId",
+				"items.purchaseCost",
+				"items.lineSubtotal",
+				"items.quantity",
+				"items.lineTotal"
+			])
+			.leftJoin("items.variant", "variant")
+			.addSelect([
+				"variant.id",
+				"variant.productId",
+				"variant.stockOnHand",
+				"variant.sku",
+				"variant.price"
+			])
+			.leftJoin("variant.product", "product")
+			.addSelect([
+				"product.id",
+				"product.name",
+				"product.wholesalePrice",
+				"product.salePrice",
+				"product.sku"
+			]);
 
 		if (supplierId && supplierId != 'none')
 			qb.andWhere("inv.supplierId = :supplierId", { supplierId });
@@ -134,7 +159,7 @@ export class PurchasesService {
 
 		if (search) {
 			qb.andWhere(
-				"(inv.receiptNumber ILIKE :s OR supplier.name ILIKE :s)",
+				"(inv.receiptNumber ILIKE :s OR supplier.name ILIKE :s OR variant.sku ILIKE :s OR product.name ILIKE :s)",
 				{ s: `%${search}%` }
 			);
 		}
