@@ -1,5 +1,5 @@
 // src/common/GlobalExceptionFilter .ts
-import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Injectable, NestInterceptor, CallHandler, ExecutionContext } from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Injectable, NestInterceptor, CallHandler, ExecutionContext, HttpException } from '@nestjs/common';
 import { ExecutionContext as NestExecutionContext } from '@nestjs/common';
 import { Response } from 'express';
 import { QueryFailedError } from 'typeorm';
@@ -9,33 +9,18 @@ import { tenantId } from 'src/purchases/purchases.service';
 import { Observable } from 'rxjs';
 
 
-@Injectable()
-export class GlobalExceptionFilter implements ExceptionFilter {
+@Catch(QueryFailedError)
+export class QueryExceptionFilter implements ExceptionFilter  {
   constructor(private readonly systemErorrsService: SystemErorrsService) { }
 
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
-    const req = ctx.getRequest<any>();
-
-
-
-    const files = req.files as any;
-    if (files) {
-      const allFiles = [...(files.images || []), ...(files.documentImage || [])];
-      allFiles.forEach(file => {
-        if (fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path);
-        }
-      });
-    }
 
     const code = exception?.driverError?.code as string | undefined;
     const detail = exception?.driverError?.detail ?? exception?.message;
 
-    // Log the error to database
-    this.logSystemError(exception, req, response, code, detail);
-
+  
     // Map of common Postgres error codes → friendly messages
     const pgMap: Record<string, { status: number; message: string; error: string }> = {
       // Foreign key violation
@@ -101,6 +86,52 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       code,
       details: detail,
     });
+  }
+
+}
+
+@Catch()
+export class GlobalExceptionFilter implements ExceptionFilter  {
+  constructor(private readonly systemErorrsService: SystemErorrsService) { }
+
+  catch(exception: any, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const req = ctx.getRequest<any>();
+
+    const files = req.files as any;
+    if (files) {
+      const allFiles = [...(files.images || []), ...(files.documentImage || [])];
+      allFiles.forEach(file => {
+        if (fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+      });
+    }
+
+    const code = exception?.driverError?.code as string | undefined;
+    const detail = exception?.driverError?.detail ?? exception?.message;
+
+    
+    // Log the error to database
+    this.logSystemError(exception, req, response, code, detail);
+
+    const status = exception instanceof HttpException 
+      ? exception.getStatus() 
+      : HttpStatus.INTERNAL_SERVER_ERROR;
+      
+    const errorResponse = exception instanceof HttpException
+      ? exception.getResponse() 
+      : { statusCode: status, message: 'Internal server error' };
+
+    // If NestJS generated an object (standard behavior), return as JSON. 
+    // If it generated a raw string, return it as a standard send().
+    if (typeof errorResponse === 'object') {
+      return response.status(status).json(errorResponse);
+    } else {
+      return response.status(status).send(errorResponse);
+    }
+
   }
 
   private logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string) {
