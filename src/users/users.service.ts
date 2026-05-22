@@ -838,6 +838,7 @@ export class UsersService {
 	async update(me: User, id: string, patch: UpdateUserDto) {
 		const user = await this.get(me, id);
 
+		// 1. Guard Clauses (Authorization & Business Logic)
 		if (!this.isSuperAdmin(me) && user.role?.name === SystemRole.SUPER_ADMIN) {
 			throw new ForbiddenException('Cannot edit super admin');
 		}
@@ -854,21 +855,34 @@ export class UsersService {
 			if (!this.isSuperAdmin(me) && role.name === SystemRole.SUPER_ADMIN) {
 				throw new ForbiddenException('Admin cannot assign super admin');
 			}
-
-			user.roleId = patch.roleId;
 		}
 
-		if (typeof patch.name === 'string') user.name = patch.name;
-		if (typeof patch.email === 'string') user.email = patch.email;
-		if (typeof patch.isActive === 'boolean') user.isActive = patch.isActive;
-		if (typeof (patch as any).phone === 'string') user.phone = (patch as any).phone;
-		if (typeof (patch as any).employeeType === 'string') user.employeeType = (patch as any).employeeType;
+		// 2. Build dynamic payload containing ONLY the requested fields
+		const updateData: Partial<User> & { passwordHash?: string } = {};
 
-		const saved = await this.usersRepo.save(user);
+		if (patch.roleId !== undefined) updateData.roleId = patch.roleId;
+		if (patch.name !== undefined) updateData.name = patch.name;
+		if (patch.email !== undefined) updateData.email = patch.email;
+		if (patch.isActive !== undefined) updateData.isActive = patch.isActive;
 
-		// ✅ Return with plan relation
-		return await this.getFullUser(saved.id)
+		// Type-safe property checks for extended props
+		if ((patch as any).phone !== undefined) updateData.phone = (patch as any).phone;
+		if ((patch as any).employeeType !== undefined) updateData.employeeType = (patch as any).employeeType;
+
+		// Handle password hashing if provided
+		if (patch.password) {
+			updateData.passwordHash = await bcrypt.hash(patch.password, 10);
+		}
+
+		// 3. Only trigger DB query if there are actual changes to save
+		if (Object.keys(updateData).length > 0) {
+			await this.usersRepo.update(id, updateData);
+		}
+
+		// 4. Return complete user structure with relation
+		return await this.getFullUser(id);
 	}
+
 	async updateMe(me: User, patch: UpdateMeUserDto) {
 		const user = await this.get(me, me.id);
 
@@ -961,10 +975,10 @@ export class UsersService {
 		}
 
 		let nextStep: OnboardingStep;
-		
+
 		if (wantedStepIndex > 0 && !user.activeSubscription) {
 			const freePlan = await this.plansRepo.findOne({ where: { type: PlanType.TRIAL } });
-			if(!freePlan) {
+			if (!freePlan) {
 				throw new BadRequestException('No free plan available, please contact support.');
 			}
 			this.subscriptionsService.subscribe(me, freePlan?.id);
@@ -974,7 +988,7 @@ export class UsersService {
 			case OnboardingStep.WELCOME:
 				nextStep = OnboardingStep.PLAN;
 				break;
-				
+
 			case OnboardingStep.PLAN:
 				// Requirement: Must have a subscription/plan
 				nextStep = OnboardingStep.COMPANY;

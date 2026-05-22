@@ -8,16 +8,13 @@ export class AdminCreateUserDto {
 	@IsString() name: string;
 	@IsEmail() email: string;
 
-	@IsOptional()
-	@MinLength(6)
-	@IsString()
-	password?: string;
 	roleId: any;
 	@IsOptional()
 	planId?: any;
 
 	@IsOptional() @IsString() phone?: string;
 	@IsOptional() @IsString() employeeType?: string;
+	@IsOptional() @IsString() @MinLength(6) password?: string;
 }
 
 export class UpdateUserDto {
@@ -32,6 +29,7 @@ export class UpdateUserDto {
 
 	@IsOptional() @IsString() phone?: string;
 	@IsOptional() @IsString() employeeType?: string;
+	@IsOptional() @IsString() @MinLength(6) password?: string;
 }
 
 export class UpdateMeUserDto {
