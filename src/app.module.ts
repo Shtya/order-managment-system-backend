@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { GlobalExceptionFilter } from "common/GlobalExceptionFilter";
+import { GlobalExceptionFilter, QueryExceptionFilter } from "common/GlobalExceptionFilter";
 import { AuthModule } from "./auth/auth.module";
 import { Permission, Role, User } from "../entities/user.entity";
 import { UsersModule } from "./users/users.module";
@@ -120,7 +120,7 @@ import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
 		SystemErorrsModule
 	],
 	providers: [
-	GlobalExceptionFilter, EncryptionService, {
+	GlobalExceptionFilter,QueryExceptionFilter, EncryptionService, {
 			provide: APP_GUARD,
 			useClass: ThrottlerGuard
 		}
