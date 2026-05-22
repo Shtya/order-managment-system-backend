@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Req, UseGuards, Res } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards, Res, Delete, Body } from '@nestjs/common';
 import { SystemErorrsService } from './system-erorrs.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
@@ -42,5 +42,18 @@ export class SystemErorrsController {
   async findOne(@Req() req: any, @Param('id') id: string) {
     return await this.systemErorrsService.findOne(req.user, id);
   }
+
+  @Delete('bulk')
+  @Permissions("system.errors.delete")
+  async bulkDelete(@Req() req: any, @Body() body: { ids: string[] }) {
+    return await this.systemErorrsService.bulkDelete(req.user, body.ids);
+  }
+  
+  @Delete(':id')
+  @Permissions("system.errors.delete")
+  async delete(@Req() req: any, @Param('id') id: string) {
+    return await this.systemErorrsService.delete(req.user, id);
+  }
+
 }
 

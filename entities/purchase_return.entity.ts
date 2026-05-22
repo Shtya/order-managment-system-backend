@@ -33,7 +33,6 @@ export class PurchaseReturnInvoiceEntity {
   @Index()
   supplierId?: string | null;
 
-
   @ManyToOne(() => SupplierEntity, { nullable: true, eager: false })
   @JoinColumn({ name: "supplierId" })
   supplier?: SupplierEntity | null;
@@ -235,8 +234,6 @@ export class PurchaseReturnAuditLogEntity {
 
   @Column({ type: "varchar", length: 50, nullable: true })
   ipAddress?: string;
-
-
 
   @Column({ type: 'uuid', nullable: true })
   @Index()

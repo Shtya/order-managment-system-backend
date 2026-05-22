@@ -10,7 +10,7 @@ import { Observable } from 'rxjs';
 
 
 @Catch(QueryFailedError)
-export class QueryExceptionFilter implements ExceptionFilter  {
+export class QueryExceptionFilter implements ExceptionFilter {
   constructor(private readonly systemErorrsService: SystemErorrsService) { }
 
   catch(exception: any, host: ArgumentsHost) {
@@ -20,7 +20,7 @@ export class QueryExceptionFilter implements ExceptionFilter  {
     const code = exception?.driverError?.code as string | undefined;
     const detail = exception?.driverError?.detail ?? exception?.message;
 
-  
+
     // Map of common Postgres error codes → friendly messages
     const pgMap: Record<string, { status: number; message: string; error: string }> = {
       // Foreign key violation
@@ -91,7 +91,7 @@ export class QueryExceptionFilter implements ExceptionFilter  {
 }
 
 @Catch()
-export class GlobalExceptionFilter implements ExceptionFilter  {
+export class GlobalExceptionFilter implements ExceptionFilter {
   constructor(private readonly systemErorrsService: SystemErorrsService) { }
 
   catch(exception: any, host: ArgumentsHost) {
@@ -112,16 +112,16 @@ export class GlobalExceptionFilter implements ExceptionFilter  {
     const code = exception?.driverError?.code as string | undefined;
     const detail = exception?.driverError?.detail ?? exception?.message;
 
-    
+
     // Log the error to database
     this.logSystemError(exception, req, response, code, detail);
 
-    const status = exception instanceof HttpException 
-      ? exception.getStatus() 
+    const status = exception instanceof HttpException
+      ? exception.getStatus()
       : HttpStatus.INTERNAL_SERVER_ERROR;
-      
+
     const errorResponse = exception instanceof HttpException
-      ? exception.getResponse() 
+      ? exception.getResponse()
       : { statusCode: status, message: 'Internal server error' };
 
     // If NestJS generated an object (standard behavior), return as JSON. 
@@ -135,14 +135,27 @@ export class GlobalExceptionFilter implements ExceptionFilter  {
   }
 
   private logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string) {
+    // Skip logging certain error patterns
+    const skipPatterns = [
+      'Cannot GET /robots.txt',
+      'Cannot GET /uploads',
+      "Cannot GET /.env",
+      'Missing adminId',
+    ];
+
+    const errorMessage = detail || exception.message;
+    if (skipPatterns.some(pattern => errorMessage?.startsWith?.(pattern))) {
+      return;
+    }
+
     const durationMs = req.startTime
       ? Date.now() - req.startTime
       : null;
 
 
     const httpStatus =
-        exception?.status ||
-      exception?.statusCode || 
+      exception?.status ||
+      exception?.statusCode ||
       500;
 
 
