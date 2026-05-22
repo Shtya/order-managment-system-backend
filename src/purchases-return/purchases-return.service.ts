@@ -206,7 +206,8 @@ export class PurchaseReturnsService {
 				"variant.productId",
 				"variant.stockOnHand",
 				"variant.sku",
-				"variant.price"
+				"variant.price",
+				"variant.unitCost"
 			])
 			.leftJoin("variant.product", "product")
 			.addSelect([

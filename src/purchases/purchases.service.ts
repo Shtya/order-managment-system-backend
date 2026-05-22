@@ -130,7 +130,8 @@ export class PurchasesService {
 				"variant.productId",
 				"variant.stockOnHand",
 				"variant.sku",
-				"variant.price"
+				"variant.price",
+				"variant.unitCost"
 			])
 			.leftJoin("variant.product", "product")
 			.addSelect([
@@ -273,7 +274,7 @@ export class PurchasesService {
 			const incomingAvgCost = addQty > 0 ? agg.incomingCostTotal / addQty : 0;
 
 			// ✅ Weighted average using existing stock + incoming
-			const oldPrice = v.price ?? null;
+			const oldPrice = v.unitCost ?? null;
 			let newPrice: number | null = oldPrice;
 
 			if (willApply) {
@@ -659,7 +660,7 @@ export class PurchasesService {
 
 					const incomingAvg = addQty > 0 ? agg.incomingCostTotal / addQty : 0;
 
-					const oldPrice = v.price ?? null;
+					const oldPrice = v.unitCost ?? null;
 					let newPrice: number | null = oldPrice;
 
 					if (oldPrice == null) {
@@ -673,7 +674,7 @@ export class PurchasesService {
 					}
 
 					if (oldPrice !== newPrice) {
-						v.price = newPrice ?? undefined;
+						v.unitCost = newPrice ?? undefined;
 						priceChanges.push({
 							variantId,
 							sku: v.sku ?? null,
@@ -816,7 +817,7 @@ export class PurchasesService {
 								if (!v) continue;
 
 								const oldPrice = ch.oldPrice;
-								v.price = oldPrice === null || oldPrice === undefined ? undefined : Number(oldPrice);
+								v.unitCost = oldPrice === null || oldPrice === undefined ? undefined : Number(oldPrice);
 								touched.push(v);
 							}
 

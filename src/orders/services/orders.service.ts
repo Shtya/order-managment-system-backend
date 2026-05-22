@@ -2289,7 +2289,7 @@ export class OrdersService {
       .addSelect([
         "variant",
         "product.id",
-        "product.wholesalePrice"
+        "product.wholesalePrice",
       ])
       .where("variant.adminId = :adminId", { adminId })
       .andWhere("variant.id IN (:...variantIds)", { variantIds })
@@ -2315,7 +2315,7 @@ export class OrdersService {
     const items = dto.items.map((it) => {
       const variant = variantMap.get(it.variantId)!;
       const unitPrice = it.unitPrice;
-      const unitCost = it.unitCost ?? variant.product.wholesalePrice ?? 0;
+      const unitCost = it.unitCost ?? variant.unitCost ?? 0;
       const lineTotal = unitPrice * it.quantity;
       const lineProfit = (unitPrice - unitCost) * it.quantity;
 

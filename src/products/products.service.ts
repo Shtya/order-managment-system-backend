@@ -147,6 +147,7 @@ export class ProductsService {
       key: r.key,
       sku: r.sku,
       price: (r as any).price ?? null, // ✅ NEW
+      unitCost: (r as any).unitCost ?? null, // ✅ NEW
       attributes: r.attributes,
       stockOnHand: r.stockOnHand,
       reserved: r.reserved,
@@ -1355,7 +1356,7 @@ export class ProductsService {
           return {
             variantId: v.id,
             quantity: productType === ProductType.SINGLE ? Number(dto.purchase.quantity || 0) : Number(combo?.stockOnHand) || 0,
-            purchaseCost: Number(dto.purchase.wholesalePrice || 0) || 0, // Fallback to product wholesale price
+            purchaseCost: Number(dto.purchase.wholesalePrice || 0) || 0, 
           };
         }).filter(it => it.quantity > 0);
 
