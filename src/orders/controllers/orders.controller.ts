@@ -43,7 +43,8 @@ import {
   AutoPreviewDto,
   CreateManifestDto,
 } from "dto/order.dto";
-import { ScanLogType } from "entities/order.entity";
+import { ScanLogType, ScanReason } from "entities/order.entity";
+import { tenantId } from "src/category/category.service";
 
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
@@ -120,6 +121,17 @@ export class OrdersController {
     return await this.svc.scanItem(id, sku, req.user);
   }
 
+
+  @Post(':id/log-failed-scan')
+  async logFailedScan(
+    @Param('id') orderId: string,
+    @Body() body: { sku: string; reasonCode: ScanReason },
+    @Req() req: any,
+  ) {
+    
+
+    return await this.svc.logError(orderId, body.sku, req.user, body.reasonCode, ScanLogType.PREPARATION, '');
+  }
 
   @Post(':id/scan-shipping/:sku')
   @Permissions("warehouses.scan-shipping")

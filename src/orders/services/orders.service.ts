@@ -324,12 +324,12 @@ export class OrdersService {
       .where(
         new Brackets((qb) => {
           superAdmin ?
-          qb.where("status.system = :system", { system: true })
-          : 
-          qb.where("status.adminId = :adminId", { adminId }).orWhere(
-            "status.system = :system",
-            { system: true },
-          )
+            qb.where("status.system = :system", { system: true })
+            :
+            qb.where("status.adminId = :adminId", { adminId }).orWhere(
+              "status.system = :system",
+              { system: true },
+            )
         }),
       )
       .andWhere("status.isActive = :isActive", { isActive: true })
@@ -1761,6 +1761,22 @@ export class OrdersService {
     };
   }
 
+  async logError(orderId: string, sku: string, me: any, reason: ScanReason, phase: ScanLogType, notes: string) {
+    const userId = me?.id;
+    const adminId = tenantId(me);
+
+    await this.logFailedScan(
+      this.dataSource.manager,
+      orderId,
+      sku,
+      userId,
+      adminId,
+      reason,
+      phase,
+      notes
+    );
+  }
+
   async scanItem(orderId: string, sku: string, me: any) {
     const userId = me?.id;
     const adminId = tenantId(me);
@@ -1777,20 +1793,22 @@ export class OrdersService {
       const allowedStatuses = [OrderStatus.PRINTED, OrderStatus.PREPARING];
 
       if (!allowedStatuses.includes(order.status.code as OrderStatus)) {
-        await this.logFailedScan(
-          manager,
-          orderId,
-          sku,
-          userId,
-          adminId,
-          ScanReason.INVALID_STATUS,
-          ScanLogType.PREPARATION,
-          `Current: ${order.status.code}`,
-        );
+        // await this.logFailedScan(
+        //   manager,
+        //   orderId,
+        //   sku,
+        //   userId,
+        //   adminId,
+        //   ScanReason.INVALID_STATUS,
+        //   ScanLogType.PREPARATION,
+        //   `Current: ${order.status.code}`,
+        // );
+
+        const currentStatusText = order.status.name || order.status.code;
         return {
           success: false,
-          code: ScanReason.INVALID_STATUS,
-          message: "Order must be Printed or Preparing",
+          isOrderComplete: true,
+          message: `Order is currently [${currentStatusText}] and is not in a status that allows scanning. It must be Printed or Preparing.`,
         };
       }
 
@@ -1831,52 +1849,43 @@ export class OrdersService {
         return { success: false, code: ScanReason.SKU_NOT_IN_ORDER, message: `SKU ${sku} not in order` };
       }
 
+      let newScannedQuantity = 0;
       if (item.scannedQuantity >= item.quantity) {
-        await this.logFailedScan(
-          manager,
-          orderId,
-          sku,
-          userId,
-          adminId,
-          ScanReason.ALREADY_FULLY_SCANNED,
-          ScanLogType.PREPARATION,
-        );
-        return { success: false, code: ScanReason.ALREADY_FULLY_SCANNED, message: "Item already fully scanned" };
-      }
+        newScannedQuantity = item.scannedQuantity;
+      } else {
+        const result = await manager
+          .createQueryBuilder()
 
-      const result = await manager
-        .createQueryBuilder()
-
-        .update(OrderItemEntity)
-        .set({
-          scannedQuantity: () => "COALESCE(scannedQuantity, 0) + 1",
-        })
-        .where("orderId = :orderId", { orderId })
-        .andWhere(
-          `"variantId" IN (
+          .update(OrderItemEntity)
+          .set({
+            scannedQuantity: () => "COALESCE(scannedQuantity, 0) + 1",
+          })
+          .where("orderId = :orderId", { orderId })
+          .andWhere(
+            `"variantId" IN (
           SELECT v.id FROM product_variants v WHERE v.sku = :sku
           )`,
-          { sku: sku.trim() }
-        )
-        .andWhere("COALESCE(scannedQuantity, 0) < quantity")
-        .returning(["id", "scannedQuantity", "quantity"])
-        .execute();
+            { sku: sku.trim() }
+          )
+          .andWhere("COALESCE(scannedQuantity, 0) < quantity")
+          .returning(["id", "scannedQuantity", "quantity"])
+          .execute();
 
-
-      if (result.affected === 0) {
-        await this.logFailedScan(
-          manager,
-          orderId,
-          sku,
-          userId,
-          adminId,
-          ScanReason.ALREADY_FULLY_SCANNED,
-          ScanLogType.PREPARATION,
-        );
-        return { success: false, code: ScanReason.ALREADY_FULLY_SCANNED, message: "Item already fully scanned" };
+        if (result.affected === 0) {
+          await this.logFailedScan(
+            manager,
+            orderId,
+            sku,
+            userId,
+            adminId,
+            ScanReason.ALREADY_FULLY_SCANNED,
+            ScanLogType.PREPARATION,
+          );
+          return { success: false, code: ScanReason.ALREADY_FULLY_SCANNED, message: "Item already fully scanned", scanned: item.scannedQuantity };
+        }
+        newScannedQuantity = result.raw[0].scannedQuantity;
       }
 
-      const newScannedQuantity = result.raw[0].scannedQuantity;
 
       const remainingCount = await manager
         .createQueryBuilder()
@@ -1944,16 +1953,16 @@ export class OrdersService {
       if (!order) throw new NotFoundException("Order not found");
       const oldStatusId = order.statusId;
       if (order.status.code !== OrderStatus.READY) {
-        await this.logFailedScan(
-          manager,
-          orderId,
-          sku,
-          userId,
-          adminId,
-          ScanReason.INVALID_STATUS,
-          ScanLogType.SHIPPING,
-          `Current: ${order.status.code}`,
-        );
+        // await this.logFailedScan(
+        //   manager,
+        //   orderId,
+        //   sku,
+        //   userId,
+        //   adminId,
+        //   ScanReason.INVALID_STATUS,
+        //   ScanLogType.SHIPPING,
+        //   `Current: ${order.status.code}`,
+        // );
         return {
           success: false,
           message: "Order must be in READY status for shipping scan",
