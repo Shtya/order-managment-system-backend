@@ -5,6 +5,9 @@ import { Subscription, UserFeature } from 'entities/plans.entity';
 import { ExpiryCronService } from './ExpiryCronService';
 import { OrphanFileEntity } from 'entities/files.entity';
 import { OrphanFilesCleanupCronService } from './orphan-files-cleanup.cron';
+import { OrderPostponedCronService } from './OrderPostponedCron.service';
+import { OrderEntity } from 'entities/order.entity';
+import { CronController } from './cronController';
 
 @Module({
   imports: [
@@ -14,9 +17,11 @@ import { OrphanFilesCleanupCronService } from './orphan-files-cleanup.cron';
       Subscription,
       UserFeature,
       OrphanFileEntity,
+      OrderEntity,
     ]),
   ],
-  providers: [ExpiryCronService, OrphanFilesCleanupCronService],
+  controllers: [CronController],
+  providers: [ExpiryCronService, OrphanFilesCleanupCronService, OrderPostponedCronService],
   exports: [ExpiryCronService], // Export if you need it elsewhere, otherwise keep it private
 })
 export class CronModule { }

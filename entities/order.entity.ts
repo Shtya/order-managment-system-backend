@@ -141,6 +141,21 @@ export class OrderEntity {
   @UpdateDateColumn({ type: "timestamptz", nullable: true })
   rejectedAt?: Date;
 
+  @Column({ type: "timestamptz", nullable: true })
+  postponedDate?: Date;
+
+  @Column({ type: "int", nullable: true })
+  reminderDaysBefore?: number;
+
+  @Column({ type: "boolean", default: false })
+  postponedNotificationSent: boolean;
+
+  @Column({ type: "boolean", default: false })
+  reminderNotificationSent: boolean;
+
+  @Column({ type: "boolean", default: false })
+  oneDayBeforeNotificationSent: boolean;
+
   @UpdateDateColumn({ type: "timestamptz", nullable: true })
   returnedAt?: Date;
 

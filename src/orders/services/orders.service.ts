@@ -513,6 +513,10 @@ export class OrdersService {
     // Date range
     DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
 
+    if (q?.status && q?.status === OrderStatus.POSTPONED && (q?.postponedStartDate || q?.postponedEndDate)) {
+      DateFilterUtil.applyToQueryBuilder(qb, "order.postponedDate", q?.postponedStartDate, q?.postponedEndDate);
+    }
+
     // Search
     if (search) {
       qb.andWhere(
@@ -2906,6 +2910,14 @@ export class OrdersService {
 
       if (newStatusCode === OrderStatus.SHIPPED && !order.shippedAt) {
         order.shippedAt = new Date();
+      }
+
+      if (newStatusCode === OrderStatus.POSTPONED && dto.postponedDate) {
+        order.postponedDate = new Date(dto.postponedDate);
+        order.reminderDaysBefore = dto.reminderDaysBefore;
+        order.postponedNotificationSent = false;
+        order.reminderNotificationSent = false;
+        order.oneDayBeforeNotificationSent = false;
       }
 
       //only decrease stock when order hasn't shipping

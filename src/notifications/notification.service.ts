@@ -51,7 +51,7 @@ export class NotificationService {
     }
 
     // Sort: Unread first, then by date
-    qb.orderBy("n.isRead", "ASC").addOrderBy("n.createdAt", "DESC");
+    qb.addOrderBy("n.createdAt", "DESC");
 
     const [records, total] = await qb
       .skip((page - 1) * limit)

@@ -111,6 +111,8 @@ export class OrdersController {
     return await this.svc.getAutoPreview(req.user, dto);
   }
 
+  
+
   @Post(':id/scan-preparation/:sku')
   @Permissions("warehouses.scan-preparation")
   async scanPreparation(
