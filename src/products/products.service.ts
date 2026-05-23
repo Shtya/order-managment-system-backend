@@ -737,6 +737,7 @@ export class ProductsService {
       .leftJoinAndSelect("product.category", "category")
       .leftJoinAndSelect("product.store", "store")
       .leftJoinAndSelect("product.warehouse", "warehouse")
+      .leftJoin("product.variants", "variant")
       .leftJoinAndMapMany(
         "product.syncStates",
         ProductSyncStateEntity,
@@ -786,7 +787,8 @@ export class ProductsService {
       qb.andWhere(
         new Brackets((sq) => {
           sq.where("product.name ILIKE :s", { s: `%${filters.search}%` })
-            .orWhere("product.slug ILIKE :s", { s: `%${filters.search}%` });
+            .orWhere("product.slug ILIKE :s", { s: `%${filters.search}%` })
+            .orWhere("variant.sku ILIKE :s", { s: `%${filters.search}%` })
         }),
       );
     }
@@ -1356,7 +1358,7 @@ export class ProductsService {
           return {
             variantId: v.id,
             quantity: productType === ProductType.SINGLE ? Number(dto.purchase.quantity || 0) : Number(combo?.stockOnHand) || 0,
-            purchaseCost: Number(dto.purchase.wholesalePrice || 0) || 0, 
+            purchaseCost: Number(dto.purchase.wholesalePrice || 0) || 0,
           };
         }).filter(it => it.quantity > 0);
 
