@@ -313,6 +313,14 @@ export class ChangeOrderStatusDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsDateString()
+  postponedDate?: string;
+
+  @IsOptional()
+  @IsInt()
+  reminderDaysBefore?: number;
 }
 
 // ✅ Update Payment Status DTO

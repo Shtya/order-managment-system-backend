@@ -47,6 +47,7 @@ export enum NotificationType {
     AUTOMATION_RUN_FAILED = 'automation_run_failed',
     AUTOMATION_RUN_COMPLETED = 'automation_run_completed',
     AUTOMATION_RUN_RESUMED = 'automation_run_resumed',
+    ORDER_POSTPONED_REMINDER = 'order_postponed_reminder',
 }
 
 @Entity('notifications')
