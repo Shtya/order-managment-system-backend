@@ -6,12 +6,27 @@ import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { SkipThrottle } from '@nestjs/throttler';
+import { CurrencyConverterService } from 'common/crrency-converter-service';
 
 
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) { }
+  constructor(
+    private readonly paymentsService: PaymentsService,
+    private readonly currencyService: CurrencyConverterService
+  ) { }
 
+  @Get('currency/rate')
+  @UseGuards(JwtAuthGuard)
+  async getCurrencyRate(
+    @Query('from') from: string = 'USD',
+    @Query('to') to: string = 'EGP',
+    @Query('provider') provider: string,
+    @Query('amount') amount: number = 1,
+  ) {
+    return this.currencyService.convert(from, to, amount, provider);
+  }
+ 
   @Post('webhook/:provider')
   @HttpCode(HttpStatus.OK) // Always return 200 OK to notify kashir that we receive event
   async handleKashierWebhook(

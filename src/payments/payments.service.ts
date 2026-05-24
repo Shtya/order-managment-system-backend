@@ -11,6 +11,7 @@ import { SubscriptionUtils } from 'common/healpers';
 import { Notification, NotificationType } from 'entities/notifications.entity';
 import { SystemRole, User } from 'entities/user.entity';
 import { tenantId } from 'src/category/category.service';
+import { CurrencyConverterService } from 'common/crrency-converter-service';
 
 @Injectable()
 export class PaymentsService {
@@ -20,7 +21,7 @@ export class PaymentsService {
         @InjectRepository(WebhookEvents)
         private readonly webhookEventRepo: Repository<WebhookEvents>,
         @InjectRepository(TransactionEntity) private readonly transactionRepo: Repository<TransactionEntity>,
-
+        private readonly currencyConverterService: CurrencyConverterService,
         @InjectRepository(PaymentSessionEntity)
         private readonly sessionRepo: Repository<PaymentSessionEntity>,
         private readonly dataSource: DataSource, // For transaction manager
@@ -78,9 +79,9 @@ export class PaymentsService {
             session.status = webhookData.status;
             session.externalSessionId = webhookData.externalTransactionId;
             await manager.save(session);
-
+            
             const number = await this.transactionsService.generateTransactionNumber(session.userId?.toString())
-
+            const amountInDollars = await this.currencyConverterService.convertEgpToUsd(Number(session.amount));
             const transaction = manager.create(TransactionEntity, {
                 number, // Provider's external ID
                 userId: session.userId,
@@ -89,6 +90,7 @@ export class PaymentsService {
                 subscriptionId: session.subscriptionId ? session.subscriptionId : null,
                 userFeatureId: session.userFeatureId ? session.userFeatureId : null,
                 amount: session.amount,
+                amountInDollars: amountInDollars,
                 status: this.mapToTransactionStatus(webhookData.status),
                 paymentMethod: webhookData.paymentMethod,
             });
@@ -157,11 +159,12 @@ export class PaymentsService {
     ) {
         const notificationPromises = [];
         const paidAmount = Number(transaction.amount);
+        const dollorAmount = Number(transaction.amountInDollars);
         const requiredAmount = Number(session.amount);
 
         // 1️⃣ Helper to redirect funds to wallet if the amount is insufficient
         const redirectToWallet = async (reason: string) => {
-            await this.applyWalletTopUp(manager, session.userId, paidAmount);
+            await this.applyWalletTopUp(manager, session.userId, dollorAmount);
 
             // Update transaction and session to reflect the change
             transaction.purpose = PaymentPurposeEnum.WALLET_TOP_UP;
@@ -173,7 +176,7 @@ export class PaymentsService {
                     userId: session.userId,
                     type: NotificationType.WALLET_CREDIT,
                     title: 'Payment Credited to Wallet',
-                    message: `Your payment of ${paidAmount} ${session.currency} was added to your wallet balance. Reason: ${reason}`,
+                    message: `Your payment of ${paidAmount} EGP (${dollorAmount} USD) was added to your wallet balance. Reason: ${reason}`,
                     relatedEntityType: 'wallet',
                     relatedEntityId: String(session.userId),
                 })
@@ -252,14 +255,14 @@ export class PaymentsService {
                 break;
 
             case PaymentPurposeEnum.WALLET_TOP_UP:
-                await this.applyWalletTopUp(manager, session.userId, paidAmount);
+                await this.applyWalletTopUp(manager, session.userId, dollorAmount);
 
                 notificationPromises.push(
                     manager.save(Notification, {
                         userId: session.userId,
                         type: NotificationType.WALLET_TOP_UP,
                         title: 'Wallet Balance Updated',
-                        message: `Successfully added ${paidAmount} ${session.currency} to your wallet. Your new balance is ready to use.`,
+                        message: `Successfully added ${paidAmount} EGP (${dollorAmount} USD) to your wallet. Your new balance is ready to use.`,
                         relatedEntityType: 'Wallet',
                         relatedEntityId: String(session.userId),
                     })
@@ -333,6 +336,6 @@ export class PaymentsService {
             throw new ForbiddenException('You do not have permission');
         }
 
-        return session; return session;
+        return session; 
     }
 }

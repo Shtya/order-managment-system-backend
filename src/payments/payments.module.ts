@@ -8,11 +8,12 @@ import { User } from 'entities/user.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TransactionsModule } from 'src/transactions/transactions.module';
 import { UserFeature } from 'entities/plans.entity';
+import { CurrencyConverterService } from 'common/crrency-converter-service';
 
 @Module({
   imports: [TransactionsModule, TypeOrmModule.forFeature([WebhookEvents, TransactionEntity, User, PaymentSessionEntity, UserFeature])],
   controllers: [PaymentsController],
-  providers: [PaymentsService, PaymentFactoryService, KashierProvider],
+  providers: [PaymentsService, PaymentFactoryService, KashierProvider, CurrencyConverterService],
   exports: [PaymentsService, PaymentFactoryService, KashierProvider],
 })
 export class PaymentsModule { }

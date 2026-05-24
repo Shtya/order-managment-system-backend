@@ -229,6 +229,9 @@ export class TransactionEntity {
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     amount: number;
 
+    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+    amountInDollars: number;
+    
     @Column({
         type: 'enum',
         enum: TransactionStatus,
