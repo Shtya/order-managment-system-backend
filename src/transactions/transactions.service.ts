@@ -90,7 +90,7 @@ export class TransactionsService {
 		// Search by user name/email or plan name
 		if (search) {
 			qb.andWhere(
-				`(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s)`,
+				`(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s OR t.number ILIKE :s)`,
 				{ s: `%${search}%` },
 			);
 		}
@@ -167,6 +167,7 @@ export class TransactionsService {
 				'COUNT(CASE WHEN t.status = :cancelled THEN 1 END) as cancelled',
 				'COUNT(CASE WHEN t.status = :refunded THEN 1 END) as refunded',
 				'COALESCE(SUM(CASE WHEN t.status = :success THEN t.amount ELSE 0 END), 0) as totalRevenue',
+				'COALESCE(SUM(CASE WHEN t.status = :success THEN t.amountInDollars ELSE 0 END), 0) as totalRevenueInDollars',
 			])
 			.setParameters({
 				success: TransactionStatus.SUCCESS,
@@ -253,6 +254,7 @@ export class TransactionsService {
 			{ header: "Subscription", key: "planName", width: 20 },
 			{ header: "Feature", key: "featureName", width: 25 },  // عمود جديد
 			{ header: "Amount", key: "amount", width: 15 },
+			{ header: "amountInDollars", key: "amountInDollars", width: 15 },
 			{ header: "Status", key: "status", width: 15 },
 			{ header: "Payment Method", key: "paymentMethod", width: 20 },
 			{ header: "Payment Proof (URL)", key: "paymentProof", width: 40 },
@@ -270,6 +272,7 @@ export class TransactionsService {
 				planName: t.subscription?.plan?.name?.trim() || '—',
 				featureName: t.userFeature?.feature?.name?.trim() || '—',
 				amount: Number(t.amount || 0),
+				amountInDollars: Number(t.amountInDollars || 0),
 				status: t.status?.toUpperCase() || '—',
 				paymentMethod: t.paymentMethod?.toUpperCase() || '—',
 				paymentProof: t.paymentProof ? imageSrc(t.paymentProof) : '—',
