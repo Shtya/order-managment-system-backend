@@ -793,6 +793,27 @@ export class ProductsService {
       );
     }
 
+    if (q?.mode === "upsell" && q?.triggerId) {
+      // Find the trigger product and its variants to get the upsellingProducts list
+      const triggerProduct = await this.prodRepo.findOne({
+        where: { id: q.triggerId, adminId },
+        relations: ["variants"],
+      });
+
+      if (triggerProduct) {
+        const upsellIds = triggerProduct.upsellingProducts.map((up) => up.productId);
+
+        if (upsellIds.length > 0) {
+          qb.andWhere("product.id IN (:...upsellIds)", { upsellIds });
+        } else {
+          // If trigger has no upsells defined, return nothing
+          qb.andWhere("1=0");
+        }
+      } else {
+        qb.andWhere("1=0");
+      }
+    }
+
     // =========================================
     // 🔥 Idle Products Filter
     // =========================================
