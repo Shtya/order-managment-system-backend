@@ -21,6 +21,7 @@ export interface UpsellMessageConfig {
     buttons: Array<{ text: string }>;
 }
 
+@Index(['triggerProductId', 'upsellProductId', 'upsellSkuId'], { unique: true })
 @Entity('upsells')
 export class Upsell {
     @PrimaryGeneratedColumn('uuid')
@@ -37,21 +38,21 @@ export class Upsell {
     @Column({ type: 'uuid' })
     triggerProductId: string;
 
-    @ManyToOne(() => ProductEntity, { onDelete: 'CASCADE' })
+    @ManyToOne(() => ProductEntity)
     @JoinColumn({ name: 'triggerProductId' })
     triggerProduct: ProductEntity;
 
     @Column({ type: 'uuid' })
     upsellProductId: string;
 
-    @ManyToOne(() => ProductEntity, { onDelete: 'CASCADE' })
+    @ManyToOne(() => ProductEntity)
     @JoinColumn({ name: 'upsellProductId' })
     upsellProduct: ProductEntity;
 
     @Column({ type: 'uuid' })
     upsellSkuId: string;
 
-    @ManyToOne(() => ProductVariantEntity, { onDelete: 'CASCADE' })
+    @ManyToOne(() => ProductVariantEntity)
     @JoinColumn({ name: 'upsellSkuId' })
     upsellSku: ProductVariantEntity;
 
