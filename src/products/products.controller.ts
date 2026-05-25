@@ -130,7 +130,6 @@ export class ProductsController {
     @Query("productId") productId?: string, // يأتي كـ string من الـ URL
   ) {
 
-
     return this.products.checkSlug(req.user, slug, productId);
   }
 
