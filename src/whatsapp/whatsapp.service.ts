@@ -331,6 +331,7 @@ export class WhatsappService {
                 const buttonReply = metaMsg.interactive.button_reply;
 
                 if (originalMessageId) {
+
                     // Push resume job to queue instead of direct execution
                     await this.flowQueue.add({
                         type: 'resume',

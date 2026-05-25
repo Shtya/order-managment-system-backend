@@ -3,7 +3,7 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationRunStepEntity, FlowDefinition, FlowEdge, FlowNode, NodeConfig, RunStatus, SendWhatsappTemplateConfig, StepStatus } from 'entities/automation.entity';
+import { ActionType, AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationRunStepEntity, FlowDefinition, FlowEdge, FlowNode, NodeConfig, RunStatus, SendWhatsappTemplateConfig, StepStatus } from 'entities/automation.entity';
 import { Repository, DataSource } from 'typeorm';
 import { VariableHydratorService } from './variableHydrator.service';
 import { NodeHandlerResponse, NodeHandlersRegistry } from './nodeHandlers.registry';
@@ -71,8 +71,13 @@ export class EngineRunnerService {
 
 
         // 1. البحث السريع عن الخطوة التي أنتجت هذه الرسالة باستخدام JSONB Query (سريع جداً في Postgres)
+        // نبحث في الحقل الأساسي messageId أو داخل مصفوفة sentUpsells في حال وجود عروض متعددة
         const step = await this.stepRepo.createQueryBuilder('step')
             .where(`step."outputData"->>'messageId' = :messageId`, { messageId: originalMessageId })
+            .orWhere(`EXISTS (
+                SELECT 1 FROM jsonb_array_elements(step."outputData"->'sentUpsells') AS upsell 
+                WHERE upsell->>'messageId' = :messageId
+            )`, { messageId: originalMessageId })
             .getOne();
 
         if (!step) {
@@ -91,14 +96,24 @@ export class EngineRunnerService {
 
         // 2. جلب العقدة (Node) الخاصة بالواتساب من المخطط لمعرفة مساراتها
         const node = version.flow.nodes.find(n => n.id === step.nodeId);
-        const branches = (node?.data?.config as SendWhatsappTemplateConfig)?.branches || [];
+        const config = node?.data?.config as any;
+        const branches = config?.branches || [];
 
         // 3. مطابقة الزر الذي ضغطه العميل مع الفروع المتاحة في إعدادات العقدة
-        const chosenBranch = branches.find((b: any) =>
+        let chosenBranch = branches.find((b: any) =>
             b.sourceButton?.id === buttonId ||
             b.sourceButton?.text === buttonText ||
             b.label === buttonText
         );
+
+        // Special handling for Send Upsell branching
+        if (!chosenBranch && node?.data?.type === ActionType.SEND_UPSELL) {
+            if (buttonId?.endsWith('_btn_0')) {
+                chosenBranch = branches.find(b => b.id === 'accept');
+            } else if (buttonId?.endsWith('_btn_1')) {
+                chosenBranch = branches.find(b => b.id === 'reject');
+            }
+        }
 
         if (!chosenBranch) {
             this.logger.error(`No matching branch found for button "${buttonText}" in node ${node.id}`);
