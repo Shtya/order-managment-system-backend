@@ -70,7 +70,7 @@ export class WhatsappTemplateController {
     async getAll(@Req() req: any, @Query() q: any) {
         return await this.svc.list(req.user, q);
     }
-    
+
     @Get("/library")
     @Permissions("whatsapp.read")
     async getAllLibrary(@Req() req: any, @Query() q: any) {
@@ -140,7 +140,7 @@ export class WhatsappTemplateController {
             const rel = `uploads/whatsapp-templates/${files.headerMedia[0].filename}`;
             templateConfig = { ...templateConfig, headerUrl: rel };
         }
-        
+
         // Handle URL or relative path
         else if (b.headerUrl) {
             const headerUrl = String(b.headerUrl).trim();
@@ -151,13 +151,13 @@ export class WhatsappTemplateController {
                     const ext = this.getFileExtension(response.headers['content-type'] || headerUrl);
                     const filename = `${Date.now()}_header${ext}`;
                     const filePath = path.join(process.cwd(), 'uploads', 'whatsapp-templates', filename);
-                    
+
                     // Ensure directory exists
                     const dir = path.dirname(filePath);
                     if (!fs.existsSync(dir)) {
                         fs.mkdirSync(dir, { recursive: true });
                     }
-                    
+
                     fs.writeFileSync(filePath, response.data);
                     const rel = `uploads/whatsapp-templates/${filename}`;
                     templateConfig = { ...templateConfig, headerUrl: rel };
@@ -194,17 +194,17 @@ export class WhatsappTemplateController {
             'video/quicktime': '.mov',
             'application/pdf': '.pdf',
         };
-        
+
         if (mimeTypes[contentType]) {
             return mimeTypes[contentType];
         }
-        
+
         // Try to extract from URL
         const urlMatch = url.match(/\.(jpg|jpeg|png|gif|mp4|mov|pdf)$/i);
         if (urlMatch) {
             return urlMatch[0];
         }
-        
+
         return '.jpg'; // Default
     }
 
@@ -226,7 +226,7 @@ export class WhatsappTemplateController {
     ) {
         const b = req.body || {};
 
-        
+
         let templateConfig = undefined;
         if (b.templateConfig) {
             templateConfig = parseTemplateConfig(b.templateConfig);

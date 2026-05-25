@@ -50,6 +50,7 @@ import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.mo
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { AutomationModule } from './automation/automation.module';
 import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
+import { UpsellsModule } from './upsells/upsells.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -117,7 +118,8 @@ import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
 		SupplierPaymentsModule,
 		WhatsappModule,
 		AutomationModule,
-		SystemErorrsModule
+		SystemErorrsModule,
+		UpsellsModule
 	],
 	providers: [
 	GlobalExceptionFilter,QueryExceptionFilter, EncryptionService, {
