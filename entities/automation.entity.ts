@@ -104,6 +104,7 @@ export class AutomationFlowEntity {
 export enum ActionType {
     UPDATE_ORDER_STATUS = 'update_order_status',
     SEND_WHATSAPP_TEMPLATE = 'send_whatsapp_template',
+    SEND_UPSELL = 'send_upsell',
 }
 
 export enum ConditionType {
@@ -147,8 +148,17 @@ export type NodeConfig =
     OrderUpdatedConfig |
     UpdateOrderStatusConfig |
     SendWhatsappTemplateConfig |
+    SendUpsellConfig |
     QuickOrderStatusConfig |
     OrderCheckConfig;
+
+export interface SendUpsellConfig {
+    branches?: {
+        id: string;
+        label: string;
+        condition: string;
+    }[];
+}
 
 export interface OrderCreatedConfig {
     store?: string;

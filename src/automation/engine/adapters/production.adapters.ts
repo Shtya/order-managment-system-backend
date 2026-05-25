@@ -1,10 +1,11 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { OrdersService } from 'src/orders/services/orders.service';
-import { WhatsappApiService } from 'src/whatsapp/services/WhatsappApi.service';
+import { WhatsappApiService, WhatsappInteractiveMessagePayload, WhatsappSendInteractiveMessageInput } from 'src/whatsapp/services/WhatsappApi.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
-import { Repository } from 'typeorm';
+import { WhatsappTemplateEntity, WhatsappAccountEntity } from 'entities/whatsapp.entity';
+import { Repository, In } from 'typeorm';
 import { AutomationAdapter } from './automation-adapters.interface';
+import { Upsell } from 'entities/upsells.entity';
 
 /**
  * Production implementation of AutomationAdapter
@@ -20,7 +21,9 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     private readonly whatsappApiService: WhatsappApiService,
     @InjectRepository(WhatsappTemplateEntity)
     private readonly templateRepo: Repository<WhatsappTemplateEntity>,
-  ) {}
+
+  ) { }
+
 
   async changeStatus(
     user: { adminId: string; id: string | null },
@@ -69,5 +72,21 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     manager?: any,
   ) {
     return this.ordersService.findStatusById(statusId, adminId, manager);
+  }
+
+  async sendInteractiveMessage(
+    accountId: string,
+    data: {
+      to: string;
+      interactive: WhatsappInteractiveMessagePayload['interactive'];
+    },
+  ) {
+    const response = await this.whatsappApiService.sendInteractiveMessage(accountId, data);
+    const messageId = response.messages?.[0]?.id;
+
+    return {
+      success: true,
+      messageId,
+    };
   }
 }

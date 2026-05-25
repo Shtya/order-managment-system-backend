@@ -1,6 +1,7 @@
 import { SendWhatsappTemplateConfig } from 'entities/automation.entity';
 import { Repository, EntityManager } from 'typeorm';
 import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
+import { WhatsappInteractiveMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
 
 /**
  * Execution mode for automation handlers
@@ -73,4 +74,19 @@ export interface AutomationAdapter {
     adminId: string,
     manager?: EntityManager,
   ): Promise<any>;
+
+  /**
+   * Send WhatsApp interactive message (List, Buttons)
+   */
+  sendInteractiveMessage(
+    accountId: string,
+    data: {
+      to: string;
+      interactive: WhatsappInteractiveMessagePayload['interactive'];
+    },
+  ): Promise<{
+    success: boolean;
+    messageId?: string;
+  }>;
+
 }

@@ -1,18 +1,17 @@
 // factory pattern. A registry that holds the actual execution logic for each FlowNodeType (e.g., WhatsappHandler, UpdateOrderStatusHandler, ConditionHandler).
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
-import { forwardRef, Inject, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
-import { ActionType, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
+import { Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ActionType, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
-import { OrdersService } from "src/orders/services/orders.service";
-import { WhatsappApiService } from "src/whatsapp/services/WhatsappApi.service";
-import { InjectRepository } from "@nestjs/typeorm";
-import { TemplateStatus, WhatsappTemplateEntity } from "entities/whatsapp.entity";
-import { Repository } from "typeorm";
-import { WhatsappTemplateComponent } from "src/whatsapp/services/WhatsappApi.service";
+import { TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
+import { WhatsappApiService, WhatsappTemplateComponent } from "src/whatsapp/services/WhatsappApi.service";
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
 import { ProductionAutomationAdapter } from "./adapters/production.adapters";
+import { In, Repository } from "typeorm";
+import { Upsell } from "entities/upsells.entity";
+import { InjectRepository } from "@nestjs/typeorm";
 
 export interface NodeHandlerResponse {
     success: boolean;
@@ -158,7 +157,7 @@ export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
 
     constructor(
         private readonly adapter: AutomationAdapter,
-    ) {}
+    ) { }
 
     async execute(
         hydratedConfig: UpdateOrderStatusConfig,
@@ -252,7 +251,7 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
 
     constructor(
         private readonly adapter: AutomationAdapter,
-    ) {}
+    ) { }
 
     async execute(hydratedConfig: SendWhatsappTemplateConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
         try {
@@ -281,8 +280,8 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
             if ((customButtons.length || 0) != (hydratedConfig.branches?.length || 0)) {
                 return { success: false, error: 'WhatsApp template buttons and configuration buttons count do not match' };
             }
-            const bodyVarsLength = (Array.isArray(template.templateConfig.examples) 
-                ? template.templateConfig.examples?.length 
+            const bodyVarsLength = (Array.isArray(template.templateConfig.examples)
+                ? template.templateConfig.examples?.length
                 : Object.keys(template.templateConfig.examples || {}).length) || 0;
 
 
@@ -427,11 +426,140 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
 
 
 @Injectable()
+export class ActionSendUpsellHandler implements FlowNodeHandler {
+    private readonly logger = new Logger(ActionSendUpsellHandler.name);
+
+    constructor(
+        private readonly adapter: AutomationAdapter,
+        @InjectRepository(Upsell)
+        private readonly upsellRepo: Repository<Upsell>,
+        @InjectRepository(WhatsappAccountEntity)
+        private readonly accountRepo: Repository<WhatsappAccountEntity>,
+    ) { }
+
+    async execute(hydratedConfig: SendUpsellConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
+        try {
+            const orderData = run.executionState.trigger.output as OrderEntity;
+            if (!orderData) {
+                return { success: false, error: 'Order data not found in trigger output' };
+            }
+
+            const items = orderData.items || [];
+            const productIds = items.map(item => item.variant?.productId).filter(Boolean);
+
+            if (productIds.length === 0) {
+                return { success: true, shouldPause: false, chosenBranch: 'skipped', output: { reason: 'No products in order' } };
+            }
+
+            // Get available upsells for these products
+            const upsells = await this.upsellRepo.find({
+                where: {
+                    triggerProductId: In(productIds),
+                    adminId: orderData.adminId,
+                    isActive: true,
+                },
+                relations: ['triggerProduct', 'upsellProduct', 'upsellSku'],
+            });
+
+            if (upsells.length === 0) {
+                return { success: true, shouldPause: false, chosenBranch: 'skipped', output: { reason: 'No upsells found for products' } };
+            }
+
+            // Get primary WhatsApp account
+            const account = await this.accountRepo.findOne({
+                where: { adminId: orderData.adminId, isActive: true },
+                order: { createdAt: 'ASC' }
+            });
+            if (!account) {
+                return { success: false, error: 'No active WhatsApp account found' };
+            }
+
+            const sentUpsells = [];
+
+            // Send each upsell
+            for (const upsell of upsells) {
+                const config = upsell.messageConfig;
+                if (!config) continue;
+
+                const interactive: any = {
+                    type: 'button',
+                    body: { text: config.bodyText },
+                };
+
+                if (config.headerType !== 'NONE') {
+                    if (config.headerType === 'TEXT') {
+                        interactive.header = { type: 'text', text: config.headerText };
+                    } else {
+                        interactive.header = {
+                            type: config.headerType.toLowerCase(),
+                            [config.headerType.toLowerCase()]: {
+                                link: config.headerUrl,
+                                // handle: config.headerHandle // Optional if we have handle
+                            }
+                        };
+                    }
+                }
+
+                if (config.footerText) {
+                    interactive.footer = { text: config.footerText };
+                }
+
+                // Add buttons from config
+                if (config.buttons && config.buttons.length > 0) {
+                    interactive.action = {
+                        buttons: config.buttons.map((btn, idx) => ({
+                            type: 'reply',
+                            reply: {
+                                id: `upsell_${upsell.id}_btn_${idx}`,
+                                title: btn.text.slice(0, 20) // Meta limit is 20 chars
+                            }
+                        }))
+                    };
+                }
+
+                await this.adapter.sendInteractiveMessage(account.id, {
+                    to: orderData.phoneNumber,
+                    interactive
+                });
+
+                sentUpsells.push({
+                    upsellId: upsell.id,
+                    triggerProductId: upsell.triggerProductId,
+                    upsellProductId: upsell.upsellProductId
+                });
+            }
+
+            return {
+                success: true,
+                shouldPause: true, // We are waiting for a response
+                output: {
+                    sentUpsellsCount: sentUpsells.length,
+                    sentUpsells,
+                    recipient: orderData.phoneNumber
+                }
+            };
+
+        } catch (error) {
+            this.logger.error(`Failed to send upsells: ${error.message}`, error.stack);
+            return {
+                success: false,
+                error: `Upsell send failed: ${error.message}`
+            };
+        }
+    }
+}
+
+
+@Injectable()
 export class NodeHandlersRegistry {
     private readonly handlers = new Map<FlowNodeDataType, FlowNodeHandler>();
 
     constructor(
         private readonly adapter: ProductionAutomationAdapter,
+        @InjectRepository(Upsell)
+        private readonly upsellRepo: Repository<Upsell>,
+        @InjectRepository(WhatsappAccountEntity)
+        private readonly accountRepo: Repository<WhatsappAccountEntity>,
     ) {
         this.registerHandlers();
     }
@@ -442,6 +570,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler());
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter));
         this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter));
+        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.upsellRepo, this.accountRepo));
     }
 
     /**

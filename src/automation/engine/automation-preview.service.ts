@@ -44,14 +44,16 @@ import {
   ConditionOrderCheckHandler,
   ActionUpdateOrderStatusHandler,
   ActionSendWhatsappTemplateMessageHandler,
+  ActionSendUpsellHandler,
 } from './nodeHandlers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
+import { WhatsappAccountEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { Repository } from 'typeorm';
 import { AppGateway } from 'common/app.gateway';
 import { RedisService } from 'common/redis/RedisService';
 import { User } from 'entities/user.entity';
+import { Upsell } from 'entities/upsells.entity';
 
 export interface CreatePreviewInput {
   adminId: string;
@@ -149,6 +151,10 @@ export class AutomationPreviewService {
     @InjectRepository(WhatsappTemplateEntity)
     private readonly templateRepo: Repository<WhatsappTemplateEntity>,
     private readonly gateway: AppGateway,
+    @InjectRepository(WhatsappAccountEntity)
+    private readonly accountRepo: Repository<WhatsappAccountEntity>,
+    @InjectRepository(Upsell)
+    private readonly upsellRepo: Repository<Upsell>,
   ) { }
 
   /**
@@ -232,9 +238,9 @@ export class AutomationPreviewService {
   }
 
   /**
-   * Resume preview execution after a mock WhatsApp button interaction.
+   * Resume preview execution after a mock interaction (WhatsApp button, etc).
    */
-  async resumeFromWhatsappInteraction(input: PreviewResumeInput): Promise<PreviewRunDocument | null> {
+  async resumePreview(input: PreviewResumeInput): Promise<PreviewRunDocument | null> {
     const preview = await this.getPreview(input.previewId);
     if (!preview) return null;
 
@@ -274,7 +280,7 @@ export class AutomationPreviewService {
       chosenBranch: chosenBranch.id,
       success: true,
       executedAt: new Date().toISOString(),
-      type: preview.executionState.steps[waiting.nodeId]?.type || ActionType.SEND_WHATSAPP_TEMPLATE,
+      type: preview.executionState.steps[waiting.nodeId]?.type ?? ActionType.SEND_WHATSAPP_TEMPLATE,
     } as PreviewRunStep;
 
     preview.waitingForInteraction = null;
@@ -386,7 +392,7 @@ export class AutomationPreviewService {
           preview.waitingForInteraction = {
             nodeId: currentNodeId,
             messageId: result.output?.messageId || `preview-${randomUUID()}`,
-            branches: (node.data.config as SendWhatsappTemplateConfig)?.branches || [],
+            branches: (node.data.config as any)?.branches || [],
             createdAt: new Date().toISOString(),
           };
           await this.savePreview(preview);
@@ -487,7 +493,7 @@ export class AutomationPreviewService {
   }
 
   private registry = new PreviewNodeHandlersRegistry(
-    new PreviewAutomationAdapter(this.templateRepo, this.ordersService),
+    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.ordersService),
   );
 }
 
@@ -507,6 +513,11 @@ class PreviewNodeHandlersRegistry {
     this.handlers.set(
       ActionType.SEND_WHATSAPP_TEMPLATE,
       new ActionSendWhatsappTemplateMessageHandler(this.adapter),
+    );
+
+    this.handlers.set(
+      ActionType.SEND_UPSELL,
+      new ActionSendUpsellHandler(this.adapter, this.adapter.upsellRepo, this.adapter.accountRepo),
     );
   }
 

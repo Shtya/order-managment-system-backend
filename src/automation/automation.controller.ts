@@ -25,7 +25,7 @@ export class AutomationController {
     @Body() dto: CreatePreviewInput,
   ) {
     const adminId = tenantId(req.user);
-    return this.automationPreviewService.createPreview(req.user,{ ...dto, adminId });
+    return this.automationPreviewService.createPreview(req.user, { ...dto, adminId });
   }
 
   @Get('preview/:previewId')
@@ -62,7 +62,7 @@ export class AutomationController {
     @Param('previewId') previewId: string,
     @Body() dto: PreviewResumeInput,
   ) {
-    return this.automationPreviewService.resumeFromWhatsappInteraction({
+    return this.automationPreviewService.resumePreview({
       previewId,
       buttonText: dto.buttonText,
       buttonId: dto.buttonId,

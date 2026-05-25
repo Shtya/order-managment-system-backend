@@ -11,11 +11,12 @@ import { ConditionOrderCheckHandler, ConditionQuickOrderStatusHandler, NodeHandl
 import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, TriggerMatchersRegistry } from './engine/triggerMatchers.registry';
 import { OrdersModule } from 'src/orders/orders.module';
 import { WhatsappModule } from 'src/whatsapp/whatsapp.module';
-import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
+import { WhatsappAccountEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { NotificationModule } from 'src/notifications/notification.module';
 import { WebSocketModule } from 'common/websocket.module';
 import { ProductionAutomationAdapter } from './engine/adapters/production.adapters';
 import { AutomationPreviewService } from './engine/automation-preview.service';
+import { Upsell } from 'entities/upsells.entity';
 
 
 @Module({
@@ -29,7 +30,9 @@ import { AutomationPreviewService } from './engine/automation-preview.service';
       AutomationFlowVersionEntity,
       AutomationRunStepEntity,
       AutomationRunEntity,
-      WhatsappTemplateEntity
+      WhatsappTemplateEntity,
+      Upsell,
+      WhatsappAccountEntity,
     ])
   ],
   controllers: [AutomationController],

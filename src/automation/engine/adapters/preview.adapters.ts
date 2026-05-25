@@ -1,10 +1,12 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
-import { Repository } from 'typeorm';
+import { WhatsappTemplateEntity, WhatsappAccountEntity } from 'entities/whatsapp.entity';
+import { Repository, In } from 'typeorm';
 import { AutomationAdapter } from './automation-adapters.interface';
 import { randomUUID } from 'crypto';
 import { OrdersService } from 'src/orders/services/orders.service';
+import { WhatsappInteractiveMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
+import { Upsell } from 'entities/upsells.entity';
 
 /**
  * Preview implementation of AutomationAdapter
@@ -16,10 +18,24 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
 
   constructor(
     @InjectRepository(WhatsappTemplateEntity)
-    private readonly templateRepo: Repository<WhatsappTemplateEntity>,
+    public readonly templateRepo: Repository<WhatsappTemplateEntity>,
+    @InjectRepository(WhatsappAccountEntity)
+    public readonly accountRepo: Repository<WhatsappAccountEntity>,
+    @InjectRepository(Upsell)
+    public readonly upsellRepo: Repository<Upsell>,
     @Inject(forwardRef(() => OrdersService))
-    private readonly ordersService: OrdersService,
-  ) {}
+    public readonly ordersService: OrdersService,
+  ) { }
+
+
+  async sendInteractiveMessage(accountId: string, data: { to: string; interactive: any; }): Promise<{ success: boolean; messageId?: string; }> {
+    this.logger.log(`[PREVIEW] Skipping actual interactive message send to ${data.to}`);
+    return {
+      success: true,
+      messageId: `preview-${randomUUID()}`,
+    };
+  }
+
 
   async changeStatus(
     user: { adminId: string; id: string | null },
@@ -71,6 +87,6 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
     adminId: string,
     manager?: any,
   ) {
-   return this.ordersService.findStatusById(statusId, adminId, manager);
+    return this.ordersService.findStatusById(statusId, adminId, manager);
   }
 }
