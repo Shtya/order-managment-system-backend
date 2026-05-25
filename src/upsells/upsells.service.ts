@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets } from 'typeorm';
+import { Repository, Brackets, Not } from 'typeorm';
 import { Upsell } from 'entities/upsells.entity';
 import { ProductEntity, ProductVariantEntity } from 'entities/sku.entity';
 import { CreateUpsellDto, UpdateUpsellDto } from 'dto/upsells.dto';
@@ -46,6 +46,19 @@ export class UpsellsService {
             throw new BadRequestException('SKU does not belong to the upsell product');
         }
 
+        // 2.5 Check for uniqueness (triggerProductId, upsellProductId, upsellSkuId)
+        const existing = await this.upsellRepo.findOne({
+            where: {
+                triggerProductId: dto.triggerProductId,
+                upsellProductId: dto.upsellProductId,
+                upsellSkuId: dto.upsellSkuId,
+                adminId
+            }
+        });
+        if (existing) {
+            throw new BadRequestException('An upsell with this trigger product, upsell product, and SKU already exists');
+        }
+
         // 3. Handle media handle if applicable
         const messageConfig = { ...dto.messageConfig };
         if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType) && messageConfig.headerUrl) {
@@ -61,6 +74,67 @@ export class UpsellsService {
         const upsell = this.upsellRepo.create({
             ...dto,
             adminId,
+            messageConfig,
+        });
+
+        return await this.upsellRepo.save(upsell);
+    }
+
+    async update(me: any, id: string, dto: UpdateUpsellDto) {
+        const adminId = tenantId(me);
+        const upsell = await this.findOne(me, id);
+
+        // Validation logic similar to create if IDs change
+        if (dto.triggerProductId || dto.upsellProductId || dto.upsellSkuId) {
+            const triggerId = dto.triggerProductId || upsell.triggerProductId;
+            const upsellId = dto.upsellProductId || upsell.upsellProductId;
+            const skuId = dto.upsellSkuId || upsell.upsellSkuId;
+
+            const triggerProduct = await this.productRepo.findOne({ where: { id: triggerId } });
+            if (!triggerProduct) throw new BadRequestException('Trigger product not found');
+
+            const upsellProduct = await this.productRepo.findOne({ where: { id: upsellId } });
+            if (!upsellProduct) throw new BadRequestException('Upsell product not found');
+
+            const sku = await this.skuRepo.findOne({ where: { id: skuId, productId: upsellId } });
+            if (!sku) throw new BadRequestException('SKU not found or does not belong to the upsell product');
+
+            const upsellingProducts = triggerProduct.upsellingProducts || [];
+            const isLinked = upsellingProducts.some(p => p.productId === upsellId);
+            if (!isLinked) {
+                throw new BadRequestException('The selected upsell product is not linked to the trigger product');
+            }
+
+            // Check for uniqueness if IDs changed
+            const existing = await this.upsellRepo.findOne({
+                where: {
+                    triggerProductId: triggerId,
+                    upsellProductId: upsellId,
+                    upsellSkuId: skuId,
+                    adminId,
+                    id: Not(id)
+                }
+            });
+            if (existing) {
+                throw new BadRequestException('An upsell with this trigger product, upsell product, and SKU already exists');
+            }
+        }
+
+        const messageConfig = dto.messageConfig ? { ...dto.messageConfig } : upsell.messageConfig;
+
+        // If headerUrl changed, re-upload to Meta
+        if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
+            if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType)) {
+                try {
+                    messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl);
+                } catch (err) {
+                    throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
+                }
+            }
+        }
+
+        Object.assign(upsell, {
+            ...dto,
             messageConfig,
         });
 
@@ -123,6 +197,7 @@ export class UpsellsService {
         if (!upsell) throw new NotFoundException('Upsell not found');
         return upsell;
     }
+
     async stats(me) {
         return {
             sent: 0,
@@ -132,52 +207,7 @@ export class UpsellsService {
             acceptedAfterTime: 0
         }
     }
-    async update(me: any, id: string, dto: UpdateUpsellDto) {
-        const adminId = tenantId(me);
-        const upsell = await this.findOne(me, id);
 
-        // Validation logic similar to create if IDs change
-        if (dto.triggerProductId || dto.upsellProductId || dto.upsellSkuId) {
-            const triggerId = dto.triggerProductId || upsell.triggerProductId;
-            const upsellId = dto.upsellProductId || upsell.upsellProductId;
-            const skuId = dto.upsellSkuId || upsell.upsellSkuId;
-
-            const triggerProduct = await this.productRepo.findOne({ where: { id: triggerId } });
-            if (!triggerProduct) throw new BadRequestException('Trigger product not found');
-
-            const upsellProduct = await this.productRepo.findOne({ where: { id: upsellId } });
-            if (!upsellProduct) throw new BadRequestException('Upsell product not found');
-
-            const sku = await this.skuRepo.findOne({ where: { id: skuId, productId: upsellId } });
-            if (!sku) throw new BadRequestException('SKU not found or does not belong to the upsell product');
-
-            const upsellingProducts = triggerProduct.upsellingProducts || [];
-            const isLinked = upsellingProducts.some(p => p.productId === upsellId);
-            if (!isLinked) {
-                throw new BadRequestException('The selected upsell product is not linked to the trigger product');
-            }
-        }
-
-        const messageConfig = dto.messageConfig ? { ...dto.messageConfig } : upsell.messageConfig;
-
-        // If headerUrl changed, re-upload to Meta
-        if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
-            if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType)) {
-                try {
-                    messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl);
-                } catch (err) {
-                    throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
-                }
-            }
-        }
-
-        Object.assign(upsell, {
-            ...dto,
-            messageConfig,
-        });
-
-        return await this.upsellRepo.save(upsell);
-    }
 
     async remove(me: any, id: string) {
         const upsell = await this.findOne(me, id);

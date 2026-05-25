@@ -100,11 +100,6 @@ export class UpdateUpsellDto {
     @IsOptional()
     @IsNumber()
     @Type(() => Number)
-    timeMs?: number;
-
-    @IsOptional()
-    @IsNumber()
-    @Type(() => Number)
     expireTimeM?: number;
 
     @IsOptional()
