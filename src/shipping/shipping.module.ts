@@ -23,7 +23,7 @@ import { WebSocketModule } from '../../common/websocket.module';
 @Module({
   imports: [
     HttpModule,
-    AuthModule,
+    forwardRef(() => AuthModule),
     forwardRef(() => OrdersModule),
     WebSocketModule,
     TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity]),
