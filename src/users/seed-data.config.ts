@@ -34,7 +34,7 @@ export const SEED_DATA = {
 
     supplier: {
         name: 'شركة النور للتوريدات',
-        phone: '01000000000',
+        phone: '1000000000',
         phoneCountry: 'EG',
         address: 'القاهرة، مصر',
         description: 'شركة توريد متعددة الأقسام توفر منتجات متنوعة للتجار والمتاجر الإلكترونية'
