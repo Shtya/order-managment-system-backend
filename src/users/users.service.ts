@@ -10,6 +10,7 @@ import { SubscriptionsService } from 'src/subscription/subscription.service';
 import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { tenantId } from 'src/category/category.service';
+import { SeedService } from './initial-seed.service';
 
 
 @Injectable()
@@ -23,6 +24,7 @@ export class UsersService {
 
 		@Inject(forwardRef(() => SubscriptionsService))
 		private readonly subscriptionsService: SubscriptionsService,
+		private readonly seedService: SeedService,
 
 	) { }
 
@@ -1009,6 +1011,8 @@ export class UsersService {
 			case OnboardingStep.SHIPPING:
 				nextStep = OnboardingStep.FINISHED;
 				user.onboardingStatus = OnboardingStatus.COMPLETED;
+				// Seed initial data for new user
+				this.seedService.seedInitialData(user);
 				break;
 
 			default:

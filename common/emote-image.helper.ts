@@ -21,11 +21,20 @@ export class RemoteImageHelper {
     ) { }
 
     async downloadAndSaveImage(url: string) {
+        // 📥 1. Check if it's a local path first
+        if (url.startsWith('uploads/') || url.startsWith('/uploads/')) {
+            const normalizedPath = url.startsWith('/') ? url.slice(1) : url;
+            const fullPath = path.join(process.cwd(), normalizedPath);
+            if (fs.existsSync(fullPath)) {
+                return { url: normalizedPath };
+            }
+        }
+
         let parsed: URL;
         try {
             parsed = new URL(url);
         } catch {
-            throw new BadRequestException("Invalid image URL");
+            throw new BadRequestException("Invalid image URL or local path");
         }
 
         if (parsed.protocol !== "https:") {

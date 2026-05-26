@@ -68,8 +68,6 @@ export class EngineRunnerService {
     }
 
     async resumeFromWhatsappInteraction(originalMessageId: string, buttonText: string, buttonId?: string): Promise<void> {
-
-
         // 1. البحث السريع عن الخطوة التي أنتجت هذه الرسالة باستخدام JSONB Query (سريع جداً في Postgres)
         // نبحث في الحقل الأساسي messageId أو داخل مصفوفة sentUpsells في حال وجود عروض متعددة
         const step = await this.stepRepo.createQueryBuilder('step')

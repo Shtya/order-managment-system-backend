@@ -2692,8 +2692,8 @@ export class OrdersService {
         customerNotes: dto.customerNotes !== undefined ? dto.customerNotes : order.customerNotes,
         trackingNumber: dto.trackingNumber !== undefined ? dto.trackingNumber : order.trackingNumber,
         updatedByUserId: me?.id,
-        landmark: dto.landmark,
-        deposit: dto.deposit,
+        landmark: dto.landmark !== undefined ? dto.landmark : order.landmark,
+        deposit: dto.deposit !== undefined ? dto.deposit : order.deposit,
         shippingMetadata: dto.shippingMetadata
           ? { ...order.shippingMetadata, ...dto.shippingMetadata }
           : order.shippingMetadata,

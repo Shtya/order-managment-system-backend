@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Brackets, Not } from 'typeorm';
 import { Upsell } from 'entities/upsells.entity';
@@ -9,6 +9,7 @@ import { WhatsappApiService } from '../whatsapp/services/WhatsappApi.service';
 import * as ExcelJS from 'exceljs';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
+import { OrdersService } from '../orders/services/orders.service';
 
 @Injectable()
 export class UpsellsService {
@@ -20,6 +21,8 @@ export class UpsellsService {
         @InjectRepository(ProductVariantEntity)
         private readonly skuRepo: Repository<ProductVariantEntity>,
         private readonly whatsappApi: WhatsappApiService,
+        @Inject(forwardRef(() => OrdersService))
+        private readonly ordersService: OrdersService,
     ) { }
 
     async create(me: any, dto: CreateUpsellDto) {
@@ -218,6 +221,21 @@ export class UpsellsService {
         const upsell = await this.findOne(me, id);
         upsell.isActive = !upsell.isActive;
         return await this.upsellRepo.save(upsell);
+    }
+
+    async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
+        const upsell = await this.findOne(me, upsellId);
+
+        return await this.ordersService.update(me, orderId, {
+            items: [
+                {
+                    variantId: upsell.upsellSkuId,
+                    quantity: 1,
+                    unitPrice: Number(upsell.upsellPrice),
+                    isAdditional: true
+                }
+            ]
+        } as any);
     }
 
     async export(me: any, q: any) {
