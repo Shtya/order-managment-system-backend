@@ -49,17 +49,18 @@ export class UpsellsService {
             throw new BadRequestException('SKU does not belong to the upsell product');
         }
 
-        // 2.5 Check for uniqueness (triggerProductId, upsellProductId, upsellSkuId)
+        // 2.5 Check for uniqueness (triggerProductId, upsellProductId, upsellSkuId, adminId, upsellPrice)
         const existing = await this.upsellRepo.findOne({
             where: {
                 triggerProductId: dto.triggerProductId,
                 upsellProductId: dto.upsellProductId,
                 upsellSkuId: dto.upsellSkuId,
+                upsellPrice: dto.upsellPrice,
                 adminId
             }
         });
         if (existing) {
-            throw new BadRequestException('An upsell with this trigger product, upsell product, and SKU already exists');
+            throw new BadRequestException(`An upsell already exists for the same trigger product, upsell product, SKU, and price (${dto.upsellPrice})`);
         }
 
         // 3. Handle media handle if applicable
@@ -87,11 +88,12 @@ export class UpsellsService {
         const adminId = tenantId(me);
         const upsell = await this.findOne(me, id);
 
-        // Validation logic similar to create if IDs change
-        if (dto.triggerProductId || dto.upsellProductId || dto.upsellSkuId) {
+        // Validation logic similar to create if IDs or Price change
+        if (dto.triggerProductId || dto.upsellProductId || dto.upsellSkuId || dto.upsellPrice !== undefined) {
             const triggerId = dto.triggerProductId || upsell.triggerProductId;
             const upsellId = dto.upsellProductId || upsell.upsellProductId;
             const skuId = dto.upsellSkuId || upsell.upsellSkuId;
+            const price = dto.upsellPrice !== undefined ? dto.upsellPrice : upsell.upsellPrice;
 
             const triggerProduct = await this.productRepo.findOne({ where: { id: triggerId } });
             if (!triggerProduct) throw new BadRequestException('Trigger product not found');
@@ -108,18 +110,19 @@ export class UpsellsService {
                 throw new BadRequestException('The selected upsell product is not linked to the trigger product');
             }
 
-            // Check for uniqueness if IDs changed
+            // Check for uniqueness if IDs or Price changed
             const existing = await this.upsellRepo.findOne({
                 where: {
                     triggerProductId: triggerId,
                     upsellProductId: upsellId,
                     upsellSkuId: skuId,
+                    upsellPrice: price,
                     adminId,
                     id: Not(id)
                 }
             });
             if (existing) {
-                throw new BadRequestException('An upsell with this trigger product, upsell product, and SKU already exists');
+                throw new BadRequestException(`An upsell already exists for the same trigger product, upsell product, SKU, and price (${price})`);
             }
         }
 

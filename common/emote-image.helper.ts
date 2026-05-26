@@ -6,12 +6,10 @@ import {
     Injectable,
     Optional,
 } from "@nestjs/common";
-import { EntityManager } from "typeorm";
 import axios from "axios";
 import { randomUUID } from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { OrphanFileEntity } from "entities/files.entity";
 
 @Injectable()
 export class RemoteImageHelper {

@@ -21,7 +21,7 @@ export interface UpsellMessageConfig {
     buttons: Array<{ text: string }>;
 }
 
-@Index(['triggerProductId', 'upsellProductId', 'upsellSkuId'], { unique: true })
+@Index(['triggerProductId', 'upsellProductId', 'upsellSkuId', 'adminId', 'upsellPrice'], { unique: true })
 @Entity('upsells')
 export class Upsell {
     @PrimaryGeneratedColumn('uuid')
