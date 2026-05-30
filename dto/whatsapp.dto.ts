@@ -201,3 +201,29 @@ export class UpdateWhatsappTemplateDto {
     @Type(() => TemplateConfigDto)
     templateConfig: TemplateConfigDto;
 }
+
+export class CreateConversationDto {
+    @IsString()
+    @IsNotEmpty()
+    phoneNumber: string;
+
+    @IsString()
+    @IsOptional()
+    name?: string;
+
+    @IsString()
+    @IsOptional()
+    email?: string;
+
+    @IsString()
+    @IsOptional()
+    profilePicture?: string;
+
+    @IsString()
+    @IsOptional()
+    initialMessage?: string;
+
+    @IsUUID()
+    @IsOptional()
+    accountId?: string;
+}

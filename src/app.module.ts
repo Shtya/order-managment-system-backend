@@ -27,7 +27,6 @@ import { BullModule } from '@nestjs/bull';
 import { ShippingModule } from "./shipping/shipping.module";
 import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "../entities/shipping.entity";
 import { NotificationModule } from "./notifications/notification.module";
-import { AppGateway } from "common/app.gateway";
 import { WebSocketModule } from "common/websocket.module";
 import { CollectionModule } from "./order-collections/collection.module";
 import { DashboardModule } from './dashboard/dashboard.module';
@@ -51,6 +50,8 @@ import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { AutomationModule } from './automation/automation.module';
 import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
 import { UpsellsModule } from './upsells/upsells.module';
+import { ConversationModule } from './conversation/conversation.module';
+import { CustomerModule } from './customer/customer.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -119,10 +120,12 @@ import { UpsellsModule } from './upsells/upsells.module';
 		WhatsappModule,
 		AutomationModule,
 		SystemErorrsModule,
-		UpsellsModule
+		UpsellsModule,
+		ConversationModule,
+		CustomerModule
 	],
 	providers: [
-	GlobalExceptionFilter,QueryExceptionFilter, EncryptionService, {
+		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService, {
 			provide: APP_GUARD,
 			useClass: ThrottlerGuard
 		}

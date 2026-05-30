@@ -24,6 +24,7 @@ type WhatsappRequestOptions = {
   method: MetaApiMethod;
   endpoint: string;
   data?: unknown;
+  headers?: Record<string, string>;
   params?: Record<string, unknown>;
   /**
    * Which identifier to prepend
@@ -424,6 +425,7 @@ export interface WhatsappMessageResponsePayload {
   contacts?: WhatsappMessageResponseContact[];
   messages?: WhatsappMessageResponseItem[];
   messaging_product?: string;
+  payload?: WhatsappSendMessagePayload,
 }
 
 export interface WhatsappMarkMessageRequestPayload {
@@ -509,6 +511,17 @@ export interface WhatsappTemplateSendableComponent {
   example?: unknown;
   buttons?: unknown[];
 }
+
+export interface WhatsappUploadMediaPayload {
+  file: Express.Multer.File;
+  mimeType: string;
+  filename?: string;
+}
+
+export interface WhatsappUploadMediaResponsePayload {
+  id: string; // media_id from Meta
+}
+
 
 @Injectable()
 export class WhatsappApiService {
@@ -638,6 +651,7 @@ export class WhatsappApiService {
       headers: {
         Authorization: `Bearer ${account.accessToken}`,
         'Content-Type': 'application/json',
+        ...options.headers,
       },
       params,
     };
@@ -735,6 +749,43 @@ export class WhatsappApiService {
     }
   }
 
+  async uploadMessageMedia(
+    accountId: string,
+    payload: WhatsappUploadMediaPayload,
+  ): Promise<WhatsappUploadMediaResponsePayload> {
+    const formData = new FormData();
+
+    formData.append('messaging_product', 'whatsapp');
+    const uint8Array = new Uint8Array(payload.file.buffer);
+    const blob = new Blob([uint8Array], { type: payload.file.mimetype });
+    formData.append('file', blob, payload.file.originalname || payload.file.filename);
+
+    try {
+      const response = await this.request<WhatsappUploadMediaResponsePayload>({
+        accountId,
+        method: 'POST',
+        endpoint: 'media',
+        node: 'phoneNumberId',
+        data: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      // Save media record (optional but recommended)
+      try {
+
+      } catch (e) {
+        this.logger.error('Failed to save uploaded media', e);
+      }
+
+      return response;
+    } catch (error) {
+      this.logger.error('WhatsApp media upload failed', error);
+      throw error;
+    }
+  }
+
   async sendMessage(
     accountId: string,
     payload: WhatsappSendMessagePayload,
@@ -747,30 +798,7 @@ export class WhatsappApiService {
       data: payload,
     });
 
-    // Save message to database
-    try {
-      const account = await this.getAccount(accountId);
-      const messageId = response.messages?.[0]?.id;
-
-      if (messageId) {
-        const message = this.messageRepo.create({
-          adminId: account.adminId,
-          accountId: account.id,
-          messageId,
-          contactNumber: payload.to,
-          direction: MessageDirection.OUTBOUND,
-          status: MessageStatus.ACCEPTED,
-          messageType: payload.type as any, // Mapping string to enum
-          content: payload,
-        });
-
-        await this.messageRepo.save(message);
-      }
-    } catch (e) {
-      this.logger.error('Failed to save sent message to database', e);
-    }
-
-    return response;
+    return { ...response, payload };
   }
 
   async markMessageAsRead(
@@ -1126,7 +1154,6 @@ export class WhatsappApiService {
       replyToMessageId: input.replyToMessageId,
       recipient_type: input.recipient_type,
     });
-
   }
 
   /**

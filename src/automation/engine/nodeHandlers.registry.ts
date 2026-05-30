@@ -356,6 +356,7 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                     template,
                     components: components.length > 0 ? components : undefined,
                 },
+                orderData.adminId,
             );
 
             return {
@@ -520,7 +521,7 @@ export class ActionSendUpsellHandler implements FlowNodeHandler {
                 await this.adapter.sendInteractiveMessage(account.id, {
                     to: orderData.phoneNumber,
                     interactive
-                });
+                }, orderData.adminId);
 
                 sentUpsells.push({
                     upsellId: upsell.id,

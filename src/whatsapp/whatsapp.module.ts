@@ -11,13 +11,20 @@ import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
 import { WhatsappTemplateController } from './controllers/WhatsappTemplate.controller';
 import { AutomationModule } from 'src/automation/automation.module';
 import { OrdersModule } from 'src/orders/orders.module';
+import { ConversationEntity } from 'entities/whatsapp.entity';
+import { ConversationModule } from 'src/conversation/conversation.module';
+import { CustomerEntity } from 'entities/customers.entity';
+import { CustomerModule } from '../customer/customer.module';
 
 @Module({
   imports: [
     HttpModule,
     forwardRef(() => AutomationModule),
     forwardRef(() => OrdersModule),
-    TypeOrmModule.forFeature([WhatsappAccountEntity, WhatsappTemplateEntity, WhatsappMessageEntity, WhatsappWebhookEventEntity])],
+    forwardRef(() => ConversationModule),
+    forwardRef(() => CustomerModule),
+    TypeOrmModule.forFeature([WhatsappAccountEntity, WhatsappMessageEntity, WhatsappTemplateEntity,
+      WhatsappWebhookEventEntity, ConversationEntity, CustomerEntity])],
   controllers: [WhatsappController, WhatsappAccountController, WhatsappTemplateController],
   providers: [WhatsappService, WhatsappAccountService, WhatsappApiService, WhatsappTemplateService],
   exports: [WhatsappService, WhatsappAccountService, WhatsappApiService, WhatsappTemplateService],

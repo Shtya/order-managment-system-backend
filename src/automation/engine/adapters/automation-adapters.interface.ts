@@ -44,6 +44,7 @@ export interface AutomationAdapter {
       template: any;
       components?: any[];
     },
+    adminId?: string,
   ): Promise<{
     success: boolean;
     messageId?: string;
@@ -84,6 +85,7 @@ export interface AutomationAdapter {
       to: string;
       interactive: WhatsappInteractiveMessagePayload['interactive'];
     },
+    adminId?: string,
   ): Promise<{
     success: boolean;
     messageId?: string;

@@ -1,9 +1,10 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppGateway } from 'common/app.gateway';
 import { User } from 'entities/user.entity';
 
+@Global()
 @Module({
     imports: [
         JwtModule.register({}), // 👈 يوفّر JwtService

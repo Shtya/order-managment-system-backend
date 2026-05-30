@@ -1,12 +1,19 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from "crypto";
-import { WhatsappApiService } from './services/WhatsappApi.service';
-import { MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappWebhookEventEntity } from 'entities/whatsapp.entity';
+import { WhatsappApiService, WhatsappMessageResponsePayload, WhatsappSendMessagePayload, WhatsappUploadMediaPayload } from './services/WhatsappApi.service';
+import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappWebhookEventEntity } from 'entities/whatsapp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
 import { getErrorMessage } from 'common/healpers';
 import { FlowExecutionQueueService } from 'src/automation/engine/triggerDispatcher.service';
+import { OrdersService } from 'src/orders/services/orders.service';
+import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
+import { ConversationService } from 'src/conversation/conversation.service';
+import { CustomerService } from 'src/customer/customer.service';
+import { CustomerEntity } from 'entities/customers.entity';
+import { AppGateway } from 'common/app.gateway';
+
 
 @Injectable()
 export class WhatsappService {
@@ -19,12 +26,229 @@ export class WhatsappService {
         private readonly messageRepo: Repository<WhatsappMessageEntity>,
         @InjectRepository(WhatsappWebhookEventEntity)
         private readonly webhookRepo: Repository<WhatsappWebhookEventEntity>,
-
         private readonly templateService: WhatsappTemplateService,
         private readonly flowQueue: FlowExecutionQueueService,
+        @Inject(forwardRef(() => OrdersService))
+        private readonly orderService: OrdersService,
+        @Inject(forwardRef(() => ConversationService))
+        private readonly conversationService: ConversationService,
+        @InjectRepository(ConversationEntity)
+        private readonly conversationRepo: Repository<ConversationEntity>,
+        @InjectRepository(CustomerEntity)
+        private readonly customerRepo: Repository<CustomerEntity>,
+        @Inject(forwardRef(() => CustomerService))
+        private readonly customerService: CustomerService,
+        private readonly appGateway: AppGateway,
     ) {
 
     }
+
+    async getDefaultAccountId(adminId: string, accountId?: string): Promise<string> {
+        if (!accountId) {
+            const settings = await this.orderService.getSettings(adminId);
+            accountId = settings?.defaultWhatsAppAccountId;
+            if (!accountId) {
+                // get first active account
+                const activeAccount = await this.accountRepo.findOne({
+                    where: { adminId, isActive: true },
+                });
+                accountId = activeAccount?.id;
+            }
+        }
+
+        if (!accountId) {
+            throw new BadRequestException('Missing accountId');
+        }
+
+        return accountId;
+    }
+
+    async uploadMedia(me: any, payload: WhatsappUploadMediaPayload, accountId?: string) {
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
+
+        return this.whatsappApi.uploadMessageMedia(resolvedAccountId, payload);
+    }
+
+    async sendMessage(me: any, payload: WhatsappSendMessagePayload, accountId?: string) {
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
+
+        // Normalize phone number and manage customer/conversation
+        const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.to);
+        payload.to = normalizedPhoneNumber;
+
+        await this.conversationService.getOrCreateConversation(me, {
+            phoneNumber: normalizedPhoneNumber,
+            name: payload.to,
+        });
+
+        const response = await this.whatsappApi.sendMessage(resolvedAccountId, payload);
+
+        await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response);
+
+        return response;
+    }
+
+    async processOutboundMessage(
+        adminId: string,
+        accountId: string,
+        contactNumber: string,
+        response: WhatsappMessageResponsePayload,
+    ) {
+        try {
+            const messageId = response.messages?.[0]?.id;
+            if (!messageId) return;
+
+            // Ensure conversation exists
+            const conversation = await this.conversationService.getOrCreateConversation({ id: adminId }, {
+                phoneNumber: contactNumber,
+                name: contactNumber,
+            });
+            const payload = response.payload;
+            const message = this.messageRepo.create({
+                adminId,
+                accountId,
+                messageId,
+                contactNumber,
+                direction: MessageDirection.OUTBOUND,
+                status: MessageStatus.ACCEPTED,
+                messageType: payload.type as any,
+                content: payload,
+                customerId: conversation.customerId,
+                conversationId: conversation.id,
+            });
+            const savedMsg = await this.messageRepo.save(message);
+
+            // Update conversation metadata
+            let preview = `[${(payload.type || 'MESSAGE').toUpperCase()}]`;
+            if (payload.type === 'text') {
+                preview = payload.text?.body;
+            } else if (payload.type === 'template') {
+                preview = `[TEMPLATE: ${payload.template?.name}]`;
+            } else if (payload.type === 'interactive') {
+                preview = `[INTERACTIVE: ${payload.interactive?.type}]`;
+            }
+
+            conversation.lastMessageId = savedMsg.id;
+            conversation.lastMessageDirection = MessageDirection.OUTBOUND;
+            conversation.lastMessageType = savedMsg.messageType;
+            conversation.lastMessagePreview = preview;
+            conversation.lastMessageAt = new Date();
+            conversation.lastOutgoingMessageAt = new Date();
+            await this.conversationService.save(conversation);
+
+            // Emit notifications
+            this.appGateway.emitNewMessage(adminId, savedMsg);
+            this.appGateway.emitUpdateConversation(adminId, conversation);
+
+            return savedMsg;
+        } catch (e) {
+            this.logger.error('Failed to process outbound message', e);
+        }
+    }
+
+    async markAsRead(me: any, payload: { messageId?: string, conversationId?: string }) {
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        if (payload.messageId) {
+            const message = await this.messageRepo.findOne({ where: { messageId: payload.messageId, adminId } });
+            if (message && message.direction === MessageDirection.INBOUND) {
+                // 1. Call Meta API
+                try {
+                    await this.whatsappApi.markMessageAsRead(message.accountId, message.messageId);
+                    message.status = MessageStatus.READ;
+                    message.readAt = new Date();
+                    await this.messageRepo.save(message);
+                } catch (e) {
+                    this.logger.error(`Failed to mark message ${message.messageId} as read on Meta`, e);
+                }
+
+                // 2. Sync locally
+                await this.syncMessageReadStatus(message);
+
+                // 3. Emit update notification
+                this.appGateway.emitUpdateMessage(adminId, message);
+                // Also update conversation unread count in frontend
+                const conversation = await this.conversationRepo.findOne({ where: { id: message.conversationId } });
+                if (conversation) {
+                    this.appGateway.emitUpdateConversation(adminId, conversation);
+                }
+            }
+        } else if (payload.conversationId) {
+            const conversation = await this.conversationRepo.findOne({ where: { id: payload.conversationId, adminId } });
+            if (conversation) {
+                // Find latest inbound message to mark as read on Meta
+                const latestInbound = await this.messageRepo.findOne({
+                    where: { conversationId: conversation.id, direction: MessageDirection.INBOUND },
+                    order: { createdAt: 'DESC' }
+                });
+
+                if (latestInbound) {
+                    try {
+                        await this.whatsappApi.markMessageAsRead(latestInbound.accountId, latestInbound.messageId);
+                    } catch (e) {
+                        this.logger.error(`Failed to mark conversation ${conversation.id} as read on Meta`, e);
+                    }
+                    // Sync all locally using the latest message as reference
+                    await this.syncMessageReadStatus(latestInbound);
+
+                    // Emit update notifications
+                    this.appGateway.emitUpdateConversation(adminId, conversation);
+                    // We don't emit for every message for performance, frontend should refresh or we could emit a specific event
+                }
+            }
+        }
+
+        return { success: true };
+    }
+
+    private async syncMessageReadStatus(message: WhatsappMessageEntity, readAt: Date = new Date()) {
+        if (!message.conversationId) return;
+
+        // Mark this and all earlier messages of the SAME direction as READ in local DB
+        const result = await this.messageRepo
+            .createQueryBuilder()
+            .update()
+            .set({
+                status: MessageStatus.READ,
+                readAt,
+            })
+            .where('conversationId = :conversationId', {
+                conversationId: message.conversationId,
+            })
+            .andWhere('direction = :direction', {
+                direction: message.direction,
+            })
+            .andWhere('status != :status', {
+                status: MessageStatus.READ,
+            })
+            .andWhere(`
+                DATE_TRUNC('second', "createdAt")
+                <= DATE_TRUNC('second', :createdAt::timestamp)
+            `, {
+                createdAt: message.createdAt,
+            })
+            .execute();
+
+        // If it's an inbound message, we must recalculate the unread count for the conversation
+        if (message.direction === MessageDirection.INBOUND) {
+            const unreadCount = await this.messageRepo.count({
+                where: {
+                    conversationId: message.conversationId,
+                    direction: MessageDirection.INBOUND,
+                    status: MessageStatus.RECEIVED
+                }
+            });
+            await this.conversationRepo.update(message.conversationId, { unreadCount });
+        }
+    }
+
     async exchangeCodeForToken(code: string, state?: string) {
         const params = new URLSearchParams({
             client_id: process.env.META_APP_ID!,
@@ -80,46 +304,39 @@ export class WhatsappService {
     }
 
     private validateSignature(
-        body: any,
+        rawBody: Buffer,
         signatureHeader?: string,
     ) {
         if (!signatureHeader) {
             throw new BadRequestException(
-                "Missing X-Hub-Signature-256 header",
+                'Missing X-Hub-Signature-256 header',
             );
         }
 
         const appSecret = process.env.META_APP_SECRET;
 
         if (!appSecret) {
-            throw new Error("META_APP_SECRET is not configured");
+            throw new Error('META_APP_SECRET is not configured');
         }
 
-        // header format:
-        // sha256=abc123...
-        const receivedSignature =
-            signatureHeader.replace("sha256=", "");
-
-        // IMPORTANT:
-        // Meta signs RAW request body
-        const payload =
-            typeof body === "string"
-                ? body
-                : JSON.stringify(body);
+        const receivedSignature = signatureHeader.replace(
+            'sha256=',
+            '',
+        );
 
         const expectedSignature = crypto
-            .createHmac("sha256", appSecret)
-            .update(payload)
-            .digest("hex");
+            .createHmac('sha256', appSecret)
+            .update(rawBody)
+            .digest('hex');
 
         const isValid = crypto.timingSafeEqual(
-            Buffer.from(receivedSignature),
-            Buffer.from(expectedSignature),
+            Buffer.from(receivedSignature, 'hex'),
+            Buffer.from(expectedSignature, 'hex'),
         );
 
         if (!isValid) {
             throw new BadRequestException(
-                "Invalid webhook signature",
+                'Invalid webhook signature',
             );
         }
 
@@ -129,6 +346,7 @@ export class WhatsappService {
     //Unacknowledged responses will be dropped after 7 days.
     async handleEvents(
         body: any,
+        rawBody: Buffer,
         headers: Record<string, string>,
     ) {
         // Header can arrive lowercase in Node/Nest
@@ -137,7 +355,7 @@ export class WhatsappService {
             headers["X-Hub-Signature-256"];
 
         // Step 1: Validate request
-        this.validateSignature(body, signature);
+        this.validateSignature(rawBody, signature);
 
         const entries = body?.entry || [];
 
@@ -145,8 +363,6 @@ export class WhatsappService {
         const accountCache = new Map<string, WhatsappAccountEntity>();
 
         const resolveAccount = async (wabaId: any) => {
-
-
             if (!wabaId) {
                 throw new BadRequestException("Missing WABA ID");
             }
@@ -306,43 +522,79 @@ export class WhatsappService {
         if (messages.length === 0 && statuses.length === 0) return;
         await this.handleStatuses(value, account)
         for (const metaMsg of messages) {
-            const messageId = metaMsg.id;
-            const from = metaMsg.from;
-            const type = metaMsg.type as WhatsappMessageType;
+            await this.receivedMessage(metaMsg, account);
+        }
+    }
 
-            const existing = await this.messageRepo.findOne({ where: { messageId } });
-            if (existing) continue;
+    private async receivedMessage(metaMsg: any, account: WhatsappAccountEntity) {
+        const messageId = metaMsg.id;
+        const from = metaMsg.from;
+        const type = metaMsg.type as WhatsappMessageType;
 
-            const message = this.messageRepo.create({
-                adminId: account.adminId,
-                accountId: account.id,
-                messageId,
-                contactNumber: from,
-                direction: MessageDirection.INBOUND,
-                status: MessageStatus.RECEIVED,
-                messageType: type,
-                content: metaMsg,
-            });
+        const existing = await this.messageRepo.findOne({ where: { messageId } });
+        if (existing) return;
 
-            await this.messageRepo.save(message);
+        // Manage customer and conversation
+        const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(from);
+        const customer = await this.customerService.getOrCreateCustomer({ id: account.adminId }, {
+            phoneNumber: normalizedPhoneNumber,
+            name: metaMsg.contacts?.[0]?.profile?.name || normalizedPhoneNumber,
+        });
 
-            if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'button_reply') {
-                const originalMessageId = metaMsg.context?.id;
-                const buttonReply = metaMsg.interactive.button_reply;
+        const conversation = await this.conversationService.getOrCreateConversation({ id: account.adminId }, {
+            phoneNumber: normalizedPhoneNumber,
+            name: customer.name,
+        });
 
-                if (originalMessageId) {
+        const message = this.messageRepo.create({
+            adminId: account.adminId,
+            accountId: account.id,
+            messageId,
+            contactNumber: from,
+            direction: MessageDirection.INBOUND,
+            status: MessageStatus.RECEIVED,
+            messageType: type,
+            content: metaMsg,
+            customerId: customer.id,
+            conversationId: conversation.id,
+        });
 
-                    // Push resume job to queue instead of direct execution
-                    await this.flowQueue.add({
-                        type: 'resume',
-                        adminId: account.adminId,
-                        resumeData: {
-                            originalMessageId,
-                            buttonText: buttonReply.title,
-                            buttonId: buttonReply.id
-                        }
-                    });
-                }
+        const savedMsg = await this.messageRepo.save(message);
+
+        // Update conversation metadata and increment unread count
+        conversation.unreadCount = (conversation.unreadCount || 0) + 1;
+        conversation.lastMessageId = savedMsg.id;
+        conversation.lastMessageDirection = MessageDirection.INBOUND;
+        conversation.lastMessageType = savedMsg.messageType;
+        conversation.lastMessagePreview = type === 'text' ? metaMsg.text?.body : `[${type.toUpperCase()}]`;
+        conversation.lastMessageAt = new Date();
+        conversation.lastIncomingMessageAt = new Date();
+        await this.conversationService.save(conversation);
+
+        // Update customer
+        customer.lastMessageAt = new Date();
+        await this.customerRepo.save(customer);
+
+        // Emit notifications
+        this.appGateway.emitNewMessage(account.adminId, savedMsg);
+        this.appGateway.emitUpdateConversation(account.adminId, conversation);
+
+        if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'button_reply') {
+            const originalMessageId = metaMsg.context?.id;
+            const buttonReply = metaMsg.interactive.button_reply;
+
+            if (originalMessageId) {
+
+                // Push resume job to queue instead of direct execution
+                await this.flowQueue.add({
+                    type: 'resume',
+                    adminId: account.adminId,
+                    resumeData: {
+                        originalMessageId,
+                        buttonText: buttonReply.title,
+                        buttonId: buttonReply.id
+                    }
+                });
             }
         }
     }
@@ -362,18 +614,48 @@ export class WhatsappService {
                 continue;
             }
 
-            message.status = status;
-            if (status === MessageStatus.DELIVERED) {
-                message.deliveredAt = date;
-            } else if (status === MessageStatus.READ) {
-                message.readAt = date;
-            } else if (status === MessageStatus.FAILED) {
-                message.error = JSON.stringify(statusUpdate.errors || statusUpdate);
-            } else if (status === MessageStatus.SENT) {
+            message.metaTimestamp = parseInt(timestamp);
+
+            // Update Metadata (Pricing, Conversation, etc.)
+            message.metadata = {
+                ...(message.metadata || {}),
+                conversation: statusUpdate.conversation,
+                pricing: statusUpdate.pricing,
+                biz_opaque_callback_data: statusUpdate.biz_opaque_callback_data,
+                recipient_id: statusUpdate.recipient_id
+            };
+
+            if (status === MessageStatus.SENT) {
+                message.status = status;
                 message.sentAt = date;
+            } else if (status === MessageStatus.DELIVERED) {
+                message.deliveredAt = date;
+                message.status = MessageStatus.DELIVERED;
+            } else if (status === MessageStatus.READ) {
+                message.status = status;
+                message.readAt = date;
+            } else if (status === MessageStatus.PLAYED) {
+                message.status = status;
+                message.playedAt = date;
+            } else if (status === MessageStatus.FAILED) {
+                message.status = status;
+                message.failedAt = date;
+                const error = statusUpdate.errors?.[0] || {};
+                message.errorCode = String(error.code || '');
+                message.error = error.error_data?.details || error.message || error.title || JSON.stringify(error);
+            } else {
+                message.status = status;
+            }
+
+            // Sync all previous messages as read if READ
+            if (status === MessageStatus.READ) {
+                await this.syncMessageReadStatus(message, date);
             }
 
             await this.messageRepo.save(message);
+
+            // Emit notification for message status update
+            this.appGateway.emitUpdateMessage(account.adminId, message);
         }
     }
 
@@ -426,8 +708,6 @@ export class WhatsappService {
         this.logger.log("account_settings_update event");
     }
 
-
-
     private async handleTemplateComponentsUpdate(value: any, account: WhatsappAccountEntity) {
         this.logger.log(
             "message_template_components_update event",
@@ -446,6 +726,24 @@ export class WhatsappService {
 
     private async handleAccountReviewUpdate(value: any, account: WhatsappAccountEntity) {
         this.logger.log("account_review_update event");
+    }
+
+    async retryMessage(me: any, messageId: string) {
+        const adminId = me.adminId || me.id;
+        const message = await this.messageRepo.findOne({
+            where: { messageId, adminId },
+            relations: ['account']
+        });
+
+        if (!message) throw new NotFoundException('Message not found');
+        if (message.direction !== MessageDirection.OUTBOUND) throw new BadRequestException('Can only retry outbound messages');
+
+        // Increment retry count
+        message.retryCount = (message.retryCount || 0) + 1;
+        await this.messageRepo.save(message);
+
+        // Re-send using the original content
+        return this.sendMessage(me, message.content, message.accountId);
     }
 
     async findAllMessages(me: any, q?: any) {
