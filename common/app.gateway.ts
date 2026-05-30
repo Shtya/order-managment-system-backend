@@ -5,6 +5,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
 import { Notification } from 'entities/notifications.entity';
+import { ConversationEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
+import { CustomerEntity } from 'entities/customers.entity';
 
 
 @WebSocketGateway({
@@ -129,6 +131,50 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }) {
         this.server.to(`user_${userId}`).emit("automation:run-status", {
             ...payload,
+            timestamp: new Date(),
+        });
+    }
+
+    // --- WhatsApp & Conversation Notifications ---
+
+    emitNewMessage(userId: string, message: WhatsappMessageEntity) {
+        this.server.to(`user_${userId}`).emit("whatsapp:message-new", {
+            message,
+            timestamp: new Date(),
+        });
+    }
+
+    emitUpdateMessage(userId: string, message: WhatsappMessageEntity) {
+        this.server.to(`user_${userId}`).emit("whatsapp:message-updated", {
+            message,
+            timestamp: new Date(),
+        });
+    }
+
+    emitNewConversation(userId: string, conversation: ConversationEntity) {
+        this.server.to(`user_${userId}`).emit("whatsapp:conversation-new", {
+            conversation,
+            timestamp: new Date(),
+        });
+    }
+
+    emitUpdateConversation(userId: string, conversation: ConversationEntity) {
+        this.server.to(`user_${userId}`).emit("whatsapp:conversation-updated", {
+            conversation,
+            timestamp: new Date(),
+        });
+    }
+
+    emitNewCustomer(userId: string, customer: CustomerEntity) {
+        this.server.to(`user_${userId}`).emit("whatsapp:customer-new", {
+            customer,
+            timestamp: new Date(),
+        });
+    }
+
+    emitUpdateCustomer(userId: string, customer: CustomerEntity) {
+        this.server.to(`user_${userId}`).emit("whatsapp:customer-updated", {
+            customer,
             timestamp: new Date(),
         });
     }

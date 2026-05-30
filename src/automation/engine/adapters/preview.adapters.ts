@@ -28,7 +28,11 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
   ) { }
 
 
-  async sendInteractiveMessage(accountId: string, data: { to: string; interactive: any; }): Promise<{ success: boolean; messageId?: string; }> {
+  async sendInteractiveMessage(
+    accountId: string,
+    data: { to: string; interactive: any; },
+    adminId?: string,
+  ): Promise<{ success: boolean; messageId?: string; }> {
     this.logger.log(`[PREVIEW] Skipping actual interactive message send to ${data.to}`);
     return {
       success: true,
@@ -60,6 +64,7 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
       template: any;
       components?: any[];
     },
+    adminId?: string,
   ) {
     this.logger.log(`[PREVIEW] Skipping actual WhatsApp send to ${data.to} for template ${data.template.name}`);
 

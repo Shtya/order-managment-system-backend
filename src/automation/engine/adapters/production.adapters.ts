@@ -6,6 +6,7 @@ import { WhatsappTemplateEntity, WhatsappAccountEntity } from 'entities/whatsapp
 import { Repository, In } from 'typeorm';
 import { AutomationAdapter } from './automation-adapters.interface';
 import { Upsell } from 'entities/upsells.entity';
+import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 
 /**
  * Production implementation of AutomationAdapter
@@ -19,6 +20,8 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
     private readonly whatsappApiService: WhatsappApiService,
+    @Inject(forwardRef(() => WhatsappService))
+    private readonly whatsappService: WhatsappService,
     @InjectRepository(WhatsappTemplateEntity)
     private readonly templateRepo: Repository<WhatsappTemplateEntity>,
 
@@ -46,9 +49,15 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
       template: any;
       components?: any[];
     },
+    adminId?: string,
   ) {
     const response = await this.whatsappApiService.sendTemplateFromEntity(accountId, data);
     const messageId = response.messages?.[0]?.id;
+
+    if (adminId) {
+
+      await this.whatsappService.processOutboundMessage(adminId, accountId, data.to, response);
+    }
 
     return {
       success: true,
@@ -80,9 +89,15 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
       to: string;
       interactive: WhatsappInteractiveMessagePayload['interactive'];
     },
+    adminId?: string,
   ) {
     const response = await this.whatsappApiService.sendInteractiveMessage(accountId, data);
     const messageId = response.messages?.[0]?.id;
+
+    if (adminId) {
+
+      await this.whatsappService.processOutboundMessage(adminId, accountId, data.to, response);
+    }
 
     return {
       success: true,

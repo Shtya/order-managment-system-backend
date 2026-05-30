@@ -27,6 +27,7 @@ import {
 } from '../utils/whatsapp-template-meta.util';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { SystemRole, User } from 'entities/user.entity';
+import { WhatsappService } from '../whatsapp.service';
 
 @Injectable()
 export class WhatsappTemplateService {
@@ -41,6 +42,8 @@ export class WhatsappTemplateService {
 
         @Inject(forwardRef(() => OrdersService))
         private readonly orderService: OrdersService,
+        @Inject(forwardRef(() => WhatsappService))
+        private readonly whatsappService: WhatsappService,
     ) { }
 
 
@@ -134,22 +137,7 @@ export class WhatsappTemplateService {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException('Missing adminId');
 
-        let accountId = q.accountId;
-        if (!accountId) {
-            const settings = await this.orderService.getSettings(adminId);
-            accountId = settings?.defaultWhatsAppAccountId;
-            if (!accountId) {
-                //get first active account
-                const activeAccount = await this.accountRepo.findOne({
-                    where: { adminId, isActive: true },
-                });
-                accountId = activeAccount?.id;
-            }
-        }
-
-        if (!accountId) {
-            throw new BadRequestException('Missing accountId');
-        }
+        const accountId = await this.whatsappService.getDefaultAccountId(adminId, q.accountId);
         const language = q?.language ?? 'ar';
         const allowedLanguages = ['ar', 'en'];
 
