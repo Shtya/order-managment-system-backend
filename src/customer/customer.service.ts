@@ -1,10 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, EntityManager, Repository } from 'typeorm';
 import { CustomerEntity } from 'entities/customers.entity';
 import { UpdateCustomerDto } from 'dto/customer.dto';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { AppGateway } from 'common/app.gateway';
+import { deleteFile } from 'common/healpers';
 
 @Injectable()
 export class CustomerService {
@@ -27,48 +28,89 @@ export class CustomerService {
       customer.phoneNumber = normalizeEgyptianPhoneNumber(payload.phoneNumber);
     }
 
-    if (payload.email) {
-      customer.email = payload.email.toLowerCase();
-    }
+    customer.email = payload.email ? payload.email.toLowerCase() : null;
+
+    const oldImage = customer.profilePicture;
     if (payload.profilePicture) {
+
       customer.profilePicture = payload.profilePicture;
+
     }
 
     if (payload.name) {
       customer.name = payload.name.trim();
     }
 
+    customer.notes = payload.notes;
+
+
     const saved = await this.customerRepo.save(customer);
-    this.appGateway.emitUpdateCustomer(adminId, saved);
+    if (oldImage && oldImage !== saved.profilePicture) {
+      deleteFile(oldImage);
+    }
     return saved;
   }
 
-  async getOrCreateCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string }) {
+  async getOrCreateCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {
     const adminId = me.adminId || me.id;
     if (!adminId) throw new BadRequestException('Missing adminId');
 
+    const repo = manager ? manager.getRepository(CustomerEntity) : this.customerRepo;
     const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.phoneNumber);
 
-    let customer = await this.customerRepo.findOne({
+    let customer = await repo.findOne({
       where: { phoneNumber: normalizedPhoneNumber, adminId },
     });
 
     if (!customer) {
-      customer = this.customerRepo.create({
+      customer = repo.create({
         adminId,
         waId: normalizedPhoneNumber,
         phoneNumber: normalizedPhoneNumber,
         name: payload.name || normalizedPhoneNumber,
         email: payload.email,
         profilePicture: payload.profilePicture,
+        notes: payload.notes,
       });
-      customer = await this.customerRepo.save(customer);
+      customer = await repo.save(customer);
 
       // Emit new customer notification
       this.appGateway.emitNewCustomer(adminId, customer);
     }
 
     return customer;
+  }
+
+  async createCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {
+    const adminId = me.adminId || me.id;
+    if (!adminId) throw new BadRequestException('Missing adminId');
+
+    const repo = manager ? manager.getRepository(CustomerEntity) : this.customerRepo;
+    const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.phoneNumber);
+
+    const existing = await repo.findOne({
+      where: { phoneNumber: normalizedPhoneNumber, adminId },
+    });
+
+    if (existing) {
+      throw new ConflictException('Customer with this phone number already exists');
+    }
+
+    const customer = repo.create({
+      adminId,
+      waId: normalizedPhoneNumber,
+      phoneNumber: normalizedPhoneNumber,
+      name: payload.name || normalizedPhoneNumber,
+      email: payload.email,
+      profilePicture: payload.profilePicture,
+      notes: payload.notes,
+    });
+    const saved = await repo.save(customer);
+
+    // Emit new customer notification
+    this.appGateway.emitNewCustomer(adminId, saved);
+
+    return saved;
   }
 
   async findAllPaginated(me: any, q?: any) {

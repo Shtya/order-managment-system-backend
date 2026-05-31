@@ -6,17 +6,28 @@ import { SubscriptionGuard } from 'common/subscription.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { UpdateCustomerDto } from 'dto/customer.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+
+const meAvatarStorage = diskStorage({
+  destination: './uploads/customers',
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `customer-${uniqueSuffix}${extname(file.originalname)}`);
+  },
+});
+
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('customer')
 export class CustomerController {
   constructor(private readonly customerService: CustomerService) {}
 
-  
+    
 
   @Patch(':id')
   @Permissions('customer.update')
-  @UseInterceptors(FileInterceptor('profilePicture'))
+  @UseInterceptors(FileInterceptor('profilePicture',{ storage: meAvatarStorage }))
   update(@Req() req: any, @Param('id') id: string, @Body() payload: UpdateCustomerDto, @UploadedFile() profilePicture: Express.Multer.File) {
     if (profilePicture) {
       payload.profilePicture = `/uploads/customers/${profilePicture.filename}`;

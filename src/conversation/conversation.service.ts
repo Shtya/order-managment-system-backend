@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
+import { Brackets, DataSource, EntityManager, Repository } from 'typeorm';
 import { ConversationEntity, ConversationStatus } from 'entities/whatsapp.entity';
 import { CustomerEntity } from 'entities/customers.entity';
 import { CreateConversationDto } from 'dto/whatsapp.dto';
@@ -15,39 +15,72 @@ export class ConversationService {
     private readonly conversationRepo: Repository<ConversationEntity>,
     private readonly customerService: CustomerService,
     private readonly appGateway: AppGateway,
+    private readonly dataSource: DataSource,
   ) { }
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
     const adminId = me.adminId || me.id;
     if (!adminId) throw new BadRequestException('Missing adminId');
 
-    const customer = await this.customerService.getOrCreateCustomer(me, payload);
+    return this.dataSource.transaction(async (manager) => {
+      const customer = await this.customerService.getOrCreateCustomer(me, payload, manager);
 
-    let conversation = await this.conversationRepo.findOne({
-      where: { customerId: customer.id, adminId },
+      const repo = manager.getRepository(ConversationEntity);
+
+      let conversation = await repo.findOne({
+        where: { customerId: customer.id, adminId },
+      });
+
+      if (!conversation) {
+        conversation = repo.create({
+          adminId,
+          customerId: customer.id,
+          status: ConversationStatus.OPEN,
+        });
+        conversation = await repo.save(conversation);
+
+        const finalConversation = await repo.findOne({
+          where: { customerId: customer.id, adminId },
+          relations: ['customer', 'lastMessage'],
+        });
+        // Emit new conversation notification
+        this.appGateway.emitNewConversation(adminId, finalConversation);
+      }
+
+      return conversation;
     });
+  }
 
-    if (!conversation) {
-      conversation = this.conversationRepo.create({
+  async createConversation(me: any, payload: CreateConversationDto) {
+    const adminId = me.adminId || me.id;
+    if (!adminId) throw new BadRequestException('Missing adminId');
+
+    return this.dataSource.transaction(async (manager) => {
+      const customer = await this.customerService.createCustomer(me, payload, manager);
+
+      const repo = manager.getRepository(ConversationEntity);
+
+      const conversation = repo.create({
         adminId,
         customerId: customer.id,
         status: ConversationStatus.OPEN,
       });
-      conversation = await this.conversationRepo.save(conversation);
+      const savedConversation = await repo.save(conversation);
+
+      const finalConversation = await repo.findOne({
+        where: { id: savedConversation.id },
+        relations: ['customer', 'lastMessage'],
+      });
 
       // Emit new conversation notification
-      this.appGateway.emitNewConversation(adminId, conversation);
-    }
+      this.appGateway.emitNewConversation(adminId, finalConversation);
 
-    return conversation;
+      return finalConversation;
+    });
   }
 
   async save(conversation: ConversationEntity) {
     const saved = await this.conversationRepo.save(conversation);
-    // Emit update notification
-    if (saved.adminId) {
-      this.appGateway.emitUpdateConversation(saved.adminId, saved);
-    }
     return saved;
   }
 
@@ -55,12 +88,14 @@ export class ConversationService {
     const adminId = me.adminId || me.id;
     if (!adminId) throw new BadRequestException('Missing adminId');
 
-    const page = Number(q?.page ?? 1);
-    const limit = Number(q?.limit ?? 10);
+    const limit = Number(q?.limit ?? 50);
     const search = String(q?.search ?? '').trim();
-    const sortBy = String(q?.sortBy ?? 'createdAt');
+    const sortBy = String(q?.sortBy ?? 'lastMessageAt'); // Default to lastMessageAt for chat
     const sortDir: 'ASC' | 'DESC' =
       String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+    // const lastId = q?.lastId;
+    const cursor = q?.cursor;
 
     const qb = this.conversationRepo
       .createQueryBuilder('conversation')
@@ -77,6 +112,10 @@ export class ConversationService {
       qb.andWhere('conversation.customerId = :customerId', { customerId: q.customerId });
     }
 
+    if (q?.unreadOnly === 'true' || q?.unreadOnly === true) {
+      qb.andWhere('conversation.unreadCount > 0');
+    }
+
     // Search (by customer name or phone number)
     if (search) {
       qb.andWhere(
@@ -87,7 +126,7 @@ export class ConversationService {
       );
     }
 
-    // Sorting
+    // Cursor Pagination Logic
     const sortColumns: Record<string, string> = {
       createdAt: 'conversation.createdAt',
       updatedAt: 'conversation.updatedAt',
@@ -95,20 +134,35 @@ export class ConversationService {
       status: 'conversation.status',
     };
 
-    if (sortColumns[sortBy]) {
-      qb.orderBy(sortColumns[sortBy], sortDir);
-    } else {
-      qb.orderBy('conversation.createdAt', 'DESC');
+    const sortCol = sortColumns[sortBy] || 'conversation.lastMessageAt';
+
+    if (cursor) {
+      const operator = sortDir === "DESC" ? "<" : ">";
+
+      qb.andWhere(
+        `(${sortCol}, conversation.id) ${operator} (:cursorValue, :cursorId)`,
+        {
+          cursorValue: cursor.value,
+          cursorId: cursor.id,
+        },
+      );
     }
 
-    const total = await qb.getCount();
-    const records = await qb.skip((page - 1) * limit).take(limit).getMany();
+    // Always sort by primary column AND id as tie-breaker
+    qb.orderBy(sortCol, sortDir);
+    qb.addOrderBy('conversation.id', sortDir);
+
+    const recordsWithExtra = await qb.take(limit + 1).getMany();
+    const hasMore = recordsWithExtra.length > limit;
+    const records = hasMore ? recordsWithExtra.slice(0, limit) : recordsWithExtra;
 
     return {
-      total_records: total,
-      current_page: page,
-      per_page: limit,
       records,
+      hasMore,
+      limit,
+      nextCursor: hasMore ? { "value": records?.[records.length - 1]?.[sortBy], "id": records?.[records.length - 1]?.id } : undefined,
+      sortBy,
+      sortDir,
     };
   }
 

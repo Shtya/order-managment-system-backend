@@ -54,7 +54,14 @@ async function bootstrap() {
 		next();
 	});
 
-	app.use(helmet());
+	app.use(
+		helmet({
+			crossOriginResourcePolicy: {
+				policy: "cross-origin",
+			},
+		}),
+	);
+
 	// VPS / PM2: we ALWAYS listen here
 	await app.listen(port as number, '0.0.0.0');
 	Logger.log(`🚀 Server is running on http://localhost:${port}`, 'Bootstrap');

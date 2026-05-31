@@ -19,4 +19,8 @@ export class UpdateCustomerDto {
     @IsEmail()
     @IsOptional()
     email?: string;
+
+    @IsString()
+    @IsOptional()
+    notes?: string;
 }

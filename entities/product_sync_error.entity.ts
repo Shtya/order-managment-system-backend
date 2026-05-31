@@ -83,7 +83,7 @@ export class ProductSyncStateEntity {
 	lastError: string | null;
 
 	// ⏱️ Timestamps
-	@Column({ type: 'timestamp', nullable: true })
+	@Column({ type: 'timestamptz', nullable: true })
 	lastSynced_at: Date | null;
 
 	@CreateDateColumn({ type: "timestamptz" })
