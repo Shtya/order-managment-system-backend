@@ -121,6 +121,7 @@ export enum WhatsappMessageType {
     CONTACTS = 'contacts',
     LOCATION = 'location',
     REACTION = 'reaction',
+    TEMPLATE = 'template',
     INTERACTIVE = 'interactive',
     BUTTON = 'button',
     ORDER = 'order',
@@ -317,7 +318,7 @@ export class WhatsappAccountEntity {
     isActive: boolean;
 
     // في ملف whatsapp-account.entity.ts
-    @Column({ type: 'text', nullable: true })
+    @Column({ type: 'text', nullable: true, select: false })
     accessToken: string; // التوكن الخاص بـ Meta Graph API
 
     @CreateDateColumn({ type: 'timestamptz' })

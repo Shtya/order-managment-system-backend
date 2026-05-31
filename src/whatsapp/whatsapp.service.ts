@@ -1,7 +1,7 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from "crypto";
 import { WhatsappApiService, WhatsappMessageResponsePayload, WhatsappSendMessagePayload, WhatsappUploadMediaPayload } from './services/WhatsappApi.service';
-import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappWebhookEventEntity } from 'entities/whatsapp.entity';
+import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappTemplateEntity, WhatsappWebhookEventEntity } from 'entities/whatsapp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
@@ -26,6 +26,8 @@ export class WhatsappService {
         private readonly messageRepo: Repository<WhatsappMessageEntity>,
         @InjectRepository(WhatsappWebhookEventEntity)
         private readonly webhookRepo: Repository<WhatsappWebhookEventEntity>,
+        @InjectRepository(WhatsappTemplateEntity)
+        private readonly templateRepo: Repository<WhatsappTemplateEntity>,
         private readonly templateService: WhatsappTemplateService,
         private readonly flowQueue: FlowExecutionQueueService,
         @Inject(forwardRef(() => OrdersService))
@@ -161,6 +163,26 @@ export class WhatsappService {
                 if (parent) replyToId = parent.id;
             }
 
+            // Handle Template Metadata for Frontend Preview
+            let templateMetadata = null;
+            if (payload.type === 'template' && payload.template?.name) {
+                const template = await this.templateRepo.findOne({
+                    where: {
+                        name: payload.template.name,
+                        accountId,
+                        adminId
+                    }
+                });
+                if (template) {
+                    templateMetadata = {
+                        templateConfig: template.templateConfig,
+                        language: template.language,
+                        category: template.category,
+                        subCategory: template.subCategory,
+                    };
+                }
+            }
+
             const message = this.messageRepo.create({
                 adminId,
                 accountId,
@@ -172,7 +194,10 @@ export class WhatsappService {
                 content: payload,
                 customerId: conversation.customerId,
                 conversationId: conversation.id,
-                metadata: response.localId ? { localId: response.localId } : undefined,
+                metadata: {
+                    ...(response.localId ? { localId: response.localId } : {}),
+                    ...(templateMetadata ? { template: templateMetadata } : {})
+                },
                 reactionToId,
                 replyToId,
             });
