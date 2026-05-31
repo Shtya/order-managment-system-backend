@@ -260,22 +260,22 @@ export class ConversationEntity {
     @Column({ type: 'text', nullable: true })
     lastMessagePreview: string;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
     lastMessageAt: Date;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     lastIncomingMessageAt: Date;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     lastOutgoingMessageAt: Date;
 
     @Column({ type: 'jsonb', nullable: true })
     metadata: any;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
-    @UpdateDateColumn({ type: 'timestamp' })
+    @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 
     // Optional reverse relation
@@ -320,10 +320,10 @@ export class WhatsappAccountEntity {
     @Column({ type: 'text', nullable: true })
     accessToken: string; // التوكن الخاص بـ Meta Graph API
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
-    @UpdateDateColumn({ type: 'timestamp' })
+    @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 }
 
@@ -396,10 +396,10 @@ export class WhatsappTemplateEntity {
     @Column({ type: 'boolean', default: true })
     isActive: boolean;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
-    @UpdateDateColumn({ type: 'timestamp' })
+    @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 }
 
@@ -460,22 +460,22 @@ export class WhatsappMessageEntity {
     error: string; // لتخزين أخطاء Meta في حال كانت الحالة FAILED
 
     // 5. التوقيتات (Timestamps)
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     deliveredAt: Date; // يتحدث عبر الـ Webhook
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     readAt: Date; // يتحدث عبر الـ Webhook
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     sentAt: Date;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     failedAt: Date;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     playedAt: Date;
 
     @Column({ type: 'bigint', nullable: true })
@@ -487,7 +487,7 @@ export class WhatsappMessageEntity {
     @Column({ type: 'int', default: 0 })
     retryCount: number;
 
-    @UpdateDateColumn({ type: 'timestamp' })
+    @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 
     @Index()
@@ -509,6 +509,29 @@ export class WhatsappMessageEntity {
     })
     @JoinColumn({ name: 'customerId' })
     customer: CustomerEntity;
+
+    // --- New Relations for Reactions and Replies ---
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    replyToId: string;
+
+    @ManyToOne(() => WhatsappMessageEntity, (m) => m.replies, { onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'replyToId' })
+    replyTo: WhatsappMessageEntity;
+
+    @OneToMany(() => WhatsappMessageEntity, (m) => m.replyTo)
+    replies: WhatsappMessageEntity[];
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    reactionToId: string;
+
+    @ManyToOne(() => WhatsappMessageEntity, (m) => m.reactions, { onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'reactionToId' })
+    reactionTo: WhatsappMessageEntity;
+
+    @OneToMany(() => WhatsappMessageEntity, (m) => m.reactionTo)
+    reactions: WhatsappMessageEntity[];
 }
 
 
@@ -555,6 +578,6 @@ export class WhatsappWebhookEventEntity {
     @Column({ type: 'text', nullable: true })
     processingError: string; // لتسجيل سبب الفشل إن حدث خطأ أثناء تشغيل الأتمتة
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 }

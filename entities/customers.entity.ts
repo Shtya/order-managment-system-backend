@@ -34,16 +34,19 @@ export class CustomerEntity {
     @Column({ type: 'varchar', nullable: true })
     email: string;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'text', nullable: true })
+    notes: string;
+
+    @Column({ type: 'timestamptz', nullable: true })
     lastMessageAt: Date;
 
     @Column({ type: 'jsonb', nullable: true })
     metadata: any;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
-    @UpdateDateColumn({ type: 'timestamp' })
+    @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 
     // Relations

@@ -183,8 +183,9 @@ export class FinancialTransaction {
     @Column({ type: 'varchar', length: 255, nullable: true })
     attachmentUrl: string; // مرفق اختياري (صورة إيصال مثلاً)
 
-    @Column({ type: 'timestamp' })
+    @Column({ type: 'timestamptz', default: () => 'CURRENT_TIMESTAMP' })
     transactionDate: Date; // تاريخ الحركة الفعلي (غير تاريخ الإنشاء في الداتا بيز)
+
     @Index()
     @Column({ type: 'uuid', nullable: true })
     createdById: string;

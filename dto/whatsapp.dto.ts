@@ -223,6 +223,10 @@ export class CreateConversationDto {
     @IsOptional()
     initialMessage?: string;
 
+    @IsString()
+    @IsOptional()
+    notes?: string;
+
     @IsUUID()
     @IsOptional()
     accountId?: string;

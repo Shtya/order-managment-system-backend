@@ -24,6 +24,7 @@ type WhatsappRequestOptions = {
   method: MetaApiMethod;
   endpoint: string;
   data?: unknown;
+  contentType?: string;
   headers?: Record<string, string>;
   params?: Record<string, unknown>;
   /**
@@ -38,6 +39,11 @@ type WhatsappRequestOptions = {
    * Use raw endpoint without auto prefix
    */
   raw?: boolean;
+  /**
+   * Optional full URL override
+   */
+  responseType?: "raw" | "ready" | "stream",
+  fullUrl?: string;
 };
 
 export type WhatsappRecipientType = 'individual' | 'group';
@@ -425,7 +431,8 @@ export interface WhatsappMessageResponsePayload {
   contacts?: WhatsappMessageResponseContact[];
   messages?: WhatsappMessageResponseItem[];
   messaging_product?: string;
-  payload?: WhatsappSendMessagePayload,
+  payload?: WhatsappSendMessagePayload;
+  localId?: string;
 }
 
 export interface WhatsappMarkMessageRequestPayload {
@@ -618,6 +625,9 @@ export class WhatsappApiService {
       params,
       node = 'wabaId', //phoneNumberId - wabaId  -none
       nodeId,
+      contentType = 'application/json',
+      fullUrl,
+      responseType = 'ready',
       raw = false,
     } = options;
 
@@ -625,7 +635,9 @@ export class WhatsappApiService {
 
     let url = this.baseUrl;
 
-    if (raw) {
+    if (fullUrl) {
+      url = fullUrl;
+    } else if (raw) {
       url += `/${endpoint.replace(/^\/+/, '')}`;
     } else {
       let resolvedNodeId = nodeId;
@@ -647,14 +659,18 @@ export class WhatsappApiService {
       }
     }
 
-    const config = {
+    const config: any = {
       headers: {
         Authorization: `Bearer ${account.accessToken}`,
-        'Content-Type': 'application/json',
+        'Content-Type': contentType,
         ...options.headers,
       },
       params,
     };
+
+    if (responseType === 'stream') {
+      config.responseType = 'stream';
+    }
 
     try {
       const response = await firstValueFrom(
@@ -666,7 +682,7 @@ export class WhatsappApiService {
         }),
       );
 
-      return response.data;
+      return responseType === 'ready' ? response.data : response as unknown as T;
     } catch (e) {
       this.handleError(e, method);
     }
@@ -784,6 +800,36 @@ export class WhatsappApiService {
       this.logger.error('WhatsApp media upload failed', error);
       throw error;
     }
+  }
+
+  async getMediaUrl(accountId: string, mediaId: string): Promise<any> {
+
+    const res = await this.request({
+      accountId,
+      method: 'GET',
+      endpoint: mediaId,
+      node: 'none',
+      headers: {
+        'User-Agent': 'OrderManagementSystem/1.0',
+      },
+    });
+
+    return res;
+  }
+
+  async streamMedia(accountId: string, mediaUrl: string, headers?: Record<string, string>): Promise<any> {
+    return this.request({
+      accountId,
+      method: 'GET',
+      endpoint: '',
+      responseType: 'stream',
+      fullUrl: mediaUrl,
+      headers: {
+        'User-Agent': 'OrderManagementSystem/1.0',
+        ...headers,
+      },
+    });
+
   }
 
   async sendMessage(

@@ -29,10 +29,56 @@ export class WhatsappController {
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('media')
+  @Permissions('whatsapp.read')
+  async downloadMedia(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query('mediaId') mediaId?: string,
+    @Query('url') url?: string,
+    @Query('accountId') accountId?: string,
+  ) {
+    if (!mediaId && !url) {
+      throw new BadRequestException('Media id or url is required');
+    }
+
+    const headers: Record<string, string> = {};
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range;
+    }
+
+    const response = url
+      ? await this.whatsappService.streamMedia(req.user, url, accountId, headers)
+      : await this.whatsappService.downloadMedia(req.user, mediaId, accountId, headers);
+
+    const contentType = response?.headers?.['content-type'];
+    const contentLength = response?.headers?.['content-length'];
+    const contentRange = response?.headers?.['content-range'];
+    const acceptRanges = response?.headers?.['accept-ranges'];
+
+    if (contentType) res.setHeader('Content-Type', contentType);
+    if (contentLength) res.setHeader('Content-Length', contentLength);
+    if (contentRange) res.setHeader('Content-Range', contentRange);
+    if (acceptRanges) res.setHeader('Accept-Ranges', acceptRanges);
+    else res.setHeader('Accept-Ranges', 'bytes'); // Always signal support for bytes if proxying
+
+    if (req.headers.range && response.status === 206) {
+      res.status(206);
+    }
+    
+    response.data.pipe(res);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
   @Post('messages/send')
   @Permissions('whatsapp.send')
-  sendMessage(@Req() req: any, @Body() payload: WhatsappSendMessagePayload, @Query('accountId') accountId?: string) {
-    return this.whatsappService.sendMessage(req.user, payload, accountId);
+  sendMessage(
+    @Req() req: any,
+    @Body() payload: WhatsappSendMessagePayload,
+    @Query('accountId') accountId?: string,
+    @Query('localId') localId?: string
+  ) {
+    return this.whatsappService.sendMessage(req.user, payload, accountId, localId);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)

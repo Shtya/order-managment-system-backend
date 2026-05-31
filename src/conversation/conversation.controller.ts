@@ -6,6 +6,16 @@ import { SubscriptionGuard } from 'common/subscription.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { CreateConversationDto } from 'dto/whatsapp.dto';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'path';
+
+const meAvatarStorage = diskStorage({
+  destination: './uploads/customers',
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `customer-${uniqueSuffix}${extname(file.originalname)}`);
+  },
+});
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('conversation')
@@ -14,7 +24,7 @@ export class ConversationController {
 
 
   @Post()
-  @UseInterceptors(FileInterceptor('profilePicture'))
+  @UseInterceptors(FileInterceptor('profilePicture', { storage: meAvatarStorage }))
   @Permissions('conversation.create')
   create(@Req() req: any, @Body() payload: CreateConversationDto, @UploadedFile() profilePicture: Express.Multer.File) {
     if (profilePicture) {
@@ -22,7 +32,7 @@ export class ConversationController {
     } else {
       payload.profilePicture = null;
     }
-    return this.conversationService.getOrCreateConversation(req.user, payload);
+    return this.conversationService.createConversation(req.user, payload);
   }
 
 

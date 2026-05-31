@@ -158,22 +158,9 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
     }
 
-    emitUpdateConversation(userId: string, conversation: ConversationEntity) {
-        this.server.to(`user_${userId}`).emit("whatsapp:conversation-updated", {
-            conversation,
-            timestamp: new Date(),
-        });
-    }
 
     emitNewCustomer(userId: string, customer: CustomerEntity) {
         this.server.to(`user_${userId}`).emit("whatsapp:customer-new", {
-            customer,
-            timestamp: new Date(),
-        });
-    }
-
-    emitUpdateCustomer(userId: string, customer: CustomerEntity) {
-        this.server.to(`user_${userId}`).emit("whatsapp:customer-updated", {
             customer,
             timestamp: new Date(),
         });

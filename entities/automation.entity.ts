@@ -49,7 +49,7 @@ export class AutomationFlowVersionEntity {
     @JoinColumn({ name: 'parentVersionId' })
     parentVersion: AutomationFlowVersionEntity;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 }
 
@@ -76,10 +76,10 @@ export class AutomationFlowEntity {
     @Column({ type: 'enum', enum: AutomationStatus, default: AutomationStatus.DRAFT })
     status: AutomationStatus;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
-    @UpdateDateColumn({ type: 'timestamp' })
+    @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 
     @Column({ type: 'uuid', nullable: true })
@@ -96,7 +96,7 @@ export class AutomationFlowEntity {
     versions: AutomationFlowVersionEntity[];
 
     //soft Delete
-    @DeleteDateColumn({ type: 'timestamp', nullable: true })
+    @DeleteDateColumn({ type: 'timestamptz', nullable: true })
     deletedAt: Date;
 }
 
@@ -318,10 +318,10 @@ export class AutomationRunEntity {
     @Column({ type: 'text', nullable: true })
     errorMessage: string;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     startedAt: Date;
 
-    @Column({ type: 'timestamp', nullable: true })
+    @Column({ type: 'timestamptz', nullable: true })
     completedAt: Date;
 
     @OneToMany(() => AutomationRunStepEntity, step => step.run)
@@ -368,7 +368,7 @@ export class AutomationRunStepEntity {
     @Column({ type: 'text', nullable: true })
     errorMessage: string;
 
-    @CreateDateColumn({ type: 'timestamp' })
+    @CreateDateColumn({ type: 'timestamptz' })
     executedAt: Date;
 
     // الوقت المستغرق لتنفيذ الخطوة بالملي ثانية (مهم لتحليل الأداء Performance)

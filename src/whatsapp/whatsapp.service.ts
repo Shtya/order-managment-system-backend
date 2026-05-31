@@ -72,7 +72,38 @@ export class WhatsappService {
         return this.whatsappApi.uploadMessageMedia(resolvedAccountId, payload);
     }
 
-    async sendMessage(me: any, payload: WhatsappSendMessagePayload, accountId?: string) {
+    async downloadMedia(me: any, mediaId: string, accountId?: string, headers?: Record<string, string>) {
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!mediaId) {
+            throw new BadRequestException('Media ID is required');
+        }
+
+        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
+
+        // STEP 1: get Meta URL
+        const mediaInfo = await this.whatsappApi.getMediaUrl(resolvedAccountId, mediaId);
+
+        if (!mediaInfo.url) {
+            throw new BadRequestException('Media URL not found');
+        }
+        // STEP 2: download stream directly (NOT Graph API)
+        return this.whatsappApi.streamMedia(resolvedAccountId, mediaInfo.url, headers);
+    }
+
+    async streamMedia(me: any, mediaUrl: string, accountId?: string, headers?: Record<string, string>) {
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!mediaUrl) {
+            throw new BadRequestException('Media URL is required');
+        }
+
+        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
+
+        return this.whatsappApi.streamMedia(resolvedAccountId, mediaUrl, headers);
+    }
+
+    async sendMessage(me: any, payload: WhatsappSendMessagePayload, accountId?: string, localId?: string) {
         const adminId = me.adminId || me.id;
         if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -88,6 +119,11 @@ export class WhatsappService {
         });
 
         const response = await this.whatsappApi.sendMessage(resolvedAccountId, payload);
+
+        // Attach localId to the response so processOutboundMessage can use it
+        if (localId) {
+            (response as any).localId = localId;
+        }
 
         await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response);
 
@@ -110,6 +146,21 @@ export class WhatsappService {
                 name: contactNumber,
             });
             const payload = response.payload;
+
+            // Handle Outbound Reactions and Replies (Context)
+            let reactionToId: string = null;
+            let replyToId: string = null;
+
+            if (payload.type === 'reaction' && (payload as any).reaction?.message_id) {
+                const parent = await this.messageRepo.findOne({ where: { messageId: (payload as any).reaction.message_id, adminId } });
+                if (parent) reactionToId = parent.id;
+            }
+
+            if ((payload as any).context?.message_id) {
+                const parent = await this.messageRepo.findOne({ where: { messageId: (payload as any).context.message_id, adminId } });
+                if (parent) replyToId = parent.id;
+            }
+
             const message = this.messageRepo.create({
                 adminId,
                 accountId,
@@ -121,13 +172,24 @@ export class WhatsappService {
                 content: payload,
                 customerId: conversation.customerId,
                 conversationId: conversation.id,
+                metadata: response.localId ? { localId: response.localId } : undefined,
+                reactionToId,
+                replyToId,
             });
             const savedMsg = await this.messageRepo.save(message);
+
+            // Fetch with relations
+            const finalMsg = await this.messageRepo.findOne({
+                where: { id: savedMsg.id },
+                relations: ['replyTo', 'reactionTo']
+            });
 
             // Update conversation metadata
             let preview = `[${(payload.type || 'MESSAGE').toUpperCase()}]`;
             if (payload.type === 'text') {
                 preview = payload.text?.body;
+            } else if (payload.type === 'reaction') {
+                preview = `Reaction: ${(payload as any).reaction?.emoji}`;
             } else if (payload.type === 'template') {
                 preview = `[TEMPLATE: ${payload.template?.name}]`;
             } else if (payload.type === 'interactive') {
@@ -143,10 +205,9 @@ export class WhatsappService {
             await this.conversationService.save(conversation);
 
             // Emit notifications
-            this.appGateway.emitNewMessage(adminId, savedMsg);
-            this.appGateway.emitUpdateConversation(adminId, conversation);
+            this.appGateway.emitNewMessage(adminId, finalMsg);
 
-            return savedMsg;
+            return finalMsg;
         } catch (e) {
             this.logger.error('Failed to process outbound message', e);
         }
@@ -174,11 +235,6 @@ export class WhatsappService {
 
                 // 3. Emit update notification
                 this.appGateway.emitUpdateMessage(adminId, message);
-                // Also update conversation unread count in frontend
-                const conversation = await this.conversationRepo.findOne({ where: { id: message.conversationId } });
-                if (conversation) {
-                    this.appGateway.emitUpdateConversation(adminId, conversation);
-                }
             }
         } else if (payload.conversationId) {
             const conversation = await this.conversationRepo.findOne({ where: { id: payload.conversationId, adminId } });
@@ -197,9 +253,6 @@ export class WhatsappService {
                     }
                     // Sync all locally using the latest message as reference
                     await this.syncMessageReadStatus(latestInbound);
-
-                    // Emit update notifications
-                    this.appGateway.emitUpdateConversation(adminId, conversation);
                     // We don't emit for every message for performance, frontend should refresh or we could emit a specific event
                 }
             }
@@ -546,6 +599,20 @@ export class WhatsappService {
             name: customer.name,
         });
 
+        // Handle Reactions and Replies (Context)
+        let reactionToId: string = null;
+        let replyToId: string = null;
+
+        if (type === WhatsappMessageType.REACTION && metaMsg.reaction?.message_id) {
+            const parent = await this.messageRepo.findOne({ where: { messageId: metaMsg.reaction.message_id, adminId: account.adminId } });
+            if (parent) reactionToId = parent.id;
+        }
+
+        if (metaMsg.context?.id) {
+            const parent = await this.messageRepo.findOne({ where: { messageId: metaMsg.context.id, adminId: account.adminId } });
+            if (parent) replyToId = parent.id;
+        }
+
         const message = this.messageRepo.create({
             adminId: account.adminId,
             accountId: account.id,
@@ -557,16 +624,26 @@ export class WhatsappService {
             content: metaMsg,
             customerId: customer.id,
             conversationId: conversation.id,
+            reactionToId,
+            replyToId,
         });
 
         const savedMsg = await this.messageRepo.save(message);
 
+        // Fetch with relations to emit to frontend
+        const finalMsg = await this.messageRepo.findOne({
+            where: { id: savedMsg.id },
+            relations: ['replyTo', 'reactionTo']
+        });
+
         // Update conversation metadata and increment unread count
+        // Reactions usually don't count as unread messages in many chat apps, 
+        // but user requested "handle its remaing loigc as unread count normally"
         conversation.unreadCount = (conversation.unreadCount || 0) + 1;
         conversation.lastMessageId = savedMsg.id;
         conversation.lastMessageDirection = MessageDirection.INBOUND;
         conversation.lastMessageType = savedMsg.messageType;
-        conversation.lastMessagePreview = type === 'text' ? metaMsg.text?.body : `[${type.toUpperCase()}]`;
+        conversation.lastMessagePreview = type === 'text' ? metaMsg.text?.body : (type === 'reaction' ? `Reaction: ${metaMsg.reaction?.emoji}` : `[${type.toUpperCase()}]`);
         conversation.lastMessageAt = new Date();
         conversation.lastIncomingMessageAt = new Date();
         await this.conversationService.save(conversation);
@@ -576,8 +653,7 @@ export class WhatsappService {
         await this.customerRepo.save(customer);
 
         // Emit notifications
-        this.appGateway.emitNewMessage(account.adminId, savedMsg);
-        this.appGateway.emitUpdateConversation(account.adminId, conversation);
+        this.appGateway.emitNewMessage(account.adminId, finalMsg);
 
         if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'button_reply') {
             const originalMessageId = metaMsg.context?.id;
@@ -750,17 +826,31 @@ export class WhatsappService {
         const adminId = me.adminId || me.id; // Basic tenant resolving
         if (!adminId) throw new BadRequestException("Missing adminId");
 
-        const page = Number(q?.page ?? 1);
-        const limit = Number(q?.limit ?? 10);
+        const limit = Number(q?.limit ?? 50);
         const search = String(q?.search ?? "").trim();
         const sortBy = String(q?.sortBy ?? "createdAt");
         const sortDir: "ASC" | "DESC" =
             String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
+        const cursor = q?.cursor;
+
         const qb = this.messageRepo
             .createQueryBuilder("message")
             .leftJoinAndSelect('message.account', 'account')
-            .where("message.adminId = :adminId", { adminId });
+            .leftJoinAndSelect('message.replyTo', 'replyTo')
+            .leftJoinAndSelect('message.reactions', 'reactions', 'reactions.id IN (' +
+                'SELECT r.id FROM whatsapp_messages r ' +
+                'WHERE r."reactionToId" = message.id ' +
+                'AND r.direction = \'inbound\' ' +
+                'ORDER BY r."createdAt" DESC LIMIT 1' +
+                ') OR reactions.id IN (' +
+                'SELECT r.id FROM whatsapp_messages r ' +
+                'WHERE r."reactionToId" = message.id ' +
+                'AND r.direction = \'outbound\' ' +
+                'ORDER BY r."createdAt" DESC LIMIT 1' +
+                ')')
+            .where("message.adminId = :adminId", { adminId })
+            .andWhere("message.messageType != :reactionType", { reactionType: WhatsappMessageType.REACTION });
 
         // Filters
         if (q?.status) {
@@ -771,16 +861,21 @@ export class WhatsappService {
             qb.andWhere("message.accountId = :accountId", { accountId: q.accountId });
         }
 
+        if (q?.conversationId) {
+            qb.andWhere("message.conversationId = :conversationId", { conversationId: q.conversationId });
+        }
+
         if (q?.direction) {
             qb.andWhere("message.direction = :direction", { direction: q.direction });
         }
 
-        // Search (by contactNumber or messageId)
+        // Search (by contactNumber, messageId, or body text)
         if (search) {
             qb.andWhere(
                 new Brackets((sq) => {
                     sq.where("message.contactNumber ILIKE :s", { s: `%${search}%` })
-                        .orWhere("message.messageId ILIKE :s", { s: `%${search}%` });
+                        .orWhere("message.messageId ILIKE :s", { s: `%${search}%` })
+                        .orWhere("message.content->'text'->>'body' ILIKE :s", { s: `%${search}%` });
                 }),
             );
         }
@@ -791,23 +886,34 @@ export class WhatsappService {
             status: "message.status",
         };
 
-        if (sortColumns[sortBy]) {
-            qb.orderBy(sortColumns[sortBy], sortDir);
-        } else {
-            qb.orderBy("message.createdAt", "DESC");
+        const sortCol = sortColumns[sortBy] || "message.createdAt";
+
+        if (cursor) {
+            const operator = sortDir === "DESC" ? "<" : ">";
+
+            qb.andWhere(
+                `(${sortCol}, message.id) ${operator} (:cursorValue, :cursorId)`,
+                {
+                    cursorValue: cursor.value,
+                    cursorId: cursor.id,
+                },
+            );
         }
 
-        const total = await qb.getCount();
-        const records = await qb
-            .skip((page - 1) * limit)
-            .take(limit)
-            .getMany();
+        qb.orderBy(sortCol, sortDir);
+        qb.addOrderBy("message.id", sortDir);
+
+        const recordsWithExtra = await qb.take(limit + 1).getMany();
+        const hasMore = recordsWithExtra.length > limit;
+        const records = hasMore ? recordsWithExtra.slice(0, limit) : recordsWithExtra;
 
         return {
-            total_records: total,
-            current_page: page,
-            per_page: limit,
             records,
+            hasMore,
+            limit,
+            nextCursor: hasMore ? { "value": records?.[records.length - 1]?.[sortBy], "id": records?.[records.length - 1]?.id } : undefined,
+            sortBy,
+            sortDir,
         };
     }
 
