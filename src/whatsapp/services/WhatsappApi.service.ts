@@ -550,6 +550,18 @@ export class WhatsappApiService {
   private async getAccount(accountId: string): Promise<WhatsappAccountEntity> {
     const account = await this.accountRepo.findOne({
       where: { id: accountId, isActive: true },
+      select: {
+        accessToken: true,
+        adminId: true,
+        wabaId: true,
+        businessId: true,
+        mobileNumber: true,
+        isActive: true,
+        id: true,
+        name: true,
+        phoneNumberId: true,
+        createdAt: true
+      }
     });
 
     if (!account || !account.accessToken || !account.wabaId) {
@@ -589,6 +601,20 @@ export class WhatsappApiService {
     }
 
     return languageCode;
+  }
+
+  private adjustPayload(payload: any): void {
+    if (payload.type === 'template' && payload.template) {
+      if (payload.template.language) {
+        if (typeof payload.template.language === 'string') {
+          payload.template.language = { code: this.normalizeLanguageCode(payload.template.language) };
+        } else if (payload.template.language.code) {
+          payload.template.language.code = this.normalizeLanguageCode(payload.template.language.code);
+        }
+      } else {
+        payload.template.language = { code: 'en_US' };
+      }
+    }
   }
 
   private buildReplyContext(replyToMessageId?: string): WhatsappMessageContext | undefined {
@@ -836,6 +862,7 @@ export class WhatsappApiService {
     accountId: string,
     payload: WhatsappSendMessagePayload,
   ): Promise<WhatsappMessageResponsePayload> {
+    this.adjustPayload(payload);
     const response = await this.request<WhatsappMessageResponsePayload>({
       accountId,
       method: 'POST',
