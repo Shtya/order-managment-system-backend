@@ -135,6 +135,18 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
     }
 
+    emitWhatsappSignupStatus(userId: string, payload: {
+        step: 'EXCHANGING_TOKEN' | 'FETCHING_PHONE_DATA' | 'SUBSCRIBING_APP' | 'REGISTERING_PHONE' | 'CREATING_ACCOUNT' | 'SYNCING_TEMPLATES' | 'COMPLETED' | 'FAILED';
+        status: 'in_progress' | 'completed' | 'failed' | 'warning';
+        message?: string;
+        error?: string;
+    }) {
+        this.server.to(`user_${userId}`).emit("whatsapp:signup-status", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
     // --- WhatsApp & Conversation Notifications ---
 
     emitNewMessage(userId: string, message: WhatsappMessageEntity) {

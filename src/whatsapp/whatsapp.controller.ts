@@ -7,6 +7,7 @@ import { SubscriptionGuard } from 'common/subscription.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { WhatsappSendMessagePayload } from './services/WhatsappApi.service';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { EmbeddedSignupDto } from 'dto/whatsapp.dto';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -65,7 +66,7 @@ export class WhatsappController {
     if (req.headers.range && response.status === 206) {
       res.status(206);
     }
-    
+
     response.data.pipe(res);
   }
 
@@ -136,6 +137,16 @@ export class WhatsappController {
     const url = `https://www.facebook.com/v22.0/dialog/oauth?${params.toString()}`;
 
     return res.redirect(url);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Post('embedded-signup')
+  @Permissions('whatsapp.manage')
+  async handleEmbeddedSignup(
+    @Req() req: any,
+    @Body() payload: EmbeddedSignupDto
+  ) {
+    return this.whatsappService.handleEmbeddedSignup(req.user, payload);
   }
 
   /**
