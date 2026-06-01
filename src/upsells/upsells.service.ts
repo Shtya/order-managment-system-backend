@@ -39,11 +39,11 @@ export class UpsellsService {
         if (!sku) throw new BadRequestException('SKU not found or does not belong to the upsell product');
 
         // 2. Check if upsell is linked to trigger (business logic check)
-        const upsellingProducts = triggerProduct.upsellingProducts || [];
-        const isLinked = upsellingProducts.some(p => p.productId === dto.upsellProductId);
-        if (!isLinked) {
-            throw new BadRequestException('The selected upsell product is not linked to the trigger product');
-        }
+        // const upsellingProducts = triggerProduct.upsellingProducts || [];
+        // const isLinked = upsellingProducts.some(p => p.productId === dto.upsellProductId);
+        // if (!isLinked) {
+        //     throw new BadRequestException('The selected upsell product is not linked to the trigger product');
+        // }
 
         if (sku.productId !== dto.upsellProductId) {
             throw new BadRequestException('SKU does not belong to the upsell product');
@@ -104,11 +104,20 @@ export class UpsellsService {
             const sku = await this.skuRepo.findOne({ where: { id: skuId, productId: upsellId } });
             if (!sku) throw new BadRequestException('SKU not found or does not belong to the upsell product');
 
-            const upsellingProducts = triggerProduct.upsellingProducts || [];
-            const isLinked = upsellingProducts.some(p => p.productId === upsellId);
-            if (!isLinked) {
-                throw new BadRequestException('The selected upsell product is not linked to the trigger product');
-            }
+            upsell.triggerProduct = triggerProduct;
+            upsell.triggerProductId = triggerProduct.id;
+
+            upsell.upsellProduct = upsellProduct;
+            upsell.upsellProductId = upsellProduct.id;
+            upsell.upsellSku = sku;
+            upsell.upsellSkuId = sku.id;
+
+
+            // const upsellingProducts = triggerProduct.upsellingProducts || [];
+            // const isLinked = upsellingProducts.some(p => p.productId === upsellId);
+            // if (!isLinked) {
+            //     throw new BadRequestException('The selected upsell product is not linked to the trigger product');
+            // }
 
             // Check for uniqueness if IDs or Price changed
             const existing = await this.upsellRepo.findOne({
@@ -139,10 +148,20 @@ export class UpsellsService {
             }
         }
 
-        Object.assign(upsell, {
-            ...dto,
-            messageConfig,
-        });
+        if (dto.expireTimeM !== undefined) {
+            upsell.expireTimeM = dto.expireTimeM;
+        }
+
+        if (dto.isActive !== undefined) {
+            upsell.isActive = dto.isActive;
+        }
+
+        if (dto.upsellPrice !== undefined) {
+            upsell.upsellPrice = dto.upsellPrice;
+        }
+
+
+        upsell.messageConfig = messageConfig;
 
         return await this.upsellRepo.save(upsell);
     }
