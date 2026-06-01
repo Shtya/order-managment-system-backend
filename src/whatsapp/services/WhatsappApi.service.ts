@@ -603,20 +603,6 @@ export class WhatsappApiService {
     return languageCode;
   }
 
-  private adjustPayload(payload: any): void {
-    if (payload.type === 'template' && payload.template) {
-      if (payload.template.language) {
-        if (typeof payload.template.language === 'string') {
-          payload.template.language = { code: this.normalizeLanguageCode(payload.template.language) };
-        } else if (payload.template.language.code) {
-          payload.template.language.code = this.normalizeLanguageCode(payload.template.language.code);
-        }
-      } else {
-        payload.template.language = { code: 'en_US' };
-      }
-    }
-  }
-
   private buildReplyContext(replyToMessageId?: string): WhatsappMessageContext | undefined {
     return replyToMessageId ? { message_id: replyToMessageId } : undefined;
   }
@@ -927,7 +913,7 @@ export class WhatsappApiService {
     accountId: string,
     payload: WhatsappSendMessagePayload,
   ): Promise<WhatsappMessageResponsePayload> {
-    this.adjustPayload(payload);
+
     const response = await this.request<WhatsappMessageResponsePayload>({
       accountId,
       method: 'POST',

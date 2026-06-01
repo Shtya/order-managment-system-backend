@@ -140,13 +140,13 @@ export class WhatsappTemplateService {
 
         const accountId = await this.whatsappService.getDefaultAccountId(adminId, q.accountId);
         const language = q?.language ?? 'ar';
-        const allowedLanguages = ['ar', 'en'];
+        // const allowedLanguages = ['ar', 'en'];
 
-        if (language && !allowedLanguages.includes(language)) {
-            throw new BadRequestException(
-                'Only Arabic and English template library languages are supported.',
-            );
-        }
+        // if (language && !allowedLanguages.includes(language)) {
+        //     throw new BadRequestException(
+        //         'Only Arabic and English template library languages are supported.',
+        //     );
+        // }
 
         const params: Record<string, any> = {};
         if (q.search) params.search = q.search;
@@ -925,7 +925,7 @@ export class WhatsappTemplateService {
         for (const metaTpl of metaTemplates) {
             const status = await this.statusFromMeta(metaTpl.status);
             const quality = this.qualityFromMeta(metaTpl.quality_score?.score);
-            const language = this.languageFromMeta(metaTpl.language);
+            const language = metaTpl.language;
             const subCategory = this.subCategoryFromMeta(metaTpl.sub_category);
 
             const templateConfig: TemplateConfig = {
@@ -972,7 +972,7 @@ export class WhatsappTemplateService {
                 existing.status = status || existing.status;
                 existing.quality = quality;
                 existing.templateConfig = templateConfig;
-                existing.category = metaTpl.category;
+                existing.category = metaTpl.category?.toLowerCase();
                 existing.subCategory = subCategory;
                 existing.metaId = metaTpl.id;
                 templatesToSave.push(existing);
@@ -982,7 +982,7 @@ export class WhatsappTemplateService {
                     accountId,
                     name: metaTpl.name,
                     language,
-                    category: metaTpl.category,
+                    category: metaTpl.category?.toLowerCase(),
                     subCategory,
                     status: status || TemplateStatus.APPROVED,
                     quality,
