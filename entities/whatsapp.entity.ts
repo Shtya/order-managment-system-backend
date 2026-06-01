@@ -369,7 +369,7 @@ export class WhatsappTemplateEntity {
     subCategory: TemplateSubCategory;
 
     @Column({ type: 'varchar', length: 10 })
-    language: "ar" | "en"; // مثال: 'ar' أو 'en'
+    language: "ar" | "en" | any; // مثال: 'ar' أو 'en'
 
     @Column({
         type: 'enum',

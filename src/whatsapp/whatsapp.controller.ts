@@ -149,6 +149,16 @@ export class WhatsappController {
     return this.whatsappService.handleEmbeddedSignup(req.user, payload);
   }
 
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Post('accounts/:id/sync-templates')
+  @Permissions('whatsapp.manage')
+  async syncTemplates(
+    @Req() req: any,
+    @Param('id') id: string
+  ) {
+    return this.whatsappService.syncTemplates(req.user, id);
+  }
+
   /**
    * Meta OAuth callback
    *

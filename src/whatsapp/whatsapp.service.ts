@@ -235,7 +235,7 @@ export class WhatsappService {
 
             return finalMsg;
         } catch (e) {
-            this.logger.error('Failed to process outbound message', e);
+            this.logger.error(`Failed to process outbound message: ${e.message}`, e.stack);
         }
     }
 
@@ -253,7 +253,7 @@ export class WhatsappService {
                     message.readAt = new Date();
                     await this.messageRepo.save(message);
                 } catch (e) {
-                    this.logger.error(`Failed to mark message ${message.messageId} as read on Meta`, e);
+                    this.logger.error(`Failed to mark message ${message.messageId} as read on Meta: ${e.message}`, e.stack);
                 }
 
                 // 2. Sync locally
@@ -275,7 +275,7 @@ export class WhatsappService {
                     try {
                         await this.whatsappApi.markMessageAsRead(latestInbound.accountId, latestInbound.messageId);
                     } catch (e) {
-                        this.logger.error(`Failed to mark conversation ${conversation.id} as read on Meta`, e);
+                        this.logger.error(`Failed to mark conversation ${conversation.id} as read on Meta: ${e.message}`, e.stack);
                     }
                     // Sync all locally using the latest message as reference
                     await this.syncMessageReadStatus(latestInbound);
@@ -962,7 +962,7 @@ export class WhatsappService {
     }
 
     async handleEmbeddedSignup(me: any, payload: EmbeddedSignupDto) {
-        this.logger.log("handleEmbeddedSignup", payload);
+        this.logger.log(`handleEmbeddedSignup: ${JSON.stringify(payload)}`);
         const adminId = me.adminId || me.id;
         if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -1034,10 +1034,10 @@ export class WhatsappService {
                         manager
                     );
                 });
-
+                this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'completed' });
                 this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'COMPLETED', status: 'completed' });
             } catch (tplError) {
-                this.logger.error('Failed to sync templates during signup', tplError);
+                this.logger.error(`Failed to sync templates during signup: ${tplError.message}`, tplError.stack);
                 this.appGateway.emitWhatsappSignupStatus(adminId, {
                     step: 'SYNCING_TEMPLATES',
                     status: 'warning',
@@ -1048,7 +1048,54 @@ export class WhatsappService {
 
             return savedAccount;
         } catch (e) {
-            this.logger.error('Failed to handle embedded signup', e);
+            this.logger.error(`Failed to handle embedded signup: ${e.message}`, e.stack);
+            this.appGateway.emitWhatsappSignupStatus(adminId, {
+                step: 'FAILED',
+                status: 'failed',
+                error: getErrorMessage(e)
+            });
+            throw new BadRequestException(getErrorMessage(e));
+        }
+    }
+
+    async syncTemplates(me: any, accountId: string) {
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const account = await this.accountRepo.findOne({
+            where: { id: accountId, adminId },
+            select: {
+                accessToken: true,
+                id: true,
+                wabaId: true,
+                phoneNumberId: true
+            }
+        });
+
+        if (!account) {
+            throw new NotFoundException("WhatsApp account not found");
+        }
+
+        try {
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'in_progress' });
+
+            await this.templateService.syncTemplatesFromMeta(
+                adminId,
+                account.id,
+                account.wabaId,
+                account.accessToken
+            );
+
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'completed' });
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'COMPLETED', status: 'completed' });
+
+            return { success: true };
+        } catch (e) {
+            this.logger.error(`Failed to sync templates for account ${accountId}: ${e.message}`, e.stack);
+            this.appGateway.emitWhatsappSignupStatus(adminId, {
+                step: 'SYNCING_TEMPLATES',
+                status: 'failed',
+            });
             this.appGateway.emitWhatsappSignupStatus(adminId, {
                 step: 'FAILED',
                 status: 'failed',
