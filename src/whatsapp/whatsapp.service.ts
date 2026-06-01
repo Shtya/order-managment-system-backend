@@ -427,6 +427,9 @@ export class WhatsappService {
         rawBody: Buffer,
         headers: Record<string, string>,
     ) {
+        this.logger.log(`WhatsApp Webhook Received - Headers: ${JSON.stringify(headers)}`);
+        this.logger.log(`WhatsApp Webhook Received - Body: ${JSON.stringify(body)}`);
+
         // Header can arrive lowercase in Node/Nest
         const signature =
             headers["x-hub-signature-256"] ||
