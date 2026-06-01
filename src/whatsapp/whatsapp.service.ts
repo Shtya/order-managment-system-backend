@@ -1,6 +1,7 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from "crypto";
 import { WhatsappApiService, WhatsappMessageResponsePayload, WhatsappSendMessagePayload, WhatsappUploadMediaPayload } from './services/WhatsappApi.service';
+import { EmbeddedSignupDto } from 'dto/whatsapp.dto';
 import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappTemplateEntity, WhatsappWebhookEventEntity } from 'entities/whatsapp.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
@@ -958,5 +959,102 @@ export class WhatsappService {
         }
 
         return message;
+    }
+
+    async handleEmbeddedSignup(me: any, payload: EmbeddedSignupDto) {
+        this.logger.log("handleEmbeddedSignup", payload);
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const { code, wabaId, phoneNumberId, businessId } = payload;
+
+        try {
+            // 1. Exchange code for permanent token
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'EXCHANGING_TOKEN', status: 'in_progress' });
+            const tokenResponse = await this.whatsappApi.exchangeCodeForToken(code);
+            const accessToken = tokenResponse.access_token;
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'EXCHANGING_TOKEN', status: 'completed' });
+
+            // 2. Fetch Phone Number details
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'FETCHING_PHONE_DATA', status: 'in_progress' });
+            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(wabaId, accessToken);
+            const phoneData = phoneNumbers.data.find(p => p.id === phoneNumberId);
+
+            if (!phoneData) {
+                throw new BadRequestException("Phone number ID not found in WABA");
+            }
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'FETCHING_PHONE_DATA', status: 'completed' });
+
+            // 3. Check if account already exists
+            const existing = await this.accountRepo.findOne({
+                where: [
+                    { wabaId, adminId },
+                    { phoneNumberId, adminId }
+                ]
+            });
+            if (existing) {
+                throw new BadRequestException("WhatsApp account already integrated");
+            }
+
+            // 4. Subscribe App to WABA
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'in_progress' });
+            await this.whatsappApi.subscribeAppToWaba(wabaId, accessToken);
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'completed' });
+
+            // 5. Register Phone Number
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'REGISTERING_PHONE', status: 'in_progress' });
+            const pin = Math.floor(100000 + Math.random() * 900000).toString();
+            await this.whatsappApi.registerPhoneNumber(phoneNumberId, accessToken, pin);
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'REGISTERING_PHONE', status: 'completed' });
+
+            // 6. Create Account Record (Outside step 7 manager)
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'in_progress' });
+            const account = this.accountRepo.create({
+                adminId,
+                name: phoneData.verified_name || phoneData.display_phone_number,
+                wabaId,
+                phoneNumberId,
+                businessId,
+                accessToken,
+                mobileNumber: phoneData.display_phone_number,
+                isActive: true,
+            });
+            const savedAccount = await this.accountRepo.save(account);
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'completed' });
+
+            // 7. Sync Templates (Using transaction manager only here)
+            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'in_progress' });
+            try {
+                await this.accountRepo.manager.transaction(async (manager) => {
+                    await this.templateService.syncTemplatesFromMeta(
+                        adminId,
+                        savedAccount.id,
+                        wabaId,
+                        accessToken,
+                        manager
+                    );
+                });
+
+                this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'COMPLETED', status: 'completed' });
+            } catch (tplError) {
+                this.logger.error('Failed to sync templates during signup', tplError);
+                this.appGateway.emitWhatsappSignupStatus(adminId, {
+                    step: 'SYNCING_TEMPLATES',
+                    status: 'warning',
+                    message: 'Account integrated but failed to sync templates. You can sync them manually later.',
+                    error: getErrorMessage(tplError)
+                });
+            }
+
+            return savedAccount;
+        } catch (e) {
+            this.logger.error('Failed to handle embedded signup', e);
+            this.appGateway.emitWhatsappSignupStatus(adminId, {
+                step: 'FAILED',
+                status: 'failed',
+                error: getErrorMessage(e)
+            });
+            throw new BadRequestException(getErrorMessage(e));
+        }
     }
 }

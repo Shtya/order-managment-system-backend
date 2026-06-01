@@ -55,7 +55,7 @@ export async function deletePhysicalFiles(urls: string[]) {
 }
 
 export function getErrorMessage(error: any): string {
-    return error?.response?.data?.error?.error_user_msg || error?.response?.data?.error?.message || error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
+    return typeof error === 'string' ? error : error?.response?.data?.error?.error_user_msg || error?.response?.data?.error?.message || error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
 }
 
 export async function copyPhysicalFile(url: string, prefix: string = "copy"): Promise<string | null> {

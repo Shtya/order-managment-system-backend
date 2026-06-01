@@ -10,7 +10,8 @@ import {
     TemplateQuality,
     MetaTemplateLibraryQueryDto,
     MetaTemplateLibraryItemDto,
-    MetaTemplateLibraryButtonDto
+    MetaTemplateLibraryButtonDto,
+    TemplateSubCategory
 } from 'entities/whatsapp.entity';
 
 import { tenantId } from 'src/category/category.service';
@@ -725,6 +726,15 @@ export class WhatsappTemplateService {
                     text: btn.text,
                     url: btn.url,
                     urlType: btn.url?.includes('{{') ? 'Dynamic' : 'Static',
+                    urlExample: btn.example?.[0] ? decodeURIComponent(btn.example[0]) : undefined,
+                };
+            }
+
+            if (btn.type === 'VOICE_CALL') {
+                return {
+                    type: 'WHATSAPP_CALL',
+                    text: btn.text,
+                    activeForDays: btn.ttl_minutes ? Math.round(btn.ttl_minutes / (24 * 60)) : 7,
                 };
             }
 
@@ -737,12 +747,48 @@ export class WhatsappTemplateService {
                 };
             }
 
+            if (btn.type === 'QUICK_REPLY') {
+                return {
+                    type: 'CUSTOM',
+                    text: btn.text,
+                };
+            }
+
             // FLOW / FORMS / unknown Meta button types
             return {
                 type: 'CUSTOM',
                 text: btn.text,
             } as any;
         });
+    }
+
+    private subCategoryFromMeta(metaSub?: string): TemplateSubCategory {
+        if (!metaSub) return TemplateSubCategory.BOOKING_STATUS;
+
+        const sub = metaSub.toLowerCase();
+        switch (sub) {
+            case "order_details":
+                return TemplateSubCategory.ORDER_DETAILS;
+            case "call_permissions_request":
+                return TemplateSubCategory.CALL_PERMISSIONS_REQUEST;
+            case "order_status":
+                return TemplateSubCategory.ORDER_STATUS;
+            case "rich_order_status":
+                return TemplateSubCategory.RICH_ORDER_STATUS;
+            case "fraud_alert":
+                return TemplateSubCategory.FRAUD_ALERT;
+            case "flight_delay_and_gate_change_alert":
+                return TemplateSubCategory.FLIGHT_DELAY_AND_GATE_CHANGE_ALERT;
+            default:
+                return TemplateSubCategory.BOOKING_STATUS;
+        }
+    }
+
+    private languageFromMeta(metaLang: string): "ar" | "en" {
+        if (!metaLang) return "en";
+        const lang = metaLang.toLowerCase();
+        if (lang.startsWith("ar")) return "ar";
+        return "en";
     }
 
     private qualityFromMeta(metaQuality?: string): TemplateQuality {
@@ -772,6 +818,7 @@ export class WhatsappTemplateService {
             const template = await this.templateRepo.findOne({
                 where: { id: templateId },
             });
+            if (!template) return;
             await this.templateRepo.remove(template);
             await this.notificationService.create({
                 userId: template.adminId,
@@ -788,6 +835,7 @@ export class WhatsappTemplateService {
             const template = await this.templateRepo.findOne({
                 where: { id: templateId },
             });
+            if (!template) return;
             this.notificationService.create({
                 userId: template.adminId,
                 type: NotificationType.TEMPLATE_FLAGGED,
@@ -866,6 +914,88 @@ export class WhatsappTemplateService {
             relatedEntityId: templateId,
         })
         return template;
+    }
+
+    async syncTemplatesFromMeta(adminId: string, accountId: string, wabaId: string, accessToken: string, manager?: any) {
+        const metaTemplates = await this.whatsappApi.fetchWabaTemplates(wabaId, accessToken);
+        const repo = manager ? manager.getRepository(WhatsappTemplateEntity) : this.templateRepo;
+
+        const templatesToSave = [];
+
+        for (const metaTpl of metaTemplates) {
+            const status = await this.statusFromMeta(metaTpl.status);
+            const quality = this.qualityFromMeta(metaTpl.quality_score?.score);
+            const language = this.languageFromMeta(metaTpl.language);
+            const subCategory = this.subCategoryFromMeta(metaTpl.sub_category);
+
+            const templateConfig: TemplateConfig = {
+                headerType: undefined,
+                headerText: undefined,
+                bodyText: '',
+                footerText: undefined,
+                buttons: [],
+            };
+
+            for (const comp of metaTpl.components) {
+                if (comp.type === 'HEADER') {
+                    templateConfig.headerType = comp.format;
+                    if (comp.format === 'TEXT') {
+                        templateConfig.headerText = comp.text;
+                        if (comp.example?.header_text?.[0]) {
+                            templateConfig.headerExample = comp.example.header_text[0];
+                        }
+                    } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(comp.format)) {
+                        if (comp.example?.header_handle?.[0]) {
+                            templateConfig.headerUrl = comp.example.header_handle[0];
+                        }
+                    }
+                } else if (comp.type === 'BODY') {
+                    templateConfig.bodyText = comp.text;
+                    if (comp.example?.body_text?.[0]) {
+                        templateConfig.examples = {};
+                        comp.example.body_text[0].forEach((ex, i) => {
+                            templateConfig.examples[String(i + 1)] = ex;
+                        });
+                    }
+                } else if (comp.type === 'FOOTER') {
+                    templateConfig.footerText = comp.text;
+                } else if (comp.type === 'BUTTONS') {
+                    templateConfig.buttons = this.mapButtonsFromMeta(comp.buttons);
+                }
+            }
+
+            const existing = await repo.findOne({
+                where: { name: metaTpl.name, accountId, adminId, language }
+            });
+
+            if (existing) {
+                existing.status = status || existing.status;
+                existing.quality = quality;
+                existing.templateConfig = templateConfig;
+                existing.category = metaTpl.category;
+                existing.subCategory = subCategory;
+                existing.metaId = metaTpl.id;
+                templatesToSave.push(existing);
+            } else {
+                templatesToSave.push(repo.create({
+                    adminId,
+                    accountId,
+                    name: metaTpl.name,
+                    language,
+                    category: metaTpl.category,
+                    subCategory,
+                    status: status || TemplateStatus.APPROVED,
+                    quality,
+                    templateConfig,
+                    metaId: metaTpl.id,
+                    isActive: true,
+                }));
+            }
+        }
+
+        if (templatesToSave.length > 0) {
+            await repo.save(templatesToSave);
+        }
     }
 }
 

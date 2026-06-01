@@ -231,3 +231,21 @@ export class CreateConversationDto {
     @IsOptional()
     accountId?: string;
 }
+
+export class EmbeddedSignupDto {
+    @IsString()
+    @IsNotEmpty()
+    code: string;
+
+    @IsString()
+    @IsNotEmpty()
+    wabaId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    phoneNumberId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    businessId: string;
+}

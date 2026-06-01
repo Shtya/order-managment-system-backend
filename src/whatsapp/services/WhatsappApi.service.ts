@@ -843,6 +843,71 @@ export class WhatsappApiService {
     return res;
   }
 
+  async exchangeCodeForToken(code: string): Promise<{ access_token: string; token_type: string }> {
+    const params = {
+      client_id: process.env.META_APP_ID,
+      client_secret: process.env.META_APP_SECRET,
+      code,
+      grant_type: 'authorization_code',
+    };
+
+    const response = await firstValueFrom(
+      this.httpService.post(`https://graph.facebook.com/${this.version}/oauth/access_token`, null, { params }),
+    );
+
+    return response.data;
+  }
+
+  async fetchWabaPhoneNumbers(wabaId: string, accessToken: string): Promise<any> {
+    const response = await firstValueFrom(
+      this.httpService.get(`https://graph.facebook.com/${this.version}/${wabaId}/phone_numbers`, {
+        params: {
+          fields: 'id,cc,country_dial_code,display_phone_number,verified_name,status,quality_rating,search_visibility,platform_type,code_verification_status',
+          access_token: accessToken,
+        },
+      }),
+    );
+    return response.data;
+  }
+
+  async subscribeAppToWaba(wabaId: string, accessToken: string): Promise<boolean> {
+    const response = await firstValueFrom(
+      this.httpService.post(`https://graph.facebook.com/${this.version}/${wabaId}/subscribed_apps`, null, {
+        params: { access_token: accessToken },
+      }),
+    );
+    return response.data.success;
+  }
+
+  async registerPhoneNumber(phoneNumberId: string, accessToken: string, pin: string): Promise<boolean> {
+    const response = await firstValueFrom(
+      this.httpService.post(
+        `https://graph.facebook.com/${this.version}/${phoneNumberId}/register`,
+        {
+          messaging_product: 'whatsapp',
+          pin,
+        },
+        {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        },
+      ),
+    );
+    return response.data.success;
+  }
+
+  async fetchWabaTemplates(wabaId: string, accessToken: string): Promise<any[]> {
+    const response = await firstValueFrom(
+      this.httpService.get(`https://graph.facebook.com/${this.version}/${wabaId}/message_templates`, {
+        params: {
+          fields: 'language,name,rejected_reason,status,category,sub_category,last_updated_time,components,quality_score',
+          limit: 1000,
+          access_token: accessToken,
+        },
+      }),
+    );
+    return response.data.data;
+  }
+
   async streamMedia(accountId: string, mediaUrl: string, headers?: Record<string, string>): Promise<any> {
     return this.request({
       accountId,
