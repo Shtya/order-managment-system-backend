@@ -410,7 +410,7 @@ export class WhatsappTemplateService {
                     accountId: template.accountId,
                     endpoint: `message_templates?name=${template.name}&hsm_id=${template.metaId}`,
                     method: "DELETE",
-                    node: "none",
+                    node: "wabaId",
                 }
             );
         }
