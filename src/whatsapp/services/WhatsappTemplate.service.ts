@@ -899,7 +899,7 @@ export class WhatsappTemplateService {
         const status = await this.statusFromMeta(metaStatus, templateId);
         if (!status) return;
         const template = await this.templateRepo.findOneBy({
-            id: templateId,
+            metaId: templateId,
         });
 
         template.status = status;
