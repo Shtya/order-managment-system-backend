@@ -12,7 +12,7 @@ import {
   MessageStatus,
   WhatsappMessageType,
 } from 'entities/whatsapp.entity';
-import { getErrorMessage } from 'common/healpers';
+import { getErrorMessage, imageSrc } from 'common/healpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
@@ -1313,7 +1313,7 @@ export class WhatsappApiService {
           parameters: [
             {
               type: mediaType,
-              [mediaType]: { link: config.headerUrl },
+              [mediaType]: { link: imageSrc(config.headerUrl) },
             } as WhatsappTemplateParameterMedia,
           ],
         });
