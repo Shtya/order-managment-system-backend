@@ -118,27 +118,6 @@ export class WhatsappController {
   }
 
 
-  @Get('embedded-signup')
-  redirectToEmbeddedSignup(@Res() res: Response) {
-    const params = new URLSearchParams({
-      client_id: process.env.META_APP_ID!,
-      redirect_uri: process.env.META_REDIRECT_URI!,
-      scope:
-        'business_management,whatsapp_business_management,whatsapp_business_messaging',
-      response_type: 'code',
-      state: crypto.randomUUID(),
-      config_id: process.env.META_CONFIG_ID!,
-      extras: JSON.stringify({
-        feature: 'whatsapp_embedded_signup',
-        sessionInfoVersion: '3',
-      }),
-    });
-
-    const url = `https://www.facebook.com/v22.0/dialog/oauth?${params.toString()}`;
-
-    return res.redirect(url);
-  }
-
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
   @Post('embedded-signup')
   @Permissions('whatsapp.manage')
