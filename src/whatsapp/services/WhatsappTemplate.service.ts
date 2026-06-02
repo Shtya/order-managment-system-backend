@@ -810,13 +810,13 @@ export class WhatsappTemplateService {
         }
     }
 
-    private async statusFromMeta(metaStatus?: string, templateId?: string): Promise<TemplateStatus | null> {
+    private async statusFromMeta(metaStatus?: string, metaTemplateId?: string): Promise<TemplateStatus | null> {
 
         if (!metaStatus) return null;
 
         if (metaStatus === "DELETED") {
             const template = await this.templateRepo.findOne({
-                where: { id: templateId },
+                where: { metaId: metaTemplateId },
             });
             if (!template) return;
             await this.templateRepo.remove(template);
@@ -826,14 +826,14 @@ export class WhatsappTemplateService {
                 title: "Template Deleted",
                 message: `Template ${template.name} has been deleted`,
                 relatedEntityType: "Template",
-                relatedEntityId: templateId,
+                relatedEntityId: template.id,
             })
             return null;
         }
 
         if (metaStatus === "FLAGGED") {
             const template = await this.templateRepo.findOne({
-                where: { id: templateId },
+                where: { metaId: metaTemplateId },
             });
             if (!template) return;
             this.notificationService.create({
@@ -842,7 +842,7 @@ export class WhatsappTemplateService {
                 title: "Template Flagged",
                 message: `Template has received negative feedback and is at risk of being disabled`,
                 relatedEntityType: "Template",
-                relatedEntityId: templateId,
+                relatedEntityId: template.id,
             })
         }
 
@@ -874,10 +874,10 @@ export class WhatsappTemplateService {
         }
     }
 
-    public async updateQuality(templateId: string, metaQuality?: string) {
+    public async updateQuality(metaTemplateId: string, metaQuality?: string) {
         const quality = this.qualityFromMeta(metaQuality);
         const template = await this.templateRepo.findOneBy({
-            metaId: templateId,
+            metaId: metaTemplateId,
         });
 
         template.quality = quality;
@@ -889,7 +889,7 @@ export class WhatsappTemplateService {
             title: "Template Quality Updated",
             message: `Template quality updated to ${quality}`,
             relatedEntityType: "Template",
-            relatedEntityId: templateId,
+            relatedEntityId: template.id,
         })
 
         return template;
