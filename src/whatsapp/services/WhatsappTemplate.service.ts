@@ -877,7 +877,7 @@ export class WhatsappTemplateService {
     public async updateQuality(templateId: string, metaQuality?: string) {
         const quality = this.qualityFromMeta(metaQuality);
         const template = await this.templateRepo.findOneBy({
-            id: templateId,
+            metaId: templateId,
         });
 
         template.quality = quality;
