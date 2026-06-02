@@ -895,11 +895,11 @@ export class WhatsappTemplateService {
         return template;
     }
 
-    public async updateStatus(templateId: string, metaStatus?: string) {
-        const status = await this.statusFromMeta(metaStatus, templateId);
+    public async updateStatus(metaTemplateId: string, metaStatus?: string) {
+        const status = await this.statusFromMeta(metaStatus, metaTemplateId);
         if (!status) return;
         const template = await this.templateRepo.findOneBy({
-            metaId: templateId,
+            metaId: metaTemplateId,
         });
 
         template.status = status;
@@ -911,7 +911,7 @@ export class WhatsappTemplateService {
             title: "Template Status Updated",
             message: `Template status updated to ${status}`,
             relatedEntityType: "Template",
-            relatedEntityId: templateId,
+            relatedEntityId: template.id,
         })
         return template;
     }

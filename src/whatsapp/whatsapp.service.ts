@@ -106,7 +106,7 @@ export class WhatsappService {
         return this.whatsappApi.streamMedia(resolvedAccountId, mediaUrl, headers);
     }
 
-    async sendMessage(me: any, payload: WhatsappSendMessagePayload, accountId?: string, localId?: string) {
+    async sendMessage(me: any, payload: WhatsappSendMessagePayload & { metadata?: Record<string, any>; }, accountId?: string, localId?: string) {
         const adminId = me.adminId || me.id;
         if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -121,14 +121,17 @@ export class WhatsappService {
             name: payload.to,
         });
 
-        const response = await this.whatsappApi.sendMessage(resolvedAccountId, payload);
+        // Extract metadata if present (sent from frontend)
+        const { metadata, ...metaPayload } = payload;
 
-        // Attach localId to the response so processOutboundMessage can use it
+        const response = await this.whatsappApi.sendMessage(resolvedAccountId, metaPayload);
+
+        // Attach localId and metadata to the response so processOutboundMessage can use it
         if (localId) {
             (response as any).localId = localId;
         }
 
-        await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response);
+        await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response, metadata);
 
         return response;
     }
@@ -138,6 +141,7 @@ export class WhatsappService {
         accountId: string,
         contactNumber: string,
         response: WhatsappMessageResponsePayload,
+        metadata?: Record<string, any>,
     ) {
         try {
             const messageId = response.messages?.[0]?.id;
@@ -197,6 +201,7 @@ export class WhatsappService {
                 conversationId: conversation.id,
                 metadata: {
                     ...(response.localId ? { localId: response.localId } : {}),
+                    ...(metadata ? metadata : {}),
                     ...(templateMetadata ? { template: templateMetadata } : {})
                 },
                 reactionToId,
