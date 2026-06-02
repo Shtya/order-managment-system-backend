@@ -355,13 +355,13 @@ export class WhatsappTemplateService {
 
 
         // Meta edit endpoint
-        // POST /{WABA_ID}/message_templates
+        // POST /{id}
         // with existing template name
         if (!isSuperAdmin) {
             await this.whatsappApi.request(
                 {
                     accountId: template.accountId,
-                    endpoint: `message_templates?name=${template.name}`,
+                    endpoint: `${template.metaId}`,
                     method: "POST",
                     node: "none",
                     data: payload,
