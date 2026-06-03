@@ -296,7 +296,29 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
                         // Log other GraphQL errors (Syntax, missing fields, etc.) before throwing
                         this.logCtxError(`GraphQL Errors: ${JSON.stringify(gqlErrors)}`, store);
-                        throw new Error(`GraphQL Error: ${gqlErrors[0]?.message}`);
+
+                        const firstError = gqlErrors?.[0];
+
+                        let errorMessage = 'Unknown GraphQL Error';
+
+                        if (typeof firstError === 'string') {
+                            try {
+                                const parsed = JSON.parse(firstError);
+                                errorMessage =
+                                    parsed?.message ||
+                                    parsed?.errors ||
+                                    firstError;
+                            } catch {
+                                errorMessage = firstError;
+                            }
+                        } else {
+                            errorMessage =
+                                firstError?.message ||
+                                firstError?.errors ||
+                                JSON.stringify(firstError);
+                        }
+
+                        throw new Error(`GraphQL Error: ${errorMessage}`);
                     }
                 }
                 // [2025-12-24] Remember to trim any string data returned here before further processing

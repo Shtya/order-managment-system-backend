@@ -364,19 +364,24 @@ export class EasyOrderService extends BaseStoreProvider {
         });
 
         let productQuantity = 0;
-        const variantsPayload = activeVariants.map(v => {
-            productQuantity += (v.stockOnHand - v.reserved);
+        const variantsPayload = await Promise.all(activeVariants.map(async v => {
+            const available = await this.ordersService.calculateAvailableStock(
+                v.stockOnHand,
+                v.reserved,
+                v.adminId
+            );
+            productQuantity += available;
             return {
                 price: Number(v.price) || Number(product.salePrice) || 0,
                 expense: Number(v.unitCost) || 0,
-                quantity: v.stockOnHand - v.reserved,
+                quantity: available,
                 taager_code: String(v.sku),
                 variation_props: Object.entries(v.attributes || {}).map(([key, val]) => ({
                     variation: key?.trim(),
                     variation_prop: String(val)?.trim()
                 }))
             };
-        });
+        }));
 
         return {
             name: product.name?.trim(),

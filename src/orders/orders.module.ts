@@ -18,7 +18,7 @@ import {
 } from "entities/order.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
-import { OrderSubscriber } from "./order-subscriber";
+import { OrderSubscriber, OrderSettingsSubscriber } from "./order-subscriber";
 import { User } from "entities/user.entity";
 import { AuthModule } from "src/auth/auth.module";
 
@@ -73,6 +73,7 @@ import { AutomationModule } from "src/automation/automation.module";
   providers: [
     OrdersService,
     OrderSubscriber,
+    OrderSettingsSubscriber,
     ShippingSeedService,
     OrderReplacementService,
     OrderReturnService,

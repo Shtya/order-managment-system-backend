@@ -8,9 +8,10 @@ import { BundleSubscriber } from "./bundle-subscriber";
 import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
+import { OrdersModule } from "src/orders/orders.module";
 
 @Module({
-  imports: [ forwardRef(() => StoresModule),TypeOrmModule.forFeature([BundleEntity, BundleItemEntity, ProductVariantEntity])],
+  imports: [forwardRef(() => StoresModule), OrdersModule, TypeOrmModule.forFeature([BundleEntity, BundleItemEntity, ProductVariantEntity])],
   providers: [BundlesService, BundleSubscriber],
   controllers: [BundlesController],
   exports: [BundlesService],

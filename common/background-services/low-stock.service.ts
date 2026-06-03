@@ -3,9 +3,10 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ProductVariantEntity } from 'entities/sku.entity';
 import { User } from 'entities/user.entity';
+import { OrderRetrySettingsEntity } from 'entities/order.entity';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity'; // Adjust import path as needed
-import { Repository } from 'typeorm';
+import { Brackets, Repository } from 'typeorm';
 
 @Injectable()
 export class LowStockService {
@@ -19,6 +20,8 @@ export class LowStockService {
     private readonly productVariantRepo: Repository<ProductVariantEntity>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(OrderRetrySettingsEntity)
+    private readonly settingsRepo: Repository<OrderRetrySettingsEntity>,
     private readonly notificationService: NotificationService,
   ) { }
 
@@ -28,15 +31,40 @@ export class LowStockService {
     this.logger.log('Checking for low stock variants...');
 
     try {
-      // 1. Fetch all variants where available stock (on hand - reserved) is below the threshold
-      // We join the product to potentially use its name in the notification
-      const lowStockVariants = await this.productVariantRepo
+      // 1. Fetch settings to determine which admins have reserved stock enabled/disabled
+      // Default is true if no setting exists
+      const disabledReservedSettings = await this.settingsRepo.find({
+        where: { reservedEnabled: false },
+        select: ['adminId']
+      });
+      const disabledReservedAdminIds = disabledReservedSettings.map(s => s.adminId);
+
+      // 2. Fetch all variants where available stock is below the threshold
+      const qb = this.productVariantRepo
         .createQueryBuilder('variant')
-        .leftJoinAndSelect('variant.product', 'product')
-        .where('variant.stockOnHand - variant.reserved <= :threshold', {
+        .leftJoinAndSelect('variant.product', 'product');
+
+      if (disabledReservedAdminIds.length > 0) {
+        qb.where(new Brackets(q => {
+          // If reservedEnabled is false: stockOnHand <= threshold
+          q.where('variant.adminId IN (:...ids) AND variant.stockOnHand <= :threshold', {
+            ids: disabledReservedAdminIds,
+            threshold: this.LOW_STOCK_THRESHOLD
+          })
+            // If reservedEnabled is true (or no setting): stockOnHand - reserved <= threshold
+            .orWhere('variant.adminId NOT IN (:...ids) AND variant.stockOnHand - variant.reserved <= :threshold', {
+              ids: disabledReservedAdminIds,
+              threshold: this.LOW_STOCK_THRESHOLD
+            });
+        }));
+      } else {
+        // Everyone defaults to reservedEnabled = false logic
+        qb.where('variant.stockOnHand <= :threshold', {
           threshold: this.LOW_STOCK_THRESHOLD,
-        })
-        .getMany();
+        });
+      }
+
+      const lowStockVariants = await qb.getMany();
 
       if (lowStockVariants.length === 0) {
         this.logger.log('No low stock items found.');

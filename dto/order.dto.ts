@@ -463,6 +463,10 @@ export class UpsertOrderRetrySettingsDto {
   @IsString()
   @IsOptional()
   defaultWhatsAppAccountId?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  reservedEnabled?: boolean;
 }
 export class ManualAssignItemDto {
   @IsNotEmpty()

@@ -520,8 +520,9 @@ export interface WhatsappTemplateSendableComponent {
 }
 
 export interface WhatsappUploadMediaPayload {
-  file: Express.Multer.File;
-  mimeType: string;
+  file?: Express.Multer.File;
+  url?: string;
+  mimeType?: string;
   filename?: string;
 }
 

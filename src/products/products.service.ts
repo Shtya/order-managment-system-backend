@@ -36,6 +36,7 @@ import { ProductSyncStateService } from "src/product-sync-state/product-sync-sta
 import { ProductSyncStateEntity, ProductSyncStatus } from "entities/product_sync_error.entity";
 import { RemoteImageHelper } from "common/emote-image.helper";
 import { StoresService } from "src/stores/stores.service";
+import { OrdersService } from "src/orders/services/orders.service";
 
 
 @Injectable()
@@ -77,6 +78,8 @@ export class ProductsService {
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => StoresService))
     private storesService: StoresService,
+    @Inject(forwardRef(() => OrdersService))
+    private readonly ordersService: OrdersService,
     @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
   ) { }
 
@@ -141,7 +144,7 @@ export class ProductsService {
     return e;
   }
 
-  private mapSkuRow(r: ProductVariantEntity) {
+  private async mapSkuRow(r: ProductVariantEntity) {
     return {
       id: r.id,
       key: r.key,
@@ -153,7 +156,7 @@ export class ProductsService {
       reserved: r.reserved,
       isActive: r.isActive,
       deactivatedAt: r.deactivatedAt,
-      available: Math.max(0, (r.stockOnHand ?? 0) - (r.reserved ?? 0)),
+      available: await this.ordersService.calculateAvailableStock(r.stockOnHand ?? 0, r.reserved ?? 0, r.adminId),
     };
   }
 
@@ -169,7 +172,7 @@ export class ProductsService {
     const byProduct = new Map<string, any[]>();
     for (const r of rows) {
       const arr = byProduct.get(r.productId) ?? [];
-      arr.push(this.mapSkuRow(r));
+      arr.push(await this.mapSkuRow(r));
       byProduct.set(r.productId, arr);
     }
 
@@ -298,7 +301,7 @@ export class ProductsService {
       order: { id: "ASC" },
     });
 
-    product.skus = rows.map((r) => this.mapSkuRow(r));
+    product.skus = await Promise.all(rows.map(async (r) => await this.mapSkuRow(r)));
     return product;
   }
 
@@ -875,7 +878,7 @@ export class ProductsService {
 
     return {
       product,
-      matchedCombination: this.mapSkuRow(row),
+      matchedCombination: await this.mapSkuRow(row),
     };
   }
 
@@ -889,7 +892,7 @@ export class ProductsService {
 
     return {
       productId,
-      items: rows.map((r) => this.mapSkuRow(r)),
+      items: await Promise.all(rows.map(async (r) => await this.mapSkuRow(r))),
     };
   }
 
@@ -1024,7 +1027,7 @@ export class ProductsService {
     await this.pvRepo.save(row);
 
     return {
-      ...this.mapSkuRow(row),
+      ...await this.mapSkuRow(row),
       productId,
     };
   }
