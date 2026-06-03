@@ -371,7 +371,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         });
 
         // 2️⃣ Map local variations
-        const mappedVariants = this.mapWooVariationsPayload(variants, attrMap || new Map());
+        const mappedVariants = await this.mapWooVariationsPayload(variants, attrMap || new Map());
 
         const createVariant: any[] = [];
         const updateVariant: any[] = [];
@@ -757,7 +757,11 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             // If variable or bundle, we don't manage stock at parent level (variants handle it)
             manage_stock: !isVariable && !isBundle,
             stock_quantity: (!isVariable && !isBundle)
-                ? Math.max(0, (variants[0]?.stockOnHand || 0) - (variants[0]?.reserved || 0))
+                ? await this.ordersService.calculateAvailableStock(
+                    variants[0]?.stockOnHand || 0,
+                    variants[0]?.reserved || 0,
+                    variants[0]?.adminId
+                )
                 : undefined,
 
             regular_price: String(product.salePrice || 0),
@@ -797,16 +801,16 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
     }
 
 
-    private mapWooVariationsPayload(
+    private async mapWooVariationsPayload(
         variants: ProductVariantEntity[],
         attrMap: Map<string, number>
     ) {
-        return variants.map(v => ({
+        return Promise.all(variants.map(async v => ({
             regular_price: String(v.price || 0),
             sale_price: String(v.price || 0),
             sku: String(v.sku ?? ''),
             manage_stock: true,
-            stock_quantity: v.stockOnHand - v.reserved,
+            stock_quantity: await this.ordersService.calculateAvailableStock(v.stockOnHand, v.reserved, v.adminId),
             attributes: Object.entries(v.attributes || {}).map(([key, value]) => {
                 const name = key.trim();
                 const option = String(value).trim();
@@ -818,7 +822,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                     return { name, option };
                 }
             })
-        }));
+        })));
     }
 
     private mapInternalStatusToWoo(internalStatus: OrderStatus): string | null {

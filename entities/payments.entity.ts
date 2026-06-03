@@ -229,9 +229,12 @@ export class TransactionEntity {
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     amount: number;
 
+    @Column({ type: 'varchar', length: 10, default: 'EGP' })
+    currency: string;
+
     @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
     amountInDollars: number;
-    
+
     @Column({
         type: 'enum',
         enum: TransactionStatus,

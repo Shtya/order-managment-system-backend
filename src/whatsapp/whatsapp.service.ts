@@ -6,11 +6,13 @@ import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
-import { getErrorMessage } from 'common/healpers';
+import { getErrorMessage, imageSrc } from 'common/healpers';
 import { FlowExecutionQueueService } from 'src/automation/engine/triggerDispatcher.service';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { ConversationService } from 'src/conversation/conversation.service';
+import axios from 'axios';
+import { RedisService } from 'common/redis/RedisService';
 import { CustomerService } from 'src/customer/customer.service';
 import { CustomerEntity } from 'entities/customers.entity';
 import { AppGateway } from 'common/app.gateway';
@@ -42,6 +44,7 @@ export class WhatsappService {
         @Inject(forwardRef(() => CustomerService))
         private readonly customerService: CustomerService,
         private readonly appGateway: AppGateway,
+        private readonly redisService: RedisService,
     ) {
 
     }
@@ -70,9 +73,63 @@ export class WhatsappService {
         const adminId = me.adminId || me.id;
         if (!adminId) throw new BadRequestException("Missing adminId");
 
+        if (!payload.file && !payload.url) {
+            throw new BadRequestException("Either file or url is required");
+        }
+
         const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
 
-        return this.whatsappApi.uploadMessageMedia(resolvedAccountId, payload);
+        // Check cache if it's a URL
+        if (payload.url && !payload.file) {
+            const cacheKey = `whatsapp_media:${resolvedAccountId}:${payload.url}`;
+            const cachedId = await this.redisService.get(cacheKey);
+            if (cachedId) {
+                return { id: cachedId };
+            }
+
+            try {
+                const response = await axios.get(payload.url, { responseType: 'arraybuffer' });
+                const buffer = Buffer.from(response.data, 'binary');
+                const contentType = response.headers['content-type']?.split(';')[0]; // Clean mime type (remove charset)
+
+                // Clean filename: remove query params and hash
+                const urlPath = payload.url.split('?')[0].split('#')[0];
+                let filename = urlPath.split('/').pop() || 'file';
+
+                // If filename doesn't have an extension, try to add one from contentType
+                if (!filename.includes('.') && contentType) {
+                    const extension = contentType.split('/')[1];
+                    if (extension) {
+                        // Handle common cleanups (e.g., jpeg -> jpg)
+                        const cleanExt = extension === 'jpeg' ? 'jpg' : extension;
+                        filename += `.${cleanExt}`;
+                    }
+                }
+
+                payload.file = {
+                    buffer,
+                    mimetype: contentType,
+                    originalname: filename,
+                    size: buffer.length,
+                    fieldname: 'file',
+                    encoding: '7bit',
+                } as Express.Multer.File;
+                payload.mimeType = contentType;
+            } catch (error) {
+                this.logger.error(`Failed to download media from URL: ${payload.url}`, error.stack);
+                throw new BadRequestException(`Failed to download media from URL: ${getErrorMessage(error)}`);
+            }
+        }
+
+        const response = await this.whatsappApi.uploadMessageMedia(resolvedAccountId, payload);
+
+        // Cache the result if it was a URL upload
+        if (payload.url && response?.id) {
+            const cacheKey = `whatsapp_media:${resolvedAccountId}:${payload.url}`;
+            await this.redisService.set(cacheKey, response.id, 3600 * 24 * 29); // Cache for 29 days
+        }
+
+        return response;
     }
 
     async downloadMedia(me: any, mediaId: string, accountId?: string, headers?: Record<string, string>) {

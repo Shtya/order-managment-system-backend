@@ -47,16 +47,17 @@ export class WalletService {
   }
 
   // 1️⃣ Get or Create Wallet (For Admins)
-  async getOrCreateWallet(userId: string) {
-    let wallet = await this.walletRepo.findOne({ where: { userId } });
+  async getOrCreateWallet(userId: string, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(Wallet) : this.walletRepo;
+    let wallet = await repo.findOne({ where: { userId } });
     if (!wallet) {
-      wallet = this.walletRepo.create({
+      wallet = repo.create({
         userId,
         currentBalance: 0,
         totalCharged: 0,
         totalWithdrawn: 0,
       });
-      wallet = await this.walletRepo.save(wallet);
+      wallet = await repo.save(wallet);
     }
     return wallet;
   }
@@ -84,6 +85,17 @@ export class WalletService {
         manager,
       });
     });
+  }
+
+  // 2️⃣ Apply Wallet Top Up (Shared logic)
+  async applyWalletTopUp(userId: string, amount: number, manager: EntityManager) {
+    const wallet = await this.getOrCreateWallet(userId, manager);
+
+    wallet.currentBalance = Number(wallet.currentBalance) + amount;
+    wallet.totalCharged = Number(wallet.totalCharged) + amount;
+
+    await manager.save(wallet);
+    return wallet;
   }
 
   // 3️⃣ Manual Control (Super Admin only)
@@ -123,11 +135,12 @@ export class WalletService {
       const transaction = manager.create(TransactionEntity, {
         userId: targetUserId,
         amount: amount,
-        purpose: PaymentPurposeEnum.WALLET_WITHDRAWAL, // Or add ADMIN_ADJUSTMENT to enum
+        amountInDollars: amount,
+        purpose: amount > 0 ? PaymentPurposeEnum.WALLET_TOP_UP : PaymentPurposeEnum.WALLET_WITHDRAWAL,
         status: TransactionStatus.SUCCESS,
         paymentMethod: TransactionPaymentMethod.MANUAL_ADJUSTMENT,
         number: number,
-        note: note.trim(),
+        notes: note.trim(),
       });
       await manager.save(transaction);
 
@@ -139,11 +152,12 @@ export class WalletService {
     me: any,
     numberOfOrders: number,
     manager?: EntityManager,
+    orderNumber?: string,
   ) {
     const work = async (m: EntityManager) => {
       try {
         const activeSubscription = await this.subscriptionsService.getMyActiveSubscription(me, m);
-        const wallet = await this.getOrCreateWallet(me.id);
+        const wallet = await this.getOrCreateWallet(me.id, m);
 
         if (!activeSubscription) {
           throw new BadRequestException("No active subscription found");
@@ -186,6 +200,23 @@ export class WalletService {
 
             wallet.currentBalance = currentBalance - cost;
             wallet.totalWithdrawn = Number(wallet.totalWithdrawn) + cost;
+
+            // Record transaction for wallet deduction
+            const number = await this.transactionsService.generateTransactionNumber(wallet.userId?.toString());
+
+            const transaction = m.create(TransactionEntity, {
+              userId: me.id,
+              amount: cost,
+              currency: "USD",
+              amountInDollars: cost,
+              purpose: PaymentPurposeEnum.WALLET_WITHDRAWAL,
+              status: TransactionStatus.SUCCESS,
+              paymentMethod: TransactionPaymentMethod.OTHER, // Using OTHER for internal wallet deduction
+              number: number,
+              // add order number
+              notes: `Auto-deduction for ${extraOrders} extra orders exceeding plan limit. Order Number: ${orderNumber || "—"}`,
+            });
+            await m.save(transaction);
           }
         }
 

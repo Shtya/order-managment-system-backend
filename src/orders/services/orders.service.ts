@@ -258,34 +258,51 @@ export class OrdersService {
   // ========================================
   // ✅ STATS
   // ========================================
-  async getStats(me: any) {
-    const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+  async getStats(me: any, q?: any) {
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
 
-    const stats = await this.statusRepo
-      .createQueryBuilder("status")
-      // use relation path only (no join condition)
-      .leftJoin(
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
+    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+
+    const qb = this.statusRepo.createQueryBuilder("status");
+    // use relation path only (no join condition)
+    if (superAdmin && !q?.adminId) {
+      qb.leftJoin(
+        "status.orders",
+        "o",)
+    }
+    else {
+
+      qb.leftJoin(
         "status.orders",
         "o",
         "o.adminId = :adminId",
         { adminId }
-      )
-      .select([
-        "status.id AS id",
-        "status.name AS name",
-        "status.code AS code",
-        "status.color  AS color",
-        "status.system AS system",
-        "status.sortOrder AS sortOrder",
-      ])
+      );
+    }
+    qb.select([
+      "status.id AS id",
+      "status.name AS name",
+      "status.code AS code",
+      "status.color  AS color",
+      "status.system AS system",
+      "status.sortOrder AS sortOrder",
+    ])
       .addSelect("COUNT(o.id)", "count")
       .where(
         new Brackets((qb) => {
-          qb.where("status.adminId = :adminId", { adminId }).orWhere(
-            "status.system = :system",
-            { system: true },
-          );
+          if (superAdmin && !q?.adminId) {
+            qb.where("status.system = :system", { system: true })
+          } else {
+            qb.where("status.adminId = :adminId", { adminId }).orWhere(
+              "status.system = :system",
+              { system: true },
+            )
+          }
         }),
       )
       .andWhere("status.isActive = :isActive", { isActive: true })
@@ -299,16 +316,23 @@ export class OrdersService {
       .orderBy("status.sortOrder", "ASC")
       .getRawMany();
 
+    const stats = await qb.getRawMany();
     return stats.map((stat) => ({
       ...stat,
       id: stat.id,
       count: Number(stat.count) || 0,
-      system: stat.system || stat.system,
+      system: !!stat.system,
     }));
   }
-  async getStatuses(me: any) {
-    const adminId = tenantId(me);
+
+  async getStatuses(me: any, q?: any) {
     const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
     if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
 
     const statuses = await this.statusRepo
@@ -323,13 +347,14 @@ export class OrdersService {
       ])
       .where(
         new Brackets((qb) => {
-          superAdmin ?
+          if (superAdmin && !q?.adminId) {
             qb.where("status.system = :system", { system: true })
-            :
+          } else {
             qb.where("status.adminId = :adminId", { adminId }).orWhere(
               "status.system = :system",
               { system: true },
             )
+          }
         }),
       )
       .andWhere("status.isActive = :isActive", { isActive: true })
@@ -367,8 +392,14 @@ export class OrdersService {
   // ✅ LIST ORDERS
   // ========================================
   async list(me: any, q?: any) {
-    const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
+    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -378,9 +409,11 @@ export class OrdersService {
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
     const qb = this.orderRepo
-      .createQueryBuilder("order")
-      .where("order.adminId = :adminId", { adminId })
-      .leftJoinAndSelect("order.rejectedBy", "rejectedBy")
+      .createQueryBuilder("order");
+
+    if (adminId) qb.where("order.adminId = :adminId", { adminId })
+
+    qb.leftJoinAndSelect("order.rejectedBy", "rejectedBy")
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("variant.product", "product")
@@ -398,6 +431,9 @@ export class OrdersService {
         `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
       )
       .leftJoinAndSelect("assignment.employee", "employee");
+    if (superAdmin) {
+      qb.leftJoinAndSelect("order.admin", "admin")
+    }
 
     // Allowed columns mapping
     const sortColumns: Record<string, string> = {
@@ -564,7 +600,8 @@ export class OrdersService {
 
   async getOrderHistory(orderId: string, me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    const superAdmin = isSuperAdmin(me);
+    if (!adminId && !superAdmin) throw new BadRequestException("Missing adminId");
 
     return await this.historyRepo.find({
       where: {
@@ -681,88 +718,6 @@ export class OrdersService {
       const manifestNumber = manifest.manifestNumber?.trim();
 
       if (!manifest.lastPrintedAt) {
-        if (manifest.type === ShipmentManifestType.SHIPPING) {
-          const readyStatus = await this.findStatusByCode(
-            OrderStatus.READY,
-            adminId,
-            manager,
-          );
-          const shippedStatus = await this.findStatusByCode(
-            OrderStatus.SHIPPED,
-            adminId,
-            manager,
-          );
-
-          if (orderIds.length > 0) {
-            // Fetch full orders with items to use the deduction method
-
-
-            await orderRepo.update(
-              {
-                id: In(orderIds),
-                statusId: readyStatus.id, // ✅ only update PICKED orders
-              },
-              {
-                statusId: shippedStatus.id,
-                shippedAt: new Date(),
-              });
-
-            const statusLogs = orderIds.map((orderId) => ({
-              adminId,
-              orderId,
-              fromStatusId: readyStatus.id,
-              toStatusId: shippedStatus.id,
-              userId: userId,
-              notes: `Bulk assigned to Manifest: ${manifestNumber}`,
-              createdAt: new Date(),
-            }));
-
-            await this.deductStockForMultipleOrders(manager, orderIds, adminId);
-
-
-            await statusHistoryRepo.insert(statusLogs);
-          }
-        } else if (manifest.type === ShipmentManifestType.RETURN) {
-          const preparingStatus = await this.findStatusByCode(
-            OrderStatus.RETURN_PREPARING,
-            adminId,
-            manager,
-          );
-          const returnedStatus = await this.findStatusByCode(
-            OrderStatus.RETURNED,
-            adminId,
-            manager,
-          );
-
-          // 2. Update the Parent Orders
-          if (orderIds?.length > 0) {
-
-            await orderRepo.update({
-              id: In(orderIds),
-              statusId: preparingStatus.id, // ✅ only update PICKED orders
-            }, {
-              statusId: returnedStatus.id,
-              returnedAt: new Date(),
-              returnedById: userId,
-              updatedByUserId: userId,
-              manifestId: manifest.id, // Ensure manifest linkage is saved
-            });
-
-            // 3. Create Status Logs (Fixed from/to logic)
-            const statusLogs = orderIds.map((orderId) => ({
-              adminId,
-              orderId,
-              fromStatusId: preparingStatus.id, // ✅ Correct: coming from Preparing
-              toStatusId: returnedStatus.id, // ✅ Correct: moving to Returned
-              userId: userId,
-              notes: `Added to Return Manifest: ${manifestNumber}`,
-              createdAt: new Date(),
-            }));
-
-            await statusHistoryRepo.insert(statusLogs);
-          }
-        }
-
         await this.logBulkOrderActions({
           manager,
           adminId,
@@ -1253,12 +1208,16 @@ export class OrdersService {
       // 1. Validate Orders (Status must be PACKED and match Shipping Company)
       const orders = await manager.find(OrderEntity, {
         where: { id: In(dto.orderIds), adminId },
-        relations: ["status"],
+        relations: ["status", "items", "items.variant"],
       });
 
       if (orders.length !== dto.orderIds.length) {
         throw new BadRequestException("Some orders were not found.");
       }
+
+      // Map to aggregate quantities per variant across all orders
+      const variantDeductions = new Map<string, { qty: number; variant: ProductVariantEntity }>();
+
 
       for (const order of orders) {
         if (order.status.code !== OrderStatus.READY) {
@@ -1272,6 +1231,35 @@ export class OrdersService {
             `Order ${order.orderNumber} belongs to a different courier.`,
           );
         }
+
+        // Collect items for stock validation
+        for (const item of order.items) {
+          if (item.stockDeducted || !item.variant) continue;
+
+          const variantId = item.variant.id;
+          const qty = item.quantity || 0;
+
+          const existing = variantDeductions.get(variantId) || { qty: 0, variant: item.variant };
+          variantDeductions.set(variantId, {
+            qty: existing.qty + qty,
+            variant: item.variant
+          });
+        }
+      }
+
+      // 1.1 Perform stock validation for all orders in the manifest
+      if (variantDeductions.size > 0) {
+        const stockCheckItems = Array.from(variantDeductions.entries()).map(([variantId, data]) => ({
+          variantId,
+          quantity: data.qty,
+          variant: data.variant,
+          sku: data.variant.sku,
+        }));
+
+        await this.validateStockAvailability(adminId, stockCheckItems, {
+          isDeduction: true,
+          errorMessagePrefix: "Cannot create manifest due to insufficient stock",
+        });
       }
 
       // 2. Generate Manifest Number (e.g., MAN-20260316-001)
@@ -1280,6 +1268,42 @@ export class OrdersService {
         where: { adminId },
       });
       const manifestNumber = `MAN-${dateStr}-${(count + 1).toString().padStart(3, "0")}`;
+
+      // 1.2 Update statuses and deduct stock
+      const readyStatus = await this.findStatusByCode(OrderStatus.READY, adminId, manager);
+      const shippedStatus = await this.findStatusByCode(OrderStatus.SHIPPED, adminId, manager);
+
+      // Only update orders that are currently in READY status
+      const ordersToUpdate = orders.filter(o => o.statusId === readyStatus.id);
+      const orderIdsToUpdate = ordersToUpdate.map(o => o.id);
+
+      if (orderIdsToUpdate.length > 0) {
+        await orderRepo.update(
+          {
+            id: In(orderIdsToUpdate),
+            statusId: readyStatus.id,
+          },
+          {
+            statusId: shippedStatus.id,
+            shippedAt: new Date(),
+          }
+        );
+
+        const statusLogs = orderIdsToUpdate.map((orderId) => ({
+          adminId,
+          orderId,
+          fromStatusId: readyStatus.id,
+          toStatusId: shippedStatus.id,
+          userId: userId,
+          notes: `Assigned to Manifest: ${manifestNumber}`,
+          createdAt: new Date(),
+        }));
+
+        const statusHistoryRepo = manager.getRepository(OrderStatusHistoryEntity);
+        await statusHistoryRepo.insert(statusLogs);
+
+        await this.deductStockForMultipleOrders(manager, orderIdsToUpdate, adminId);
+      }
 
       // 3. Create Manifest
       const manifest = manager.create(ShipmentManifestEntity, {
@@ -1385,10 +1409,40 @@ export class OrdersService {
       });
 
       const orderIds = returns.map((req) => req.orderId);
-      await orderRepo.update(orderIds, {
-        manifestId: manifest.id,
-        updatedByUserId: userId,
-      });
+
+      // 1.2 Update statuses for returns
+      const preparingStatus = await this.findStatusByCode(OrderStatus.RETURN_PREPARING, adminId, manager);
+      const returnedStatus = await this.findStatusByCode(OrderStatus.RETURNED, adminId, manager);
+
+      if (orderIds.length > 0) {
+        await orderRepo.update(
+          {
+            id: In(orderIds),
+            statusId: preparingStatus.id,
+          },
+          {
+            statusId: returnedStatus.id,
+            returnedAt: new Date(),
+            returnedById: userId,
+            updatedByUserId: userId,
+            manifestId: manifest.id, // Ensure manifest linkage is saved
+          }
+        );
+
+        const statusLogs = orderIds.map((orderId) => ({
+          adminId,
+          orderId,
+          fromStatusId: preparingStatus.id,
+          toStatusId: returnedStatus.id,
+          userId: userId,
+          notes: `Added to Return Manifest: ${manifestNumber}`,
+          createdAt: new Date(),
+        }));
+
+        const statusHistoryRepo = manager.getRepository(OrderStatusHistoryEntity);
+        await statusHistoryRepo.insert(statusLogs);
+      }
+
       await this.logBulkOrderActions({
         manager,
         adminId,
@@ -2164,12 +2218,14 @@ export class OrdersService {
 
   async get(me: any, id: string, manager?: EntityManager) {
     const adminId = tenantId(me);
+    const superAdmin = isSuperAdmin(me);
+
     const repo = manager ? manager.getRepository(OrderEntity) : this.orderRepo;
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
 
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
-    const order = await repo
+    const qb = repo
       .createQueryBuilder("order")
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
@@ -2187,24 +2243,17 @@ export class OrdersService {
         "assignments.isAssignmentActive = :active",
         { active: true },
       )
-      .leftJoinAndSelect("assignments.employee", "employee") // Optional: load the employee details
+      .leftJoinAndSelect("assignments.employee", "employee");
 
-      // 🔥 Replacement Data
-      // .leftJoinAndSelect("order.replacementResult", "replacementResult")
+    if (superAdmin) {
+      qb.leftJoinAndSelect("order.admin", "admin");
+    }
 
-      // // Join the Replacement Order (The result) and ITS items to get NEW prices
-      // .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
-      // // 3. Link Bridge Items back to Original Prices
-      // .leftJoinAndSelect("replacementResult.items", "bridgeItems")
-      // .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem") // Gets old unitPrice/quantity
-      // .leftJoinAndSelect("origItem.variant", "bridgeVar")
-      // .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
+    const order = await qb
       .leftJoinAndSelect(
         "order.shipments",
         "shipments",
-        // تم استخدام "order" بين علامات تنصيص خاصة بقواعد البيانات أو استخدام الـ Alias المعرف للجدول
-        `shipments.adminId = :adminId AND shipments."trackingNumber" = "order"."trackingNumber"`,
-        { adminId }
+        `shipments."trackingNumber" = "order"."trackingNumber"`,
       )
       .leftJoinAndSelect("shipments.shippingCompany", "shipmentShippingCompany")
       .where(new Brackets(qb => {
@@ -2216,8 +2265,13 @@ export class OrdersService {
             .orWhere("shipments.trackingNumber = :id", { id });
         }
       }))
-      // 🔥 تصحيح: كان هناك مسافة في كلمة "ord er" تسببت في خطأ أيضاً
-      .andWhere("order.adminId = :adminId", { adminId })
+      .andWhere(new Brackets(qb => {
+        if (superAdmin) {
+          qb.where("1=1");
+        } else {
+          qb.andWhere("order.adminId = :adminId", { adminId });
+        }
+      }))
       .getOne();
 
     if (!order) throw new BadRequestException("Order not found");
@@ -2291,9 +2345,9 @@ export class OrdersService {
     dto: CreateOrderDto,
     ipAddress?: string,
   ) {
-    await this.walletService.processOrderUsage(me, 1, manager);
     // Generate order number
     const orderNumber = await this.generateOrderNumber(adminId);
+    await this.walletService.processOrderUsage(me, 1, manager, orderNumber);
 
     // Get variants
     const variantIds = dto.items.map((it) => it.variantId);
@@ -2311,18 +2365,7 @@ export class OrdersService {
     const variantMap = new Map(variants.map((v) => [v.id, v]));
 
     // Check stock availability
-    for (const item of dto.items) {
-      const variant = variantMap.get(item.variantId);
-      if (!variant)
-        throw new BadRequestException(`Variant ${item.variantId} not found`);
-
-      const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
-      if (available < item.quantity) {
-        throw new BadRequestException(
-          `The requested quantity for "${variant.sku}" exceeds available stock. You can order up to ${available} item(s).`
-        );
-      }
-    }
+    await this.validateStockAvailability(adminId, dto.items, { variantMap });
 
     // Create order items
     const items = dto.items.map((it) => {
@@ -2607,13 +2650,11 @@ export class OrdersService {
 
           // 1. Stock Validation
           if (qtyDiff > 0) {
-            const available =
-              (variant.stockOnHand || 0) - (variant.reserved || 0);
-            if (available < qtyDiff) {
-              throw new BadRequestException(
-                `Insufficient stock for variant ${variant.sku}. Available: ${available}, Requested Increase: ${qtyDiff}`,
-              );
-            }
+            await this.validateStockAvailability(
+              adminId,
+              [{ variantId: dtoItem.variantId, quantity: qtyDiff, variant }],
+              { errorMessagePrefix: "Insufficient stock" }
+            );
           }
 
           // 2. Update variant in memory
@@ -3670,15 +3711,23 @@ export class OrdersService {
   // ✅ EXPORT ORDERS TO EXCEL
   // ========================================
   async exportOrders(me: any, q?: any) {
-    const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
+    if (!adminId && !superAdmin) throw new BadRequestException("Missing adminId");
 
     const search = String(q?.search ?? "").trim();
 
     const qb = this.orderRepo
-      .createQueryBuilder("order")
-      .where("order.adminId = :adminId", { adminId })
-      .leftJoinAndSelect("order.items", "items")
+      .createQueryBuilder("order");
+
+    if (adminId) qb.where("order.adminId = :adminId", { adminId })
+
+    qb.leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("variant.product", "product")
       .leftJoinAndSelect("order.status", "status")
@@ -3888,12 +3937,16 @@ export class OrdersService {
       this.productRepo
         .createQueryBuilder('product')
         .leftJoinAndSelect('product.variants', 'variant')
+        .leftJoin(OrderRetrySettingsEntity, 'settings', 'settings.adminId = product.adminId')
         .where('product.adminId = :adminId', { adminId: adminId.trim() })
         .andWhere('product.isActive = :isActive', { isActive: true })
         .andWhere('variant.isActive = :vActive', { vActive: true })
 
         // 🔥 filter by available stock
-        .andWhere('(variant.stockOnHand - variant.reserved) > 0')
+        .andWhere(new Brackets(qb => {
+          qb.where('COALESCE(settings.reservedEnabled, false) = true AND (variant.stockOnHand - variant.reserved) > 0')
+            .orWhere('COALESCE(settings.reservedEnabled, false) = false AND variant.stockOnHand > 0');
+        }))
 
         .select([
           'product.id',
@@ -4080,7 +4133,7 @@ export class OrdersService {
     refSheet.getRow(2).font = { bold: true, color: { argb: "FFFFFFFF" } };
     refSheet.getRow(2).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: "FF3b82f6" } }; // Blue header
 
-    products.forEach(product => {
+    for (const product of products) {
       // 1. Add Parent Product Row (Visually bold and shaded)
       const pRow = refSheet.addRow({
         name: `📦 ${product.name}`,
@@ -4093,8 +4146,8 @@ export class OrdersService {
 
       // 2. Add Child Variant Rows underneath
       if (product.variants && product.variants.length > 0) {
-        product.variants.forEach(variant => {
-          const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
+        for (const variant of product.variants) {
+          const available = await this.calculateAvailableStock(variant.stockOnHand || 0, variant.reserved || 0, adminId);
 
           const vRow = refSheet.addRow({
             name: ``, // Indented to show hierarchy
@@ -4102,9 +4155,9 @@ export class OrdersService {
             stock: available,
             price: variant.price || ""
           });
-        });
+        }
       }
-    });
+    }
 
     // Auto filter for the reference sheet to make searching easy
     refSheet.autoFilter = {
@@ -4674,7 +4727,7 @@ export class OrdersService {
       const variant = variantMap.get(sku);
       if (!variant) continue;
 
-      const available = (variant.stockOnHand || 0) - (variant.reserved || 0);
+      const available = await this.calculateAvailableStock(variant.stockOnHand || 0, variant.reserved || 0, adminId);
 
       if (usageItem.totalQty > available) {
         skuErrors.push({
@@ -4925,9 +4978,10 @@ export class OrdersService {
   public async deductStockForOrder(
     manager: EntityManager,
     orderId: string,
-    adminId: string
+    adminId: string,
+    options: { skipValidation?: boolean } = {}
   ) {
-    const settings = await this.getSettings({ adminId, manager });
+    const settings = await this.getCachedSettings(adminId);
 
     // 1. جلب الطلب مع التحقق من الـ adminId للأمان
     const order = await manager.getRepository(OrderEntity).findOne({
@@ -4963,16 +5017,34 @@ export class OrdersService {
     }
 
     if (itemsToUpdateIds.length > 0) {
-      // 3. تنفيذ التحديثات في قاعدة البيانات مباشرة (Atomic Updates)
+      // 3. التحقق من توفر المخزون قبل الخصم
+      if (!options.skipValidation) {
+        const stockCheckItems = Array.from(variantDeductions.entries()).map(([variantId, qty]) => {
+          const item = order.items.find((it) => it.variant?.id === variantId);
+          return {
+            variantId,
+            quantity: qty,
+            variant: item?.variant,
+            sku: item?.variant?.sku,
+          };
+        });
+
+        await this.validateStockAvailability(adminId, stockCheckItems, {
+          isDeduction: true,
+        });
+      }
+
+      // 4. تنفيذ التحديثات في قاعدة البيانات مباشرة (Atomic Updates)
       const variantUpdates = Array.from(variantDeductions.entries()).map(([id, qty]) => {
+        const updateSet: any = {
+          stockOnHand: () => options.skipValidation ? `"stockOnHand" - ${qty}` : `GREATEST(0, "stockOnHand" - ${qty})`,
+          reserved: () => options.skipValidation ? `"reserved" - ${qty}` : `GREATEST(0, "reserved" - ${qty})`,
+        };
+
         return manager
           .createQueryBuilder()
           .update(ProductVariantEntity)
-          .set({
-            // نستخدم SQL مباشرة لضمان الدقة ومنع تضارب القيم
-            stockOnHand: () => `GREATEST(0, "stockOnHand" - ${qty})`,
-            reserved: () => `GREATEST(0, "reserved" - ${qty})`,
-          })
+          .set(updateSet)
           .where("id = :id", { id })
           .execute();
       });
@@ -4993,9 +5065,10 @@ export class OrdersService {
   public async deductStockForMultipleOrders(
     manager: EntityManager,
     orderIds: string[],
-    adminId: string
+    adminId: string,
+    options: { skipValidation?: boolean } = {}
   ) {
-    const settings = await this.getSettings({ adminId, manager });
+    const settings = await this.getCachedSettings(adminId);
 
     // Map لتخزين إجمالي الكمية المراد خصمها لكل Variant
     // Key: variantId, Value: totalQty
@@ -5030,15 +5103,40 @@ export class OrdersService {
     }
 
     if (itemsToUpdateIds.length > 0) {
+      // 1. التحقق من توفر المخزون قبل الخصم لجميع الطلبات
+      if (!options.skipValidation) {
+        const stockCheckItems = Array.from(variantDeductions.entries()).map(([variantId, qty]) => {
+          let variant: ProductVariantEntity | undefined;
+          for (const order of orders) {
+            const item = order.items.find((it) => it.variant?.id === variantId);
+            if (item?.variant) {
+              variant = item.variant;
+              break;
+            }
+          }
+          return {
+            variantId,
+            quantity: qty,
+            variant,
+            sku: variant?.sku,
+          };
+        });
+
+        await this.validateStockAvailability(adminId, stockCheckItems, {
+          isDeduction: true,
+        });
+      }
 
       const variantUpdates = Array.from(variantDeductions.entries()).map(([id, qty]) => {
+        const updateSet: any = {
+          stockOnHand: () => options.skipValidation ? `"stockOnHand" - ${qty}` : `GREATEST(0, "stockOnHand" - ${qty})`,
+          reserved: () => options.skipValidation ? `"reserved" - ${qty}` : `GREATEST(0, "reserved" - ${qty})`,
+        };
+
         return manager
           .createQueryBuilder()
           .update(ProductVariantEntity)
-          .set({
-            stockOnHand: () => `GREATEST(0, "stockOnHand" - ${qty})`,
-            reserved: () => `GREATEST(0, "reserved" - ${qty})`,
-          })
+          .set(updateSet)
           .where("id = :id", { id })
           .execute();
       });
@@ -5062,7 +5160,7 @@ export class OrdersService {
     let settings = await repo.findOneBy({ adminId: adminId });
 
     if (!settings) {
-      await this.retryRepo.save({
+      settings = await this.retryRepo.save({
         adminId,
         confirmationStatuses: [
           OrderStatus.CANCELLED,
@@ -5078,12 +5176,107 @@ export class OrdersService {
           OrderStatus.WRONG_NUMBER,
           OrderStatus.UNDER_REVIEW,
         ],
+        reservedEnabled: false, // by default false
       });
-      settings = await this.retryRepo.findOneBy({ adminId: adminId });
     }
-
+    await this.redisService.set(`admin_settings:${adminId}`, settings, 3600 * 24);
     // Return existing or a default object to keep frontend stable
     return settings;
+  }
+
+  // Local memory cache for settings to optimize loops (TTL: 5 seconds)
+  private static localSettingsCache = new Map<string, OrderRetrySettingsEntity>();
+
+  static updateLocalCache(adminId: string, settings: OrderRetrySettingsEntity) {
+    this.localSettingsCache.set(adminId, settings);
+
+    // Directly remove after 5 seconds to free memory and ensure freshness
+    setTimeout(() => {
+      this.localSettingsCache.delete(adminId);
+    }, 5000);
+  }
+
+  async getCachedSettings(adminId: string): Promise<OrderRetrySettingsEntity> {
+    const local = OrdersService.localSettingsCache.get(adminId);
+
+    if (local) {
+      return local;
+    }
+
+    const cacheKey = `admin_settings:${adminId}`;
+    let settings = await this.redisService.get<OrderRetrySettingsEntity>(cacheKey);
+
+    if (!settings || typeof settings === 'string') {
+      // Use getSettings logic which also handles creation of default settings
+      settings = await this.getSettings({ id: adminId, role: { name: 'admin' } });
+    }
+
+    // Update local cache
+    OrdersService.updateLocalCache(adminId, settings);
+
+    return settings;
+  }
+
+  async calculateAvailableStock(stockOnHand: number, reserved: number, adminId: string): Promise<number> {
+    const settings = await this.getCachedSettings(adminId);
+    const reservedEnabled = settings?.reservedEnabled ?? false;
+
+    if (reservedEnabled) {
+      return Math.max(0, (stockOnHand ?? 0) - (reserved ?? 0));
+    }
+    return Math.max(0, stockOnHand ?? 0);
+  }
+
+  /**
+   * Reusable stock validation logic.
+   * Checks if there is enough stock available for a list of items.
+   *
+   * @param adminId - The admin ID for settings context.
+   * @param items - List of items to check.
+   * @param options - Configuration options.
+   */
+  public async validateStockAvailability(
+    adminId: string,
+    items: { variantId: string; quantity: number; variant?: ProductVariantEntity; sku?: string }[],
+    options: {
+      isDeduction?: boolean;
+      variantMap?: Map<string, ProductVariantEntity>;
+      errorMessagePrefix?: string;
+    } = {}
+  ) {
+    const { isDeduction = false, variantMap, errorMessagePrefix } = options;
+
+    for (const item of items) {
+      const variant = item.variant || variantMap?.get(item.variantId);
+      if (!variant) {
+        throw new BadRequestException(`Variant ${item.variantId} not found`);
+      }
+
+      let available: number;
+      if (isDeduction) {
+        // When deducting, we are fulfilling an order that might already be reserved.
+        // We just need to ensure we have enough physical stock on hand.
+        available = variant.stockOnHand || 0;
+      } else {
+        // When creating/updating, we check against the configured "available" stock.
+        available = await this.calculateAvailableStock(
+          variant.stockOnHand || 0,
+          variant.reserved || 0,
+          adminId
+        );
+      }
+
+      if (available < item.quantity) {
+        const prefix = errorMessagePrefix ? `${errorMessagePrefix}: ` : "";
+        const sku = variant.sku || item.sku || item.variantId;
+
+        const message = isDeduction
+          ? `${prefix}Cannot deduct stock for "${sku}". Insufficient stock on hand (${available} available, ${item.quantity} requested).`
+          : `${prefix}The requested quantity for "${sku}" exceeds available stock. You can order up to ${available} item(s).`;
+
+        throw new BadRequestException(message);
+      }
+    }
   }
 
   async upsertSettings(
@@ -5729,16 +5922,28 @@ export class OrdersService {
         .getMany()
       : [];
 
-    const productMap = new Map(
-      upsellingProducts.map((p) => {
-        // Calculate total available stock across all SKUs
-        const totalAvailable = (p.variants || []).reduce((sum, sku) => {
-          const avail = (sku.stockOnHand || 0) - (sku.reserved || 0);
-          return sum + Math.max(0, avail);
-        }, 0);
+    const productEntries = await Promise.all(
+      upsellingProducts.map(async (p): Promise<[string, typeof p & { totalAvailable: number }]> => {
+        const totals = (p.variants || []).reduce(
+          (acc, sku) => {
+            acc.totalStock += sku.stockOnHand || 0;
+            acc.totalReserved += sku.reserved || 0;
+            return acc;
+          },
+          { totalStock: 0, totalReserved: 0 },
+        );
+
+        const totalAvailable = await this.calculateAvailableStock(
+          totals.totalStock,
+          totals.totalReserved,
+          adminId,
+        );
+
         return [p.id, { ...p, totalAvailable }];
       }),
     );
+
+    const productMap = new Map(productEntries);
 
     // Attach product info
     for (const item of order.items || []) {

@@ -10,6 +10,7 @@ import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
 import { CRUD } from "../../common/crud.service";
 import * as ExcelJS from "exceljs";
 import { StoresService } from "src/stores/stores.service";
+import { OrdersService } from "src/orders/services/orders.service";
 
 @Injectable()
 export class BundlesService {
@@ -25,6 +26,8 @@ export class BundlesService {
 
 		@Inject(forwardRef(() => StoresService))
 		private storesService: StoresService,
+
+		private readonly ordersService: OrdersService,
 
 		private readonly dataSource: DataSource,
 	) { }
@@ -529,7 +532,11 @@ export class BundlesService {
 			if (!v) throw new BadRequestException(`variant not found: ${it.variantId}`);
 
 			const need = it.qty * qty;
-			const available = Math.max(0, (v.stockOnHand ?? 0) - (v.reserved ?? 0));
+			const available = await this.ordersService.calculateAvailableStock(
+				v.stockOnHand ?? 0,
+				v.reserved ?? 0,
+				adminId,
+			);
 			if (available < need) {
 				throw new BadRequestException(`Not enough stock for variantId=${it.variantId}`);
 			}

@@ -724,6 +724,9 @@ export class OrderRetrySettingsEntity {
   @Column({ type: "uuid", nullable: true })
   defaultWhatsAppAccountId: string;
 
+  @Column({ type: "boolean", default: false })
+  reservedEnabled: boolean;
+
   @Column({
     type: "jsonb",
     default: {

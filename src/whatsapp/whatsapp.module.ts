@@ -15,10 +15,12 @@ import { ConversationEntity } from 'entities/whatsapp.entity';
 import { ConversationModule } from 'src/conversation/conversation.module';
 import { CustomerEntity } from 'entities/customers.entity';
 import { CustomerModule } from '../customer/customer.module';
+import { RedisModule } from 'common/redis/redis.module';
 
 @Module({
   imports: [
     HttpModule,
+    RedisModule,
     forwardRef(() => AutomationModule),
     forwardRef(() => OrdersModule),
     forwardRef(() => ConversationModule),

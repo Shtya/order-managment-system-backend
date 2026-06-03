@@ -1371,7 +1371,11 @@ export class StoresService {
           continue;
         }
 
-        const availableStock = matchedVariant.stockOnHand - matchedVariant.reserved;
+        const availableStock = await this.ordersService.calculateAvailableStock(
+          matchedVariant.stockOnHand,
+          matchedVariant.reserved,
+          matchedVariant.adminId
+        );
         if (availableStock < item.quantity) {
           problems.push({
             remoteId: item.remoteProductId,

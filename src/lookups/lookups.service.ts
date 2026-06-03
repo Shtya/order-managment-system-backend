@@ -8,6 +8,8 @@ import { WarehouseEntity } from 'entities/warehouses.entity';
 import { ProductEntity, ProductVariantEntity } from '../../entities/sku.entity';
 import { SupplierEntity } from '../../entities/supplier.entity';
 import { CityEntity } from 'entities/cities.entity';
+import { OrdersService } from 'src/orders/services/orders.service';
+import { tenantId } from 'src/category/category.service';
 
 type UsersLookupParams = {
 	q?: string;
@@ -52,6 +54,7 @@ export class LookupsService {
 		@InjectRepository(ProductVariantEntity) private readonly variantsRepo: Repository<ProductVariantEntity>,
 		@InjectRepository(SupplierEntity) private readonly suppliersRepo: Repository<SupplierEntity>,
 		@InjectRepository(CityEntity) private readonly citiesRepo: Repository<CityEntity>,
+		private readonly ordersService: OrdersService,
 	) { }
 
 	private isSuperAdmin(me: User) {
@@ -100,6 +103,7 @@ export class LookupsService {
 
 
 	async skus(me: User, params: SkusLookupParams & { skus?: string[] }) {
+		const adminId = tenantId(me)
 		const fetchLimit = Number(params.limit) || 20;
 		const qb = this.variantsRepo
 			.createQueryBuilder('v')
@@ -161,7 +165,7 @@ export class LookupsService {
 			if (hasMore) rows.pop();
 		}
 
-		const data = rows.map((x) => ({
+		const data = await Promise.all(rows.map(async (x) => ({
 			id: x.id,
 			productId: x.productId,
 			label: x.sku ? x.sku : `#${x.id}`,
@@ -172,9 +176,13 @@ export class LookupsService {
 			price: Number(x.price ?? 0),
 			wholesalePrice: Number(x.wholesalePrice ?? 0),
 			unitCost: Number(x.unitCost ?? 0),
-			available: Math.max(0, Number(x.stockOnHand ?? 0) - Number(x.reserved ?? 0)),
+			available: await this.ordersService.calculateAvailableStock(
+				Number(x.stockOnHand ?? 0),
+				Number(x.reserved ?? 0),
+				adminId,
+			),
 			name: x.productName ?? null,
-		}));
+		})));
 
 		return {
 			data,

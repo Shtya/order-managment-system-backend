@@ -102,18 +102,19 @@ export class WhatsappController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadMediaFile(
     @Req() req: any,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFile() file?: Express.Multer.File,
+    @Body('url') url?: string,
     @Query('accountId') accountId?: string,
   ) {
-    if (!file) {
-      throw new BadRequestException('File is required');
+    if (!file && !url) {
+      throw new BadRequestException('File or URL is required');
     }
-
 
     return this.whatsappService.uploadMedia(req.user, {
       file,
-      mimeType: file.mimetype,
-      filename: file.originalname,
+      url,
+      mimeType: file?.mimetype,
+      filename: file?.originalname,
     }, accountId);
   }
 

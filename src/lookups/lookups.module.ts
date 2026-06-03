@@ -9,9 +9,12 @@ import { WarehouseEntity } from '../../entities/warehouses.entity';
 import { SupplierEntity } from '../../entities/supplier.entity';
 import { ProductEntity, ProductVariantEntity } from '../../entities/sku.entity';
 import { CityEntity } from 'entities/cities.entity';
+import { OrdersModule } from 'src/orders/orders.module';
 
 @Module({
-	imports: [TypeOrmModule.forFeature([User, Role, Permission, CategoryEntity,
+	imports: [
+		OrdersModule,
+		TypeOrmModule.forFeature([User, Role, Permission, CategoryEntity,
 		StoreEntity, CityEntity,
 		ProductEntity,
 		ProductVariantEntity,

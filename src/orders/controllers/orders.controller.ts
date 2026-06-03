@@ -57,8 +57,8 @@ export class OrdersController {
   @Get("stats")
   @Permissions("orders.read")
 
-  stats(@Req() req: any) {
-    return this.svc.getStats(req.user);
+  stats(@Req() req: any, @Query() q: any) {
+    return this.svc.getStats(req.user, q);
   }
 
   @Get(':id/history')
@@ -71,8 +71,8 @@ export class OrdersController {
 
   @Get("statuses")
   @Permissions("orders.read")
-  statuses(@Req() req: any) {
-    return this.svc.getStatuses(req.user);
+  statuses(@Req() req: any, @Query() q: any) {
+    return this.svc.getStatuses(req.user, q);
   }
 
   @Get("statuses/:id")
@@ -111,7 +111,7 @@ export class OrdersController {
     return await this.svc.getAutoPreview(req.user, dto);
   }
 
-  
+
 
   @Post(':id/scan-preparation/:sku')
   @Permissions("warehouses.scan-preparation")
@@ -130,7 +130,7 @@ export class OrdersController {
     @Body() body: { sku: string; reasonCode: ScanReason },
     @Req() req: any,
   ) {
-    
+
 
     return await this.svc.logError(orderId, body.sku, req.user, body.reasonCode, ScanLogType.PREPARATION, '');
   }
