@@ -923,6 +923,7 @@ export class WhatsappTemplateService {
         const templatesToSave = [];
 
         for (const metaTpl of metaTemplates) {
+            if (metaTpl.parameter_format === 'NAMED') continue;
             const status = await this.statusFromMeta(metaTpl.status);
             const quality = this.qualityFromMeta(metaTpl.quality_score?.score);
             const language = metaTpl.language;

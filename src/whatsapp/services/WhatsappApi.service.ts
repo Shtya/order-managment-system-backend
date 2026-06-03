@@ -885,7 +885,7 @@ export class WhatsappApiService {
     const response = await firstValueFrom(
       this.httpService.get(`https://graph.facebook.com/${this.version}/${wabaId}/message_templates`, {
         params: {
-          fields: 'language,name,rejected_reason,status,category,sub_category,last_updated_time,components,quality_score',
+          fields: 'language,name,rejected_reason,status,category,sub_category,last_updated_time,components,quality_score,parameter_format',
           limit: 1000,
           access_token: accessToken,
         },
