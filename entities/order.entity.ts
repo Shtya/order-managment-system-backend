@@ -22,6 +22,7 @@ import { ShipmentEntity, ShippingCompanyEntity } from "./shipping.entity";
 import { OrderCollectionEntity } from "./order-collection.entity";
 import { MonthlyClosingEntity } from "./accounting.entity";
 import { ActivatableEntity } from "./base.entity";
+import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 
 // ✅ Order Status Enum
@@ -128,6 +129,7 @@ export enum PaymentMethod {
 @Index(["adminId", "storeId", "created_at"])
 @Index(["adminId", "city", "area"])
 @Index(["adminId", "statusId", "rejectedAt"])
+@Index(["adminId", "normalizedPhoneNumber", "itemsSignature"])
 export class OrderEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -190,6 +192,30 @@ export class OrderEntity {
 
   @Column({ type: "varchar", length: 50 })
   phoneNumber!: string;
+
+  @Column({
+    type: 'varchar',
+    name: 'normalized_phone',
+    nullable: true,
+  })
+  normalizedPhoneNumber: string;
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  setNormalizedPhone() {
+    this.normalizedPhoneNumber = normalizeEgyptianPhoneNumber(this.phoneNumber);
+  }
+
+  @Column({
+    nullable: true,
+  })
+  itemsSignature: string;
+
+  @Column({ type: "int", default: 0 })
+  duplicateCount: number;
+
+  @Column({ type: "varchar", length: 100, nullable: true })
+  originalOrderNumber?: string;
 
   @Column({ type: "varchar", length: 50, nullable: true })
   secondPhoneNumber?: string;
@@ -726,6 +752,12 @@ export class OrderRetrySettingsEntity {
 
   @Column({ type: "boolean", default: false })
   reservedEnabled: boolean;
+
+  @Column({ type: "int", default: 24 })
+  duplicateWindowHours: number;
+
+  @Column({ type: "boolean", default: false })
+  autoCancelDuplicates: boolean;
 
   @Column({
     type: "jsonb",

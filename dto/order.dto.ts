@@ -467,6 +467,14 @@ export class UpsertOrderRetrySettingsDto {
   @IsBoolean()
   @IsOptional()
   reservedEnabled?: boolean;
+
+  @IsInt()
+  @IsOptional()
+  duplicateWindowHours?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  autoCancelDuplicates?: boolean;
 }
 export class ManualAssignItemDto {
   @IsNotEmpty()
