@@ -37,37 +37,56 @@ export class CollectionService {
     // collection.service.ts
 
     async getCollectionStatistics(me: any) {
-        const adminId = tenantId(me)
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
-        // shipping breakdown unchanged
-        const shippingBreakdown = await this.repo
-            .createQueryBuilder('col')
-            .leftJoin('col.shippingCompany', 'ship')
-            .select('COALESCE(ship.name, \'Direct/Other\')', 'shippingName')
-            .addSelect('SUM(col.amount)', 'totalAmount')
-            .where('col.adminId = :adminId', { adminId })
-            .groupBy('ship.id')
-            .addGroupBy('ship.name')
-            .getRawMany();
+//collectedOrdersCount
+        // 1. Run general stats and shipping breakdown in parallel
+        const [generalStats, shippingBreakdownRaw] = await Promise.all([
+            this.ordersRepo
+                .createQueryBuilder('o')
+                .leftJoin('o.status', 'st')
+                .select(`
+                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) = 0 THEN 1 ELSE 0 END) AS "notCollectedCount",
+                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) > 0 AND COALESCE(o.collectedAmount,0) < (o.finalTotal - o.shippingCost) THEN 1 ELSE 0 END) AS "partialCollectedCount",
+                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) >= (o.finalTotal - o.shippingCost) THEN 1 ELSE 0 END) AS "fullyCollectedCount",
+                    SUM(COALESCE(o.collectedAmount,0)) AS "totalCollectedMoney",
+                    SUM(CASE WHEN (o.finalTotal - o.shippingCost) > COALESCE(o.collectedAmount,0) THEN (o.finalTotal - o.shippingCost) - COALESCE(o.collectedAmount,0) ELSE 0 END) AS "totalNonCollectedMoney",
+                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) > 0 AND COALESCE(o.collectedAmount,0) < (o.finalTotal - o.shippingCost) THEN COALESCE(o.collectedAmount,0) ELSE 0 END) AS "totalPartialCollectedMoney"
+                `)
+                .where('o.adminId = :adminId', { adminId })
+                .andWhere(`st.code = '${OrderStatus.DELIVERED}'`)
+                .getRawOne(),
 
-        // counts directly from orders.collectedAmount vs finalTotal
-        const result = await this.ordersRepo
-            .createQueryBuilder('o')
-            .select(`
-                SUM(CASE WHEN COALESCE(o.collectedAmount,0) = 0 THEN 1 ELSE 0 END) AS "notCollectedCount",
-                SUM(CASE WHEN COALESCE(o.collectedAmount,0) > 0 AND COALESCE(o.collectedAmount,0) < o.finalTotal THEN 1 ELSE 0 END) AS "partialCollectedCount",
-                SUM(CASE WHEN COALESCE(o.collectedAmount,0) >= o.finalTotal THEN 1 ELSE 0 END) AS "fullyCollectedCount"
-            `)
-            .where('o.adminId = :adminId', { adminId })
-            .getRawOne();
+            this.ordersRepo
+                .createQueryBuilder('o')
+                .leftJoin('o.shippingCompany', 'ship')
+                .leftJoin('o.status', 'st')
+                .select('COALESCE(ship.name, \'Direct/Other\')', 'shippingName')
+                .addSelect('SUM(CASE WHEN COALESCE(o.collectedAmount,0) = 0 THEN 1 ELSE 0 END)', 'nonCollectedOrdersCount')
+                .addSelect('SUM(CASE WHEN COALESCE(o.collectedAmount,0) >= (o.finalTotal - o.shippingCost) THEN 1 ELSE 0 END)', 'collectedOrdersCount')
+                .addSelect('SUM(CASE WHEN (o.finalTotal - o.shippingCost) > COALESCE(o.collectedAmount,0) THEN (o.finalTotal - o.shippingCost) - COALESCE(o.collectedAmount,0) ELSE 0 END)', 'totalNonCollectedMoney')
+                .addSelect('SUM(COALESCE(o.collectedAmount,0))', 'totalCollectedMoney')
+                .where('o.adminId = :adminId', { adminId })
+                .andWhere(`st.code = '${OrderStatus.DELIVERED}'`)
+                .groupBy('ship.id')
+                .addGroupBy('ship.name')
+                .getRawMany()
+        ]);
 
         const stats = {
-            notCollectedCount: Number(result?.notCollectedCount) || 0,
-            partialCollectedCount: Number(result?.partialCollectedCount) || 0,
-            fullyCollectedCount: Number(result?.fullyCollectedCount) || 0,
-            shippingBreakdown: shippingBreakdown.map(s => ({
+            notCollectedCount: Number(generalStats?.notCollectedCount) || 0,
+            partialCollectedCount: Number(generalStats?.partialCollectedCount) || 0,
+            fullyCollectedCount: Number(generalStats?.fullyCollectedCount) || 0,
+            totalPartialCollectedMoney: parseFloat(generalStats?.totalPartialCollectedMoney) || 0,
+            totalCollectedOrders: Number(generalStats?.fullyCollectedCount) || 0,
+            totalCollectedMoney: parseFloat(generalStats?.totalCollectedMoney) || 0,
+            totalNonCollectedMoney: parseFloat(generalStats?.totalNonCollectedMoney) || 0,
+            shippingBreakdown: shippingBreakdownRaw.map(s => ({
                 name: s.shippingName || 'Direct/Other',
-                amount: parseFloat(s.totalAmount)
+                nonCollectedOrdersCount: Number(s.nonCollectedOrdersCount) || 0,
+                collectedOrdersCount: Number(s.collectedOrdersCount) || 0,
+                totalNonCollectedMoney: parseFloat(s.totalNonCollectedMoney) || 0,
+                totalCollectedMoney: parseFloat(s.totalCollectedMoney) || 0
             }))
         };
 
@@ -167,12 +186,13 @@ export class CollectionService {
         const search = String(q?.search ?? "").trim();
 
         // Sort by order creation or custom field
-        const sortBy = String(q?.sortBy ?? "created_at");
+        const sortBy = String(q?.sortBy ?? "deliveredAt");
         const sortDir: "ASC" | "DESC" = String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
         // Primary query is now on OrderEntity
         const qb = this.ordersRepo.createQueryBuilder("order")
-            .leftJoinAndSelect("order.collections", "col") // Ensure OrderEntity has @OneToMany to OrderCollectionEntity
+            .leftJoinAndSelect("order.collections", "col")
+            .leftJoinAndSelect("col.shippingCompany", "colShipping")
             .leftJoinAndSelect("order.shippingCompany", "shipping")
             .leftJoin("order.status", "st")
             .where("order.adminId = :adminId", { adminId });
@@ -185,6 +205,7 @@ export class CollectionService {
         // --- 2. Collection Status Logic ---
         if (q?.collectionStatus) {
             const amt = "COALESCE(order.collectedAmount, 0)";
+            const collectible = "(order.finalTotal - order.shippingCost)";
             const deliveredCondition = `st.code = '${OrderStatus.DELIVERED}'`;
 
             if (q.collectionStatus === 'not_collected') {
@@ -192,16 +213,16 @@ export class CollectionService {
             }
             else if (q.collectionStatus === 'partial') {
                 // تحصيل جزئي + يجب أن يكون مستلم
-                qb.andWhere(`${amt} > 0 AND ${amt} < order.finalTotal`)
+                qb.andWhere(`${amt} > 0 AND ${amt} < ${collectible}`)
                     .andWhere(deliveredCondition);
             }
             else if (q.collectionStatus === 'fully_collected') {
-                qb.andWhere(`${amt} >= order.finalTotal`)
-                    .andWhere(deliveredCondition);
+                qb.andWhere(`${amt} >= ${collectible}`)
+                    .andWhere(`${amt} > 0`);
             }
             else if (q.collectionStatus === 'pending') {
                 // لم يكتمل التحصيل + يجب أن يكون مستلم
-                qb.andWhere(`${amt} < order.finalTotal`)
+                qb.andWhere(`${amt} < ${collectible}`)
                     .andWhere(deliveredCondition);
             }
         }
@@ -216,7 +237,7 @@ export class CollectionService {
         }
 
         // --- 4. Date Range (Based on Order Creation or Delivery) ---
-        DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
+        DateFilterUtil.applyToQueryBuilder(qb, "order.deliveredAt", q?.startDate, q?.endDate);
 
         qb.orderBy(`order.${sortBy}`, sortDir);
 
@@ -227,7 +248,8 @@ export class CollectionService {
 
         // --- 5. Data Mapping & Delay Calculation ---
         const records = orders.map(order => {
-            const isFullyCollected = order.collectedAmount >= order.finalTotal;
+            const collectibleAmount = order.finalTotal - (order.shippingCost || 0);
+            const isFullyCollected = (order.collectedAmount || 0) >= collectibleAmount;
 
             // Calculate Delay Days: Difference between Delivery Date and Last Collection Date
             let delayDays = 0;
@@ -251,8 +273,9 @@ export class CollectionService {
                 shippingCompany: order.shippingCompany || 'N/A',
                 shippingCost: order.shippingCost,
                 finalTotal: order.finalTotal,
+                collectibleAmount,
                 collectedAmount: order.collectedAmount || 0,
-                remainingBalance: Math.max(0, order.finalTotal - (order.collectedAmount || 0)),
+                remainingBalance: Math.max(0, collectibleAmount - (order.collectedAmount || 0)),
                 delayDays: delayDays, // عدد أيام التأخير
                 collections: order.collections // Optional: include full history
             };
@@ -294,11 +317,12 @@ export class CollectionService {
         // منطق فلترة الحالة (نفس الـ listCollections)
         if (statusFilter) {
             const amt = "COALESCE(order.collectedAmount, 0)";
+            const collectible = "(order.finalTotal - order.shippingCost)";
             const deliveredCondition = `st.code = '${OrderStatus.DELIVERED}'`;
             if (statusFilter === 'not_collected') qb.andWhere(`${amt} = 0`).andWhere(deliveredCondition);
-            else if (statusFilter === 'partial') qb.andWhere(`${amt} > 0 AND ${amt} < order.finalTotal`).andWhere(deliveredCondition);
-            else if (statusFilter === 'fully_collected') qb.andWhere(`${amt} >= order.finalTotal`);
-            else if (statusFilter === 'pending') qb.andWhere(`${amt} < order.finalTotal`).andWhere(deliveredCondition);
+            else if (statusFilter === 'partial') qb.andWhere(`${amt} > 0 AND ${amt} < ${collectible}`).andWhere(deliveredCondition);
+            else if (statusFilter === 'fully_collected') qb.andWhere(`${amt} >= ${collectible}`);
+            else if (statusFilter === 'pending') qb.andWhere(`${amt} < ${collectible}`).andWhere(deliveredCondition);
         }
 
         const orders = await qb.orderBy("order.created_at", "DESC").getMany();
@@ -315,6 +339,7 @@ export class CollectionService {
                 { header: "Last Collection Date", key: "lastCollectionDate", width: 20 },
                 { header: "Shipping Cost", key: "shippingCost", width: 15 },
                 { header: "Total Amount", key: "finalTotal", width: 15 },
+                { header: "Collectible Amount", key: "collectibleAmount", width: 15 },
                 { header: "Collected Amount", key: "collectedAmount", width: 15 },
                 { header: "Remaining Balance", key: "remainingBalance", width: 15 },
                 { header: "Status", key: "collectionStatus", width: 15 },
@@ -340,9 +365,9 @@ export class CollectionService {
 
         // 3. تحويل البيانات (Transform)
         const rows = orders.map(order => {
-            const total = Number(order.finalTotal || 0);
+            const collectibleAmount = Number(order.finalTotal || 0) - Number(order.shippingCost || 0);
             const collected = Number(order.collectedAmount || 0);
-            const remaining = Math.max(0, total - collected);
+            const remaining = Math.max(0, collectibleAmount - collected);
 
             // حساب تاريخ آخر تحصيل (لـ Fully Collected)
             const lastCol = order.collections?.length > 0
@@ -365,11 +390,12 @@ export class CollectionService {
                 collectedAmount: collected,
                 remainingBalance: remaining,
                 shippingCost: Number(order.shippingCost || 0),
-                finalTotal: total,
+                finalTotal: Number(order.finalTotal || 0),
+                collectibleAmount,
                 collectionMethod: methods,
                 deliveredAt: order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString() : "—",
                 lastCollectionDate: lastCol,
-                collectionStatus: remaining > 0 ? "Pending" : "Fully Collected",
+                collectionStatus: remaining > 0 ? collected > 0 ? "Partial" : "Pending" : "Fully Collected",
                 delayDays: Math.max(0, delay)
             };
         });

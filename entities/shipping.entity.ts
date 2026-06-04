@@ -19,7 +19,10 @@ export enum ShipmentStatus {
 	IN_TRANSIT = 'in_transit',
 	DELIVERED = 'delivered',
 	FAILED = 'failed',
+	RETURNED = 'returned',
 	CANCELLED = 'cancelled',
+	ON_HOLD = 'on_hold',
+	ARCHIVED = 'archived',
 }
 
 export enum UnifiedShippingStatus {
