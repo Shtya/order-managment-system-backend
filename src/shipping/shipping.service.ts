@@ -835,7 +835,7 @@ export class ShippingService {
 	}
 
 	getUnifiedStatuses() {
-		return { ok: true, statuses: Object.values(UnifiedShippingStatus) };
+		return { ok: true, statuses: Object.values(ShipmentStatus) };
 	}
 
 	async trackShipment(me: any, trackingNumber: string) {
@@ -1021,6 +1021,7 @@ export class ShippingService {
 					: mapped.trackingNumber
 						? { trackingNumber: mapped.trackingNumber }
 						: ({} as any),
+				
 				relations: ['order', 'order.items']
 			});
 
@@ -1136,7 +1137,7 @@ export class ShippingService {
 			}
 		}
 
-
+		
 		if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
 			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
 			shipment.status = ShipmentStatus.CANCELLED;
@@ -1160,7 +1161,7 @@ export class ShippingService {
 				order.deliveredAt = new Date();
 			}
 			await manager.save(order);
-			await this.ordersService.deductStockForOrder(manager, order?.id, shipment?.adminId)
+			await this.ordersService.deductStockForOrder(manager, order?.id, shipment?.adminId, { skipValidation: true });
 		} else if (
 			mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
 			mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
@@ -1237,10 +1238,12 @@ export class ShippingService {
 		};
 	}
 
+
 	private mapUnifiedToLegacy(u: UnifiedShippingStatus): ShipmentStatus {
+		if (u === UnifiedShippingStatus.NEW) return ShipmentStatus.CREATED;
 		if (u === UnifiedShippingStatus.DELIVERED) return ShipmentStatus.DELIVERED;
 		if (u === UnifiedShippingStatus.CANCELLED) return ShipmentStatus.CANCELLED;
-
+		
 		if ([UnifiedShippingStatus.EXCEPTION, UnifiedShippingStatus.LOST, UnifiedShippingStatus.DAMAGED, UnifiedShippingStatus.TERMINATED].includes(u)) {
 			return ShipmentStatus.FAILED;
 		}
@@ -1248,6 +1251,10 @@ export class ShippingService {
 		if ([UnifiedShippingStatus.IN_TRANSIT, UnifiedShippingStatus.PICKED_UP, UnifiedShippingStatus.IN_PROGRESS].includes(u)) {
 			return ShipmentStatus.IN_TRANSIT;
 		}
+
+		if (u === UnifiedShippingStatus.RETURNED) return ShipmentStatus.RETURNED;
+		if ([UnifiedShippingStatus.ON_HOLD, UnifiedShippingStatus.ACTION_REQUIRED].includes(u)) return ShipmentStatus.ON_HOLD;
+		if (u === UnifiedShippingStatus.ARCHIVED) return ShipmentStatus.ARCHIVED;
 
 		return ShipmentStatus.SUBMITTED;
 	}
