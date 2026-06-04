@@ -17,6 +17,7 @@ import {
   Brackets,
   IsNull,
   Not,
+  MoreThan,
   MoreThanOrEqual,
 } from "typeorm";
 import * as ExcelJS from "exceljs";
@@ -89,6 +90,7 @@ import { StoreQueueService } from "src/stores/storesIntegrations/queues";
 import { CRUD } from "common/crud.service";
 import { randomBytes } from "crypto";
 import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
+import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -222,6 +224,17 @@ export class OrdersService {
     }, 0);
 
     return { productsTotal, finalTotal, profit };
+  }
+
+  // ✅ Generate items signature (sku:quantity|sku:quantity|...)
+  private generateItemsSignature(items: OrderItemEntity[]): string {
+    if (!items || items.length === 0) return '';
+    return items
+      .map((item) => {
+        const sku = item.variant?.sku || 'N/A';
+        return `${sku}:${item.quantity}`;
+      })
+      .join('|');
   }
 
   // ✅ Log status change
@@ -2375,7 +2388,7 @@ export class OrdersService {
       const lineTotal = unitPrice * it.quantity;
       const lineProfit = (unitPrice - unitCost) * it.quantity;
 
-      return manager.create(OrderItemEntity, {
+      const item = manager.create(OrderItemEntity, {
         adminId,
         variantId: it.variantId,
         quantity: it.quantity,
@@ -2385,6 +2398,9 @@ export class OrdersService {
         lineTotal,
         lineProfit,
       } as any);
+
+      item.variant = variant; // Attach for signature generation
+      return item;
     });
 
     // Calculate totals
@@ -2394,7 +2410,45 @@ export class OrdersService {
       dto.discount ?? 0,
     );
 
+    const itemsSignature = this.generateItemsSignature(items);
+    const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(dto.phoneNumber);
+
+    // Get settings for duplicate window and auto-cancel
+    const settings = await this.getCachedSettings(adminId);
+    const windowHours = settings?.duplicateWindowHours ?? 24;
+    const autoCancel = settings?.autoCancelDuplicates ?? false;
+
+    // Check for duplicates within the configured window
+    const previousOrders = await manager.find(OrderEntity, {
+      where: {
+        adminId,
+        normalizedPhoneNumber,
+        itemsSignature,
+        created_at: MoreThan(new Date(Date.now() - windowHours * 60 * 60 * 1000)),
+      },
+      order: { created_at: 'ASC' },
+      select: ['id', 'orderNumber', 'duplicateCount', 'originalOrderNumber'],
+    });
+
+    const duplicateCount = previousOrders.length;
+    let originalOrderNumber = null;
+
+    if (duplicateCount > 0) {
+      // The first order in the list is either the root or points to the root
+      const rootOrder = previousOrders[0];
+      originalOrderNumber = rootOrder.originalOrderNumber || rootOrder.orderNumber;
+    }
+
     const defaultStatus = await this.getDefaultStatus(adminId);
+    let initialStatusId = defaultStatus.id;
+
+    // If auto-cancel is enabled and it's a duplicate, set status to CANCELLED
+    if (autoCancel && duplicateCount > 0) {
+      const cancelledStatus = await this.findStatusByCode(OrderStatus.CANCELLED, adminId);
+      if (cancelledStatus) {
+        initialStatusId = cancelledStatus.id;
+      }
+    }
 
     if (dto.shippingCompanyId && dto.shippingCompanyId !== "none") {
       const companyId = dto.shippingCompanyId;
@@ -2454,9 +2508,12 @@ export class OrdersService {
       productsTotal,
       finalTotal,
       profit,
+      itemsSignature,
+      duplicateCount,
+      originalOrderNumber,
       notes: dto.notes,
       customerNotes: dto.customerNotes,
-      statusId: defaultStatus.id,
+      statusId: initialStatusId,
       items,
       createdByUserId: me?.id,
       shippingMetadata: dto.shippingMetadata,
@@ -2475,10 +2532,10 @@ export class OrdersService {
     await this.logStatusChange({
       adminId,
       orderId: saved.id,
-      fromStatusId: defaultStatus.id,
-      toStatusId: defaultStatus.id,
+      fromStatusId: initialStatusId,
+      toStatusId: initialStatusId,
       userId: me?.id,
-      notes: "Order created",
+      notes: duplicateCount > 0 ? `Order created (Duplicate of ${originalOrderNumber})` : "Order created",
       ipAddress,
       manager,
     });
@@ -2692,6 +2749,7 @@ export class OrdersService {
               lineProfit: (dtoItem.unitPrice - unitCost) * dtoItem.quantity,
             } as any);
 
+            newItem.variant = variant; // Attach for signature generation
             currentOrderItems.push(newItem);
             itemsToSave.push(newItem);
           }
@@ -2715,6 +2773,8 @@ export class OrdersService {
 
       // Attach final items list so calculateTotals uses the exact latest state
       order.items = currentOrderItems;
+      order.itemsSignature = this.generateItemsSignature(order.items);
+
       // Update basic fields
       Object.assign(order, {
         customerName: dto.customerName !== undefined ? dto.customerName : order.customerName,
