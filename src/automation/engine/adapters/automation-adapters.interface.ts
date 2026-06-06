@@ -1,4 +1,4 @@
-import { SendWhatsappTemplateConfig, AutomationRunEntity } from 'entities/automation.entity';
+import { SendWhatsappTemplateConfig, AutomationRunEntity, VariableDetails } from 'entities/automation.entity';
 import { Repository, EntityManager } from 'typeorm';
 import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { WhatsappInteractiveMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
@@ -47,6 +47,12 @@ export interface AutomationAdapter {
       headerVariables?: Record<string, any>;
       bodyVariables?: Record<string, any>;
       buttonVariables?: Record<string, any>;
+      locationData: {
+        latitude: string;
+        longitude: string;
+        address: any,
+        name: any,
+      }
       headerUrl?: string;
     },
     adminId?: string,

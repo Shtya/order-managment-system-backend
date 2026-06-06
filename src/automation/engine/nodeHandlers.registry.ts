@@ -306,9 +306,25 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
             const bodyVariables = hydratedConfig.bodyVariables ? this.mapVariablesToValues(hydratedConfig.bodyVariables, orderData) : undefined;
             const buttonVariables = hydratedConfig.buttonVariables ? this.mapVariablesToValues(hydratedConfig.buttonVariables, orderData) : undefined;
 
+            // Handle Location Header if present
+            let locationData = undefined;
+            if (template.templateConfig.headerType.toUpperCase() === 'LOCATION' && hydratedConfig.locationData) {
+                const locValues = this.mapVariablesToValues({
+                    name: hydratedConfig.locationData.name,
+                    address: hydratedConfig.locationData.address
+                }, orderData);
+
+                locationData = {
+                    latitude: hydratedConfig.locationData.latitude?.toString(),
+                    longitude: hydratedConfig.locationData.longitude?.toString(),
+                    name: locValues.name,
+                    address: locValues.address
+                };
+            }
+
 
             // 3. Determine Recipient
-            const to = hydratedConfig.recipientNumber ? normalizeEgyptianPhoneNumber(hydratedConfig.recipientNumber) : orderData.normalizedPhoneNumber;
+            const to = hydratedConfig.recipientNumber ? normalizeEgyptianPhoneNumber(hydratedConfig.recipientNumber) : orderData.normalizedPhoneNumber ? orderData.normalizedPhoneNumber :  normalizeEgyptianPhoneNumber(orderData.phoneNumber);
             if (!to) {
                 return { success: false, error: 'Recipient phone number not found' };
             }
@@ -322,6 +338,7 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                     headerVariables,
                     bodyVariables,
                     buttonVariables,
+                    locationData,
                     // headerUrl: hydratedConfig.headerUrl,
                 },
                 orderData.adminId,

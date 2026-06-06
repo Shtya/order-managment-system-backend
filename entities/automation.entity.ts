@@ -191,6 +191,12 @@ export interface SendWhatsappTemplateConfig {
     bodyVariables?: Record<string, VariableDetails>;
     headerVariables?: Record<string, VariableDetails>;
     buttonVariables?: Record<string, VariableDetails>;
+    locationData: {
+        latitude: string;
+        longitude: string;
+        address: VariableDetails,
+        name: VariableDetails,
+    }
     branches?: {
         id: string;
         label: string;

@@ -1,5 +1,5 @@
 
-import { endOfDay, endOfMonth, startOfDay, startOfMonth, startOfWeek, startOfYear, subDays, subMonths } from 'date-fns';
+import { differenceInDays, endOfDay, endOfMonth, startOfDay, startOfMonth, startOfWeek, startOfYear, subDays, subMonths, subYears } from 'date-fns';
 import { PlanDuration } from 'entities/plans.entity';
 import { copyFile, unlink } from 'fs/promises';
 import { existsSync } from 'fs';
@@ -29,6 +29,48 @@ export function calculateRange(range?: string): { start?: Date; end?: Date } {
         case 'this_year':
             return { start: startOfYear(now), end: endOfDay(now) };
         default:
+            return {};
+    }
+}
+
+export function calculatePreviousRange(range?: string, currentStart?: Date, currentEnd?: Date): { start?: Date; end?: Date } {
+    const now = new Date();
+    switch (range) {
+        case 'today':
+            // Today vs Yesterday
+            const yesterday = subDays(now, 1);
+            return { start: startOfDay(yesterday), end: endOfDay(yesterday) };
+        case 'yesterday':
+            // Yesterday vs Day before yesterday
+            const dayBeforeYesterday = subDays(now, 2);
+            return { start: startOfDay(dayBeforeYesterday), end: endOfDay(dayBeforeYesterday) };
+        case 'this_week':
+            // This week vs Previous week
+            const prevWeek = subDays(startOfWeek(now), 7);
+            return { start: startOfWeek(prevWeek), end: endOfDay(subDays(startOfWeek(now), 1)) };
+        case 'last_week':
+            // Last week vs Week before last
+            const weekBeforeLast = subDays(startOfWeek(subDays(now, 7)), 7);
+            return { start: startOfWeek(weekBeforeLast), end: endOfDay(subDays(startOfWeek(subDays(now, 7)), 1)) };
+        case 'this_month':
+            // This month vs Previous month
+            const prevMonth = subMonths(startOfMonth(now), 1);
+            return { start: startOfMonth(prevMonth), end: endOfDay(subDays(startOfMonth(now), 1)) };
+        case 'last_month':
+            // Last month vs Month before last
+            const monthBeforeLast = subMonths(startOfMonth(subMonths(now, 1)), 1);
+            return { start: startOfMonth(monthBeforeLast), end: endOfDay(subDays(startOfMonth(subMonths(now, 1)), 1)) };
+        case 'this_year':
+            // This year vs Previous year
+            const prevYear = subYears(startOfYear(now), 1);
+            return { start: startOfYear(prevYear), end: endOfDay(subDays(startOfYear(now), 1)) };
+        default:
+            if (currentStart && currentEnd) {
+                const diff = differenceInDays(currentEnd, currentStart) + 1;
+                const prevStart = subDays(currentStart, diff);
+                const prevEnd = subDays(currentEnd, diff);
+                return { start: startOfDay(prevStart), end: endOfDay(prevEnd) };
+            }
             return {};
     }
 }
