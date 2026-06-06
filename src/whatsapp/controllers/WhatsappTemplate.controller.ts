@@ -65,6 +65,12 @@ function parseTemplateConfig(raw: unknown): Record<string, unknown> {
 export class WhatsappTemplateController {
     constructor(private readonly svc: WhatsappTemplateService) { }
 
+    @Get('stats')
+    @Permissions("whatsapp.read")
+    async getStats(@Req() req: any) {
+        return await this.svc.getStats(req.user);
+    }
+
     @Get()
     @Permissions("whatsapp.read")
     async getAll(@Req() req: any, @Query() q: any) {

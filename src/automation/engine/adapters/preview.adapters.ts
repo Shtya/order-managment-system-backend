@@ -6,7 +6,10 @@ import { AutomationAdapter } from './automation-adapters.interface';
 import { randomUUID } from 'crypto';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { WhatsappInteractiveMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
-import { Upsell } from 'entities/upsells.entity';
+import { Upsell, UpsellHistory } from 'entities/upsells.entity';
+import { UpsellsService } from 'src/upsells/upsells.service';
+import { OrderEntity } from 'entities/order.entity';
+import { AutomationRunEntity } from 'entities/automation.entity';
 
 /**
  * Preview implementation of AutomationAdapter
@@ -23,22 +26,11 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
     public readonly accountRepo: Repository<WhatsappAccountEntity>,
     @InjectRepository(Upsell)
     public readonly upsellRepo: Repository<Upsell>,
+    @InjectRepository(UpsellHistory)
+    public readonly upsellHistoryRepo: Repository<UpsellHistory>,
     @Inject(forwardRef(() => OrdersService))
     public readonly ordersService: OrdersService,
   ) { }
-
-
-  async sendInteractiveMessage(
-    accountId: string,
-    data: { to: string; interactive: any; },
-    adminId?: string,
-  ): Promise<{ success: boolean; messageId?: string; }> {
-    this.logger.log(`[PREVIEW] Skipping actual interactive message send to ${data.to}`);
-    return {
-      success: true,
-      messageId: `preview-${randomUUID()}`,
-    };
-  }
 
 
   async changeStatus(
@@ -57,23 +49,25 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
     };
   }
 
-  async sendTemplateFromEntity(
+  async sendTemplate(
     accountId: string,
     data: {
       to: string;
-      template: any;
-      components?: any[];
+      templateId: string;
+      headerVariables?: Record<string, any>;
+      bodyVariables?: Record<string, any>;
+      buttonVariables?: Record<string, any>;
+      headerUrl?: string;
     },
     adminId?: string,
   ) {
-    this.logger.log(`[PREVIEW] Skipping actual WhatsApp send to ${data.to} for template ${data.template.name}`);
+    this.logger.log(`[PREVIEW] Skipping actual WhatsApp send to ${data.to} for template ID ${data.templateId}`);
 
     return {
       success: true,
       messageId: `preview-${randomUUID()}`,
       recipient: data.to,
-      templateId: data.template.id,
-      templateName: data.template.name,
+      templateId: data.templateId,
       previewMode: true,
       skippedSideEffect: true,
     };
@@ -93,5 +87,35 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
     manager?: any,
   ) {
     return this.ordersService.findStatusById(statusId, adminId, manager);
+  }
+
+  async sendUpsell(
+    upsell: Upsell,
+    order: OrderEntity,
+    run?: AutomationRunEntity,
+  ): Promise<UpsellHistory | null> {
+    this.logger.log(`[PREVIEW] Skipping actual upsell send to ${order.phoneNumber} for upsell ID ${upsell.id}`);
+    return null;
+  }
+
+  async getUpsellsForProducts(
+    productIds: string[],
+    adminId: string,
+  ): Promise<Upsell[]> {
+    const isMocked = productIds?.[0]?.startsWith('mock-');
+    if (isMocked) {
+      return [{
+        id: randomUUID(),
+      } as any];
+    }
+
+    return await this.upsellRepo.find({
+      where: {
+        triggerProductId: In(productIds),
+        adminId: adminId,
+        isActive: true,
+      },
+      relations: ['triggerProduct', 'upsellProduct', 'upsellSku'],
+    });
   }
 }

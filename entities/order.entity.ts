@@ -36,11 +36,11 @@ export enum OrderStatus {
   DUPLICATE = "duplicate", //
   FAILED_DELIVERY = "failed_delivery", //
   REJECTED = "rejected",//
-  DELIVERED = "delivered",//
   CANCELLED = "cancelled", //
-  RETURNED = "returned",  // 
-
   CONFIRMED = "confirmed",
+  
+  RETURNED = "returned",  // 
+  DELIVERED = "delivered",//
   DISTRIBUTED = "distributed",
   PRINTED = "printed",
   PREPARING = "preparing",

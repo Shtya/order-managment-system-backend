@@ -15,6 +15,8 @@ import { ConversationEntity } from 'entities/whatsapp.entity';
 import { ConversationModule } from 'src/conversation/conversation.module';
 import { CustomerEntity } from 'entities/customers.entity';
 import { CustomerModule } from '../customer/customer.module';
+import { UpsellsModule } from 'src/upsells/upsells.module';
+import { AutomationRunEntity } from 'entities/automation.entity';
 
 @Module({
   imports: [
@@ -23,8 +25,9 @@ import { CustomerModule } from '../customer/customer.module';
     forwardRef(() => OrdersModule),
     forwardRef(() => ConversationModule),
     forwardRef(() => CustomerModule),
+    forwardRef(() => UpsellsModule),
     TypeOrmModule.forFeature([WhatsappAccountEntity, WhatsappMessageEntity, WhatsappTemplateEntity,
-      WhatsappWebhookEventEntity, ConversationEntity, CustomerEntity])],
+      WhatsappWebhookEventEntity, ConversationEntity, CustomerEntity,AutomationRunEntity])],
   controllers: [WhatsappController, WhatsappAccountController, WhatsappTemplateController],
   providers: [WhatsappService, WhatsappAccountService, WhatsappApiService, WhatsappTemplateService],
   exports: [WhatsappService, WhatsappAccountService, WhatsappApiService, WhatsappTemplateService],

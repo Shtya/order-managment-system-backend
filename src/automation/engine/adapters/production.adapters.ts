@@ -5,8 +5,11 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { WhatsappTemplateEntity, WhatsappAccountEntity } from 'entities/whatsapp.entity';
 import { Repository, In } from 'typeorm';
 import { AutomationAdapter } from './automation-adapters.interface';
-import { Upsell } from 'entities/upsells.entity';
+import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 import { WhatsappService } from 'src/whatsapp/whatsapp.service';
+import { OrderEntity } from 'entities/order.entity';
+import { AutomationRunEntity } from 'entities/automation.entity';
+import { UpsellsService } from 'src/upsells/upsells.service';
 
 /**
  * Production implementation of AutomationAdapter
@@ -22,6 +25,8 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     private readonly whatsappApiService: WhatsappApiService,
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsappService: WhatsappService,
+    @Inject(forwardRef(() => UpsellsService))
+    private readonly upsellsService: UpsellsService,
     @InjectRepository(WhatsappTemplateEntity)
     private readonly templateRepo: Repository<WhatsappTemplateEntity>,
 
@@ -42,29 +47,33 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     };
   }
 
-  async sendTemplateFromEntity(
+  async sendTemplate(
     accountId: string,
     data: {
       to: string;
-      template: any;
-      components?: any[];
+      templateId: string;
+      headerVariables?: Record<string, any>;
+      bodyVariables?: Record<string, any>;
+      buttonVariables?: Record<string, any>;
+      headerUrl?: string;
     },
     adminId?: string,
   ) {
-    const response = await this.whatsappApiService.sendTemplateFromEntity(accountId, data);
+    
+    const response = await this.whatsappService.sendTemplate(
+      { id: adminId } as any,
+      data,
+      accountId,
+      
+    );
+
     const messageId = response.messages?.[0]?.id;
-
-    if (adminId) {
-
-      await this.whatsappService.processOutboundMessage(adminId, accountId, data.to, response);
-    }
 
     return {
       success: true,
       messageId,
       recipient: data.to,
-      templateId: data.template.id,
-      templateName: data.template.name,
+      templateId: data.templateId,
     };
   }
 
@@ -83,25 +92,20 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     return this.ordersService.findStatusById(statusId, adminId, manager);
   }
 
-  async sendInteractiveMessage(
-    accountId: string,
-    data: {
-      to: string;
-      interactive: WhatsappInteractiveMessagePayload['interactive'];
-    },
-    adminId?: string,
+ 
+
+  async sendUpsell(
+    upsell: Upsell,
+    order: OrderEntity,
+    run?: AutomationRunEntity,
   ) {
-    const response = await this.whatsappApiService.sendInteractiveMessage(accountId, data);
-    const messageId = response.messages?.[0]?.id;
+    return await this.upsellsService.sendUpsell(upsell, order, run);
+  }
 
-    if (adminId) {
-
-      await this.whatsappService.processOutboundMessage(adminId, accountId, data.to, response);
-    }
-
-    return {
-      success: true,
-      messageId,
-    };
+  async getUpsellsForProducts(
+    productIds: string[],
+    adminId: string,
+  ): Promise<Upsell[]> {
+    return await this.upsellsService.getUpsellsByProductIds(productIds, adminId);
   }
 }

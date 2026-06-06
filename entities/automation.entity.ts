@@ -270,6 +270,14 @@ export class AutomationRunEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
     // 🌟 ارتباط مباشر بالـ Flow الأساسي والنسخة المحددة
     @Column({ type: 'uuid' })
     automationFlowId: string;

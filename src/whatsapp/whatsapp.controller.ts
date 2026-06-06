@@ -16,6 +16,58 @@ export class WhatsappController {
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('dashboard/stats')
+  @Permissions('whatsapp.read')
+  async getDashboardStats(@Req() req: any, @Query() q: any) {
+    return this.whatsappService.getDashboardStats(req.user, q);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('dashboard/messages-by-type')
+  @Permissions('whatsapp.read')
+  async getMessagesByTypeStats(@Req() req: any, @Query() q: any) {
+    return this.whatsappService.getMessagesByTypeStats(req.user, q);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('dashboard/top-clicked-buttons')
+  @Permissions('whatsapp.read')
+  async getTopClickedButtons(@Req() req: any, @Query() q: any) {
+    const { limit, ...filters } = q;
+    return this.whatsappService.getTopClickedButtons(req.user, limit || 5, filters);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('dashboard/top-automations')
+  @Permissions('whatsapp.read')
+  async getTopAutomations(@Req() req: any, @Query() q: any) {
+    const { limit, ...filters } = q;
+    return this.whatsappService.getTopAutomations(req.user, limit || 5, filters);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('dashboard/top-templates')
+  @Permissions('whatsapp.read')
+  async getTopTemplates(@Req() req: any, @Query() q: any) {
+    const { limit, ...filters } = q;
+    return this.whatsappService.getTopTemplates(req.user, limit || 5, filters);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('dashboard/activity-heatmap')
+  @Permissions('whatsapp.read')
+  async getActivityHeatmap(@Req() req: any, @Query() q: any) {
+    return this.whatsappService.getActivityHeatmap(req.user, q);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Get('dashboard/trends')
+  @Permissions('whatsapp.read')
+  async getWhatsappTrends(@Req() req: any, @Query() q: any) {
+    return this.whatsappService.getWhatsappTrends(req.user, q);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
   @Get('messages')
   @Permissions('whatsapp.read')
   findAllMessages(@Req() req: any, @Query() q: any) {

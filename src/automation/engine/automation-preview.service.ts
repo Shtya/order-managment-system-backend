@@ -53,7 +53,7 @@ import { Repository } from 'typeorm';
 import { AppGateway } from 'common/app.gateway';
 import { RedisService } from 'common/redis/RedisService';
 import { User } from 'entities/user.entity';
-import { Upsell } from 'entities/upsells.entity';
+import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 
 export interface CreatePreviewInput {
   adminId: string;
@@ -155,6 +155,8 @@ export class AutomationPreviewService {
     private readonly accountRepo: Repository<WhatsappAccountEntity>,
     @InjectRepository(Upsell)
     private readonly upsellRepo: Repository<Upsell>,
+    @InjectRepository(UpsellHistory)
+    private readonly upsellHistoryRepo: Repository<UpsellHistory>,
   ) { }
 
   /**
@@ -493,7 +495,7 @@ export class AutomationPreviewService {
   }
 
   private registry = new PreviewNodeHandlersRegistry(
-    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.ordersService),
+    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.ordersService),
   );
 }
 
@@ -517,7 +519,7 @@ class PreviewNodeHandlersRegistry {
 
     this.handlers.set(
       ActionType.SEND_UPSELL,
-      new ActionSendUpsellHandler(this.adapter, this.adapter.upsellRepo, this.adapter.accountRepo),
+      new ActionSendUpsellHandler(this.adapter),
     );
   }
 

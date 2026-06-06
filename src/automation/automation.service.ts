@@ -23,6 +23,69 @@ export class AutomationService {
         private readonly flowQueue: FlowExecutionQueueService,
     ) { }
 
+    async getFlowsStats(me: any) {
+        const adminId = tenantId(me);
+        const stats = await this.automationRepo
+            .createQueryBuilder('flow')
+            .select('flow.status', 'status')
+            .addSelect('COUNT(*)', 'count')
+            .where('flow.adminId = :adminId', { adminId })
+            .groupBy('flow.status')
+            .getRawMany();
+
+        const result = {
+            total: 0,
+            published: 0,
+            draft: 0,
+            paused: 0,
+            archived: 0,
+        };
+
+        stats.forEach(s => {
+            const count = parseInt(s.count, 10);
+            result.total += count;
+            if (s.status === AutomationStatus.PUBLISHED) result.published = count;
+            else if (s.status === AutomationStatus.DRAFT) result.draft = count;
+            else if (s.status === AutomationStatus.PAUSED) result.paused = count;
+            else if (s.status === AutomationStatus.ARCHIVED) result.archived = count;
+        });
+
+        return result;
+    }
+
+    async getRunsStats(me: any) {
+        const adminId = tenantId(me);
+        const stats = await this.runRepo
+            .createQueryBuilder('run')
+            .select('run.status', 'status')
+            .addSelect('COUNT(*)', 'count')
+            .where('run."adminId" = :adminId', { adminId })
+            .andWhere('run.status != :cancelled', { cancelled: RunStatus.CANCELLED })
+            .groupBy('run.status')
+            .getRawMany();
+
+        const result = {
+            total: 0,
+            pending: 0,
+            running: 0,
+            completed: 0,
+            failed: 0,
+            paused: 0,
+        };
+
+        stats.forEach(s => {
+            const count = parseInt(s.count, 10);
+            result.total += count;
+            if (s.status === RunStatus.PENDING) result.pending = count;
+            else if (s.status === RunStatus.RUNNING) result.running = count;
+            else if (s.status === RunStatus.COMPLETED) result.completed = count;
+            else if (s.status === RunStatus.FAILED) result.failed = count;
+            else if (s.status === RunStatus.PAUSED) result.paused = count;
+        });
+
+        return result;
+    }
+
     async create(me: any, dto: CreateAutomationDto) {
         const adminId = tenantId(me);
         const isSuperAdminFlag = isSuperAdmin(me);

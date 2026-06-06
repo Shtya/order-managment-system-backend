@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { HttpService } from '@nestjs/axios';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -6,11 +6,7 @@ import { firstValueFrom } from 'rxjs';
 import {
   WhatsappAccountEntity,
   WhatsappTemplateEntity,
-  TemplateConfig,
-  WhatsappMessageEntity,
-  MessageDirection,
-  MessageStatus,
-  WhatsappMessageType,
+  TemplateConfig
 } from 'entities/whatsapp.entity';
 import { getErrorMessage, imageSrc } from 'common/healpers';
 import * as fs from 'fs';
@@ -541,8 +537,6 @@ export class WhatsappApiService {
     private readonly httpService: HttpService,
     @InjectRepository(WhatsappAccountEntity)
     private readonly accountRepo: Repository<WhatsappAccountEntity>,
-    @InjectRepository(WhatsappMessageEntity)
-    private readonly messageRepo: Repository<WhatsappMessageEntity>,
   ) { }
 
   /**
@@ -1256,7 +1250,7 @@ export class WhatsappApiService {
       template: {
         name: input.name,
         language: {
-          code: this.normalizeLanguageCode(input.languageCode),
+          code: input.languageCode,
         },
         components: this.normalizeTemplateComponents(input.components),
       },
@@ -1274,7 +1268,7 @@ export class WhatsappApiService {
     return this.sendTemplateMessage(accountId, {
       to: input.to,
       name: input.template.name,
-      languageCode: this.buildTemplateLanguageCode(input.template, input.languageCode),
+      languageCode: input.template.language,
       components: payloadComponents,
       replyToMessageId: input.replyToMessageId,
       recipient_type: input.recipient_type,

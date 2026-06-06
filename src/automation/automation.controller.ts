@@ -18,6 +18,12 @@ export class AutomationController {
     private readonly automationPreviewService: AutomationPreviewService,
   ) { }
 
+  @Get('stats')
+  @Permissions('automation.read')
+  async getFlowsStats(@Req() req: any) {
+    return this.automationService.getFlowsStats(req.user);
+  }
+
   @Post('preview')
   @Permissions('automation.read')
   async createPreview(
@@ -97,6 +103,12 @@ export class AutomationController {
   @Permissions('automation.read')
   findAll(@Req() req: any, @Query() q: any) {
     return this.automationService.findAll(req.user, q);
+  }
+
+  @Get('runs/stats')
+  @Permissions('automation.read')
+  async getRunsStats(@Req() req: any) {
+    return this.automationService.getRunsStats(req.user);
   }
 
   @Get('runs')
