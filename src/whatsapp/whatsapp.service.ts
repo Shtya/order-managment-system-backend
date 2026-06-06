@@ -226,11 +226,11 @@ export class WhatsappService {
         const stats = await this.messageRepo.query(query, [adminId, limit, finalStartDate, finalEndDate]);
 
         // Merge with Template Entity data to get categories
-        const templates = await this.templateRepo.find({ 
-            where: { 
+        const templates = await this.templateRepo.find({
+            where: {
                 adminId,
                 name: In(stats.map(s => s.name))
-            } 
+            }
         });
 
         return stats.map(s => {
@@ -430,7 +430,7 @@ export class WhatsappService {
         if (filters.accountId) {
             buttonClicksQuery.andWhere('m.accountId = :accountId', { accountId: filters.accountId });
         }
-        
+
         stats.messages.buttonClicks = await buttonClicksQuery.getCount();
 
         // Process Template Stats
@@ -609,6 +609,12 @@ export class WhatsappService {
             headerVariables?: Record<string, any>;
             bodyVariables?: Record<string, any>;
             buttonVariables?: Record<string, any>;
+            locationData: {
+                latitude: string;
+                longitude: string;
+                address: any,
+                name: any,
+            }
             headerUrl?: string; // Optional URL for media headers if not already in variables
         },
         accountId?: string,
@@ -650,6 +656,16 @@ export class WhatsappService {
                         [hType.toLowerCase()]: { id: media.id, ...(hType === 'DOCUMENT' ? { filename: media?.filename } : {}) }
                     });
                 }
+            } else if (hType === 'LOCATION') {
+                parameters.push({
+                    type: 'location',
+                    "location": {
+                        latitude: input.locationData.latitude,
+                        longitude: input.locationData.longitude,
+                        address: input.locationData.address,
+                        name: input.locationData.name
+                    }
+                });
             }
 
             if (parameters.length > 0) {

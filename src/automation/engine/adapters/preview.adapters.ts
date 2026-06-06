@@ -57,6 +57,12 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
       headerVariables?: Record<string, any>;
       bodyVariables?: Record<string, any>;
       buttonVariables?: Record<string, any>;
+      locationData: {
+        latitude: string;
+        longitude: string;
+        address: any,
+        name: any,
+      }
       headerUrl?: string;
     },
     adminId?: string,

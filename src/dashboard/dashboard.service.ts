@@ -22,7 +22,7 @@ import {
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
-import { calculateRange } from "common/healpers";
+import { calculateRange, calculatePreviousRange } from "common/healpers";
 import { User } from "entities/user.entity";
 import { DateFilterUtil } from "common/date-filter.util";
 
@@ -55,80 +55,101 @@ export class DashboardService {
   ) {
     const adminId = tenantId(user);
 
-    let { start, end } = calculateRange(filters.range);
-
+    // 1. Calculate current range
+    const { start, end } = calculateRange(filters.range);
     const finalStartDate = start || filters.startDate;
     const finalEndDate = end || filters.endDate;
 
-    const query = this.orderRepo
-      .createQueryBuilder("o")
-      .leftJoin("o.status", "s")
-      .where("o.adminId = :adminId", { adminId });
+    // 2. Calculate previous range for comparison
+    const prevRange = calculatePreviousRange(
+      filters.range,
+      finalStartDate ? new Date(finalStartDate) : undefined,
+      finalEndDate ? new Date(finalEndDate) : undefined
+    );
 
-    if (filters.storeId)
-      query.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    // Function to fetch data for a specific range
+    const fetchData = async (startDate: Date | string, endDate: Date | string) => {
+      const query = this.orderRepo
+        .createQueryBuilder("o")
+        .leftJoin("o.status", "s")
+        .where("o.adminId = :adminId", { adminId });
 
-    DateFilterUtil.applyToQueryBuilder(query, "o.created_at", finalStartDate, finalEndDate);
+      if (filters.storeId)
+        query.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
 
-    if (filters.search) {
-      query.andWhere(
-        new Brackets((qb) => {
-          qb.where("o.orderNumber ILIKE :search", {
-            search: `%${filters.search}%`,
-          }).orWhere("o.customerName ILIKE :search", {
-            search: `%${filters.search}%`,
-          });
-        }),
-      );
-    }
+      DateFilterUtil.applyToQueryBuilder(query, "o.created_at", startDate, endDate);
 
-    // 2. تعديل الاستعلام لحساب المبيعات والأرباح للطلبات المستلمة فقط
-    const rawData = await query
-      .select([
-        "COUNT(o.id) as totalOrders",
-        // حساب المبيعات والأرباح فقط للحالة DELIVERED
-        "SUM(o.collectedAmount) as totalCollected",
-        "SUM(CASE WHEN s.code = :deliveredStatus THEN o.finalTotal ELSE 0 END) as totalSales",
-        "SUM(CASE WHEN s.code = :deliveredStatus THEN o.profit ELSE 0 END) as totalProfit",
-        "COUNT(CASE WHEN s.code = :newStatus THEN 1 END) as newOrders",
-        "COUNT(CASE WHEN s.code = :confirmedStatus THEN 1 END) as confirmedOrders",
-        "COUNT(CASE WHEN s.code = :deliveredStatus THEN 1 END) as deliveredOrders",
-        "COUNT(CASE WHEN s.code = :cancelledStatus THEN 1 END) as cancelledOrders",
-        "COUNT(CASE WHEN s.code = :shippedStatus THEN 1 END) as inDelivery",
-        "COUNT(CASE WHEN s.code = :returnedStatus THEN 1 END) as returnedOrders",
-      ])
-      .setParameters({
-        newStatus: OrderStatus.NEW,
-        confirmedStatus: OrderStatus.CONFIRMED,
-        deliveredStatus: OrderStatus.DELIVERED,
-        cancelledStatus: OrderStatus.CANCELLED,
-        shippedStatus: OrderStatus.SHIPPED,
-        returnedStatus: OrderStatus.RETURNED,
-      })
-      .getRawOne();
+      if (filters.search) {
+        query.andWhere(
+          new Brackets((qb) => {
+            qb.where("o.orderNumber ILIKE :search", {
+              search: `%${filters.search}%`,
+            }).orWhere("o.customerName ILIKE :search", {
+              search: `%${filters.search}%`,
+            });
+          }),
+        );
+      }
 
-    const totalOrders = Number(rawData.totalorders) || 0;
-    const totalSales = Number(rawData.totalsales) || 0;
-    const totalProfit = Number(rawData.totalprofit) || 0;
-    const delivered = Number(rawData.deliveredorders) || 0;
-    const confirmed = Number(rawData.confirmedorders) || 0;
-    const cancelled = Number(rawData.cancelledorders) || 0;
-    const returned = Number(rawData.returnedorders) || 0;
-    const totalCollected = Number(rawData.totalCollected) || 0;
+      const rawData = await query
+        .select([
+          "COUNT(o.id) as totalOrders",
+          "SUM(o.collectedAmount) as totalCollected",
+          "SUM(CASE WHEN s.code = :deliveredStatus THEN o.finalTotal ELSE 0 END) as totalSales",
+          "SUM(CASE WHEN s.code = :deliveredStatus THEN o.profit ELSE 0 END) as totalProfit",
+          "COUNT(CASE WHEN s.code = :newStatus THEN 1 END) as newOrders",
+          "COUNT(CASE WHEN s.code = :confirmedStatus THEN 1 END) as confirmedOrders",
+          "COUNT(CASE WHEN s.code = :deliveredStatus THEN 1 END) as deliveredOrders",
+          "COUNT(CASE WHEN s.code = :cancelledStatus THEN 1 END) as cancelledOrders",
+          "COUNT(CASE WHEN s.code = :shippedStatus THEN 1 END) as inDelivery",
+          "COUNT(CASE WHEN s.code = :returnedStatus THEN 1 END) as returnedOrders",
+        ])
+        .setParameters({
+          newStatus: OrderStatus.NEW,
+          confirmedStatus: OrderStatus.CONFIRMED,
+          deliveredStatus: OrderStatus.DELIVERED,
+          cancelledStatus: OrderStatus.CANCELLED,
+          shippedStatus: OrderStatus.SHIPPED,
+          returnedStatus: OrderStatus.RETURNED,
+        })
+        .getRawOne();
+
+      const totalOrders = Number(rawData.totalorders) || 0;
+      const totalSales = Number(rawData.totalsales) || 0;
+      const totalProfit = Number(rawData.totalprofit) || 0;
+      const delivered = Number(rawData.deliveredorders) || 0;
+      const confirmed = Number(rawData.confirmedorders) || 0;
+      const cancelled = Number(rawData.cancelledorders) || 0;
+      const returned = Number(rawData.returnedorders) || 0;
+      const totalCollected = Number(rawData.totalcollected) || 0;
+
+      return {
+        totalOrders,
+        totalSales,
+        totalProfit,
+        costOfGoods: totalSales - totalProfit,
+        profitMargin: totalSales > 0 ? (totalProfit / totalSales) * 100 : 0,
+        confirmRate: totalOrders > 0 ? (confirmed / totalOrders) * 100 : 0,
+        deliveryRate: totalOrders > 0 ? (delivered / totalOrders) * 100 : 0,
+        cancelled: totalOrders > 0 ? (cancelled / totalOrders) * 100 : 0,
+        inDelivery: Number(rawData.indelivery) || 0,
+        newOrders: Number(rawData.neworders) || 0,
+        returned: totalOrders > 0 ? (returned / totalOrders) * 100 : 0,
+        totalCollected,
+      };
+    };
+
+    // Fetch current and comparison data
+    const [currentStats, comparisonStats] = await Promise.all([
+      fetchData(finalStartDate, finalEndDate),
+      prevRange.start && prevRange.end
+        ? fetchData(prevRange.start, prevRange.end)
+        : Promise.resolve(null),
+    ]);
 
     return {
-      totalOrders,
-      totalSales,
-      totalProfit,
-      costOfGoods: totalSales - totalProfit,
-      profitMargin: totalSales > 0 ? (totalProfit / totalSales) * 100 : 0,
-      confirmRate: totalOrders > 0 ? (confirmed / totalOrders) * 100 : 0,
-      deliveryRate: totalOrders > 0 ? (delivered / totalOrders) * 100 : 0,
-      cancelled: totalOrders > 0 ? (cancelled / totalOrders) * 100 : 0,
-      inDelivery: Number(rawData.indelivery) || 0,
-      newOrders: Number(rawData.neworders) || 0,
-      returned: totalOrders > 0 ? (returned / totalOrders) * 100 : 0,
-      totalCollected,
+      ...currentStats,
+      comparison: comparisonStats,
     };
   }
 
