@@ -185,6 +185,25 @@ export class OrdersService {
     }
 
   }
+
+  /**
+   * Check if a status code belongs to warehouse operations
+   */
+  public isWarehouseStatus(statusCode: string): boolean {
+    const warehouseStatuses: string[] = [
+      OrderStatus.RETURNED,
+      OrderStatus.DELIVERED,
+      OrderStatus.DISTRIBUTED,
+      OrderStatus.PRINTED,
+      OrderStatus.PREPARING,
+      OrderStatus.READY,
+      OrderStatus.PACKED,
+      OrderStatus.SHIPPED,
+      OrderStatus.RETURN_PREPARING,
+    ];
+    return warehouseStatuses.includes(statusCode);
+  }
+
   // ✅ Generate unique order number
 
 
@@ -3243,6 +3262,26 @@ export class OrdersService {
       if (!order) throw new BadRequestException("Order not found");
 
       const oldStatus = order?.status;
+      
+      // Check if order is already in warehouse
+      if (oldStatus && this.isWarehouseStatus(oldStatus.code)) {
+        // Prevent update and deactivate assignment
+        const activeAssignment = order.assignments.find(
+          (a) => a.isAssignmentActive && a.employeeId === employeeId,
+        );
+        if (activeAssignment) {
+          activeAssignment.isAssignmentActive = false;
+          activeAssignment.finishedAt = new Date();
+          activeAssignment.lockedUntil = null;
+          activeAssignment.lastStatusId = oldStatus.id;
+          await manager.save(OrderAssignmentEntity, activeAssignment);
+        }
+        return { 
+          success: false, 
+          message: oldStatus.code === OrderStatus.DELIVERED ? "Order has been delivered and cannot be edited." : "Order cannot be edited because it has already entered the warehouse." 
+        };
+      }
+
       // Validate Active Assignment
       const activeAssignment = order.assignments.find(
         (a) => a.isAssignmentActive && a.employeeId === employeeId,

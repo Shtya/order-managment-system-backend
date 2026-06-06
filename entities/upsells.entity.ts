@@ -10,6 +10,16 @@ import {
 } from 'typeorm';
 import { ProductEntity, ProductVariantEntity } from './sku.entity';
 import { User } from './user.entity';
+import { AutomationRunEntity } from './automation.entity';
+
+export enum UpsellStatus {
+    PENDING = 'pending',
+    ACCEPTED = 'accepted',
+    REJECTED = 'rejected',
+    EXPIRED = 'expired',
+    ACCEPTED_NON_ELIGIBLE = 'accepted_non_eligible',
+    FAILED_TO_ADD = 'failed_to_add',
+}
 
 export interface UpsellMessageConfig {
     headerType: 'NONE' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
@@ -77,4 +87,77 @@ export class Upsell {
 
     @UpdateDateColumn({ type: "timestamptz" })
     updatedAt: Date;
+}
+
+@Entity('upsell_history')
+export class UpsellHistory {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Index()
+    @Column({ type: 'uuid' })
+    adminId: string;
+
+    @ManyToOne(() => User)
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
+    @Column({ type: 'uuid' })
+    upsellId: string;
+
+    @ManyToOne(() => Upsell)
+    @JoinColumn({ name: 'upsellId' })
+    upsell: Upsell;
+
+    @Column({ type: 'uuid', nullable: true })
+    automationRunId: string;
+
+    @ManyToOne(() => AutomationRunEntity, { onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'automationRunId' })
+    automationRun: AutomationRunEntity;
+
+    @Column({ type: 'uuid' })
+    orderId: string;
+
+    @Column({ type: 'varchar', nullable: true })
+    messageId: string; // Meta message ID (wamid)
+
+    @Column({ type: 'enum', enum: UpsellStatus, default: UpsellStatus.PENDING })
+    status: UpsellStatus;
+
+    @Column({ type: 'jsonb' })
+    sentConfig: UpsellMessageConfig; // Snapshot of config at time of sending
+
+     @Column({ type: 'uuid' })
+    triggerProductId: string;
+
+    @ManyToOne(() => ProductEntity)
+    @JoinColumn({ name: 'triggerProductId' })
+    triggerProduct: ProductEntity;
+
+    @Column({ type: 'uuid' })
+    upsellProductId: string;
+
+    @ManyToOne(() => ProductEntity)
+    @JoinColumn({ name: 'upsellProductId' })
+    upsellProduct: ProductEntity;
+
+    @Column({ type: 'uuid' })
+    upsellSkuId: string;
+
+    @ManyToOne(() => ProductVariantEntity)
+    @JoinColumn({ name: 'upsellSkuId' })
+    upsellSku: ProductVariantEntity;
+    
+    @Column({ type: 'decimal', precision: 10, scale: 2 })
+    sentPrice: number;
+
+    @Column({ type: 'timestamptz', nullable: true })
+    respondedAt: Date;
+
+    @Column({ type: 'timestamptz', nullable: true })
+    expiresAt: Date;
+
+    @CreateDateColumn({ type: "timestamptz" })
+    createdAt: Date;
 }

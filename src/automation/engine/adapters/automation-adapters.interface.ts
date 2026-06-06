@@ -1,7 +1,9 @@
-import { SendWhatsappTemplateConfig } from 'entities/automation.entity';
+import { SendWhatsappTemplateConfig, AutomationRunEntity } from 'entities/automation.entity';
 import { Repository, EntityManager } from 'typeorm';
 import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { WhatsappInteractiveMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
+import { Upsell, UpsellHistory } from 'entities/upsells.entity';
+import { OrderEntity } from 'entities/order.entity';
 
 /**
  * Execution mode for automation handlers
@@ -34,15 +36,18 @@ export interface AutomationAdapter {
 
   /**
    * Send WhatsApp template message
-   * In production: calls Meta API
+   * In production: calls Meta API via WhatsappService
    * In preview: returns mock data without side effects
    */
-  sendTemplateFromEntity(
+  sendTemplate(
     accountId: string,
     data: {
       to: string;
-      template: any;
-      components?: any[];
+      templateId: string;
+      headerVariables?: Record<string, any>;
+      bodyVariables?: Record<string, any>;
+      buttonVariables?: Record<string, any>;
+      headerUrl?: string;
     },
     adminId?: string,
   ): Promise<{
@@ -50,14 +55,8 @@ export interface AutomationAdapter {
     messageId?: string;
     recipient?: string;
     templateId?: string;
-    templateName?: string;
     previewMode?: boolean;
     skippedSideEffect?: boolean;
-    variables?: {
-      header?: any;
-      body?: any;
-      button?: any;
-    };
   }>;
 
   /**
@@ -76,19 +75,22 @@ export interface AutomationAdapter {
     manager?: EntityManager,
   ): Promise<any>;
 
+
   /**
-   * Send WhatsApp interactive message (List, Buttons)
+   * Send Upsell message
    */
-  sendInteractiveMessage(
-    accountId: string,
-    data: {
-      to: string;
-      interactive: WhatsappInteractiveMessagePayload['interactive'];
-    },
-    adminId?: string,
-  ): Promise<{
-    success: boolean;
-    messageId?: string;
-  }>;
+  sendUpsell(
+    upsell: Upsell,
+    order: OrderEntity,
+    run?: AutomationRunEntity,
+  ): Promise<UpsellHistory | null>;
+
+  /**
+   * Get available upsells for products
+   */
+  getUpsellsForProducts(
+    productIds: string[],
+    adminId: string,
+  ): Promise<Upsell[]>;
 
 }

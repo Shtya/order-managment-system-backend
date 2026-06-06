@@ -1,7 +1,7 @@
 //  The brain. It manages the loop, reads the edges, updates the database state,
 //  handles the try/catch blocks, and controls the Pausing/Resuming logic.
 
-import { Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ActionType, AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationRunStepEntity, FlowDefinition, FlowEdge, FlowNode, NodeConfig, RunStatus, SendWhatsappTemplateConfig, StepStatus } from 'entities/automation.entity';
 import { Repository, DataSource } from 'typeorm';
@@ -11,6 +11,9 @@ import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { AppGateway } from 'common/app.gateway';
 import { findNextNodeId } from './automation-helpers';
+import { UpsellsService } from 'src/upsells/upsells.service';
+import { WhatsappService } from 'src/whatsapp/whatsapp.service';
+import { OrderEntity } from 'entities/order.entity';
 
 @Injectable()
 export class EngineRunnerService {
@@ -30,6 +33,10 @@ export class EngineRunnerService {
         private readonly registry: NodeHandlersRegistry,
         private readonly notificationService: NotificationService,
         private readonly appGateway: AppGateway,
+        @Inject(forwardRef(() => UpsellsService))
+        private readonly upsellsService: UpsellsService,
+        @Inject(forwardRef(() => WhatsappService))
+        private readonly whatsappService: WhatsappService,
     ) { }
 
     /**
@@ -84,8 +91,55 @@ export class EngineRunnerService {
         }
 
         const run = await this.runRepo.findOne({ where: { id: step.runId } });
+           let upsellApplyResultCode: string | undefined;
+
+        // Special logic for Upsell: Apply before choosing branch
+        if (step.dataType === ActionType.SEND_UPSELL && buttonId?.endsWith('_btn_0')) {
+            const adminId = run.executionState.trigger.output.adminId;
+            const me = { adminId };
+            const result = await this.upsellsService.applyUpsellByMessageId(me, originalMessageId);
+            upsellApplyResultCode = result.code;
+
+            // Send feedback message to customer
+            const orderData = run.executionState.trigger.output as OrderEntity;
+            let feedbackText = '';
+            if (result.success) {
+                feedbackText = '✅ تمت إضافة العرض لطلبك بنجاح!';
+            } else {
+                if (result.code === 'UPSELL_EXPIRED') {
+                    feedbackText = '❌ عذراً، هذا العرض قد انتهت صلاحيته.';
+                } else if (result.code === 'ORDER_DELIVERED') {
+                    feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب تم توصيله.';
+                }   
+                else if (result.code === 'INVALID_ORDER_STATUS') {
+                    feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب قيد التجهيز أو الشحن.';
+                } else if (result.code === 'ALREADY_ACCEPTED') {
+                    feedbackText = '❌ عذراً، هذا العرض تم إضافةه بالفعل.';
+                }
+                
+                else {
+                    feedbackText = '❌ عذراً، فشل إضافة العرض للطلب حالياً.';
+                }
+            }
+
+            await this.whatsappService.sendMessage(
+                me,
+                {
+                    to: orderData.normalizedPhoneNumber,
+                    messaging_product: 'whatsapp',
+                    type: 'text',
+                    text: { body: feedbackText }
+                }
+            );
+        }
+
         if (!run || run.status !== RunStatus.PAUSED) {
             this.logger.warn(`Automation run ${step.runId} is not in PAUSED state. Cannot resume.`);
+            return;
+        }
+
+        if(run.currentNodeId !== step.nodeId) {
+            await this.failRun(run, `Current node ID ${run.currentNodeId} does not match step node ID ${step.nodeId}. Cannot resume.`);
             return;
         }
 
@@ -97,6 +151,8 @@ export class EngineRunnerService {
         const config = node?.data?.config as any;
         const branches = config?.branches || [];
 
+     
+
         // 3. مطابقة الزر الذي ضغطه العميل مع الفروع المتاحة في إعدادات العقدة
         let chosenBranch = branches.find((b: any) =>
             b.sourceButton?.id === buttonId ||
@@ -105,13 +161,19 @@ export class EngineRunnerService {
         );
 
         // Special handling for Send Upsell branching
-        if (!chosenBranch && node?.data?.type === ActionType.SEND_UPSELL) {
+        if (node?.data?.type === ActionType.SEND_UPSELL) {
             if (buttonId?.endsWith('_btn_0')) {
-                chosenBranch = branches.find(b => b.id === 'accept');
+                // If clicked Accept
+                if (upsellApplyResultCode === 'SUCCESS') {
+                    chosenBranch = branches.find(b => b.id === 'accept' || b.label === 'accept');
+                } else {
+                    chosenBranch = branches.find(b => b.id === 'reject' || b.label === 'reject');
+                }
             } else if (buttonId?.endsWith('_btn_1')) {
-                chosenBranch = branches.find(b => b.id === 'reject');
+                // If clicked Reject
+                chosenBranch = branches.find(b => b.id === 'client_reject' || b.label === 'client_reject');
             }
-        }
+        }   
 
         if (!chosenBranch) {
             this.logger.error(`No matching branch found for button "${buttonText}" in node ${node.id}`);

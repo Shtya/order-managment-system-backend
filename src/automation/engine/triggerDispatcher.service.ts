@@ -228,7 +228,7 @@ export class TriggerDispatcherService {
             const run = runRepo.create({
                 automationFlowId: automation.id,
                 versionId: version.id,
-
+                adminId: automation.adminId,
                 status: RunStatus.PENDING,
 
                 triggerEntityType: trigger.entityType,

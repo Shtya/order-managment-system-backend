@@ -2,20 +2,24 @@ import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundEx
 import * as crypto from "crypto";
 import { WhatsappApiService, WhatsappMessageResponsePayload, WhatsappSendMessagePayload, WhatsappUploadMediaPayload } from './services/WhatsappApi.service';
 import { EmbeddedSignupDto } from 'dto/whatsapp.dto';
-import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappTemplateEntity, WhatsappWebhookEventEntity } from 'entities/whatsapp.entity';
+import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappTemplateEntity, WhatsappWebhookEventEntity, TemplateStatus, TemplateQuality } from 'entities/whatsapp.entity';
+import { AutomationFlowEntity, AutomationRunEntity, RunStatus } from 'entities/automation.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
-import { getErrorMessage, imageSrc } from 'common/healpers';
+import { getErrorMessage, imageSrc, calculateRange } from 'common/healpers';
 import { FlowExecutionQueueService } from 'src/automation/engine/triggerDispatcher.service';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { ConversationService } from 'src/conversation/conversation.service';
 import axios from 'axios';
 import { RedisService } from 'common/redis/RedisService';
+import { subDays } from 'date-fns';
 import { CustomerService } from 'src/customer/customer.service';
 import { CustomerEntity } from 'entities/customers.entity';
 import { AppGateway } from 'common/app.gateway';
+import { UpsellsService } from 'src/upsells/upsells.service';
+import { tenantId } from 'src/category/category.service';
 
 
 @Injectable()
@@ -45,8 +49,407 @@ export class WhatsappService {
         private readonly customerService: CustomerService,
         private readonly appGateway: AppGateway,
         private readonly redisService: RedisService,
+        @Inject(forwardRef(() => UpsellsService))
+        private readonly upsellsService: UpsellsService,
+        @InjectRepository(AutomationRunEntity)
+        private readonly runRepo: Repository<AutomationRunEntity>,
     ) {
 
+    }
+
+    async getMessagesByTypeStats(me: any, filters: any = {}) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+
+        const qb = this.messageRepo
+            .createQueryBuilder('m')
+            .select('m.messageType', 'type')
+            .addSelect('COUNT(*)', 'count')
+            .where('m.adminId = :adminId', { adminId })
+            .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
+            .andWhere('m.createdAt <= :finalEndDate', { finalEndDate });
+
+        if (filters.accountId) {
+            qb.andWhere('m.accountId = :accountId', { accountId: filters.accountId });
+        }
+
+        return qb.groupBy('m.messageType').orderBy('count', 'DESC').getRawMany();
+    }
+
+    async getTopClickedButtons(me: any, limit = 5, filters: any = {}) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+
+        const buttonTextExpr =
+            "COALESCE(m.content->'interactive'->'button_reply'->>'title', m.content->'button'->>'text')";
+
+        const qb = this.messageRepo
+            .createQueryBuilder('m')
+            .select(buttonTextExpr, 'buttonText')
+            .addSelect('COUNT(*)', 'count')
+            .where('m.adminId = :adminId', { adminId })
+            .andWhere('m.direction = :direction', {
+                direction: MessageDirection.INBOUND,
+            })
+            .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
+            .andWhere('m.createdAt <= :finalEndDate', { finalEndDate })
+            .andWhere(
+                new Brackets((qb) => {
+                    qb.where(
+                        "m.content->'interactive'->'button_reply'->>'title' IS NOT NULL"
+                    ).orWhere(
+                        "m.content->'button'->>'text' IS NOT NULL"
+                    );
+                }),
+            );
+
+        if (filters.accountId) {
+            qb.andWhere('m.accountId = :accountId', { accountId: filters.accountId });
+        }
+
+        return qb.groupBy(buttonTextExpr).orderBy('count', 'DESC').limit(limit).getRawMany();
+    }
+
+    async getTopAutomations(me: any, limit = 5, filters: any = {}) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+
+        const qb = this.runRepo
+            .createQueryBuilder('run')
+            .innerJoin('run.automationFlow', 'flow')
+            .select('flow.id', 'id')
+            .addSelect('flow.name', 'name')
+            .addSelect('COUNT(run.id)', 'totalRuns')
+            .addSelect(`COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.COMPLETED}')`, 'completed')
+            .addSelect(`COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.FAILED}')`, 'failed')
+            .addSelect(`COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.PAUSED}')`, 'paused')
+            .where('run.adminId = :adminId', { adminId })
+            .andWhere('run.startedAt >= :finalStartDate', { finalStartDate })
+            .andWhere('run.startedAt <= :finalEndDate', { finalEndDate });
+
+        // if (filters.accountId) {
+        //     // Join with messages to filter runs that sent messages through this account
+        //     qb.innerJoin(WhatsappMessageEntity, 'm', 'm.automationRunId = run.id')
+        //       .andWhere('m.accountId = :accountId', { accountId: filters.accountId });
+        // }
+
+        const stats = await qb
+            .groupBy('flow.id')
+            .addGroupBy('flow.name')
+            .orderBy('COUNT(run.id)', 'DESC')
+            .addOrderBy(
+                `CASE WHEN COUNT(run.id) > 0 THEN (COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.COMPLETED}') * 100.0 / NULLIF(COUNT(run.id), 0)) ELSE 0 END`,
+                'DESC'
+            )
+            .limit(limit)
+            .getRawMany();
+
+        // Calculate success rate and sort
+        const results = stats.map(s => {
+            const total = parseInt(s.totalRuns, 10);
+            const completed = parseInt(s.completed, 10);
+            const successRate = total > 0 ? (completed / total) * 100 : 0;
+            return {
+                ...s,
+                totalRuns: total,
+                completed,
+                failed: parseInt(s.failed, 10),
+                paused: parseInt(s.paused, 10),
+                successRate: Math.round(successRate * 100) / 100
+            };
+        });
+
+        return results;
+    }
+
+    async getTopTemplates(me: any, limit = 5, filters: any = {}) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+        const accountFilter = filters.accountId ? `AND "accountId" = '${filters.accountId}'` : '';
+
+        // Single optimized query using CTEs to get sent, read and click stats
+        const query = `
+            WITH template_messages AS (
+                SELECT 
+                    content->'template'->>'name' as name,
+                    content->'template'->'language'->>'code' as language,
+                    id,
+                    status
+                FROM whatsapp_messages
+                WHERE "adminId" = $1 
+                  AND "messageType" = '${WhatsappMessageType.TEMPLATE}' 
+                  AND "direction" = '${MessageDirection.OUTBOUND}'
+                  AND "createdAt" >= $3
+                  AND "createdAt" <= $4
+                  ${accountFilter}
+            ),
+            sent_stats AS (
+                SELECT 
+                    name,
+                    language,
+                    COUNT(*) as "sentCount",
+                    COUNT(*) FILTER (WHERE status IN ('${MessageStatus.READ}', '${MessageStatus.PLAYED}')) as "readCount"
+                FROM template_messages
+                GROUP BY name, language
+            ),
+            click_stats AS (
+                SELECT 
+                    tm.name,
+                    tm.language,
+                    COUNT(reply.id) as "clickCount"
+                FROM template_messages tm
+                INNER JOIN whatsapp_messages reply ON reply."replyToId" = tm.id
+                WHERE reply."direction" = '${MessageDirection.INBOUND}'
+                  AND reply."messageType" = '${WhatsappMessageType.BUTTON}'
+                GROUP BY tm.name, tm.language
+            )
+            SELECT 
+                ss.name,
+                ss.language,
+                ss."sentCount",
+                ss."readCount",
+                COALESCE(cs."clickCount", 0) as "clickCount"
+            FROM sent_stats ss
+            LEFT JOIN click_stats cs ON cs.name = ss.name AND cs.language = ss.language
+            ORDER BY "clickCount" DESC, "sentCount" DESC
+            LIMIT $2;
+        `;
+
+        const stats = await this.messageRepo.query(query, [adminId, limit, finalStartDate, finalEndDate]);
+
+        // Merge with Template Entity data to get categories
+        const templates = await this.templateRepo.find({ 
+            where: { 
+                adminId,
+                name: In(stats.map(s => s.name))
+            } 
+        });
+
+        return stats.map(s => {
+            const template = templates.find(t => t.name === s.name);
+            return {
+                ...s,
+                category: template?.category || 'UNKNOWN',
+                sentCount: parseInt(s.sentCount, 10),
+                readCount: parseInt(s.readCount, 10),
+                clickCount: parseInt(s.clickCount, 10),
+            };
+        });
+    }
+
+    async getActivityHeatmap(me: any, filters: any = {}) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+        const accountFilter = filters.accountId ? `AND "accountId" = '${filters.accountId}'` : '';
+
+        const query = `
+            SELECT 
+                EXTRACT(ISODOW FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS "day_of_week", 
+                EXTRACT(HOUR FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS hour, 
+                COUNT(*) AS total 
+            FROM whatsapp_messages 
+            WHERE "adminId" = $1
+              AND COALESCE("sentAt", "createdAt") >= $2
+              AND COALESCE("sentAt", "createdAt") <= $3
+              ${accountFilter}
+            GROUP BY 1, 2 
+            ORDER BY 1, 2;
+        `;
+
+        return this.messageRepo.query(query, [adminId, finalStartDate, finalEndDate]);
+    }
+
+    async getWhatsappTrends(
+        me: any,
+        filters: {
+            startDate?: string;
+            endDate?: string;
+            range?: string;
+            points?: number;
+            accountId?: string;
+        },
+    ) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const points = filters.points || 12;
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+        const accountFilter = filters.accountId ? `AND m."accountId" = '${filters.accountId}'` : '';
+
+        const query = `
+            WITH params AS (
+                SELECT
+                    $1::timestamptz AS start_date,
+                    $2::timestamptz AS end_date,
+                    $3::int AS points
+            ),
+            calc AS (
+                SELECT
+                    start_date,
+                    end_date,
+                    points,
+                    CEIL(
+                        EXTRACT(EPOCH FROM (end_date - start_date)) 
+                        / (points * 86400.0)
+                    )::int AS segment_days
+                FROM params
+            ),
+            segments AS (
+                SELECT 
+                    g.idx,
+                    c.start_date + (g.idx * (c.segment_days || ' days')::interval) AS seg_start,
+                    LEAST(
+                        c.start_date + ((g.idx + 1) * (c.segment_days || ' days')::interval),
+                        c.end_date
+                    ) AS seg_end,
+                    c.end_date AS final_end
+                FROM calc c,
+                generate_series(
+                    0,
+                    FLOOR(
+                        EXTRACT(EPOCH FROM (c.end_date - c.start_date)) 
+                        / (c.segment_days * 86400.0)
+                    )
+                ) AS g(idx)
+            )
+            SELECT 
+                s.seg_start AS "date",
+                COUNT(m.id) FILTER (WHERE m.direction = '${MessageDirection.OUTBOUND}') AS "sent",
+                COUNT(m.id) FILTER (WHERE m.direction = '${MessageDirection.OUTBOUND}' AND m.status IN ('${MessageStatus.DELIVERED}', '${MessageStatus.READ}')) AS "delivered",
+                COUNT(m.id) FILTER (WHERE m.direction = '${MessageDirection.OUTBOUND}' AND m.status IN ('${MessageStatus.READ}', '${MessageStatus.PLAYED}')) AS "read",
+                COUNT(m.id) FILTER (WHERE m.direction = '${MessageDirection.INBOUND}' AND m."messageType" IN ('${WhatsappMessageType.BUTTON}', '${WhatsappMessageType.INTERACTIVE}')) AS "clicked"
+            FROM segments s
+            LEFT JOIN whatsapp_messages m ON m."createdAt" >= s.seg_start  
+            AND (
+                m."createdAt" < s.seg_end
+                OR (s.seg_end = s.final_end AND m."createdAt" <= s.seg_end)
+            ) AND m."adminId" = $4
+            ${accountFilter}
+            GROUP BY s.idx, s.seg_start
+            ORDER BY s.seg_start ASC;
+        `;
+
+        const result = await this.messageRepo.query(query, [finalStartDate, finalEndDate, points, adminId]);
+
+        return result.map((row) => ({
+            date: row.date,
+            sent: parseInt(row.sent),
+            delivered: parseInt(row.delivered),
+            read: parseInt(row.read),
+            clicked: parseInt(row.clicked),
+        }));
+    }
+
+    async getDashboardStats(me: any, filters: any = {}) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+
+        const [messageStatsRaw, accountStats, templateStats, upsellStats] = await Promise.all([
+            // 1. All time outbound message stats
+            this.messageRepo
+                .createQueryBuilder('m')
+                .select('m.status', 'status')
+                .addSelect('m.messageType', 'type')
+                .addSelect('COUNT(*)', 'count')
+                .where('m.adminId = :adminId', { adminId })
+                .andWhere('m.direction = :direction', { direction: MessageDirection.OUTBOUND })
+                .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
+                .andWhere('m.createdAt <= :finalEndDate', { finalEndDate })
+                .andWhere(filters.accountId ? 'm.accountId = :accountId' : '1=1', { accountId: filters.accountId })
+                .groupBy('m.status')
+                .addGroupBy('m.messageType')
+                .getRawMany(),
+
+            // 2. Account stats
+            this.accountRepo.count({ where: { adminId } }),
+
+            // 3. Template stats
+            this.templateRepo
+                .createQueryBuilder('t')
+                .select('t.status', 'status')
+                .addSelect('t.quality', 'quality')
+                .addSelect('COUNT(*)', 'count')
+                .where('t.adminId = :adminId', { adminId })
+                .andWhere(filters.accountId ? 't.accountId = :accountId' : '1=1', { accountId: filters.accountId })
+                .groupBy('t.status')
+                .addGroupBy('t.quality')
+                .getRawMany(),
+
+            // 4. Upsell stats
+            this.upsellsService.stats(me, filters),
+        ]);
+
+        const stats = {
+            messages: {
+                totalSent: 0,
+                delivered: 0,
+                read: 0,
+                failed: 0,
+                buttonClicks: 0,
+            },
+            accounts: accountStats,
+            templates: {
+                total: 0,
+                approved: 0,
+                rejected: 0,
+                lowQuality: 0,
+            },
+            upsells: upsellStats,
+        };
+
+        // Process Message Stats
+        messageStatsRaw.forEach(s => {
+            const count = parseInt(s.count, 10);
+            stats.messages.totalSent += count;
+            if (s.status === MessageStatus.DELIVERED || s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) stats.messages.delivered += count;
+            if (s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) stats.messages.read += count;
+            if (s.status === MessageStatus.FAILED) stats.messages.failed += count;
+        });
+
+        // To get actual button clicks, we need a separate query for inbound interactive messages
+        const buttonClicksQuery = this.messageRepo
+            .createQueryBuilder('m')
+            .where('m.adminId = :adminId', { adminId })
+            .andWhere('m.direction = :direction', { direction: MessageDirection.INBOUND })
+            .andWhere('m.messageType IN (:...types)', { types: [WhatsappMessageType.BUTTON, WhatsappMessageType.INTERACTIVE] })
+            .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
+            .andWhere('m.createdAt <= :finalEndDate', { finalEndDate });
+
+        if (filters.accountId) {
+            buttonClicksQuery.andWhere('m.accountId = :accountId', { accountId: filters.accountId });
+        }
+        
+        stats.messages.buttonClicks = await buttonClicksQuery.getCount();
+
+        // Process Template Stats
+        templateStats.forEach(s => {
+            const count = parseInt(s.count, 10);
+            stats.templates.total += count;
+            if (s.status === TemplateStatus.APPROVED) stats.templates.approved += count;
+            if (s.status === TemplateStatus.REJECTED) stats.templates.rejected += count;
+            if (s.quality === TemplateQuality.LOW) stats.templates.lowQuality += count;
+        });
+
+        return stats;
+    }
+
+    private getDashboardDateRange(filters: { startDate?: string; endDate?: string; range?: string }) {
+        let { start, end } = calculateRange(filters.range);
+        const finalStartDate = start || (filters.startDate ? new Date(filters.startDate) : subDays(new Date(), 30));
+        const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
+        return { finalStartDate, finalEndDate };
     }
 
     async getDefaultAccountId(adminId: string, accountId?: string): Promise<string> {
@@ -72,29 +475,34 @@ export class WhatsappService {
     async uploadMedia(me: any, payload: WhatsappUploadMediaPayload, accountId?: string) {
         const adminId = me.adminId || me.id;
         if (!adminId) throw new BadRequestException("Missing adminId");
-
-        if (!payload.file && !payload.url) {
+        const url = imageSrc(payload.url);
+        if (!payload.file && !url) {
             throw new BadRequestException("Either file or url is required");
         }
 
         const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
 
+        let filename = payload.filename;
         // Check cache if it's a URL
-        if (payload.url && !payload.file) {
-            const cacheKey = `whatsapp_media:${resolvedAccountId}:${payload.url}`;
-            const cachedId = await this.redisService.get(cacheKey);
-            if (cachedId) {
-                return { id: cachedId };
+        if (url && !payload.file) {
+            const cacheKey = `whatsapp_media:${resolvedAccountId}:${url}`;
+            const cacheValue = await this.redisService.get(cacheKey);
+            if (cacheValue) {
+                if (typeof cacheValue === 'object') {
+                    return { ...cacheValue, filename: payload.filename };
+                } else {
+                    return { id: cacheValue };
+                }
             }
 
             try {
-                const response = await axios.get(payload.url, { responseType: 'arraybuffer' });
+                const response = await axios.get(url, { responseType: 'arraybuffer' });
                 const buffer = Buffer.from(response.data, 'binary');
                 const contentType = response.headers['content-type']?.split(';')[0]; // Clean mime type (remove charset)
 
                 // Clean filename: remove query params and hash
-                const urlPath = payload.url.split('?')[0].split('#')[0];
-                let filename = urlPath.split('/').pop() || 'file';
+                const urlPath = url.split('?')[0].split('#')[0];
+                filename = urlPath.split('/').pop() || 'file';
 
                 // If filename doesn't have an extension, try to add one from contentType
                 if (!filename.includes('.') && contentType) {
@@ -126,10 +534,10 @@ export class WhatsappService {
         // Cache the result if it was a URL upload
         if (payload.url && response?.id) {
             const cacheKey = `whatsapp_media:${resolvedAccountId}:${payload.url}`;
-            await this.redisService.set(cacheKey, response.id, 3600 * 24 * 29); // Cache for 29 days
+            await this.redisService.set(cacheKey, { id: response.id, filename: payload.filename }, 3600 * 24 * 29); // Cache for 29 days
         }
 
-        return response;
+        return { ...response, filename: filename };
     }
 
     async downloadMedia(me: any, mediaId: string, accountId?: string, headers?: Record<string, string>) {
@@ -191,6 +599,111 @@ export class WhatsappService {
         await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response, metadata);
 
         return response;
+    }
+
+    async sendTemplate(
+        me: any,
+        input: {
+            to: string;
+            templateId: string;
+            headerVariables?: Record<string, any>;
+            bodyVariables?: Record<string, any>;
+            buttonVariables?: Record<string, any>;
+            headerUrl?: string; // Optional URL for media headers if not already in variables
+        },
+        accountId?: string,
+        localId?: string,
+        metadata?: Record<string, any>
+    ) {
+        const adminId = me.adminId || me.id;
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const template = await this.templateRepo.findOne({
+            where: { id: input.templateId, adminId }
+        });
+
+        if (!template) {
+            throw new NotFoundException(`Template ${input.templateId} not found`);
+        }
+
+        const components: any[] = [];
+
+        // 1. Build Header
+        if (template.templateConfig?.headerType) {
+            const hType = template.templateConfig.headerType;
+            const parameters: any[] = [];
+
+            if (hType === 'TEXT' && input.headerVariables) {
+                Object.values(input.headerVariables).forEach(val => {
+                    parameters.push({ type: 'text', text: String(val?.value ?? val) });
+                });
+            } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(hType)) {
+                const mediaUrl = input.headerUrl || template.templateConfig.headerUrl;
+                if (mediaUrl) {
+
+                    const media = await this.uploadMedia(me, { url: mediaUrl }, template.accountId);
+                    if (!media?.id) {
+                        throw new BadRequestException('Media upload failed');
+                    }
+                    parameters.push({
+                        type: hType.toLowerCase(),
+                        [hType.toLowerCase()]: { id: media.id, ...(hType === 'DOCUMENT' ? { filename: media?.filename } : {}) }
+                    });
+                }
+            }
+
+            if (parameters.length > 0) {
+                components.push({ type: 'header', parameters });
+            }
+        }
+
+        // 2. Build Body
+        if (input.bodyVariables) {
+            const parameters = Object.values(input.bodyVariables).map(val => ({
+                type: 'text',
+                text: String(val?.value ?? val)
+            }));
+            if (parameters.length > 0) {
+                components.push({ type: 'body', parameters });
+            }
+        }
+
+        // 3. Build Buttons
+        if (input.buttonVariables) {
+            Object.entries(input.buttonVariables).forEach(([index, val]: [string, any]) => {
+                components.push({
+                    type: 'button',
+                    sub_type: 'url',
+                    index: String(index),
+                    parameters: [{
+                        type: 'text',
+                        text: String(val?.value ?? val)
+                    }]
+                });
+            });
+        }
+
+        const payload: WhatsappSendMessagePayload = {
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to: input.to,
+            type: 'template',
+            template: {
+                name: template.name,
+                language: { code: template.language || 'en_US' },
+                components
+            }
+        };
+
+        const templateMetadata = {
+            template: {
+                templateConfig: template.templateConfig,
+                language: template.language,
+                category: template.category,
+                subCategory: template.subCategory
+            },
+        }
+        return this.sendMessage(me, { ...payload, metadata: { ...metadata, ...templateMetadata } }, accountId, localId);
     }
 
     async processOutboundMessage(
@@ -746,24 +1259,45 @@ export class WhatsappService {
         // Emit notifications
         this.appGateway.emitNewMessage(account.adminId, finalMsg);
 
-        if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'button_reply') {
+        const replyData = this.extractReplyData(metaMsg);
+        if (replyData) {
             const originalMessageId = metaMsg.context?.id;
-            const buttonReply = metaMsg.interactive.button_reply;
-
             if (originalMessageId) {
-
                 // Push resume job to queue instead of direct execution
                 await this.flowQueue.add({
                     type: 'resume',
                     adminId: account.adminId,
                     resumeData: {
                         originalMessageId,
-                        buttonText: buttonReply.title,
-                        buttonId: buttonReply.id
+                        buttonText: replyData.text,
+                        buttonId: replyData.id
                     }
                 });
             }
         }
+    }
+
+    private extractReplyData(metaMsg: any): { id?: string; text: string } | null {
+        const type = metaMsg.type;
+
+        // 1. Interactive Button Reply
+        if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'button_reply') {
+            const buttonReply = metaMsg.interactive.button_reply;
+            return { id: buttonReply.id, text: buttonReply.title };
+        }
+
+        // 2. Quick Reply Button (from templates)
+        if (type === WhatsappMessageType.BUTTON && metaMsg.button?.text) {
+            return { id: metaMsg.button.payload || null, text: metaMsg.button.text };
+        }
+
+        // 3. Interactive List Reply
+        if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'list_reply') {
+            const listReply = metaMsg.interactive.list_reply;
+            return { id: listReply.id, text: listReply.title };
+        }
+
+        return null;
     }
 
     private async handleStatuses(value: any, account: WhatsappAccountEntity) {
@@ -925,6 +1459,8 @@ export class WhatsappService {
 
         const cursor = q?.cursor;
 
+        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(q || {});
+
         const qb = this.messageRepo
             .createQueryBuilder("message")
             .leftJoinAndSelect('message.account', 'account')
@@ -941,7 +1477,9 @@ export class WhatsappService {
                 'ORDER BY r."createdAt" DESC LIMIT 1' +
                 ')')
             .where("message.adminId = :adminId", { adminId })
-            .andWhere("message.messageType != :reactionType", { reactionType: WhatsappMessageType.REACTION });
+            .andWhere("message.messageType != :reactionType", { reactionType: WhatsappMessageType.REACTION })
+            .andWhere("COALESCE(message.sentAt, message.createdAt) >= :finalStartDate", { finalStartDate })
+            .andWhere("COALESCE(message.sentAt, message.createdAt) <= :finalEndDate", { finalEndDate });
 
         // Filters
         if (q?.status) {

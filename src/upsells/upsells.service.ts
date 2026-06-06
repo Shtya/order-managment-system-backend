@@ -1,28 +1,43 @@
 import { Injectable, BadRequestException, NotFoundException, forwardRef, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets, Not } from 'typeorm';
-import { Upsell } from 'entities/upsells.entity';
+import { Repository, Brackets, Not, In } from 'typeorm';
+import { Upsell, UpsellHistory, UpsellStatus } from 'entities/upsells.entity';
 import { ProductEntity, ProductVariantEntity } from 'entities/sku.entity';
 import { CreateUpsellDto, UpdateUpsellDto } from 'dto/upsells.dto';
 
 import { WhatsappApiService } from '../whatsapp/services/WhatsappApi.service';
 import * as ExcelJS from 'exceljs';
 import { tenantId } from 'src/category/category.service';
+import { calculateRange } from 'common/healpers';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { OrdersService } from '../orders/services/orders.service';
+import { OrderEntity, OrderStatus } from 'entities/order.entity';
+import { AutomationRunEntity } from 'entities/automation.entity';
+import { WhatsappAccountEntity } from 'entities/whatsapp.entity';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'entities/notifications.entity';
 
 @Injectable()
 export class UpsellsService {
     constructor(
         @InjectRepository(Upsell)
         private readonly upsellRepo: Repository<Upsell>,
+        @InjectRepository(UpsellHistory)
+        private readonly upsellHistoryRepo: Repository<UpsellHistory>,
         @InjectRepository(ProductEntity)
         private readonly productRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity)
         private readonly skuRepo: Repository<ProductVariantEntity>,
+        @InjectRepository(WhatsappAccountEntity)
+        private readonly accountRepo: Repository<WhatsappAccountEntity>,
+        @Inject(forwardRef(() => WhatsappApiService))
         private readonly whatsappApi: WhatsappApiService,
+        @Inject(forwardRef(() => WhatsappService))
+        private readonly whatsappService: WhatsappService,
         @Inject(forwardRef(() => OrdersService))
         private readonly ordersService: OrdersService,
+        private readonly notificationService: NotificationService,
     ) { }
 
     async create(me: any, dto: CreateUpsellDto) {
@@ -223,14 +238,81 @@ export class UpsellsService {
         return upsell;
     }
 
-    async stats(me) {
-        return {
+    async stats(me: any, filters: any = {}) {
+        const adminId = tenantId(me);
+
+        const qb = this.upsellHistoryRepo
+            .createQueryBuilder('uh')
+            .leftJoin('orders', 'o', 'o.id = uh.orderId')
+            .leftJoin('order_statuses', 'os', 'os.id = o.statusId')
+            .select('uh.status', 'status')
+            .addSelect('os.code', 'orderStatusCode')
+            .addSelect('COUNT(*)', 'count')
+            .where('uh."adminId" = :adminId', { adminId });
+
+        if (filters.startDate) {
+            qb.andWhere('uh."createdAt" >= :startDate', { startDate: new Date(filters.startDate) });
+        }
+        if (filters.endDate) {
+            qb.andWhere('uh."createdAt" <= :endDate', { endDate: new Date(filters.endDate) });
+        }
+        if (filters.range) {
+            const { start, end } = calculateRange(filters.range);
+            if (start) qb.andWhere('uh."createdAt" >= :start', { start });
+            if (end) qb.andWhere('uh."createdAt" <= :end', { end });
+        }
+
+        const stats = await qb
+            .groupBy('uh.status')
+            .addGroupBy('os.code')
+            .getRawMany();
+
+        const result = {
             sent: 0,
             accepted: 0,
             rejected: 0,
             noAnswer: 0,
-            acceptedAfterTime: 0
-        }
+            expired: 0,
+            acceptedNonEligible: 0,
+            failedToAdd: 0,
+            delivered: 0,
+            pending: 0,
+        };
+
+        stats.forEach(s => {
+            const count = parseInt(s.count, 10);
+            const status = s.status;
+            const orderStatusCode = s.orderStatusCode;
+
+            // Total Sent (All records contribute to total sent)
+            result.sent += count;
+
+            if (status === UpsellStatus.ACCEPTED) {
+                if (orderStatusCode === OrderStatus.DELIVERED) {
+                    result.delivered += count;
+                } else {
+                    result.accepted += count;
+                }
+            }
+            else if (status === UpsellStatus.REJECTED) {
+                result.rejected += count;
+            }
+            else if (status === UpsellStatus.EXPIRED) {
+                result.expired += count;
+            }
+            else if (status === UpsellStatus.PENDING) {
+                result.pending += count;
+            }
+            
+            else if (status === UpsellStatus.ACCEPTED_NON_ELIGIBLE) {
+                result.acceptedNonEligible += count;
+            }
+            else if (status === UpsellStatus.FAILED_TO_ADD) {
+                result.failedToAdd += count;
+            }
+        });
+
+        return result;
     }
 
 
@@ -245,19 +327,231 @@ export class UpsellsService {
         return await this.upsellRepo.save(upsell);
     }
 
-    async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
-        const upsell = await this.findOne(me, upsellId);
+    async getUpsellsByProductIds(productIds: string[], adminId: string): Promise<Upsell[]> {
+        return await this.upsellRepo.find({
+            where: {
+                triggerProductId: In(productIds),
+                adminId: adminId,
+                isActive: true,
+            },
+            relations: ['triggerProduct', 'upsellProduct', 'upsellSku'],
+        });
+    }
 
-        return await this.ordersService.update(me, orderId, {
-            items: [
-                {
-                    variantId: upsell.upsellSkuId,
-                    quantity: 1,
-                    unitPrice: Number(upsell.upsellPrice),
-                    isAdditional: true
-                }
-            ]
-        } as any);
+    async sendUpsell(upsell: Upsell, order: OrderEntity, run?: AutomationRunEntity) {
+        const adminId = order.adminId;
+
+        // Get primary WhatsApp account
+        const account = await this.accountRepo.findOne({
+            where: { adminId, isActive: true },
+            order: { createdAt: 'ASC' }
+        });
+        if (!account) {
+            throw new BadRequestException('No active WhatsApp account found');
+        }
+
+        const config = upsell.messageConfig;
+        if (!config) return null;
+
+        const interactive: any = {
+            type: 'button',
+            body: { text: config.bodyText },
+        };
+
+        if (config.headerType !== 'NONE') {
+            if (config.headerType === 'TEXT') {
+                interactive.header = { type: 'text', text: config.headerText };
+            } else {
+                const media = await this.whatsappService.uploadMedia({id: adminId}, {url: config.headerUrl}, account.id);
+                interactive.header = {
+                    type: config.headerType.toLowerCase(),
+                    [config.headerType.toLowerCase()]: {
+                        id: media?.id,
+                        ...(config.headerType === 'DOCUMENT' ? { filename: media?.filename } : {})
+                    }
+                };
+            }
+        }
+
+        if (config.footerText) {
+            interactive.footer = { text: config.footerText };
+        }
+
+        // Add buttons from config
+        if (config.buttons && config.buttons.length > 0) {
+            interactive.action = {
+                buttons: config.buttons.map((btn, idx) => ({
+                    type: 'reply',
+                    reply: {
+                        id: `upsell_${upsell.id}_btn_${idx}`,
+                        title: btn.text.slice(0, 20) // Meta limit is 20 chars
+                    }
+                }))
+            };
+        }
+
+        const response = await this.whatsappService.sendMessage(
+            { id: adminId },
+            {
+                to: order.phoneNumber,
+                messaging_product: 'whatsapp',
+                type: 'interactive',
+                interactive,
+                
+            },
+            account.id
+        );
+
+        // Save Upsell History record
+        const expiresAt = upsell.expireTimeM ? new Date(Date.now() + upsell.expireTimeM * 60000) : null;
+        const messageId = response.messages[0].id;
+        const history = this.upsellHistoryRepo.create({
+            adminId,
+            upsellId: upsell.id,
+            automationRunId: run?.id,
+            orderId: order.id,
+            messageId,
+            status: UpsellStatus.PENDING,
+            sentConfig: config,
+            triggerProductId: upsell.triggerProductId,
+            upsellProductId: upsell.upsellProductId,
+            upsellSkuId: upsell.upsellSkuId,
+            sentPrice: upsell.upsellPrice,
+            expiresAt,
+        });
+
+        return await this.upsellHistoryRepo.save(history);
+    }
+
+    async applyUpsellByMessageId(me: any, messageId: string) {
+        const adminId = tenantId(me);
+        const history = await this.upsellHistoryRepo.findOne({
+            where: { messageId, adminId },
+            order: { createdAt: 'DESC' }
+        });
+
+        if (!history) {
+            return { success: false, code: 'HISTORY_NOT_FOUND', message: 'No upsell history found for this message' };
+        }
+
+        return await this.applyUpsellToOrder(me, history.orderId, history.upsellId);
+    }
+
+    async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
+        const adminId = tenantId(me);
+
+        // 1. Fetch Order (with status)
+        let order: OrderEntity;
+        try {
+            order = await this.ordersService.get(me, orderId);
+        } catch (err) {
+            return { success: false, code: 'ORDER_NOT_FOUND', message: 'Order not found' };
+        }
+
+        if (!order) {
+            return { success: false, code: 'ORDER_NOT_FOUND', message: 'Order not found' };
+        }
+
+        // 2. Fetch Upsell
+        const upsell = await this.upsellRepo.findOne({
+            where: { id: upsellId, adminId },
+            relations: ['upsellSku']
+        });
+        if (!upsell) {
+            return { success: false, code: 'UPSELL_NOT_FOUND', message: 'Upsell not found' };
+        }
+
+        // 3. Check Order Status
+        const orderStatusCode = order.status?.code;
+        
+        // Handle Ineligibility (Warehouse or Delivered)
+        if (orderStatusCode === OrderStatus.DELIVERED || (orderStatusCode && this.ordersService.isWarehouseStatus(orderStatusCode))) {
+            const history = await this.upsellHistoryRepo.findOne({
+                where: { orderId, upsellId, adminId },
+                order: { createdAt: 'DESC' }
+            });
+            if (history && history.status === UpsellStatus.PENDING) {
+                history.status = UpsellStatus.ACCEPTED_NON_ELIGIBLE;
+                history.respondedAt = new Date();
+                await this.upsellHistoryRepo.save(history);
+            }
+
+            if (orderStatusCode === OrderStatus.DELIVERED) {
+                return { success: false, code: 'ORDER_DELIVERED', message: 'Order has been delivered and cannot be edited' };
+            }
+            return {
+                success: false,
+                code: 'INVALID_ORDER_STATUS',
+                message: `Order has already entered the warehouse (Status: '${orderStatusCode}'), cannot add upsells`,
+                status: orderStatusCode
+            };
+        }
+
+        // 4. Check Upsell History & Expiration
+        const history = await this.upsellHistoryRepo.findOne({
+            where: { orderId, upsellId, adminId },
+            order: { createdAt: 'DESC' }
+        });
+
+        if (!history) {
+            return { success: false, code: 'HISTORY_NOT_FOUND', message: 'No upsell history found for this order' };
+        }
+
+        if (history.status === UpsellStatus.ACCEPTED) {
+            return { success: false, code: 'ALREADY_ACCEPTED', message: 'Upsell has already been accepted and applied' };
+        }
+
+        if (history.status === UpsellStatus.EXPIRED || (history.expiresAt && history.expiresAt < new Date())) {
+            if (history.status !== UpsellStatus.EXPIRED) {
+                history.status = UpsellStatus.EXPIRED;
+                await this.upsellHistoryRepo.save(history);
+            }
+            return { success: false, code: 'UPSELL_EXPIRED', message: 'Upsell link has expired' };
+        }
+
+        // 5. Apply to Order
+        try {
+            // We use the ordersService.update to add the item
+            // update() handles existing items, stock reservation, etc.
+            await this.ordersService.update(me, orderId, {
+                items: [
+                    {
+                        variantId: upsell.upsellSkuId,
+                        quantity: 1,
+                        unitPrice: Number(upsell.upsellPrice),
+                        isAdditional: true
+                    }
+                ]
+            } as any);
+
+            // 6. Update History
+            history.status = UpsellStatus.ACCEPTED;
+            history.respondedAt = new Date();
+            await this.upsellHistoryRepo.save(history);
+
+            return { success: true, code: 'SUCCESS', message: 'Upsell applied successfully' };
+        } catch (err) {
+            console.error('Failed to apply upsell:', err);
+            
+            // Update History to FAILED_TO_ADD
+            if (history && history.status === UpsellStatus.PENDING) {
+                history.status = UpsellStatus.FAILED_TO_ADD;
+                history.respondedAt = new Date();
+                await this.upsellHistoryRepo.save(history);
+            }
+
+            // Send notification to admin
+            await this.notificationService.create({
+                userId: adminId,
+                type: NotificationType.UPSELL_APPLICATION_FAILED,
+                title: 'Upsell Application Failed',
+                message: `Failed to apply upsell for order ${order.orderNumber}: ${err.message}`,
+                relatedEntityType: 'order',
+                relatedEntityId: order.id,
+            });
+
+            return { success: false, code: 'APPLY_FAILED', message: err.message };
+        }
     }
 
     async export(me: any, q: any) {

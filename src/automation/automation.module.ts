@@ -16,11 +16,13 @@ import { NotificationModule } from 'src/notifications/notification.module';
 import { WebSocketModule } from 'common/websocket.module';
 import { ProductionAutomationAdapter } from './engine/adapters/production.adapters';
 import { AutomationPreviewService } from './engine/automation-preview.service';
-import { Upsell } from 'entities/upsells.entity';
+import { Upsell, UpsellHistory } from 'entities/upsells.entity';
+import { UpsellsModule } from 'src/upsells/upsells.module';
 
 
 @Module({
   imports: [
+    forwardRef(() => UpsellsModule),
     forwardRef(() => OrdersModule),
     forwardRef(() => WhatsappModule),
     NotificationModule,
@@ -32,6 +34,7 @@ import { Upsell } from 'entities/upsells.entity';
       AutomationRunEntity,
       WhatsappTemplateEntity,
       Upsell,
+      UpsellHistory,
       WhatsappAccountEntity,
     ])
   ],

@@ -11,6 +11,12 @@ import { SubscriptionGuard } from 'common/subscription.guard';
 export class WhatsappAccountController {
   constructor(private readonly svc: WhatsappAccountService) { }
 
+  @Permissions("whatsapp.read")
+  @Get('stats')
+  async getStats(@Req() req: any) {
+    return await this.svc.getStats(req.user);
+  }
+
   // 1. Get all accounts with pagination & filters
   @Permissions("whatsapp.read")
   @Get()

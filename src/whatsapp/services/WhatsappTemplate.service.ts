@@ -11,7 +11,10 @@ import {
     MetaTemplateLibraryQueryDto,
     MetaTemplateLibraryItemDto,
     MetaTemplateLibraryButtonDto,
-    TemplateSubCategory
+    TemplateSubCategory,
+    WhatsappMessageEntity,
+    MessageStatus,
+    WhatsappMessageType
 } from 'entities/whatsapp.entity';
 
 import { tenantId } from 'src/category/category.service';
@@ -38,6 +41,10 @@ export class WhatsappTemplateService {
 
         @InjectRepository(WhatsappTemplateEntity)
         private readonly templateRepo: Repository<WhatsappTemplateEntity>,
+
+        @InjectRepository(WhatsappMessageEntity)
+        private readonly messageRepo: Repository<WhatsappMessageEntity>,
+
         private readonly whatsappApi: WhatsappApiService,
         private readonly notificationService: NotificationService,
 
@@ -52,6 +59,66 @@ export class WhatsappTemplateService {
         return me.role?.name === SystemRole.SUPER_ADMIN;
     }
 
+    async getStats(me: any) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException('Missing adminId');
+
+        const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+        const [templateStatsRaw, messageStatsRaw] = await Promise.all([
+            // 1. Template Status and Quality Counts
+            this.templateRepo
+                .createQueryBuilder('t')
+                .select('t.status', 'status')
+                .addSelect('t.quality', 'quality')
+                .addSelect('COUNT(*)', 'count')
+                .where('t.adminId = :adminId', { adminId })
+                .groupBy('t.status')
+                .addGroupBy('t.quality')
+                .getRawMany(),
+
+            // 2. Message Stats for TEMPLATE type in last 48h
+            this.messageRepo
+                .createQueryBuilder('m')
+                .select('m.status', 'status')
+                .addSelect('COUNT(*)', 'count')
+                .where('m.adminId = :adminId', { adminId })
+                .andWhere('m.messageType = :type', { type: WhatsappMessageType.TEMPLATE })
+                .andWhere('m.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
+                .groupBy('m.status')
+                .getRawMany(),
+        ]);
+
+        const stats = {
+            total: 0,
+            approved: 0,
+            rejected: 0,
+            lowQuality: 0,
+            usedLast48h: 0,
+            failedLast48h: 0,
+        };
+
+        // Process Template Stats
+        templateStatsRaw.forEach(s => {
+            const count = parseInt(s.count, 10);
+            stats.total += count;
+            if (s.status === TemplateStatus.APPROVED) stats.approved += count;
+            if (s.status === TemplateStatus.REJECTED) stats.rejected += count;
+            if (s.quality === TemplateQuality.LOW) stats.lowQuality += count;
+        });
+
+        // Process Message Stats
+        messageStatsRaw.forEach(s => {
+            const count = parseInt(s.count, 10);
+            if (s.status === MessageStatus.SENT || s.status === MessageStatus.DELIVERED || s.status === MessageStatus.READ) {
+                stats.usedLast48h += count;
+            } else if (s.status === MessageStatus.FAILED) {
+                stats.failedLast48h += count;
+            }
+        });
+
+        return stats;
+    }
 
     async list(me: any, q?: any, superAdmin?: boolean) {
         const adminId = tenantId(me);

@@ -2,9 +2,10 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Brackets } from 'typeorm';
 import * as ExcelJS from 'exceljs';
-import { WhatsappAccountEntity } from 'entities/whatsapp.entity';
+import { WhatsappAccountEntity, WhatsappMessageEntity, MessageStatus, MessageDirection } from 'entities/whatsapp.entity';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
+import { ConversationEntity } from 'entities/whatsapp.entity';
 
 
 @Injectable()
@@ -12,7 +13,58 @@ export class WhatsappAccountService {
   constructor(
     @InjectRepository(WhatsappAccountEntity)
     private readonly accountRepo: Repository<WhatsappAccountEntity>,
+    @InjectRepository(WhatsappMessageEntity)
+    private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @InjectRepository(ConversationEntity)
+    private readonly conversationRepo: Repository<ConversationEntity>,
   ) { }
+
+  async getStats(me: any) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+    const [messageStatsRaw, newConversations] = await Promise.all([
+      // 1. Message status counts for outbound messages in last 48h
+      this.messageRepo
+        .createQueryBuilder('m')
+        .select('m.status', 'status')
+        .addSelect('COUNT(*)', 'count')
+        .where('m.adminId = :adminId', { adminId })
+        .andWhere('m.direction = :direction', { direction: MessageDirection.OUTBOUND })
+        .andWhere('m.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
+        .groupBy('m.status')
+        .getRawMany(),
+
+      // 2. New conversations in last 48h
+      this.conversationRepo
+        .createQueryBuilder('c')
+        .where('c.adminId = :adminId', { adminId })
+        .andWhere('c.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
+        .getCount(),
+    ]);
+
+    let totalOutbound = 0;
+    let delivered = 0;
+    let read = 0;
+    let failed = 0;
+
+    messageStatsRaw.forEach(s => {
+      const count = parseInt(s.count, 10);
+      totalOutbound += count;
+      if (s.status === MessageStatus.DELIVERED || s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) delivered += count;
+      if (s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) read += count;
+      if (s.status === MessageStatus.FAILED) failed += count;
+    });
+
+    return {
+      deliveryRate: totalOutbound > 0 ? Math.round((delivered / totalOutbound) * 100) : 0,
+      readRate: delivered > 0 ? Math.round((read / delivered) * 100) : 0,
+      newConversations: newConversations,
+      failureRate: totalOutbound > 0 ? Math.round((failed / totalOutbound) * 100) : 0,
+    };
+  }
 
   async list(me: any, q?: any) {
     const adminId = tenantId(me);

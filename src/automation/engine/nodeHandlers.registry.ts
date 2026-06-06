@@ -5,13 +5,13 @@ import { Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { ActionType, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
-import { WhatsappApiService, WhatsappTemplateComponent } from "src/whatsapp/services/WhatsappApi.service";
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
 import { ProductionAutomationAdapter } from "./adapters/production.adapters";
 import { In, Repository } from "typeorm";
-import { Upsell } from "entities/upsells.entity";
+import { Upsell, UpsellHistory, UpsellStatus } from "entities/upsells.entity";
 import { InjectRepository } from "@nestjs/typeorm";
+import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 export interface NodeHandlerResponse {
     success: boolean;
@@ -211,7 +211,7 @@ export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
                 orderData.id,
                 {
                     statusId: statusEntity.id,
-                    notes: `Updated automatically via automation "${run.automationFlowId}"`,
+                    notes: `Updated automatically via automation`,
                 },
             );
 
@@ -284,7 +284,6 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 ? template.templateConfig.examples?.length
                 : Object.keys(template.templateConfig.examples || {}).length) || 0;
 
-
             const headerVarsLength = template.templateConfig.headerExample ? 1 : 0;
 
             if (bodyVarsLength !== Object.keys(hydratedConfig.bodyVariables || {}).length) {
@@ -298,63 +297,32 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                 return { success: false, error: 'WhatsApp template dynamic URL buttons variables count does not match' };
             }
 
-
             if (headerVarsLength !== Object.keys(hydratedConfig.headerVariables || {}).length) {
                 return { success: false, error: 'WhatsApp template header variables count does not match' };
             }
-
-            // 2. Prepare Variables
-            const components: WhatsappTemplateComponent[] = [];
-
-            if (hydratedConfig.headerVariables) {
-                const headerParams = this.mapVariablesToParams(hydratedConfig.headerVariables, orderData);
-                if (headerParams.length > 0) {
-                    components.push({ type: 'header', parameters: headerParams });
-                }
-            }
-
-            if (hydratedConfig.bodyVariables) {
-                const bodyParams = this.mapVariablesToParams(hydratedConfig.bodyVariables, orderData);
-                if (bodyParams.length > 0) {
-                    components.push({ type: 'body', parameters: bodyParams });
-                }
-            }
-
-            if (hydratedConfig.buttonVariables && configButtonVarsCount > 0) {
-                Object.entries(hydratedConfig.buttonVariables).forEach(([buttonIndex, varDetails]: [string, any]) => {
-
-                    const singleButtonParamContainer = this.mapVariablesToParams({ [buttonIndex]: varDetails }, orderData);
-
-                    if (singleButtonParamContainer && singleButtonParamContainer.length > 0) {
-                        components.push({
-                            type: 'button',
-                            sub_type: 'url',
-                            index: String(buttonIndex), // الترتيب الصِفري للزر في مصفوفة أزرار ميتا
-                            parameters: [
-                                {
-                                    type: 'text',
-                                    text: singleButtonParamContainer[0].text // النص الديناميكي المستبدل (كود التتبع، الرقم التعريفي.. إلخ)
-                                }
-                            ]
-                        });
-                    }
-                });
-            }
+            
+            // 2. Prepare Hydrated Variables (Map dynamic paths to real values)
+            const headerVariables = hydratedConfig.headerVariables ? this.mapVariablesToValues(hydratedConfig.headerVariables, orderData) : undefined;
+            const bodyVariables = hydratedConfig.bodyVariables ? this.mapVariablesToValues(hydratedConfig.bodyVariables, orderData) : undefined;
+            const buttonVariables = hydratedConfig.buttonVariables ? this.mapVariablesToValues(hydratedConfig.buttonVariables, orderData) : undefined;
 
 
             // 3. Determine Recipient
-            const to = hydratedConfig.recipientNumber || orderData.phoneNumber;
+            const to = hydratedConfig.recipientNumber ? normalizeEgyptianPhoneNumber(hydratedConfig.recipientNumber) : orderData.normalizedPhoneNumber;
             if (!to) {
                 return { success: false, error: 'Recipient phone number not found' };
             }
 
             // 4. Send Message using adapter
-            const adapterResponse = await this.adapter.sendTemplateFromEntity(
+            const adapterResponse = await this.adapter.sendTemplate(
                 template.accountId,
                 {
                     to,
-                    template,
-                    components: components.length > 0 ? components : undefined,
+                    templateId: template.id,
+                    headerVariables,
+                    bodyVariables,
+                    buttonVariables,
+                    // headerUrl: hydratedConfig.headerUrl,
                 },
                 orderData.adminId,
             );
@@ -368,9 +336,9 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                     templateId: template.id,
                     templateName: template.name,
                     variables: {
-                        header: hydratedConfig.headerVariables,
-                        body: hydratedConfig.bodyVariables,
-                        button: hydratedConfig.buttonVariables,
+                        header: headerVariables,
+                        body: bodyVariables,
+                        button: buttonVariables,
                     }
                 }
             };
@@ -384,11 +352,9 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
         }
     }
 
-    private mapVariablesToParams(variables: Record<string, any>, orderData: OrderEntity): any[] {
-        // Sort keys numerically to match {{1}}, {{2}}...
-        const keys = Object.keys(variables).sort((a, b) => Number(a) - Number(b));
-        return keys.map(key => {
-            const varDetails = variables[key];
+    private mapVariablesToValues(variables: Record<string, any>, orderData: OrderEntity): Record<string, string> {
+        const result: Record<string, string> = {};
+        Object.entries(variables).forEach(([key, varDetails]) => {
             let textValue = '';
 
             if (varDetails.type === 'direct') {
@@ -401,10 +367,12 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
                     textValue = val !== null && val !== undefined ? String(val) : '';
                 }
             }
-
-            return { type: 'text', text: textValue };
+            result[key] = textValue;
         });
+        return result;
     }
+
+
 
     private getValueByPath(obj: any, path: string): any {
         if (!path) return undefined;
@@ -428,14 +396,9 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
 
 @Injectable()
 export class ActionSendUpsellHandler implements FlowNodeHandler {
-    private readonly logger = new Logger(ActionSendUpsellHandler.name);
-
+    private readonly logger = new Logger(this.constructor.name);
     constructor(
         private readonly adapter: AutomationAdapter,
-        @InjectRepository(Upsell)
-        private readonly upsellRepo: Repository<Upsell>,
-        @InjectRepository(WhatsappAccountEntity)
-        private readonly accountRepo: Repository<WhatsappAccountEntity>,
     ) { }
 
     async execute(hydratedConfig: SendUpsellConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
@@ -452,82 +415,27 @@ export class ActionSendUpsellHandler implements FlowNodeHandler {
                 return { success: true, shouldPause: false, chosenBranch: 'skipped', output: { reason: 'No products in order' } };
             }
 
-            // Get available upsells for these products
-            const upsells = await this.upsellRepo.find({
-                where: {
-                    triggerProductId: In(productIds),
-                    adminId: orderData.adminId,
-                    isActive: true,
-                },
-                relations: ['triggerProduct', 'upsellProduct', 'upsellSku'],
-            });
+            // Get available upsells for these products using adapter
+            const upsells = await this.adapter.getUpsellsForProducts(productIds, orderData.adminId);
 
             if (upsells.length === 0) {
                 return { success: true, shouldPause: false, chosenBranch: 'skipped', output: { reason: 'No upsells found for products' } };
             }
 
-            // Get primary WhatsApp account
-            const account = await this.accountRepo.findOne({
-                where: { adminId: orderData.adminId, isActive: true },
-                order: { createdAt: 'ASC' }
-            });
-            if (!account) {
-                return { success: false, error: 'No active WhatsApp account found' };
-            }
-
             const sentUpsells = [];
 
-            // Send each upsell
+            // Send each upsell using the adapter
             for (const upsell of upsells) {
-                const config = upsell.messageConfig;
-                if (!config) continue;
-
-                const interactive: any = {
-                    type: 'button',
-                    body: { text: config.bodyText },
-                };
-
-                if (config.headerType !== 'NONE') {
-                    if (config.headerType === 'TEXT') {
-                        interactive.header = { type: 'text', text: config.headerText };
-                    } else {
-                        interactive.header = {
-                            type: config.headerType.toLowerCase(),
-                            [config.headerType.toLowerCase()]: {
-                                link: config.headerUrl,
-                                // handle: config.headerHandle // Optional if we have handle
-                            }
-                        };
-                    }
+                const history = await this.adapter.sendUpsell(upsell, orderData, run);
+                if (history) {
+                    sentUpsells.push({
+                        upsellId: upsell.id,
+                        historyId: history.id,
+                        messageId: history.messageId,
+                        triggerProductId: upsell.triggerProductId,
+                        upsellProductId: upsell.upsellProductId
+                    });
                 }
-
-                if (config.footerText) {
-                    interactive.footer = { text: config.footerText };
-                }
-
-                // Add buttons from config
-                if (config.buttons && config.buttons.length > 0) {
-                    interactive.action = {
-                        buttons: config.buttons.map((btn, idx) => ({
-                            type: 'reply',
-                            reply: {
-                                id: `upsell_${upsell.id}_btn_${idx}`,
-                                title: btn.text.slice(0, 20) // Meta limit is 20 chars
-                            }
-                        }))
-                    };
-                }
-
-                await this.adapter.sendInteractiveMessage(account.id, {
-                    to: orderData.phoneNumber,
-                    interactive
-                }, orderData.adminId);
-
-                sentUpsells.push({
-                    upsellId: upsell.id,
-                    triggerProductId: upsell.triggerProductId,
-                    upsellProductId: upsell.upsellProductId
-                });
             }
 
             return {
@@ -557,8 +465,8 @@ export class NodeHandlersRegistry {
 
     constructor(
         private readonly adapter: ProductionAutomationAdapter,
-        @InjectRepository(Upsell)
-        private readonly upsellRepo: Repository<Upsell>,
+        @InjectRepository(UpsellHistory)
+        private readonly upsellHistoryRepo: Repository<UpsellHistory>,
         @InjectRepository(WhatsappAccountEntity)
         private readonly accountRepo: Repository<WhatsappAccountEntity>,
     ) {
@@ -571,7 +479,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler());
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter));
         this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter));
-        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.upsellRepo, this.accountRepo));
+        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter));
     }
 
     /**
