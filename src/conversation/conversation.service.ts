@@ -7,6 +7,7 @@ import { CreateConversationDto } from 'dto/whatsapp.dto';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { CustomerService } from '../customer/customer.service';
 import { AppGateway } from 'common/app.gateway';
+import { tenantId } from 'src/category/category.service';
 
 @Injectable()
 export class ConversationService {
@@ -19,7 +20,7 @@ export class ConversationService {
   ) { }
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     return this.dataSource.transaction(async (manager) => {
@@ -52,7 +53,7 @@ export class ConversationService {
   }
 
   async createConversation(me: any, payload: CreateConversationDto) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     return this.dataSource.transaction(async (manager) => {
@@ -85,7 +86,7 @@ export class ConversationService {
   }
 
   async findAllPaginated(me: any, q?: any) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     const limit = Number(q?.limit ?? 50);
@@ -167,7 +168,7 @@ export class ConversationService {
   }
 
   async findOne(me: any, id: string) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     const conversation = await this.conversationRepo.findOne({

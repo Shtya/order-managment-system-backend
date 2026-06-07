@@ -52,6 +52,7 @@ import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
 import { UpsellsModule } from './upsells/upsells.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { CustomerModule } from './customer/customer.module';
+import { CitiesModule } from './cities/cities.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -122,7 +123,8 @@ import { CustomerModule } from './customer/customer.module';
 		SystemErorrsModule,
 		UpsellsModule,
 		ConversationModule,
-		CustomerModule
+		CustomerModule,
+		CitiesModule
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService, {

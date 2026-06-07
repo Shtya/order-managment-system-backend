@@ -6,6 +6,7 @@ import { UpdateCustomerDto } from 'dto/customer.dto';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { AppGateway } from 'common/app.gateway';
 import { deleteFile } from 'common/healpers';
+import { tenantId } from 'src/category/category.service';
 
 @Injectable()
 export class CustomerService {
@@ -16,7 +17,7 @@ export class CustomerService {
   ) { }
 
   async update(me: any, id: string, payload: UpdateCustomerDto) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     const customer = await this.customerRepo.findOne({
@@ -52,7 +53,7 @@ export class CustomerService {
   }
 
   async getOrCreateCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     const repo = manager ? manager.getRepository(CustomerEntity) : this.customerRepo;
@@ -82,7 +83,7 @@ export class CustomerService {
   }
 
   async createCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     const repo = manager ? manager.getRepository(CustomerEntity) : this.customerRepo;
@@ -114,7 +115,7 @@ export class CustomerService {
   }
 
   async findAllPaginated(me: any, q?: any) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     const page = Number(q?.page ?? 1);
@@ -164,7 +165,7 @@ export class CustomerService {
   }
 
   async findOne(me: any, id: string) {
-    const adminId = me.adminId || me.id;
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException('Missing adminId');
 
     const customer = await this.customerRepo.findOne({

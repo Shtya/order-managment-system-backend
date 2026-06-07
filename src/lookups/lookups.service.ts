@@ -493,7 +493,9 @@ export class LookupsService {
 			const q = `%${params.q.trim().toLowerCase()}%`;
 			// Search in both English and Arabic names
 			qb.andWhere('(LOWER(city.nameEn) LIKE :q OR city.nameAr LIKE :q)', { q });
-		}
+		}	
+
+		qb.andWhere('city.isActive = true');
 
 		const rows = await qb.getRawMany();
 

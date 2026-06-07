@@ -42,8 +42,6 @@ export enum UnifiedShippingStatus {
 	ARCHIVED = 'archived',
 }
 
-
-
 @Entity({ name: "shipping_companies" })
 export class ShippingCompanyEntity {
 	@PrimaryGeneratedColumn('uuid')
@@ -184,6 +182,7 @@ export class ShipmentEntity {
 	@UpdateDateColumn({ type: 'timestamptz' })
 	updated_at: Date;
 }
+
 
 @Entity({ name: 'shipment_events' })
 @Index(['shipmentId', 'created_at'])

@@ -473,7 +473,7 @@ export class WhatsappService {
     }
 
     async uploadMedia(me: any, payload: WhatsappUploadMediaPayload, accountId?: string) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
         const url = imageSrc(payload.url);
         if (!payload.file && !url) {
@@ -541,7 +541,7 @@ export class WhatsappService {
     }
 
     async downloadMedia(me: any, mediaId: string, accountId?: string, headers?: Record<string, string>) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
         if (!mediaId) {
             throw new BadRequestException('Media ID is required');
@@ -560,7 +560,7 @@ export class WhatsappService {
     }
 
     async streamMedia(me: any, mediaUrl: string, accountId?: string, headers?: Record<string, string>) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
         if (!mediaUrl) {
             throw new BadRequestException('Media URL is required');
@@ -572,7 +572,7 @@ export class WhatsappService {
     }
 
     async sendMessage(me: any, payload: WhatsappSendMessagePayload & { metadata?: Record<string, any>; }, accountId?: string, localId?: string) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
 
         const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
@@ -621,7 +621,7 @@ export class WhatsappService {
         localId?: string,
         metadata?: Record<string, any>
     ) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
 
         const template = await this.templateRepo.findOne({
@@ -831,7 +831,7 @@ export class WhatsappService {
     }
 
     async markAsRead(me: any, payload: { messageId?: string, conversationId?: string }) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
 
         if (payload.messageId) {
@@ -1446,7 +1446,7 @@ export class WhatsappService {
     }
 
     async retryMessage(me: any, messageId: string) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         const message = await this.messageRepo.findOne({
             where: { messageId, adminId },
             relations: ['account']
@@ -1464,7 +1464,7 @@ export class WhatsappService {
     }
 
     async findAllMessages(me: any, q?: any) {
-        const adminId = me.adminId || me.id; // Basic tenant resolving
+        const adminId = tenantId(me); // Basic tenant resolving
         if (!adminId) throw new BadRequestException("Missing adminId");
 
         const limit = Number(q?.limit ?? 50);
@@ -1563,7 +1563,7 @@ export class WhatsappService {
     }
 
     async findOneMessage(me: any, id: string) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
 
         const message = await this.messageRepo.findOne({
             where: { id, adminId },
@@ -1579,7 +1579,7 @@ export class WhatsappService {
 
     async handleEmbeddedSignup(me: any, payload: EmbeddedSignupDto) {
         this.logger.log(`handleEmbeddedSignup: ${JSON.stringify(payload)}`);
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
 
         const { code, wabaId, phoneNumberId, businessId } = payload;
@@ -1675,7 +1675,7 @@ export class WhatsappService {
     }
 
     async syncTemplates(me: any, accountId: string) {
-        const adminId = me.adminId || me.id;
+        const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
 
         const account = await this.accountRepo.findOne({

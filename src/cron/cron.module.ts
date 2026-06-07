@@ -8,6 +8,8 @@ import { OrphanFilesCleanupCronService } from './orphan-files-cleanup.cron';
 import { OrderPostponedCronService } from './OrderPostponedCron.service';
 import { OrderEntity } from 'entities/order.entity';
 import { CronController } from './cronController';
+import { CitiesSyncService } from 'src/cities/cities-sync.logic';
+import { CityEntity, ProviderLocationEntity } from 'entities/cities.entity';
 
 @Module({
   imports: [
@@ -18,10 +20,12 @@ import { CronController } from './cronController';
       UserFeature,
       OrphanFileEntity,
       OrderEntity,
+      CityEntity,
+      ProviderLocationEntity
     ]),
   ],
   controllers: [CronController],
-  providers: [ExpiryCronService, OrphanFilesCleanupCronService, OrderPostponedCronService],
+  providers: [ExpiryCronService, OrphanFilesCleanupCronService, OrderPostponedCronService, CitiesSyncService],
   exports: [ExpiryCronService], // Export if you need it elsewhere, otherwise keep it private
 })
 export class CronModule { }

@@ -91,6 +91,7 @@ import { CRUD } from "common/crud.service";
 import { randomBytes } from "crypto";
 import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { CityEntity } from "entities/cities.entity";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -2513,6 +2514,7 @@ export class OrdersService {
       email: dto.email,
       address: dto.address,
       city: dto.city,
+      cityId: dto.cityId,
       area: dto.area,
       landmark: dto.landmark,
       deposit: dto.deposit,
@@ -2803,6 +2805,7 @@ export class OrdersService {
         email: dto.email !== undefined ? dto.email : order.email,
         address: dto.address !== undefined ? dto.address : order.address,
         city: dto.city !== undefined ? dto.city : order.city,
+        cityId: dto.cityId !== undefined ? dto.cityId : order.cityId,
         area: dto.area !== undefined ? dto.area : order.area,
         paymentMethod: dto.paymentMethod !== undefined ? dto.paymentMethod : order.paymentMethod,
         storeId: dto.storeId !== undefined ? dto.storeId : order.storeId,
@@ -2895,16 +2898,25 @@ export class OrdersService {
 
       const orderMap = new Map(orders.map((o) => [o.id, o]));
 
+      // Fetch cities if any cityId is provided in items
+      const cityIds = [...new Set(dto.items.map(i => i.cityId).filter(Boolean))];
+      let cityMap = new Map<string, CityEntity>();
+      if (cityIds.length > 0) {
+        const cities = await manager.getRepository(CityEntity).find({
+          where: { id: In(cityIds) },
+          relations: ['providerLocations']
+        });
+        cityMap = new Map(cities.map(c => [c.id, c]));
+      }
+
       const invalidResults: Array<{
         id: string;
         reason: string;
       }> = [];
 
       const toSave: OrderEntity[] = [];
-      let count = 0;
       for (const item of dto.items) {
         const order = orderMap.get(item.id);
-
 
         if (!order) {
           invalidResults.push({
@@ -2913,7 +2925,6 @@ export class OrdersService {
           });
           continue;
         }
-
 
         if (
           order.status?.system &&
@@ -2940,9 +2951,39 @@ export class OrdersService {
           order.address = item.address;
         }
 
-        // if (item.email !== undefined) {
-        //   order.email = item.email;
-        // }
+        if (item.cityId !== undefined && item.cityId) {
+          
+            const city = cityMap.get(item.cityId);
+            if (!city) {
+              invalidResults.push({ id: item.id, reason: `City ID ${item.cityId} not found.` });
+              continue;
+            }
+
+            // If a provider is selected, check if this city has a provider location
+            if (dto.code && dto.code.toLowerCase() !== 'none') {
+              const providerLocation = city.providerLocations?.find(
+                pl => pl.provider.toLowerCase() === dto.code.toLowerCase()
+              );
+
+              if (!providerLocation) {
+                invalidResults.push({
+                  id: item.id,
+                  reason: `City ${city.nameEn} is not supported by provider ${dto.code}.`
+                });
+                continue;
+              }
+
+              // Update shipping metadata with provider-specific city ID
+              order.shippingMetadata = {
+                ...(order.shippingMetadata ?? {}),
+                cityId: providerLocation.providerCityId
+              };
+            }
+
+            order.cityId = city.id;
+            order.city = city.nameAr; // Keep string city updated too
+          
+        }
 
         if (item.shippingMetadata !== undefined) {
           const cleanShippingMetadata = Object.fromEntries(
@@ -2955,8 +2996,11 @@ export class OrdersService {
             ...(order.shippingMetadata ?? {}),
             ...cleanShippingMetadata,
           };
+        }
 
-          order.shippingCompanyId = integration?.shippingCompanyId || order.shippingCompanyId;
+        // Always update company if code is provided
+        if (integration) {
+          order.shippingCompanyId = integration.shippingCompanyId;
         }
 
         order.updatedByUserId = me?.id;
