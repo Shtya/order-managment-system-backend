@@ -1010,8 +1010,6 @@ export class ShippingService {
 	// -----------------------
 	async handleWebhook(provider: string, body: any, headers?: Record<string, any>) {
 		try {
-
-
 			const p = this.getProvider(provider);
 			const mapped = p.mapWebhookToUnified(body);
 
@@ -1110,7 +1108,12 @@ export class ShippingService {
 		//get order to also update its status with shipment;
 		const order = await this.ordersRepo.findOne({
 			where: { id: shipment.orderId },
+			relations: ['status']
 		});
+
+		const oldStatusId = order.statusId;
+		let statusChanged = false;
+
 		const returnStock = async () => {
 			const itemsToRestock = (order.items ?? []).filter((item) => item.stockDeducted && item.variantId);
 			if (itemsToRestock.length > 0) {
@@ -1137,7 +1140,6 @@ export class ShippingService {
 			}
 		}
 
-		
 		if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
 			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
 			shipment.status = ShipmentStatus.CANCELLED;
@@ -1145,9 +1147,19 @@ export class ShippingService {
 			if (cancelledStatus) {
 				order.statusId = cancelledStatus.id;
 				order.status = cancelledStatus;
+				statusChanged = true;
 			}
 			await manager.save(order);
 			await returnStock();
+
+			await this.notificationService.create({
+				userId: shipment.adminId,
+				type: NotificationType.SHIPMENT_CANCELLED,
+				title: "Shipment Cancelled",
+				message: `Shipment for order #${order.orderNumber} has been cancelled and stock has been restored.`,
+				relatedEntityType: "order",
+				relatedEntityId: String(order.id),
+			});
 		} else {
 			shipment.unifiedStatus = mapped.unifiedStatus;
 			shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
@@ -1159,9 +1171,19 @@ export class ShippingService {
 				order.statusId = deliveredStatus.id;
 				order.status = deliveredStatus;
 				order.deliveredAt = new Date();
+				statusChanged = true;
 			}
 			await manager.save(order);
 			await this.ordersService.deductStockForOrder(manager, order?.id, shipment?.adminId, { skipValidation: true });
+
+			await this.notificationService.create({
+				userId: shipment.adminId,
+				type: NotificationType.SHIPMENT_DELIVERED,
+				title: "Shipment Delivered",
+				message: `Order #${order.orderNumber} has been successfully delivered.`,
+				relatedEntityType: "order",
+				relatedEntityId: String(order.id),
+			});
 		} else if (
 			mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
 			mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
@@ -1170,13 +1192,32 @@ export class ShippingService {
 			if (failedStatus) {
 				order.statusId = failedStatus.id;
 				order.status = failedStatus;
+				statusChanged = true;
 			}
 			await manager.save(order);
-
 			await returnStock();
+
+			await this.notificationService.create({
+				userId: shipment.adminId,
+				type: NotificationType.SHIPMENT_FAILED,
+				title: "Shipment Failed",
+				message: `Shipment for order #${order.orderNumber} has failed (${mapped.unifiedStatus}).`,
+				relatedEntityType: "order",
+				relatedEntityId: String(order.id),
+			});
 		}
 
-		// await manager.save(shipment.order);
+		if (statusChanged && oldStatusId !== order.statusId) {
+			await this.ordersService.logStatusChange({
+				adminId: shipment.adminId,
+				orderId: order.id,
+				fromStatusId: oldStatusId,
+				toStatusId: order.statusId,
+				notes: `Automated status update from shipping provider: ${eventMeta.eventSource}`,
+				manager,
+			});
+		}
+
 		await manager.save(shipment);
 		await manager.save(
 			manager.create(ShipmentEventEntity, {
