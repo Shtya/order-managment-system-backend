@@ -137,9 +137,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string) {
     // Skip logging certain error patterns
     const skipPatterns = [
-      'Cannot GET /robots.txt',
-      'Cannot GET /uploads',
-      "Cannot GET /.env",
+      'Cannot GET ',
       'Missing adminId',
     ];
 

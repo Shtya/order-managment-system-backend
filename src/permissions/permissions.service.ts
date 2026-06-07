@@ -49,7 +49,7 @@ export class PermissionsService implements OnModuleInit {
 			
 			// ✅ NEW: Additional permissions
 			"upsells.read", "upsells.create", "upsells.update", "upsells.delete",
-			"whatsapp.read", "whatsapp.update_account", "whatsapp.delete_account",
+			"whatsapp.read", "whatsapp.send", "whatsapp.update_account", "whatsapp.delete_account",
 			"whatsapp.templates.read", "whatsapp.templates.create", "whatsapp.templates.update", "whatsapp.templates.delete",
 			"customer.read", "customer.update", "customer.delete",
 			"conversation.read", "conversation.create", "conversation.update", "conversation.delete",
