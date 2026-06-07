@@ -257,7 +257,7 @@ export class WhatsappTemplateService {
         return {
             id: tpl.id,
             name: tpl.name,
-            language: tpl.language === 'en' ? 'en' : 'ar', // Safely structural fallback matching entity constraint
+            language: tpl.language,
             category: tpl.category,
             topic: tpl.topic,
             usecase: tpl.usecase,

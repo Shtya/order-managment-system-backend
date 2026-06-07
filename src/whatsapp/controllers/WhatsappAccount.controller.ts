@@ -56,6 +56,7 @@ export class WhatsappAccountController {
     return await this.svc.toggleActive(req.user, id);
   }
 
+  @Permissions("whatsapp.delete_account")
   @Delete(":id")
   async delete(@Req() req: any, @Param("id") id: string) {
     return await this.svc.delete(req.user, id);
