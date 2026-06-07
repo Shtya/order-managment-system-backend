@@ -23,6 +23,7 @@ import { OrderCollectionEntity } from "./order-collection.entity";
 import { MonthlyClosingEntity } from "./accounting.entity";
 import { ActivatableEntity } from "./base.entity";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { CityEntity } from "./cities.entity";
 
 
 // ✅ Order Status Enum
@@ -235,13 +236,15 @@ export class OrderEntity {
   @Column({ type: "varchar", length: 100 })
   city!: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  cityId: string;
+
+  @ManyToOne(() => CityEntity, { eager: true })
+  @JoinColumn({ name: "cityId" })
+  cityDetails?: CityEntity;
+
   @Column({ type: "varchar", length: 100, nullable: true })
   area?: string;
-
-  // ✅ Order Status
-  // @Column({ type: "varchar", length: 50, default: OrderStatus.NEW })
-  // @Index()
-  // status!: OrderStatus;
 
   @ManyToOne(() => OrderStatusEntity, { eager: true })
   @JoinColumn({ name: "statusId" })

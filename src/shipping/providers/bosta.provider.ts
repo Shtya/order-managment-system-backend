@@ -19,7 +19,7 @@ type BostaEnv = 'stg' | 'prod';
 
 function getBostaBaseUrl(env: BostaEnv) {
   if (env === 'stg') return 'https://stg-app.bosta.co/api/v2';
-  return 'https://app.bosta.co/api/v2';
+  return process.env.BOSTA_API_URL;
 }
 
 export enum BostaDeliveryType {

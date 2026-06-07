@@ -1,5 +1,6 @@
-import { ShippingProvider } from "src/shipping/providers/shipping-provider.interface";
+import { ProviderCode, ShippingProvider } from "src/shipping/providers/shipping-provider.interface";
 import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from "typeorm";
+import { User } from "./user.entity";
 
 
 @Index(["nameEn"])
@@ -20,30 +21,27 @@ export class CityEntity {
 
     @OneToMany(() => ProviderLocationEntity, (providerLocation) => providerLocation.city)
     providerLocations: ProviderLocationEntity[];
+    
+    @OneToMany(() => CityTenantConfigEntity, (tenantConfig) => tenantConfig.city)
+    tenantConfigs: CityTenantConfigEntity[];
 }
 
-
-
-// @Index(['provider', 'providerCityId'], { unique: true })
-// 2. Performance index: Used during checkout to quickly find the mapped ID
-// @Index(['cityId', 'provider']) 
+@Index(['provider', 'providerCityId'], { unique: true })
+@Index(['cityId', 'provider']) 
 @Entity('provider_locations')
 export class ProviderLocationEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    // @Column({
-    //     type: 'enum',
-    //     enum: ShippingProvider,
-    // })
-    // provider: ShippingProvider;
+    @Column({ type: 'varchar', })
+    provider: ProviderCode;
 
     
-    @Column()
+    @Column({type: 'varchar'})
     providerCityId: string; 
 
     
-    @Column()
+    @Column({type: 'varchar'})
     providerCityNameAr: string; 
 
     @Column({type: 'varchar', nullable: true})
@@ -59,4 +57,44 @@ export class ProviderLocationEntity {
 
     @Column({ nullable: true })
     cityId: string;
+
+    @Column({default: true})
+    dropOff: boolean;
+    
+    @Column({default: true})
+    pickup: boolean;
+}
+
+
+@Index(['adminId', 'cityId'], { unique: true }) 
+@Entity('city_tenant_configs')
+export class CityTenantConfigEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Index()
+    @Column({ type: 'uuid' })
+    adminId: string;
+
+    @ManyToOne(() => User, { onDelete: 'CASCADE' }) 
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
+    // --- Unified City Relation ---
+    @Index()
+    @Column({ type: 'uuid' })
+    cityId: string;
+
+    // Using CASCADE: If a unified city is deleted, its tenant configurations are cleaned up
+    @ManyToOne(() => CityEntity, (city) => city.tenantConfigs, { onDelete: 'CASCADE' })
+    @JoinColumn({ name: 'cityId' })
+    city: CityEntity;
+
+    // --- Tenant-Specific Configuration ---
+    @Column({ nullable: true })
+    minShippingDays: number;
+
+    @Column({ nullable: true })
+    maxShippingDays: number;
+    
 }

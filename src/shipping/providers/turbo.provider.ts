@@ -31,7 +31,7 @@ export enum TurboDeliveryType {
 export class TurboProvider extends ShippingProvider {
 
   // Use the backoffice URL for geography as specified in your examples
-  private readonly geoBaseUrl = 'https://backoffice.turbo-eg.com';
+  private readonly geoBaseUrl = process.env.TURBO_GEO_API_URL;
   // Main platform URL for other operations
   private readonly mainBaseUrl = 'https://platform.turbo.info';
 

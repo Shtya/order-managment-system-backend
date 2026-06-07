@@ -152,7 +152,7 @@ export class AccountingService {
         const params: any[] = [rawStartDate, rawEndDate, points, adminId];
 
 
-      const query = `
+        const query = `
         WITH params AS (
             SELECT
                 $1::timestamptz AS start_date,

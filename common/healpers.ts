@@ -338,3 +338,22 @@ export function formatReferenceMeta(meta: Record<string, any> = {}) {
 export function isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;
 }
+
+export function normalizeArabic(text?: string): string {
+    if (!text) return '';
+    return text
+        .trim()
+        .replace(/ة/g, 'ه')         // Unify Taa Marboota (ة) to Haa (ه)
+        .replace(/[أإآ]/g, 'ا')     // Unify all types of Alef to a bare Alef
+        .replace(/ى/g, 'ي')         // Unify Alif Maksura to Yaa
+        .replace(/\s+/g, ' ');      // Remove double spaces
+}
+
+export function normalizeEnglish(text?: string): string {
+    if (!text) return '';
+    return text
+        .trim()
+        .toLowerCase()              // Make everything lowercase
+        .replace(/-/g, ' ')         // Replace dashes with spaces (e.g., El-Cairo -> el cairo)
+        .replace(/\s+/g, ' ');      // Remove double spaces
+}

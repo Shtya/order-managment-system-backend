@@ -1,23 +1,13 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 
-import { User, Role, Permission } from '../entities/user.entity';
-import { Asset } from '../entities/assets.entity';
 import { CategoryEntity } from '../entities/categories.entity';
 import { StoreEntity } from '../entities/stores.entity';
 import { WarehouseEntity } from '../entities/warehouses.entity';
-import { Plan } from '../entities/plans.entity';
-import { OrderAssignmentEntity, OrderEntity, OrderItemEntity, OrderMessageEntity, OrderStatus, OrderStatusEntity, OrderStatusHistoryEntity } from '../entities/order.entity';
-import { BundleEntity, BundleItemEntity } from '../entities/bundle.entity';
-import { PurchaseReturnInvoiceEntity, PurchaseReturnInvoiceItemEntity } from '../entities/purchase_return.entity';
-import { PurchaseInvoiceEntity, PurchaseInvoiceItemEntity } from '../entities/purchase.entity';
-import { SalesInvoiceEntity, SalesInvoiceItemEntity } from '../entities/sales_invoice.entity';
-import { ProductEntity, ProductVariantEntity } from '../entities/sku.entity';
-import { SupplierEntity, SupplierCategoryEntity } from '../entities/supplier.entity';
-import { ShippingCompanyEntity } from '../entities/shipping.entity';
-import { TransactionEntity } from 'entities/payments.entity';
-import { CityEntity } from 'entities/cities.entity';
-
+import { OrderStatus, OrderStatusEntity } from '../entities/order.entity';
+import { CityEntity, ProviderLocationEntity } from 'entities/cities.entity';
+import { syncProviderLocationsLogic } from './cities/cities-sync.logic';
+import { citiesData } from './cities/cities-data.config';
 
 /**
  * =========================
@@ -47,10 +37,11 @@ async function runGlobalSeed() {
 	console.log('🌱 Running global seeders...');
 
 	const categoryRepo = dataSource.getRepository(CategoryEntity);
-	const storeRepo = dataSource.getRepository(StoreEntity);
 	const warehouseRepo = dataSource.getRepository(WarehouseEntity);
 	const statusRepo = dataSource.getRepository(OrderStatusEntity); // Add this
 	const cityRepo = dataSource.getRepository(CityEntity);
+	const providerLocationRepo = dataSource.getRepository(ProviderLocationEntity);
+
 	const systemStatuses = [
 		{
 			name: 'New', code: OrderStatus.NEW, isDefault: true, order: 1, color: '#2196F3', // Matches stats.new (Blue)
@@ -147,38 +138,9 @@ async function runGlobalSeed() {
 			await statusRepo.save(statusRepo.create(statusData));
 		}
 	}
+	
 
-	const citiesData = [
-		{ nameEn: "Alexandria", nameAr: "الاسكندريه" },
-		{ nameEn: "Assuit", nameAr: "اسيوط" },
-		{ nameEn: "Aswan", nameAr: "اسوان" },
-		{ nameEn: "Bani Suif", nameAr: "بني سويف" },
-		{ nameEn: "Behira", nameAr: "البحيره" },
-		{ nameEn: "Cairo", nameAr: "القاهره" },
-		{ nameEn: "Dakahlia", nameAr: "الدقهليه" },
-		{ nameEn: "Damietta", nameAr: "دمياط" },
-		{ nameEn: "El Kalioubia", nameAr: "القليوبيه" },
-		{ nameEn: "Fayoum", nameAr: "الفيوم" },
-		{ nameEn: "Gharbia", nameAr: "الغربيه" },
-		{ nameEn: "Giza", nameAr: "الجيزه" },
-		{ nameEn: "Ismailia", nameAr: "الاسماعيليه" },
-		{ nameEn: "Kafr Alsheikh", nameAr: "كفر الشيخ" },
-		{ nameEn: "Luxor", nameAr: "الاقصر" },
-		{ nameEn: "Matrouh", nameAr: "مرسي مطروح" },
-		{ nameEn: "Menya", nameAr: "المنيا" },
-		{ nameEn: "Monufia", nameAr: "المنوفيه" },
-		{ nameEn: "New Valley", nameAr: "الوادي الجديد" },
-		{ nameEn: "North Coast", nameAr: "الساحل الشمالي" },
-		{ nameEn: "North Sinai", nameAr: "شمال سيناء" },
-		{ nameEn: "Port Said", nameAr: "بور سعيد" },
-		{ nameEn: "Qena", nameAr: "قنا" },
-		{ nameEn: "Red Sea", nameAr: "البحر الاحمر" },
-		{ nameEn: "Sharqia", nameAr: "الشرقيه" },
-		{ nameEn: "Sohag", nameAr: "سوهاج" },
-		{ nameEn: "South Sinai", nameAr: "جنوب سيناء" },
-		{ nameEn: "Suez", nameAr: "السويس" }
-	];
-
+	// 1. Seed Unified Cities 
 	for (const city of citiesData) {
 		const exists = await cityRepo.findOne({ where: { nameEn: city.nameEn } });
 		if (!exists) {
@@ -186,6 +148,9 @@ async function runGlobalSeed() {
 			console.log(`✅ City seeded: ${city.nameEn}`);
 		}
 	}
+
+	// 2. Sync Provider Locations (using the reusable logic)
+	await syncProviderLocationsLogic(cityRepo, providerLocationRepo);
 
 	/** =========================
 	 * Global Categories

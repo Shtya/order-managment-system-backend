@@ -153,6 +153,10 @@ export class CreateOrderDto {
 
   @IsOptional()
   @IsString()
+  cityId?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(100)
   area?: string;
 
@@ -243,10 +247,6 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
 export class BulkUpdateShippingMetadataDto {
   @IsOptional()
   @IsString()
-  cityId?: string;
-
-  @IsOptional()
-  @IsString()
   districtId?: string;
 
   @IsOptional()
@@ -282,10 +282,10 @@ export class BulkUpdateShippingFieldItemDto {
   })
   phoneNumber?: string;
 
-  // @IsOptional()
-  // @IsEmail()
-  // @MaxLength(200)
-  // email?: string;
+  @IsOptional()
+  @IsString()
+  cityId?: string;
+
 
   @IsOptional()
   @ValidateNested()
