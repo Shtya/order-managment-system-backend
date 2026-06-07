@@ -8,6 +8,7 @@ import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { Permissions } from 'common/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('expenses')
@@ -15,6 +16,7 @@ export class ExpensesController {
   constructor(private readonly expensesService: ExpensesService) { }
 
   @Get('export')
+  @Permissions('accounting.read')
   async export(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.expensesService.exportExpenses(req.user, q);
 
@@ -25,11 +27,13 @@ export class ExpensesController {
   }
 
   @Get()
+  @Permissions('accounting.read')
   async listExpenses(@Req() req: any, @Query() q: any) {
     return await this.expensesService.listExpenses(req.user, q);
   }
 
   @Get(':id')
+  @Permissions('accounting.read')
   async getExpense(@Req() req: any, @Param('id') id: string) {
     return await this.expensesService.getExpense(req.user, id);
   }
@@ -37,6 +41,7 @@ export class ExpensesController {
 
 
   @Post()
+  @Permissions('accounting.update')
   @UseInterceptors(FileInterceptor('attachment', {
     storage: diskStorage({
       destination: './uploads/expenses',
@@ -65,6 +70,7 @@ export class ExpensesController {
   }
 
   @Patch(':id')
+  @Permissions('accounting.update')
   @UseInterceptors(FileInterceptor('attachment', {
     storage: diskStorage({
       destination: './uploads/expenses',
@@ -94,6 +100,7 @@ export class ExpensesController {
   }
 
   @Delete(':id')
+  @Permissions('accounting.update')
   async remove(
     @Req() req: any,
     @Param('id') id: string

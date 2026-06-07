@@ -33,7 +33,6 @@ export class PermissionsService implements OnModuleInit {
 			"suppliers.read", "suppliers.create", "suppliers.update", "suppliers.delete",
 			"orders-collect.read", "orders-collect.create",
 			"products.read", "products.create", "products.update", "products.delete", "products.getonly",
-
 			"shipping-companies.create", "shipping-companies.read", "shipping-companies.update", "shipping-companies.delete",
 
 			"notifications.read", "notifications.update",
@@ -47,8 +46,16 @@ export class PermissionsService implements OnModuleInit {
 			"purchase_returns.read", "purchase_returns.create", "purchase_returns.update", "purchase_returns.delete",
 			"purchases.read", "purchases.create", "purchases.update", "purchases.delete",
 			"sales_invoice.read", "sales_invoice.create", "sales_invoice.update", "sales_invoice.delete",
-
-
+			
+			// ✅ NEW: Additional permissions
+			"upsells.read", "upsells.create", "upsells.update", "upsells.delete",
+			"whatsapp.read", "whatsapp.update_account", "whatsapp.delete_account",
+			"whatsapp.templates.read", "whatsapp.templates.create", "whatsapp.templates.update", "whatsapp.templates.delete",
+			"customer.read", "customer.update", "customer.delete",
+			"conversation.read", "conversation.create", "conversation.update", "conversation.delete",
+			"accounting.read", "accounting.update",
+			"automation.read", "automation.create", "automation.update", "automation.delete",
+			"safes.read", "safes.update"
 		];
 
 		for (const name of keys) {

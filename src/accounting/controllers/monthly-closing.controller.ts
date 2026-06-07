@@ -4,6 +4,7 @@ import { PermissionsGuard } from 'common/permissions.guard';
 import { SubscriptionGuard } from 'common/subscription.guard';
 import { MonthlyClosingService } from '../services/monthly-closing.service';
 import { Response } from 'express';
+import { Permissions } from 'common/permissions.decorator';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller('monthly-closings')
@@ -11,12 +12,14 @@ export class MonthlyClosingController {
   constructor(private readonly monthlyService: MonthlyClosingService) { }
 
   @Get()
+  @Permissions('accounting.read')
   async list(@Req() req: any, @Query() q: any) {
     return await this.monthlyService.listClosings(req.user, q);
   }
 
 
   @Get('export')
+  @Permissions('accounting.read')
   async exportShipmentsCityReport(
     @Req() req: any,
     @Res() res: Response,
@@ -38,6 +41,7 @@ export class MonthlyClosingController {
   }
 
   @Get('export-detailed')
+  @Permissions('accounting.read')
   async exportDetailedClosing(
     @Req() req: any,
     @Res() res: Response,
@@ -55,6 +59,7 @@ export class MonthlyClosingController {
   }
 
   @Get('preview')
+  @Permissions('accounting.read')
   async getPreview(
     @Req() req: any,
     @Query('year') year: number,
@@ -64,18 +69,21 @@ export class MonthlyClosingController {
   }
 
   @Post('close')
+  @Permissions('accounting.update')
   async close(@Req() req: any, @Body() dto: { year: number; month: number }) {
     return await this.monthlyService.closeMonth(req.user, dto);
   }
 
 
   @Get('stats')
+  @Permissions('accounting.read')
   async getFinancialStats(
     @Req() req: any
   ) {
     return await this.monthlyService.getMonthStats(req.user);
   }
   @Get(':id')
+  @Permissions('accounting.read')
   async getOne(@Req() req: any, @Param('id') id: string) {
     return await this.monthlyService.getClosing(req.user, id);
   }

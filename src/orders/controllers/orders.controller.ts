@@ -62,6 +62,7 @@ export class OrdersController {
   }
 
   @Get(':id/history')
+  @Permissions("orders.read")
   async getHistory(
     @Param("id") orderId: string,
     @Req() req: any
@@ -125,6 +126,7 @@ export class OrdersController {
 
 
   @Post(':id/log-failed-scan')
+  @Permissions("warehouses.scan-preparation")
   async logFailedScan(
     @Param('id') orderId: string,
     @Body() body: { sku: string; reasonCode: ScanReason },
@@ -387,6 +389,7 @@ export class OrdersController {
 
   // ✅ Bulk create orders from Excel file
   @Post("bulk")
+  @Permissions("orders.create")
   @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
   async bulkCreate(
     @Req() req: any,

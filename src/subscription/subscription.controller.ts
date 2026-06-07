@@ -125,6 +125,7 @@ export class SubscriptionsController {
   }
 
   // ✅ Get subscription statistics
+  @Permissions("subscriptions.read")
   @Get("statistics/overview")
   getSubscriptionStatistics(@Req() req: any) {
     return this.subscriptions.getSubscriptionStatistics(req.user);
