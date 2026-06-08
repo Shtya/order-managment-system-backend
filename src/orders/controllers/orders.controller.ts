@@ -61,6 +61,12 @@ export class OrdersController {
     return this.svc.getStats(req.user, q);
   }
 
+  @Get("shipped/stats")
+  @Permissions("orders.read")
+  shippedStats(@Req() req: any, @Query() q: any) {
+    return this.svc.getShippedStatsByCompany(req.user, q);
+  }
+
   @Get(':id/history')
   @Permissions("orders.read")
   async getHistory(

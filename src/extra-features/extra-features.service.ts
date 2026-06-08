@@ -315,7 +315,7 @@ export class ExtraFeaturesService {
                     userId: user.id,
                     status: SubscriptionStatus.ACTIVE
                 }
-            ).where('f.isActive = true');
+            ).where('f."isActive" = true');
 
         const features = await qb.getMany();
 

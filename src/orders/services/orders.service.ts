@@ -463,6 +463,12 @@ export class OrdersService {
         "shipment",
         `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
       )
+      .leftJoinAndSelect("order.cityDetails", "cityDetails")
+      .leftJoinAndSelect(
+        "cityDetails.tenantConfigs",
+        "cityTenantConfig",
+        `cityTenantConfig.adminId = order.adminId`
+      )
       .leftJoinAndSelect("assignment.employee", "employee");
     if (superAdmin) {
       qb.leftJoinAndSelect("order.admin", "admin")
@@ -586,6 +592,30 @@ export class OrdersService {
       DateFilterUtil.applyToQueryBuilder(qb, "order.postponedDate", q?.postponedStartDate, q?.postponedEndDate);
     }
 
+    if (q?.shipmentStatus && q.shipmentStatus !== "all") {
+      qb.andWhere("shipment.status = :status", {
+        status: q.shipmentStatus,
+      });
+    }
+
+    DateFilterUtil.applyToQueryBuilder(qb, "order.shippedAt", q?.shippedStartDate, q?.shippedEndDate);
+
+    if (q?.minShippingDays !== undefined && q?.minShippingDays !== "") {
+      qb.andWhere('"order"."shippedAt" IS NOT NULL');
+      qb.andWhere(
+        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) >= :minShippingDays`,
+        { minShippingDays: Number(q.minShippingDays) },
+      );
+    }
+
+    if (q?.lateShipping === "true" || q?.lateShipping === true) {
+      qb.andWhere('"order"."shippedAt" IS NOT NULL');
+      qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
+      qb.andWhere(
+        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
+      );
+    }
+
     // Search
     if (search) {
       qb.andWhere(
@@ -629,6 +659,59 @@ export class OrdersService {
       per_page: limit,
       records,
     };
+  }
+
+  async getShippedStatsByCompany(me: any, q?: any) {
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
+    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+
+    const qb = this.orderRepo
+      .createQueryBuilder("order")
+      .leftJoin("order.status", "status")
+      .leftJoin("order.shippingCompany", "shipping")
+      .leftJoin(
+        "order.shipments",
+        "shipment",
+        `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
+      )
+      .leftJoin("order.cityDetails", "cityDetails")
+      .leftJoin(
+        "cityDetails.tenantConfigs",
+        "cityTenantConfig",
+        `cityTenantConfig.adminId = order.adminId`,
+      )
+      .select("shipping.id", "companyId")
+      .addSelect("shipping.name", "companyName")
+      .addSelect("COUNT(order.id)", "count")
+      .where("status.code = :shippedCode", { shippedCode: OrderStatus.SHIPPED });
+
+    if (adminId) {
+      qb.andWhere("order.adminId = :adminId", { adminId });
+    }
+
+    if (q?.lateShipping === "true" || q?.lateShipping === true) {
+      qb.andWhere('"order"."shippedAt" IS NOT NULL');
+      qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
+      qb.andWhere(
+        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
+      );
+    }
+
+    qb.groupBy("shipping.id").addGroupBy("shipping.name").orderBy("COUNT(order.id)", "DESC");
+
+    const rows = await qb.getRawMany();
+
+    return rows.map((row) => ({
+      companyId: row.companyId ?? null,
+      companyName: row.companyName ?? null,
+      count: Number(row.count) || 0,
+    }));
   }
 
   async getOrderHistory(orderId: string, me: any) {
@@ -3850,6 +3933,18 @@ export class OrdersService {
     });
   }
 
+  private calcShippingDaysElapsed(shippedAt?: Date | null): number | null {
+    if (!shippedAt) return null;
+
+    const shipped = new Date(shippedAt);
+    const shippedDay = new Date(shipped.getFullYear(), shipped.getMonth(), shipped.getDate());
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const diffDays = Math.floor((today.getTime() - shippedDay.getTime()) / (24 * 60 * 60 * 1000));
+    return diffDays + 1;
+  }
+
   // ========================================
   // ✅ EXPORT ORDERS TO EXCEL
   // ========================================
@@ -3864,6 +3959,7 @@ export class OrdersService {
     if (!adminId && !superAdmin) throw new BadRequestException("Missing adminId");
 
     const search = String(q?.search ?? "").trim();
+    const isShippedExport = String(q?.status ?? "").trim() === OrderStatus.SHIPPED;
 
     const qb = this.orderRepo
       .createQueryBuilder("order");
@@ -3875,13 +3971,34 @@ export class OrdersService {
       .leftJoinAndSelect("variant.product", "product")
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shipping")
-      .leftJoinAndSelect("order.store", "store")
-      .leftJoinAndSelect(
+      .leftJoinAndSelect("order.store", "store");
+
+    if (isShippedExport) {
+      qb.leftJoinAndSelect(
+        "order.assignments",
+        "assignment",
+        `assignment.id = (SELECT sub.id FROM order_assignments sub WHERE sub."orderId" = "order".id ORDER BY sub."assignedAt" DESC LIMIT 1)`,
+      )
+        .leftJoinAndSelect("assignment.employee", "employee")
+        .leftJoinAndSelect(
+          "order.shipments",
+          "shipment",
+          `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
+        )
+        .leftJoinAndSelect("order.cityDetails", "cityDetails")
+        .leftJoinAndSelect(
+          "cityDetails.tenantConfigs",
+          "cityTenantConfig",
+          `cityTenantConfig.adminId = order.adminId`,
+        );
+    } else {
+      qb.leftJoinAndSelect(
         "order.assignments",
         "assignment",
         "assignment.isAssignmentActive = true",
       )
-      .leftJoinAndSelect("assignment.employee", "employee");
+        .leftJoinAndSelect("assignment.employee", "employee");
+    }
 
     // Filter by assigned employee (userId)
     if (q?.userId) {
@@ -3932,6 +4049,52 @@ export class OrdersService {
     }
     DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
 
+    const needsShipmentJoin =
+      !isShippedExport &&
+      (q?.shipmentStatus ||
+        q?.shippedStartDate ||
+        q?.shippedEndDate ||
+        q?.minShippingDays ||
+        q?.lateShipping);
+
+    if (needsShipmentJoin) {
+      qb.leftJoinAndSelect(
+        "order.shipments",
+        "shipment",
+        `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
+      )
+        .leftJoinAndSelect("order.cityDetails", "cityDetails")
+        .leftJoinAndSelect(
+          "cityDetails.tenantConfigs",
+          "cityTenantConfig",
+          `cityTenantConfig.adminId = order.adminId`,
+        );
+    }
+
+    if (q?.shipmentStatus && q.shipmentStatus !== "all") {
+      qb.andWhere("shipment.status = :status", {
+        status: q.shipmentStatus,
+      });
+    }
+
+    DateFilterUtil.applyToQueryBuilder(qb, "order.shippedAt", q?.shippedStartDate, q?.shippedEndDate);
+
+    if (q?.minShippingDays !== undefined && q?.minShippingDays !== "") {
+      qb.andWhere('"order"."shippedAt" IS NOT NULL');
+      qb.andWhere(
+        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) >= :minShippingDays`,
+        { minShippingDays: Number(q.minShippingDays) },
+      );
+    }
+
+    if (q?.lateShipping === "true" || q?.lateShipping === true) {
+      qb.andWhere('"order"."shippedAt" IS NOT NULL');
+      qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
+      qb.andWhere(
+        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
+      );
+    }
+
     if (q?.labelPrinted !== undefined && q.labelPrinted !== "all") {
       if (q.labelPrinted === "true" || q.labelPrinted === true) {
         qb.andWhere("order.labelPrinted IS NOT NULL");
@@ -3960,6 +4123,77 @@ export class OrdersService {
 
     // Get all records (no pagination for export)
     const orders = await qb.getMany();
+
+    if (isShippedExport) {
+      const exportData = orders.map((order) => {
+        const productsList =
+          order.items
+            ?.map(
+              (item) =>
+                `${item.variant?.product?.name || "N/A"} - ${item.variant?.sku || "N/A"} (x${item.quantity})`,
+            )
+            .join("; ") || "N/A";
+        const shipment = order.shipments?.[0];
+        const assignment = order.assignments?.[0];
+        const shippingDays = this.calcShippingDaysElapsed(order.shippedAt);
+
+        return {
+          orderNumber: order.orderNumber,
+          customerName: order.customerName,
+          phoneNumber: order.phoneNumber || "N/A",
+          city: order.city || "N/A",
+          address: order.address || "N/A",
+          finalTotal: order.finalTotal || 0,
+          shippingCost: order.shippingCost || 0,
+          products: productsList,
+          status: order.status?.system
+            ? order.status.code
+            : order.status?.name || "N/A",
+          shippingDays: shippingDays ?? "N/A",
+          trackingNumber: shipment?.trackingNumber || order.trackingNumber || "N/A",
+          shipmentStatus: shipment?.unifiedStatus || shipment?.status || "N/A",
+          shipmentDate: shipment?.created_at || order.shippedAt
+            ? new Date(shipment?.created_at || order.shippedAt).toLocaleDateString()
+            : "N/A",
+          shippingCompany: order.shippingCompany?.name || "N/A",
+          assignedEmployee: assignment?.employee?.name || "N/A",
+        };
+      });
+
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet("Shipped Orders");
+
+      worksheet.columns = [
+        { header: "Order Number", key: "orderNumber", width: 18 },
+        { header: "Customer Name", key: "customerName", width: 25 },
+        { header: "Phone Number", key: "phoneNumber", width: 18 },
+        { header: "City", key: "city", width: 15 },
+        { header: "Address", key: "address", width: 35 },
+        { header: "Final Total", key: "finalTotal", width: 15 },
+        { header: "Shipping Cost", key: "shippingCost", width: 15 },
+        { header: "Products", key: "products", width: 40 },
+        { header: "Order Status", key: "status", width: 20 },
+        { header: "Shipping Days", key: "shippingDays", width: 15 },
+        { header: "Tracking Number", key: "trackingNumber", width: 22 },
+        { header: "Shipment Status", key: "shipmentStatus", width: 20 },
+        { header: "Shipment Date", key: "shipmentDate", width: 18 },
+        { header: "Shipping Company", key: "shippingCompany", width: 20 },
+        { header: "Assigned Employee", key: "assignedEmployee", width: 22 },
+      ];
+
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFE0E0E0" },
+      };
+
+      exportData.forEach((row) => {
+        worksheet.addRow(row);
+      });
+
+      return workbook.xlsx.writeBuffer();
+    }
 
     // Prepare Excel data
     const exportData = orders.map((order) => {
