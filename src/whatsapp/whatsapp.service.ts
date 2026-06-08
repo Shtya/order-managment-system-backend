@@ -734,7 +734,7 @@ export class WhatsappService {
             if (!messageId) return;
 
             // Ensure conversation exists
-            const conversation = await this.conversationService.getOrCreateConversation({ id: adminId }, {
+            const conversation = await this.conversationService.getOrCreateConversation({  adminId }, {
                 phoneNumber: contactNumber,
                 name: contactNumber,
             });

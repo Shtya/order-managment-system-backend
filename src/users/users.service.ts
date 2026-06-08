@@ -1062,7 +1062,7 @@ export class UsersService {
 	async getCompany(me: User) {
 		const adminId = tenantId(me);
 		const user = await this.usersRepo.findOne({
-			where: { id: adminId },
+			where: { id: adminId, adminId },
 			relations: ['company'],
 		});
 
@@ -1075,7 +1075,7 @@ export class UsersService {
 		const repo = manager ? manager.getRepository(User) : this.usersRepo;
 		const adminId = tenantId(me);
 		const user = await repo.findOne({
-			where: { id: adminId },
+			where: { id: adminId, adminId },
 			relations: ['company'],
 		});
 

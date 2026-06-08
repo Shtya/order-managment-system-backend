@@ -67,7 +67,7 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
   ) {
     
     const response = await this.whatsappService.sendTemplate(
-      { id: adminId } as any,
+      { id: adminId, adminId } as any,
       data,
       accountId,
       

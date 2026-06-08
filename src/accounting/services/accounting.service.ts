@@ -870,8 +870,8 @@ export class AccountingService {
         const totalPurchases = Number(purchaseStats?.totalPurchases || 0);
         const pCount = parseInt(purchaseStats?.count || '0');
         const rCount = parseInt(returnStats?.count || '0');
-        const totalPaid = Number(purchaseStats?.totalPaid || 0);
         const totalReturns = Number(returnStats?.totalReturns || 0);
+        const totalPaid = Number(purchaseStats?.totalPaid || 0);
         const totalTaken = Number(returnStats?.totalTaken || 0);
 
         // الحسابات النهائية

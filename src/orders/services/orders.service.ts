@@ -4669,7 +4669,7 @@ export class OrdersService {
         this.storesService.list(me),
         this.shippingService.activeIntegrations(me),
         this.userRepo.findOne({
-          where: { id: adminId },
+          where: { id: adminId, adminId },
           relations: ["subscriptions", "subscriptions.plan"],
         }),
         this.storesService.listProviders(),

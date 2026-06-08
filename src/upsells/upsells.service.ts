@@ -391,7 +391,7 @@ export class UpsellsService {
         }
 
         const response = await this.whatsappService.sendMessage(
-            { id: adminId },
+            { id: adminId, adminId },
             {
                 to: order.phoneNumber,
                 messaging_product: 'whatsapp',
