@@ -55,6 +55,12 @@ export class CitiesService {
 			qb.andWhere('config.maxShippingDays <= :maxDays', { maxDays: Number(q.maxDays) });
 		}
 
+		if (q?.isConfigured === 'true') {
+			qb.andWhere('config.id IS NOT NULL');
+		} else if (q?.isConfigured === 'false') {
+			qb.andWhere('config.id IS NULL');
+		}
+
 		qb.andWhere('city."isActive" = true');
 
 		const [records, total] = await qb
