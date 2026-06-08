@@ -734,7 +734,7 @@ export class WhatsappService {
             if (!messageId) return;
 
             // Ensure conversation exists
-            const conversation = await this.conversationService.getOrCreateConversation({  adminId }, {
+            const conversation = await this.conversationService.getOrCreateConversation({ id: adminId, adminId }, {
                 phoneNumber: contactNumber,
                 name: contactNumber,
             });
@@ -1209,12 +1209,12 @@ export class WhatsappService {
 
         // Manage customer and conversation
         const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(from);
-        const customer = await this.customerService.getOrCreateCustomer({ id: account.adminId }, {
+        const customer = await this.customerService.getOrCreateCustomer({ id: account.adminId, adminId: account.adminId }, {
             phoneNumber: normalizedPhoneNumber,
             name: metaMsg.contacts?.[0]?.profile?.name || normalizedPhoneNumber,
         });
 
-        const conversation = await this.conversationService.getOrCreateConversation({ id: account.adminId }, {
+        const conversation = await this.conversationService.getOrCreateConversation({ id: account.adminId, adminId: account.adminId }, {
             phoneNumber: normalizedPhoneNumber,
             name: customer.name,
         });
