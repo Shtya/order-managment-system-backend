@@ -495,7 +495,7 @@ export class LookupsService {
 			qb.andWhere('(LOWER(city.nameEn) LIKE :q OR city.nameAr LIKE :q)', { q });
 		}	
 
-		qb.andWhere('city.isActive = true');
+		qb.andWhere('city."isActive" = true');
 
 		const rows = await qb.getRawMany();
 

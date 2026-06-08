@@ -34,6 +34,8 @@ export class CitiesService {
 		const adminId = tenantId(me);
 		if (!adminId) throw new BadRequestException('Missing adminId');
 
+		const page = Number(q?.page ?? 1);
+		const limit = Number(q?.limit ?? 10);
 		const search = String(q?.search ?? '').trim();
 
 		const qb = this.cityRepo.createQueryBuilder('city')
@@ -53,12 +55,24 @@ export class CitiesService {
 			qb.andWhere('config.maxShippingDays <= :maxDays', { maxDays: Number(q.maxDays) });
 		}
 
-		qb.andWhere('config.isActive = true');
-		return qb.orderBy('city.nameEn', 'ASC').getMany();
+		qb.andWhere('city."isActive" = true');
+
+		const [records, total] = await qb
+			.orderBy('city.nameEn', 'ASC')
+			.skip((page - 1) * limit)
+			.take(limit)
+			.getManyAndCount();
+
+		return {
+			total_records: total,
+			current_page: page,
+			per_page: limit,
+			records,
+		};
 	}
 
 	async exportCitiesConfig(me: any, q?: any) {
-		const records = await this.findAllWithTenantConfig(me, q);
+		const { records } = await this.findAllWithTenantConfig(me, { ...q, limit: 10000 });
 
 		const workbook = new ExcelJS.Workbook();
 		const worksheet = workbook.addWorksheet("Cities Configuration");
@@ -68,17 +82,18 @@ export class CitiesService {
 			{ header: "City Name (Ar)", key: "nameAr", width: 25 },
 			{ header: "Min Shipping Days", key: "minDays", width: 20 },
 			{ header: "Max Shipping Days", key: "maxDays", width: 20 },
-			// { header: "Status", key: "status", width: 15 },
+			{ header: "Status", key: "status", width: 15 },
 		];
 
 		const rows = records.map(city => {
 			const config = city.tenantConfigs?.[0];
+			const isConfigured = Boolean(config);
 			return {
 				nameEn: city.nameEn,
 				nameAr: city.nameAr,
 				minDays: config?.minShippingDays ?? '—',
 				maxDays: config?.maxShippingDays ?? '—',
-				// status: city.isActive ? 'ACTIVE' : 'INACTIVE',
+				status: isConfigured ? 'Configured' : 'Not Configured',
 			};
 		});
 
