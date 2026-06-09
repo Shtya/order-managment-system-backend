@@ -460,6 +460,7 @@ export class WhatsappService {
                 // get first active account
                 const activeAccount = await this.accountRepo.findOne({
                     where: { adminId, isActive: true },
+                    order: { createdAt: 'DESC' },
                 });
                 accountId = activeAccount?.id;
             }
