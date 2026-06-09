@@ -13,12 +13,12 @@ import {
 import {
   OrderEntity,
   OrderItemEntity,
-  OrderAssignmentEntity,
   OrderStatus,
   OrderStatusEntity,
   OrderScanLogEntity,
   ScanLogType,
 } from "entities/order.entity";
+import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";

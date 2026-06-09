@@ -12,7 +12,7 @@ import {
 } from 'typeorm';
 import { Plan, Subscription, SubscriptionStatus } from './plans.entity';
 import { Asset } from './assets.entity';
-import { OrderAssignmentEntity } from './order.entity';
+import { OrderAssignmentEntity } from './assignment.entity';
 import { PaymentSessionEntity, Wallet } from './payments.entity';
 
 /* =========================

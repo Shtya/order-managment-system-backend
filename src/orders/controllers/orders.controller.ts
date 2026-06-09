@@ -38,9 +38,6 @@ import {
   CreateStatusDto,
   UpdateStatusDto,
   UpsertOrderRetrySettingsDto,
-  AutoAssignDto,
-  ManualAssignManyDto,
-  AutoPreviewDto,
   CreateManifestDto,
 } from "dto/order.dto";
 import { ScanLogType, ScanReason } from "entities/order.entity";
@@ -88,37 +85,6 @@ export class OrdersController {
     return this.svc.getStatus(req.user, id);
   }
 
-  // employee-orders.controller.ts
-
-  @Permissions("orders.confirm-incoming")
-  @Get("employee/orders/next")
-  async getNextOrder(@Req() req: any) {
-    return this.svc.getNextAssignedOrder(req.user);
-  }
-
-
-  @Permissions("orders.assign")
-  @Post("assign-manual")
-  async manualAssignOrders(@Req() req: any, @Body() dto: ManualAssignManyDto) {
-    return this.svc.manualAssignMany(req.user, dto);
-  }
-
-  @Permissions("orders.assign")
-  @Post("assign-auto")
-  async assignAuto(@Req() req: any, @Body() dto: AutoAssignDto) {
-    return this.svc.autoAssign(req.user, dto);
-  }
-
-  @Permissions("orders.assign")
-  @Post('auto-assign-preview')
-  async getAutoAssignPreview(
-    @Req() req: any,
-    @Body() dto: AutoPreviewDto
-  ) {
-    return await this.svc.getAutoPreview(req.user, dto);
-  }
-
-
 
   @Post(':id/scan-preparation/:sku')
   @Permissions("warehouses.scan-preparation")
@@ -162,74 +128,6 @@ export class OrdersController {
     return await this.svc.getOrderScanLogs(id, phase, req.user);
   }
 
-  @Permissions("orders.assign")
-  @Get("free-orders/count")
-  async getFreeOrdersCount(
-    @Req() req: any,
-    @Query('statusIds') statusIds?: string,
-    @Query("startDate") startDate?: string,
-    @Query("endDate") endDate?: string,
-  ) {
-    return this.svc.getFreeOrdersCount(req.user, {
-      statusIds: statusIds
-        ? statusIds.split(',').map(id => id)
-        : undefined,
-      startDate: startDate ?? undefined,
-      endDate: endDate ?? undefined,
-    });
-  }
-
-  @Permissions("orders.confirm-incoming")
-  @Get('assigned')
-  listMyAssigned(@Req() req: any, @Query() q: any) {
-    return this.svc.listMyAssignedOrders(req.user, q);
-  }
-
-  @Permissions("orders.confirm-incoming")
-  @Get("assigned/export")
-  async exportMyAssignedOrders(@Req() req: any, @Query() q: any, @Res() res: Response) {
-    const buffer = await this.svc.exportMyAssignedOrders(req.user, q);
-
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename=orders_export_${Date.now()}.xlsx`);
-
-    return res.send(buffer);
-  }
-
-
-  @Permissions("orders.assign")
-  @Get("free-orders")
-  async getFreeOrders(
-    @Req() req: any,
-    @Query('statusIds') statusIds?: string, // comma separated
-    @Query('startDate') startDate?: string,
-    @Query('endDate') endDate?: string,
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
-  ) {
-    return this.svc.getFreeOrders(req.user, {
-      statusIds: statusIds
-        ? statusIds.split(',').map(id => id)
-        : undefined,
-      startDate: startDate || undefined,
-      endDate: endDate || undefined,
-      cursor: cursor || undefined,
-      limit: Number(limit ?? 20),
-    });
-  }
-
-
-  // ✅ Get Employees Ordered By Lowest Active Assignments
-  @Permissions("orders.assign")
-  @Get("employees-by-load")
-  async getEmployeesByLoad(
-    @Req() req: any,
-    @Query('cursor') cursor?: string,
-    @Query('limit') limit?: string,
-    @Query('role') role?: string,
-  ) {
-    return this.svc.getEmployeesByLoad(req.user, Number(limit ?? 20), cursor ? Number(cursor) : null, role ? role : undefined);
-  }
 
   @Permissions("orders.read")
   @Get('manifests')

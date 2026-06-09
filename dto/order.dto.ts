@@ -383,6 +383,10 @@ export class ShippingSettingsDto {
 export class UpsertOrderRetrySettingsDto {
   @IsBoolean()
   @IsOptional()
+  autoAssignmentEnabled?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   enabled?: boolean;
 
   @IsNumber()
@@ -475,100 +479,6 @@ export class UpsertOrderRetrySettingsDto {
   @IsBoolean()
   @IsOptional()
   autoCancelDuplicates?: boolean;
-}
-export class ManualAssignItemDto {
-  @IsNotEmpty()
-  @IsString()
-  userId: string;
-
-  @IsNotEmpty()
-  @IsArray()
-  @ArrayMinSize(1, {
-    message: "You must select at least one order for each employee",
-  })
-  orderIds: string[];
-}
-
-export class ManualAssignManyDto {
-  @IsNotEmpty()
-  @IsArray()
-  @ArrayMinSize(1, {
-    message: "You must provide at least one assignment block",
-  })
-  @ValidateNested({ each: true })
-  @Type(() => ManualAssignItemDto)
-  assignments: ManualAssignItemDto[];
-}
-
-export class AutoAssignDto {
-  @IsArray()
-  @ArrayNotEmpty()
-  statusIds?: string[];
-
-  @IsNotEmpty()
-  @IsInt()
-  @Min(1)
-  employeeCount: number; // How many employees should participate (e.g., 5)
-
-  @IsNotEmpty()
-  @IsInt()
-  @Min(1)
-  orderCount: number; // How many employees should participate (e.g., 5)
-
-  @IsOptional()
-  @IsDateString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsDateString()
-  endDate?: string;
-}
-
-export class AutoPreviewDto {
-  @IsArray()
-  @ArrayNotEmpty()
-  statusIds: string[];
-
-  @IsInt()
-  @Type(() => Number)
-  requestedOrderCount: number;
-
-  @IsInt()
-  @Type(() => Number)
-  requestedEmployeeCount: number;
-
-  @IsOptional()
-  @IsDateString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsDateString()
-  endDate?: string;
-}
-
-export class GetFreeOrdersDto {
-  @IsArray()
-  @ArrayNotEmpty()
-  statusIds?: string[];
-
-  @IsOptional()
-  @IsDateString()
-  startDate?: string;
-
-  @IsOptional()
-  @IsDateString()
-  endDate?: string;
-
-  // cursor = created_at of last item from previous page
-  @IsOptional()
-  @IsDateString()
-  cursor?: string;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  limit?: number = 20;
 }
 
 export class ReplacementItemDto {
