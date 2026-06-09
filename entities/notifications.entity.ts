@@ -51,6 +51,7 @@ export enum NotificationType {
     UPSELL_APPLICATION_FAILED = 'upsell_application_failed',
     SHIPMENT_DELIVERED = 'shipment_delivered',
     SHIPMENT_FAILED = 'shipment_failed',
+    ORDER_ASSIGNED = 'order_assigned',
 }
 
 @Entity('notifications')

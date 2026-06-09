@@ -6,6 +6,7 @@ import { CityEntity, CityTenantConfigEntity, ProviderLocationEntity } from '../.
 import { UpdateCityTenantConfigDto } from 'dto/cities.dto';
 import * as ExcelJS from 'exceljs';
 import { tenantId } from 'src/category/category.service';
+import { DateFilterUtil } from 'common/date-filter.util';
 
 @Injectable()
 export class CitiesService {
@@ -54,6 +55,9 @@ export class CitiesService {
 		if (q?.maxDays !== undefined && q?.maxDays !== '') {
 			qb.andWhere('config.maxShippingDays <= :maxDays', { maxDays: Number(q.maxDays) });
 		}
+
+		DateFilterUtil.applyToQueryBuilder(qb, 'config."createdAt"', q?.startDate, q?.endDate);
+	
 
 		if (q?.isConfigured === 'true') {
 			qb.andWhere('config.id IS NOT NULL');

@@ -53,6 +53,7 @@ import { UpsellsModule } from './upsells/upsells.module';
 import { ConversationModule } from './conversation/conversation.module';
 import { CustomerModule } from './customer/customer.module';
 import { CitiesModule } from './cities/cities.module';
+import { OrderAssignmentModule } from './order-assignment/order-assignment.module';
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -124,7 +125,8 @@ import { CitiesModule } from './cities/cities.module';
 		UpsellsModule,
 		ConversationModule,
 		CustomerModule,
-		CitiesModule
+		CitiesModule,
+		OrderAssignmentModule
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService, {

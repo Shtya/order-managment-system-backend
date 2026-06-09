@@ -24,6 +24,7 @@ import { MonthlyClosingEntity } from "./accounting.entity";
 import { ActivatableEntity } from "./base.entity";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { CityEntity } from "./cities.entity";
+import { OrderAssignmentEntity } from "./assignment.entity";
 
 
 // ✅ Order Status Enum
@@ -680,6 +681,9 @@ export class OrderRetrySettingsEntity {
   admin: User;
 
   @Column({ type: "boolean", default: true })
+  autoAssignmentEnabled: boolean;
+
+  @Column({ type: "boolean", default: true })
   enabled: boolean;
 
   @Column({ type: "int", default: 3 })
@@ -790,60 +794,7 @@ export class OrderRetrySettingsEntity {
   updated_at: Date;
 }
 
-@Entity("order_assignments")
-@Index(["orderId", "isAssignmentActive"]) // Fast lookup to see if an order is "taken"
-export class OrderAssignmentEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
 
-  @Column({ type: 'uuid', })
-  orderId: string;
-
-  @ManyToOne(() => OrderEntity)
-  @JoinColumn({ name: "orderId" })
-  order: OrderEntity;
-
-  @Column({ type: 'uuid', })
-  employeeId: string;
-
-  @ManyToOne(() => User)
-  @JoinColumn({ name: "employeeId" })
-  employee: User;
-
-  @Column({ type: 'uuid', })
-  assignedByAdminId: string;
-
-  @ManyToOne(() => OrderStatusEntity, { eager: true, nullable: true })
-  @JoinColumn({ name: "lastStatusId" })
-  lastStatus: OrderStatusEntity;
-
-  @Column({ type: 'uuid', nullable: true })
-  lastStatusId: string;
-
-  // ✅ Tracking the Work
-  @Column({ type: "int", default: 0 })
-  retriesUsed: number;
-
-  @Column({ type: "int", default: 3 })
-  maxRetriesAtAssignment: number; // Snapshot of global settings at time of assign
-
-  @Column({ type: "boolean", default: true })
-  @Index()
-  isAssignmentActive: boolean; // TRUE = Order is "Taken". FALSE = Order is "Free"
-
-  // ✅ Timing & Locking
-  @CreateDateColumn({ type: "timestamptz" })
-  assignedAt: Date;
-
-  @Column({ type: "timestamptz", nullable: true })
-  lastActionAt?: Date; // Automatically updates whenever the employee hits 'Retry' or 'Confirm'
-
-  @Column({ type: "timestamptz", nullable: true })
-  lockedUntil?: Date | null; // If now < lockedUntil, employee can see it but can't click it
-
-  @Column({ type: "timestamptz", nullable: true })
-  finishedAt?: Date;
-}
 
 @Entity({ name: "order_replacements" })
 export class OrderReplacementEntity {

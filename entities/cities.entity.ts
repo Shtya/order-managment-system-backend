@@ -1,5 +1,5 @@
 import { ProviderCode, ShippingProvider } from "src/shipping/providers/shipping-provider.interface";
-import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn } from "typeorm";
+import { Column, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
 
 
@@ -97,4 +97,9 @@ export class CityTenantConfigEntity {
     @Column({ nullable: true })
     maxShippingDays: number;
     
+    @CreateDateColumn({ type: 'timestamptz' })
+    createdAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamptz' })
+    updatedAt: Date;
 }

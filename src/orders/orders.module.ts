@@ -37,6 +37,7 @@ import { OrderReturnService } from "./services/order-return.service";
 import { OrderReturnsController } from "./controllers/order-return.controller";
 import { SubscriptionsModule } from "src/subscription/subscription.module";
 import { WalletModule } from "src/wallet/wallet.module";
+import { OrderAssignmentModule } from "src/order-assignment/order-assignment.module";
 import { BulkUploadUsage } from "entities/plans.entity";
 import { AutomationModule } from "src/automation/automation.module";
 
@@ -47,6 +48,7 @@ import { AutomationModule } from "src/automation/automation.module";
     forwardRef(() => ShippingModule),
     forwardRef(() => WalletModule),
     forwardRef(() => AuthModule),
+    forwardRef(() => OrderAssignmentModule),
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,
