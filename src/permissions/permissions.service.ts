@@ -26,7 +26,7 @@ export class PermissionsService implements OnModuleInit {
 			'transactions.read', 'transactions.create', 'transactions.update', 'transactions.cancel',
 
 			"stores.read", "stores.create", "stores.update", "stores.delete",
-			"order.read", "order.create", "order.update", "order.delete", "order.updateSettings", "order.readSettings", "order.assign",
+			"order.read", "order.create", "order.update", "order.delete", "order.updateSettings", "orders.readSettings", "order.assign",
 			"warehouses.read", "warehouses.create", "warehouses.update", "warehouses.delete", "warehouses.scan-shipping", "warehouses.scan-preparation",
 			"categories.read", "categories.create", "categories.update", "categories.delete",
 			"orders.read", "orders.create", "orders.update", "orders.delete", "orders.replace", "orders.readReplace", "return-request.create", "orders.distribution", "orders.restoreFailed", "orders.confirm-incoming",
