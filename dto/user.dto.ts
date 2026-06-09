@@ -8,9 +8,12 @@ export class AdminCreateUserDto {
 	@IsString() name: string;
 	@IsEmail() email: string;
 
-	roleId: any;
+
+	@IsString() roleId: string;
+
 	@IsOptional()
-	planId?: any;
+	@IsString()
+	planId?: string;
 
 	@IsOptional() @IsString() phone?: string;
 	@IsOptional() @IsString() employeeType?: string;
@@ -20,7 +23,7 @@ export class AdminCreateUserDto {
 export class UpdateUserDto {
 	@IsOptional() @IsString() name?: string;
 	@IsOptional() @IsEmail() email?: string;
-	@IsOptional() @IsInt() roleId?: string;
+	@IsOptional() @IsString() roleId?: string;
 	@IsOptional() isActive?: boolean;
 
 	// ✅ NEW (عشان تعديل الخطة من Edit)
