@@ -9,6 +9,7 @@ import { ManualExpenseCategoryEntity, ManualExpenseEntity, SupplierClosingEntity
 import { OrderEntity } from 'entities/order.entity';
 import { PurchaseInvoiceEntity } from 'entities/purchase.entity';
 import { PurchaseReturnInvoiceEntity } from 'entities/purchase_return.entity';
+import { SupplierPaymentEntity } from 'entities/supplier_payments.entity';
 import { ShipmentEntity, ShipmentStatus } from 'entities/shipping.entity';
 import { SupplierEntity } from 'entities/supplier.entity';
 import { tenantId } from 'src/category/category.service';
@@ -399,7 +400,8 @@ export class AccountingService {
 
         const qb = this.shipmentRepo.createQueryBuilder('shipment')
             .innerJoin('shipment.order', 'order')
-            .select('order.city', 'city')
+            .leftJoin('shipment.cityDetails', 'cityDetails')
+            .select('COALESCE(cityDetails.nameAr, order.city)', 'city')
 
             .addSelect('COUNT(shipment.id)', 'totalShipments')
 
@@ -434,11 +436,11 @@ export class AccountingService {
         }
 
         if (filters.search) {
-            qb.andWhere('order.city ILIKE :search', { search: `%${filters.search}%` });
+            qb.andWhere('(cityDetails.nameAr ILIKE :search)', { search: `%${filters.search}%` });
         }
 
 
-        qb.groupBy('order.city')
+        qb.groupBy('COALESCE(cityDetails.nameAr, order.city)')
             .orderBy('"totalShipments"', 'DESC');
 
 
@@ -484,7 +486,8 @@ export class AccountingService {
         // 1. Build the Query (Matching your report logic)
         const qb = this.shipmentRepo.createQueryBuilder('shipment')
             .innerJoin('shipment.order', 'order')
-            .select('order.city', 'city')
+            .leftJoin('shipment.cityDetails', 'cityDetails')
+            .select('COALESCE(cityDetails.nameAr, order.city)', 'city')
             .addSelect('COUNT(shipment.id)', 'totalShipments')
             .addSelect(
                 `COUNT(CASE WHEN shipment.status = :delivered THEN 1 END)`,
@@ -516,10 +519,10 @@ export class AccountingService {
         }
 
         if (q?.search) {
-            qb.andWhere('order.city ILIKE :search', { search: `%${q.search}%` });
+            qb.andWhere('(cityDetails.nameAr ILIKE :search)', { search: `%${q.search}%` });
         }
 
-        qb.groupBy('order.city').orderBy('"totalShipments"', 'DESC');
+        qb.groupBy('COALESCE(cityDetails.nameAr, order.city)').orderBy('"totalShipments"', 'DESC');
 
         const rawResults = await qb.getRawMany();
 
@@ -602,12 +605,13 @@ export class AccountingService {
     private async getExtremeCity(adminId: string, order: 'ASC' | 'DESC') {
         return await this.shipmentRepo.createQueryBuilder('shipment')
             .innerJoin('shipment.order', 'order')
-            .select('order.city', 'city')
+            .leftJoin('shipment.cityDetails', 'cityDetails')
+            .select('COALESCE(cityDetails.nameAr, order.city)', 'city')
             .addSelect('COUNT(shipment.id)', 'count')
             .where('shipment.adminId = :adminId', { adminId })
             .andWhere('shipment.status = :status', { status: ShipmentStatus.DELIVERED })
             // .andWhere('shipment.created_at BETWEEN :start AND :end', { start, end })
-            .groupBy('order.city')
+            .groupBy('COALESCE(cityDetails.nameAr, order.city)')
             .orderBy('count', order)
             .limit(1)
             .getRawOne();
@@ -821,6 +825,7 @@ export class AccountingService {
 
         const purchaseRepo = manager ? manager.getRepository(PurchaseInvoiceEntity) : this.purchaseRepo;
         const returnRepo = manager ? manager.getRepository(PurchaseReturnInvoiceEntity) : this.returnRepo;
+        const paymentRepo = manager ? manager.getRepository(SupplierPaymentEntity) : this.dataSource.getRepository(SupplierPaymentEntity);
 
         const purchaseQb = purchaseRepo.createQueryBuilder("p")
             .select("SUM(p.total)", "totalPurchases")
@@ -855,15 +860,28 @@ export class AccountingService {
         returnQb.andWhere("r.status = :status", { status: ApprovalStatus.ACCEPTED });
         // .andWhere("r.closingId IS NULL");
 
+        const paymentQb = paymentRepo.createQueryBuilder("pay")
+            .select("SUM(pay.amount)", "totalPayments")
+            .where("pay.adminId = :adminId", { adminId });
+
+        DateFilterUtil.applyToQueryBuilder(
+            paymentQb,
+            "pay.paymentDate",
+            startDate,
+            endDate
+        );
+
 
         if (supplierId) {
             purchaseQb.andWhere("p.supplierId = :supplierId", { supplierId });
             returnQb.andWhere("r.supplierId = :supplierId", { supplierId });
+            paymentQb.andWhere("pay.supplierId = :supplierId", { supplierId });
         }
 
-        const [purchaseStats, returnStats] = await Promise.all([
+        const [purchaseStats, returnStats, paymentStats] = await Promise.all([
             purchaseQb.getRawOne(),
-            returnQb.getRawOne()
+            returnQb.getRawOne(),
+            paymentQb.getRawOne()
         ]);
 
 
@@ -871,13 +889,24 @@ export class AccountingService {
         const pCount = parseInt(purchaseStats?.count || '0');
         const rCount = parseInt(returnStats?.count || '0');
         const totalReturns = Number(returnStats?.totalReturns || 0);
-        const totalPaid = Number(purchaseStats?.totalPaid || 0);
+        const totalPayments = Number(paymentStats?.totalPayments || 0);
+        const totalPaid = Number(purchaseStats?.totalPaid || 0) + totalPayments;
         const totalTaken = Number(returnStats?.totalTaken || 0);
 
         // الحسابات النهائية
         const netPurchases = totalPurchases - totalReturns;
         const netPayments = totalPaid - totalTaken;
-        const finalBalance = netPurchases - netPayments;
+
+        const supplierRepo = manager ? manager.getRepository(SupplierEntity) : this.supplierRepo;
+        const dueBalanceQb = supplierRepo.createQueryBuilder("s")
+            .select("SUM(CASE WHEN s.dueBalance > 0 THEN s.dueBalance ELSE 0 END)", "sum")
+            .where("s.adminId = :adminId", { adminId });
+
+        if (supplierId) {
+            dueBalanceQb.andWhere("s.id = :supplierId", { supplierId });
+        }
+        const dueRes = await dueBalanceQb.getRawOne();
+        const finalBalance = Number(dueRes?.sum || 0);
 
         return {
             totalPurchases,
