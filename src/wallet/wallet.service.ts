@@ -153,6 +153,7 @@ export class WalletService {
     numberOfOrders: number,
     manager?: EntityManager,
     orderNumber?: string,
+    orderId?: string,
   ) {
     const work = async (m: EntityManager) => {
       try {
@@ -167,6 +168,7 @@ export class WalletService {
         const currentUsed = Number(activeSubscription.usedOrders || 0);
         const newTotalUsed = currentUsed + numberOfOrders;
 
+        let transaction = null;
 
         if (limit !== null) {
           const allowedLimit = Number(limit);
@@ -204,7 +206,7 @@ export class WalletService {
             // Record transaction for wallet deduction
             const number = await this.transactionsService.generateTransactionNumber(wallet.userId?.toString());
 
-            const transaction = m.create(TransactionEntity, {
+            transaction = m.create(TransactionEntity, {
               userId: me.id,
               amount: cost,
               currency: "USD",
@@ -213,6 +215,7 @@ export class WalletService {
               status: TransactionStatus.SUCCESS,
               paymentMethod: TransactionPaymentMethod.OTHER, // Using OTHER for internal wallet deduction
               number: number,
+              orderId,
               // add order number
               notes: `Auto-deduction for ${extraOrders} extra orders exceeding plan limit. Order Number: ${orderNumber || "—"}`,
             });
@@ -228,6 +231,7 @@ export class WalletService {
         return {
           wallet,
           subscription: activeSubscription,
+          transaction,
         };
       } catch (error) {
         await this.notificationService.create({

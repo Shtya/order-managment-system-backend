@@ -126,7 +126,7 @@ export class PaymentsService {
         switch (session.purpose) {
             case PaymentPurposeEnum.SUBSCRIPTION_PAYMENT:
                 itemName = 'Subscription';
-                relatedEntityType = 'subscriptions';
+                relatedEntityType = 'subscription';
                 relatedEntityId = String(session.subscriptionId);
                 break;
             case PaymentPurposeEnum.FEATURE_PURCHASE:
@@ -213,7 +213,7 @@ export class PaymentsService {
                                 type: NotificationType.SUBSCRIPTION_ACTIVATED,
                                 title: `Subscription Active: ${sub.plan.name}`,
                                 message: `Your ${sub.plan.name} (${sub.planType}) plan is now active${expiryText}.`,
-                                relatedEntityType: 'Subscription',
+                                relatedEntityType: 'subscription',
                                 relatedEntityId: String(sub.id),
                             })
                         );
@@ -263,7 +263,7 @@ export class PaymentsService {
                         type: NotificationType.WALLET_TOP_UP,
                         title: 'Wallet Balance Updated',
                         message: `Successfully added ${paidAmount} EGP (${dollorAmount} USD) to your wallet. Your new balance is ready to use.`,
-                        relatedEntityType: 'Wallet',
+                        relatedEntityType: 'wallet',
                         relatedEntityId: String(session.userId),
                     })
                 );

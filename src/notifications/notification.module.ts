@@ -7,10 +7,12 @@ import { NotificationSubscriber } from "./NotificationSubscriber";
 import { Notification } from "entities/notifications.entity";
 import { OrderRetrySettingsEntity } from "entities/order.entity";
 import { WebSocketModule } from "common/websocket.module";
+import { OrdersModule } from "src/orders/orders.module";
 
 @Global()
 @Module({
   imports: [
+    forwardRef(() => OrdersModule),
     TypeOrmModule.forFeature([Notification, User, OrderRetrySettingsEntity]),
     WebSocketModule,
   ],

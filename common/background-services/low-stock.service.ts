@@ -80,7 +80,13 @@ export class LowStockService {
 
       // 3. Process and send notifications
       for (const [adminId, variants] of Object.entries(groupedByAdmin)) {
+        // Get admin settings
+        const settings = await this.settingsRepo.findOne({ where: { adminId } });
 
+        // Check if notifyLowStock is enabled
+        if (!settings?.notifyLowStock) {
+          continue;
+        }
 
         // Create a summary message
         const message = variants.length === 1
