@@ -423,6 +423,8 @@ export class PurchasesService {
 
 		const oldSupplierId = inv.supplierId;
 		const oldStatus = inv.status;
+		const oldTotal = inv.total ?? 0;
+		const oldRemaining = inv.remainingAmount ?? 0;
 
 		if (dto.receiptNumber && dto.receiptNumber !== inv.receiptNumber) {
 			const exists = await this.invRepo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
@@ -492,6 +494,8 @@ export class PurchasesService {
 			newSupplierId: saved.supplierId,
 			total: saved.total ?? 0,
 			remainingAmount: saved.remainingAmount ?? 0,
+			oldTotal: oldTotal,
+			oldRemainingAmount: oldRemaining,
 		});
 
 
@@ -571,8 +575,10 @@ export class PurchasesService {
 					newStatus: ApprovalStatus.ACCEPTED,
 					oldSupplierId: inv.supplierId,
 					newSupplierId: inv.supplierId,
-					total: 0,
-					remainingAmount: saved.remainingAmount - oldRemaining,
+					total: inv.total,
+					remainingAmount: saved.remainingAmount,
+					oldTotal: inv.total,
+					oldRemainingAmount: oldRemaining,
 					manager,
 				});
 			}
@@ -972,6 +978,8 @@ export class PurchasesService {
 		newSupplierId?: string | null;
 		total: number;
 		remainingAmount: number;
+		oldTotal?: number;
+		oldRemainingAmount?: number;
 		manager?: EntityManager;
 	}) {
 		const {
@@ -981,6 +989,8 @@ export class PurchasesService {
 			newSupplierId,
 			total,
 			remainingAmount,
+			oldTotal,
+			oldRemainingAmount,
 		} = params;
 
 		const wasAccepted = oldStatus === ApprovalStatus.ACCEPTED;
@@ -989,7 +999,9 @@ export class PurchasesService {
 		// Helper to update supplier safely
 		const updateSupplier = async (
 			supplierId: string | null | undefined,
-			op: "add" | "subtract"
+			op: "add" | "subtract",
+			t?: number,
+			r?: number
 		) => {
 			if (!supplierId) return;
 
@@ -1002,12 +1014,15 @@ export class PurchasesService {
 			const currentPurchase = Number(supplier.purchaseValue || 0);
 			const currentDue = Number(supplier.dueBalance || 0);
 
+			const useTotal = t !== undefined ? t : total;
+			const useRemaining = r !== undefined ? r : remainingAmount;
+
 			if (op === "add") {
-				supplier.purchaseValue = Number(currentPurchase) + Number(total);
-				supplier.dueBalance = Number(currentDue) + Number(remainingAmount);
+				supplier.purchaseValue = Number(currentPurchase) + Number(useTotal);
+				supplier.dueBalance = Number(currentDue) + Number(useRemaining);
 			} else {
-				supplier.purchaseValue = Number(currentPurchase) - Number(total);
-				supplier.dueBalance = Number(currentDue) - Number(remainingAmount);
+				supplier.purchaseValue = Number(currentPurchase) - Number(useTotal);
+				supplier.dueBalance = Number(currentDue) - Number(useRemaining);
 			}
 
 			await repo.save(supplier);
@@ -1031,8 +1046,21 @@ export class PurchasesService {
 			newSupplierId &&
 			oldSupplierId !== newSupplierId
 		) {
-			await updateSupplier(oldSupplierId, "subtract");
-			await updateSupplier(newSupplierId, "add");
+			await updateSupplier(oldSupplierId, "subtract", oldTotal, oldRemainingAmount);
+			await updateSupplier(newSupplierId, "add", total, remainingAmount);
+		}
+
+		// CASE 4: amount changed while ACCEPTED (same supplier)
+		if (
+			wasAccepted &&
+			isAccepted &&
+			oldSupplierId &&
+			newSupplierId &&
+			oldSupplierId === newSupplierId
+		) {
+			const deltaTotal = total - (oldTotal ?? 0);
+			const deltaRemaining = remainingAmount - (oldRemainingAmount ?? 0);
+			await updateSupplier(newSupplierId, "add", deltaTotal, deltaRemaining);
 		}
 	}
 

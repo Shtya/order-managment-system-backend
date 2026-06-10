@@ -33,6 +33,27 @@ export class BundlesService {
 	) { }
 
 
+	async checkSku(me: any, sku: string, bundleId?: string) {
+		const adminId = tenantId(me);
+		if (!adminId) throw new BadRequestException("Missing adminId");
+
+		if (bundleId) {
+			const entity = await this.bundleRepo.findOne({ where: { id: bundleId, adminId } as any });
+			if (entity && sku === entity.sku) return { isUnique: true };
+		}
+
+		const exists = await this.bundleRepo.findOne({
+			where: {
+				adminId,
+				sku: sku.trim(),
+				isActive: true
+			},
+			select: ["id"]
+		});
+
+		return { isUnique: !exists };
+	}
+
 	async list(me: any, q?: any) {
 		const page = Number(q?.page) || 1;
 		const limit = Number(q?.limit) || 10;
@@ -338,7 +359,7 @@ export class BundlesService {
 		if (!b) throw new BadRequestException("bundle not found");
 
 		if (dto.name !== undefined) b.name = dto.name;
-		if (dto.sku !== undefined) b.sku = dto.sku;
+		// if (dto.sku !== undefined) b.sku = dto.sku;
 		if (dto.price !== undefined) b.price = dto.price;
 		if (dto.description !== undefined) b.description = dto.description;
 		if (dto.variantId !== undefined) b.variantId = dto.variantId;

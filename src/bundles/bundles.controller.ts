@@ -57,6 +57,16 @@ export class BundlesController {
 
 
   @Permissions("products.read")
+  @Get("check-sku")
+  async checkSku(
+    @Req() req: any,
+    @Query("sku") sku: string,
+    @Query("bundleId") bundleId?: string,
+  ) {
+    return this.bundles.checkSku(req.user, sku, bundleId);
+  }
+
+  @Permissions("products.read")
   @Get("by-sku/:sku")
   getBySku(@Req() req: any, @Param("sku") sku: string) {
     return this.bundles.getBySku(req.user, sku);

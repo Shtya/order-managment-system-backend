@@ -73,6 +73,8 @@ export class PurchaseReturnsService {
     newSupplierId?: string | null;
     totalReturn: number;
     paidAmount: number;
+    oldTotalReturn?: number;
+    oldPaidAmount?: number;
     manager?: EntityManager;
   }) {
     const {
@@ -82,19 +84,20 @@ export class PurchaseReturnsService {
       newSupplierId,
       totalReturn,
       paidAmount,
+      oldTotalReturn,
+      oldPaidAmount,
     } = params;
 
     const wasAccepted = oldStatus === ApprovalStatus.ACCEPTED;
     const isAccepted = newStatus === ApprovalStatus.ACCEPTED;
     const repo = params?.manager ? params?.manager.getRepository(SupplierEntity) : this.supplierRepo;
 
-    // In returns, remaining = totalReturn - paidAmount
-    const remaining = totalReturn - paidAmount;
-
     // Helper to update supplier safely
     const updateSupplier = async (
       supplierId: string | null | undefined,
-      op: "add" | "subtract"
+      op: "add" | "subtract",
+      tr?: number,
+      pa?: number
     ) => {
       if (!supplierId) return;
 
@@ -107,15 +110,19 @@ export class PurchaseReturnsService {
       const currentPurchase = Number(supplier.purchaseValue || 0);
       const currentDue = Number(supplier.dueBalance || 0);
 
+      const useTotalReturn = tr !== undefined ? tr : totalReturn;
+      const usePaidAmount = pa !== undefined ? pa : paidAmount;
+      const useRemaining = useTotalReturn - usePaidAmount;
+
       // In returns: 
       // op "subtract" means the return is ACCEPTED (so it subtracts from supplier's balance)
       // op "add" means the return left ACCEPTED (so it adds back to supplier's balance)
       if (op === "subtract") {
-        supplier.purchaseValue = currentPurchase - Number(totalReturn);
-        supplier.dueBalance = currentDue - Number(remaining);
+        supplier.purchaseValue = currentPurchase - Number(useTotalReturn);
+        supplier.dueBalance = currentDue - Number(useRemaining);
       } else {
-        supplier.purchaseValue = currentPurchase + Number(totalReturn);
-        supplier.dueBalance = currentDue + Number(remaining);
+        supplier.purchaseValue = currentPurchase + Number(useTotalReturn);
+        supplier.dueBalance = currentDue + Number(useRemaining);
       }
 
       await repo.save(supplier);
@@ -139,8 +146,23 @@ export class PurchaseReturnsService {
       newSupplierId &&
       oldSupplierId !== newSupplierId
     ) {
-      await updateSupplier(oldSupplierId, "add");
-      await updateSupplier(newSupplierId, "subtract");
+      await updateSupplier(oldSupplierId, "add", oldTotalReturn, oldPaidAmount);
+      await updateSupplier(newSupplierId, "subtract", totalReturn, paidAmount);
+    }
+
+    // CASE 4: amount changed while ACCEPTED (same supplier)
+    if (
+      wasAccepted &&
+      isAccepted &&
+      oldSupplierId &&
+      newSupplierId &&
+      oldSupplierId === newSupplierId
+    ) {
+      const deltaTotalReturn = totalReturn - (oldTotalReturn ?? 0);
+      const deltaPaidAmount = paidAmount - (oldPaidAmount ?? 0);
+      // If deltaTotalReturn is positive, it means more items returned -> subtract more from supplier balance
+      // If deltaPaidAmount is positive, it means more cash taken back -> adds back to supplier balance (remaining decreases)
+      await updateSupplier(newSupplierId, "subtract", deltaTotalReturn, deltaPaidAmount);
     }
   }
 
@@ -410,8 +432,10 @@ export class PurchaseReturnsService {
           newStatus: ApprovalStatus.ACCEPTED,
           oldSupplierId: inv.supplierId,
           newSupplierId: inv.supplierId,
-          totalReturn: 0,
-          paidAmount: newPaidAmount - oldPaidAmount,
+          totalReturn: inv.totalReturn,
+          paidAmount: newPaidAmount,
+          oldTotalReturn: inv.totalReturn,
+          oldPaidAmount: oldPaidAmount,
           manager,
         });
       }
@@ -530,6 +554,8 @@ export class PurchaseReturnsService {
     }
     const oldStatus = inv.status;
     const oldSupplierId = inv.supplierId;
+    const oldTotalReturn = inv.totalReturn ?? 0;
+    const oldPaidAmount = inv.paidAmount ?? 0;
 
     // Delete old file if a new one is uploaded
     if (dto.receiptAsset && inv.receiptAsset && dto.receiptAsset !== inv.receiptAsset) {
@@ -590,6 +616,8 @@ export class PurchaseReturnsService {
       newSupplierId: saved.supplierId,
       totalReturn: Number(saved.totalReturn || 0),
       paidAmount: Number(saved.paidAmount || 0),
+      oldTotalReturn: oldTotalReturn,
+      oldPaidAmount: oldPaidAmount,
     });
 
     await this.log({

@@ -60,9 +60,7 @@ export class CreateAutoAssignRuleDto {
   employeeIds: string[];
 }
 
-export class UpdateAutoAssignRuleDto extends  OmitType(
-  CreateAutoAssignRuleDto,
-  ['ruleType'] as const,) {
+export class UpdateAutoAssignRuleDto extends  OmitType(CreateAutoAssignRuleDto, ['ruleType'] as const,) {
   @IsOptional()
   @IsString()
   name: string;

@@ -12,7 +12,7 @@ import {
   Min,
   ValidateNested,
 } from "class-validator";
-import { PartialType } from "@nestjs/mapped-types";
+import { OmitType, PartialType } from "@nestjs/mapped-types";
 
 export class BundleItemDto {
   @IsString()
@@ -57,7 +57,9 @@ export class CreateBundleDto {
   items!: BundleItemDto[];
 }
 
-export class UpdateBundleDto extends PartialType(CreateBundleDto) {
+export class UpdateBundleDto extends PartialType(
+  OmitType(CreateBundleDto, ['sku'] as const),
+) {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
