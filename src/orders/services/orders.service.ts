@@ -3370,8 +3370,6 @@ export class OrdersService {
       });
 
 
-
-
       // 2. Notify Employee (The one assigned to the order)
       notificationPromises.push(
         this.notificationService.create({
