@@ -318,7 +318,7 @@ export class ProductsService {
       acceptedReturnStats,
     ] = await Promise.all([
       // 1. Total Products Count
-      this.prodRepo.count({ where: { adminId } }),
+      this.prodRepo.count({ where: { adminId, isActive: true } }),
 
       // 2. Inventory Stats (Reserved & Available)
       this.pvRepo
