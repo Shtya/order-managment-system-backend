@@ -604,7 +604,8 @@ export class DashboardService {
           );
         }),
       )
-      // GROUP BY every non-aggregated selected column (Postgres requires this)
+      .andWhere("status.isActive = true")
+           // GROUP BY every non-aggregated selected column (Postgres requires this)
       .groupBy("status.id")
       .addGroupBy("status.name")
       .addGroupBy("status.code")
