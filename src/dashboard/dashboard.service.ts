@@ -767,7 +767,7 @@ export class DashboardService {
     }
     const query = `
         SELECT 
-            o.city,
+            COALESCE(cd."nameAr", o.city) AS city,
             -- إجمالي الطلبات
             COUNT(o.id) AS "totalOrders",
             -- طلبات مؤكدة (Confirmed)
@@ -780,11 +780,12 @@ export class DashboardService {
             COALESCE(SUM(CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o."finalTotal" ELSE 0 END), 0) AS "sales"
         FROM orders o
         LEFT JOIN order_statuses st ON st.id = o."statusId"
+        LEFT JOIN cities cd ON cd.id = o."cityId"
         WHERE o."adminId" = $3 
           AND o.created_at >= $1 
           AND o.created_at <= $2
           ${extraFilters}
-        GROUP BY o.city
+        GROUP BY COALESCE(cd."nameAr", o.city)
         ORDER BY "sales" DESC
         LIMIT $4;
     `;

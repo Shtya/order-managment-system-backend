@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { OrderEntity } from './order.entity';
 import { User } from './user.entity';
+import { CityEntity } from './cities.entity';
 
 export enum ShipmentStatus {
 	CREATED = 'created',
@@ -175,6 +176,22 @@ export class ShipmentEntity {
 
 	@Column({ type: 'text', nullable: true })
 	failureReason?: string | null;
+
+	@Column({ type: 'uuid', nullable: true })
+	cityId: string;
+
+	@ManyToOne(() => CityEntity, { eager: true })
+	@JoinColumn({ name: "cityId" })
+	cityDetails?: CityEntity;
+
+	@Column({ type: "text", nullable: true })
+	address?: string;
+
+	@Column({ type: "text", nullable: true })
+	landmark?: string;
+
+	@Column({ type: "varchar", length: 100, nullable: true })
+	area?: string;
 
 	@CreateDateColumn({ type: 'timestamptz' })
 	created_at: Date;

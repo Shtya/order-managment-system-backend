@@ -518,6 +518,10 @@ export class ShippingService {
 							orderId,
 							shippingCompanyId: null,
 							status: ShipmentStatus.CREATED,
+							cityId: order.cityId,
+							address: order.address,
+							landmark: order.landmark,
+							area: order.area,
 							unifiedStatus: UnifiedShippingStatus.IN_PROGRESS,
 							trackingNumber,
 							providerRaw: { manual: true },
@@ -568,6 +572,10 @@ export class ShippingService {
 					manager.create(ShipmentEntity, {
 						adminId,
 						orderId: orderId,
+						cityId: order.cityId,
+						address: order.address,
+						landmark: order.landmark,
+						area: order.area,
 						shippingCompanyId: companyId,
 						status: ShipmentStatus.SUBMITTED,
 						unifiedStatus: UnifiedShippingStatus.NEW,
@@ -1019,7 +1027,7 @@ export class ShippingService {
 					: mapped.trackingNumber
 						? { trackingNumber: mapped.trackingNumber }
 						: ({} as any),
-				
+
 				relations: ['order', 'order.items']
 			});
 
@@ -1284,7 +1292,7 @@ export class ShippingService {
 		if (u === UnifiedShippingStatus.NEW) return ShipmentStatus.CREATED;
 		if (u === UnifiedShippingStatus.DELIVERED) return ShipmentStatus.DELIVERED;
 		if (u === UnifiedShippingStatus.CANCELLED) return ShipmentStatus.CANCELLED;
-		
+
 		if ([UnifiedShippingStatus.EXCEPTION, UnifiedShippingStatus.LOST, UnifiedShippingStatus.DAMAGED, UnifiedShippingStatus.TERMINATED].includes(u)) {
 			return ShipmentStatus.FAILED;
 		}
