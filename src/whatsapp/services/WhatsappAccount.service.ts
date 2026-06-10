@@ -33,7 +33,7 @@ export class WhatsappAccountService {
         .addSelect('COUNT(*)', 'count')
         .where('m.adminId = :adminId', { adminId })
         .andWhere('m.direction = :direction', { direction: MessageDirection.OUTBOUND })
-        .andWhere('m.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
+        // .andWhere('m.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
         .groupBy('m.status')
         .getRawMany(),
 
@@ -59,10 +59,10 @@ export class WhatsappAccountService {
     });
 
     return {
-      deliveryRate: totalOutbound > 0 ? Math.round((delivered / totalOutbound) * 100) : 0,
-      readRate: delivered > 0 ? Math.round((read / delivered) * 100) : 0,
-      newConversations: newConversations,
-      failureRate: totalOutbound > 0 ? Math.round((failed / totalOutbound) * 100) : 0,
+      deliveryRate: totalOutbound > 0 ? Number(((delivered / totalOutbound) * 100).toFixed(2)) : 0,
+      readRate: delivered > 0 ? Number(((read / delivered) * 100).toFixed(2)) : 0,
+      newConversations,
+      failureRate: totalOutbound > 0 ? Number(((failed / totalOutbound) * 100).toFixed(2)) : 0,
     };
   }
 
