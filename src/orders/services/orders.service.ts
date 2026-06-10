@@ -44,6 +44,7 @@ import {
   ShipmentManifestType,
   ReturnRequestEntity,
   StockDeductionStrategy,
+  ReturnRequestStatus,
 } from "entities/order.entity";
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
@@ -1236,17 +1237,28 @@ export class OrdersService {
       const orderRepo = manager.getRepository(OrderEntity);
 
       // 1. Fetch the requests and their associated orders
-      const returns = await returnRepo.find({
-        where: { adminId, orderId: In(dto.orderIds) },
-        relations: ["order"],
+      const orders = await orderRepo.find({
+        where: {
+          adminId,
+          id: In(dto.orderIds),
+        },
+        relations: ["lastReturn", "status"],
       });
+
+      const returns = orders
+        .map(order => order.lastReturn)
+        .filter(Boolean);
+
+      if (returns.length !== dto.orderIds.length) {
+        throw new BadRequestException("Not all orders have return requests.");
+      }
 
       if (returns.length === 0) {
         throw new BadRequestException("No valid return requests selected.");
       }
 
-      const invalidOrders = returns.filter(
-        (o) => o.order.status.code !== OrderStatus.RETURN_PREPARING,
+      const invalidOrders = orders.filter(
+        (o) => o.status.code !== OrderStatus.RETURN_PREPARING,
       );
 
       if (invalidOrders.length > 0) {
@@ -1260,19 +1272,19 @@ export class OrdersService {
               orderId: o.id,
               actionType: OrderActionType.MANIFEST_PRINTED, // Tracking manifest attempt
               result: OrderActionResult.FAILED,
-              details: `Failed to add to manifest. Reason: Order is in ${o.order.status.code} but must be RETURN_PREPARING.`,
+              details: `Failed to add to manifest. Reason: Order is in ${o.status.code} but must be RETURN_PREPARING.`,
             }),
           ),
         );
 
-        const nums = invalidOrders.map((o) => o.order.orderNumber).join(", ");
+        const nums = invalidOrders.map((o) => o.orderNumber).join(", ");
         throw new BadRequestException(
           `The following orders are not in 'Return Preparing' status: ${nums}`,
         );
       }
 
       for (const ret of returns) {
-        const order = ret.order;
+        const order = orders.find(o => o.id === ret.orderId);
 
         // التحقق من شركة الشحن
         if (order.shippingCompanyId !== dto.shippingCompanyId) {
@@ -1318,6 +1330,21 @@ export class OrdersService {
             manifestId: manifest.id, // Ensure manifest linkage is saved
           }
         );
+
+        const returnIds = orders
+          .map(order => order.lastReturnId)
+          .filter(Boolean);
+
+        if (returnIds.length) {
+          await returnRepo.update(
+            {
+              id: In(returnIds),
+            },
+            {
+              status: ReturnRequestStatus.APPROVED,
+            },
+          );
+        }
 
         const statusLogs = orderIds.map((orderId) => ({
           adminId,
@@ -2812,37 +2839,37 @@ export class OrdersService {
         }
 
         if (item.cityId !== undefined && item.cityId) {
-          
-            const city = cityMap.get(item.cityId);
-            if (!city) {
-              invalidResults.push({ id: item.id, reason: `City ID ${item.cityId} not found.` });
+
+          const city = cityMap.get(item.cityId);
+          if (!city) {
+            invalidResults.push({ id: item.id, reason: `City ID ${item.cityId} not found.` });
+            continue;
+          }
+
+          // If a provider is selected, check if this city has a provider location
+          if (dto.code && dto.code.toLowerCase() !== 'none') {
+            const providerLocation = city.providerLocations?.find(
+              pl => pl.provider.toLowerCase() === dto.code.toLowerCase()
+            );
+
+            if (!providerLocation) {
+              invalidResults.push({
+                id: item.id,
+                reason: `City ${city.nameEn} is not supported by provider ${dto.code}.`
+              });
               continue;
             }
 
-            // If a provider is selected, check if this city has a provider location
-            if (dto.code && dto.code.toLowerCase() !== 'none') {
-              const providerLocation = city.providerLocations?.find(
-                pl => pl.provider.toLowerCase() === dto.code.toLowerCase()
-              );
+            // Update shipping metadata with provider-specific city ID
+            order.shippingMetadata = {
+              ...(order.shippingMetadata ?? {}),
+              cityId: providerLocation.providerCityId
+            };
+          }
 
-              if (!providerLocation) {
-                invalidResults.push({
-                  id: item.id,
-                  reason: `City ${city.nameEn} is not supported by provider ${dto.code}.`
-                });
-                continue;
-              }
+          order.cityId = city.id;
+          order.city = city.nameAr; // Keep string city updated too
 
-              // Update shipping metadata with provider-specific city ID
-              order.shippingMetadata = {
-                ...(order.shippingMetadata ?? {}),
-                cityId: providerLocation.providerCityId
-              };
-            }
-
-            order.cityId = city.id;
-            order.city = city.nameAr; // Keep string city updated too
-          
         }
 
         if (item.shippingMetadata !== undefined) {
@@ -3166,7 +3193,7 @@ export class OrdersService {
       if (!order) throw new BadRequestException("Order not found");
 
       const oldStatus = order?.status;
-      
+
       // Check if order is already in warehouse
       if (oldStatus && this.isWarehouseStatus(oldStatus.code)) {
         // Prevent update and deactivate assignment
@@ -3180,9 +3207,9 @@ export class OrdersService {
           activeAssignment.lastStatusId = oldStatus.id;
           await manager.save(OrderAssignmentEntity, activeAssignment);
         }
-        return { 
-          success: false, 
-          message: oldStatus.code === OrderStatus.DELIVERED ? "Order has been delivered and cannot be edited." : "Order cannot be edited because it has already entered the warehouse." 
+        return {
+          success: false,
+          message: oldStatus.code === OrderStatus.DELIVERED ? "Order has been delivered and cannot be edited." : "Order cannot be edited because it has already entered the warehouse."
         };
       }
 

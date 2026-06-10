@@ -1011,6 +1011,11 @@ export class OrderActionLogEntity {
   createdAt: Date; // Date & Time
 }
 
+export enum ReturnRequestStatus {
+  PENDING = "pending",
+  APPROVED = "approved",
+  REJECTED = "rejected",
+}
 @Index(["adminId", "orderId"])
 @Entity("order_returns")
 export class ReturnRequestEntity {
@@ -1028,6 +1033,9 @@ export class ReturnRequestEntity {
   @Column({ type: 'uuid', })
   orderId: string;
 
+  @Column({ type: "enum", enum: ReturnRequestStatus, default: ReturnRequestStatus.PENDING })
+  status: ReturnRequestStatus; // ✅ Now an Enum
+
   @ManyToOne(() => OrderEntity)
   @JoinColumn({ name: "orderId" })
   order: OrderEntity;
@@ -1042,6 +1050,13 @@ export class ReturnRequestEntity {
     cascade: true,
   })
   items: ReturnRequestItemEntity[];
+
+  @Column({ type: 'uuid', nullable: true })
+  monthlyClosingId: string | null;
+
+  @ManyToOne(() => MonthlyClosingEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'monthlyClosingId' })
+  monthlyClosing: MonthlyClosingEntity;
 
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
