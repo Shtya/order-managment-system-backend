@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, Brackets, DataSource, EntityManager, IsNull, LessThanOrEqual, Not, Repository } from 'typeorm';
 import { MonthlyClosingEntity } from 'entities/accounting.entity';
-import { OrderEntity, OrderItemEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
+import { OrderEntity, OrderItemEntity, OrderStatus, OrderStatusEntity, ReturnRequestEntity, ReturnRequestItemEntity, ReturnRequestStatus } from 'entities/order.entity';
 import { ManualExpenseEntity } from 'entities/accounting.entity';
 import { PurchaseInvoiceEntity } from 'entities/purchase.entity';
 import { PurchaseReturnInvoiceEntity } from 'entities/purchase_return.entity';
@@ -240,7 +240,25 @@ export class MonthlyClosingService {
           .andWhere('collectionDate BETWEEN :start AND :end', { start, end })
           .execute(),
 
-      ]);
+        await manager
+          .getRepository(ReturnRequestEntity)
+          .createQueryBuilder()
+          .update()
+          .set({ monthlyClosingId: savedClosing.id })
+          .where('adminId = :adminId', { adminId })
+          .andWhere('status = :status', {
+            status: ReturnRequestStatus.APPROVED,
+          })
+          .andWhere('monthlyClosingId IS NULL')
+          .andWhere('createdAt BETWEEN :start AND :end', { start, end })
+          .andWhere(`
+    "orderId" IN (
+      SELECT o.id
+      FROM orders o
+      WHERE o."deliveredAt" IS NOT NULL
+    )
+  `)
+          .execute(),]);
 
       return savedClosing;
     });
@@ -323,14 +341,16 @@ export class MonthlyClosingService {
 
 
       // ✅ Returns 
-      orderItemsRepo.createQueryBuilder('oi')
+      this.dataSource.getRepository(ReturnRequestItemEntity).createQueryBuilder('ri')
+        .innerJoin('ri.returnRequest', 'rr')
+        .innerJoin('ri.originalItem', 'oi')
         .innerJoin('oi.order', 'o')
-        .select('COALESCE(SUM(oi.unitCost * oi.quantity), 0)', 'sum')
-        .where('o.adminId = :adminId', { adminId })
-        .andWhere('o.monthlyClosingId IS NULL')
-        .andWhere('o.deliveredAt IS NOT NULL')
-        .andWhere('o.deliveredAt <= o.returnedAt')
-        .andWhere('o.returnedAt BETWEEN :start AND :end', { start, end })
+        .select('COALESCE(SUM(oi.unitCost * ri.quantity), 0)', 'sum')
+        .where('rr.adminId = :adminId', { adminId })
+        .andWhere('rr.status = :status', { status: ReturnRequestStatus.APPROVED })
+        .andWhere('o."deliveredAt" IS NOT NULL')
+        .andWhere('rr.monthlyClosingId IS NULL')
+        .andWhere('rr.createdAt BETWEEN :start AND :end', { start, end })
         .getRawOne(),
     ]);
 
@@ -397,17 +417,18 @@ export class MonthlyClosingService {
         .getMany(),
 
       // Return Orders
-      this.ordersRepo.createQueryBuilder('o')
-        .select([
-          'o.id', 'o."orderNumber"', 'o."customerName"', 'o."deliveredAt"', 'o."returnedAt"'
-        ])
-        .addSelect('(SELECT SUM(oi."unitCost" * oi.quantity) FROM order_items oi WHERE oi."orderId" = o.id)', 'itemsCost')
-        .where('o."adminId" = :adminId', { adminId })
-        .andWhere(closingId ? 'o."monthlyClosingId" = :closingId' : 'o."monthlyClosingId" IS NULL', { closingId })
+      this.dataSource.getRepository(ReturnRequestItemEntity).createQueryBuilder('ri')
+        .innerJoinAndSelect('ri.returnRequest', 'rr')
+        .innerJoinAndSelect('rr.order', 'o')
+        .innerJoinAndSelect('ri.originalItem', 'oi')
+        .leftJoinAndSelect('oi.variant', 'v')
+        .leftJoinAndSelect('v.product', 'p')
+        .where('rr.adminId = :adminId', { adminId })
+        .andWhere('rr.status = :status', { status: ReturnRequestStatus.APPROVED})
         .andWhere('o."deliveredAt" IS NOT NULL')
-        .andWhere('o."deliveredAt" <= o."returnedAt"')
-        .andWhere('o."returnedAt" BETWEEN :start AND :end', { start, end })
-        .getRawMany(),
+        .andWhere(closingId ? 'rr.monthlyClosingId = :closingId' : 'rr.monthlyClosingId IS NULL', { closingId })
+        .andWhere('rr.createdAt BETWEEN :start AND :end', { start, end })
+        .getMany(),
     ]);
 
     const workbook = new ExcelJS.Workbook();
@@ -529,18 +550,18 @@ export class MonthlyClosingService {
     // this.applyNoteRow(retSheet, "List of returned orders and their product cost impact (COGS reversal).", retColumns.length);
     // this.applyHeaderStyle(retSheet, 2);
 
-    returnOrders.forEach(o => {
+    returnOrders.forEach(item => {
       const row = retSheet.addRow({
-        orderNumber: o.orderNumber,
-        customerName: o.customerName,
-        deliveredAt: o.deliveredAt ? new Date(o.deliveredAt).toLocaleString() : '-',
-        returnedAt: o.returnedAt ? new Date(o.returnedAt).toLocaleString() : '-',
-        itemsCost: Number(o.itemsCost || 0),
+        orderNumber: item.returnRequest?.order?.orderNumber || '',
+        customerName: item.returnRequest?.order?.customerName || '',
+        deliveredAt: item.returnRequest?.order?.deliveredAt ? new Date(item.returnRequest.order.deliveredAt).toLocaleString() : '-',
+        returnedAt: item.returnRequest?.createdAt ? new Date(item.returnRequest.createdAt).toLocaleString() : '-',
+        itemsCost: Number(item.originalItem?.unitCost || 0) * item.quantity,
       });
       row.getCell('link').value = {
         text: 'View Order',
-        hyperlink: `${frontendUrl}/orders/details/${o.o_id}`,
-        tooltip: `${frontendUrl}/orders/details/${o.o_id}`,
+        hyperlink: `${frontendUrl}/orders/details/${item.returnRequest?.order?.id}`,
+        tooltip: `${frontendUrl}/orders/details/${item.returnRequest?.order?.id}`,
       };
       row.getCell('link').font = { color: { argb: 'FF3b82f6' }, underline: true };
     });

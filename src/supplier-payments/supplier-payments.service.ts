@@ -79,7 +79,7 @@ export class SupplierPaymentsService {
                     .andWhere('inv.adminId = :adminId', { adminId })
                     .andWhere('inv.remainingAmount > 0')
                     .andWhere('inv.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
-                    .andWhere('inv.closingId IS NOT NULL')
+                    .andWhere('inv.closingId IS NULL')
                     .orderBy('inv.created_at', 'ASC')
                     .getMany();
 

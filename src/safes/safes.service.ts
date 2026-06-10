@@ -307,6 +307,19 @@ export class SafesService {
         if (q.startDate) qb.andWhere('tr.createdAt >= :start', { start: q.startDate });
         if (q.endDate) qb.andWhere('tr.createdAt <= :end', { end: q.endDate });
 
+        const search = q.search || '';
+        if (search) {
+            qb.andWhere(new Brackets(sq => {
+                sq.where('outTrx.number ILIKE :s', { s: `%${search}%` })
+                    .orWhere('outTrx.counterparty ILIKE :s', { s: `%${search}%` })
+                    .orWhere('outTrx.notes ILIKE :s', { s: `%${search}%` })
+                    .orWhere('inTrx.counterparty ILIKE :s', { s: `%${search}%` })
+                    .orWhere('inTrx.notes ILIKE :s', { s: `%${search}%` })
+                    .orWhere('inTrx.number ILIKE :s', { s: `%${search}%` })
+            }));
+        }
+
+
         qb.orderBy('tr.createdAt', 'DESC');
 
         const [records, total] = await qb
