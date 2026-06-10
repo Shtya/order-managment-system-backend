@@ -2264,7 +2264,7 @@ export class OrdersService {
   ) {
     // Generate order number
     const orderNumber = await this.generateOrderNumber(adminId);
-    await this.walletService.processOrderUsage(me, 1, manager, orderNumber);
+    const usageResult = await this.walletService.processOrderUsage(me, 1, manager, orderNumber);
 
     // Get variants
     const variantIds = dto.items.map((it) => it.variantId);
@@ -2425,6 +2425,12 @@ export class OrdersService {
     } as any);
 
     const saved = await manager.save(OrderEntity, order);
+
+    // Update the transaction with the orderId if we have one
+    if (usageResult.transaction) {
+      usageResult.transaction.orderId = saved.id;
+      await manager.save(usageResult.transaction);
+    }
 
     // Reserve stock
     for (const item of dto.items) {
@@ -3182,7 +3188,7 @@ export class OrdersService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
     const employeeId = me?.id;
-
+    const notificationPromises = [];
     return this.dataSource.transaction(async (manager) => {
       // 1. Fetch Order and its Active Assignment for this employee
       const order = await manager.findOne(OrderEntity, {
@@ -3272,6 +3278,20 @@ export class OrdersService {
           activeAssignment.finishedAt = now;
           activeAssignment.lockedUntil = null;
           actionResult = OrderActionResult.FAILED;
+
+          if (settings.notifyAdmin) {
+            notificationPromises.push(
+              this.notificationService.create({
+                userId: adminId,
+                type: NotificationType.ORDER_STATUS_UPDATE,
+                title: `Order #${order.orderNumber} Updated`,
+                message: `Order #${order.orderNumber} has not been confirmed yet — please follow up with the customer.`,
+                relatedEntityType: "order",
+                relatedEntityId: String(order.id),
+              }),
+            );
+          }
+
         } else {
           // Lock for the retry interval
           activeAssignment.lockedUntil = new Date(
@@ -3283,6 +3303,17 @@ export class OrdersService {
         activeAssignment.isAssignmentActive = false;
         activeAssignment.finishedAt = now;
         activeAssignment.lockedUntil = null;
+
+         notificationPromises.push(
+          this.notificationService.create({
+            userId: adminId,
+            type: NotificationType.ORDER_STATUS_UPDATE,
+            title: `Order #${order.orderNumber} Updated`,
+            message: `Status changed to "${newStatus.name}" by ${me.name || "Staff"}.`,
+            relatedEntityType: "order",
+            relatedEntityId: String(order.id),
+          }),
+        );
       }
       activeAssignment.lastStatusId = newStatus.id;
 
@@ -3314,13 +3345,6 @@ export class OrdersService {
       await manager.save(OrderAssignmentEntity, activeAssignment);
       const savedOrder = await manager.save(OrderEntity, order);
 
-      if (settings.notifyAdmin) {
-        console.log("notify admin here");
-      }
-
-      if (settings.notifyEmployee) {
-        console.log("notify employee here");
-      }
 
       await this.logOrderAction({
         manager,
@@ -3345,21 +3369,8 @@ export class OrdersService {
         manager,
       });
 
-      const notificationPromises = [];
 
-      // 1. Notify Admin (The tenant owner/manager)
-      if (settings.notifyAdmin) {
-        notificationPromises.push(
-          this.notificationService.create({
-            userId: adminId,
-            type: NotificationType.ORDER_STATUS_UPDATE,
-            title: `Order #${savedOrder.orderNumber} Updated`,
-            message: `Status changed to "${newStatus.name}" by ${me.name || "Staff"}.`,
-            relatedEntityType: "order",
-            relatedEntityId: String(savedOrder.id),
-          }),
-        );
-      }
+
 
       // 2. Notify Employee (The one assigned to the order)
       notificationPromises.push(
@@ -5471,10 +5482,22 @@ export class OrdersService {
 
     if (settings) {
       // Update existing record
-      this.retryRepo.merge(settings, dto);
+      settings = this.retryRepo.merge(settings, {
+        ...dto,
+        notificationSettings: {
+          ...(settings.notificationSettings ?? {}),
+          ...(dto.notificationSettings ?? {}),
+        },
+      });
     } else {
       // Create new record for this admin
-      settings = this.retryRepo.create({ ...dto, adminId });
+      settings = this.retryRepo.create({
+        ...dto,
+        adminId,
+        notificationSettings: {
+          ...(dto.notificationSettings ?? {}),
+        },
+      });
     }
 
     const saved = await this.retryRepo.save(settings);

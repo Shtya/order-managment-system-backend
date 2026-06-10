@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, EntityManager, Index, JoinColumn, ManyToOne, OneToOne, PrimaryGeneratedColumn, Relation, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
 import { Subscription, UserFeature } from "./plans.entity";
+import { OrderEntity } from "./order.entity";
 
 export enum PaymentProviderEnum {
     KASHIER = "kashier",
@@ -251,6 +252,12 @@ export class TransactionEntity {
     @Column({ type: "text", nullable: true })
     notes?: string;
 
+    @Column({ type: 'uuid', nullable: true })
+    orderId?: string;
+
+    @ManyToOne(() => OrderEntity, { nullable: true, onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'orderId' })
+    order?: Relation<OrderEntity>;
 
     @CreateDateColumn({ type: "timestamptz" })
     createdAt: Date;

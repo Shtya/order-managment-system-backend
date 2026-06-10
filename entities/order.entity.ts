@@ -40,7 +40,7 @@ export enum OrderStatus {
   REJECTED = "rejected",//
   CANCELLED = "cancelled", //
   CONFIRMED = "confirmed",
-  
+
   RETURNED = "returned",  // 
   DELIVERED = "delivered",//
   DISTRIBUTED = "distributed",
@@ -666,6 +666,32 @@ export enum AutomationMigrationStrategy {
   LATEST_PATCH = "latest_patch",
   MANUAL = "manual",
 }
+export type NotificationType =
+  | "order"
+  | "store"
+  | "template"
+  | "webhook_order_failures"
+  | "product"
+  | "bundle"
+  | "automation_run"
+  | "subscription"
+  | "user_feature"
+  | "wallet"
+  | "other";
+export type NotificationSettings = Record<NotificationType, boolean>;
+export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
+  order: true,
+  store: true,
+  template: true,
+  webhook_order_failures: true,
+  product: true,
+  bundle: true,
+  automation_run: true,
+  subscription: true,
+  user_feature: true,
+  wallet: true,
+  other: true,
+};
 
 @Entity({ name: "order_retry_settings" })
 export class OrderRetrySettingsEntity {
@@ -707,13 +733,13 @@ export class OrderRetrySettingsEntity {
   @Column({ type: "boolean", default: false })
   notifyAdmin: boolean;
 
+  @Column({
+    type: "jsonb",
+    default: DEFAULT_NOTIFICATION_SETTINGS,
+  })
+  notificationSettings: NotificationSettings;
+
   @Column({ type: "boolean", default: true })
-  notifyOrderUpdates: boolean;
-
-  @Column({ type: "boolean", default: false })
-  notifyNewProducts: boolean;
-
-  @Column({ type: "boolean", default: false })
   notifyLowStock: boolean;
 
   @Column({ type: "boolean", default: false })

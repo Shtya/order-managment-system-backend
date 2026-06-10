@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { SystemRole, User } from 'entities/user.entity';
 import { Repository } from 'typeorm';
 import { DateFilterUtil } from 'common/date-filter.util';
-import { imageSrc } from 'common/healpers';
+import { generateRandomAlphanumeric, imageSrc } from 'common/healpers';
 import { TransactionEntity, TransactionStatus } from 'entities/payments.entity';
 import * as ExcelJS from "exceljs";
 
@@ -29,27 +29,27 @@ export class TransactionsService {
 	}
 
 	public async generateTransactionNumber(adminId: string): Promise<string> {
+		const prefix = "TRX-";
+		const totalLength = 16; // Length of the entire string
+		const randomPartLength = totalLength - prefix.length;
 
-		const dateStr = Date.now(); // YYYYMMDD
-		const prefix = `TRX-${dateStr}`;
+		for (let attempt = 0; attempt < 10; attempt++) {
+			// Generates something like: TRX-7K9W2X
+			const transactionNumber = `${prefix}${generateRandomAlphanumeric(randomPartLength)}`.toUpperCase();
 
-		//
-		const lastTransaction = await this.transactionsRepo
-			.createQueryBuilder("t")
-			.where("t.userId = :adminId", { adminId })
-			.andWhere("t.number LIKE :prefix", { prefix: `${prefix}%` })
-			.orderBy("t.id", "DESC")
-			.getOne();
+			const existingTransaction = await this.transactionsRepo.findOne({
+				where: {
+					userId: adminId, // Matches your schema's userId field
+					number: transactionNumber,
+				},
+			});
 
-		let sequence = 1;
-		if (lastTransaction?.number) {
-
-			const lastNum = lastTransaction.number.split("-").pop();
-			sequence = parseInt(lastNum || "0") + 1;
+			if (!existingTransaction) {
+				return transactionNumber;
+			}
 		}
 
-
-		return `${prefix}-${String(sequence).padStart(3, "0")}`.trim();
+		throw new Error("Failed to generate a unique transaction number after 10 attempts");
 	}
 
 	async list(me: User, q?: any) {
@@ -66,7 +66,7 @@ export class TransactionsService {
 			.leftJoinAndSelect('t.user', 'user')
 			.leftJoinAndSelect('t.subscription', 'sub')
 			.leftJoinAndSelect('sub.plan', 'plan')
-
+			.leftJoinAndSelect('t.order', 'order')
 			.leftJoinAndSelect('t.userFeature', 'userFeature')
 			.leftJoinAndSelect('userFeature.feature', 'feature');
 
@@ -216,7 +216,7 @@ export class TransactionsService {
 			.leftJoinAndSelect('t.user', 'user')
 			.leftJoinAndSelect('t.subscription', 'sub')
 			.leftJoinAndSelect('sub.plan', 'plan')
-
+			.leftJoinAndSelect('t.order', 'order')
 			.leftJoinAndSelect('t.userFeature', 'userFeature')
 			.leftJoinAndSelect('userFeature.feature', 'feature');
 

@@ -110,8 +110,8 @@ export class AutoAssignRuleEntity {
     // ======================
 
     @Column({
-        type: 'enum',
-        enum: PaymentStatus,
+        type: 'varchar',
+        length: 50,
         nullable: true,
     })
     paymentStatus?: PaymentStatus;

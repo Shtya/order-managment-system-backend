@@ -28,6 +28,7 @@ import {
   OrderFlowPath,
   StockDeductionStrategy,
   AutomationMigrationStrategy,
+  NotificationSettings,
 } from "entities/order.entity";
 
 export class CreateStatusDto {
@@ -419,13 +420,9 @@ export class UpsertOrderRetrySettingsDto {
   @IsOptional()
   notifyAdmin?: boolean;
 
-  @IsBoolean()
+  @IsObject()
   @IsOptional()
-  notifyOrderUpdates?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  notifyNewProducts?: boolean;
+  notificationSettings?: Partial<NotificationSettings>;
 
   @IsBoolean()
   @IsOptional()
