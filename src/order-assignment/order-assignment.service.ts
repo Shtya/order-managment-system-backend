@@ -2,7 +2,7 @@ import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException 
 import { InjectRepository } from '@nestjs/typeorm';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { AutoAssignDto, AutoPreviewDto, CreateAutoAssignRuleDto, GetFreeOrdersDto, ManualAssignManyDto, UpdateAutoAssignRuleDto } from 'dto/order-assignment.dto';
-import { OrderAssignmentEntity, AutoAssignRuleEntity, AutoAssignRuleType, AssignmentStrategy } from 'entities/assignment.entity';
+import { OrderAssignmentEntity, AutoAssignRuleEntity, AutoAssignRuleType, AssignmentStrategy, WeekDay } from 'entities/assignment.entity';
 import { OrderEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
 import { User } from 'entities/user.entity';
 import { tenantId } from 'src/category/category.service';
@@ -15,6 +15,7 @@ import { ShippingCompanyEntity } from 'entities/shipping.entity';
 import { autoAssignmentQueue } from './queues';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
+import { BitmaskHelper, WeekDayHelper } from 'common/bitmask.helper';
 @Injectable()
 export class OrderAssignmentService {
     constructor(
@@ -879,7 +880,7 @@ export class OrderAssignmentService {
                 sq.where("rule.name ILIKE :s", { s: `%${search}%` });
             }));
         }
-       DateFilterUtil.applyToQueryBuilder(qb, "rule.createdAt", q?.startDate, q?.endDate);
+        DateFilterUtil.applyToQueryBuilder(qb, "rule.createdAt", q?.startDate, q?.endDate);
 
         if (q?.ruleType) {
             qb.andWhere("rule.ruleType = :ruleType", { ruleType: q.ruleType });
@@ -936,7 +937,7 @@ export class OrderAssignmentService {
                 rule.cities = cities;
             }));
         }
- 
+
         if (dto.employeeIds?.length) {
             promises.push(this.userRepo.find({ where: { id: In(dto.employeeIds), adminId, isActive: true } }).then(employees => {
                 if (employees.length !== dto.employeeIds.length) throw new BadRequestException("Some Employees not found");
@@ -977,7 +978,7 @@ export class OrderAssignmentService {
                 rule.cities = cities;
             }));
         }
-      
+
         if (dto.employeeIds !== undefined) {
             promises.push((dto.employeeIds.length ? this.userRepo.find({ where: { id: In(dto.employeeIds), adminId, isActive: true } }) : Promise.resolve([])).then(employees => {
                 if (dto.employeeIds.length && employees.length !== dto.employeeIds.length) throw new BadRequestException("Some Employees not found");
@@ -1189,6 +1190,63 @@ export class OrderAssignmentService {
     }
 
     private isRuleMatch(order: OrderEntity, rule: AutoAssignRuleEntity): boolean {
+         const now = new Date();
+
+        // =========================
+        // 1. DATE RANGE CHECK
+        // =========================
+        if (rule.activeFrom && now < new Date(rule.activeFrom)) return false;
+        if (rule.activeUntil && now > new Date(rule.activeUntil)) return false;
+        // =========================
+        // 2. WEEKDAY CHECK (BITMASK)
+        // =========================
+        if (rule.weekDays != null) {
+
+            const currentWeekDay = WeekDayHelper.WEEKDAY_BITS[now.getDay() % 7]; 
+
+            if (!BitmaskHelper.has(rule.weekDays, currentWeekDay)) {
+                return false;
+            }
+        }
+
+        // =========================
+        // 3. TIME WINDOW CHECK
+        // =========================
+        if (rule.startTime || rule.endTime) {
+            const timezone = rule.timezone || "Africa/Cairo";
+            const now = new Date();
+
+            // Get current hours and minutes in the rule's timezone
+            const formatter = new Intl.DateTimeFormat("en-GB", {
+                hour: "2-digit",
+                minute: "2-digit",
+                hour12: false,
+                timeZone: timezone,
+            });
+            const parts = formatter.formatToParts(now);
+            const currentHours = parseInt(parts.find(p => p.type === "hour")?.value || "0", 10);
+            const currentMinutes = parseInt(parts.find(p => p.type === "minute")?.value || "0", 10);
+            const currentTotalMinutes = currentHours * 60 + currentMinutes;
+
+            // Convert start time to total minutes if set
+            if (rule.startTime) {
+                const [startHours, startMins] = rule.startTime.split(":").map(Number);
+                const startTotalMinutes = startHours * 60 + startMins;
+                if (currentTotalMinutes < startTotalMinutes) {
+                    return false;
+                }
+            }
+
+            // Convert end time to total minutes if set
+            if (rule.endTime) {
+                const [endHours, endMins] = rule.endTime.split(":").map(Number);
+                const endTotalMinutes = endHours * 60 + endMins;
+                if (currentTotalMinutes > endTotalMinutes) {
+                    return false;
+                }
+            }
+        }
+
         switch (rule.ruleType) {
             case AutoAssignRuleType.MANUAL:
                 return true;
@@ -1208,7 +1266,7 @@ export class OrderAssignmentService {
                 return total >= min && total <= max;
             case AutoAssignRuleType.PAYMENT_STATUS:
                 return order.paymentStatus === rule.paymentStatus;
-         
+
             default:
                 return false;
         }

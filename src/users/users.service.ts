@@ -403,7 +403,7 @@ export class UsersService {
 		};
 	}
 	// ✅ UPDATED: Include plan relation
-	async list(me: User, limit: number, cursor: number) {
+	async list(me: User, limit: number, cursor: number, search?: string, active?: string) {
 		const fetchLimit = Number(limit) || 20;
 		const qb = this.usersRepo
 			.createQueryBuilder("user")
@@ -431,6 +431,10 @@ export class UsersService {
 		} else {
 			qb.andWhere("user.id = :id", { id: me.id });
 		}
+
+		if(active) qb.andWhere('user.isActive = :active', { active: active === 'true' });
+		if(search) qb.andWhere('user.name LIKE :search OR user.email LIKE :search OR user.phone LIKE :search', { search: `%${search}%` });
+
 		const rawUsers = await qb.getMany();
 
 		const hasMore = rawUsers.length > fetchLimit;

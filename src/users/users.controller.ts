@@ -134,8 +134,10 @@ export class UsersController {
 		@Req() req: any,
 		@Query('cursor') cursor?: string,
 		@Query('limit') limit?: string,
+		@Query('search') search?: string,
+		@Query('active') active?: string,
 	) {
-		return this.users.list(req.user, Number(limit ?? 10), cursor ? Number(cursor) : null);
+		return this.users.list(req.user, Number(limit ?? 10), cursor ? Number(cursor) : null, search, active);
 	}
 
 
