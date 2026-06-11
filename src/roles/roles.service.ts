@@ -9,6 +9,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Permission, Role, SystemRole, User } from 'entities/user.entity';
 import { CreateRoleDto, UpdateRoleDto } from 'dto/role.dto';
+import { tenantId } from 'src/category/category.service';
 
 @Injectable()
 export class RolesService implements OnModuleInit {
@@ -190,7 +191,7 @@ export class RolesService implements OnModuleInit {
 
 	// ✅ Create Role
 	async create(me: User, dto: CreateRoleDto) {
-
+		const adminId = tenantId(me);
 		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
 			throw new ForbiddenException('Not allowed');
 		}
@@ -202,8 +203,8 @@ export class RolesService implements OnModuleInit {
 			name: dto.name,
 			description: dto.description,
 			permissionNames: dto.permissionNames || [],
-			adminId: dto?.adminId ? dto?.adminId : null,
-			isGlobal: dto?.global,
+			adminId: !this.isSuperAdmin(me) ? adminId : null,
+			isGlobal: !!this.isSuperAdmin(me),
 		});
 
 		return this.rolesRepo.save(role);
@@ -212,7 +213,7 @@ export class RolesService implements OnModuleInit {
 	// ✅ Update Role
 	async update(me: User, id: string, dto: UpdateRoleDto) {
 		const role = await this.get(me, id);
-
+		
 		// Can't edit global roles unless super admin
 		if (role.isGlobal && !this.isSuperAdmin(me)) {
 			throw new ForbiddenException('Cannot edit global roles');
@@ -248,8 +249,11 @@ export class RolesService implements OnModuleInit {
 		return this.dataSource.transaction(async (manager) => {
 			const rolesRepo = manager.getRepository(Role);
 			const usersRepo = manager.getRepository(User);
+			if(role.name === SystemRole.SUPER_ADMIN || role.name === SystemRole.ADMIN || role.name === SystemRole.USER) 
+				throw new ForbiddenException('Cannot delete global roles');
 
-			// ✅ هات كل المستخدمين اللي عليهم roleId = role.id
+			if(role.isGlobal && !this.isSuperAdmin(me)) throw new ForbiddenException('Cannot delete global roles');
+			// ✅ هات كل المستخدمين اللي على roleId = role.id
 			const users = await usersRepo.find({
 				where: { roleId: role.id },
 				select: ['id', 'roleId'],

@@ -245,28 +245,41 @@ export class WhatsappService {
         });
     }
 
-    async getActivityHeatmap(me: any, filters: any = {}) {
+    public async getActivityHeatmap(me: any, filters: any = {}) {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
 
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
-        const accountFilter = filters.accountId ? `AND "accountId" = '${filters.accountId}'` : '';
+        // 1. Calculate a strict 7-day window (today + 6 previous days)
+        const finalEndDate = new Date(); // Current date and time
+        const finalStartDate = new Date();
+        finalStartDate.setDate(finalStartDate.getDate() - 6);
+        finalStartDate.setHours(0, 0, 0, 0); // Start at midnight 6 days ago
+
+        // 2. Safely parameterize the account filter to prevent SQL injection
+        const queryParams: any[] = [adminId, finalStartDate, finalEndDate];
+        let accountFilter = '';
+
+        if (filters.accountId) {
+            queryParams.push(filters.accountId);
+            accountFilter = `AND "accountId" = $${queryParams.length}`;
+        }
 
         const query = `
-            SELECT 
-                EXTRACT(ISODOW FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS "day_of_week", 
-                EXTRACT(HOUR FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS hour, 
-                COUNT(*) AS total 
-            FROM whatsapp_messages 
-            WHERE "adminId" = $1
-              AND COALESCE("sentAt", "createdAt") >= $2
-              AND COALESCE("sentAt", "createdAt") <= $3
-              ${accountFilter}
-            GROUP BY 1, 2 
-            ORDER BY 1, 2;
-        `;
+        SELECT 
+            EXTRACT(ISODOW FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS "day_of_week", 
+            EXTRACT(HOUR FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS hour, 
+            COUNT(*) AS total 
+        FROM whatsapp_messages 
+        WHERE "adminId" = $1
+          AND COALESCE("sentAt", "createdAt") >= $2
+          AND COALESCE("sentAt", "createdAt") <= $3
+          AND direction = '${MessageDirection.INBOUND}'
+          ${accountFilter}
+        GROUP BY 1, 2 
+        ORDER BY 1, 2;
+    `;
 
-        return this.messageRepo.query(query, [adminId, finalStartDate, finalEndDate]);
+        return this.messageRepo.query(query, queryParams);
     }
 
     async getWhatsappTrends(

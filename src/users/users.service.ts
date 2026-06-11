@@ -713,7 +713,7 @@ export class UsersService {
 			throw new ForbiddenException('Not allowed');
 		}
 
-		const exists = await this.usersRepo.findOne({ where: { email: dto.roleId } });
+		const exists = await this.usersRepo.findOne({ where: { email: dto.email } });
 		if (exists) throw new BadRequestException('Email already used');
 
 		const role = await this.rolesRepo.findOne({ where: { id: dto.roleId } });
@@ -728,12 +728,17 @@ export class UsersService {
 		const plainPassword = dto.password || this.generatePassword(10);
 		const passwordHash = await bcrypt.hash(plainPassword, 10);
 
+		let adminIdToUse;
+		if (this.isSuperAdmin(me) && !["admin", "super_admin"].includes(role?.name)) {
+			// If super admin, use dto.adminId if provided, else null
+			adminIdToUse = dto.adminId || null;
+		} 
 		const user = this.usersRepo.create({
 			name: dto.name,
 			email: dto.email,
 			passwordHash,
 			roleId: dto.roleId,
-			adminId: this.isSuperAdmin(me) ? null : me.id,
+			adminId: adminIdToUse,
 			isActive: true,
 		});
 
@@ -903,6 +908,8 @@ export class UsersService {
 		user.isActive = false;
 		return this.usersRepo.save(user);
 	}
+
+
 
 	async adminResetPassword(me: User, id: string, newPassword?: string) {
 		const user = await this.get(me, id, true);
