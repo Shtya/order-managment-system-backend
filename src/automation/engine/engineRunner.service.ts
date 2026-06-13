@@ -44,6 +44,7 @@ export class EngineRunnerService {
      * نقطة البداية لتشغيل الأتمتة (تستدعى من الـ Worker الخاص بـ BullMQ)
      */
     async startExecution(runId: string): Promise<void> {
+        this.logger.log(`=== EngineRunner.startExecution(${runId}) ===`);
         // Check if run is already in progress
         if (this.currentlyRunning.has(runId)) {
             this.logger.log(`Run ${runId} is already being executed, skipping duplicate request.`);
@@ -51,7 +52,11 @@ export class EngineRunnerService {
         }
 
         const run = await this.runRepo.findOne({ where: { id: runId } });
-        if (!run) return;
+        if (!run) {
+            this.logger.error(`Run ${runId} not found in database!`);
+            return;
+        }
+        this.logger.log(`Found run ${runId} with status ${run.status}`);
 
         // Allow restarting PENDING, RUNNING, or FAILED runs!
         const allowedStatuses = [RunStatus.PENDING, RunStatus.RUNNING, RunStatus.FAILED];
@@ -62,10 +67,12 @@ export class EngineRunnerService {
 
         // Add to currently running set
         this.currentlyRunning.add(runId);
+        this.logger.log(`Added ${runId} to currently running set (now has ${this.currentlyRunning.size} items)`);
 
         try {
             // If it's a new run or being restarted, set to RUNNING
             if (run.status !== RunStatus.RUNNING) {
+                this.logger.log(`Setting run ${runId} to RUNNING`);
                 await this.sendAutomationNotification(
                     run,
                     run.status === RunStatus.PENDING
@@ -87,18 +94,22 @@ export class EngineRunnerService {
 
             const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
             if (!version) {
+                this.logger.error(`Version ${run.versionId} not found for run ${runId}`);
                 await this.failRun(run, 'This automation version is no longer available. The execution was stopped before starting.');
                 return;
             }
+            this.logger.log(`Found version ${version.id} for run ${runId}`);
 
             // Determine where to start!
             let startNodeId: string | null = null;
 
             // If we have a currentNodeId, try starting from there or next node
             if (run.currentNodeId) {
+                this.logger.log(`Run ${runId} has currentNodeId ${run.currentNodeId}`);
                 // Check if current node was already completed
                 const isCurrentNodeCompleted = run.completedNodeIds?.includes(run.currentNodeId);
                 if (isCurrentNodeCompleted) {
+                    this.logger.log(`Node ${run.currentNodeId} is already completed, finding next node`);
                     // Find the next node after current node
                     const currentNode = version.flow.nodes.find(n => n.id === run.currentNodeId);
                     const lastStep = run.executionState.steps[run.currentNodeId];
@@ -120,25 +131,34 @@ export class EngineRunnerService {
                     );
                 } else {
                     // Try starting from current node
+                    this.logger.log(`Starting from current node ${run.currentNodeId}`);
                     startNodeId = run.currentNodeId;
                 }
             }
 
             // If no start node found, start from beginning (first node after trigger)
             if (!startNodeId) {
+                this.logger.log(`No start node found, starting from trigger`);
                 startNodeId = findNextNodeId(version.flow.edges, run.executionState.trigger.nodeId);
             }
+            this.logger.log(`Start node ID: ${startNodeId}`);
 
             if (!startNodeId) {
+                this.logger.log(`No start node, marking run as completed`);
                 run.status = RunStatus.COMPLETED;
                 await this.runRepo.save(run);
                 return;
             }
 
+            this.logger.log(`Starting runLoop for ${runId} at node ${startNodeId}`);
             await this.runLoop(run, version.flow, startNodeId);
+        } catch (error) {
+            this.logger.error(`=== ERROR in startExecution(${runId}):`, error);
+            await this.failRun(run, `Error in startExecution: ${error.message}`);
         } finally {
             // Always remove from currently running set when done
             this.currentlyRunning.delete(runId);
+            this.logger.log(`=== EngineRunner.startExecution(${runId}) finished ===`);
         }
     }
 
@@ -308,21 +328,27 @@ export class EngineRunnerService {
      * حلقة التحكم بالتنفيذ (The Traversal Loop)
      */
     private async runLoop(run: AutomationRunEntity, flow: FlowDefinition, startNodeId: string): Promise<void> {
+        this.logger.log(`=== Starting runLoop(${run.id}) at ${startNodeId} ===`);
         let currentNodeId = startNodeId;
         const completedNodeIds = [];
         if (run.status === RunStatus.COMPLETED) return;
 
         while (currentNodeId) {
+            this.logger.log(`Processing node ${currentNodeId} in run ${run.id}`);
             const node = flow.nodes.find(n => n.id === currentNodeId);
             if (!node) {
+                this.logger.error(`Node ${currentNodeId} not found in flow!`);
                 await this.failRun(
                     run,
                     `The automation could not continue because the one of the steps is missing or was removed from the workflow configuration.`,
                 );
                 return;
             }
+            this.logger.log(`Found node: ${node.data.type} (${node.data.label})`);
+            
             // infinite loop detection
             if (completedNodeIds.includes(currentNodeId)) {
+                this.logger.error(`Infinite loop detected at ${currentNodeId}`);
                 await this.failRun(
                     run,
                     `The automation detected an infinite loop at node ${node.data.label}.`,
@@ -344,22 +370,28 @@ export class EngineRunnerService {
                 //add delay 500ms to simulate real-time execution
 
                 // 2. Track current node
+                this.logger.log(`Setting current node to ${currentNodeId}`);
                 run.currentNodeId = currentNodeId;
                 await this.runRepo.save(run);
 
                 // 4. جلب الـ Handler المسؤول وتنفيذه
                 const handler = this.registry.getHandler(node.data.type);
+                this.logger.log(`Got handler for node type ${node.data.type}`);
                 const nodeConfig = node.data.config;
                 // const result = await handler.execute(hydratedConfig, run);
+                this.logger.log(`Executing handler for node ${currentNodeId}`);
                 const result = await handler.execute(nodeConfig, run);
+                this.logger.log(`Handler result:`, result);
 
                 // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
+                this.logger.log(`Saving step result for ${currentNodeId}`);
                 await this.saveStepResult(run, node, result, nodeConfig);
                 completedNodeIds.push(currentNodeId);
                 await this.emitRunUpdate(run);
 
                 // 6. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
                 if (result.shouldPause) {
+                    this.logger.log(`Node ${currentNodeId} requested pause`);
                     run.status = RunStatus.PAUSED;
                     await this.runRepo.save(run);
                     await this.emitRunUpdate(run);
@@ -368,6 +400,7 @@ export class EngineRunnerService {
                 }
 
                 if (!result.success) {
+                    this.logger.error(`Handler failed for node ${currentNodeId}: ${result.error}`);
                     await this.failRun(
                         run,
                         result.error ||
@@ -377,9 +410,12 @@ export class EngineRunnerService {
                 }
 
                 // 7. الانتقال للعقدة التالية بناءً على الـ edges والـ chosenBranch (إن وجد في حالات الشروط)
+                this.logger.log(`Finding next node after ${currentNodeId} with branch ${result.chosenBranch}`);
                 currentNodeId = findNextNodeId(flow.edges, currentNodeId, result.chosenBranch);
+                this.logger.log(`Next node: ${currentNodeId}`);
 
             } catch (error) {
+                this.logger.error(`=== ERROR in runLoop for node ${currentNodeId}:`, error);
                 await this.failRun(
                     run,
                     `An unexpected error occurred while executing the step "${node.data.label}". Please try again or review the automation configuration.`,
@@ -389,6 +425,7 @@ export class EngineRunnerService {
         }
 
         // إذا انتهت الحلقة ولم يعد هناك عقد تالية، تكتمل الأتمتة بنجاح
+        this.logger.log(`No more nodes, marking run ${run.id} as completed`);
         run.status = RunStatus.COMPLETED;
         run.completedAt = new Date();
         await this.runRepo.save(run);
