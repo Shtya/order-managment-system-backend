@@ -666,6 +666,18 @@ export enum AutomationMigrationStrategy {
   LATEST_PATCH = "latest_patch",
   MANUAL = "manual",
 }
+
+export enum AssignmentMode {
+  IMMEDIATE = "immediate",
+  DELAYED = "delayed",
+  DISABLED = "disabled",
+}
+
+export enum TimeUnit {
+  MINUTES = "minutes",
+  HOURS = "hours",
+  DAYS = "days",
+}
 export type NotificationType =
   | "order"
   | "store"
@@ -706,8 +718,22 @@ export class OrderRetrySettingsEntity {
   @JoinColumn({ name: 'adminId' })
   admin: User;
 
-  @Column({ type: "boolean", default: true })
-  autoAssignmentEnabled: boolean;
+  @Column({
+    type: "enum",
+    enum: AssignmentMode,
+    default: AssignmentMode.IMMEDIATE,
+  })
+  assignmentMode: AssignmentMode;
+
+  @Column({ type: "int", default: 1 })
+  assignmentDelay: number;
+
+  @Column({
+    type: "enum",
+    enum: TimeUnit,
+    default: TimeUnit.MINUTES,
+  })
+  assignmentDelayUnit: TimeUnit;
 
   @Column({ type: "boolean", default: true })
   enabled: boolean;

@@ -29,6 +29,8 @@ import {
   StockDeductionStrategy,
   AutomationMigrationStrategy,
   NotificationSettings,
+  AssignmentMode,
+  TimeUnit,
 } from "entities/order.entity";
 
 export class CreateStatusDto {
@@ -382,9 +384,18 @@ export class ShippingSettingsDto {
 }
 
 export class UpsertOrderRetrySettingsDto {
-  @IsBoolean()
+  @IsEnum(AssignmentMode)
   @IsOptional()
-  autoAssignmentEnabled?: boolean;
+  assignmentMode?: AssignmentMode;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  assignmentDelay?: number;
+
+  @IsEnum(TimeUnit)
+  @IsOptional()
+  assignmentDelayUnit?: TimeUnit;
 
   @IsBoolean()
   @IsOptional()

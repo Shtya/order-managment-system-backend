@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { AutoAssignDto, AutoPreviewDto, CreateAutoAssignRuleDto, GetFreeOrdersDto, ManualAssignManyDto, UpdateAutoAssignRuleDto } from 'dto/order-assignment.dto';
 import { OrderAssignmentEntity, AutoAssignRuleEntity, AutoAssignRuleType, AssignmentStrategy, WeekDay } from 'entities/assignment.entity';
-import { OrderEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
+import { OrderEntity, OrderStatus, OrderStatusEntity, AssignmentMode, TimeUnit } from 'entities/order.entity';
 import { User } from 'entities/user.entity';
 import { tenantId } from 'src/category/category.service';
 import { OrdersService } from 'src/orders/services/orders.service';
@@ -1128,7 +1128,7 @@ export class OrderAssignmentService {
         });
 
         const settings = await this.ordersService.getCachedSettings(adminId);
-        if (settings && settings.autoAssignmentEnabled === false) {
+        if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
             return { message: "Auto-assignment is disabled", assignedCount: 0 };
         }
         const maxRetries = settings?.maxRetries || 3;
@@ -1321,6 +1321,26 @@ export class OrderAssignmentService {
 
     async enqueueAutoAssignment(adminId: string, orderIds: string[]) {
         if (!adminId || !orderIds?.length) return;
+        
+        const settings = await this.ordersService.getCachedSettings(adminId);
+        const assignmentMode = settings.assignmentMode;
+        
+        // Skip enqueuing if disabled
+        if (assignmentMode === AssignmentMode.DISABLED) {
+            return;
+        }
+        
+        // Calculate delay in milliseconds if mode is delayed
+        let delayMs = 0;
+        if (assignmentMode === AssignmentMode.DELAYED) {
+            const { assignmentDelay, assignmentDelayUnit } = settings;
+            const unitMultiplier = {
+                [TimeUnit.MINUTES]: 60 * 1000,
+                [TimeUnit.HOURS]: 60 * 60 * 1000,
+                [TimeUnit.DAYS]: 24 * 60 * 60 * 1000,
+            };
+            delayMs = assignmentDelay * (unitMultiplier[assignmentDelayUnit] || 0);
+        }
 
         return await autoAssignmentQueue.add({
             groupId: `admin:${adminId}`, // 🔥 ensure sequential processing per admin
@@ -1328,8 +1348,10 @@ export class OrderAssignmentService {
                 adminId,
                 orderIds,
             },
+            
             orderMs: Date.now(),
             maxAttempts: 3,
+            delay: delayMs,
         });
     }
 }
