@@ -20,8 +20,8 @@ export const bullQueueConfig = {
       defaultJobOptions: {
         attempts: Number(configService.get<number>('QUEUE_DEFAULT_ATTEMPTS') || 1),
         backoff: { type: 'exponential', delay: 3000 },
-        removeOnComplete: { age: 3600, count: 1000 },
-        removeOnFail: { age: 24 * 3600, count: 1000 },
+        removeOnComplete: true,
+        removeOnFail: true,
       },
     };
   },
