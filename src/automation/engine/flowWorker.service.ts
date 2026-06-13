@@ -13,7 +13,7 @@ export class FlowWorkerService implements OnModuleInit, OnModuleDestroy {
     constructor(
         private readonly engineRunner: EngineRunnerService,
         private readonly redisService: RedisService
-    ) { } j
+    ) { }
 
     async onModuleInit() {
         this.logger.log(`Starting Worker for Queue: [${flowExecutionQueue.name || 'unknown'}]`);
@@ -21,8 +21,7 @@ export class FlowWorkerService implements OnModuleInit, OnModuleDestroy {
         const name = flowExecutionQueue.name || 'unknown';
         const redis = flowExecutionQueue.redis;
         
-        
-        await this.redisService.fullStalledJobsRecovery(name,redis);
+        await this.redisService.fullStalledJobsRecovery(name, redis);
        
         this.worker = new Worker({
             queue: flowExecutionQueue,
@@ -34,17 +33,26 @@ export class FlowWorkerService implements OnModuleInit, OnModuleDestroy {
             maxStalledCount: 2,
             heartbeatMs: 3000,
             handler: async (job: ReservedJob) => {
-                this.logger.debug(`Processing Flow Job ${job.id} | Type: ${job.data.type} | Group: ${job.groupId}`);
+                this.logger.log(`=== STARTING Job ${job.id} | Type: ${job.data.type} | Group: ${job.groupId}`);
                 const { type, runId, resumeData } = job.data;
 
-                if (type === 'start' && runId) {
-                    await this.engineRunner.startExecution(runId);
-                } else if (type === 'resume' && resumeData) {
-                    await this.engineRunner.resumeFromWhatsappInteraction(
-                        resumeData.originalMessageId,
-                        resumeData.buttonText,
-                        resumeData.buttonId
-                    );
+                try {
+                    if (type === 'start' && runId) {
+                        this.logger.log(`Executing startExecution for run ${runId}`);
+                        await this.engineRunner.startExecution(runId);
+                        this.logger.log(`=== SUCCESS: Finished job ${job.id} (run ${runId})`);
+                    } else if (type === 'resume' && resumeData) {
+                        this.logger.log(`Executing resumeFromWhatsappInteraction`);
+                        await this.engineRunner.resumeFromWhatsappInteraction(
+                            resumeData.originalMessageId,
+                            resumeData.buttonText,
+                            resumeData.buttonId
+                        );
+                        this.logger.log(`=== SUCCESS: Finished resume job ${job.id}`);
+                    }
+                } catch (error) {
+                    this.logger.error(`=== ERROR processing job ${job.id}:`, error);
+                    throw error; // rethrow to let groupmq handle retries
                 }
             },
 
@@ -60,6 +68,7 @@ export class FlowWorkerService implements OnModuleInit, OnModuleDestroy {
             this.logger.warn(`Job ${jobId} from group ${groupId} was stalled`);
         });
 
+        this.logger.log("Flow Worker starting to listen for jobs...");
         this.worker.run();
     }
 
