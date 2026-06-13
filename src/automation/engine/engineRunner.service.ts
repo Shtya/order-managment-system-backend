@@ -44,16 +44,22 @@ export class EngineRunnerService {
      * نقطة البداية لتشغيل الأتمتة (تستدعى من الـ Worker الخاص بـ BullMQ)
      */
     async startExecution(runId: string): Promise<void> {
+        console.log('=== [EngineRunner] startExecution CALLED with runId:', runId);
+        console.log('=== [EngineRunner] this.runRepo:', this.runRepo);
         this.logger.log(`=== EngineRunner.startExecution(${runId}) ===`);
         // Check if run is already in progress
         if (this.currentlyRunning.has(runId)) {
             this.logger.log(`Run ${runId} is already being executed, skipping duplicate request.`);
+            console.log('=== [EngineRunner] runId is already in currentlyRunning set');
             return;
         }
 
+        console.log('=== [EngineRunner] About to query runRepo for runId:', runId);
         const run = await this.runRepo.findOne({ where: { id: runId } });
+        console.log('=== [EngineRunner] runRepo.findOne() returned:', run);
         if (!run) {
             this.logger.error(`Run ${runId} not found in database!`);
+            console.log('=== [EngineRunner] returning because run not found');
             return;
         }
         this.logger.log(`Found run ${runId} with status ${run.status}`);
