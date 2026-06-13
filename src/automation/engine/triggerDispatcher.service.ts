@@ -32,7 +32,7 @@ const redis = new Redis(redisUrl);
 export const flowExecutionQueue = new Queue({
     redis,
     namespace: "flow-execution",
-    jobTimeoutMs: 300000,   // 5m
+    jobTimeoutMs: 5 * 60000,   // 5m
     maxAttempts: 3,
 });
 

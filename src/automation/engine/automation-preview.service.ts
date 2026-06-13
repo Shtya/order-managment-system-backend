@@ -157,6 +157,8 @@ export class AutomationPreviewService {
     private readonly upsellRepo: Repository<Upsell>,
     @InjectRepository(UpsellHistory)
     private readonly upsellHistoryRepo: Repository<UpsellHistory>,
+    @InjectRepository(OrderEntity)
+    private readonly orderRepo: Repository<OrderEntity>,
   ) { }
 
   /**
@@ -496,6 +498,7 @@ export class AutomationPreviewService {
 
   private registry = new PreviewNodeHandlersRegistry(
     new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.ordersService),
+    this.orderRepo,
   );
 }
 
@@ -504,22 +507,24 @@ class PreviewNodeHandlersRegistry {
 
   constructor(
     private readonly adapter: PreviewAutomationAdapter,
+    @InjectRepository(OrderEntity)
+    protected readonly orderRepo: Repository<OrderEntity>,
   ) {
     // Use production handlers with preview adapter injected
-    this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler());
-    this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler());
+    this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler(orderRepo));
+    this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler(orderRepo));
     this.handlers.set(
       ActionType.UPDATE_ORDER_STATUS,
-      new ActionUpdateOrderStatusHandler(this.adapter),
+      new ActionUpdateOrderStatusHandler(this.adapter,orderRepo),
     );
     this.handlers.set(
       ActionType.SEND_WHATSAPP_TEMPLATE,
-      new ActionSendWhatsappTemplateMessageHandler(this.adapter),
+      new ActionSendWhatsappTemplateMessageHandler(this.adapter,orderRepo),
     );
 
     this.handlers.set(
       ActionType.SEND_UPSELL,
-      new ActionSendUpsellHandler(this.adapter),
+      new ActionSendUpsellHandler(this.adapter, this.orderRepo),
     );
   }
 

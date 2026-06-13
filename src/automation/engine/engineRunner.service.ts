@@ -18,6 +18,7 @@ import { OrderEntity } from 'entities/order.entity';
 @Injectable()
 export class EngineRunnerService {
     private readonly logger = new Logger(EngineRunnerService.name);
+    private readonly currentlyRunning = new Set<string>(); // In-memory set to track running runIds
 
     constructor(
         private readonly dataSource: DataSource,
@@ -43,35 +44,102 @@ export class EngineRunnerService {
      * نقطة البداية لتشغيل الأتمتة (تستدعى من الـ Worker الخاص بـ BullMQ)
      */
     async startExecution(runId: string): Promise<void> {
+        // Check if run is already in progress
+        if (this.currentlyRunning.has(runId)) {
+            this.logger.log(`Run ${runId} is already being executed, skipping duplicate request.`);
+            return;
+        }
+
         const run = await this.runRepo.findOne({ where: { id: runId } });
-        if (!run || run.status !== RunStatus.PENDING) return;
+        if (!run) return;
 
-        await this.sendAutomationNotification(
-            run,
-            NotificationType.AUTOMATION_RUN_STARTED,
-            'Automation Run Started',
-            'A new automation execution has started.',
-        );
-        run.status = RunStatus.RUNNING;
-        await this.runRepo.save(run);
-
-
-        const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
-        if (!version) {
-            await this.failRun(run, 'This automation version is no longer available. The execution was stopped before starting.');
+        // Allow restarting PENDING, RUNNING, or FAILED runs!
+        const allowedStatuses = [RunStatus.PENDING, RunStatus.RUNNING, RunStatus.FAILED];
+        if (!allowedStatuses.includes(run.status)) {
+            this.logger.log(`Run ${runId} has status ${run.status}, skipping execution.`);
             return;
         }
 
-        // البحث عن أول عقدة تلي الـ Trigger مباشرة
-        const firstNodeId = findNextNodeId(version.flow.edges, run.executionState.trigger.nodeId);
-        if (!firstNodeId) {
-            run.status = RunStatus.COMPLETED;
+        // Add to currently running set
+        this.currentlyRunning.add(runId);
+
+        try {
+            // If it's a new run or being restarted, set to RUNNING
+            if (run.status !== RunStatus.RUNNING) {
+                await this.sendAutomationNotification(
+                    run,
+                    run.status === RunStatus.PENDING
+                        ? NotificationType.AUTOMATION_RUN_STARTED
+                        : NotificationType.AUTOMATION_RUN_RESUMED,
+                    run.status === RunStatus.PENDING
+                        ? 'Automation Run Started'
+                        : 'Automation Run Restarted',
+                    run.status === RunStatus.PENDING
+                        ? 'A new automation execution has started.'
+                        : 'An automation execution is being restarted.',
+                );
+            }
+
+            run.status = RunStatus.RUNNING;
+            run.errorMessage = null; // Clear any previous error when restarting
             await this.runRepo.save(run);
-            //send notification to user
-            return;
-        }
 
-        await this.runLoop(run, version.flow, firstNodeId);
+
+            const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
+            if (!version) {
+                await this.failRun(run, 'This automation version is no longer available. The execution was stopped before starting.');
+                return;
+            }
+
+            // Determine where to start!
+            let startNodeId: string | null = null;
+
+            // If we have a currentNodeId, try starting from there or next node
+            if (run.currentNodeId) {
+                // Check if current node was already completed
+                const isCurrentNodeCompleted = run.completedNodeIds?.includes(run.currentNodeId);
+                if (isCurrentNodeCompleted) {
+                    // Find the next node after current node
+                    const currentNode = version.flow.nodes.find(n => n.id === run.currentNodeId);
+                    const lastStep = run.executionState.steps[run.currentNodeId];
+                    if (
+                        (currentNode?.data?.config as any)?.branches?.length > 0 &&
+                        !lastStep?.chosenBranch
+                    ) {
+                        // Need to choose a branch first! Pause the run again.
+                        this.logger.log(`Run ${runId} needs to choose a branch first at node ${run.currentNodeId}`);
+                        run.status = RunStatus.PAUSED;
+                        await this.runRepo.save(run);
+                        await this.emitRunUpdate(run);
+                        return;
+                    }
+                    startNodeId = findNextNodeId(
+                        version.flow.edges,
+                        run.currentNodeId,
+                        lastStep?.chosenBranch
+                    );
+                } else {
+                    // Try starting from current node
+                    startNodeId = run.currentNodeId;
+                }
+            }
+
+            // If no start node found, start from beginning (first node after trigger)
+            if (!startNodeId) {
+                startNodeId = findNextNodeId(version.flow.edges, run.executionState.trigger.nodeId);
+            }
+
+            if (!startNodeId) {
+                run.status = RunStatus.COMPLETED;
+                await this.runRepo.save(run);
+                return;
+            }
+
+            await this.runLoop(run, version.flow, startNodeId);
+        } finally {
+            // Always remove from currently running set when done
+            this.currentlyRunning.delete(runId);
+        }
     }
 
     async resumeFromWhatsappInteraction(originalMessageId: string, buttonText: string, buttonId?: string): Promise<void> {
@@ -91,7 +159,7 @@ export class EngineRunnerService {
         }
 
         const run = await this.runRepo.findOne({ where: { id: step.runId } });
-           let upsellApplyResultCode: string | undefined;
+        let upsellApplyResultCode: string | undefined;
 
         // Special logic for Upsell: Apply before choosing branch
         if (step.dataType === ActionType.SEND_UPSELL && buttonId?.endsWith('_btn_0')) {
@@ -110,13 +178,13 @@ export class EngineRunnerService {
                     feedbackText = '❌ عذراً، هذا العرض قد انتهت صلاحيته.';
                 } else if (result.code === 'ORDER_DELIVERED') {
                     feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب تم توصيله.';
-                }   
+                }
                 else if (result.code === 'INVALID_ORDER_STATUS') {
                     feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب قيد التجهيز أو الشحن.';
                 } else if (result.code === 'ALREADY_ACCEPTED') {
                     feedbackText = '❌ عذراً، هذا العرض تم إضافةه بالفعل.';
                 }
-                
+
                 else {
                     feedbackText = '❌ عذراً، فشل إضافة العرض للطلب حالياً.';
                 }
@@ -138,7 +206,7 @@ export class EngineRunnerService {
             return;
         }
 
-        if(run.currentNodeId !== step.nodeId) {
+        if (run.currentNodeId !== step.nodeId) {
             await this.failRun(run, `Current node ID ${run.currentNodeId} does not match step node ID ${step.nodeId}. Cannot resume.`);
             return;
         }
@@ -151,7 +219,7 @@ export class EngineRunnerService {
         const config = node?.data?.config as any;
         const branches = config?.branches || [];
 
-     
+
 
         // 3. مطابقة الزر الذي ضغطه العميل مع الفروع المتاحة في إعدادات العقدة
         let chosenBranch = branches.find((b: any) =>
@@ -173,7 +241,7 @@ export class EngineRunnerService {
                 // If clicked Reject
                 chosenBranch = branches.find(b => b.id === 'client_reject' || b.label === 'client_reject');
             }
-        }   
+        }
 
         if (!chosenBranch) {
             this.logger.error(`No matching branch found for button "${buttonText}" in node ${node.id}`);
@@ -202,24 +270,38 @@ export class EngineRunnerService {
      * نقطة استكمال الأتمتة بعد الاستيقاظ من الـ Webhook (الـ Resume)
      */
     async resumeExecution(runId: string, resumedNodeId: string, chosenBranchId?: string): Promise<void> {
-        const run = await this.runRepo.findOne({ where: { id: runId } });
-        if (!run) return;
-
-        run.status = RunStatus.RUNNING;
-        await this.runRepo.save(run);
-
-        const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
-
-        // عند الاستيقاظ، نتحرك فوراً إلى العقدة التالية للعقدة التي سببت الإيقاف
-        const nextNodeId = findNextNodeId(version.flow.edges, resumedNodeId, chosenBranchId);
-
-        if (!nextNodeId) {
-            run.status = RunStatus.COMPLETED;
-            await this.runRepo.save(run);
+        // Check if run is already in progress
+        if (this.currentlyRunning.has(runId)) {
+            this.logger.log(`Run ${runId} is already being executed, skipping duplicate request.`);
             return;
         }
 
-        await this.runLoop(run, version.flow, nextNodeId);
+        const run = await this.runRepo.findOne({ where: { id: runId } });
+        if (!run) return;
+
+        // Add to currently running set
+        this.currentlyRunning.add(runId);
+
+        try {
+            run.status = RunStatus.RUNNING;
+            await this.runRepo.save(run);
+
+            const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
+
+            // عند الاستيقاظ، نتحرك فوراً إلى العقدة التالية للعقدة التي سبقت الإيقاف
+            const nextNodeId = findNextNodeId(version.flow.edges, resumedNodeId, chosenBranchId);
+
+            if (!nextNodeId) {
+                run.status = RunStatus.COMPLETED;
+                await this.runRepo.save(run);
+                return;
+            }
+
+            await this.runLoop(run, version.flow, nextNodeId);
+        } finally {
+            // Always remove from currently running set when done
+            this.currentlyRunning.delete(runId);
+        }
     }
 
     /**

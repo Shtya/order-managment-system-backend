@@ -18,6 +18,7 @@ import { ProductionAutomationAdapter } from './engine/adapters/production.adapte
 import { AutomationPreviewService } from './engine/automation-preview.service';
 import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 import { UpsellsModule } from 'src/upsells/upsells.module';
+import { OrderEntity } from 'entities/order.entity';
 
 
 @Module({
@@ -36,6 +37,7 @@ import { UpsellsModule } from 'src/upsells/upsells.module';
       Upsell,
       UpsellHistory,
       WhatsappAccountEntity,
+      OrderEntity
     ])
   ],
   controllers: [AutomationController],
