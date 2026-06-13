@@ -4,6 +4,7 @@ import {
     UpdateEvent,
     DataSource,
     InsertEvent,
+    TransactionCommitEvent,
 } from 'typeorm';
 
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
@@ -47,11 +48,12 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
      */
     async afterUpdate(event: UpdateEvent<OrderEntity>) {
         // Check if the status column was actually updated
-        console.log("After update called")
+        console.log("[OrderSubscriber] After update called for order id:", event.entity?.id);
         const previousOrder = event.databaseEntity;
         const currentOrder = event.entity;
 
         if (!previousOrder || !currentOrder) {
+            console.log("[OrderSubscriber] Missing previous or current order, skipping");
             return;
         }
 
@@ -60,6 +62,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
         // إذا تغيرت القيمة فعلياً، أو إذا اعتبره TypeORM عموداً محدثاً
         const isStatusChanged = oldStatusId !== newStatusId
+        console.log(`[OrderSubscriber] Status changed: ${isStatusChanged} (old: ${oldStatusId}, new: ${newStatusId}) for order ${currentOrder.id}`);
 
         if (isStatusChanged) {
             // event.entity contains the updated fields
@@ -68,47 +71,52 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
                 relations: ['status', 'items', 'items.variant', "items.variant.product"],
             });
 
-            if (!fullOrder) return;
+            if (!fullOrder) {
+                console.log("[OrderSubscriber] Failed to load full order, skipping");
+                return;
+            }
+            console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
 
+            const runAfterCommit = async () => {
+                console.log(`[OrderSubscriber] Post-commit task running for ORDER_UPDATED on order ${fullOrder.id}`);
+                await this.triggerDispatcher.dispatch({
+                    type: TriggerType.ORDER_UPDATED,
 
-            await this.triggerDispatcher.dispatch({
-                type: TriggerType.ORDER_UPDATED,
+                    entityType: TriggerEntityType.ORDER,
 
-                entityType: TriggerEntityType.ORDER,
+                    entityId: fullOrder.id,
 
-                entityId: fullOrder.id,
+                    adminId: fullOrder.adminId,
 
-                adminId: fullOrder.adminId,
+                    payload: {
+                        ...fullOrder,
 
-                payload: {
-                    ...fullOrder,
+                        previousStatusId: oldStatusId,
+                        currentStatusId: newStatusId,
+                    },
+                });
+                console.log(`[OrderSubscriber] ORDER_UPDATED trigger dispatched for order ${fullOrder.id}`);
 
-                    previousStatusId: oldStatusId,
-                    currentStatusId: newStatusId,
-                },
-            });
+                try {
+                    if (fullOrder.externalId) {
+                        await this.storesService.syncOrderStatus(fullOrder, newStatusId);
+                    }
 
-            // try {
-
-            //     const settings = await this.ordersService.getSettings({ adminId: fullOrder.adminId, manager: event.manager });
-            //     const newStatus = await this.ordersService.findStatusById(newStatusId, fullOrder.adminId, event.manager);
-
-            //     if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_CONFIRMATION && newStatus.code === OrderStatus.CONFIRMED) {
-            //         await this.ordersService.deductStockForOrder(event.manager, fullOrder);
-            //     } else if (settings.stockDeductionStrategy === StockDeductionStrategy.ON_SHIPMENT && newStatus.code === OrderStatus.SHIPPED) {
-            //         await this.ordersService.deductStockForOrder(event.manager, fullOrder);
-            //     }
-            // } catch (error) {
-            //     console.error("Error in stock deduction logic:", error);
-            // }
-
-            try {
-                if (fullOrder.externalId) {
-                    await this.storesService.syncOrderStatus(fullOrder, newStatusId);
+                } catch (error) {
+                    console.error("Error in store synchronization:", error);
                 }
+            };
 
-            } catch (error) {
-                console.error("Error in store synchronization:", error);
+            if (event.queryRunner) {
+                if (!event.queryRunner.data.postCommitTasks) {
+                    event.queryRunner.data.postCommitTasks = [];
+                }
+                console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
+                event.queryRunner.data.postCommitTasks.push(runAfterCommit);
+            } else {
+                console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
+                // No active transaction, run immediately
+                await runAfterCommit();
             }
         }
     }
@@ -116,34 +124,72 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
     async afterInsert(event: InsertEvent<OrderEntity>) {
         const order = event.entity;
+        console.log("[OrderSubscriber] After insert called for order id:", order?.id);
 
         if (!order) {
+            console.log("[OrderSubscriber] No order entity, skipping");
             return;
         }
 
-        // Load full order with required relations
+        // Load full order with required relations INSIDE the current transaction
         const fullOrder = await event.manager.findOne(OrderEntity, {
             where: { id: order.id },
             relations: ['status', 'items', 'items.variant', "items.variant.product"],
         });
 
         if (!fullOrder) {
+            console.log("[OrderSubscriber] Failed to load full order after insert, skipping");
             return;
         }
+        console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
 
-        // 🚀 Dispatch automation trigger
-        await this.triggerDispatcher.dispatch({
-            type: TriggerType.ORDER_CREATED,
+        const runAfterCommit = async () => {
+            console.log(`[OrderSubscriber] Post-commit task running for ORDER_CREATED on order ${fullOrder.id}`);
+            // 🚀 Dispatch automation trigger
+            await this.triggerDispatcher.dispatch({
+                type: TriggerType.ORDER_CREATED,
+                entityType: TriggerEntityType.ORDER,
+                entityId: fullOrder.id,
+                adminId: fullOrder.adminId,
+                payload: fullOrder,
+            });
+            console.log(`[OrderSubscriber] ORDER_CREATED trigger dispatched for order ${fullOrder.id}`);
+        };
 
-            entityType: TriggerEntityType.ORDER,
+        if (event.queryRunner) {
+            if (!event.queryRunner.data.postCommitTasks) {
+                event.queryRunner.data.postCommitTasks = [];
+            }
+            console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
+            event.queryRunner.data.postCommitTasks.push(runAfterCommit);
+        } else {
+            console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
+            // No active transaction, run immediately
+            await runAfterCommit();
+        }
+    }
 
-            entityId: fullOrder.id,
+    // TypeORM hook that automatically runs after a transaction successfully commits
+    async afterTransactionCommit(event: TransactionCommitEvent) {
+        const tasks = event.queryRunner.data?.postCommitTasks;
+        console.log(`[OrderSubscriber] After transaction commit, ${tasks?.length || 0} post-commit tasks to run`);
 
-            adminId: fullOrder.adminId,
-
-            payload: fullOrder,
-        });
-
+        if (tasks && tasks.length > 0) {
+            for (let i = 0; i < tasks.length; i++) {
+                const task = tasks[i];
+                try {
+                    console.log(`[OrderSubscriber] Executing post-commit task ${i + 1} of ${tasks.length}`);
+                    await task();
+                } catch (error) {
+                    // Catch errors here so one failing background dispatch 
+                    // doesn't crash the loop or throw unhandled exceptions
+                    console.error(`[OrderSubscriber] Error executing post-commit task ${i + 1}:`, error);
+                }
+            }
+            // Clear the tasks to prevent memory leaks or duplicate executions
+            event.queryRunner.data.postCommitTasks = [];
+            console.log(`[OrderSubscriber] All post-commit tasks executed and cleared`);
+        }
     }
 }
 
