@@ -19,6 +19,9 @@ import { AutomationPreviewService } from './engine/automation-preview.service';
 import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 import { UpsellsModule } from 'src/upsells/upsells.module';
 import { OrderEntity } from 'entities/order.entity';
+import { User } from 'entities/user.entity';
+import { OrderAssignmentEntity } from 'entities/assignment.entity';
+import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.module';
 
 
 @Module({
@@ -26,6 +29,7 @@ import { OrderEntity } from 'entities/order.entity';
     forwardRef(() => UpsellsModule),
     forwardRef(() => OrdersModule),
     forwardRef(() => WhatsappModule),
+    forwardRef(() => OrderAssignmentModule),
     NotificationModule,
     WebSocketModule,
     TypeOrmModule.forFeature([
@@ -37,7 +41,9 @@ import { OrderEntity } from 'entities/order.entity';
       Upsell,
       UpsellHistory,
       WhatsappAccountEntity,
-      OrderEntity
+      OrderEntity,
+      User,
+      OrderAssignmentEntity
     ])
   ],
   controllers: [AutomationController],
