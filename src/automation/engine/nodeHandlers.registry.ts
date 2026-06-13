@@ -505,7 +505,7 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
             if (upsells.length === 0) {
                 return { success: true, shouldPause: false, chosenBranch: 'skipped', output: { reason: 'No upsells found for products' } };
             }
-
+            
             const sentUpsells = [];
 
             // Send each upsell using the adapter
