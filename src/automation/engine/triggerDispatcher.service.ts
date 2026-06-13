@@ -42,17 +42,29 @@ export class FlowExecutionQueueService implements OnModuleDestroy {
      * Add new flow execution job
      */
     async add(data: FlowExecutionJob, options: any = {}) {
-        if (!data.adminId) return;
+        console.log(`[FlowExecutionQueueService] Adding job to queue with data:`, JSON.stringify(data));
+        if (!data.adminId) {
+            console.log(`[FlowExecutionQueueService] No adminId provided, skipping`);
+            return;
+        }
 
         const groupId = options.groupId ?? `admin:${data.adminId}:flow`;
+        console.log(`[FlowExecutionQueueService] Using groupId: ${groupId}`);
 
-        return await flowExecutionQueue.add({
-            groupId,
-            data,
-            orderMs: Date.now(),
-            maxAttempts: options.maxAttempts ?? 3,
-            jobId: options.jobId,
-        });
+        try {
+            const result = await flowExecutionQueue.add({
+                groupId,
+                data,
+                orderMs: Date.now(),
+                maxAttempts: options.maxAttempts ?? 3,
+                jobId: options.jobId,
+            });
+            console.log(`[FlowExecutionQueueService] Job added successfully, result:`, JSON.stringify(result));
+            return result;
+        } catch (error) {
+            console.error(`[FlowExecutionQueueService] Error adding job to queue:`, error);
+            throw error;
+        }
     }
 
     /**
@@ -95,7 +107,11 @@ export class TriggerDispatcherService {
         payload: any;
         adminId: string;
     }) {
-        if (!trigger.adminId) return;
+        console.log(`[TriggerDispatcher] Received dispatch request for ${trigger.type} on ${trigger.entityType} ${trigger.entityId} (admin: ${trigger.adminId})`);
+        if (!trigger.adminId) {
+            console.log(`[TriggerDispatcher] No adminId provided, skipping`);
+            return;
+        }
 
         const automations = await this.automationRepo.find({
             where: {
@@ -106,19 +122,29 @@ export class TriggerDispatcherService {
             relations: ['latestVersion'],
         });
 
-        if (!automations.length) return;
+        console.log(`[TriggerDispatcher] Found ${automations.length} published automations for ${trigger.type}`);
+
+        if (!automations.length) {
+            console.log(`[TriggerDispatcher] No automations found, skipping`);
+            return;
+        }
 
         for (const automation of automations) {
+            console.log(`[TriggerDispatcher] Checking automation ${automation.id} (${automation.name})`);
             const shouldRun = this.shouldStartAutomation(
                 automation,
                 trigger,
             );
+            console.log(`[TriggerDispatcher] Automation ${automation.id} should run: ${shouldRun}`);
 
             if (!shouldRun) {
+                console.log(`[TriggerDispatcher] Automation ${automation.id} skipped (shouldRun is false)`);
                 continue;
             }
 
+            console.log(`[TriggerDispatcher] Starting createRunAndQueue for automation ${automation.id}`);
             await this.createRunAndQueue(automation, trigger);
+            console.log(`[TriggerDispatcher] Finished createRunAndQueue for automation ${automation.id}`);
         }
     }
 
@@ -211,54 +237,72 @@ export class TriggerDispatcherService {
             payload: any;
         },
     ) {
-        return await this.dataSource.transaction(async (manager) => {
-            const runRepo = manager.getRepository(AutomationRunEntity);
+        console.log(`[TriggerDispatcher] createRunAndQueue called for automation ${automation.id}`);
+        try {
+            const result = await this.dataSource.transaction(async (manager) => {
+                console.log(`[TriggerDispatcher] Starting transaction for createRunAndQueue`);
+                const runRepo = manager.getRepository(AutomationRunEntity);
 
-            const version = automation.latestVersion;
+                const version = automation.latestVersion;
+                console.log(`[TriggerDispatcher] Using automation version ${version?.id}`);
 
-            if (!version) {
-                return;
-            }
+                if (!version) {
+                    console.log(`[TriggerDispatcher] No version found, skipping`);
+                    return;
+                }
 
-            const triggerNode = version.flow.nodes.find((node) => node.type === FlowNodeType.TRIGGER);
-            if (!triggerNode) {
-                return;
-            }
-            // 1. Create run
-            const run = runRepo.create({
-                automationFlowId: automation.id,
-                versionId: version.id,
-                adminId: automation.adminId,
-                status: RunStatus.PENDING,
+                const triggerNode = version.flow.nodes.find((node) => node.type === FlowNodeType.TRIGGER);
+                if (!triggerNode) {
+                    console.log(`[TriggerDispatcher] No trigger node found in flow, skipping`);
+                    return;
+                }
 
-                triggerEntityType: trigger.entityType,
-                triggerEntityId: trigger.entityId,
+                // 1. Create run
+                console.log(`[TriggerDispatcher] Creating new automation run`);
+                const run = runRepo.create({
+                    automationFlowId: automation.id,
+                    versionId: version.id,
+                    adminId: automation.adminId,
+                    status: RunStatus.PENDING,
 
-                initialPayload: trigger.payload,
+                    triggerEntityType: trigger.entityType,
+                    triggerEntityId: trigger.entityId,
 
-                executionState: {
-                    trigger: {
-                        nodeId: triggerNode.id,
-                        type: trigger.type,
-                        output: trigger.payload,
+                    initialPayload: trigger.payload,
+
+                    executionState: {
+                        trigger: {
+                            nodeId: triggerNode.id,
+                            type: trigger.type,
+                            output: trigger.payload,
+                        },
+                        steps: {},
                     },
-                    steps: {},
-                },
+                });
+
+                const savedRun = await runRepo.save(run);
+                console.log(`[TriggerDispatcher] Automation run ${savedRun.id} saved successfully`);
+
+                // 2. Push to queue
+                console.log(`[TriggerDispatcher] Adding job to flow queue for run ${savedRun.id}`);
+                await this.flowQueue.add({
+                    type: 'start',
+                    runId: savedRun.id,
+                    automationFlowId: automation.id,
+                    versionId: version.id,
+                    adminId: automation.adminId,
+                });
+                console.log(`[TriggerDispatcher] Job added to queue successfully for run ${savedRun.id}`);
+
+                return savedRun;
             });
 
-            const savedRun = await runRepo.save(run);
-
-            // 2. Push to queue
-            await this.flowQueue.add({
-                type: 'start',
-                runId: savedRun.id,
-                automationFlowId: automation.id,
-                versionId: version.id,
-                adminId: automation.adminId,
-            });
-
-            return savedRun;
-        });
+            console.log(`[TriggerDispatcher] createRunAndQueue completed successfully`);
+            return result;
+        } catch (error) {
+            console.error(`[TriggerDispatcher] Error in createRunAndQueue:`, error);
+            throw error;
+        }
     }
 
     private shouldStartAutomation(
