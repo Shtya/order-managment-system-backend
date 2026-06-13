@@ -172,7 +172,6 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
     // TypeORM hook that automatically runs after a transaction successfully commits
     async afterTransactionCommit(event: TransactionCommitEvent) {
         const tasks = event.queryRunner.data?.postCommitTasks;
-        console.log(`[OrderSubscriber] After transaction commit, ${tasks?.length || 0} post-commit tasks to run`);
 
         if (tasks && tasks.length > 0) {
             for (let i = 0; i < tasks.length; i++) {

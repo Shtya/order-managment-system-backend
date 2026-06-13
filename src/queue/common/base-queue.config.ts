@@ -1,0 +1,28 @@
+// src/config/bull.config.ts
+import { ConfigModule, ConfigService } from '@nestjs/config';
+
+export const bullQueueConfig = {
+  imports: [ConfigModule],
+  inject: [ConfigService],
+  useFactory: async (configService: ConfigService) => {
+    const useTls =
+      configService.get<string>('REDIS_USE_TLS') === 'true' ||
+      (configService.get<boolean>('REDIS_USE_TLS') as any) === true;
+
+    return {
+      connection: {
+        host: configService.get<string>('REDIS_HOST'),
+        port: Number(configService.get<number>('REDIS_PORT')),
+        password: configService.get<string>('REDIS_PASSWORD') || undefined,
+        db: Number(configService.get<number>('REDIS_DB') || 0),
+        ...(useTls && { tls: {} }),
+      },
+      defaultJobOptions: {
+        attempts: Number(configService.get<number>('QUEUE_DEFAULT_ATTEMPTS') || 1),
+        backoff: { type: 'exponential', delay: 3000 },
+        removeOnComplete: { age: 3600, count: 1000 },
+        removeOnFail: { age: 24 * 3600, count: 1000 },
+      },
+    };
+  },
+};

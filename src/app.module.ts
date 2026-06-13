@@ -3,7 +3,6 @@ import { ConfigModule } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { GlobalExceptionFilter, QueryExceptionFilter } from "common/GlobalExceptionFilter";
 import { AuthModule } from "./auth/auth.module";
-import { Permission, Role, User } from "../entities/user.entity";
 import { UsersModule } from "./users/users.module";
 import { PermissionsModule } from "./permissions/permissions.module";
 import { RolesModule } from "./roles/roles.module";
@@ -23,7 +22,6 @@ import { OrdersModule } from './orders/orders.module';
 import { SalesInvoiceModule } from './sales_invoice/sales_invoice.module';
 import { BundlesModule } from './bundles/bundles.module';
 import { EncryptionService } from "common/encryption.service";
-import { BullModule } from '@nestjs/bull';
 import { ShippingModule } from "./shipping/shipping.module";
 import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "../entities/shipping.entity";
 import { NotificationModule } from "./notifications/notification.module";
@@ -54,6 +52,9 @@ import { ConversationModule } from './conversation/conversation.module';
 import { CustomerModule } from './customer/customer.module';
 import { CitiesModule } from './cities/cities.module';
 import { OrderAssignmentModule } from './order-assignment/order-assignment.module';
+import { BullModule } from "@nestjs/bullmq";
+import { bullQueueConfig } from "./queue/common/base-queue.config";
+import { QueueModule } from "./queue/queue.module";
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -81,7 +82,9 @@ import { OrderAssignmentModule } from './order-assignment/order-assignment.modul
 			synchronize: true,
 			logging: false
 		}),
-		BullModule.registerQueue({ name: 'store-sync' }),
+		// BullModule.registerQueue({ name: 'store-sync' }),/
+		BullModule.forRootAsync(bullQueueConfig),
+		QueueModule,
 		AuthModule,
 		RolesModule,
 		PermissionsModule,

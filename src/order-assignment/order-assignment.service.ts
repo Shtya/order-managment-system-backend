@@ -16,6 +16,10 @@ import { autoAssignmentQueue } from './queues';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { BitmaskHelper, WeekDayHelper } from 'common/bitmask.helper';
+import { StoreEntity } from 'entities/stores.entity';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+
 @Injectable()
 export class OrderAssignmentService {
     constructor(
@@ -48,6 +52,9 @@ export class OrderAssignmentService {
 
         @Inject(forwardRef(() => NotificationService))
         protected readonly notificationService: NotificationService,
+
+        @InjectRepository(StoreEntity)
+        private readonly storeRepo: Repository<StoreEntity>,
     ) { }
 
     async getEmployeesByLoad(me: any, limit: number = 20, cursor: number | null, role?: string) {
@@ -873,7 +880,8 @@ export class OrderAssignmentService {
             .where("rule.adminId = :adminId", { adminId })
             .leftJoinAndSelect("rule.products", "products")
             .leftJoinAndSelect("rule.cities", "cities")
-            .leftJoinAndSelect("rule.employees", "employees");
+            .leftJoinAndSelect("rule.employees", "employees")
+            .leftJoinAndSelect("rule.stores", "stores");
 
         if (search) {
             qb.andWhere(new Brackets(sq => {
@@ -938,6 +946,13 @@ export class OrderAssignmentService {
             }));
         }
 
+        if (dto.storeIds?.length) {
+            promises.push(this.storeRepo.find({ where: { id: In(dto.storeIds), isActive: true } }).then(stores => {
+                if (stores.length !== dto.storeIds.length) throw new BadRequestException("Some Stores not found");
+                rule.stores = stores;
+            }));
+        }
+
         if (dto.employeeIds?.length) {
             promises.push(this.userRepo.find({ where: { id: In(dto.employeeIds), adminId, isActive: true } }).then(employees => {
                 if (employees.length !== dto.employeeIds.length) throw new BadRequestException("Some Employees not found");
@@ -976,6 +991,13 @@ export class OrderAssignmentService {
             promises.push((dto.cityIds.length ? this.cityRepo.find({ where: { id: In(dto.cityIds), isActive: true } }) : Promise.resolve([])).then(cities => {
                 if (dto.cityIds.length && cities.length !== dto.cityIds.length) throw new BadRequestException("Some Cities not found");
                 rule.cities = cities;
+            }));
+        }
+
+        if (dto.storeIds !== undefined) {
+            promises.push((dto.storeIds.length ? this.storeRepo.find({ where: { id: In(dto.storeIds), isActive: true } }) : Promise.resolve([])).then(stores => {
+                if (dto.storeIds.length && stores.length !== dto.storeIds.length) throw new BadRequestException("Some Stores not found");
+                rule.stores = stores;
             }));
         }
 
@@ -1077,6 +1099,7 @@ export class OrderAssignmentService {
             { header: "Target Employees", key: "employees", width: 30 },
             { header: "Products", key: "products", width: 30 },
             { header: "Cities", key: "cities", width: 30 },
+            { header: "Stores", key: "stores", width: 30 },
         ];
 
         const rows = records.map(rule => ({
@@ -1091,7 +1114,8 @@ export class OrderAssignmentService {
             description: rule.description || "—",
             employees: rule.employees?.map(e => e.name).join(", ") || "—",
             products: rule.products?.map(e => e.name).join(", ") || "—",
-            cities: rule.cities?.map(e => e.nameEn).join(", ") || "—"
+            cities: rule.cities?.map(e => e.nameEn).join(", ") || "—",
+            stores: rule.stores?.map(e => e.name).join(", ") || "—",
         }));
 
         worksheet.addRows(rows);
@@ -1115,11 +1139,11 @@ export class OrderAssignmentService {
         // 1. Get active rules ordered by priority
         const rules = await this.autoAssignRuleRepo.find({
             where: { adminId, isActive: true },
-            relations: ["products", "cities", "employees"],
+            relations: ["products", "cities", "employees", "stores"],
             order: { priority: "ASC", createdAt: "ASC" },
         });
 
-        if (!rules.length) return { message: "No active rules found",noActiveRules: true, assignedCount: 0 };
+        if (!rules.length) return { message: "No active rules found", noActiveRules: true, assignedCount: 0 };
 
         // 2. Fetch orders with necessary details
         const orders = await this.orderRepo.find({
@@ -1190,7 +1214,7 @@ export class OrderAssignmentService {
     }
 
     private isRuleMatch(order: OrderEntity, rule: AutoAssignRuleEntity): boolean {
-         const now = new Date();
+        const now = new Date();
 
         // =========================
         // 1. DATE RANGE CHECK
@@ -1202,7 +1226,7 @@ export class OrderAssignmentService {
         // =========================
         if (rule.weekDays != null) {
 
-            const currentWeekDay = WeekDayHelper.WEEKDAY_BITS[now.getDay() % 7]; 
+            const currentWeekDay = WeekDayHelper.WEEKDAY_BITS[now.getDay() % 7];
 
             if (!BitmaskHelper.has(rule.weekDays, currentWeekDay)) {
                 return false;
@@ -1266,7 +1290,10 @@ export class OrderAssignmentService {
                 return total >= min && total <= max;
             case AutoAssignRuleType.PAYMENT_STATUS:
                 return order.paymentStatus === rule.paymentStatus;
-
+            case AutoAssignRuleType.STORE:
+                if (!rule.stores?.length) return false;
+                const ruleStoreIds = rule.stores.map(s => s.id);
+                return ruleStoreIds.includes(order.storeId);
             default:
                 return false;
         }
@@ -1319,39 +1346,5 @@ export class OrderAssignmentService {
         return null;
     }
 
-    async enqueueAutoAssignment(adminId: string, orderIds: string[]) {
-        if (!adminId || !orderIds?.length) return;
-        
-        const settings = await this.ordersService.getCachedSettings(adminId);
-        const assignmentMode = settings.assignmentMode;
-        
-        // Skip enqueuing if disabled
-        if (assignmentMode === AssignmentMode.DISABLED) {
-            return;
-        }
-        
-        // Calculate delay in milliseconds if mode is delayed
-        let delayMs = 0;
-        if (assignmentMode === AssignmentMode.DELAYED) {
-            const { assignmentDelay, assignmentDelayUnit } = settings;
-            const unitMultiplier = {
-                [TimeUnit.MINUTES]: 60 * 1000,
-                [TimeUnit.HOURS]: 60 * 60 * 1000,
-                [TimeUnit.DAYS]: 24 * 60 * 60 * 1000,
-            };
-            delayMs = assignmentDelay * (unitMultiplier[assignmentDelayUnit] || 0);
-        }
-
-        return await autoAssignmentQueue.add({
-            groupId: `admin:${adminId}`, // 🔥 ensure sequential processing per admin
-            data: {
-                adminId,
-                orderIds,
-            },
-            
-            orderMs: Date.now(),
-            maxAttempts: 3,
-            delay: delayMs,
-        });
-    }
+    
 }
