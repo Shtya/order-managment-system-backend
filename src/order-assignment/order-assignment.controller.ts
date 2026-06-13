@@ -71,13 +71,6 @@ export class OrderAssignmentController {
   }
 
   @Permissions("orders.assign")
-  @Post("run-auto-assignment")
-  async runAutoAssignment(@Req() req: any, @Body() dto: RunAutoAssignmentDto) {
-    const adminId = req.user?.adminId || req.user?.id; // depending on user structure
-    return this.orderAssignmentService.enqueueAutoAssignment(adminId, dto.orderIds);
-  }
-
-  @Permissions("orders.assign")
   @Post('auto-assign-preview')
   async getAutoAssignPreview(
     @Req() req: any,

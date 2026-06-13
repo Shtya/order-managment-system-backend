@@ -101,6 +101,11 @@ export class CreateAutoAssignRuleDto {
   cityIds?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  storeIds?: string[];
+  
+  @IsOptional()
   @IsNumber()
   minAmount?: number;
 

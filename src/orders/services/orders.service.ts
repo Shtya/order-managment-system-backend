@@ -90,6 +90,7 @@ import { randomBytes } from "crypto";
 import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { CityEntity } from "entities/cities.entity";
+import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -152,6 +153,7 @@ export class OrdersService {
     @InjectRepository(OrderActionLogEntity)
     private orderActionLogRepo: Repository<OrderActionLogEntity>,
 
+    
 
 
     @Inject(forwardRef(() => ShippingQueueService))
@@ -166,8 +168,8 @@ export class OrdersService {
     private storesService: StoresService,
     @Inject(forwardRef(() => ShippingService))
     private shippingService: ShippingService,
-    @Inject(forwardRef(() => OrderAssignmentService))
-    private orderAssignmentService: OrderAssignmentService,
+    @Inject(forwardRef(() => AutoAssignmentQueueService))
+    private autoAssignmentQueueService: AutoAssignmentQueueService,
   ) { }
 
   //private function to lock order if he delivered and has monthly closign id
@@ -2452,7 +2454,7 @@ export class OrdersService {
     });
 
     // 🔥 Trigger Auto-Assignment Queue
-    await this.orderAssignmentService.enqueueAutoAssignment(adminId, [saved.id]);
+    await this.autoAssignmentQueueService.addAutoAssignmentJob({adminId, orderIds:[saved.id]});
 
     return saved;
   }

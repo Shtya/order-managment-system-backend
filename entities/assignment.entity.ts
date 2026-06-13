@@ -4,6 +4,7 @@ import { ProductEntity } from "./sku.entity";
 import { CityEntity } from "./cities.entity";
 import { ShippingCompanyEntity } from "./shipping.entity";
 import { OrderEntity, OrderStatusEntity, PaymentStatus } from "./order.entity";
+import { StoreEntity } from "./stores.entity";
 
 
 export enum AutoAssignRuleType {
@@ -11,7 +12,8 @@ export enum AutoAssignRuleType {
     PRODUCT = 'product',
     CITY = 'city',
     AMOUNT_RANGE = 'amountRange',
-    PAYMENT_STATUS = 'paymentStatus'
+    PAYMENT_STATUS = 'paymentStatus',
+    STORE = 'store',
 }
 
 export enum AssignmentStrategy {
@@ -127,6 +129,16 @@ export class AutoAssignRuleEntity {
         name: 'auto_assign_rule_cities',
     })
     cities?: CityEntity[];
+
+    // ======================
+    // STORE RULE
+    // ======================
+
+    @ManyToMany(() => StoreEntity)
+    @JoinTable({
+        name: 'auto_assign_rule_stores',
+    })
+    stores?: StoreEntity[];
 
     // ======================
     // AMOUNT RANGE RULE
