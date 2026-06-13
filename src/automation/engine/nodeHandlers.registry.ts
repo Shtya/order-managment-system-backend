@@ -23,21 +23,56 @@ export interface NodeHandlerResponse {
     shouldPause?: boolean;
 }
 
-export interface FlowNodeHandler {
-    execute(config: any, run: AutomationRunEntity): Promise<NodeHandlerResponse>;
+export abstract class FlowNodeHandler {
+
+    constructor(
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+    ) { }
+    abstract execute(config: any, run: AutomationRunEntity): Promise<NodeHandlerResponse>;
+
+    async getOrder(orderData: any): Promise<OrderEntity> {
+        const id = orderData?.id;
+        const isMocked = orderData?.__mock;
+        if (isMocked) {
+            return orderData;
+        }
+
+        if (!id) {
+            throw new Error('Order ID is required');
+        }
+        if (!this.orderRepo) {
+            throw new Error('Order repository is not available');
+        }
+        const order = await this.orderRepo.findOne({
+            where: { id },
+            relations: ['status', 'items', 'items.variant', 'items.variant.product'],
+        });
+        if (!order) {
+            throw new NotFoundException(`Order with ID ${id} not found`);
+        }
+        return order;
+    }
 }
 
 @Injectable()
-export class ConditionQuickOrderStatusHandler implements FlowNodeHandler {
+export class ConditionQuickOrderStatusHandler extends FlowNodeHandler {
     private readonly logger = new Logger(ConditionQuickOrderStatusHandler.name);
+
+    constructor(
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+    ) {
+        super(orderRepo);
+    }
 
     async execute(
         hydratedConfig: QuickOrderStatusConfig,
         run: AutomationRunEntity,
     ): Promise<NodeHandlerResponse> {
         try {
-            // 1. Get order data from trigger payload
-            const orderData = run.executionState.trigger.output as OrderEntity;
+            // 1. Get latest order data from database, or use old data for preview
+            let orderData = await this.getOrder(run.executionState.trigger.output);
 
             if (!orderData) {
                 return {
@@ -91,14 +126,20 @@ export class ConditionQuickOrderStatusHandler implements FlowNodeHandler {
 }
 
 @Injectable()
-export class ConditionOrderCheckHandler implements FlowNodeHandler {
+export class ConditionOrderCheckHandler extends FlowNodeHandler {
     private readonly logger = new Logger(ConditionOrderCheckHandler.name);
+
+    constructor(
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+    ) {
+        super(orderRepo);
+    }
 
     async execute(hydratedConfig: OrderCheckConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
         try {
-            // 1. جلب بيانات الطلب من مصدرها (الـ Trigger)
-            // يُفترض أن بيانات الطلب موجودة هنا بناءً على بنية الـ executionState
-            const orderData = run.executionState.trigger.output || {} as OrderEntity;
+            // 1. جلب بيانات الطلب من قاعدة البيانات (أحدث نسخة), أو استخدم البيانات القديمة للمعاينة
+            let orderData = await this.getOrder(run.executionState.trigger.output);
             if (!orderData) {
                 return {
                     success: false,
@@ -152,20 +193,24 @@ export class ConditionOrderCheckHandler implements FlowNodeHandler {
 }
 
 @Injectable()
-export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
+export class ActionUpdateOrderStatusHandler extends FlowNodeHandler {
     private readonly logger = new Logger(ActionUpdateOrderStatusHandler.name);
 
     constructor(
         private readonly adapter: AutomationAdapter,
-    ) { }
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+    ) {
+        super(orderRepo);
+    }
 
     async execute(
         hydratedConfig: UpdateOrderStatusConfig,
         run: AutomationRunEntity,
     ): Promise<NodeHandlerResponse> {
         try {
-            // 1. Get order data from trigger payload
-            const orderData = run.executionState.trigger.output as OrderEntity;
+            // 1. Get latest order data from database, or use old data for preview
+            let orderData = await this.getOrder(run.executionState.trigger.output);
 
             if (!orderData?.id) {
                 return {
@@ -246,16 +291,21 @@ export class ActionUpdateOrderStatusHandler implements FlowNodeHandler {
 }
 
 @Injectable()
-export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler {
+export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
     private readonly logger = new Logger(ActionSendWhatsappTemplateMessageHandler.name);
 
     constructor(
         private readonly adapter: AutomationAdapter,
-    ) { }
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+    ) {
+        super(orderRepo);
+    }
 
     async execute(hydratedConfig: SendWhatsappTemplateConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
         try {
-            const orderData = run.executionState.trigger.output as OrderEntity;
+            // Get latest order data from database, or use old data for preview
+            let orderData = await this.getOrder(run.executionState.trigger.output);
             if (!orderData) {
                 return { success: false, error: 'Order data not found in trigger output' };
             }
@@ -300,7 +350,7 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
             if (headerVarsLength !== Object.keys(hydratedConfig.headerVariables || {}).length) {
                 return { success: false, error: 'WhatsApp template header variables count does not match' };
             }
-            
+
             // 2. Prepare Hydrated Variables (Map dynamic paths to real values)
             const headerVariables = hydratedConfig.headerVariables ? this.mapVariablesToValues(hydratedConfig.headerVariables, orderData) : undefined;
             const bodyVariables = hydratedConfig.bodyVariables ? this.mapVariablesToValues(hydratedConfig.bodyVariables, orderData) : undefined;
@@ -324,7 +374,7 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
 
 
             // 3. Determine Recipient
-            const to = hydratedConfig.recipientNumber ? normalizeEgyptianPhoneNumber(hydratedConfig.recipientNumber) : orderData.normalizedPhoneNumber ? orderData.normalizedPhoneNumber :  normalizeEgyptianPhoneNumber(orderData.phoneNumber);
+            const to = hydratedConfig.recipientNumber ? normalizeEgyptianPhoneNumber(hydratedConfig.recipientNumber) : orderData.normalizedPhoneNumber ? orderData.normalizedPhoneNumber : normalizeEgyptianPhoneNumber(orderData.phoneNumber);
             if (!to) {
                 return { success: false, error: 'Recipient phone number not found' };
             }
@@ -412,15 +462,20 @@ export class ActionSendWhatsappTemplateMessageHandler implements FlowNodeHandler
 
 
 @Injectable()
-export class ActionSendUpsellHandler implements FlowNodeHandler {
+export class ActionSendUpsellHandler extends FlowNodeHandler {
     private readonly logger = new Logger(this.constructor.name);
     constructor(
         private readonly adapter: AutomationAdapter,
-    ) { }
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+    ) {
+        super(orderRepo);
+    }
 
     async execute(hydratedConfig: SendUpsellConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
         try {
-            const orderData = run.executionState.trigger.output as OrderEntity;
+            // Get latest order data from database, or use old data for preview
+            let orderData = await this.getOrder(run.executionState.trigger.output);
             if (!orderData) {
                 return { success: false, error: 'Order data not found in trigger output' };
             }
@@ -486,17 +541,19 @@ export class NodeHandlersRegistry {
         private readonly upsellHistoryRepo: Repository<UpsellHistory>,
         @InjectRepository(WhatsappAccountEntity)
         private readonly accountRepo: Repository<WhatsappAccountEntity>,
+        @InjectRepository(OrderEntity)
+        private readonly orderRepo: Repository<OrderEntity>,
     ) {
         this.registerHandlers();
     }
 
     private registerHandlers() {
-        // Create handlers with the adapter
-        this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler());
-        this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler());
-        this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter));
-        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter));
-        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter));
+        // Create handlers with the adapter and order repo
+        this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler(this.orderRepo));
+        this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler(this.orderRepo));
+        this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo));
+        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo));
+        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo));
     }
 
     /**
