@@ -38,10 +38,18 @@ export class FlowWorkerService implements OnModuleInit, OnModuleDestroy {
 
                 try {
                     if (type === 'start' && runId) {
-                        this.logger.log(`Executing startExecution for run ${runId}`);
+                    console.log('=== [FlowWorker] Executing startExecution for run', runId);
+                    console.log('=== [FlowWorker] this.engineRunner is:', this.engineRunner);
+                    console.log('=== [FlowWorker] typeof this.engineRunner.startExecution:', typeof this.engineRunner.startExecution);
+                    this.logger.log(`Executing startExecution for run ${runId}`);
+                    try {
                         await this.engineRunner.startExecution(runId);
-                        this.logger.log(`=== SUCCESS: Finished job ${job.id} (run ${runId})`);
-                    } else if (type === 'resume' && resumeData) {
+                    } catch (error) {
+                        console.error('=== [FlowWorker] ERROR IN startExecution:', error);
+                        throw error;
+                    }
+                    this.logger.log(`=== SUCCESS: Finished job ${job.id} (run ${runId})`);
+                } else if (type === 'resume' && resumeData) {
                         this.logger.log(`Executing resumeFromWhatsappInteraction`);
                         await this.engineRunner.resumeFromWhatsappInteraction(
                             resumeData.originalMessageId,
