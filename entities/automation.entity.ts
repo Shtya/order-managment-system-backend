@@ -105,6 +105,7 @@ export enum ActionType {
     UPDATE_ORDER_STATUS = 'update_order_status',
     SEND_WHATSAPP_TEMPLATE = 'send_whatsapp_template',
     SEND_UPSELL = 'send_upsell',
+    ASSIGN_ORDER_TO_EMPLOYEE = 'assign_order_to_employee',
 }
 
 export enum ConditionType {
@@ -150,7 +151,8 @@ export type NodeConfig =
     SendWhatsappTemplateConfig |
     SendUpsellConfig |
     QuickOrderStatusConfig |
-    OrderCheckConfig;
+    OrderCheckConfig |
+    AssignOrderToEmployeeConfig;
 
 export interface SendUpsellConfig {
     branches?: {
@@ -158,6 +160,11 @@ export interface SendUpsellConfig {
         label: string;
         condition: string;
     }[];
+}
+
+export interface AssignOrderToEmployeeConfig {
+    employeeId?: string;
+    employeeName?: string;
 }
 
 export interface OrderCreatedConfig {

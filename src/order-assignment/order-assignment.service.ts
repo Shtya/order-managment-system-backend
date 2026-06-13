@@ -1119,7 +1119,7 @@ export class OrderAssignmentService {
             order: { priority: "ASC", createdAt: "ASC" },
         });
 
-        if (!rules.length) return { message: "No active rules found", assignedCount: 0 };
+        if (!rules.length) return { message: "No active rules found",noActiveRules: true, assignedCount: 0 };
 
         // 2. Fetch orders with necessary details
         const orders = await this.orderRepo.find({

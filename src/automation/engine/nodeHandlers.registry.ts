@@ -1,17 +1,23 @@
 // factory pattern. A registry that holds the actual execution logic for each FlowNodeType (e.g., WhatsappHandler, UpdateOrderStatusHandler, ConditionHandler).
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
-import { Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { ActionType, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
+import { User } from "entities/user.entity";
+
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
 import { ProductionAutomationAdapter } from "./adapters/production.adapters";
-import { In, Repository } from "typeorm";
+import { DataSource, In, Repository } from "typeorm";
 import { Upsell, UpsellHistory, UpsellStatus } from "entities/upsells.entity";
 import { InjectRepository } from "@nestjs/typeorm";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
+
+import { OrderAssignmentEntity } from "entities/assignment.entity";
+import { OrdersService } from "src/orders/services/orders.service";
 
 export interface NodeHandlerResponse {
     success: boolean;
@@ -426,12 +432,18 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
 
             if (varDetails.type === 'direct') {
                 textValue = varDetails.value || '';
+                if (!textValue) {
+                    throw new Error(`Variable "${key}" is direct type but has no value`);
+                }
             } else if (varDetails.type === 'variable') {
                 const val = this.getValueByPath(orderData, varDetails.variablePath);
                 if (Array.isArray(val)) {
                     textValue = val.map(v => String(v)).join(', ');
                 } else {
                     textValue = val !== null && val !== undefined ? String(val) : '';
+                }
+                if (!textValue) {
+                    throw new Error(`Variable "${key}" not found at path "${varDetails.variablePath}" in order data`);
                 }
             }
             result[key] = textValue;
@@ -532,6 +544,151 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
 
 
 @Injectable()
+export class ActionAssignOrderToEmployeeHandler extends FlowNodeHandler {
+    private readonly logger = new Logger(ActionAssignOrderToEmployeeHandler.name);
+
+    constructor(
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+        @InjectRepository(User)
+        private readonly userRepo: Repository<User>,
+        @InjectRepository(OrderAssignmentEntity)
+        private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
+        private readonly orderAssignmentService: OrderAssignmentService,
+        private readonly ordersService: OrdersService,
+        private readonly dataSource: DataSource,
+    ) {
+        super(orderRepo);
+    }
+
+    async execute(config: AssignOrderToEmployeeConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
+        try {
+            // Get latest order data
+            let orderData = await this.getOrder(run.executionState.trigger.output);
+            if (!orderData?.id) {
+                return {
+                    success: false,
+                    shouldPause: false,
+                    error: 'Order data not available for assignment',
+                };
+            }
+            const adminId = orderData.adminId;
+
+            // Check if order is eligible for assignment
+            if (orderData.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(orderData.status.code as any)) {
+                return {
+                    success: true,
+                    shouldPause: false,
+                    chosenBranch: 'not_eligable',
+                    output: { reason: 'Order status not allowed for assignment', orderId: orderData.id }
+                };
+            }
+
+            // Check if order already has active assignment
+            const existingAssignment = await this.orderAssignmentRepo.findOne({
+                where: { orderId: orderData.id, isAssignmentActive: true }
+            });
+            if (existingAssignment) {
+                return {
+                    success: true,
+                    shouldPause: false,
+                    chosenBranch: 'assigned',
+                    output: { reason: 'Order already assigned', orderId: orderData.id, employeeId: existingAssignment.employeeId }
+                };
+            }
+
+            let chosenBranch: string;
+            let output: any;
+
+            if (config.employeeId && config.employeeId !== 'none') {
+                // Manual assignment to specific employee
+                chosenBranch = await this.manualAssign(config.employeeId, orderData, adminId);
+                output = { orderId: orderData.id, employeeId: config.employeeId };
+            } else {
+                // Auto assignment
+                const result = await this.orderAssignmentService.processAutoAssignment(adminId, [orderData.id]);
+                if (result.assignedCount > 0) {
+                    chosenBranch = 'assigned';
+                    output = { orderId: orderData.id, results: result.results };
+                } else {
+                    chosenBranch = 'no_roles_match';
+                    output = { orderId: orderData.id, reason: 'No matching assignment rules' };
+                }
+            }
+
+            return {
+                success: true,
+                shouldPause: false,
+                chosenBranch,
+                output,
+            };
+        } catch (error) {
+            this.logger.error(
+                `Failed to assign order: ${error?.message}`,
+                error?.stack,
+            );
+
+            return {
+                success: false,
+                shouldPause: false,
+                error: 'Failed to assign order',
+            };
+        }
+    }
+
+    private async manualAssign(employeeId: string, order: OrderEntity, adminId: string): Promise<string> {
+        return await this.dataSource.transaction(async (manager) => {
+            // Verify employee exists and belongs to admin
+            const employee = await manager.findOne(User, {
+                where: { id: employeeId, adminId } as any
+            });
+            if (!employee) {
+                throw new NotFoundException('Employee not found');
+            }
+
+            // Verify order is free and eligible
+            const freeOrder = await manager
+                .createQueryBuilder(OrderEntity, "order")
+                .innerJoin("order.status", "status")
+                .leftJoin(
+                    "order.assignments",
+                    "assignment",
+                    "assignment.isAssignmentActive = :isActive",
+                    { isActive: true },
+                )
+                .where("order.id = :orderId", { orderId: order.id })
+                .andWhere("assignment.id IS NULL")
+                .getOne();
+
+            if (!freeOrder) {
+                return 'not_eligable';
+            }
+
+            if (freeOrder.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(freeOrder.status.code as any)) {
+                return 'not_eligable';
+            }
+
+            // Get settings
+            const settings = await this.ordersService.getCachedSettings(adminId);
+            const maxRetries = settings?.maxRetries || 3;
+
+            // Create assignment
+            await manager.save(
+                manager.create(OrderAssignmentEntity, {
+                    orderId: order.id,
+                    employeeId: employeeId,
+                    assignedByAdminId: adminId,
+                    maxRetriesAtAssignment: maxRetries,
+                    isAssignmentActive: true,
+                })
+            );
+
+            return 'assigned';
+        });
+    }
+}
+
+@Injectable()
 export class NodeHandlersRegistry {
     private readonly handlers = new Map<FlowNodeDataType, FlowNodeHandler>();
 
@@ -543,6 +700,13 @@ export class NodeHandlersRegistry {
         private readonly accountRepo: Repository<WhatsappAccountEntity>,
         @InjectRepository(OrderEntity)
         private readonly orderRepo: Repository<OrderEntity>,
+        @InjectRepository(User)
+        private readonly userRepo: Repository<User>,
+        @InjectRepository(OrderAssignmentEntity)
+        private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
+        private readonly orderAssignmentService: OrderAssignmentService,
+        private readonly ordersService: OrdersService,
+        private readonly dataSource: DataSource,
     ) {
         this.registerHandlers();
     }
@@ -554,6 +718,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo));
         this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo));
         this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo));
+        this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.orderRepo, this.userRepo, this.orderAssignmentRepo, this.orderAssignmentService, this.ordersService, this.dataSource));
     }
 
     /**
