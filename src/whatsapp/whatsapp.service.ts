@@ -467,7 +467,7 @@ export class WhatsappService {
 
     async getDefaultAccountId(adminId: string, accountId?: string): Promise<string> {
         if (!accountId) {
-            const settings = await this.orderService.getSettings(adminId);
+            const settings = await this.orderService.getCachedSettings(adminId);
             accountId = settings?.defaultWhatsAppAccountId;
             this.logger.debug(`Default accountId for adminId ${adminId} is ${accountId}`);
             if (!accountId) {

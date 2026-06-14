@@ -942,9 +942,8 @@ export class StoresService {
           syncStates?.filter(s => s.remoteProductId).map(s => [s?.remoteProductId, s?.product])
         );
 
-        const retrySettings = await this.ordersService.getSettings(
-          { id: adminId, role: { name: 'admin' } },
-          manager,
+        const retrySettings = await this.ordersService.getCachedSettings(
+          adminId,
         );
         const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
 
@@ -1258,8 +1257,8 @@ export class StoresService {
     const payload = failure.payload;
     const problems = [];
 
-    const retrySettings = await this.ordersService.getSettings(
-      { id: adminId, role: { name: 'admin' } },
+    const retrySettings = await this.ordersService.getCachedSettings(
+      adminId,
     );
     const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
 

@@ -341,15 +341,7 @@ export class UpsellsService {
     async sendUpsell(upsell: Upsell, order: OrderEntity, run?: AutomationRunEntity) {
         const adminId = order.adminId;
 
-        // Get primary WhatsApp account
-        const account = await this.accountRepo.findOne({
-            where: { adminId, isActive: true },
-            order: { createdAt: 'ASC' }
-        });
-        if (!account) {
-            throw new BadRequestException('No active WhatsApp account found');
-        }
-
+    
         const config = upsell.messageConfig;
         if (!config) return null;
 
@@ -362,7 +354,7 @@ export class UpsellsService {
             if (config.headerType === 'TEXT') {
                 interactive.header = { type: 'text', text: config.headerText };
             } else {
-                const media = await this.whatsappService.uploadMedia({ id: adminId, adminId }, { url: config.headerUrl }, account.id);
+                const media = await this.whatsappService.uploadMedia({ id: adminId, adminId }, { url: config.headerUrl });
                 interactive.header = {
                     type: config.headerType.toLowerCase(),
                     [config.headerType.toLowerCase()]: {
@@ -399,7 +391,6 @@ export class UpsellsService {
                 interactive,
 
             },
-            account.id
         );
 
         // Save Upsell History record
@@ -429,7 +420,7 @@ export class UpsellsService {
             where: { messageId, adminId },
             order: { createdAt: 'DESC' },
         });
-
+        
         if (!history) {
             return { success: false, code: 'HISTORY_NOT_FOUND', message: 'No upsell history found for this message' };
         }

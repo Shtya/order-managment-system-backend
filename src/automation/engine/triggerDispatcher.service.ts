@@ -152,7 +152,7 @@ export class TriggerDispatcherService {
      * Automatic migration logic for failed runs when a flow is updated
      */
     async autoRetryFailedRuns(adminId: string, automationFlowId: string) {
-        const settings = await this.ordersService.getSettings({ id: adminId, adminId });
+        const settings = await this.ordersService.getCachedSettings(adminId);
         const strategy = settings?.automationMigrationStrategy || AutomationMigrationStrategy.LATEST_PATCH;
 
         if (strategy === AutomationMigrationStrategy.MANUAL) {

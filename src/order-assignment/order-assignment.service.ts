@@ -189,7 +189,7 @@ export class OrderAssignmentService {
 
             freeOrders.forEach(async o => await this.ordersService.throwIfDelivered(o, "Cannot assign a order that has been closed."));
             // 4) fetch settings
-            const settings = await this.ordersService.getSettings(me);
+            const settings = await this.ordersService.getCachedSettings(adminId);
             const maxRetries = settings?.maxRetries || 3;
 
             // 5) create assignment entities in bulk
@@ -307,7 +307,7 @@ export class OrderAssignmentService {
             }
 
             // 3. Fetch Settings
-            const settings = await this.ordersService.getSettings(me);
+            const settings = await this.ordersService.getCachedSettings(adminId);
             const maxRetries = settings?.maxRetries || 3;
 
             const assignmentsToSave: OrderAssignmentEntity[] = [];

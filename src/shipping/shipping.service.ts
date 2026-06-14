@@ -502,7 +502,7 @@ export class ShippingService {
 
 			// Execute shipment creation transaction
 			const result = await this.dataSource.transaction(async (manager) => {
-				const settings = await this.ordersService.getSettings({ adminId: order.adminId, manager: manager });
+				const settings = await this.ordersService.getCachedSettings(adminId);
 				const newStatusCode = settings.orderFlowPath === OrderFlowPath.SHIPPING ? OrderStatus.SHIPPED : OrderStatus.DISTRIBUTED;
 
 				if (isNoneProvider) {
