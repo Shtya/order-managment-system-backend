@@ -469,6 +469,7 @@ export class WhatsappService {
         if (!accountId) {
             const settings = await this.orderService.getSettings(adminId);
             accountId = settings?.defaultWhatsAppAccountId;
+            this.logger.debug(`Default accountId for adminId ${adminId} is ${accountId}`);
             if (!accountId) {
                 // get first active account
                 const activeAccount = await this.accountRepo.findOne({
@@ -482,7 +483,7 @@ export class WhatsappService {
         if (!accountId) {
             throw new BadRequestException('Missing accountId');
         }
-
+        this.logger.debug(`Resolved accountId for adminId ${adminId} is ${accountId}`);
         return accountId;
     }
 
