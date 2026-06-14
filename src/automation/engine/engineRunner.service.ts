@@ -14,6 +14,7 @@ import { findNextNodeId } from './automation-helpers';
 import { UpsellsService } from 'src/upsells/upsells.service';
 import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 import { OrderEntity } from 'entities/order.entity';
+import { getErrorMessage } from 'common/healpers';
 
 @Injectable()
 export class EngineRunnerService {
@@ -187,6 +188,7 @@ export class EngineRunnerService {
         const run = await this.runRepo.findOne({ where: { id: step.runId } });
         let upsellApplyResultCode: string | undefined;
 
+        try {
         // Special logic for Upsell: Apply before choosing branch
         if (step.dataType === ActionType.SEND_UPSELL && buttonId?.endsWith('_btn_0')) {
             const adminId = run.executionState.trigger.output.adminId;
@@ -225,8 +227,15 @@ export class EngineRunnerService {
                     text: { body: feedbackText }
                 },
             );
+        } } 
+        catch (error) {
+            this.logger.error(`=== ERROR in resumeFromWhatsappInteraction(${step.runId}):`, error);
+            const message = getErrorMessage(error);
+            await this.failRun(run, `Error: ${message}`);
+            return;
         }
 
+        
         if (!run || run.status !== RunStatus.PAUSED) {
             this.logger.warn(`Automation run ${step.runId} is not in PAUSED state. Cannot resume.`);
             return;
