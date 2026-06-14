@@ -79,6 +79,10 @@ export class OrderItemDto {
   @IsOptional()
   @IsBoolean()
   isAdditional?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  addQuantity?: boolean; // If true, add quantity to existing instead of replacing
 }
 // ✅ Order Item DTO
 export class RemovedOrderItemDto {

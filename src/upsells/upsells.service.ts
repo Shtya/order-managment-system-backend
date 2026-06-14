@@ -338,6 +338,13 @@ export class UpsellsService {
         });
     }
 
+    async getUpsellsByProductIdsExcludingOrderItems(productIds: string[], adminId: string, orderItemVariantIds: string[]): Promise<Upsell[]> {
+        // Get all upsells first
+        const allUpsells = await this.getUpsellsByProductIds(productIds, adminId);
+        // Filter out any upsell whose upsellSkuId is already in the order
+        return allUpsells.filter(upsell => !orderItemVariantIds.includes(upsell.upsellSkuId));
+    }
+
     async sendUpsell(upsell: Upsell, order: OrderEntity, run?: AutomationRunEntity) {
         const adminId = order.adminId;
 
@@ -523,7 +530,8 @@ export class UpsellsService {
                         variantId: upsell.upsellSkuId,
                         quantity: 1,
                         unitPrice: Number(upsell.upsellPrice),
-                        isAdditional: true
+                        isAdditional: true,
+                        addQuantity: true
                     }
                 ]
             } as any);

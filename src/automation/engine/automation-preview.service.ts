@@ -57,6 +57,7 @@ import { User } from 'entities/user.entity';
 import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 import { OrderAssignmentEntity } from 'entities/assignment.entity';
 import { OrderAssignmentService } from 'src/order-assignment/order-assignment.service';
+import { UpsellsService } from 'src/upsells/upsells.service';
 
 export interface CreatePreviewInput {
   adminId: string;
@@ -169,6 +170,8 @@ export class AutomationPreviewService {
     @Inject(forwardRef(() => OrderAssignmentService))
     private readonly orderAssignmentService: OrderAssignmentService,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => UpsellsService))
+    private readonly upsellsService: UpsellsService,
   ) { }
 
   /**
@@ -507,7 +510,7 @@ export class AutomationPreviewService {
   }
 
   private registry = new PreviewNodeHandlersRegistry(
-    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.userRepo, this.ordersService, this.orderAssignmentService, this.dataSource),
+    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.userRepo, this.ordersService, this.orderAssignmentService, this.dataSource, this.upsellsService),
     this.orderRepo, 
     this.orderAssignmentRepo,
     this.ordersService,

@@ -38,6 +38,8 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
         @Inject(forwardRef(() => OrderAssignmentService))
         public readonly orderAssignmentService: OrderAssignmentService,
         private readonly dataSource: DataSource,
+        @Inject(forwardRef(() => UpsellsService))
+        public readonly upsellsService: UpsellsService,
     ) { }
 
 
@@ -115,6 +117,7 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
     async getUpsellsForProducts(
         productIds: string[],
         adminId: string,
+        orderItemVariantIds?: string[],
     ): Promise<Upsell[]> {
         const isMocked = productIds?.[0]?.startsWith('mock-');
         if (isMocked) {
@@ -123,14 +126,10 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
             } as any];
         }
 
-        return await this.upsellRepo.find({
-            where: {
-                triggerProductId: In(productIds),
-                adminId: adminId,
-                isActive: true,
-            },
-            relations: ['triggerProduct', 'upsellProduct', 'upsellSku'],
-        });
+        if (orderItemVariantIds) {
+          return await this.upsellsService.getUpsellsByProductIdsExcludingOrderItems(productIds, adminId, orderItemVariantIds);
+        }
+        return await this.upsellsService.getUpsellsByProductIds(productIds, adminId);
     }
 
     async manualAssign(

@@ -95,8 +95,9 @@ export interface AutomationAdapter {
      * Get available upsells for products
      */
     getUpsellsForProducts(
-        productIds: string[],
-        adminId: string,
+      productIds: string[],
+      adminId: string,
+      orderItemVariantIds?: string[],
     ): Promise<Upsell[]>;
 
     /**
