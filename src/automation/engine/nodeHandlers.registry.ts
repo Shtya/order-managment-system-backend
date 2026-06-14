@@ -548,15 +548,12 @@ export class ActionAssignOrderToEmployeeHandler extends FlowNodeHandler {
     private readonly logger = new Logger(ActionAssignOrderToEmployeeHandler.name);
 
     constructor(
+        private readonly adapter: AutomationAdapter,
         @InjectRepository(OrderEntity)
         protected readonly orderRepo: Repository<OrderEntity>,
-        @InjectRepository(User)
-        private readonly userRepo: Repository<User>,
         @InjectRepository(OrderAssignmentEntity)
         private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
-        private readonly orderAssignmentService: OrderAssignmentService,
         private readonly ordersService: OrdersService,
-        private readonly dataSource: DataSource,
     ) {
         super(orderRepo);
     }
@@ -602,17 +599,17 @@ export class ActionAssignOrderToEmployeeHandler extends FlowNodeHandler {
 
             if (config.employeeId && config.employeeId !== 'none') {
                 // Manual assignment to specific employee
-                chosenBranch = await this.manualAssign(config.employeeId, orderData, adminId);
+                chosenBranch = await this.adapter.manualAssign(config.employeeId, orderData, adminId);
                 output = { orderId: orderData.id, employeeId: config.employeeId };
             } else {
                 // Auto assignment
-                const result = await this.orderAssignmentService.processAutoAssignment(adminId, [orderData.id]);
+                const result = await this.adapter.processAutoAssignment(adminId, [orderData]);
                 if (result.assignedCount > 0) {
                     chosenBranch = 'assigned';
                     output = { orderId: orderData.id, results: result.results };
                 } else {
                     chosenBranch = 'no_roles_match';
-                    output = { orderId: orderData.id, reason: 'No matching assignment rules' };
+                    output = { orderId: orderData.id, reason: result.message || 'No matching assignment rules' };
                 }
             }
 
@@ -636,56 +633,7 @@ export class ActionAssignOrderToEmployeeHandler extends FlowNodeHandler {
         }
     }
 
-    private async manualAssign(employeeId: string, order: OrderEntity, adminId: string): Promise<string> {
-        return await this.dataSource.transaction(async (manager) => {
-            // Verify employee exists and belongs to admin
-            const employee = await manager.findOne(User, {
-                where: { id: employeeId, adminId } as any
-            });
-            if (!employee) {
-                throw new NotFoundException('Employee not found');
-            }
 
-            // Verify order is free and eligible
-            const freeOrder = await manager
-                .createQueryBuilder(OrderEntity, "order")
-                .innerJoin("order.status", "status")
-                .leftJoin(
-                    "order.assignments",
-                    "assignment",
-                    "assignment.isAssignmentActive = :isActive",
-                    { isActive: true },
-                )
-                .where("order.id = :orderId", { orderId: order.id })
-                .andWhere("assignment.id IS NULL")
-                .getOne();
-
-            if (!freeOrder) {
-                return 'not_eligable';
-            }
-
-            if (freeOrder.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(freeOrder.status.code as any)) {
-                return 'not_eligable';
-            }
-
-            // Get settings
-            const settings = await this.ordersService.getCachedSettings(adminId);
-            const maxRetries = settings?.maxRetries || 3;
-
-            // Create assignment
-            await manager.save(
-                manager.create(OrderAssignmentEntity, {
-                    orderId: order.id,
-                    employeeId: employeeId,
-                    assignedByAdminId: adminId,
-                    maxRetriesAtAssignment: maxRetries,
-                    isAssignmentActive: true,
-                })
-            );
-
-            return 'assigned';
-        });
-    }
 }
 
 @Injectable()
@@ -704,7 +652,6 @@ export class NodeHandlersRegistry {
         private readonly userRepo: Repository<User>,
         @InjectRepository(OrderAssignmentEntity)
         private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
-        private readonly orderAssignmentService: OrderAssignmentService,
         private readonly ordersService: OrdersService,
         private readonly dataSource: DataSource,
     ) {
@@ -718,7 +665,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo));
         this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo));
         this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo));
-        this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.orderRepo, this.userRepo, this.orderAssignmentRepo, this.orderAssignmentService, this.ordersService, this.dataSource));
+        this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
     }
 
     /**
