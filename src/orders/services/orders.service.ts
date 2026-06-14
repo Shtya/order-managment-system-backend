@@ -3237,7 +3237,7 @@ export class OrdersService {
 
       if (oldStatusId === newStatus.id) return order;
 
-      const settings = await this.getSettings(me);
+      const settings = await this.getCachedSettings(adminId);
       const allowed = settings.confirmationStatuses;
 
       if (
