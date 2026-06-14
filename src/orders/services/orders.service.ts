@@ -715,27 +715,53 @@ export class OrdersService {
       })()
     ]);
 
-    // Create a map to quickly look up order count by company ID
-    const countMap = new Map<string | null, number>();
+    // Create a map to quickly look up order count and name by company ID
+    const companyDataMap = new Map<string | null, { count: number; name: string | null }>();
     rows.forEach((row) => {
-      countMap.set(row.companyId ?? null, Number(row.count) || 0);
+      companyDataMap.set(row.companyId ?? null, {
+        count: Number(row.count) || 0,
+        name: row.companyName ?? null,
+      });
     });
 
-    // Start with all shipping companies
-    const result = shippingResponse.integrations.map((company) => ({
-      companyId: company.providerId ?? null,
-      companyName: company.name ?? null,
-      count: countMap.get(company.providerId) || 0,
-    }));
+    // Set to track which companies we've already added (for deduplication)
+    const addedCompanyIds = new Set<string | null>();
 
-    // Add "None" shipping company entry if it exists in the countMap (i.e., has orders with no shipping company)
-
-    result.push({
-      companyId: null,
-      companyName: "None",
-      count: countMap.get(null) || 0,
+    // Start with all active shipping companies
+    const result = shippingResponse.integrations.map((company) => {
+      const companyId = company.providerId ?? null;
+      addedCompanyIds.add(companyId);
+      const data = companyDataMap.get(companyId);
+      return {
+        companyId: companyId,
+        companyName: company.name ?? null,
+        count: data?.count || 0,
+      };
     });
 
+    // Add companies from query results not already in the list
+    rows.forEach((row) => {
+      const companyId = row.companyId ?? null;
+      if (!addedCompanyIds.has(companyId)) {
+        addedCompanyIds.add(companyId);
+        const data = companyDataMap.get(companyId);
+        result.push({
+          companyId: companyId,
+          companyName: companyId ? (data?.name ?? null) : "None",
+          count: data?.count || 0,
+        });
+      }
+    });
+
+    // Ensure "None" entry is present
+    if (!addedCompanyIds.has(null)) {
+      addedCompanyIds.add(null);
+      result.push({
+        companyId: null,
+        companyName: "None",
+        count: 0,
+      });
+    }
 
     return result;
   }
