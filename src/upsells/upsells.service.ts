@@ -428,7 +428,6 @@ export class UpsellsService {
         const history = await this.upsellHistoryRepo.findOne({
             where: { messageId, adminId },
             order: { createdAt: 'DESC' },
-            relations: ['order'],
         });
 
         if (!history) {
