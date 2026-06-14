@@ -223,7 +223,7 @@ export class EngineRunnerService {
                     messaging_product: 'whatsapp',
                     type: 'text',
                     text: { body: feedbackText }
-                }
+                },
             );
         }
 
