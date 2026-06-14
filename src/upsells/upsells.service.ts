@@ -303,7 +303,7 @@ export class UpsellsService {
             else if (status === UpsellStatus.PENDING) {
                 result.pending += count;
             }
-            
+
             else if (status === UpsellStatus.ACCEPTED_NON_ELIGIBLE) {
                 result.acceptedNonEligible += count;
             }
@@ -362,7 +362,7 @@ export class UpsellsService {
             if (config.headerType === 'TEXT') {
                 interactive.header = { type: 'text', text: config.headerText };
             } else {
-                const media = await this.whatsappService.uploadMedia({id: adminId, adminId}, {url: config.headerUrl}, account.id);
+                const media = await this.whatsappService.uploadMedia({ id: adminId, adminId }, { url: config.headerUrl }, account.id);
                 interactive.header = {
                     type: config.headerType.toLowerCase(),
                     [config.headerType.toLowerCase()]: {
@@ -397,7 +397,7 @@ export class UpsellsService {
                 messaging_product: 'whatsapp',
                 type: 'interactive',
                 interactive,
-                
+
             },
             account.id
         );
@@ -427,14 +427,26 @@ export class UpsellsService {
         const adminId = tenantId(me);
         const history = await this.upsellHistoryRepo.findOne({
             where: { messageId, adminId },
-            order: { createdAt: 'DESC' }
+            order: { createdAt: 'DESC' },
+            relations: ['order'],
         });
 
         if (!history) {
             return { success: false, code: 'HISTORY_NOT_FOUND', message: 'No upsell history found for this message' };
         }
 
-        return await this.applyUpsellToOrder(me, history.orderId, history.upsellId);
+        const result = await this.applyUpsellToOrder(me, history.orderId, history.upsellId);
+
+        if(result.code !== 'APPLY_FAILED') {
+            await this.notificationService.create({
+                userId: adminId,
+                type: NotificationType.UPSELL_UPDATED,
+                title: "Upsell Updated",
+                message: result.message,
+                relatedEntityType: "order",
+                relatedEntityId: String(history.orderId),
+            });
+        }
     }
 
     async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
@@ -445,11 +457,11 @@ export class UpsellsService {
         try {
             order = await this.ordersService.get(me, orderId);
         } catch (err) {
-            return { success: false, code: 'ORDER_NOT_FOUND', message: 'Order not found' };
+            return { success: false, code: 'ORDER_NOT_FOUND', message: "can't apply upsell to order, order not found" };
         }
 
         if (!order) {
-            return { success: false, code: 'ORDER_NOT_FOUND', message: 'Order not found' };
+            return { success: false, code: 'ORDER_NOT_FOUND', message: "can't apply upsell to order, order not found" };
         }
 
         // 2. Fetch Upsell
@@ -458,12 +470,12 @@ export class UpsellsService {
             relations: ['upsellSku']
         });
         if (!upsell) {
-            return { success: false, code: 'UPSELL_NOT_FOUND', message: 'Upsell not found' };
+            return { success: false, code: 'UPSELL_NOT_FOUND', message: `can't apply upsell to order ${order?.orderNumber}, upsell not found` };
         }
 
         // 3. Check Order Status
         const orderStatusCode = order.status?.code;
-        
+
         // Handle Ineligibility (Warehouse or Delivered)
         if (orderStatusCode === OrderStatus.DELIVERED || (orderStatusCode && this.ordersService.isWarehouseStatus(orderStatusCode))) {
             const history = await this.upsellHistoryRepo.findOne({
@@ -477,12 +489,12 @@ export class UpsellsService {
             }
 
             if (orderStatusCode === OrderStatus.DELIVERED) {
-                return { success: false, code: 'ORDER_DELIVERED', message: 'Order has been delivered and cannot be edited' };
+                return { success: false, code: 'ORDER_DELIVERED', message: `Order ${order?.orderNumber} has been delivered and cannot be edited` };
             }
             return {
                 success: false,
                 code: 'INVALID_ORDER_STATUS',
-                message: `Order has already entered the warehouse (Status: '${orderStatusCode}'), cannot add upsells`,
+                message: `Order ${order?.orderNumber} has already entered the warehouse (Status: '${orderStatusCode}'), cannot add upsells`,
                 status: orderStatusCode
             };
         }
@@ -494,11 +506,11 @@ export class UpsellsService {
         });
 
         if (!history) {
-            return { success: false, code: 'HISTORY_NOT_FOUND', message: 'No upsell history found for this order' };
+            return { success: false, code: 'HISTORY_NOT_FOUND', message: `No upsell history found for order ${order?.orderNumber}` };
         }
 
         if (history.status === UpsellStatus.ACCEPTED) {
-            return { success: false, code: 'ALREADY_ACCEPTED', message: 'Upsell has already been accepted and applied' };
+            return { success: false, code: 'ALREADY_ACCEPTED', message: `Upsell for ${upsell?.upsellSku.sku} has already been accepted and applied to order ${order?.orderNumber}` };
         }
 
         if (history.status === UpsellStatus.EXPIRED || (history.expiresAt && history.expiresAt < new Date())) {
@@ -506,7 +518,7 @@ export class UpsellsService {
                 history.status = UpsellStatus.EXPIRED;
                 await this.upsellHistoryRepo.save(history);
             }
-            return { success: false, code: 'UPSELL_EXPIRED', message: 'Upsell link has expired' };
+            return { success: false, code: 'UPSELL_EXPIRED', message: `Upsell link for order ${order?.orderNumber} has expired` };
         }
 
         // 5. Apply to Order
@@ -532,7 +544,7 @@ export class UpsellsService {
             return { success: true, code: 'SUCCESS', message: 'Upsell applied successfully' };
         } catch (err) {
             console.error('Failed to apply upsell:', err);
-            
+
             // Update History to FAILED_TO_ADD
             if (history && history.status === UpsellStatus.PENDING) {
                 history.status = UpsellStatus.FAILED_TO_ADD;
