@@ -436,7 +436,7 @@ export class UpsellsService {
 
         const result = await this.applyUpsellToOrder(me, history.orderId, history.upsellId);
 
-        if(result.code !== 'APPLY_FAILED') {
+        if(result.success || result.code === 'INVALID_ORDER_STATUS' || result.code === 'ORDER_DELIVERED' || result.code === 'UPSELL_EXPIRED') {
             await this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.UPSELL_UPDATED,
@@ -540,7 +540,7 @@ export class UpsellsService {
             history.respondedAt = new Date();
             await this.upsellHistoryRepo.save(history);
 
-            return { success: true, code: 'SUCCESS', message: 'Upsell applied successfully' };
+            return { success: true, code: 'SUCCESS', message: `Upsell for ${upsell?.upsellSku.sku} has been applied successfully at order ${order?.orderNumber}` };
         } catch (err) {
             console.error('Failed to apply upsell:', err);
 
