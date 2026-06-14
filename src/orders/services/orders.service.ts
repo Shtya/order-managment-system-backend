@@ -2619,7 +2619,8 @@ export class OrdersService {
               : null;
 
           const oldQty = existingItem ? existingItem.quantity : 0;
-          const qtyDiff = dtoItem.quantity - oldQty;
+          const newQty = dtoItem.addQuantity ? oldQty + dtoItem.quantity : dtoItem.quantity;
+          const qtyDiff = newQty - oldQty;
 
           // 1. Stock Validation
           if (qtyDiff > 0) {
@@ -2639,14 +2640,15 @@ export class OrdersService {
           // 3. Prepare OrderItemEntity
           if (existingItem) {
             // Update existing
-            existingItem.quantity = dtoItem.quantity;
+            existingItem.quantity = newQty;
             existingItem.unitPrice = dtoItem.unitPrice;
             if (dtoItem.isAdditional !== undefined)
               existingItem.isAdditional = dtoItem.isAdditional;
+            
 
-            existingItem.lineTotal = dtoItem.quantity * dtoItem.unitPrice;
+            existingItem.lineTotal = newQty * dtoItem.unitPrice;
             existingItem.lineProfit =
-              (dtoItem.unitPrice - existingItem.unitCost) * dtoItem.quantity;
+              (dtoItem.unitPrice - existingItem.unitCost) * newQty;
 
             currentOrderItems[existingItemIndex] = existingItem;
             itemsToSave.push(existingItem);
@@ -2657,12 +2659,12 @@ export class OrdersService {
               adminId,
               orderId: order.id,
               variantId: dtoItem.variantId,
-              quantity: dtoItem.quantity,
+              quantity: newQty,
               unitPrice: dtoItem.unitPrice,
               unitCost: unitCost,
               isAdditional: dtoItem.isAdditional ?? false,
-              lineTotal: dtoItem.quantity * dtoItem.unitPrice,
-              lineProfit: (dtoItem.unitPrice - unitCost) * dtoItem.quantity,
+              lineTotal: newQty * dtoItem.unitPrice,
+              lineProfit: (dtoItem.unitPrice - unitCost) * newQty,
             } as any);
 
             newItem.variant = variant; // Attach for signature generation

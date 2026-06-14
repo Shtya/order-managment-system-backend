@@ -110,9 +110,13 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     }
 
     async getUpsellsForProducts(
-        productIds: string[],
-        adminId: string,
+      productIds: string[],
+      adminId: string,
+      orderItemVariantIds?: string[],
     ): Promise<Upsell[]> {
+        if (orderItemVariantIds) {
+          return await this.upsellsService.getUpsellsByProductIdsExcludingOrderItems(productIds, adminId, orderItemVariantIds);
+        }
         return await this.upsellsService.getUpsellsByProductIds(productIds, adminId);
     }
 

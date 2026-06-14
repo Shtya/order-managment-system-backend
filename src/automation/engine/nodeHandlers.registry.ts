@@ -500,7 +500,8 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
             }
 
             // Get available upsells for these products using adapter
-            const upsells = await this.adapter.getUpsellsForProducts(productIds, orderData.adminId);
+            const orderItemVariantIds = items.map(item => item.variantId).filter(Boolean);
+            const upsells = await this.adapter.getUpsellsForProducts(productIds, orderData.adminId, orderItemVariantIds);
 
             if (upsells.length === 0) {
                 return { success: true, shouldPause: false, chosenBranch: 'skipped', output: { reason: 'No upsells found for products' } };
@@ -510,6 +511,7 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
 
             // Send each upsell using the adapter
             for (const upsell of upsells) {
+                
                 const history = await this.adapter.sendUpsell(upsell, orderData, run);
                 if (history) {
                     sentUpsells.push({
