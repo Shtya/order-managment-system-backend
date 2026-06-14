@@ -232,6 +232,57 @@ export class OrderAssignmentService {
         });
     }
 
+     async manualAssign(employeeId: string, order: OrderEntity, adminId: string): Promise<string> {
+        return await this.dataSource.transaction(async (manager) => {
+            // Verify employee exists and belongs to admin
+            const employee = await manager.findOne(User, {
+                where: { id: employeeId, adminId } as any
+            });
+            if (!employee) {
+                throw new NotFoundException('Employee not found');
+            }
+
+            // Verify order is free and eligible
+            const freeOrder = await manager
+                .createQueryBuilder(OrderEntity, "order")
+                .innerJoin("order.status", "status")
+                .leftJoin(
+                    "order.assignments",
+                    "assignment",
+                    "assignment.isAssignmentActive = :isActive",
+                    { isActive: true },
+                )
+                .where("order.id = :orderId", { orderId: order.id })
+                .andWhere("assignment.id IS NULL")
+                .getOne();
+
+            if (!freeOrder) {
+                return 'not_eligable';
+            }
+
+            if (freeOrder.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(freeOrder.status.code as any)) {
+                return 'not_eligable';
+            }
+
+            // Get settings
+            const settings = await this.ordersService.getCachedSettings(adminId);
+            const maxRetries = settings?.maxRetries || 3;
+
+            // Create assignment
+            await manager.save(
+                manager.create(OrderAssignmentEntity, {
+                    orderId: order.id,
+                    employeeId: employeeId,
+                    assignedByAdminId: adminId,
+                    maxRetriesAtAssignment: maxRetries,
+                    isAssignmentActive: true,
+                })
+            );
+
+            return 'assigned';
+        });
+    }
+
     async autoAssign(me: any, dto: AutoAssignDto) {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
@@ -1195,6 +1246,54 @@ export class OrderAssignmentService {
                         relatedEntityType: "order",
                         relatedEntityId: String(order.id),
                     });
+
+                    results.push({ orderId: order.id, orderNumber: order.orderNumber, employeeId: employee.id, ruleName: rule.name });
+                }
+            }
+        }
+
+        return { success: true, assignedCount, results };
+    }
+
+    async previewAutoAssignment(adminId: string, orders: OrderEntity[])  {
+
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        // 1. Get active rules ordered by priority
+        const rules = await this.autoAssignRuleRepo.find({
+            where: { adminId, isActive: true },
+            relations: ["products", "cities", "employees", "stores"],
+            order: { priority: "ASC", createdAt: "ASC" },
+        });
+
+        if (!rules.length) return { message: "No active rules found", noActiveRules: true, assignedCount: 0 };
+
+        const settings = await this.ordersService.getCachedSettings(adminId);
+        if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
+            return { message: "Auto-assignment is disabled", assignedCount: 0 };
+        }
+    
+        let assignedCount = 0;
+        const results = [];
+
+        for (const order of orders) {
+            // Check if already assigned
+            const existingAssignment = await this.orderAssignmentRepo.findOne({
+                where: { orderId: order.id, isAssignmentActive: true }
+            });
+            if (existingAssignment) continue;
+
+            // Check if status allowed
+            if (order.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
+                continue;
+            }
+
+            // Find matching rule
+            const rule = this.findMatchingRule(order, rules);
+            if (rule && rule.employees?.length) {
+                const employee = await this.selectEmployeeByStrategy(rule);
+                if (employee) {       
+                    assignedCount++;
 
                     results.push({ orderId: order.id, orderNumber: order.orderNumber, employeeId: employee.id, ruleName: rule.name });
                 }

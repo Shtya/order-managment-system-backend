@@ -45,15 +45,18 @@ import {
   ActionUpdateOrderStatusHandler,
   ActionSendWhatsappTemplateMessageHandler,
   ActionSendUpsellHandler,
+  ActionAssignOrderToEmployeeHandler,
 } from './nodeHandlers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { WhatsappAccountEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AppGateway } from 'common/app.gateway';
 import { RedisService } from 'common/redis/RedisService';
 import { User } from 'entities/user.entity';
 import { Upsell, UpsellHistory } from 'entities/upsells.entity';
+import { OrderAssignmentEntity } from 'entities/assignment.entity';
+import { OrderAssignmentService } from 'src/order-assignment/order-assignment.service';
 
 export interface CreatePreviewInput {
   adminId: string;
@@ -159,6 +162,13 @@ export class AutomationPreviewService {
     private readonly upsellHistoryRepo: Repository<UpsellHistory>,
     @InjectRepository(OrderEntity)
     private readonly orderRepo: Repository<OrderEntity>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    @InjectRepository(OrderAssignmentEntity)
+    private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
+    @Inject(forwardRef(() => OrderAssignmentService))
+    private readonly orderAssignmentService: OrderAssignmentService,
+    private readonly dataSource: DataSource,
   ) { }
 
   /**
@@ -497,8 +507,10 @@ export class AutomationPreviewService {
   }
 
   private registry = new PreviewNodeHandlersRegistry(
-    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.ordersService),
-    this.orderRepo,
+    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.userRepo, this.ordersService, this.orderAssignmentService, this.dataSource),
+    this.orderRepo, 
+    this.orderAssignmentRepo,
+    this.ordersService,
   );
 }
 
@@ -509,6 +521,9 @@ class PreviewNodeHandlersRegistry {
     private readonly adapter: PreviewAutomationAdapter,
     @InjectRepository(OrderEntity)
     protected readonly orderRepo: Repository<OrderEntity>,
+    @InjectRepository(OrderAssignmentEntity)
+    private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
+    private readonly ordersService: OrdersService,
   ) {
     // Use production handlers with preview adapter injected
     this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler(orderRepo));
@@ -525,6 +540,10 @@ class PreviewNodeHandlersRegistry {
     this.handlers.set(
       ActionType.SEND_UPSELL,
       new ActionSendUpsellHandler(this.adapter, this.orderRepo),
+    );
+    this.handlers.set(
+      ActionType.ASSIGN_ORDER_TO_EMPLOYEE,
+      new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService),
     );
   }
 
