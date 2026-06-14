@@ -446,6 +446,8 @@ export class UpsellsService {
                 relatedEntityId: String(history.orderId),
             });
         }
+
+        return result;
     }
 
     async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
