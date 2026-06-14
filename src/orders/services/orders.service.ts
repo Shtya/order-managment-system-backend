@@ -153,7 +153,7 @@ export class OrdersService {
     @InjectRepository(OrderActionLogEntity)
     private orderActionLogRepo: Repository<OrderActionLogEntity>,
 
-    
+
 
 
     @Inject(forwardRef(() => ShippingQueueService))
@@ -673,47 +673,71 @@ export class OrdersService {
 
     if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
 
-    const qb = this.orderRepo
-      .createQueryBuilder("order")
-      .leftJoin("order.status", "status")
-      .leftJoin("order.shippingCompany", "shipping")
-      .leftJoin(
-        "order.shipments",
-        "shipment",
-        `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
-      )
-      .leftJoin("order.cityDetails", "cityDetails")
-      .leftJoin(
-        "cityDetails.tenantConfigs",
-        "cityTenantConfig",
-        `cityTenantConfig.adminId = order.adminId`,
-      )
-      .select("shipping.id", "companyId")
-      .addSelect("shipping.name", "companyName")
-      .addSelect("COUNT(order.id)", "count")
-      .where("status.code = :shippedCode", { shippedCode: OrderStatus.SHIPPED });
+    // Fetch shipping companies and order stats in parallel using Promise.all
+    const [shippingResponse, rows] = await Promise.all([
+      this.shippingService.activeIntegrations(me),
+      (async () => {
+        const qb = this.orderRepo
+          .createQueryBuilder("order")
+          .leftJoin("order.status", "status")
+          .leftJoin("order.shippingCompany", "shipping")
+          .leftJoin(
+            "order.shipments",
+            "shipment",
+            `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
+          )
+          .leftJoin("order.cityDetails", "cityDetails")
+          .leftJoin(
+            "cityDetails.tenantConfigs",
+            "cityTenantConfig",
+            `cityTenantConfig.adminId = order.adminId`,
+          )
+          .select("shipping.id", "companyId")
+          .addSelect("shipping.name", "companyName")
+          .addSelect("COUNT(order.id)", "count")
+          .where("status.code = :shippedCode", { shippedCode: OrderStatus.SHIPPED });
 
-    if (adminId) {
-      qb.andWhere("order.adminId = :adminId", { adminId });
-    }
+        if (adminId) {
+          qb.andWhere("order.adminId = :adminId", { adminId });
+        }
 
-    if (q?.lateShipping === "true" || q?.lateShipping === true) {
-      qb.andWhere('"order"."shippedAt" IS NOT NULL');
-      qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
-      qb.andWhere(
-        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
-      );
-    }
+        if (q?.lateShipping === "true" || q?.lateShipping === true) {
+          qb.andWhere('"order"."shippedAt" IS NOT NULL');
+          qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
+          qb.andWhere(
+            `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
+          );
+        }
 
-    qb.groupBy("shipping.id").addGroupBy("shipping.name").orderBy("COUNT(order.id)", "DESC");
+        qb.groupBy("shipping.id").addGroupBy("shipping.name").orderBy("COUNT(order.id)", "DESC");
 
-    const rows = await qb.getRawMany();
+        return qb.getRawMany();
+      })()
+    ]);
 
-    return rows.map((row) => ({
-      companyId: row.companyId ?? null,
-      companyName: row.companyName ?? null,
-      count: Number(row.count) || 0,
+    // Create a map to quickly look up order count by company ID
+    const countMap = new Map<string | null, number>();
+    rows.forEach((row) => {
+      countMap.set(row.companyId ?? null, Number(row.count) || 0);
+    });
+
+    // Start with all shipping companies
+    const result = shippingResponse.integrations.map((company) => ({
+      companyId: company.providerId ?? null,
+      companyName: company.name ?? null,
+      count: countMap.get(company.providerId) || 0,
     }));
+
+    // Add "None" shipping company entry if it exists in the countMap (i.e., has orders with no shipping company)
+
+    result.push({
+      companyId: null,
+      companyName: "None",
+      count: countMap.get(null) || 0,
+    });
+
+
+    return result;
   }
 
   async getOrderHistory(orderId: string, me: any) {
@@ -2454,7 +2478,7 @@ export class OrdersService {
     });
 
     // 🔥 Trigger Auto-Assignment Queue
-    await this.autoAssignmentQueueService.addAutoAssignmentJob({adminId, orderIds:[saved.id]});
+    await this.autoAssignmentQueueService.addAutoAssignmentJob({ adminId, orderIds: [saved.id] });
 
     return saved;
   }
@@ -2644,7 +2668,7 @@ export class OrdersService {
             existingItem.unitPrice = dtoItem.unitPrice;
             if (dtoItem.isAdditional !== undefined)
               existingItem.isAdditional = dtoItem.isAdditional;
-            
+
 
             existingItem.lineTotal = newQty * dtoItem.unitPrice;
             existingItem.lineProfit =
@@ -3308,7 +3332,7 @@ export class OrdersService {
         activeAssignment.finishedAt = now;
         activeAssignment.lockedUntil = null;
 
-         notificationPromises.push(
+        notificationPromises.push(
           this.notificationService.create({
             userId: adminId,
             type: NotificationType.ORDER_STATUS_UPDATE,
