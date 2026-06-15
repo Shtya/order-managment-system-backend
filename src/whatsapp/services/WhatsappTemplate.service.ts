@@ -328,7 +328,7 @@ export class WhatsappTemplateService {
 
         if (!isSuperAdmin) {
 
-            const payload = await this.mapToMetaPayload(dto as any);
+            const payload = await this.mapToMetaPayload(dto as any, dto.accountId);
 
             const metaResponse = await this.whatsappApi.request<{ id }>(
                 {
@@ -407,7 +407,7 @@ export class WhatsappTemplateService {
             const mapped = await this.mapToMetaPayload({
                 ...template,
                 templateConfig: dto.templateConfig,
-            } as any);
+            } as any, template.accountId);
 
             payload.components = mapped.components;
             if (mapped.message_send_ttl_seconds != null) {
@@ -529,7 +529,7 @@ export class WhatsappTemplateService {
      * محول البيانات ليتناسب مع هيكلة Meta API
      */
 
-    private async resolveHeaderHandle(data: WhatsappTemplateEntity): Promise<string | null> {
+    private async resolveHeaderHandle(data: WhatsappTemplateEntity, accountId: string): Promise<string | null> {
         const url = data.templateConfig?.headerUrl;
 
         if (!url) return null;
@@ -539,10 +539,10 @@ export class WhatsappTemplateService {
             return url;
         }
 
-        return await this.whatsappApi.uploadMediaToMeta(url);
+        return await this.whatsappApi.uploadMediaToMeta(url, accountId);
     }
 
-    private async mapToMetaPayload(data: WhatsappTemplateEntity): Promise<WhatsappTemplateRemoteDto> {
+    private async mapToMetaPayload(data: WhatsappTemplateEntity, accountId: string): Promise<WhatsappTemplateRemoteDto> {
 
         const cfg = data.templateConfig;
         if (!cfg) {
@@ -565,7 +565,7 @@ export class WhatsappTemplateService {
         } else if (
             ["IMAGE", "VIDEO", "DOCUMENT"].includes(cfg.headerType)
         ) {
-            const handle = await this.resolveHeaderHandle(data);
+            const handle = await this.resolveHeaderHandle(data, accountId);
 
             if (!handle) {
                 throw new BadRequestException("Missing media file for header");

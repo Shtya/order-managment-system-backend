@@ -82,7 +82,8 @@ export class UpsellsService {
         const messageConfig = { ...dto.messageConfig };
         if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType) && messageConfig.headerUrl) {
             try {
-                messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl);
+                const accountId = await this.whatsappService.getDefaultAccountId(adminId);
+                messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
             } catch (err) {
                 console.error('Failed to upload media to Meta:', err);
                 // We might still want to save, or throw error. Usually better to throw if it's required.
@@ -156,7 +157,8 @@ export class UpsellsService {
         if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
             if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType)) {
                 try {
-                    messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl);
+                    const accountId = await this.whatsappService.getDefaultAccountId(adminId);
+                    messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
                 } catch (err) {
                     throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
                 }

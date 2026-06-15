@@ -1,7 +1,7 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from "crypto";
 import { WhatsappApiService, WhatsappMessageResponsePayload, WhatsappSendMessagePayload, WhatsappUploadMediaPayload } from './services/WhatsappApi.service';
-import { EmbeddedSignupDto } from 'dto/whatsapp.dto';
+import { EmbeddedSignupDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
 import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappTemplateEntity, WhatsappWebhookEventEntity, TemplateStatus, TemplateQuality } from 'entities/whatsapp.entity';
 import { AutomationFlowEntity, AutomationRunEntity, RunStatus } from 'entities/automation.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -469,7 +469,7 @@ export class WhatsappService {
         if (!accountId) {
             const settings = await this.orderService.getCachedSettings(adminId);
             accountId = settings?.defaultWhatsAppAccountId;
-            this.logger.debug(`Default accountId for adminId ${adminId} is ${accountId}`);
+            // this.logger.debug(`Default accountId for adminId ${adminId} is ${accountId}`);
             if (!accountId) {
                 // get first active account
                 const activeAccount = await this.accountRepo.findOne({
@@ -483,7 +483,7 @@ export class WhatsappService {
         if (!accountId) {
             throw new BadRequestException('Missing accountId');
         }
-        this.logger.debug(`Resolved accountId for adminId ${adminId} is ${accountId}`);
+        // this.logger.debug(`Resolved accountId for adminId ${adminId} is ${accountId}`);
         return accountId;
     }
 
@@ -991,6 +991,7 @@ export class WhatsappService {
     private validateSignature(
         rawBody: Buffer,
         signatureHeader?: string,
+        accountAppSecret?: string,
     ) {
         if (!signatureHeader) {
             throw new BadRequestException(
@@ -998,7 +999,7 @@ export class WhatsappService {
             );
         }
 
-        const appSecret = process.env.META_APP_SECRET;
+        const appSecret = accountAppSecret || process.env.META_APP_SECRET;
 
         if (!appSecret) {
             throw new Error('META_APP_SECRET is not configured');
@@ -1036,17 +1037,7 @@ export class WhatsappService {
     ) {
         // this.logger.log(`WhatsApp Webhook Received - Headers: ${JSON.stringify(headers)}`);
         // this.logger.log(`WhatsApp Webhook Received - Body: ${JSON.stringify(body)}`);
-
         // Header can arrive lowercase in Node/Nest
-        const signature =
-            headers["x-hub-signature-256"] ||
-            headers["X-Hub-Signature-256"];
-
-        // Step 1: Validate request
-        this.validateSignature(rawBody, signature);
-
-        const entries = body?.entry || [];
-
         // 🔥 request-scoped cache (ONLY THIS REQUEST)
         const accountCache = new Map<string, WhatsappAccountEntity>();
 
@@ -1062,9 +1053,22 @@ export class WhatsappService {
 
             // 2. DB lookup
             const account = await this.accountRepo.findOne({
-                where: [
-                    { wabaId },
-                ],
+                where: { wabaId },
+                select: {
+                    accessToken: true,
+                    adminId: true,
+                    appId: true,
+                    appSecret: true,
+                    businessId: true,
+                    createdAt: true,
+                    id: true,
+                    isActive: true,
+                    isCreatedManual: true,
+                    mobileNumber: true,
+                    name: true,
+                    phoneNumberId: true,
+                    wabaId: true,
+                },
             });
 
             if (!account) {
@@ -1084,6 +1088,17 @@ export class WhatsappService {
 
             return account;
         };
+
+        const signature =
+            headers["x-hub-signature-256"] ||
+            headers["X-Hub-Signature-256"];
+        const entries = body?.entry || [];
+        const mainWabaId = entries?.[0]?.id;
+        const mainAccount = await resolveAccount(mainWabaId);
+
+        // Step 1: Validate request
+        this.validateSignature(rawBody, signature, mainAccount.appSecret);
+
 
         for (const entry of entries) {
             const account = await resolveAccount(entry?.id);
@@ -1689,6 +1704,168 @@ export class WhatsappService {
         }
     }
 
+    async handleManualAddAccount(me: any, payload: any) {
+        const adminId = tenantId(me);
+        const { name, phoneNumber, phoneNumberId, businessId, accessToken, wabaId, appId, appSecret } = payload;
+
+        try {
+            // Check if account already exists
+            const existing = await this.accountRepo.findOne({
+                where: [
+                    { wabaId, adminId },
+                    { phoneNumberId, adminId }
+                ]
+            });
+            if (existing) {
+                throw new BadRequestException("WhatsApp account already integrated");
+            }
+
+            // test connection to whatsapp api
+            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(wabaId, accessToken);
+            const phoneData = phoneNumbers.data.find(p => p.id === phoneNumberId);
+            if (!phoneData) {
+                throw new BadRequestException(
+                    "Failed to connect to WhatsApp. Please verify your Access Token, WABA ID, and Phone Number ID."
+                );
+            }
+
+            // Create Account Record
+            const account = this.accountRepo.create({
+                adminId,
+                name,
+                wabaId,
+                phoneNumberId,
+                businessId,
+                accessToken,
+                mobileNumber: phoneNumber,
+                appId,
+                appSecret,
+                isActive: true,
+                isCreatedManual: true,
+            });
+
+            const pin = Math.floor(100000 + Math.random() * 900000).toString();
+            await this.whatsappApi.registerPhoneNumber(account.phoneNumberId, account.accessToken, pin);
+            const savedAccount = await this.accountRepo.save(account);
+
+            // Sync Templates
+            try {
+                await this.accountRepo.manager.transaction(async (manager) => {
+                    await this.templateService.syncTemplatesFromMeta(
+                        adminId,
+                        savedAccount.id,
+                        wabaId,
+                        accessToken,
+                        manager
+                    );
+                });
+            } catch (tplError) {
+                this.logger.error(`Failed to sync templates during manual add: ${tplError.message}`, tplError.stack);
+            }
+
+            return savedAccount;
+        } catch (e) {
+            this.logger.error(`Failed to handle manual add account: ${e.message}`, e.stack);
+            throw new BadRequestException(getErrorMessage(e));
+        }
+    }
+
+    async updateManualAccount(
+        me: any,
+        accountId: string,
+        payload: UpdateManualAccountDto,
+    ) {
+        const adminId = tenantId(me);
+
+        try {
+            const account = await this.accountRepo
+                .createQueryBuilder('account')
+                .addSelect(['account.accessToken', 'account.appSecret'])
+                .where('account.id = :accountId', { accountId })
+                .andWhere('account.adminId = :adminId', { adminId })
+                .getOne();
+
+            if (!account) {
+                throw new NotFoundException('WhatsApp account not found');
+            }
+
+            if (!account.isCreatedManual) {
+                throw new BadRequestException('Only manual accounts can be updated');
+            }
+
+            const newWabaId = payload.wabaId ?? account.wabaId;
+            const newPhoneNumberId = payload.phoneNumberId ?? account.phoneNumberId;
+
+            const existing = await this.accountRepo
+                .createQueryBuilder('account')
+                .where('account.adminId = :adminId', { adminId })
+                .andWhere('account.id != :accountId', { accountId })
+                .andWhere(
+                    '(account.wabaId = :wabaId OR account.phoneNumberId = :phoneNumberId)',
+                    {
+                        wabaId: newWabaId,
+                        phoneNumberId: newPhoneNumberId,
+                    },
+                )
+                .getOne();
+
+            if (existing) {
+                throw new BadRequestException(
+                    'WhatsApp account already integrated',
+                );
+            }
+            // Only update fields that were provided
+            if (payload.name !== undefined) {
+                account.name = payload.name;
+            }
+
+            if (payload.phoneNumber !== undefined) {
+                account.mobileNumber = payload.phoneNumber;
+            }
+
+            if (payload.phoneNumberId !== undefined) {
+                account.phoneNumberId = payload.phoneNumberId;
+            }
+
+            if (payload.businessId !== undefined) {
+                account.businessId = payload.businessId;
+            }
+
+            if (payload.accessToken !== undefined) {
+                account.accessToken = payload.accessToken;
+            }
+
+            if (payload.wabaId !== undefined) {
+                account.wabaId = payload.wabaId;
+            }
+
+            if (payload.appId !== undefined) {
+                account.appId = payload.appId;
+            }
+
+            if (payload.appSecret !== undefined) {
+                account.appSecret = payload.appSecret;
+            }
+
+            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(account.wabaId, account.accessToken);
+            const phoneData = phoneNumbers.data.find(p => p.id === account.phoneNumberId);
+            if (!phoneData) {
+                throw new BadRequestException(
+                    "Failed to connect to WhatsApp. Please verify your Access Token, WABA ID, and Phone Number ID."
+                );
+            }
+            
+
+            return await this.accountRepo.save(account);
+        } catch (e) {
+            this.logger.error(
+                `Failed to update manual account: ${e.message}`,
+                e.stack,
+            );
+
+            throw new BadRequestException(getErrorMessage(e));
+        }
+    }
     async syncTemplates(me: any, accountId: string) {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
