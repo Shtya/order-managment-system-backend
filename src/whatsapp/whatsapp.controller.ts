@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpException, HttpStatus, Param, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Headers, HttpException, HttpStatus, Param, Post, Put, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 import { Request, Response } from 'express';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -7,7 +7,7 @@ import { SubscriptionGuard } from 'common/subscription.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { WhatsappSendMessagePayload } from './services/WhatsappApi.service';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { EmbeddedSignupDto } from 'dto/whatsapp.dto';
+import { EmbeddedSignupDto, ManualAddAccountDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -179,6 +179,31 @@ export class WhatsappController {
     @Body() payload: EmbeddedSignupDto
   ) {
     return this.whatsappService.handleEmbeddedSignup(req.user, payload);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Post('manual-add-account')
+  @Permissions('whatsapp.manage')
+  async handleManualAddAccount(
+    @Req() req: any,
+    @Body() payload: ManualAddAccountDto
+  ) {
+    return this.whatsappService.handleManualAddAccount(req.user, payload);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Put(':id/manual-account')
+  @Permissions('whatsapp.manage')
+  async updateManualAccount(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() payload: UpdateManualAccountDto,
+  ) {
+    return this.whatsappService.updateManualAccount(
+      req.user,
+      id,
+      payload,
+    );
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)

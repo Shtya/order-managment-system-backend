@@ -695,9 +695,11 @@ export class WhatsappApiService {
     }
   }
 
-  async uploadMediaToMeta(fileUrl: string): Promise<string> {
-    const appId = process.env.META_APP_ID;
-    const accessToken = process.env.META_SYSTEM_TOKEN;
+  async uploadMediaToMeta(fileUrl: string, accountId: string): Promise<string> {
+    const account = await this.getAccount(accountId);
+    const { accessToken: accountAccessToken, appId: accountAppId } = account;
+    const appId = accountAppId || process.env.META_APP_ID;
+    const accessToken = accountAccessToken || process.env.META_SYSTEM_TOKEN;
     const version = process.env.META_API_VERSION || 'v25.0';
 
     if (!appId || !accessToken) {

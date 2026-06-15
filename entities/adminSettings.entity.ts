@@ -1,5 +1,11 @@
 import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn } from 'typeorm';
 
+export enum WhatsAppIntegrationMode {
+  EMBEDDED_SIGNUP = 'embedded_signup',
+  MANUAL = 'manual',
+  NONE = 'none',
+}
+
 @Entity('admin_settings')
 export class AdminSettingsEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -23,4 +29,11 @@ export class AdminSettingsEntity {
 
   @UpdateDateColumn({ type: "timestamptz" })
   updatedAt: Date;
+
+  @Column({
+    type: 'enum',
+    enum: WhatsAppIntegrationMode,
+    default: WhatsAppIntegrationMode.EMBEDDED_SIGNUP,
+  })
+  whatsappIntegrationMode: WhatsAppIntegrationMode;
 }

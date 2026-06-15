@@ -314,8 +314,17 @@ export class WhatsappAccountEntity {
     @Column({ type: 'varchar', nullable: true })
     businessId: string; // المعرف الفريد للقالب من طرف Meta
 
+    @Column({ type: 'varchar', length: 100, nullable: true })
+    appId: string;
+
+    @Column({ type: 'varchar', length: 255, nullable: true, select: false })
+    appSecret: string;
+
     @Column({ type: 'boolean', default: true })
     isActive: boolean;
+
+    @Column({ type: 'boolean', default: false })
+    isCreatedManual: boolean;
 
     // في ملف whatsapp-account.entity.ts
     @Column({ type: 'text', nullable: true, select: false })

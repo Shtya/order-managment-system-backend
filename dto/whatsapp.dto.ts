@@ -249,3 +249,73 @@ export class EmbeddedSignupDto {
     @IsNotEmpty()
     businessId: string;
 }
+
+export class ManualAddAccountDto {
+    @IsString()
+    @IsNotEmpty()
+    name: string;
+
+    @IsString()
+    @IsNotEmpty()
+    phoneNumber: string;
+
+    @IsString()
+    @IsNotEmpty()
+    phoneNumberId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    businessId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    accessToken: string;
+
+    @IsString()
+    @IsNotEmpty()
+    wabaId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    appId: string;
+
+    @IsString()
+    @IsNotEmpty()
+    appSecret: string;
+}
+
+
+
+export class UpdateManualAccountDto {
+    @IsOptional()
+    @IsString()
+    name?: string;
+
+    @IsOptional()
+    @IsString()
+    phoneNumber?: string;
+
+    @IsOptional()
+    @IsString()
+    phoneNumberId?: string;
+
+    @IsOptional()
+    @IsString()
+    businessId?: string;
+
+    @IsOptional()
+    @IsString()
+    accessToken?: string;
+
+    @IsOptional()
+    @IsString()
+    wabaId?: string;
+
+    @IsOptional()
+    @IsString()
+    appId?: string;
+
+    @IsOptional()
+    @IsString()
+    appSecret?: string;
+}

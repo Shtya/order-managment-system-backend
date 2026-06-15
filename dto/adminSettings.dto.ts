@@ -2,12 +2,15 @@ import {
   IsEmail,
   IsEmpty,
   isEmpty,
+  IsEnum,
+  IsNotEmpty,
   IsOptional,
   IsString,
   IsUrl,
   ValidateNested,
 } from "class-validator";
 import { Type } from "class-transformer";
+import { WhatsAppIntegrationMode } from "entities/adminSettings.entity";
 
 class SocialsDto {
   @IsOptional()
@@ -43,4 +46,9 @@ export class UpdateAdminSettingsDto {
   @ValidateNested()
   @Type(() => SocialsDto)
   socials?: SocialsDto;
+
+  @IsOptional()
+  @IsEnum(WhatsAppIntegrationMode)
+  @IsNotEmpty()
+  whatsappIntegrationMode?: WhatsAppIntegrationMode;
 }
