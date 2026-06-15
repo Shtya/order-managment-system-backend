@@ -1000,7 +1000,8 @@ export class WhatsappService {
         }
 
         const appSecret = accountAppSecret || process.env.META_APP_SECRET;
-
+        this.logger.log(`WhatsApp Webhook Received - appSecret: ${appSecret} - accountAppSecret: ${accountAppSecret}`);
+        
         if (!appSecret) {
             throw new Error('META_APP_SECRET is not configured');
         }
@@ -1019,9 +1020,10 @@ export class WhatsappService {
             Buffer.from(receivedSignature, 'hex'),
             Buffer.from(expectedSignature, 'hex'),
         );
+        this.logger.log(`WhatsApp Webhook Received - receivedSignature: ${receivedSignature} - expectedSignature: ${expectedSignature} - isValid: ${isValid}`);
 
         if (!isValid) {
-            throw new BadRequestException(
+        throw new BadRequestException(
                 'Invalid webhook signature',
             );
         }
@@ -1035,8 +1037,8 @@ export class WhatsappService {
         rawBody: Buffer,
         headers: Record<string, string>,
     ) {
-        // this.logger.log(`WhatsApp Webhook Received - Headers: ${JSON.stringify(headers)}`);
-        // this.logger.log(`WhatsApp Webhook Received - Body: ${JSON.stringify(body)}`);
+        this.logger.log(`WhatsApp Webhook Received - Headers: ${JSON.stringify(headers)}`);
+        this.logger.log(`WhatsApp Webhook Received - Body: ${JSON.stringify(body)}`);
         // Header can arrive lowercase in Node/Nest
         // 🔥 request-scoped cache (ONLY THIS REQUEST)
         const accountCache = new Map<string, WhatsappAccountEntity>();
@@ -1095,6 +1097,7 @@ export class WhatsappService {
         const entries = body?.entry || [];
         const mainWabaId = entries?.[0]?.id;
         const mainAccount = await resolveAccount(mainWabaId);
+        this.logger.log(`WhatsApp Webhook Received - mainWabaId: ${mainWabaId} -  Main Account: ${JSON.stringify(mainAccount)}`);
 
         // Step 1: Validate request
         this.validateSignature(rawBody, signature, mainAccount.appSecret);
