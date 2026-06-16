@@ -1073,7 +1073,7 @@ export class UsersService {
 	async getCompany(me: User) {
 		const adminId = tenantId(me);
 		const user = await this.usersRepo.findOne({
-			where: { id: adminId, adminId },
+			where: { id: adminId },
 			relations: ['company'],
 		});
 

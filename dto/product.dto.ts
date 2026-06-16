@@ -137,6 +137,7 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(200)
   storageRack?: string | null;
 
   @IsString()
