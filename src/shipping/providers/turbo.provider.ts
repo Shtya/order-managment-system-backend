@@ -170,7 +170,7 @@ export class TurboProvider extends ShippingProvider {
           return `${quantity}x ${productName}`;
         })
         .join(", ") || "",
-      amount_to_be_collected: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.shippingCost) || 0 : 0,
+      amount_to_be_collected: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal) || 0 : 0,
       return_amount: 0, // يمكن تخصيصه في حالة المرتجعات
       is_order: TurboOrderType.STANDARD, // القيمة الافتراضية
       weight: dto.weightKg || 1,

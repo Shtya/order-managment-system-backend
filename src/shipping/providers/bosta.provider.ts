@@ -226,7 +226,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
       notes: [dto.notes, order.customerNotes].filter(Boolean).join(" |\n "),
-      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.shippingCost - order.deposit ) || 0 : 0,
+      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.deposit ) || 0 : 0,
       specs: {
         packageType: "Parcel",
         size: order.shippingMetadata?.orderSize || "MEDIUM",
@@ -236,7 +236,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         },
       },
       goodsInfo: {
-        amount: (order.finalTotal - order.shippingCost - order.deposit ) || 0,
+        amount: (order.productsTotal) || 0,
       },
       dropOffAddress: {
         cityId: order.shippingMetadata?.cityId,
