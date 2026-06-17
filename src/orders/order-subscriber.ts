@@ -48,12 +48,12 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
      */
     async afterUpdate(event: UpdateEvent<OrderEntity>) {
         // Check if the status column was actually updated
-        console.log("[OrderSubscriber] After update called for order id:", event.entity?.id);
+        // console.log("[OrderSubscriber] After update called for order id:", event.entity?.id);
         const previousOrder = event.databaseEntity;
         const currentOrder = event.entity;
 
         if (!previousOrder || !currentOrder) {
-            console.log("[OrderSubscriber] Missing previous or current order, skipping");
+            // console.log("[OrderSubscriber] Missing previous or current order, skipping");
             return;
         }
 
@@ -62,7 +62,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
         // إذا تغيرت القيمة فعلياً، أو إذا اعتبره TypeORM عموداً محدثاً
         const isStatusChanged = oldStatusId !== newStatusId
-        console.log(`[OrderSubscriber] Status changed: ${isStatusChanged} (old: ${oldStatusId}, new: ${newStatusId}) for order ${currentOrder.id}`);
+        // console.log(`[OrderSubscriber] Status changed: ${isStatusChanged} (old: ${oldStatusId}, new: ${newStatusId}) for order ${currentOrder.id}`);
 
         if (isStatusChanged) {
             // event.entity contains the updated fields
@@ -72,13 +72,13 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             });
 
             if (!fullOrder) {
-                console.log("[OrderSubscriber] Failed to load full order, skipping");
+                // console.log("[OrderSubscriber] Failed to load full order, skipping");
                 return;
             }
-            console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
+            // console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
 
             const runAfterCommit = async () => {
-                console.log(`[OrderSubscriber] Post-commit task running for ORDER_UPDATED on order ${fullOrder.id}`);
+                // console.log(`[OrderSubscriber] Post-commit task running for ORDER_UPDATED on order ${fullOrder.id}`);
                 await this.triggerDispatcher.dispatch({
                     type: TriggerType.ORDER_UPDATED,
 
@@ -95,7 +95,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
                         currentStatusId: newStatusId,
                     },
                 });
-                console.log(`[OrderSubscriber] ORDER_UPDATED trigger dispatched for order ${fullOrder.id}`);
+                // console.log(`[OrderSubscriber] ORDER_UPDATED trigger dispatched for order ${fullOrder.id}`);
 
                 try {
                     if (fullOrder.externalId) {
@@ -111,10 +111,10 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
                 if (!event.queryRunner.data.postCommitTasks) {
                     event.queryRunner.data.postCommitTasks = [];
                 }
-                console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
+                // console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
                 event.queryRunner.data.postCommitTasks.push(runAfterCommit);
             } else {
-                console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
+                // console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
                 // No active transaction, run immediately
                 await runAfterCommit();
             }
@@ -124,10 +124,10 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
     async afterInsert(event: InsertEvent<OrderEntity>) {
         const order = event.entity;
-        console.log("[OrderSubscriber] After insert called for order id:", order?.id);
+        // console.log("[OrderSubscriber] After insert called for order id:", order?.id);
 
         if (!order) {
-            console.log("[OrderSubscriber] No order entity, skipping");
+            // console.log("[OrderSubscriber] No order entity, skipping");
             return;
         }
 
@@ -138,13 +138,13 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
         });
 
         if (!fullOrder) {
-            console.log("[OrderSubscriber] Failed to load full order after insert, skipping");
+            // console.log("[OrderSubscriber] Failed to load full order after insert, skipping");
             return;
         }
-        console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
+        // console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
 
         const runAfterCommit = async () => {
-            console.log(`[OrderSubscriber] Post-commit task running for ORDER_CREATED on order ${fullOrder.id}`);
+            // console.log(`[OrderSubscriber] Post-commit task running for ORDER_CREATED on order ${fullOrder.id}`);
             // 🚀 Dispatch automation trigger
             await this.triggerDispatcher.dispatch({
                 type: TriggerType.ORDER_CREATED,
@@ -153,17 +153,17 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
                 adminId: fullOrder.adminId,
                 payload: fullOrder,
             });
-            console.log(`[OrderSubscriber] ORDER_CREATED trigger dispatched for order ${fullOrder.id}`);
+            // console.log(`[OrderSubscriber] ORDER_CREATED trigger dispatched for order ${fullOrder.id}`);
         };
 
         if (event.queryRunner) {
             if (!event.queryRunner.data.postCommitTasks) {
                 event.queryRunner.data.postCommitTasks = [];
             }
-            console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
+            // console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
             event.queryRunner.data.postCommitTasks.push(runAfterCommit);
         } else {
-            console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
+            // console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
             // No active transaction, run immediately
             await runAfterCommit();
         }
@@ -177,7 +177,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             for (let i = 0; i < tasks.length; i++) {
                 const task = tasks[i];
                 try {
-                    console.log(`[OrderSubscriber] Executing post-commit task ${i + 1} of ${tasks.length}`);
+                    // console.log(`[OrderSubscriber] Executing post-commit task ${i + 1} of ${tasks.length}`);
                     await task();
                 } catch (error) {
                     // Catch errors here so one failing background dispatch 
@@ -187,7 +187,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             }
             // Clear the tasks to prevent memory leaks or duplicate executions
             event.queryRunner.data.postCommitTasks = [];
-            console.log(`[OrderSubscriber] All post-commit tasks executed and cleared`);
+            // console.log(`[OrderSubscriber] All post-commit tasks executed and cleared`);
         }
     }
 }
