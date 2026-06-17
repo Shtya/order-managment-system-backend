@@ -343,6 +343,9 @@ export class OrderEntity {
   @OneToMany(() => ShipmentEntity, (shipment) => shipment.order)
   shipments: ShipmentEntity[];
 
+  @OneToMany(() => ReturnRequestEntity, (returnRequest) => returnRequest.order)
+  returnRequests: ReturnRequestEntity[];
+
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
 
@@ -1097,7 +1100,7 @@ export class ReturnRequestEntity {
 
   @Column({ nullable: true })
   reason: string;
-
+  
   @OneToMany(() => ReturnRequestItemEntity, (item) => item.returnRequest, {
     cascade: true,
   })

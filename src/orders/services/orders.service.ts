@@ -452,6 +452,7 @@ export class OrdersService {
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("variant.product", "product")
+      
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shipping")
       .leftJoinAndSelect("order.store", "store")
@@ -525,6 +526,17 @@ export class OrdersService {
       }
     }
 
+    if(q?.onlyReturned) {
+      qb.innerJoinAndSelect("order.lastReturn", "lastReturn")
+      .leftJoinAndSelect("lastReturn.items", "returnItems")
+      .leftJoinAndSelect("returnItems.returnedVariant", "returnedVariant")
+      .andWhere(`status.code = :statusCode`, {
+        statusCode: OrderStatus.RETURN_PREPARING,
+      })
+      .andWhere("lastReturn.status = :returnStatus", {
+        returnStatus: ReturnRequestStatus.PENDING,
+      })
+    }
     // do not select
     if (q?.activeIntegration) {
       qb.leftJoin("shipping.integrations", "integrations")
@@ -707,6 +719,92 @@ export class OrdersService {
           qb.andWhere(
             `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
           );
+        }
+
+        qb.groupBy("shipping.id").addGroupBy("shipping.name").orderBy("COUNT(order.id)", "DESC");
+
+        return qb.getRawMany();
+      })()
+    ]);
+
+    // Create a map to quickly look up order count and name by company ID
+    const companyDataMap = new Map<string | null, { count: number; name: string | null }>();
+    rows.forEach((row) => {
+      companyDataMap.set(row.companyId ?? null, {
+        count: Number(row.count) || 0,
+        name: row.companyName ?? null,
+      });
+    });
+
+    // Set to track which companies we've already added (for deduplication)
+    const addedCompanyIds = new Set<string | null>();
+
+    // Start with all active shipping companies
+    const result = shippingResponse.integrations.map((company) => {
+      const companyId = company.providerId ?? null;
+      addedCompanyIds.add(companyId);
+      const data = companyDataMap.get(companyId);
+      return {
+        companyId: companyId,
+        companyName: company.name ?? null,
+        count: data?.count || 0,
+      };
+    });
+
+    // Add companies from query results not already in the list
+    rows.forEach((row) => {
+      const companyId = row.companyId ?? null;
+      if (!addedCompanyIds.has(companyId)) {
+        addedCompanyIds.add(companyId);
+        const data = companyDataMap.get(companyId);
+        result.push({
+          companyId: companyId,
+          companyName: companyId ? (data?.name ?? null) : "None",
+          count: data?.count || 0,
+        });
+      }
+    });
+
+    // Ensure "None" entry is present
+    if (!addedCompanyIds.has(null)) {
+      addedCompanyIds.add(null);
+      result.push({
+        companyId: null,
+        companyName: "None",
+        count: 0,
+      });
+    }
+
+    return result;
+  }
+
+  async getReturnPreparingStatsByCompany(me: any, q?: any) {
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
+    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+
+    // Fetch shipping companies and order stats in parallel using Promise.all
+    const [shippingResponse, rows] = await Promise.all([
+      this.shippingService.activeIntegrations(me),
+      (async () => {
+        const qb = this.orderRepo
+          .createQueryBuilder("order")
+          .leftJoin("order.status", "status")
+          .leftJoin("order.shippingCompany", "shipping")
+          .innerJoin("order.lastReturn", "lastReturn")
+          .select("shipping.id", "companyId")
+          .addSelect("shipping.name", "companyName")
+          .addSelect("COUNT(order.id)", "count")
+          .where("status.code = :returnPreparingCode", { returnPreparingCode: OrderStatus.RETURN_PREPARING })
+          .andWhere("lastReturn.status = :pendingStatus", { pendingStatus: ReturnRequestStatus.PENDING });
+
+        if (adminId) {
+          qb.andWhere("order.adminId = :adminId", { adminId });
         }
 
         qb.groupBy("shipping.id").addGroupBy("shipping.name").orderBy("COUNT(order.id)", "DESC");
