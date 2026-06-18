@@ -231,8 +231,6 @@ export class OrderEntity {
   @Column({ type: "text", nullable: true })
   landmark?: string;
 
-  @Column({ type: "int", default: 0, nullable: false })
-  deposit: number;
 
   @Column({ type: "varchar", length: 100 })
   city!: string;
@@ -298,19 +296,23 @@ export class OrderEntity {
   labelPrinted?: Date;
 
   // ✅ Pricing
-  @Column({ type: "int", default: 0 })
+
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0, nullable: false })
+  deposit: number;
+  
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   productsTotal!: number; // Sum of all items
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   shippingCost!: number;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   discount!: number;
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   finalTotal!: number; // productsTotal + shippingCost - discount
 
-  @Column({ type: "int", default: 0 })
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   profit!: number; // finalTotal - totalCost
 
   // ✅ Notes
