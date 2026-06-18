@@ -549,7 +549,7 @@ export class WhatsappService {
         // Cache the result if it was a URL upload
         if (payload.url && response?.id) {
             const cacheKey = `whatsapp_media:${resolvedAccountId}:${payload.url}`;
-            await this.redisService.set(cacheKey, { id: response.id, filename: payload.filename }, 3600 * 24 * 29); // Cache for 29 days
+            await this.redisService.set(cacheKey, { id: response.id, filename: payload.filename }, 3600 * 24 * 15); // Cache for 15 days
         }
 
         return { ...response, filename: filename };

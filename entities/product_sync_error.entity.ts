@@ -33,6 +33,7 @@ export interface ProductSyncStatusDto {
 
 @Entity('product_sync_state')
 @Index(['adminId', 'productId', 'storeId', 'externalStoreId'], { unique: true })
+@Index(['adminId', 'storeId', 'externalStoreId', 'remoteProductId'])
 export class ProductSyncStateEntity {
 	@PrimaryGeneratedColumn('uuid')
 	id: string;

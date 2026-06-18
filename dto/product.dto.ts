@@ -150,6 +150,10 @@ export class CreateProductDto {
 
   @IsString()
   @IsOptional()
+  categorySlug?: string;
+
+  @IsString()
+  @IsOptional()
   storeId?: string | null;
 
   @IsOptional()
@@ -162,7 +166,7 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
-  @MaxLength(2000)
+  @MaxLength(7000)
   description?: string | null;
 
   @IsOptional()

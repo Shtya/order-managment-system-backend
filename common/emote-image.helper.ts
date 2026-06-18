@@ -43,7 +43,7 @@ export class RemoteImageHelper {
         try {
             const response = await axios.get(url, {
                 responseType: "arraybuffer",
-                timeout: 8000,
+                timeout: 15000,
                 maxContentLength: this.MAX_SIZE,
                 validateStatus: (s) => s >= 200 && s < 300,
             });

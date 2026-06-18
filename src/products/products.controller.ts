@@ -248,6 +248,7 @@ export class ProductsController {
       remoteId: body.remoteId || null,
       categoryId: body.categoryId as any,
       categoryName: body.categoryName as any,
+      categorySlug: body.categorySlug as any,
       storeId: body.storeId as any,
       warehouseId: body.warehouseId as any,
 

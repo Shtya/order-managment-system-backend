@@ -1046,20 +1046,27 @@ export class ProductsService {
       const pvRepo = mgr.getRepository(ProductVariantEntity);
 
       const categoryName = dto.categoryName;
+      const categorySlug = dto.categorySlug;
       let category: CategoryEntity | null = null;
       if (categoryName && categoryName.trim() !== "") {
         category = await catRepo.findOne({
-          where: {
-            name: categoryName.trim(),
-            adminId,
-          },
+          where: [
+            {
+              name: categoryName.trim(),
+              adminId,
+            },
+            {
+              slug: categorySlug,
+              adminId,
+            },
+          ],
         });
 
         if (!category) {
           const slug = generateSlug(categoryName)
           category = catRepo.create({
             name: categoryName.trim(),
-            slug: slug && slug !== "-" ? slug : `category-${Date.now()}`,
+            slug: categorySlug ? categorySlug : slug && slug !== "-" ? slug : `category-${Date.now()}`,
             adminId,
           });
 
@@ -1104,32 +1111,55 @@ export class ProductsService {
 
       if (store && !dto.skipRemoteCheck) {
         try {
+          const provider = this.storesService.getProvider(store?.provider);
 
+          const promises: Promise<any>[] = [];
+          promises.push(provider?.getProductBySlug(store, dto.slug.trim(), false));
 
-          const provider = this.storesService.getProvider(store?.provider)
-          const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
-          if (remoteSlug?.id) {
-            throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
-          }
-
-          // 🔹 Slug check (if supported)
           if (dto.sku && this.storesService.isSkuFetchProvider(provider)) {
-            const remoteSku = await provider.getProductBySku(
+            promises.push(provider.getProductBySku(
               store,
               dto.sku.trim(),
               false
-            );
+            ));
+          }
 
-            if (remoteSku?.id) {
-              throw new BadRequestException(
-                `This SKU "${dto.sku}" is already in use by "${store.name}" store.`
-              );
+          const results = await Promise.allSettled(promises);
+
+          // Check slug result
+          const slugResult = results[0];
+          if (slugResult.status === 'fulfilled') {
+            const remoteSlug = slugResult.value;
+            if (remoteSlug?.id) {
+              throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+            }
+          } else if (slugResult.status === 'rejected') {
+            throw slugResult.reason;
+          }
+
+          // Check sku result if we had it
+          if (results.length > 1) {
+            const skuResult = results[1];
+            if (skuResult.status === 'fulfilled') {
+              const remoteSku = skuResult.value;
+              if (remoteSku?.id) {
+                throw new BadRequestException(
+                  `This SKU "${dto.sku}" is already in use by "${store.name}" store.`
+                );
+              }
+            } else if (skuResult.status === 'rejected') {
+              throw skuResult.reason;
             }
           }
 
         } catch (e) {
+          if (e instanceof BadRequestException) {
+            throw e;
+          }
           const errorMsg = getErrorMessage(e);
-          throw new BadRequestException(errorMsg || "Error checking remote product.");
+          throw new BadRequestException(
+            `Failed to verify product sku or slug uniqueness in "${store.name}" store. ${errorMsg}`
+          );
         }
 
       }
@@ -1482,20 +1512,31 @@ export class ProductsService {
       if (p.storeId) {
         let store: StoreEntity;
         store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
-        const provider = this.storesService.getProvider(store?.provider)
-        const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
+        try {
+          const provider = this.storesService.getProvider(store?.provider)
 
-        const productSyncState = await this.productSyncStateRepo.findOne({
-          where: {
-            productId: p.id,
-            storeId: store.id,
-            adminId: p.adminId,
-            externalStoreId: store?.externalStoreId
+          const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
+
+          const productSyncState = await this.productSyncStateRepo.findOne({
+            where: {
+              productId: p.id,
+              storeId: store.id,
+              adminId: p.adminId,
+              externalStoreId: store?.externalStoreId
+            }
+          });
+          let externalId = productSyncState?.remoteProductId;
+          if (remoteSlug && remoteSlug?.id?.toString() !== externalId?.toString()) {
+            throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
           }
-        });
-        let externalId = productSyncState?.remoteProductId;
-        if (remoteSlug && remoteSlug?.id?.toString() !== externalId?.toString()) {
-          throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+        } catch (e) {
+          if (e instanceof BadRequestException) {
+            throw e;
+          }
+          const errorMsg = getErrorMessage(e);
+          throw new BadRequestException(
+            `Failed to verify product slug uniqueness in "${store.name}" store. ${errorMsg}`
+          );
         }
 
       }
