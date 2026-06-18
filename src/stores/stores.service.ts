@@ -32,7 +32,6 @@ import { NotificationService } from "src/notifications/notification.service";
 import { generateRandomAlphanumeric, generateSlug, getErrorMessage, normalizeSku } from "common/healpers";
 import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntityType } from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
-import { convert } from "html-to-text";
 
 @Injectable()
 export class StoresService {
@@ -928,15 +927,18 @@ export class StoresService {
         const remoteIds = payload.cartItems.map(item => item.remoteProductId);
         const safeRemoteIds = remoteIds.length > 0 ? remoteIds : [null];
 
-        const syncStates = await manager.getRepository(ProductSyncStateEntity).find({
-          where: {
-            adminId,
-            storeId: store.id,
+        const syncStates = await manager
+          .getRepository(ProductSyncStateEntity)
+          .createQueryBuilder('state')
+          .innerJoinAndSelect('state.product', 'product', 'product.isActive = true')
+          .leftJoinAndSelect('product.variants', 'variants')
+          .where('state.adminId = :adminId', { adminId })
+          .andWhere('state.storeId = :storeId', { storeId: store.id })
+          .andWhere('state.externalStoreId = :externalStoreId', {
             externalStoreId: store.externalStoreId,
-            remoteProductId: In(safeRemoteIds),
-          },
-          relations: ['product', 'product.variants'],
-        });
+          })
+          .andWhere('state.remoteProductId IN (:...safeRemoteIds)', { safeRemoteIds })
+          .getMany();
 
         const productMap = new Map(
           syncStates?.filter(s => s.remoteProductId).map(s => [s?.remoteProductId, s?.product])
@@ -1266,15 +1268,17 @@ export class StoresService {
     if (payload && payload.cartItems) {
       const remoteIds = payload.cartItems.map(item => String(item.remoteProductId));
       //
-      const syncStates = await this.productSyncStateRepo.find({
-        where: {
-          adminId,
-          storeId,
+      const syncStates = await this.productSyncStateRepo
+        .createQueryBuilder('state')
+        .innerJoinAndSelect('state.product', 'product', 'product.isActive = true')
+        .leftJoinAndSelect('product.variants', 'variants')
+        .where('state.adminId = :adminId', { adminId })
+        .andWhere('state.storeId = :storeId', { storeId: storeId })
+        .andWhere('state.externalStoreId = :externalStoreId', {
           externalStoreId: failure?.store.externalStoreId,
-          remoteProductId: In(remoteIds),
-        },
-        relations: ['product', 'product.variants'],
-      });
+        })
+        .andWhere('state.remoteProductId IN (:...remoteIds)', { remoteIds })
+        .getMany();
 
       const productMap = new Map(syncStates.map(s => [s.remoteProductId, s.product]));
 
@@ -1865,10 +1869,20 @@ export class StoresService {
           const remoteId = String(remoteProduct.id);
 
           // 1. Check if linked via ProductSyncState
-          let syncState = await this.productSyncStateRepo.findOne({
-            where: { adminId, storeId: store.id, remoteProductId: remoteId, externalStoreId: store.externalStoreId }
+          const syncState = await this.productSyncStateRepo.findOne({
+            where: {
+              adminId,
+              storeId: store.id,
+              remoteProductId: remoteId,
+              externalStoreId: store.externalStoreId,
+              product: {
+                isActive: true,
+              },
+            },
+            relations: {
+              product: true,
+            },
           });
-
           isNew = !syncState;
           if (isNew) newTotal++;
 
@@ -2038,14 +2052,14 @@ export class StoresService {
     const skuQuantityMap = new Map<string, number>();
 
     // Simple HTML strip for description
-    const cleanDescription = convert(p.description, {
-      wordwrap: false,
-      selectors: [
-        { selector: 'img', format: 'skip' },
-        { selector: 'a', options: { ignoreHref: true } },
-      ],
-    }).replace(/\n{2,}/g, '\n')   // 👈 collapse multiple newlines into one
-      .trim()
+    // const cleanDescription = convert(p.description, {
+    //   wordwrap: false,
+    //   selectors: [
+    //     { selector: 'img', format: 'skip' },
+    //     { selector: 'a', options: { ignoreHref: true } },
+    //   ],
+    // }).replace(/\n{2,}/g, '\n')   // 👈 collapse multiple newlines into one
+    //   .trim()
 
     // Safe slug/sku generation
     const slug = p.slug || generateSlug(p.name);
@@ -2098,7 +2112,7 @@ export class StoresService {
       salePrice: p.price,
       wholesalePrice: p.expense || 0,
       lowestPrice: p.price,
-      description: cleanDescription,
+      description: p.description,
       categoryName: p.categories?.[0]?.name,
       storeId: store.id,
       remoteId: String(p.id),

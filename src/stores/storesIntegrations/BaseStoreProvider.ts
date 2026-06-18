@@ -43,7 +43,7 @@ export interface MappedProductDto {
     images: string[];
     upsellings: { id, name, mainImage }[];
     type: ProductType;
-    categories: { id: string; name?: string }[];
+    categories: { id: string; slug: string; name?: string }[];
     quantity: number;
     variations?: {
         id: string;

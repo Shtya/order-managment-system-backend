@@ -224,9 +224,7 @@ export class EasyOrderService extends BaseStoreProvider {
         }
 
         const checkSlug = slug ? slug : category.slug;
-        const searchFilters = [`slug||eq||${checkSlug?.trim()}`];
-        const existingCategories = await this.getAllCategories(activeStore, searchFilters);
-
+        const existingCategories = await this.fetchBatchCategories(activeStore, [{ slug: checkSlug, name: category.name?.trim() }]);
         const remoteCategory = existingCategories?.length > 0 ? existingCategories[0] : null;
 
         if (remoteCategory) {
@@ -237,6 +235,52 @@ export class EasyOrderService extends BaseStoreProvider {
         }
     }
 
+    private async fetchBatchCategories(
+        store: StoreEntity,
+        localBatch: { slug?: string; name?: string }[],
+    ): Promise<any[]> {
+        const slugs = localBatch
+            .map(c => c.slug?.trim())
+            .filter(Boolean) as string[];
+
+        const names = localBatch
+            .map(c => c.name?.trim())
+            .filter(Boolean) as string[];
+
+        const tasks: Promise<any>[] = [];
+
+        // Slug batch
+        tasks.push(
+            slugs.length
+                ? this.getAllCategories(store, [
+                    `slug||$in||${slugs.join(',')}`,
+                ])
+                : Promise.resolve([]),
+        );
+
+        // Name batch
+        tasks.push(
+            names.length
+                ? this.getAllCategories(store, [
+                    `name||$in||${names.join(',')}`,
+                ])
+                : Promise.resolve([]),
+        );
+
+        const [bySlug, byName] = await Promise.allSettled(tasks);
+
+        const remoteItems: any[] = [];
+
+        if (bySlug.status === 'fulfilled') {
+            remoteItems.push(...bySlug.value);
+        }
+
+        if (byName.status === 'fulfilled') {
+            remoteItems.push(...byName.value);
+        }
+
+        return remoteItems;
+    }
     /**
  * Sync Categories: Fetch 30 by 30 using ID as cursor
  */
@@ -265,8 +309,7 @@ export class EasyOrderService extends BaseStoreProvider {
             }
 
             // Bulk check existence: Use names for categories as they are unique identifiers in EasyOrder
-            const slugs = localBatch.map(c => c.slug).join(',');
-            const remoteItems = await this.getAllCategories(store, [`slug||$in||${slugs}`]);
+            const remoteItems = await this.fetchBatchCategories(store, localBatch);
             const remoteMap = new Map(remoteItems.map((r: any) => [r.slug?.trim(), r.id]));
 
             for (const cat of localBatch) {
@@ -1325,7 +1368,7 @@ export class EasyOrderService extends BaseStoreProvider {
                     remoteProductId: item.product_id,
                     variant: item.variant ? {
                         key: key || "default",
-                        sku:  String(item.variant.taager_code || item.variant.sku || ""),
+                        sku: String(item.variant.taager_code || item.variant.sku || ""),
                         variation_props: variationProps
                     } : {
                         key: "default",
@@ -1540,6 +1583,7 @@ export class EasyOrderService extends BaseStoreProvider {
             categories: (remote.categories || []).map((c: any) => ({
                 id: String(c.id),
                 name: c.name,
+                slug: c.slug,
             })),
             quantity: Number(remote.quantity) || 0,
             variations: isSingle ? [] : variations,

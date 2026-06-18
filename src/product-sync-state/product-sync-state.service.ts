@@ -31,7 +31,8 @@ export class ProductSyncStateService {
             .createQueryBuilder("syncState")
             .where("syncState.adminId = :adminId", { adminId })
             .leftJoinAndSelect("syncState.store", "store")
-            .leftJoinAndSelect("syncState.product", "product");
+            .leftJoinAndSelect("syncState.product", "product")
+            .andWhere("product.isActive = true");
 
         if (q?.search) {
             const searchTerm = `%${q.search}%`;
@@ -85,8 +86,10 @@ export class ProductSyncStateService {
         const raw = await this.syncStateRepo
             .createQueryBuilder("syncState")
             .select("syncState.status", "status")
+            .leftJoinAndSelect("syncState.product", "product")
             .addSelect("COUNT(*)", "count")
             .where("syncState.adminId = :adminId", { adminId })
+            .andWhere("product.isActive = true")
             .groupBy("syncState.status")
             .getRawMany();
 
@@ -113,7 +116,8 @@ export class ProductSyncStateService {
             .createQueryBuilder("syncState")
             .where("syncState.adminId = :adminId", { adminId })
             .leftJoinAndSelect("syncState.store", "store")
-            .leftJoinAndSelect("syncState.product", "product");
+            .leftJoinAndSelect("syncState.product", "product")
+            .andWhere("product.isActive = true");
 
         if (q?.search) {
             const searchTerm = `%${q.search}%`;

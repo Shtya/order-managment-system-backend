@@ -15,7 +15,6 @@ import { BaseStoreProvider } from "./BaseStoreProvider";
 import WooCommerceService from "./WooCommerce";
 import { StoresService } from "../stores.service";
 import { RedisService } from "common/redis/RedisService";
-import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 
 

@@ -173,6 +173,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             images: (remote.images || []).map((img: any) => img.src),
             categories: (remote.categories || []).map((c: any) => ({
                 id: String(c.id),
+                slug: c.slug?.replaceAll('_', '-'),
                 name: c.name,
             })),
             upsellings: [],
@@ -329,7 +330,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
      * If slug provided, WooCommerce returns an array (possibly one item).
      */
     private async getAllCategories(store: StoreEntity, params: { slug?: string; per_page?: number; page?: number; search?: string } = {}) {
-        const filterDesc = params.slug ? ` slug=${params.slug}` : params.search ? ` search=${params.search}` : '';
+
 
         const response = await this.sendRequest(store, {
             method: 'GET',
@@ -344,7 +345,6 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
 
         // Depending on your BaseStoreProvider, response could be response.data or response directly
         const categories = response?.data ?? response;
-        const count = Array.isArray(categories) ? categories.length : 0;
         return categories;
 
     }
@@ -593,10 +593,43 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
     /**
      * Search single category by slug (returns the first match or null)
      */
-    private async getCategoryBySlug(store: StoreEntity, slug: string) {
-        if (!slug) return null;
-        const categories = await this.getAllCategories(store, { slug: slug.trim(), per_page: 100 });
-        return categories?.length > 0 ? categories[0] : null;
+    private async getCategory(store: StoreEntity, slug?: string, name?: string) {
+        if (!slug && !name) return null;
+
+        const cleanSlug = slug ? slug.trim() : '';
+        const cleanName = name ? name.trim() : '';
+
+        // to keep the array destructuring clean later.
+        const slugPromise = cleanSlug
+            ? this.getAllCategories(store, { slug: cleanSlug, per_page: 1 })
+            : Promise.resolve([]);
+
+        const namePromise = cleanName
+            ? this.getAllCategories(store, { search: cleanName, per_page: 100 })
+            : Promise.resolve([]);
+
+        // Fire both requests concurrently
+        const [slugResult, nameResult] = await Promise.allSettled([slugPromise, namePromise]);
+
+        // 1. Priority: Check if the slug request succeeded and found a match
+        if (slugResult.status === 'fulfilled' && slugResult.value?.length > 0) {
+            return slugResult.value[0];
+        }
+
+        // 2. Fallback: Check if the name request succeeded and found a match
+        if (nameResult.status === 'fulfilled' && nameResult.value?.length > 0) {
+            const categoriesByName = nameResult.value;
+
+            // Filter for exact name match due to Woo's fuzzy search
+            const exactMatch = categoriesByName.find(
+                (cat: any) => cat.name.toLowerCase() === cleanName.toLowerCase()
+            );
+
+            return exactMatch || categoriesByName[0];
+        }
+
+        // 3. Neither promise yielded a result
+        return null;
     }
 
     public async getProductBySlug(store: StoreEntity, slug: string, retry = true) {
@@ -922,7 +955,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
 
         const checkSlug = slug ? slug : category.slug;
-        const remoteCategory = await this.getCategoryBySlug(activeStore, checkSlug);
+        const remoteCategory = await this.getCategory(activeStore, checkSlug, category.name);
 
         if (remoteCategory) {
             // update using remoteCategory.id
@@ -1211,7 +1244,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                     const cleanSlug = cat.slug.trim();
 
                     // 2. Check existence by slug using your helper
-                    const existingCategory = await this.getCategoryBySlug(store, cleanSlug);
+                    const existingCategory = await this.getCategory(store, cleanSlug, cat.name);
 
                     const extId = existingCategory?.id;
 

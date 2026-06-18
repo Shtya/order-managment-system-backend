@@ -339,56 +339,129 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     /**
      * Finds a collection by its handle (slug)
      */
-    private async getCollectionByHandle(store: StoreEntity, handle: string) {
+    private async getCollection(
+        store: StoreEntity,
+        handle?: string,
+        name?: string,
+    ): Promise<any | null> {
         const cleanHandle = handle?.trim();
+        const cleanName = name?.trim();
 
-        const query = `
-        query getCollection($handle: String!) {
-                collections(first: 1, query: $handle) {
-                    nodes {
-                        id
-                        handle
-                        title
-                    }
-                    }
-                }
-        `;
+        if (!cleanHandle && !cleanName) return null;
 
-        const response = await this.runGraphQL(
-            store,
-            false, // Use false here because this is a Query, not a Mutation
-            query,
-            { handle: `handle:${cleanHandle}` }
-        );
+        const gql = `
+    query getCollections($query: String!) {
+      collections(first: 5, query: $query) {
+        nodes {
+          id
+          handle
+          title
+        }
+      }
+    }
+  `;
 
-        const collection = response?.collections?.nodes?.[0] || null;
+        const tasks: Promise<any>[] = [];
 
-        return collection;
+        // 1. Handle query
+        if (cleanHandle) {
+            tasks.push(
+                this.runGraphQL(store, false, gql, {
+                    query: `handle:${cleanHandle}`,
+                }),
+            );
+        } else {
+            tasks.push(Promise.resolve(null));
+        }
 
+        // 2. Name query
+        if (cleanName) {
+            tasks.push(
+                this.runGraphQL(store, false, gql, {
+                    query: `title:"${cleanName}"`,
+                }),
+            );
+        } else {
+            tasks.push(Promise.resolve(null));
+        }
+
+        const [handleRes, nameRes] = await Promise.allSettled(tasks);
+
+        const handleNodes =
+            handleRes.status === 'fulfilled'
+                ? handleRes.value?.collections?.nodes ??
+                handleRes.value?.data?.collections?.nodes ??
+                []
+                : [];
+
+        const nameNodes =
+            nameRes.status === 'fulfilled'
+                ? nameRes.value?.collections?.nodes ??
+                nameRes.value?.data?.collections?.nodes ??
+                []
+                : [];
+
+        const allNodes = [...handleNodes, ...nameNodes];
+
+        if (allNodes.length === 0) return null;
+
+        // 🔒 strict validation (avoid fuzzy wrong match)
+        const collection = allNodes.find((c: any) => {
+            if (cleanHandle && c.handle === cleanHandle) return true;
+            if (
+                cleanName &&
+                c.title?.trim().toLowerCase() === cleanName.toLowerCase()
+            ) {
+                return true;
+            }
+            return false;
+        });
+
+        return collection ?? null;
     }
 
-    private async getCollectionsByHandles(
+    private async getCollections(
         store: StoreEntity,
         handles: string[],
+        names
     ): Promise<any[]> {
         const cleanHandles = handles
             .map((h) => h?.trim())
             .filter((h): h is string => !!h);
 
-        if (cleanHandles.length === 0) {
+        const cleanNames = (names ?? [])
+            .map((n) => n?.trim())
+            .filter((n): n is string => !!n);
+
+        // If we have neither handles nor names, return early
+        if (cleanHandles.length === 0 && cleanNames.length === 0) {
             return [];
         }
+        const queryParts: string[] = [];
 
-        // Build a search query like:
-        // (handle:one OR handle:two OR handle:three)
-        const queryParts = cleanHandles.map((handle) => `handle:${handle}`);
+        // Build handle parts: handle:one OR handle:two ...
+        if (cleanHandles.length > 0) {
+            queryParts.push(
+                ...cleanHandles.map((handle) => `handle:${handle}`)
+            );
+        }
+
+        // Build title parts: title:"Some Name" OR title:"Another Name" ...
+        // We wrap in quotes to safely support spaces and special characters.
+        if (cleanNames.length > 0) {
+            queryParts.push(
+                ...cleanNames.map((name) => `title:"${name}"`)
+            );
+        }
+
+        // Combine into a single query: (handle:... OR title:"...")
         const searchQuery =
             queryParts.length === 1
                 ? queryParts[0]
                 : `(${queryParts.join(" OR ")})`;
 
         const gql = `
-            query getCollectionsByHandles($query: String!, $first: Int!) {
+            query getCollectionsByHandlesAndNames($query: String!, $first: Int!) {
             collections(first: $first, query: $query) {
                 nodes {
                 id
@@ -1071,8 +1144,10 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 .map((c) => c.slug?.trim())
                 .filter((h): h is string => !!h);
 
+            const names = localBatch.map(c => c.name).join(',');
+
             // Bulk fetch collections by handle from Shopify
-            const remoteCollections = await this.getCollectionsByHandles(store, handles);
+            const remoteCollections = await this.getCollections(store, handles, names);
 
             // Map<handle, collectionId>
             const remoteMap = new Map<string, string>(
@@ -1391,9 +1466,10 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
 
         const checkHandle = (slug || category.slug || "").trim();
+        const checkName = category.name?.trim();
 
         // 1. Check if collection exists by handle
-        const existingCollection = await this.getCollectionByHandle(store, checkHandle);
+        const existingCollection = await this.getCollection(store, checkHandle, checkName);
 
         if (existingCollection) {
             return await this.updateCollection(store, existingCollection.id, category);
@@ -3100,6 +3176,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             images: (remote.images?.nodes || []).map((img: any) => img.url),
             categories: (remote.collections?.nodes || []).map((c: any) => ({
                 id: String(c.id),
+                slug: c.handle,
                 name: c.title,
             })),
             quantity: totalQuantity,
@@ -3166,7 +3243,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
 
     public async getAllMappedProducts(store: StoreEntity, filters?: string[]): Promise<MappedProductDto[]> {
-        return [];
+        
         let allProducts: MappedProductDto[] = [];
         let hasNextPage = true;
         let after: string | null = null;
