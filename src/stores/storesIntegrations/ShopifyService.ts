@@ -3328,5 +3328,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return allProducts;
     }
 
-
+    public processExternalOrderId(externalOrderId: string): string {
+        return externalOrderId.startsWith('gid://') ? externalOrderId : `gid://shopify/Order/${externalOrderId}`;
+    }
 }
