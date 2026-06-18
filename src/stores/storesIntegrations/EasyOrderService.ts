@@ -25,8 +25,6 @@ import { NotificationType } from "entities/notifications.entity";
 
 @Injectable()
 export class EasyOrderService extends BaseStoreProvider {
-
-
     maxBundleItems?: number;
 
     supportBundle: boolean = false;
@@ -1589,6 +1587,10 @@ export class EasyOrderService extends BaseStoreProvider {
             variations: isSingle ? [] : variations,
             variants: isSingle ? [] : variants,
         };
+    }
+
+    public processExternalOrderId(externalOrderId: string): string {
+        return externalOrderId;
     }
 }
 

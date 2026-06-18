@@ -1717,7 +1717,13 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
     }
 
+    public processExternalOrderId(externalOrderId: string): string {
+        return externalOrderId;
+    }
+    
     public async getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]> {
         return [];
     }
+
+    
 }

@@ -1070,7 +1070,9 @@ export class StoresService {
       const p = this.getProvider(provider);
 
       const externalOrderId = body.id || body?.order_id
-      const order = await this.ordersService.findByExternalId(externalOrderId, adminId);
+      const proccessedExternalOrderId = p.processExternalOrderId(externalOrderId);
+      
+      const order = await this.ordersService.findByExternalId(proccessedExternalOrderId, adminId);
 
       if (!order) {
         throw new Error(`Unknown order ${externalOrderId}`);

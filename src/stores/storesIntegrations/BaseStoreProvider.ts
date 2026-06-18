@@ -430,5 +430,6 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload;
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;
     public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
+    public abstract processExternalOrderId(externalOrderId: string): string;
 
 }
