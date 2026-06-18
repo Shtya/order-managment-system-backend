@@ -9,6 +9,112 @@ import { tenantId } from 'src/purchases/purchases.service';
 import { Observable } from 'rxjs';
 
 
+function logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string, systemErorrsService: SystemErorrsService) {
+  // Skip logging certain error patterns
+  const skipPatterns = [
+    'Cannot GET ',
+    'Missing adminId',
+  ];
+
+  const errorMessage = detail || exception.message;
+  if (skipPatterns.some(pattern => errorMessage?.startsWith?.(pattern))) {
+    return;
+  }
+
+  const durationMs = req.startTime
+    ? Date.now() - req.startTime
+    : null;
+
+
+  const httpStatus =
+    exception?.status ||
+    exception?.statusCode ||
+    500;
+
+
+  let severity: 'fatal' | 'error' | 'warn';
+
+  if (httpStatus >= 500) {
+    severity = 'fatal';
+  } else if (httpStatus >= 400) {
+    severity = 'warn';
+  } else {
+    severity = 'error';
+  }
+
+  if (
+    exception?.name === 'QueryFailedError' &&
+    !exception?.driverError?.code
+  ) {
+    severity = 'fatal';
+  }
+  const responseData = exception?.response
+
+  const dbContext =
+    exception?.query || exception?.parameters || exception?.driverError
+      ? {
+        query: exception?.query || null,
+        parameters: exception?.parameters || null,
+        driverError: exception?.driverError || null,
+        raw: exception?.driverError?.routine || null,
+        postgres: {
+          code: exception?.driverError?.code || null,
+          detail: exception?.driverError?.detail || null,
+          hint: exception?.driverError?.hint || null,
+          table: exception?.driverError?.table || null,
+          column: exception?.driverError?.column || null,
+          constraint: exception?.driverError?.constraint || null,
+          schema: exception?.driverError?.schema || null,
+          dataType: exception?.driverError?.dataType || null,
+        },
+      }
+      : null;
+
+  const originalUrl = req.originalUrl || null;
+  const routePath = req.route?.path || null;
+
+  try {
+    const adminId = tenantId(req.user);
+    const errorData = {
+      userId: req.user?.id || null,
+      adminId: adminId || null,
+      endpoint: req.url || null,
+      originalUrl,
+      routePath,
+      method: req.method || null,
+      requestPayload: req.body || null,
+      headers: req.headers || null,
+      pathParams: req.params || null,
+      searchParams: req.query || null,
+      errorMessage: detail || exception.message,
+      stackTrace: exception.stack || null,
+      ipAddress: req.ip || req.connection?.remoteAddress || null,
+      userAgent: req.headers['user-agent'] || null,
+      contentType: req.headers['content-type'] || null,
+      frontendRoute: req.headers['x-frontend-route'] || null,
+      environment: process.env.NODE_ENV || null,
+      exceptionName: exception.name || 'QueryFailedError',
+      errorCode: code || null,
+      durationMs,
+      severity,
+      httpStatus,
+      responseData,
+      dbContext,
+      controllerName: req.controllerName || null,
+      handlerName: req.handlerName || null,
+      requestSize: req.headers['content-length'] ? Number(req.headers['content-length']) : null,
+      responseSize: res.getHeader?.('content-length') || null,
+      referer: req.headers['referer'] || null,
+    };
+
+    systemErorrsService.logError(errorData);
+  } catch (e) {
+    // Silently fail to avoid infinite loops
+    console.error('Failed to log system error:', e);
+  }
+}
+
+
 @Catch(QueryFailedError)
 export class QueryExceptionFilter implements ExceptionFilter {
   constructor(private readonly systemErorrsService: SystemErorrsService) { }
@@ -16,9 +122,13 @@ export class QueryExceptionFilter implements ExceptionFilter {
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
+    const req = ctx.getRequest<any>();
 
     const code = exception?.driverError?.code as string | undefined;
     const detail = exception?.driverError?.detail ?? exception?.message;
+
+    // Log the query error
+    logSystemError(exception, req, response, code, detail, this.systemErorrsService);
 
 
     // Map of common Postgres error codes → friendly messages
@@ -112,9 +222,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const code = exception?.driverError?.code as string | undefined;
     const detail = exception?.driverError?.detail ?? exception?.message;
 
-
     // Log the error to database
-    this.logSystemError(exception, req, response, code, detail);
+    logSystemError(exception, req, response, code, detail, this.systemErorrsService);
 
     const status = exception instanceof HttpException
       ? exception.getStatus()
@@ -130,113 +239,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       return response.status(status).json(errorResponse);
     } else {
       return response.status(status).send(errorResponse);
-    }
-
-  }
-
-  private logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string) {
-    // Skip logging certain error patterns
-    const skipPatterns = [
-      'Cannot GET ',
-      'Missing adminId',
-    ];
-
-    const errorMessage = detail || exception.message;
-    if (skipPatterns.some(pattern => errorMessage?.startsWith?.(pattern))) {
-      return;
-    }
-
-    const durationMs = req.startTime
-      ? Date.now() - req.startTime
-      : null;
-
-
-    const httpStatus =
-      exception?.status ||
-      exception?.statusCode ||
-      500;
-
-
-    let severity: 'fatal' | 'error' | 'warn';
-
-    if (httpStatus >= 500) {
-      severity = 'fatal';
-    } else if (httpStatus >= 400) {
-      severity = 'warn';
-    } else {
-      severity = 'error';
-    }
-
-    if (
-      exception?.name === 'QueryFailedError' &&
-      !exception?.driverError?.code
-    ) {
-      severity = 'fatal';
-    }
-    const responseData = exception?.response
-
-    const dbContext =
-      exception?.query || exception?.parameters || exception?.driverError
-        ? {
-          query: exception?.query || null,
-          parameters: exception?.parameters || null,
-          driverError: exception?.driverError || null,
-          raw: exception?.driverError?.routine || null,
-          postgres: {
-            code: exception?.driverError?.code || null,
-            detail: exception?.driverError?.detail || null,
-            hint: exception?.driverError?.hint || null,
-            table: exception?.driverError?.table || null,
-            column: exception?.driverError?.column || null,
-            constraint: exception?.driverError?.constraint || null,
-            schema: exception?.driverError?.schema || null,
-            dataType: exception?.driverError?.dataType || null,
-          },
-        }
-        : null;
-
-    const originalUrl = req.originalUrl || null;
-    const routePath = req.route?.path || null;
-
-    try {
-      const adminId = tenantId(req.user);
-      routePath
-      const errorData = {
-        userId: req.user?.id || null,
-        adminId: adminId || null,
-        endpoint: req.url || null,
-        originalUrl,
-        routePath,
-        method: req.method || null,
-        requestPayload: req.body || null,
-        headers: req.headers || null,
-        pathParams: req.params || null,
-        searchParams: req.query || null,
-        errorMessage: detail || exception.message,
-        stackTrace: exception.stack || null,
-        ipAddress: req.ip || req.connection?.remoteAddress || null,
-        userAgent: req.headers['user-agent'] || null,
-        contentType: req.headers['content-type'] || null,
-        frontendRoute: req.headers['x-frontend-route'] || null,
-        environment: process.env.NODE_ENV || null,
-        exceptionName: exception.name || 'QueryFailedError',
-        errorCode: code || null,
-        durationMs,
-        severity,
-        httpStatus,
-        responseData,
-        dbContext,
-        controllerName: req.controllerName || null,
-        handlerName: req.handlerName || null,
-        requestSize: req.headers['content-length'] ? Number(req.headers['content-length']) : null,
-        responseSize: res.getHeader?.('content-length') || null,
-        referer: req.headers['referer'] || null,
-      };
-
-      this.systemErorrsService.logError(errorData);
-    } catch (e) {
-      // Silently fail to avoid infinite loops
-      console.error('Failed to log system error:', e);
     }
   }
 }
