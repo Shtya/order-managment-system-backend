@@ -101,7 +101,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     baseUrl: string = process.env.SHOPIFY_BASE_URL || "https://api.easy-orders.net/api/v1";
 
     constructor(
-        protected readonly storeQueueService: StoreQueueService,
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
@@ -118,6 +117,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
         protected readonly notificationService: NotificationService,
+        @Inject(forwardRef(() => StoreQueueService))
+        protected readonly storeQueueService: StoreQueueService,
     ) {
         super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.SHOPIFY)
 
@@ -211,18 +212,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         if (!isValid) {
             return { url: `${frontendBaseUrl}/login?error=shopify_security_verification_failed` };
         }
-
-
-        // const isConnectionValid = await this.validateProviderConnection(store);
-
-        // if (!isConnectionValid) {
-        //     store.isIntegrated = false;
-        //     store.isActive = false;
-        //     await this.storesRepo.save(store);
-        //     return {
-        //         url: `${frontendBaseUrl}/store-integration?error=shopify_connection_failed}`
-        //     };
-        // }
 
         const oldIsIntegrated = store.isIntegrated;
         if (!oldIsIntegrated) {
