@@ -68,7 +68,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             // event.entity contains the updated fields
             const fullOrder = await event.manager.findOne(OrderEntity, {
                 where: { id: event.entity.id },
-                relations: ['status', 'items', 'items.variant', "items.variant.product"],
+                relations: ['store','status', 'items', 'items.variant', "items.variant.product"],
             });
 
             if (!fullOrder) {

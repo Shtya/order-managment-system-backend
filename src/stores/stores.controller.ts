@@ -143,9 +143,9 @@ export class StoresController {
     return await this.storesService.upsertIntegrate(req.user, dto);
   }
 
-  @Patch("easyorder/cancel-integration")
-  async cancelIntegration(@Req() req: any) {
-    return this.storesService.cancelIntegration(req.user);
+  @Patch(":provider/cancel-integration")
+  async cancelIntegration(@Req() req: any, @Param("provider") provider: StoreProvider) {
+    return this.storesService.cancelIntegration(req.user, provider);
   }
 
   @Permissions("stores.update")

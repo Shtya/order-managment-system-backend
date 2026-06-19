@@ -49,7 +49,7 @@ export class ProductSyncStateEntity {
 	@JoinColumn({ name: 'productId' })
 	product: Relation<ProductEntity>;
 
-	@Column('uuid')
+	@Column('uuid', { nullable: true })
 	storeId: string;
 
 	@ManyToOne(() => StoreEntity, { onDelete: 'SET NULL', })
@@ -139,7 +139,7 @@ export class ProductSyncErrorLogEntity {
 	@JoinColumn({ name: 'bundleId' })
 	bundle: BundleEntity;
 
-	@Column("uuid")
+	@Column("uuid", { nullable: true })
 	storeId: string;
 
 	@ManyToOne(() => StoreEntity, { onDelete: 'SET NULL', })

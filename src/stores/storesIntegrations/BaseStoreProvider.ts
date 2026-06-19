@@ -95,10 +95,13 @@ export interface WebhookOrderPayload {
 
 
 export interface WebhookOrderUpdatePayload {
-    externalId: string;
-    remoteStatus: string;
+    // externalId: string;
+    // remoteStatus: string;
     mappedStatus: OrderStatus;
     mappedPaymentStatus: PaymentStatus;
+    note?: string;
+    postponedDate?: string;
+
 }
 
 export interface UnifiedProductVariantDto {
@@ -427,9 +430,13 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
     public abstract getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]>;
     public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
-    public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload;
+    public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus, headers: Record<string, any>): WebhookOrderUpdatePayload;
     public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;
     public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
-    public abstract processExternalOrderId(externalOrderId: string): string;
+    public abstract processExternalOrderId(body: any, headers: Record<string, any>): Promise<string | null>;
+    public abstract cancelIntegration(adminId: string): Promise<boolean>
+    public normalizeOrderId(externalOrderId: string): string{
+        return externalOrderId;
+    }
 
 }

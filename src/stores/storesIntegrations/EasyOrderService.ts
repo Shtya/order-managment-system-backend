@@ -1218,7 +1218,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 orderStatus: OrderStatus.DELIVERED,
                 paymentStatus: null,
             },
-            "cancelled": {
+            "canceled": {
                 orderStatus: OrderStatus.CANCELLED,
                 paymentStatus: null,
             },
@@ -1229,6 +1229,16 @@ export class EasyOrderService extends BaseStoreProvider {
             "refunded": {
                 orderStatus: OrderStatus.RETURNED,
                 paymentStatus: PaymentStatus.REFUNDED,
+            },
+
+            "request_refund": {
+                orderStatus: OrderStatus.RETURN_PREPARING,
+                paymentStatus: null,
+            },
+
+            "refund_in_progress": {
+                orderStatus: OrderStatus.RETURN_PREPARING,
+                paymentStatus: null,
             },
 
             // 💰 Payment states
@@ -1287,12 +1297,12 @@ export class EasyOrderService extends BaseStoreProvider {
             [OrderStatus.DELIVERED]: "delivered",
 
             // حالات الإغلاق
-            [OrderStatus.FAILED_DELIVERY]: "cancelled",
+            [OrderStatus.FAILED_DELIVERY]: "canceled",
             [OrderStatus.CANCELLED]: "canceled",
             [OrderStatus.REJECTED]: "canceled",
 
             [OrderStatus.RETURNED]: "returning_from_delivery",
-            [OrderStatus.RETURN_PREPARING]: "returning_from_delivery",
+            [OrderStatus.RETURN_PREPARING]: "request_refund",
         };
         return map[internalStatus] || null;
     }
@@ -1308,13 +1318,13 @@ export class EasyOrderService extends BaseStoreProvider {
         }
         return true;
     }
-    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload {
+    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus, headers: Record<string, any>): WebhookOrderUpdatePayload {
         const externalStatus = body.new_status;
         const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(externalStatus, localOrderStatus);
 
         return {
-            externalId: body.order_id,
-            remoteStatus: externalStatus,
+            // externalId: body.order_id,
+            // remoteStatus: externalStatus,
             mappedStatus: orderStatus,
             mappedPaymentStatus: paymentStatus
         };
@@ -1589,8 +1599,8 @@ export class EasyOrderService extends BaseStoreProvider {
         };
     }
 
-    public processExternalOrderId(externalOrderId: string): string {
-        return externalOrderId;
+    public async processExternalOrderId(body: any, headers: Record<string, any>): Promise<string> {
+        return body.id || body?.order_id || "";
     }
 }
 

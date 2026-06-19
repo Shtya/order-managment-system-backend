@@ -80,6 +80,12 @@ export class IntegrateDto {
   @IsBoolean()
   @IsOptional()
   syncRemoteProducts?: boolean;
+
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => IntegrationsDto)
+  credentials: IntegrationsDto;
 }
 
 export class UpdateStoreDto {

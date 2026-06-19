@@ -1562,14 +1562,14 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
     }
 
 
-    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload {
+    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus, headers: Record<string, any>): WebhookOrderUpdatePayload {
         const externalStatus = body.status;
 
         const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body, localOrderStatus);
 
         return {
-            externalId: String(body.id),
-            remoteStatus: externalStatus,
+            // externalId: String(body.id),
+            // remoteStatus: externalStatus,
             mappedStatus: orderStatus,
             mappedPaymentStatus: paymentStatus
         };
@@ -1717,8 +1717,11 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
     }
 
-    public processExternalOrderId(externalOrderId: string): string {
-        return externalOrderId;
+    public async processExternalOrderId(body: any, headers: Record<string, any>): Promise<string> {
+        return body.id || body?.order_id || "";
+    }
+    public async cancelIntegration(adminId: string): Promise<boolean> {
+        return true;
     }
     
     public async getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]> {

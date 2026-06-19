@@ -134,6 +134,7 @@ export class StoresService {
     qb.select([
       "store.id",
       "store.name",
+      "store.adminId",
       "store.storeUrl",
       "store.provider",
       "store.isActive",
@@ -145,7 +146,8 @@ export class StoresService {
       "store.localSyncStatusAt",
       "store.lastSyncAttemptAt",
       "store.created_at",
-      "store.updated_at"
+      "store.updated_at",
+      "store.credentials",
     ]);
 
     // 2. Multi-tenant Filter
@@ -182,12 +184,21 @@ export class StoresService {
       .take(limit)
       .getManyAndCount();
 
+    const sanitizedRecords = records.map((record) => ({
+      ...record,
+      credentials: record.credentials
+        ? {
+          apiKey: record.credentials?.apiKey || '',
+        }
+        : null,
+    }));
+
     return {
       total_records: total,
       current_page: page,
       total_pages: Math.ceil(total / limit),
       per_page: limit,
-      records,
+      records: sanitizedRecords,
     };
   }
 
@@ -345,6 +356,10 @@ export class StoresService {
       store.storeUrl = dto.storeUrl.trim();
       store.syncNewProducts = dto.syncNewProducts;
       store.syncRemoteProducts = dto.syncRemoteProducts;
+      store.credentials = {
+        ...store.credentials,
+        ...dto.credentials,
+      };
       return this.storesRepo.save(store);
     }
 
@@ -355,6 +370,11 @@ export class StoresService {
       provider: dto.provider,
       credentials: {
         apiKey: null,
+        clientSecret: null,
+        webhookCreateOrderSecret: null,
+        webhookUpdateStatusSecret: null,
+        webhookSecret: null,
+        ...dto.credentials,
       },
       isIntegrated: false,
       isActive: false,
@@ -368,17 +388,18 @@ export class StoresService {
   }
 
 
-  async cancelIntegration(me: any) {
+  async cancelIntegration(me: any, provider: StoreProvider) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
-    const store = await this.storesRepo.findOne({ where: { adminId, provider: StoreProvider.EASYORDER } });
+    const store = await this.storesRepo.findOne({ where: { adminId, provider } });
 
     if (!store) {
       throw new BadRequestException("No integrated store was found. Please connect your store first..");
     }
 
-    await this.easyOrderService.cancelIntegration(adminId);
+    const p = this.getProvider(provider);
+    await p.cancelIntegration(adminId);
     store.isActive = false;
     store.isIntegrated = false;
     store.credentials = {};
@@ -916,9 +937,10 @@ export class StoresService {
         if (manager) return work(manager);
         return this.dataSource.transaction(work);
       };
-
       return await runInTransaction(async (manager) => {
-        const existingOrder = await this.ordersService.findByExternalId(payload.externalOrderId, adminId);
+        const p = this.getProvider(store.provider);
+        const proccessedExternalOrderId = p.normalizeOrderId(payload.externalOrderId);
+        const existingOrder = await this.ordersService.findByExternalId(proccessedExternalOrderId, adminId);
         if (existingOrder) {
           //notification here
           return { ok: true, ignored: true, reason: 'order_exists' };
@@ -1069,15 +1091,19 @@ export class StoresService {
     try {
       const p = this.getProvider(provider);
 
-      const externalOrderId = body.id || body?.order_id
-      const proccessedExternalOrderId = p.processExternalOrderId(externalOrderId);
-      
-      const order = await this.ordersService.findByExternalId(proccessedExternalOrderId, adminId);
+      const externalId = await p.processExternalOrderId(body, headers);
+      const externalOrderId = p.normalizeOrderId(externalId);
+
+      if (!externalOrderId) {
+        throw new Error(`Unknown order`);
+      }
+
+      const order = await this.ordersService.findByExternalId(externalOrderId, adminId);
 
       if (!order) {
         throw new Error(`Unknown order ${externalOrderId}`);
       }
-      const payload = p.mapWebhookUpdate(body, order?.status?.code as OrderStatus);
+      const payload = p.mapWebhookUpdate(body, order?.status?.code as OrderStatus, headers);
 
       if (!order.storeId) {
         throw new Error(`Order ${order.orderNumber} has no storeId`);
@@ -1107,9 +1133,7 @@ export class StoresService {
 
       // ✅ mapping validation
       if (!payload.mappedStatus && !payload.mappedPaymentStatus) {
-        throw new Error(
-          `Unmapped status "${payload.remoteStatus}" for order ${order.orderNumber}`
-        );
+        return;
       }
 
       const isOrderStatusChanged =
@@ -1144,7 +1168,8 @@ export class StoresService {
 
         await this.ordersService.changeStatus(User, order.id, {
           statusId: statusEntity.id,
-          notes: `Updated via webhook (${payload.remoteStatus})`,
+          notes: payload.note || `Updated via webhook`,
+          postponedDate: payload.postponedDate ? new Date(payload.postponedDate)?.toISOString() || null : null,
         });
 
       }
@@ -1769,7 +1794,6 @@ export class StoresService {
   }
 
   public async saveEasyOrdersCredentials(adminId: string, credentials: EasyOrdersCredentialsDto) {
-    const appURL = process.env.FRONTEND_URL;
     const store = await this.storesRepo.findOne({
       where: { adminId, provider: StoreProvider.EASYORDER },
     });
