@@ -26,6 +26,69 @@ import { AppGateway } from "common/app.gateway";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 import { access } from "fs";
 import { NotificationService } from "src/notifications/notification.service";
+import { StoreQueueService } from "./queues";
+
+enum ShopifyTopic {
+    ORDERS_CREATE = "orders/create",
+    ORDERS_UPDATED = "orders/updated",
+    ORDERS_FULFILLED = "orders/fulfilled",
+    ORDERS_CANCELLED = "orders/cancelled",
+    ORDERS_PAID = "orders/paid",
+    ORDERS_DELETE = "orders/delete",
+    ORDERS_RISK_ASSESSMENT_CHANGED = "orders/risk_assessment_changed",
+
+    REFUNDS_CREATE = "refunds/create",
+
+    RETURNS_REQUEST = "returns/request",
+    RETURNS_APPROVE = "returns/approve",
+    RETURNS_PROCESS = "returns/process",
+    RETURNS_CLOSE = "returns/close",
+    RETURNS_REOPEN = "returns/reopen",
+    RETURNS_UPDATE = "returns/update",
+    RETURNS_CANCEL = "returns/cancel",
+
+    FULFILLMENT_ORDERS_PLACED_ON_HOLD = "fulfillment_orders/placed_on_hold",
+    FULFILLMENT_ORDERS_HOLD_RELEASED = "fulfillment_orders/hold_released",
+    FULFILLMENT_ORDERS_RESCHEDULED = "fulfillment_orders/rescheduled",
+    FULFILLMENT_ORDERS_PROGRESS_REPORTED = "fulfillment_orders/progress_reported",
+    FULFILLMENT_ORDERS_SPLIT = "fulfillment_orders/split",
+    FULFILLMENT_ORDERS_MERGED = "fulfillment_orders/merged",
+    FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE = "fulfillment_orders/order_routing_complete",
+
+    FULFILLMENTS_CREATE = "fulfillments/create",
+    FULFILLMENTS_UPDATE = "fulfillments/update",
+}
+
+const ShopifyTopicToGraphQL: Record<ShopifyTopic, string> = {
+    [ShopifyTopic.ORDERS_CREATE]: "ORDERS_CREATE",
+    [ShopifyTopic.ORDERS_UPDATED]: "ORDERS_UPDATED",
+    [ShopifyTopic.ORDERS_FULFILLED]: "ORDERS_FULFILLED",
+    [ShopifyTopic.ORDERS_CANCELLED]: "ORDERS_CANCELLED",
+    [ShopifyTopic.ORDERS_PAID]: "ORDERS_PAID",
+    [ShopifyTopic.ORDERS_DELETE]: "ORDERS_DELETE",
+    [ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED]: "ORDERS_RISK_ASSESSMENT_CHANGED",
+
+    [ShopifyTopic.REFUNDS_CREATE]: "REFUNDS_CREATE",
+
+    [ShopifyTopic.RETURNS_REQUEST]: "RETURNS_REQUEST",
+    [ShopifyTopic.RETURNS_APPROVE]: "RETURNS_APPROVE",
+    [ShopifyTopic.RETURNS_PROCESS]: "RETURNS_PROCESS",
+    [ShopifyTopic.RETURNS_CLOSE]: "RETURNS_CLOSE",
+    [ShopifyTopic.RETURNS_REOPEN]: "RETURNS_REOPEN",
+    [ShopifyTopic.RETURNS_UPDATE]: "RETURNS_UPDATE",
+    [ShopifyTopic.RETURNS_CANCEL]: "RETURNS_CANCEL",
+
+    [ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD]: "FULFILLMENT_ORDERS_PLACED_ON_HOLD",
+    [ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED]: "FULFILLMENT_ORDERS_HOLD_RELEASED",
+    [ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED]: "FULFILLMENT_ORDERS_RESCHEDULED",
+    [ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED]: "FULFILLMENT_ORDERS_PROGRESS_REPORTED",
+    [ShopifyTopic.FULFILLMENT_ORDERS_SPLIT]: "FULFILLMENT_ORDERS_SPLIT",
+    [ShopifyTopic.FULFILLMENT_ORDERS_MERGED]: "FULFILLMENT_ORDERS_MERGED",
+    [ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE]: "FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE",
+
+    [ShopifyTopic.FULFILLMENTS_CREATE]: "FULFILLMENTS_CREATE",
+    [ShopifyTopic.FULFILLMENTS_UPDATE]: "FULFILLMENTS_UPDATE",
+};
 
 
 @Injectable()
@@ -38,6 +101,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     baseUrl: string = process.env.SHOPIFY_BASE_URL || "https://api.easy-orders.net/api/v1";
 
     constructor(
+        protected readonly storeQueueService: StoreQueueService,
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
@@ -74,6 +138,34 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         return store;
 
+    }
+
+    private async getStoreByExternalStoreId(externalStoreId: string): Promise<StoreEntity | null> {
+        const cleanExternalStoreId = externalStoreId?.trim();
+        if (!cleanExternalStoreId) return null;
+
+        const store = await this.storesRepo.findOne({
+            where: {
+                externalStoreId: cleanExternalStoreId,
+                provider: StoreProvider.SHOPIFY,
+            },
+        });
+
+        return store;
+    }
+
+    private async getOrderIdFromFulfillmentOrderId(fulfillmentOrderId: string, store: StoreEntity): Promise<string | null> {
+        const query = `
+    query GetFulfillmentOrder($fulfillmentOrderId: ID!) {
+      fulfillmentOrder(id: $fulfillmentOrderId) {
+        id
+        orderId
+      }
+    }
+  `;
+
+        const resp = await this.runGraphQL(store, false, query, { fulfillmentOrderId });
+        return resp?.fulfillmentOrder?.orderId;
     }
 
     public async Init(query: Record<string, any>, adminId: string) {
@@ -132,26 +224,34 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         //     };
         // }
 
-        store.externalStoreId = rawShop;
-        store.isIntegrated = true;
+        const oldIsIntegrated = store.isIntegrated;
+        if (!oldIsIntegrated) {
+            await this.subscribeAllWebhooks(store);
+        }
+
         store.isActive = true;
+        store.isIntegrated = true;
+        store.externalStoreId = rawShop;
 
         await this.storesRepo.save(store);
-
         const redirectUrl = `${frontendBaseUrl}/store-integration`;
-
+        if (!oldIsIntegrated && store.syncRemoteProducts) {
+            this.storeQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
+        }
         return { url: redirectUrl };
     }
 
 
-
-    private async getAccessToken(store: StoreEntity): Promise<string> {
+    private getCashekey(store) {
         const apiKey = store?.credentials?.apiKey;
-
         const halfLength = apiKey ? Math.floor(apiKey.length / 2) : 0;
-
         const keyPart = apiKey?.slice(0, halfLength) || 'na';
         const cacheKey = `stores:${store.storeUrl}:${keyPart}:token`;
+        return cacheKey;
+    }
+    private async getAccessToken(store: StoreEntity): Promise<string> {
+        
+        const cacheKey = this.getCashekey(store);
         let accessToken = await this.redisService.get(cacheKey);
         if (accessToken) return accessToken;
 
@@ -208,12 +308,13 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
      * Run a Shopify GraphQL query using the official client and centralized limiter.
      */
     protected getShopifyGraphQLEndpoint(storeUrl: string): string {
+
         const shopHost = storeUrl
             .trim()
             .replace(/^https?:\/\//, '') // Remove http:// or https://
             .replace(/\/$/, '');         // Remove trailing slash /
 
-        return `https://${shopHost}/admin/api/2026-01/graphql.json`;
+        return `https://${shopHost}/admin/api/${process.env.SHOPIFY_API_VERSION}/graphql.json`;
     }
 
     protected async runGraphQL(store: StoreEntity, isMutation = false, query: string, variables?: Record<string, any>, attempt = 0, retry = true): Promise<any> {
@@ -272,7 +373,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     }
 
                     // 2. Handle GraphQL-Specific Errors (Inside the successful response but with errors array)
-                    const gqlErrors = (error as any)?.graphQLErrors || (error as any)?.errors || (error as any)?.bodyText ? [(error as any)?.bodyText] : [];
+                    const gqlErrors = (error as any)?.graphQLErrors ? (error as any)?.graphQLErrors : (error as any)?.errors ? (error as any)?.errors : (error as any)?.bodyText ? [(error as any)?.bodyText] : [];
 
                     if (gqlErrors.length > 0) {
                         // Comprehensive check for throttling
@@ -318,7 +419,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                                 JSON.stringify(firstError);
                         }
 
-                        throw new Error(`GraphQL Error: ${errorMessage}`);
+                        throw new Error(`GraphQL Error: ${JSON.stringify(errorMessage)}`);
                     }
                 }
                 // [2025-12-24] Remember to trim any string data returned here before further processing
@@ -542,6 +643,436 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         return newCollection;
 
+    }
+
+    private async ensureWebhookForTopic(
+        store: StoreEntity,
+        topic: ShopifyTopic,
+        uri: string
+    ) {
+        const graphQLTopic = ShopifyTopicToGraphQL[topic];
+
+        const query = `
+                query WebhookSubscriptionsByTopic($topic: WebhookSubscriptionTopic!) {
+                  webhookSubscriptions(first: 10, topics: [$topic]) {
+                    edges {
+                      node {
+                        id
+                        topic
+                        format
+                        uri
+                      }
+                    }
+                  }
+                }
+        `;
+
+        const variables = { topic: graphQLTopic };
+
+        const response = await this.runGraphQL(store, false, query, variables);
+
+        const edges = response?.webhookSubscriptions?.edges ?? [];
+        const existing = edges
+            .map((e: any) => e.node)
+            .find((node: any) => node.uri === uri);
+
+        return existing || null;
+    }
+
+    private async subscribeWebhook(
+        store: StoreEntity,
+        topic: ShopifyTopic,        // WebhookSubscriptionTopic string value, e.g. "ORDERS_UPDATED"
+        uri: string           // Your webhook HTTPS endpoint
+    ) {
+        const graphQLTopic = ShopifyTopicToGraphQL[topic];
+        const existing = await this.ensureWebhookForTopic(store, topic, uri);
+        if (existing) {
+            // Optionally: update format or fields here with webhookSubscriptionUpdate
+            return existing;
+        }
+
+        // 1. Update the query to accept WebhookSubscriptionInput matching Shopify's target standard
+        const query = `
+        mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
+            webhookSubscriptionCreate(topic: $topic, webhookSubscription: $webhookSubscription) {
+                webhookSubscription {
+                    id
+                    topic
+                    format
+                    uri
+                }
+                userErrors {
+                    field
+                    message
+                }
+            }
+        }
+    `;
+
+        // 2. Wrap the 'uri' inside the 'webhookSubscription' object 
+        //    and define the format as a string matching the GraphQL enum.
+        const variables = {
+            topic: graphQLTopic,
+            webhookSubscription: {
+                uri: uri,
+                format: "JSON" // Shopify defaults to JSON, but explicitly declaring it here replaces your inline format
+            }
+        };
+
+        // 3. Run the custom GraphQL execution
+        const response = await this.runGraphQL(store, true, query, variables);
+
+        // 4. Handle response and errors
+        const userErrors = response?.webhookSubscriptionCreate?.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(`Shopify webhook error: ${userErrors[0].message}`);
+        }
+
+        const webhook = response?.webhookSubscriptionCreate?.webhookSubscription;
+        return webhook;
+    }
+
+    private async unsubscribeWebhook(
+        store: StoreEntity,
+        topic: ShopifyTopic, // WebhookSubscriptionTopic string value, e.g. "ORDERS_UPDATED"
+        uri: string    // Your webhook HTTPS endpoint
+    ) {
+        // Reuse your existing logic to locate the webhook
+        const existing = await this.ensureWebhookForTopic(store, topic, uri);
+
+        // If nothing is registered, nothing to do
+        if (!existing?.id) {
+            return null;
+        }
+
+        const query = `
+    mutation webhookSubscriptionDelete($id: ID!) {
+      webhookSubscriptionDelete(id: $id) {
+        userErrors {
+          field
+          message
+        }
+        deletedWebhookSubscriptionId
+      }
+    }
+  `;
+
+        const variables = { id: existing.id };
+
+        const response = await this.runGraphQL(store, true, query, variables);
+
+        const userErrors = response?.webhookSubscriptionDelete?.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(
+                `Shopify webhook delete error: ${userErrors[0].message}`
+            );
+        }
+
+        return response?.webhookSubscriptionDelete?.deletedWebhookSubscriptionId;
+    }
+
+    public async subscribeAllWebhooks(store: StoreEntity) {
+        const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
+        const topics: { topic: ShopifyTopic, url?: string }[] = [
+            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, { topic: ShopifyTopic.ORDERS_UPDATED },
+            { topic: ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED },
+            { topic: ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_SPLIT }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_MERGED },
+            { topic: ShopifyTopic.FULFILLMENTS_CREATE }, { topic: ShopifyTopic.FULFILLMENTS_UPDATE }, { topic: ShopifyTopic.ORDERS_FULFILLED }, { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE },
+            { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_DELETE }, { topic: ShopifyTopic.RETURNS_REQUEST }, { topic: ShopifyTopic.REFUNDS_CREATE }, { topic: ShopifyTopic.RETURNS_APPROVE }, { topic: ShopifyTopic.RETURNS_PROCESS },
+            { topic: ShopifyTopic.RETURNS_CLOSE }, { topic: ShopifyTopic.RETURNS_REOPEN }, { topic: ShopifyTopic.RETURNS_UPDATE }, { topic: ShopifyTopic.RETURNS_CANCEL }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
+        ];
+
+        const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
+
+        // Process in chunks of 5 to avoid triggering Shopify's 429 rate limits
+        const chunkSize = 5;
+
+        for (let i = 0; i < topics.length; i += chunkSize) {
+            const chunk = topics.slice(i, i + chunkSize);
+
+            // Execute the current chunk in parallel
+            await Promise.all(
+                chunk.map(({ topic, url }) => this.subscribeWebhook(store, topic, url || statusUrl))
+            );
+        }
+    }
+
+    public async unsubscribeAllWebhooks(store: StoreEntity) {
+        const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
+        const topics: { topic: ShopifyTopic, url?: string }[] = [
+            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, { topic: ShopifyTopic.ORDERS_UPDATED },
+            { topic: ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED },
+            { topic: ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_SPLIT }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_MERGED },
+            { topic: ShopifyTopic.FULFILLMENTS_CREATE }, { topic: ShopifyTopic.FULFILLMENTS_UPDATE }, { topic: ShopifyTopic.ORDERS_FULFILLED }, { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE },
+            { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_DELETE }, { topic: ShopifyTopic.RETURNS_REQUEST }, { topic: ShopifyTopic.REFUNDS_CREATE }, { topic: ShopifyTopic.RETURNS_APPROVE }, { topic: ShopifyTopic.RETURNS_PROCESS },
+            { topic: ShopifyTopic.RETURNS_CLOSE }, { topic: ShopifyTopic.RETURNS_REOPEN }, { topic: ShopifyTopic.RETURNS_UPDATE }, { topic: ShopifyTopic.RETURNS_CANCEL }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
+        ];
+
+        const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
+
+        const chunkSize = 5;
+
+        for (let i = 0; i < topics.length; i += chunkSize) {
+            const chunk = topics.slice(i, i + chunkSize);
+
+            await Promise.all(
+                chunk.map(({ topic, url }) =>
+                    this.unsubscribeWebhook(store, topic, url || statusUrl)
+                )
+            );
+        }
+    }
+
+    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus, headers: Record<string, any>): WebhookOrderUpdatePayload | null {
+        const topic = headers['x-shopify-topic'];
+        if (!topic) return null;
+
+        let mappedStatus: OrderStatus | null = null;
+        let mappedPaymentStatus: PaymentStatus | null = null;
+        let note: string | null = null;
+        let postponedDate: string | null = null;
+        switch (topic) {
+            case ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD:
+                mappedStatus = OrderStatus.POSTPONED;
+                note = body?.created_fulfillment_hold?.reason || "";
+                break;
+
+            case ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED:
+                if (localOrderStatus !== OrderStatus.POSTPONED) {
+                    return null;
+                }
+                mappedStatus = OrderStatus.CONFIRMED;
+                break;
+            case ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED:
+                mappedStatus = OrderStatus.PREPARING;
+                note = body?.progress_report?.reason_notes || null;
+                break;
+            case ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED:
+
+                mappedStatus = OrderStatus.POSTPONED;
+                mappedPaymentStatus = null;
+                postponedDate = body?.fulfillment_order?.fulfill_at ?? null;
+                break;
+            case ShopifyTopic.FULFILLMENTS_CREATE:
+            case ShopifyTopic.FULFILLMENTS_UPDATE:
+                switch (body.status) {
+                    case "SUCCESS":
+                        mappedStatus = OrderStatus.SHIPPED;
+                        break;
+
+                    case "OPEN": // deprecated
+                        mappedStatus = OrderStatus.PREPARING;
+                        break;
+
+                    case "PENDING": // deprecated
+                        mappedStatus = OrderStatus.CONFIRMED;
+                        break;
+
+                    case "ERROR":
+                    case "CANCELLED":
+                    case "FAILURE":
+                    default:
+                        return null;
+                }
+                break;
+            case ShopifyTopic.ORDERS_FULFILLED:
+                mappedStatus = OrderStatus.SHIPPED;
+                note = "Order fully fulfilled";
+                break;
+            case ShopifyTopic.ORDERS_CANCELLED:
+            case ShopifyTopic.ORDERS_DELETE:
+                mappedStatus = OrderStatus.CANCELLED;
+                note = "Order cancelled";
+                break;
+            case ShopifyTopic.ORDERS_UPDATED:
+                const { orderStatus, paymentStatus } = this.mapShopifyWebhookStatusToInternal(body);
+                if (orderStatus) {
+                    mappedStatus = orderStatus;
+                }
+                if (paymentStatus) {
+                    mappedPaymentStatus = paymentStatus;
+                }
+                break;
+            case ShopifyTopic.ORDERS_PAID:
+                mappedStatus = OrderStatus.CONFIRMED;
+                mappedPaymentStatus = PaymentStatus.PAID;
+                note = "Order paid";
+                break;
+            case ShopifyTopic.REFUNDS_CREATE:
+                mappedPaymentStatus = PaymentStatus.REFUNDED; // or PARTIAL_REFUND if you support it
+                break;
+            case ShopifyTopic.RETURNS_APPROVE:
+            case ShopifyTopic.RETURNS_PROCESS:
+            case ShopifyTopic.RETURNS_REOPEN:
+                mappedStatus = OrderStatus.RETURN_PREPARING;
+                note = "Order return preparing";
+                break;
+            case ShopifyTopic.RETURNS_CLOSE:
+                mappedStatus = OrderStatus.RETURNED;
+                note = "Order returned";
+                break;
+            case ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED:
+                mappedStatus = OrderStatus.UNDER_REVIEW;
+                break;
+            default:
+                return null;
+        }
+
+        return {
+            mappedStatus,
+            mappedPaymentStatus,
+            note,
+            postponedDate
+        };
+    }
+
+
+    public async appUninstall(store: StoreEntity): Promise<void> {
+        const mutation = `
+    mutation appUninstall {
+      appUninstall {
+        app {
+          id
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+        try {
+            const response = await this.runGraphQL(store, true, mutation, {});
+
+            const userErrors = response?.appUninstall?.userErrors;
+            if (userErrors && userErrors.length > 0) {
+                this.logger.error(`[Shopify] appUninstall failed: ${JSON.stringify(userErrors)}`);
+            }
+
+            // Mark store as inactive/uninstalled locally
+            store.isActive = false;
+            store.isIntegrated = false;
+            await this.storesRepo.save(store);
+        } catch (error) {
+            const message = this.getErrorMessage(error);
+            this.logger.error(`[Shopify] appUninstall failed: ${message}`);
+
+            // Still try to mark store as inactive locally even if Shopify mutation fails
+            try {
+                store.isActive = false;
+                store.isIntegrated = false;
+                await this.storesRepo.save(store);
+            } catch (saveErr) {
+                const saveErrMsg = this.getErrorMessage(saveErr);
+                this.logger.error(`[Shopify] Failed to mark store as inactive after appUninstall: ${saveErrMsg}`);
+            }
+        }
+    }
+
+    public async cancelIntegration(adminId: string): Promise<boolean> {
+        const store = await this.storesRepo.findOne({
+            where: {
+                adminId,
+                provider: StoreProvider.SHOPIFY,
+            }
+        });
+
+        // 1. Basic Validation
+        if (!store) {
+            return false;
+        }
+
+        try {
+            // 2. Unsubscribe all webhooks
+            await this.unsubscribeAllWebhooks(store);
+            // 3. Uninstall app from Shopify
+            await this.appUninstall(store);
+            //remove access token
+            const cacheKey = this.getCashekey(store);
+             await this.redisService.del(cacheKey);
+
+            return true;
+        } catch (error: any) {
+            const message = this.getErrorMessage(error);
+            this.logger.error(`Failed to cancel Shopify integration: ${message}`);
+            return false;
+        }
+    }
+
+    private mapShopifyWebhookStatusToInternal(body: any): {
+        orderStatus: OrderStatus | null;
+        paymentStatus: PaymentStatus | null;
+    } {
+        const financialStatus = body.financial_status as string | null;
+        const fulfillmentStatus = body.displayFulfillmentStatus as string | null;
+
+        const paymentStatus = this.mapShopifyFinancialStatusToPaymentStatus(
+            financialStatus,
+        );
+        const orderStatus = this.mapShopifyStatusesToOrderStatus(
+            fulfillmentStatus,
+        );
+
+        return { orderStatus, paymentStatus };
+    }
+    private mapShopifyStatusesToOrderStatus(
+        displayFulfillmentStatus: string | null | undefined
+    ): OrderStatus | null {
+
+        const status = displayFulfillmentStatus?.toUpperCase();
+        if (!status) return null;
+
+        switch (status) {
+
+            case "UNFULFILLED":
+            case "OPEN":
+                return OrderStatus.CONFIRMED;
+
+            case "SCHEDULED":
+                return OrderStatus.POSTPONED;
+
+            case "ON_HOLD":
+                return OrderStatus.POSTPONED;
+
+            case "PENDING_FULFILLMENT":
+            case "IN_PROGRESS":
+                return OrderStatus.PREPARING;
+
+            case "FULFILLED":
+                return OrderStatus.SHIPPED;
+
+            case "RESTOCKED":
+                return OrderStatus.RETURNED;
+
+            default:
+                return null;
+        }
+    }
+
+    private mapShopifyFinancialStatusToPaymentStatus(
+        financialStatus?: string | null,
+    ): PaymentStatus | null {
+        if (!financialStatus) return null;
+        switch (financialStatus) {
+            case "paid":
+            case "authorized":
+                return PaymentStatus.PAID;
+            case "partially_paid":
+                return PaymentStatus.PARTIAL;
+
+            case "refunded":
+                return PaymentStatus.REFUNDED;
+            case "partially_refunded":
+                return PaymentStatus.PARTIALLY_REFUNDED;
+            case "partially_refunded":
+
+            case "pending":
+            case "voided":
+            case "expired":
+            default:
+                return null;
+        }
     }
 
     /**
@@ -2570,7 +3101,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         action?: "create" | "update"
     ): boolean {
 
-        const savedSecret = store?.credentials?.webhookSecret;
+        const savedSecret = store?.credentials?.clientSecret;
         if (!savedSecret) {
             return true;
         }
@@ -2595,19 +3126,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return isAuthed;
     }
 
-    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus): WebhookOrderUpdatePayload | null {
-        const financialStatus = body.financial_status; // e.g., 'paid', 'pending'
-        const fulfillmentStatus = body.fulfillment_status; // e.g., 'fulfilled', null
 
-        const { orderStatus, paymentStatus } = this.mapShopifyWebhookStatusToInternal(body)
 
-        return {
-            externalId: body.id,
-            remoteStatus: orderStatus,
-            mappedStatus: orderStatus,
-            mappedPaymentStatus: paymentStatus
-        };
-    }
 
     public async fetchRemoteProducts(store: StoreEntity, ids: string[]): Promise<any[]> {
         if (!ids || ids.length === 0) return [];
@@ -2661,91 +3181,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return PaymentMethod.UNKNOWN;
     }
 
-    private mapShopifyFinancialStatusToPaymentStatus(
-        financialStatus?: string | null,
-    ): PaymentStatus | null {
-        switch (financialStatus) {
-            case "paid":
-            case "authorized":
-                return PaymentStatus.PAID;
-            case "partially_paid":
-                return PaymentStatus.PARTIAL;
-
-            case "refunded":
-                return PaymentStatus.REFUNDED;
-            case "partially_refunded":
-                return PaymentStatus.PARTIALLY_REFUNDED;
-            case "partially_refunded":
-
-            case "pending":
-            case "voided":
-            case "expired":
-            default:
-                return PaymentStatus.PENDING;
-        }
-    }
-
-    private mapShopifyStatusesToOrderStatus(
-        fulfillmentStatus: string | null | undefined,
-        cancelledAt: string | null | undefined,
-    ): OrderStatus {
-
-        // 1) Cancellation always overrides
-        if (cancelledAt) {
-            return OrderStatus.CANCELLED;
-        }
-
-        // 🔥 normalize to lowercase once
-        const status = fulfillmentStatus?.toLowerCase();
-
-        switch (status) {
-            case "fulfilled":
-                return OrderStatus.DELIVERED;
-
-            case "partially_fulfilled":
-                return OrderStatus.SHIPPED;
-
-            case "in_progress":
-            case "pending_fulfillment":
-            case "scheduled":
-                return OrderStatus.PREPARING;
-
-            case "on_hold":
-                return OrderStatus.POSTPONED;
-
-            case "request_declined":
-                return OrderStatus.REJECTED;
-
-            case "restocked":
-                return OrderStatus.RETURNED;
-
-            case "open":
-            case "unfulfilled":
-            case null:
-            case undefined:
-            default:
-                return OrderStatus.NEW;
-        }
-    }
-
-    private mapShopifyWebhookStatusToInternal(body: any): {
-        orderStatus: OrderStatus | null;
-        paymentStatus: PaymentStatus | null;
-    } {
-        const financialStatus = body.financial_status as string | null;
-        const fulfillmentStatus = body.fulfillment_status as string | null;
-        const cancelledAt = body.cancelled_at as string | null;
-
-        const paymentStatus = this.mapShopifyFinancialStatusToPaymentStatus(
-            financialStatus,
-        );
-        const orderStatus = this.mapShopifyStatusesToOrderStatus(
-            fulfillmentStatus,
-            cancelledAt,
-        );
-
-        return { orderStatus, paymentStatus };
-    }
 
     public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
         const paymentMethod = body.payment_gateway_names?.length > 0 ? this.mapPaymentMethod(body.payment_gateway_names?.[0] || "") : PaymentMethod.CASH_ON_DELIVERY;
@@ -3186,23 +3621,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
 
     async validateProviderConnection(store: StoreEntity): Promise<boolean> {
-        const REQUIRED_SCOPES = [
-            'read_all_orders',
-            'read_assigned_fulfillment_orders',
-            'write_assigned_fulfillment_orders',
-            'write_locations',
-            'read_locations',
-            'read_merchant_managed_fulfillment_orders',
-            'write_merchant_managed_fulfillment_orders',
-            'read_orders',
-            'write_orders',
-            'read_products',
-            'write_products',
-            'read_publications',
-            'write_publications',
-            'read_third_party_fulfillment_orders',
-            'write_third_party_fulfillment_orders',
-        ];
+        const scopes = ["read_all_orders,read_returns,write_returns,  write_locations, read_locations, read_orders, write_fulfillments,read_fulfillments,write_orders, read_products, write_products, read_publications, write_publications, read_third_party_fulfillment_orders, write_third_party_fulfillment_orders, read_merchant_managed_fulfillment_orders, write_merchant_managed_fulfillment_orders, read_assigned_fulfillment_orders, write_assigned_fulfillment_orders"]
 
         const { storeUrl, credentials } = store;
         const accessToken = await this.getAccessToken(store);
@@ -3243,7 +3662,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
 
     public async getAllMappedProducts(store: StoreEntity, filters?: string[]): Promise<MappedProductDto[]> {
-        
+
         let allProducts: MappedProductDto[] = [];
         let hasNextPage = true;
         let after: string | null = null;
@@ -3328,7 +3747,73 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return allProducts;
     }
 
-    public processExternalOrderId(externalOrderId: string): string {
+    public override normalizeOrderId(externalOrderId: string): string {
         return String(externalOrderId).startsWith('gid://') ? externalOrderId : `gid://shopify/Order/${externalOrderId}`;
+    }
+
+
+    public async processExternalOrderId(body: any, headers: Record<string, any>): Promise<string | null> {
+        type OrderIdResolver = (body: any, headers: any, store: StoreEntity | null) => Promise<string | null>;
+
+        const externalStoreId = headers["x-shopify-shop-domain"];
+        const store = externalStoreId ? await this.getStoreByExternalStoreId(externalStoreId) : null;
+
+        if (body?.order_id) {
+            return body?.order_id;
+        }
+
+        const getFulfillmentOrderIdResolver: OrderIdResolver = async (body, headers, store) => {
+            let orderId = body?.fulfillment_order?.order_id;
+            if (!orderId && body?.fulfillment_order?.id && store) {
+                orderId = await this.getOrderIdFromFulfillmentOrderId(body.fulfillment_order.id, store);
+            }
+            return orderId;
+        };
+
+        const orderIdResolvers: Record<ShopifyTopic, OrderIdResolver> = {
+
+            [ShopifyTopic.ORDERS_CREATE]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_UPDATED]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_FULFILLED]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_CANCELLED]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_PAID]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_DELETE]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED]: (body) => Promise.resolve(body?.order_id),
+
+            [ShopifyTopic.REFUNDS_CREATE]: (body) => Promise.resolve(body?.order_id),
+
+            [ShopifyTopic.RETURNS_REQUEST]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            [ShopifyTopic.RETURNS_APPROVE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            [ShopifyTopic.RETURNS_PROCESS]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            [ShopifyTopic.RETURNS_CLOSE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            [ShopifyTopic.RETURNS_REOPEN]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            [ShopifyTopic.RETURNS_UPDATE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            [ShopifyTopic.RETURNS_CANCEL]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+
+            // 👇 fulfillment ORDER webhooks (IMPORTANT)
+            [ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD]: getFulfillmentOrderIdResolver,
+            [ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED]: getFulfillmentOrderIdResolver,
+            [ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED]: getFulfillmentOrderIdResolver,
+            [ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED]: getFulfillmentOrderIdResolver,
+            [ShopifyTopic.FULFILLMENT_ORDERS_SPLIT]: getFulfillmentOrderIdResolver,
+            [ShopifyTopic.FULFILLMENT_ORDERS_MERGED]: getFulfillmentOrderIdResolver,
+            [ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE]: getFulfillmentOrderIdResolver,
+
+            // 👇 fulfillment (shipment-level)
+            [ShopifyTopic.FULFILLMENTS_CREATE]: (body) => Promise.resolve(body?.order_id),
+            [ShopifyTopic.FULFILLMENTS_UPDATE]: (body) => Promise.resolve(body?.order_id),
+        };
+
+        const topic = headers["x-shopify-topic"];
+
+        const resolver = orderIdResolvers[topic as ShopifyTopic];
+
+        if (!resolver) {
+            return null;
+        }
+
+        const externalOrderId = await resolver(body, headers, store);
+
+        return externalOrderId;
     }
 }

@@ -184,13 +184,13 @@ export class WebhookOrderFailureEntity {
 	@Column({ type: "int", default: 0 })
 	attempts: number;
 
-	@Column({ type: 'uuid', nullable: false })
+	@Column({ type: 'uuid', nullable: true })
 	storeId: string;
 
 	@Column({ type: "varchar", nullable: true })
 	externalOrderId: string;
 
-	@ManyToOne(() => StoreEntity, { nullable: false })
+	@ManyToOne(() => StoreEntity, { nullable: false, onDelete: 'SET NULL' })
 	@JoinColumn({ name: "storeId" })
 	store: StoreEntity;
 
