@@ -1208,7 +1208,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
     }
 
-    public async syncOrderStatus(order: OrderEntity, newStatusId: string) {
+    public async syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string) {
 
         const store = await this.getStoreForSync(order.adminId);
         if (!store) {
@@ -1622,7 +1622,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                         const attrs = variationProps.reduce(
                             (acc: Record<string, string>, prop) => {
                                 const k = this.productsService.slugifyKey(prop.name);
-                                const v = this.productsService.slugifyKey(prop.value);
+                                const v = prop.value;
                                 acc[k] = v;
                                 return acc;
                             },

@@ -109,7 +109,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
     }
 
     protected async processJob(payload: any): Promise<void> {
-        const { type, storeType, storeId, newStatusId, productId, bundleId, oldBundleData, category, slug, orderId, adminId: orderAdminId, productIds } = payload;
+        const { type, storeType, storeId, newStatusId,oldStatusId, productId, bundleId, oldBundleData, category, slug, orderId, adminId: orderAdminId, productIds } = payload;
 
         try {
             // 1. Resolve which service to use
@@ -202,7 +202,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                         },
                     });
                     if (order) {
-                        await service?.syncOrderStatus(order, newStatusId);
+                        await service?.syncOrderStatus(order, newStatusId,oldStatusId);
                         this.logger.log(`[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`);
                     }
                     break;

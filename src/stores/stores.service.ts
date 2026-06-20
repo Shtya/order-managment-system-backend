@@ -654,7 +654,7 @@ export class StoresService {
 
   }
 
-  async syncOrderStatus(order: OrderEntity, newStatusId: string) {
+  async syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string) {
     const { adminId, orderNumber, id, store: orderStore } = order;
 
     if (!orderStore) {
@@ -673,7 +673,7 @@ export class StoresService {
 
     // Route to the correct queue based on Provider
 
-    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId);
+    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId,oldStatusId);
 
     this.logger.log(
       `[Order Status Sync] Dispatched status update for Order #${orderNumber} (ID: ${id}) ` +
@@ -1103,7 +1103,12 @@ export class StoresService {
       if (!order) {
         throw new Error(`Unknown order ${externalOrderId}`);
       }
-      const payload = p.mapWebhookUpdate(body, order?.status?.code as OrderStatus, headers);
+      const payload =
+        p.mapWebhookUpdate(
+          body,
+          order?.status?.code as OrderStatus,
+          headers,
+        ) || ({} as ReturnType<typeof p.mapWebhookUpdate>);
 
       if (!order.storeId) {
         throw new Error(`Order ${order.orderNumber} has no storeId`);
@@ -2077,15 +2082,6 @@ export class StoresService {
     //qunatity map 
     const skuQuantityMap = new Map<string, number>();
 
-    // Simple HTML strip for description
-    // const cleanDescription = convert(p.description, {
-    //   wordwrap: false,
-    //   selectors: [
-    //     { selector: 'img', format: 'skip' },
-    //     { selector: 'a', options: { ignoreHref: true } },
-    //   ],
-    // }).replace(/\n{2,}/g, '\n')   // 👈 collapse multiple newlines into one
-    //   .trim()
 
     // Safe slug/sku generation
     const slug = p.slug || generateSlug(p.name);
@@ -2102,7 +2098,7 @@ export class StoresService {
       const attrs = v.variation_props.reduce((acc, vp) => {
         if (vp.variation && vp.variation_prop) {
           const key = this.productsService.slugifyKey(vp.variation);
-          const value = this.productsService.slugifyKey(vp.variation_prop);
+          const value = vp.variation_prop;
           acc[key] = value;
         }
         return acc;
