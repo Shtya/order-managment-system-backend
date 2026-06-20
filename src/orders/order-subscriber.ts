@@ -42,10 +42,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
         return OrderEntity;
     }
 
-    /**
-     * Called AFTER an order is updated.
-     * We track the change of 'status' specifically.
-     */
+
     async afterUpdate(event: UpdateEvent<OrderEntity>) {
         // Check if the status column was actually updated
         // console.log("[OrderSubscriber] After update called for order id:", event.entity?.id);
@@ -68,7 +65,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             // event.entity contains the updated fields
             const fullOrder = await event.manager.findOne(OrderEntity, {
                 where: { id: event.entity.id },
-                relations: ['store','status', 'items', 'items.variant', "items.variant.product"],
+                relations: ['store','status', 'items', 'items.variant', "items.variant.product", "shippingCompany"],
             });
 
             if (!fullOrder) {
@@ -99,7 +96,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
                 try {
                     if (fullOrder.externalId) {
-                        await this.storesService.syncOrderStatus(fullOrder, newStatusId);
+                        await this.storesService.syncOrderStatus(fullOrder, newStatusId,oldStatusId);
                     }
 
                 } catch (error) {

@@ -28,7 +28,13 @@ export type ShopifyAction =
     | "PARTIAL_FULFILL"
     | "CANCEL"
     | "HOLD"
-    | "NONE";
+    | "RELEASE_HOLD"
+    | "NONE"
+    | "PROGRESS"
+    | "DELIVERED"
+    | "RETURN_DECLINE"
+    | "RETURN_APPROVE"
+    | "RETURN_REQUEST";
 
 
 export interface MappedProductDto {
@@ -334,8 +340,21 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     }
 
     getImageUrl = (url) => {
-        return url.startsWith('http') ? url : this.baseImg + url;
+        if (url.startsWith('http')) {
+            return url;
+        }
+
+        const base = this.baseImg.endsWith('/')
+            ? this.baseImg.slice(0, -1)
+            : this.baseImg;
+
+        const path = url.startsWith('/')
+            ? url
+            : `/${url}`;
+
+        return base + path;
     };
+
 
     /**
           * RECOVERY: Clean up stores stuck in SYNCING status (useful when app crashes)
@@ -368,13 +387,13 @@ export abstract class BaseStoreProvider implements OnModuleInit {
                     `[Recovery] Found store "${store.name}" stuck  in SYNCING. Resetting to FAILED status...`,
                     store
                 );
-                if(store.syncStatus  === SyncStatus.SYNCING) {
+                if (store.syncStatus === SyncStatus.SYNCING) {
 
                     await this.storesRepo.update(store.id, {
                         syncStatus: SyncStatus.FAILED,
                     });
                 } else {
-                    
+
                     await this.storesRepo.update(store.id, {
                         localSyncStatus: SyncStatus.FAILED,
                     });
@@ -424,7 +443,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     // usage of the `@shopify/shopify-api` client and provider-specific behavior.
     public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
     public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
-    public abstract syncOrderStatus(order: OrderEntity, newStatusId: string)
+    public abstract syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string)
     public abstract syncFullStore(store: StoreEntity, productIds?: string[])
     public abstract getProductBySlug(store: StoreEntity, slug: string, retry?: boolean): Promise<{ id }>
     public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
@@ -435,7 +454,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
     public abstract processExternalOrderId(body: any, headers: Record<string, any>): Promise<string | null>;
     public abstract cancelIntegration(adminId: string): Promise<boolean>
-    public normalizeOrderId(externalOrderId: string): string{
+    public normalizeOrderId(externalOrderId: string): string {
         return externalOrderId;
     }
 

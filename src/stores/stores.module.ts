@@ -11,7 +11,7 @@ import { StoreQueueService } from "./storesIntegrations/queues";
 import { StoreWorkerService } from "./storesIntegrations/workers";
 import { StoreSubscriber } from "./store-subscriber";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
-import { OrderEntity, OrderStatusEntity } from "entities/order.entity";
+import { OrderEntity, OrderStatusEntity, ReturnRequestEntity, ReturnRequestItemEntity } from "entities/order.entity";
 import { WebhookOrderFailureEntity } from "entities/stores.entity";
 import { RedisModule } from "common/redis/redis.module";
 import { OrdersModule } from "src/orders/orders.module";
@@ -37,7 +37,7 @@ import { Account } from "entities/safe.entity";
     forwardRef(() => SafesModule),
     ProductSyncStateModule,
     WebSocketModule,
-    TypeOrmModule.forFeature([StoreEntity, ProductSyncStateEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity, Account]),
+    TypeOrmModule.forFeature([StoreEntity, ProductSyncStateEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity, Account,ReturnRequestEntity,ReturnRequestItemEntity]),
   ],
   providers: [
     StoresService,

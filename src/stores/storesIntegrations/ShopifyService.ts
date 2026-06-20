@@ -17,7 +17,7 @@ import { CategoriesService } from "src/category/category.service";
 import { RedisService } from "common/redis/RedisService";
 import { EncryptionService } from "common/encryption.service";
 import { In, MoreThan, Repository } from "typeorm";
-import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
+import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus, ReturnRequestEntity, ReturnRequestItemEntity } from "entities/order.entity";
 import * as crypto from 'crypto';
 import { ApolloClient, InMemoryCache, HttpLink, gql, ObservableQuery } from '@apollo/client/core';
 import fetch from 'cross-fetch';
@@ -106,6 +106,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
         @InjectRepository(BundleEntity) private readonly bundleRepo: Repository<BundleEntity>,
+        @InjectRepository(ReturnRequestEntity) private readonly returnRequestRepo: Repository<ReturnRequestEntity>,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
         @Inject(forwardRef(() => OrdersService))
@@ -239,7 +240,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         return cacheKey;
     }
     private async getAccessToken(store: StoreEntity): Promise<string> {
-        
+
         const cacheKey = this.getCashekey(store);
         let accessToken = await this.redisService.get(cacheKey);
         if (accessToken) return accessToken;
@@ -979,7 +980,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             await this.appUninstall(store);
             //remove access token
             const cacheKey = this.getCashekey(store);
-             await this.redisService.del(cacheKey);
+            await this.redisService.del(cacheKey);
 
             return true;
         } catch (error: any) {
@@ -1151,6 +1152,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         store: StoreEntity,
         remoteProduct: any
     ) {
+        const hasOnlyDefaultVariant = product.type === ProductType.SINGLE;
         const remoteVariants = remoteProduct?.variants?.nodes || [];
         const bundleParentSkus = new Set<string>();
         if (remoteVariants?.length > 0) {
@@ -1164,29 +1166,41 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
         const optionsMap = new Map<string, Set<string>>();
         const activeVariants = variants.filter(v => v.isActive);
-        // Map variant attributes to options
-        activeVariants.forEach((v) => {
-            let attrs = {};
-            try {
-                attrs = typeof v.attributes === "string" ? JSON.parse(v.attributes) : v.attributes || {};
-            } catch (e) {
 
-            }
-
-            Object.entries(attrs).forEach(([key, val]) => {
-                const optName = key.trim();
-                const optVal = String(val).trim();
-                if (!optionsMap.has(optName)) {
-                    optionsMap.set(optName, new Set());
+        let productOptions: any[] = [];
+        if (hasOnlyDefaultVariant) {
+            // Handle single product mode
+            productOptions = [
+                {
+                    name: "Title",
+                    values: [{ name: "Default Title" }]
                 }
-                optionsMap.get(optName).add(optVal);
-            });
-        });
+            ];
+        } else {
+            // Map variant attributes to options
+            activeVariants.forEach((v) => {
+                let attrs = {};
+                try {
+                    attrs = typeof v.attributes === "string" ? JSON.parse(v.attributes) : v.attributes || {};
+                } catch (e) {
 
-        const productOptions = Array.from(optionsMap.entries()).map(([name, values]) => ({
-            name,
-            values: Array.from(values).map((v) => ({ name: v })),
-        }));
+                }
+
+                Object.entries(attrs).forEach(([key, val]) => {
+                    const optName = key.trim();
+                    const optVal = String(val).trim();
+                    if (!optionsMap.has(optName)) {
+                        optionsMap.set(optName, new Set());
+                    }
+                    optionsMap.get(optName).add(optVal);
+                });
+            });
+
+            productOptions = Array.from(optionsMap.entries()).map(([name, values]) => ({
+                name,
+                values: Array.from(values).map((v) => ({ name: v })),
+            }));
+        }
 
         // Build media array from product images
         const media: any[] = [];
@@ -1214,54 +1228,89 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             }
         }
 
-        const variantsInput = activeVariants.map((v) => {
-            let attributesObj: Record<string, any> = {};
-            try {
-                attributesObj =
-                    typeof v.attributes === "string"
-                        ? JSON.parse(v.attributes)
-                        : (v.attributes || {});
-            } catch (e: any) {
-                const message = this.getErrorMessage(e);
-
-                return null;
-            }
-
-            const optionValues = Object.entries(attributesObj).map(
-                ([key, value]) => ({
-                    optionName: key.trim(),
-                    name: String(value).trim(),
-                }),
-            );
-            if (optionValues.length === 0) {
-                return null;
-            }
-            const base: any = {
-                price: (v.price || product.salePrice || 0).toString(),
-                optionValues,
-            }
-
-            const isBundleParent = !!v.sku && bundleParentSkus.has(v.sku.trim());
-
-            if (!isBundleParent) {
-                base.inventoryItem = {
-                    tracked: true,
-                    sku: v.sku,
+        let variantsInput: any[] = [];
+        if (hasOnlyDefaultVariant) {
+            // Handle single product variant
+            if (activeVariants.length > 0) {
+                const v = activeVariants[0];
+                const base: any = {
+                    price: (v.price || product.salePrice || 0).toString(),
+                    inventoryPolicy: "DENY",
+                    optionValues: [{ optionName: "Title", name: "Default Title" }],
                 };
 
-                base.inventoryQuantities = v.stockOnHand
-                    ? [
-                        {
-                            quantity: v.stockOnHand,
-                            locationId,
-                            name: "available",
-                        },
-                    ]
-                    : undefined;
-            }
+                const isBundleParent = !!v.sku && bundleParentSkus.has(v.sku.trim());
+                if (!isBundleParent) {
+                    base.inventoryItem = {
+                        tracked: true,
+                        sku: v.sku,
+                        cost: v.unitCost || 0
+                    };
 
-            return base;
-        });
+                    base.inventoryQuantities = v.stockOnHand
+                        ? [
+                            {
+                                quantity: v.stockOnHand,
+                                locationId,
+                                name: "available",
+                            },
+                        ]
+                        : undefined;
+                }
+
+                variantsInput.push(base);
+            }
+        } else {
+            variantsInput = activeVariants.map((v) => {
+                let attributesObj: Record<string, any> = {};
+                try {
+                    attributesObj =
+                        typeof v.attributes === "string"
+                            ? JSON.parse(v.attributes)
+                            : (v.attributes || {});
+                } catch (e: any) {
+                    const message = this.getErrorMessage(e);
+
+                    return null;
+                }
+
+                const optionValues = Object.entries(attributesObj).map(
+                    ([key, value]) => ({
+                        optionName: key.trim(),
+                        name: String(value).trim(),
+                    }),
+                );
+                if (optionValues.length === 0) {
+                    return null;
+                }
+                const base: any = {
+                    price: (v.price || product.salePrice || 0).toString(),
+                    optionValues,
+                };
+
+                const isBundleParent = !!v.sku && bundleParentSkus.has(v.sku.trim());
+
+                if (!isBundleParent) {
+                    base.inventoryItem = {
+                        tracked: true,
+                        sku: v.sku,
+                        cost: v.unitCost || 0
+                    };
+
+                    base.inventoryQuantities = v.stockOnHand
+                        ? [
+                            {
+                                quantity: v.stockOnHand,
+                                locationId,
+                                name: "available",
+                            },
+                        ]
+                        : undefined;
+                }
+
+                return base;
+            });
+        }
 
         // const upsellMetafield = await this.getShopifyUpsellMetafield(product, store);
         const upsellMetafield = null;
@@ -1408,6 +1457,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
           node {
             id
             name
+            shipsInventory
           }
         }
       }
@@ -1415,8 +1465,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
   `;
 
         const resp = await this.runGraphQL(store, false, query, {});
-        const id = resp?.locations?.edges?.[0]?.node?.id;
-        const name = resp?.locations?.edges?.[0]?.node?.name;
+        const id = resp?.locations?.edges?.find((edge) => edge.node?.shipsInventory)?.node?.id || resp?.locations?.edges?.[0]?.node?.id;
 
         if (!id) {
             throw new Error('ShopifyError: no locations found for store');
@@ -2650,19 +2699,20 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
     }
 
-    public async syncOrderStatus(order: OrderEntity, newStatusId: string): Promise<void> {
+    public async syncOrderStatus(order: OrderEntity, newStatusId: string, oldStatusId?: string): Promise<void> {
         const store = await this.getStoreForSync(order.adminId);
         if (!store) {
             throw new Error(`No active store enabled for admin (${order.adminId})`);
         }
 
-        await this.updateOrderStatus(order, store, newStatusId);
+        await this.updateOrderStatus(order, store, newStatusId, oldStatusId);
     }
 
     public async updateOrderStatus(
         order: OrderEntity,
         store: StoreEntity,
-        newStatusId: string,
+        newStatusId?: string,
+        oldStatusId?: string,
     ): Promise<void> {
 
         if (!order.externalId)
@@ -2678,26 +2728,61 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             throw new Error(`No status found for order (${order.id})`)
         }
 
-        const internalStatus = status.code as OrderStatus;
-        const action = this.mapStatusToShopifyAction(internalStatus);
+        const oldStatus = await this.ordersService.findStatusById(
+            oldStatusId,
+            order.adminId,
+        );
 
+        const internalStatus = status.code as OrderStatus;
+        const internalOldStatus = oldStatus.code as OrderStatus;
+        const startAction = this.mapOldStatusToShopifyAction(internalStatus, internalOldStatus);
+        await this.startAction(order, startAction, store);
+        const action = this.mapStatusToShopifyAction(internalStatus);
+        await this.startAction(order, action, store);
+
+    }
+
+    private async startAction(
+        order: OrderEntity,
+        action: ShopifyAction,
+        store: StoreEntity,
+    ): Promise<void> {
         switch (action) {
             case "FULFILL":
                 await this.createFulfillment(order, store);
                 break;
 
-            // case "PARTIAL_FULFILL":
-            //     await this.createPartialFulfillment(order, store);
-            //     break;
-
             case "CANCEL":
-                await this.cancelFulfillment(order, store);
+                await this.cancelOrder(order, store);
                 break;
 
             case "HOLD":
                 await this.holdFulfillment(order, store);
                 break;
 
+            case "RELEASE_HOLD":
+                await this.releaseHoldFulfillment(order, store);
+                break;
+
+            case "PROGRESS":
+                await this.markFulfillmentInProgress(order, store);
+                break;
+
+            case "DELIVERED":
+                await this.markOrderDelivered(order, store);
+                break;
+
+            case "RETURN_REQUEST":
+                await this.createReturnRequest(order, store);
+                break;
+
+            case "RETURN_APPROVE":
+                await this.approveReturnRequest(order, store);
+                break;
+
+            case "RETURN_DECLINE":
+                await this.declineReturnRequest(order, store);
+                break;
             case "NONE":
             default:
                 // 🔥 Do nothing for states that don't map to a Shopify fulfillment/cancellation action
@@ -2705,18 +2790,124 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
     }
 
-    private async createFulfillment(
-        order: OrderEntity,
-        store: StoreEntity,
-    ): Promise<void> {
-        const orderGid = order.externalId; // Shopify Order GID, e.g. "gid://shopify/Order/12345"
 
-        // 1) Fetch fulfillment orders for this order
-        const foQuery = `
-    query GetFulfillmentOrders($orderId: ID!) {
+
+    //create fulfillSingleFO - 
+    private async fulfillSingleFO(
+        store: StoreEntity,
+        order: OrderEntity,
+        fulfillmentOrderId: string,
+        trackingCompany?: string,
+        trackingNumber?: string,
+    ): Promise<void> {
+        const mutation = `
+    mutation FulfillAllRemainingItemsWithTracking(
+      $fulfillmentOrderId: ID!
+      $trackingCompany: String
+      $trackingNumber: String
+    ) {
+      fulfillmentCreate(
+        fulfillment: {
+          notifyCustomer: true
+          trackingInfo: {
+            company: $trackingCompany
+            number: $trackingNumber
+          }
+          lineItemsByFulfillmentOrder: [
+            {
+              fulfillmentOrderId: $fulfillmentOrderId
+              fulfillmentOrderLineItems: []
+            }
+          ]
+        }
+      ) {
+        fulfillment {
+          id
+          status
+          trackingInfo(first: 10) {
+            company
+            number
+            url
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+        const variables = {
+            fulfillmentOrderId,
+            trackingCompany: trackingCompany ?? null,
+            trackingNumber: trackingNumber ?? null,
+        };
+
+        const response = await this.runGraphQL(store, true, mutation, variables);
+
+        const payload =
+            response?.fulfillmentCreate ?? response?.data?.fulfillmentCreate ?? null;
+
+        if (!payload) {
+            throw new Error(
+                `fulfillmentCreate returned empty payload for order ${order.id} (FO: ${fulfillmentOrderId})`,
+            );
+        }
+
+        const userErrors = payload.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(
+                `fulfillmentCreate errors for order ${order.id} (FO: ${fulfillmentOrderId}): ${userErrors[0].message}`,
+            );
+        }
+
+        this.logger.log(
+            `[Shopify] Successfully fulfilled all remaining items for fulfillmentOrder ${fulfillmentOrderId} (order ${order.id}) with tracking ${trackingCompany || ''} ${trackingNumber || ''}`,
+        );
+    }
+
+
+    private async getOrderFulfillments(
+        store: StoreEntity,
+        orderGid: string,
+    ): Promise<any> {
+        const query = `
+    query GetOrderFulfillments($orderId: ID!) {
       order(id: $orderId) {
         id
-        fulfillmentOrders(first: 10) {
+        fulfillments(first: 50) {
+            id
+            status
+        }
+      }
+    }
+  `;
+
+        const response = await this.runGraphQL(store, false, query, {
+            orderId: orderGid,
+        });
+
+        const orderNode = response?.order ?? response?.data?.order ?? null;
+
+        if (!orderNode) {
+            throw new Error(
+                `Could not fetch order ${orderGid} fulfillments`,
+            );
+        }
+
+        return orderNode;
+    }
+
+    private async getOrderFulfillmentOrders(
+        store: StoreEntity,
+        orderGid: string,
+    ): Promise<any> {
+        const query = `
+    query GetOrderFulfillmentOrders($orderId: ID!) {
+      order(id: $orderId) {
+        id
+        fulfillmentOrders(first: 50) {
           edges {
             node {
               id
@@ -2740,84 +2931,80 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
   `;
 
-        const foResponse = await this.runGraphQL(store, false, foQuery, {
+        const response = await this.runGraphQL(store, false, query, {
             orderId: orderGid,
         });
 
-        // Handle different response envelope shapes
-        const orderNode =
-            foResponse?.order ?? foResponse?.data?.order ?? null;
+        const orderNode = response?.order ?? response?.data?.order ?? null;
 
         if (!orderNode) {
             throw new Error(
-                `No order node returned for order ${order.id}`,
+                `Could not fetch order ${orderGid} fulfillment orders`,
             );
         }
 
-        const fulfillmentOrdersConnection =
-            orderNode.fulfillmentOrders ?? null;
+        return orderNode;
+    }
 
-        const fulfillmentOrders =
-            fulfillmentOrdersConnection?.edges?.map((e: any) => e.node) ?? [];
-
-        if (!fulfillmentOrders.length) {
-            throw new Error(
-                `No fulfillment orders found for order ${order.id}`,
-            );
+    private async getOrderFulfillmentData(
+        store: StoreEntity,
+        orderGid: string,
+    ): Promise<any> {
+        const query = `
+    query GetOrderFulfillmentData($orderId: ID!) {
+      order(id: $orderId) {
+        id
+        fulfillments(first: 50) {
+            id
+            status
         }
-
-        // Helper: check if FO supports CREATE_FULFILLMENT
-        const supportsCreateFulfillment = (fo: any): boolean => {
-            const actions = fo.supportedActions ?? [];
-            return actions.some(
-                (a: any) => a?.action === 'CREATE_FULFILLMENT',
-            );
-        };
-
-        // Helper: check if FO has any remaining quantity to fulfill
-        const hasRemainingQuantity = (fo: any): boolean => {
-            const lineItems = fo.lineItems?.edges?.map((e: any) => e.node) ?? [];
-            return lineItems.some(
-                (li: any) => (li?.remainingQuantity ?? 0) > 0,
-            );
-        };
-
-        // 2) Pick a fulfillable fulfillment order:
-        //    - status OPEN or IN_PROGRESS
-        //    - supports CREATE_FULFILLMENT
-        //    - has remaining quantity
-        const targetFO =
-            fulfillmentOrders.find((fo: any) => {
-                const status = (fo.status || '').toUpperCase();
-                return (
-                    (status === 'OPEN' || status === 'IN_PROGRESS') &&
-                    supportsCreateFulfillment(fo) &&
-                    hasRemainingQuantity(fo)
-                );
-            }) ?? null;
-
-        if (!targetFO) {
-            throw new Error(
-                `No fulfillable fulfillment order for order ${order.id}`,
-            );
-        }
-
-        const fulfillmentOrderId = targetFO.id;
-
-        // 3) Create fulfillment for all remaining items in this fulfillment order
-        const mutation = `
-    mutation FulfillAllRemainingItems($fulfillmentOrderId: ID!) {
-      fulfillmentCreate(
-        fulfillment: {
-          notifyCustomer: true
-          lineItemsByFulfillmentOrder: [
-            {
-              fulfillmentOrderId: $fulfillmentOrderId
-              fulfillmentOrderLineItems: []
+        fulfillmentOrders(first: 50) {
+          edges {
+            node {
+              id
+              status
+              requestStatus
+              supportedActions {
+                action
+              }
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    id
+                    totalQuantity
+                    remainingQuantity
+                    inventoryItemId
+                  }
+                }
+              }
             }
-          ]
+          }
         }
-      ) {
+      }
+    }
+  `;
+
+        const response = await this.runGraphQL(store, false, query, {
+            orderId: orderGid,
+        });
+
+        const orderNode = response?.order ?? response?.data?.order ?? null;
+
+        if (!orderNode) {
+            throw new Error(
+                `Could not fetch order ${orderGid} fulfillment data`,
+            );
+        }
+
+        return orderNode;
+    }
+
+
+
+    private async cancelSingleFulfillment(store: StoreEntity, order: OrderEntity, fulfillmentId: string): Promise<void> {
+        const mutation = `
+    mutation CancelFulfillment($fulfillmentId: ID!) {
+      fulfillmentCancel(id: $fulfillmentId) {
         fulfillment {
           id
           status
@@ -2830,47 +3017,208 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
   `;
 
-        const variables = {
-            fulfillmentOrderId,
-        };
+        const variables = { fulfillmentId };
 
-        const fulfillResponse = await this.runGraphQL(
-            store,
-            true,
-            mutation,
-            variables,
-        );
+        const response = await this.runGraphQL(store, true, mutation, variables);
 
-        const payload =
-            fulfillResponse?.fulfillmentCreate ??
-            fulfillResponse?.data?.fulfillmentCreate ??
-            null;
-
+        const payload = response?.fulfillmentCancel ?? response?.data?.fulfillmentCancel ?? null;
         if (!payload) {
-            throw new Error(
-                `fulfillmentCreate returned empty payload for order ${order.id} `,
-            );
+            throw new Error(`fulfillmentCancel returned empty payload for fulfillment ${fulfillmentId}`);
         }
 
         const userErrors = payload.userErrors;
         if (userErrors && userErrors.length > 0) {
-            throw new Error(
-                `fulfillmentCreate errors for order ${order.id} : ${userErrors[0].message}`,
-            );
-        } else {
-            this.logger.log(
-                `[Shopify] Successfully fulfilled all remaining items for fulfillmentOrder ${fulfillmentOrderId} (order ${order.id})`,
-            );
+            throw new Error(`Failed to cancel fulfillment ${fulfillmentId} for order ${order.id}: ${userErrors[0].message}`);
         }
+
+        this.logger.log(`[Shopify] Successfully canceled fulfillment ${fulfillmentId} for order ${order.id}`);
     }
 
-    private async cancelFulfillment(
+    private async createFulfillment(
         order: OrderEntity,
         store: StoreEntity,
     ): Promise<void> {
-        const orderGid = order.externalId; // should be a Shopify Order GID
+        const orderGid = this.normalizeOrderId(order.externalId);
+        let orderNode = await this.getOrderFulfillmentOrders(store, orderGid);
 
-        const mutation = `
+        const trackingNumber = order.trackingNumber;
+        const trackingCompany =
+            order.shippingCompany?.name || order.shippingCompany?.code;
+
+
+        const getFOs = (node: any) =>
+            node.fulfillmentOrders?.edges?.map((e: any) => e.node) ?? [];
+
+        let fulfillmentOrders = getFOs(orderNode);
+
+        if (!fulfillmentOrders.length) {
+            throw new Error(
+                `No fulfillment orders found for order ${order.id}`,
+            );
+        }
+
+        const supportsCreateFulfillment = (fo: any): boolean => {
+            const actions = fo.supportedActions ?? [];
+            return actions.some(
+                (a: any) => a?.action === 'CREATE_FULFILLMENT',
+            );
+        };
+
+        const hasRemainingQuantity = (fo: any): boolean => {
+            const lineItems =
+                fo.lineItems?.edges?.map((e: any) => e.node) ?? [];
+            return lineItems.some(
+                (li: any) => (li?.remainingQuantity ?? 0) > 0,
+            );
+        };
+
+        // 1) Separate ON_HOLD FOs from others
+        const onHoldFOs: any[] = [];
+        const normalFOs: any[] = [];
+
+        for (const fo of fulfillmentOrders) {
+            const status = (fo.status || '').toUpperCase();
+            if (status === 'ON_HOLD') {
+                onHoldFOs.push(fo);
+            } else {
+                normalFOs.push(fo);
+            }
+        }
+
+        // 2) Release holds for ON_HOLD fulfillment orders
+        for (const fo of onHoldFOs) {
+            this.logger.log(
+                `[Shopify] Releasing hold for fulfillment order ${fo.id} (order ${order.id}) before fulfilling`,
+            );
+            await this.releaseFulfillmentOrderHold(store, fo.id);
+        }
+
+        // 3) Rebuild list of FOs we can fulfill (including ones we just released)
+        orderNode = await this.getOrderFulfillmentOrders(store, orderGid);
+        fulfillmentOrders = getFOs(orderNode);
+
+        const fulfillableFOs = fulfillmentOrders.filter((fo: any) => {
+            const status = (fo.status || '').toUpperCase();
+            const isTerminal = status === 'CANCELLED' || status === 'CLOSED';
+
+            const canCreate = supportsCreateFulfillment(fo);
+            const hasQty = hasRemainingQuantity(fo);
+
+            return !isTerminal && canCreate && hasQty;
+        });
+
+        if (!fulfillableFOs.length) {
+            throw new Error(
+                `No fulfillable fulfillment orders for order ${order.id} after releasing holds`,
+            );
+        }
+
+        // 4) Fulfill each FO with tracking
+        for (const fo of fulfillableFOs) {
+            await this.fulfillSingleFO(
+                store,
+                order,
+                fo.id,
+                trackingCompany,
+                trackingNumber,
+            );
+        }
+    }
+    private async cancelOrder(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<void> {
+        const orderGid = this.normalizeOrderId(order.externalId);
+
+        // Step 1: Get all fulfillment data
+        const orderNode = await this.getOrderFulfillmentData(store, orderGid);
+
+        // Step 2: Cancel all active fulfillments first
+        const fulfillments = orderNode.fulfillments ?? [];
+        for (const fulfillment of fulfillments) {
+            const status = (fulfillment.status || '').toUpperCase();
+            if (status === "CANCELLED" || status === "FAILURE") {
+                this.logger.log(`[Shopify] Skipping fulfillment ${fulfillment.id} for order ${order.id} with status ${status}`);
+                continue;
+            }
+
+            await this.cancelSingleFulfillment(store, order, fulfillment.id);
+        }
+
+        // Step 3: Handle unfulfilled fulfillment orders (cancel or submit cancellation request)
+        const fulfillmentOrders = orderNode.fulfillmentOrders?.edges?.map((e: any) => e.node) ?? [];
+        for (const fo of fulfillmentOrders) {
+            const status = (fo.status || '').toUpperCase();
+            const actions = fo.supportedActions ?? [];
+            const supportsCancel = actions.some(
+                (a: any) => a?.action === 'CANCEL_FULFILLMENT_ORDER',
+            );
+            const supportsSubmitCancel = actions.some(
+                (a: any) => a?.action === 'REQUEST_CANCELLATION',
+            );
+            // Skip if already in a terminal state
+            if (status === "CANCELLED" || status === "CLOSED" || status === "FAILURE") {
+                this.logger.log(`[Shopify] Skipping fulfillment order ${fo.id} for order ${order.id} with status ${status}`);
+                continue;
+            }
+
+            // Try to cancel fulfillment order if supported
+            if (supportsCancel) {
+                const foCancelMutation = `
+      mutation CancelFulfillmentOrder($fulfillmentOrderId: ID!) {
+        fulfillmentOrderCancel(id: $fulfillmentOrderId) {
+          fulfillmentOrder {
+            id
+            status
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+                const variables = { fulfillmentOrderId: fo.id };
+                const response = await this.runGraphQL(store, true, foCancelMutation, variables);
+                const payload = response?.fulfillmentOrderCancel ?? response?.data?.fulfillmentOrderCancel ?? null;
+
+                if (payload?.userErrors?.length > 0) {
+                    this.logger.warn(`[Shopify] Could not cancel fulfillment order ${fo.id} for order ${order.id}: ${payload.userErrors[0].message}`);
+                } else {
+                    this.logger.log(`[Shopify] Successfully canceled fulfillment order ${fo.id} for order ${order.id}`);
+                }
+            } else if (supportsSubmitCancel) {
+                // Submit cancellation request if direct cancel not supported
+                const submitCancelMutation = `
+      mutation SubmitCancellationRequest($fulfillmentOrderId: ID!) {
+        fulfillmentOrderSubmitCancellationRequest(id: $fulfillmentOrderId) {
+          fulfillmentOrder {
+            id
+            requestStatus
+          }
+          userErrors {
+            field
+            message
+          }
+        }
+      }
+    `;
+
+                const variables = { fulfillmentOrderId: fo.id };
+                const response = await this.runGraphQL(store, true, submitCancelMutation, variables);
+                const payload = response?.fulfillmentOrderSubmitCancellationRequest ?? response?.data?.fulfillmentOrderSubmitCancellationRequest ?? null;
+
+                if (payload?.userErrors?.length > 0) {
+                    this.logger.warn(`[Shopify] Could not submit cancellation request for fulfillment order ${fo.id} for order ${order.id}: ${payload.userErrors[0].message}`);
+                } else {
+                    this.logger.log(`[Shopify] Successfully submitted cancellation request for fulfillment order ${fo.id} for order ${order.id}`);
+                }
+            }
+        }
+
+        // Step 4: Finally cancel the order
+        const orderCancelMutation = `
     mutation CancelOrder($orderId: ID!) {
       orderCancel(
         orderId: $orderId
@@ -2897,7 +3245,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         const variables = { orderId: orderGid };
 
-        const response = await this.runGraphQL(store, true, mutation, variables);
+        const response = await this.runGraphQL(store, true, orderCancelMutation, variables);
 
         const payload =
             response?.orderCancel ?? response?.data?.orderCancel ?? null;
@@ -2920,7 +3268,6 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             this.logger.log(
                 `[Shopify] orderCancel job created for order ${order.id} (${order.externalId}) | jobId: ${job.id} | done: ${job.done}`,
             );
-            // Optional: poll the job until done using the Job API, if you need to wait for completion.
         }
     }
 
@@ -2928,9 +3275,64 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         order: OrderEntity,
         store: StoreEntity,
     ): Promise<void> {
-        const orderGid = order.externalId;
+        const orderGid = this.normalizeOrderId(order.externalId);
 
-        // 1) Fetch current tags for the order
+        // 1) Get order with fulfillment orders
+        const orderNode = await this.getOrderFulfillmentOrders(store, orderGid);
+        const fulfillmentOrders =
+            orderNode.fulfillmentOrders?.edges?.map((e: any) => e.node) ?? [];
+
+        if (!fulfillmentOrders.length) {
+            throw new Error(
+                `No fulfillment orders found for order ${order.id} (${order.externalId}) to put on hold`,
+            );
+        }
+
+        // 2) Choose which FOs to hold
+        const targetFOs = fulfillmentOrders.filter((fo: any) => {
+            const status = (fo.status || '').toUpperCase();
+            const isTerminal = status === 'CANCELLED' || status === 'CLOSED';
+
+            // Optional: check remaining quantity
+            const lineItems =
+                fo.lineItems?.edges?.map((e: any) => e.node) ?? [];
+            const hasRemainingQty = lineItems.some(
+                (li: any) => (li?.remainingQuantity ?? 0) > 0,
+            );
+
+            return !isTerminal && hasRemainingQty;
+        });
+
+        if (!targetFOs.length) {
+            this.logger.log(
+                `[Shopify] No non-terminal fulfillment orders with remaining quantity for order ${order.id}; skipping fulfillment hold`,
+            );
+            return;
+        }
+
+        // 3) Place holds on each FO
+        for (const fo of targetFOs) {
+            await this.placeFulfillmentOrderHold(
+                store,
+                fo.id,
+                'OTHER',
+                'Placed on hold via integration',
+            );
+
+            this.logger.log(
+                `[Shopify] Placed fulfillment hold on FO ${fo.id} for order ${order.id} (${order.externalId})`,
+            );
+        }
+
+        // await this.addOnHoldTagToOrder(order, store);
+    }
+
+    private async addOnHoldTagToOrder(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<void> {
+        const orderGid = this.normalizeOrderId(order.externalId);
+
         const fetchQuery = `
     query GetOrderTags($id: ID!) {
       order(id: $id) {
@@ -2948,30 +3350,33 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             fetchResponse?.order ?? fetchResponse?.data?.order ?? null;
 
         if (!orderNode) {
-            throw new Error(`Could not load order ${order.id} (${order.externalId}) to put on hold`)
+            throw new Error(
+                `Could not load order ${order.id} (${order.externalId}) to add on_hold tag`,
+            );
         }
 
         const existingTags: string[] = orderNode.tags || [];
-        const newTags = new Set(existingTags.map((t) => t.trim()).filter(Boolean));
-        newTags.add("on_hold");
+        const newTags = new Set(
+            existingTags.map((t) => t.trim()).filter(Boolean),
+        );
+        newTags.add('on_hold');
 
         const tagsArray = Array.from(newTags);
 
-        // 2) Update tags using orderUpdate
         const mutation = `
-      mutation HoldOrder($id: ID!, $tags: [String!]) {
-        orderUpdate(input: { id: $id, tags: $tags }) {
-          order {
-            id
-            tags
-          }
-          userErrors {
-            field
-            message
-          }
+    mutation HoldOrder($id: ID!, $tags: [String!]) {
+      orderUpdate(input: { id: $id, tags: $tags }) {
+        order {
+          id
+          tags
+        }
+        userErrors {
+          field
+          message
         }
       }
-    `;
+    }
+  `;
 
         const variables = {
             id: orderGid,
@@ -2983,28 +3388,665 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             response?.orderUpdate ?? response?.data?.orderUpdate ?? null;
 
         if (!payload) {
-            throw new Error(`orderUpdate returned empty payload for hold on order ${order.id} (${order.externalId})`)
+            throw new Error(
+                `orderUpdate returned empty payload for hold tag on order ${order.id} (${order.externalId})`,
+            );
         }
 
         const userErrors = payload.userErrors;
         if (userErrors && userErrors.length > 0) {
-            throw new Error(`Failed to put order ${order.id} (${order.externalId}) on hold: ${userErrors[0].message}`)
+            throw new Error(
+                `Failed to tag order ${order.id} (${order.externalId}) as on_hold: ${userErrors[0].message}`,
+            );
         }
 
         this.logger.log(
             `[Shopify] Order ${order.id} (${order.externalId}) tagged as on_hold`,
         );
-
     }
 
+    private async placeFulfillmentOrderHold(
+        store: StoreEntity,
+        fulfillmentOrderId: string,
+        reason: string,       // should match FulfillmentHoldReason enum name
+        reasonNotes?: string,
+    ): Promise<void> {
+
+        const mutation = `
+              mutation PlaceFulfillmentOrderHold(
+                $fulfillmentOrderId: ID!
+                $reason: FulfillmentHoldReason!
+                $reasonNotes: String
+              ) {
+                fulfillmentOrderHold(
+                  id: $fulfillmentOrderId
+                  fulfillmentHold: {
+                    reason: $reason
+                    reasonNotes: $reasonNotes
+                  }
+                ) {
+                  fulfillmentOrder {
+                    id
+                    status
+                    requestStatus
+                    fulfillmentHolds {
+                      id
+                      reason
+                      reasonNotes
+                    }
+                  }
+                  userErrors {
+                    field
+                    message
+                  }
+                }
+              }
+        `;
+
+        const variables = {
+            fulfillmentOrderId,
+            reason,
+            reasonNotes: reasonNotes ?? null,
+        };
+
+        const response = await this.runGraphQL(store, true, mutation, variables);
+        const payload =
+            response?.fulfillmentOrderHold ??
+            response?.data?.fulfillmentOrderHold ??
+            null;
+
+        if (!payload) {
+            throw new Error(
+                `fulfillmentOrderHold returned empty payload for FO ${fulfillmentOrderId}`,
+            );
+        }
+
+        const userErrors = payload.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(
+                `Failed to place hold on FO ${fulfillmentOrderId}: ${userErrors[0].message}`,
+            );
+        }
+    }
+
+    private async markFulfillmentInProgress(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<void> {
+        const orderGid = this.normalizeOrderId(order.externalId);
+        const orderNode = await this.getOrderFulfillmentOrders(store, orderGid);
+
+        const fulfillmentOrdersConnection = orderNode.fulfillmentOrders ?? null;
+        const fulfillmentOrders =
+            fulfillmentOrdersConnection?.edges?.map((e: any) => e.node) ?? [];
+
+        if (!fulfillmentOrders.length) {
+            throw new Error(
+                `No fulfillment orders found for order ${order.id}`,
+            );
+        }
+
+        const hasRemainingQuantity = (fo: any): boolean => {
+            const lineItems =
+                fo.lineItems?.edges?.map((e: any) => e.node) ?? [];
+            return lineItems.some(
+                (li: any) => (li?.remainingQuantity ?? 0) > 0,
+            );
+        };
+
+        const canReportProgress = (fo: any): boolean => {
+            const actions = fo.supportedActions ?? [];
+            return actions.some(
+                (a: any) => a?.action === 'REPORT_PROGRESS',
+            );
+        };
+
+        const targetFOs = fulfillmentOrders.filter((fo: any) => {
+            const status = (fo.status || '').toUpperCase();
+            const isTerminal = status === 'CANCELLED' || status === 'CLOSED';
+
+            const hasQty = hasRemainingQuantity(fo);
+            const supportsReport = canReportProgress(fo);
+
+            return !isTerminal && hasQty && supportsReport;
+        });
+
+        if (!targetFOs.length) {
+            this.logger.log(
+                `[Shopify] No fulfillment orders that support REPORT_PROGRESS for order ${order.id} (${order.externalId})`,
+            );
+            return;
+        }
+
+        for (const fo of targetFOs) {
+            await this.reportFulfillmentOrderProgress(
+                store,
+                fo.id,
+                `Marked in progress via integration for order ${order.id}`,
+            );
+        }
+    }
+
+    private async reportFulfillmentOrderProgress(
+        store: StoreEntity,
+        fulfillmentOrderId: string,
+        reasonNotes?: string,
+    ): Promise<void> {
+        const mutation = `
+    mutation FulfillmentOrderReportProgress(
+      $fulfillmentOrderId: ID!
+      $reasonNotes: String
+    ) {
+      fulfillmentOrderReportProgress(
+        id: $fulfillmentOrderId
+        progressReport: { reasonNotes: $reasonNotes }
+      ) {
+        fulfillmentOrder {
+          id
+          status
+          requestStatus
+        }
+        userErrors {
+          field
+          message
+          code
+        }
+      }
+    }
+  `;
+
+        const variables = {
+            fulfillmentOrderId,
+            reasonNotes: reasonNotes ?? null,
+        };
+
+        const response = await this.runGraphQL(store, true, mutation, variables);
+        const payload =
+            response?.fulfillmentOrderReportProgress ??
+            response?.data?.fulfillmentOrderReportProgress ??
+            null;
+
+        if (!payload) {
+            throw new Error(
+                `fulfillmentOrderReportProgress returned empty payload for FO ${fulfillmentOrderId}`,
+            );
+        }
+
+        const userErrors = payload.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(
+                `Failed to report progress for FO ${fulfillmentOrderId}: ${userErrors[0].message}`,
+            );
+        }
+
+        this.logger.log(
+            `[Shopify] Reported progress for fulfillment order ${fulfillmentOrderId}`,
+        );
+    }
+
+    private async markOrderDelivered(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<void> {
+
+        const orderNode = await this.getOrderFulfillments(
+            store,
+            this.normalizeOrderId(order.externalId)
+        );
+
+        const fulfillments = orderNode.fulfillments ?? [];
+
+        if (!fulfillments.length) {
+            this.logger.log(
+                `[Shopify] No fulfillments found for order ${order.id}`,
+            );
+            return;
+        }
+
+        for (const fulfillment of fulfillments) {
+            await this.createDeliveredEvent(
+                store,
+                fulfillment.id,
+                order.deliveredAt ? order.deliveredAt?.toISOString() : undefined,
+            );
+        }
+    }
+
+    private async createDeliveredEvent(
+        store: StoreEntity,
+        fulfillmentId: string,
+        deliveredAt?: string,
+        message?: string,
+    ): Promise<void> {
+        const mutation = `
+    mutation FulfillmentEventCreate(
+      $fulfillmentEvent: FulfillmentEventInput!
+    ) {
+      fulfillmentEventCreate(
+        fulfillmentEvent: $fulfillmentEvent
+      ) {
+        fulfillmentEvent {
+          id
+          status
+          happenedAt
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+        const variables = {
+            fulfillmentEvent: {
+                fulfillmentId,
+                status: "DELIVERED",
+                message:
+                    message ??
+                    "Order marked as delivered via integration.",
+                happenedAt: deliveredAt ?? new Date().toISOString(),
+            },
+        };
+
+        const response = await this.runGraphQL(
+            store,
+            true,
+            mutation,
+            variables,
+        );
+
+        const payload =
+            response?.fulfillmentEventCreate ??
+            response?.data?.fulfillmentEventCreate ??
+            null;
+
+        if (!payload) {
+            throw new Error(
+                `fulfillmentEventCreate returned empty payload for fulfillment ${fulfillmentId}`,
+            );
+        }
+
+        const userErrors = payload.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(
+                `Failed to mark fulfillment ${fulfillmentId} as delivered: ${userErrors
+                    .map((e: any) => e.message)
+                    .join(", ")}`,
+            );
+        }
+
+        this.logger.log(
+            `[Shopify] Marked fulfillment ${fulfillmentId} as DELIVERED`,
+        );
+    }
+
+    private async createReturnRequest(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<string> {
+        const orderGid = this.normalizeOrderId(order.externalId);
+
+        // 1. Get last return request
+        if (!order.lastReturnId) {
+            throw new Error(`Order ${order.id} has no last return request`);
+        }
+        const returnRequest = await this.returnRequestRepo.findOne({
+            where: { id: order.lastReturnId },
+            relations: ['items', 'items.returnedVariant', 'items.originalItem', 'items.originalItem.variant']
+        });
+        if (!returnRequest) {
+            throw new Error(`Return request ${order.lastReturnId} not found for order ${order.id}`);
+        }
+
+        // 2. Query returnable fulfillments from Shopify
+        const returnableQuery = `
+    query GetReturnableFulfillments($orderId: ID!) {
+      returnableFulfillments(orderId: $orderId, first: 10) {
+        edges {
+          node {
+            id
+            fulfillment {
+              id
+            }
+            returnableFulfillmentLineItems(first: 10) {
+              edges {
+                node {
+                  quantity
+                  fulfillmentLineItem {
+                    id
+                    lineItem {
+                      id
+                      sku
+                          variant {
+                            id
+                            sku
+                        }
+                            product {
+                            id
+                            handle
+                        }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  `;
+
+        const returnableResponse = await this.runGraphQL(store, false, returnableQuery, {
+            orderId: orderGid
+        });
+
+        const returnableNode =
+            returnableResponse?.returnableFulfillments ??
+            returnableResponse?.data?.returnableFulfillments ??
+            null;
+
+        if (!returnableNode) {
+            throw new Error(`Failed to fetch returnable fulfillments for order ${order.id}`);
+        }
+
+        // 3. Flatten returnable line items and map by SKU
+        const allReturnableLineItems = (returnableNode.edges || []).flatMap((edge: any) =>
+            (edge.node?.returnableFulfillmentLineItems?.edges || []).map((liEdge: any) => liEdge.node)
+        );
+
+        const skuToReturnableItem: Map<string, any> = new Map();
+        for (const item of allReturnableLineItems) {
+            const sku = item.fulfillmentLineItem?.lineItem?.sku;
+            if (sku) {
+                skuToReturnableItem.set(sku, item);
+            }
+        }
+
+        // 4. Match return request items with returnable line items
+        const returnLineItems: any[] = [];
+        for (const returnItem of returnRequest.items) {
+            const variant = returnItem.returnedVariant;
+            if (!variant?.sku) {
+                throw new Error(`Return item ${returnItem.id} has no SKU`);
+            }
+
+            const returnableItem = skuToReturnableItem.get(variant.sku);
+            if (!returnableItem) {
+                throw new Error(`No returnable fulfillment line item found for SKU ${variant.sku}`);
+            }
+
+            returnLineItems.push({
+                fulfillmentLineItemId: returnableItem.fulfillmentLineItem.id,
+                quantity: returnItem.quantity,
+                returnReason: returnRequest.reason || "WRONG_ITEM",
+                customerNote: null
+            });
+        }
+
+        // 5. Create the return request on Shopify
+        const mutation = `
+    mutation ReturnRequestCreate($input: ReturnRequestInput!) {
+      returnRequest(input: $input) {
+        return {
+          id
+          status
+        }
+        userErrors {
+          field
+          message
+          code
+        }
+      }
+    }
+  `;
+
+        const input = {
+            orderId: orderGid,
+            returnLineItems
+        };
+
+        const variables = { input };
+        const response = await this.runGraphQL(store, true, mutation, variables);
+        const payload = response?.returnRequest ?? response?.data?.returnRequest ?? null;
+
+        if (!payload) {
+            throw new Error(`returnRequest returned empty payload for order ${order.id} (${order.externalId})`);
+        }
+
+        if (payload.userErrors?.length > 0) {
+            throw new Error(`Failed to create return request for order ${order.id}: ${payload.userErrors[0].message}`);
+        }
+
+        const returnId = payload.return?.id;
+        if (!returnId) {
+            throw new Error(`returnRequest did not return a return ID for order ${order.id}`);
+        }
+
+        this.logger.log(`[Shopify] Created return request ${returnId} for order ${order.id} with ${returnLineItems.length} items`);
+        return returnId;
+    }
+    private async getShopifyReturnId(order: OrderEntity, store: StoreEntity): Promise<string> {
+        const query = `
+    query GetOrderReturns($orderId: ID!) {
+      order(id: $orderId) {
+        returns(first: 10) {
+          edges {
+            node {
+              id
+              status
+              createdAt
+            }
+          }
+        }
+      }
+    }
+  `;
+
+        const response = await this.runGraphQL(store, false, query, {
+            orderId: this.normalizeOrderId(order.externalId)
+        });
+
+        const orderNode = response?.order ?? response?.data?.order ?? null;
+        if (!orderNode) {
+            throw new Error(`Failed to fetch order to get returns`);
+        }
+
+        const returns = orderNode.returns?.edges?.map((e: any) => e.node) || [];
+        if (!returns.length) {
+            throw new Error(`No returns found for order ${order.id} on Shopify`);
+        }
+
+        // Get the most recent return
+        returns.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        return returns[0].id;
+    }
+
+    private async approveReturnRequest(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<void> {
+        const returnId = await this.getShopifyReturnId(order, store);
+
+        const mutation = `
+    mutation ReturnApproveRequest($input: ReturnApproveRequestInput!) {
+      returnApproveRequest(input: $input) {
+        return {
+          id
+          status
+        }
+        userErrors {
+          field
+          message
+          code
+        }
+      }
+    }
+  `;
+
+        const variables = {
+            input: {
+                id: returnId,
+            },
+        };
+
+        const response = await this.runGraphQL(store, true, mutation, variables);
+        const payload =
+            response?.returnApproveRequest ??
+            response?.data?.returnApproveRequest ??
+            null;
+
+        if (!payload) {
+            throw new Error(`returnApproveRequest returned empty payload for return ${returnId}`);
+        }
+
+        if (payload.userErrors?.length > 0) {
+            throw new Error(`Failed to approve return request ${returnId}: ${payload.userErrors[0].message}`);
+        }
+
+        this.logger.log(`[Shopify] Approved return request ${returnId} (status=${payload.return?.status})`);
+    }
+
+    private async declineReturnRequest(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<void> {
+        const returnId = await this.getShopifyReturnId(order, store);
+
+        const mutation = `
+    mutation ReturnDeclineRequest($input: ReturnDeclineRequestInput!) {
+      returnDeclineRequest(input: $input) {
+        return {
+          id
+          status
+        }
+        userErrors {
+          field
+          message
+          code
+        }
+      }
+    }
+  `;
+
+        const variables = {
+            input: {
+                id: returnId,
+            },
+        };
+
+        const response = await this.runGraphQL(store, true, mutation, variables);
+        const payload =
+            response?.returnDeclineRequest ??
+            response?.data?.returnDeclineRequest ??
+            null;
+
+        if (!payload) {
+            throw new Error(`returnDeclineRequest returned empty payload for return ${returnId}`);
+        }
+
+        if (payload.userErrors?.length > 0) {
+            throw new Error(`Failed to decline return request ${returnId}: ${payload.userErrors[0].message}`);
+        }
+
+        this.logger.log(`[Shopify] Declined return request ${returnId} (status=${payload.return?.status})`);
+    }
+
+    private async releaseHoldFulfillment(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<void> {
+        const orderGid = this.normalizeOrderId(order.externalId);
+        const orderNode = await this.getOrderFulfillmentOrders(store, orderGid);
+
+        const getFOs = (node: any) =>
+            node.fulfillmentOrders?.edges?.map((e: any) => e.node) ?? [];
+
+        const fulfillmentOrders = getFOs(orderNode);
+
+        // Find all ON_HOLD fulfillment orders
+        const onHoldFOs = fulfillmentOrders.filter((fo: any) => {
+            const status = (fo.status || '').toUpperCase();
+            return status === 'ON_HOLD';
+        });
+
+        if (!onHoldFOs.length) {
+            this.logger.log(
+                `[Shopify] No fulfillment orders on hold for order ${order.id}, nothing to do`,
+            );
+            return;
+        }
+
+        // Release holds for each ON_HOLD fulfillment order
+        for (const fo of onHoldFOs) {
+            this.logger.log(
+                `[Shopify] Releasing hold for fulfillment order ${fo.id} (order ${order.id})`,
+            );
+            await this.releaseFulfillmentOrderHold(store, fo.id);
+        }
+
+        this.logger.log(
+            `[Shopify] Released holds on ${onHoldFOs.length} fulfillment orders for order ${order.id}`,
+        );
+    }
+
+    private async releaseFulfillmentOrderHold(
+        store: StoreEntity,
+        fulfillmentOrderId: string,
+    ): Promise<void> {
+        const mutation = `
+    mutation ReleaseFulfillmentOrderHold($fulfillmentOrderId: ID!) {
+      fulfillmentOrderReleaseHold(id: $fulfillmentOrderId) {
+        fulfillmentOrder {
+          id
+          status
+          requestStatus
+        }
+        userErrors {
+          field
+          message
+          code
+        }
+      }
+    }
+  `;
+
+        const variables = { fulfillmentOrderId };
+
+        const response = await this.runGraphQL(store, true, mutation, variables);
+        const payload =
+            response?.fulfillmentOrderReleaseHold ??
+            response?.data?.fulfillmentOrderReleaseHold ??
+            null;
+
+        if (!payload) {
+            throw new Error(
+                `fulfillmentOrderReleaseHold returned empty payload for FO ${fulfillmentOrderId}`,
+            );
+        }
+
+        const userErrors = payload.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(
+                `Failed to release fulfillment hold for FO ${fulfillmentOrderId}: ${userErrors[0].message}`,
+            );
+        }
+
+        this.logger.log(
+            `[Shopify] Released hold on fulfillment order ${fulfillmentOrderId}`,
+        );
+    }
 
     public mapStatusToShopifyAction(status: OrderStatus): ShopifyAction {
         switch (status) {
-            case OrderStatus.DELIVERED:
+            case OrderStatus.SHIPPED:
                 return "FULFILL";
 
-            // case OrderStatus.SHIPPED:
-            //     return "PARTIAL_FULFILL";
+            case OrderStatus.PREPARING:
+                return "PROGRESS";
+
+            case OrderStatus.DELIVERED:
+                return "DELIVERED";
 
             case OrderStatus.CANCELLED:
             case OrderStatus.REJECTED:
@@ -3012,14 +4054,34 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             case OrderStatus.OUT_OF_DELIVERY_AREA:
                 return "CANCEL";
 
+            case OrderStatus.RETURN_PREPARING:
+                return "RETURN_REQUEST";
+
+            case OrderStatus.RETURNED:
+                return "RETURN_APPROVE";
+
             case OrderStatus.POSTPONED:
-            case OrderStatus.NO_ANSWER:
-            case OrderStatus.WRONG_NUMBER:
                 return "HOLD";
 
             default:
                 return "NONE";
         }
+    }
+
+    public mapOldStatusToShopifyAction(status: OrderStatus, oldStatus: OrderStatus): ShopifyAction {
+        if (!status || !oldStatus || status === oldStatus) {
+            return "NONE";
+        }
+
+        if (oldStatus === OrderStatus.POSTPONED) {
+            return "RELEASE_HOLD";
+        }
+
+        if (oldStatus === OrderStatus.RETURN_PREPARING && status !== OrderStatus.RETURNED) {
+            return "RETURN_DECLINE";
+        }
+
+        return "NONE";
     }
 
 
@@ -3192,12 +4254,14 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         remoteProducts.forEach(product => {
             const numericProdId = product.id.split('/').pop();
             idToSlugMap.set(numericProdId, product.handle);
-
+            const hasOnlyDefaultVariant = product.hasOnlyDefaultVariant || false;
             // Map every variant's options for this product
-            product.variants?.nodes?.forEach((v: any) => {
-                const numericVarId = v.id.split('/').pop();
-                variantIdToOptionsMap.set(numericVarId, v.selectedOptions);
-            });
+            if(!hasOnlyDefaultVariant) {
+                product.variants?.nodes?.forEach((v: any) => {
+                    const numericVarId = v.id.split('/').pop();
+                    variantIdToOptionsMap.set(numericVarId, v.selectedOptions);
+                });
+            }
         });
 
         const billing = body.billing_address || {};
@@ -3234,7 +4298,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 const attrs = variationProps.reduce((acc: Record<string, string>, prop) => {
                     if (prop.name && prop.value) {
                         const key = this.productsService.slugifyKey(prop.name);
-                        const value = this.productsService.slugifyKey(prop.value);
+                        const value = prop.value;
                         acc[key] = value;
                     }
                     return acc;
@@ -3277,6 +4341,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         handle
         title
         descriptionHtml
+        hasOnlyDefaultVariant
         productType
         vendor
         images(first: 20) {
@@ -3393,6 +4458,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                     handle
                     title
                     descriptionHtml
+                    hasOnlyDefaultVariant
                     productType
                     vendor
 
@@ -3472,6 +4538,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
           handle
           title
           descriptionHtml
+          hasOnlyDefaultVariant
           productType
           vendor
 
@@ -3532,43 +4599,56 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
 
     private mapRemoteProductToDto(remote: any): MappedProductDto {
+        const hasOnlyDefaultVariant = remote.hasOnlyDefaultVariant || false;
+        
         // Map variants from Shopify to EasyOrder variant DTO
-        const variants = (remote.variants?.nodes || []).map((v: any) => ({
-            price: Number(v.price) || 0,
-            // Use Shopify unit cost as expense
-            expense: v.inventoryItem?.unitCost?.amount
-                ? Number(v.inventoryItem.unitCost.amount)
-                : 0,
-            quantity: Number(v.inventoryQuantity) || 0,
-            sku: String(v.sku || ""),
-            variation_props: (v.selectedOptions || []).map((o: any) => ({
-                variation: o.name?.trim(),
-                variation_prop: String(o.value)?.trim(),
-            })),
-        }));
-
-        // Build variation map: option name -> unique values
-        const variationMap = new Map<string, Set<string>>();
-        (remote.variants?.nodes || []).forEach((v: any) => {
-            (v.selectedOptions || []).forEach((o: any) => {
-                if (!variationMap.has(o.name)) {
-                    variationMap.set(o.name, new Set());
-                }
-                variationMap.get(o.name)!.add(String(o.value));
-            });
+        const variants = (remote.variants?.nodes || []).map((v: any) => {
+            const baseVariant: any = {
+                price: Number(v.price) || 0,
+                // Use Shopify unit cost as expense
+                expense: v.inventoryItem?.unitCost?.amount
+                    ? Number(v.inventoryItem.unitCost.amount)
+                    : 0,
+                quantity: Number(v.inventoryQuantity) || 0,
+                sku: String(v.sku || ""),
+            };
+            
+            baseVariant.variation_props = [];
+            if (!hasOnlyDefaultVariant) {
+                baseVariant.variation_props = (v.selectedOptions || []).map((o: any) => ({
+                    variation: o.name?.trim(),
+                    variation_prop: String(o.value)?.trim(),
+                }));
+            } 
+            
+            return baseVariant;
         });
 
-        const variations = Array.from(variationMap.entries()).map(
-            ([name, values]) => ({
-                id: name,
-                name: name?.trim(),
-                props: Array.from(values).map((val) => ({
-                    id: val,
-                    name: val?.trim(),
-                    value: val?.trim(),
-                })),
-            }),
-        );
+        let variations: any[] = [];
+        if (!hasOnlyDefaultVariant) {
+            // Build variation map: option name -> unique values
+            const variationMap = new Map<string, Set<string>>();
+            (remote.variants?.nodes || []).forEach((v: any) => {
+                (v.selectedOptions || []).forEach((o: any) => {
+                    if (!variationMap.has(o.name)) {
+                        variationMap.set(o.name, new Set());
+                    }
+                    variationMap.get(o.name)!.add(String(o.value));
+                });
+            });
+
+            variations = Array.from(variationMap.entries()).map(
+                ([name, values]) => ({
+                    id: name,
+                    name: name?.trim(),
+                    props: Array.from(values).map((val) => ({
+                        id: val,
+                        name: val?.trim(),
+                        value: val?.trim(),
+                    })),
+                }),
+            );
+        }
 
         // Derive product-level fields from first variant where needed
         const firstVariant = remote.variants?.nodes?.[0];
@@ -3593,11 +4673,11 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             expense: productExpense,
             description: remote.descriptionHtml || "",
             slug: remote.handle,
-            type: ProductType.VARIABLE,
+            type: hasOnlyDefaultVariant ? ProductType.SINGLE : ProductType.VARIABLE,
             upsellings: [],
-            sku: "",
+            sku: hasOnlyDefaultVariant ? firstVariant?.sku || "" : "",
             thumb: remote.images?.nodes?.[0]?.url || "",
-            images: (remote.images?.nodes || []).map((img: any) => img.url),
+            images: (remote.images?.nodes || []).slice(1).map((img: any) => img.url),
             categories: (remote.collections?.nodes || []).map((c: any) => ({
                 id: String(c.id),
                 slug: c.handle,
@@ -3664,6 +4744,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                         handle
                         title
                         descriptionHtml
+                        hasOnlyDefaultVariant
                         productType
                         vendor
                         images(first: 20) {
@@ -3733,7 +4814,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             }
         }
 
-        return allProducts;
+            return allProducts;
     }
 
     public override normalizeOrderId(externalOrderId: string): string {

@@ -372,7 +372,7 @@ export class EasyOrderService extends BaseStoreProvider {
      */
     private async mapProductToPayload(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externaCategoryId: string) {
         let categoryPayload = [];
-
+        const isSingle = product.type === ProductType.SINGLE;
         if (externaCategoryId) {
             categoryPayload.push({ id: String(externaCategoryId)?.trim() })
         }
@@ -442,8 +442,8 @@ export class EasyOrderService extends BaseStoreProvider {
             is_reviews_enabled: true,
             taager_code: String(product.id),
             // drop_shipping_provider: "MyStore",
-            variations: attrebutes,
-            variants: variantsPayload
+            variations: isSingle ? [] : attrebutes,
+            variants: isSingle ? [] : variantsPayload
         };
     }
 
@@ -1089,7 +1089,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Main entry point for syncing order status to all applicable stores
      */
-    public async syncOrderStatus(order: OrderEntity, newStatusId: string) {
+    public async syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string) {
 
 
         const store = await this.getStoreForSync(order.adminId);
@@ -1359,7 +1359,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 const attrs = (item.variant?.variation_props || []).reduce((acc: Record<string, string>, vp: any) => {
                     if (vp.variation && vp.variation_prop) {
                         const key = this.productsService.slugifyKey(vp.variation);
-                        const value = this.productsService.slugifyKey(String(vp.variation_prop));
+                        const value = String(vp.variation_prop);
                         acc[key] = value;
                     }
                     return acc;
