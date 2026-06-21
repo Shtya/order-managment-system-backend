@@ -91,6 +91,8 @@ import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { CityEntity } from "entities/cities.entity";
 import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
+import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
+import { TriggerEntityType, TriggerType } from "entities/automation.entity";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -170,6 +172,8 @@ export class OrdersService {
     private shippingService: ShippingService,
     @Inject(forwardRef(() => AutoAssignmentQueueService))
     private autoAssignmentQueueService: AutoAssignmentQueueService,
+    @Inject(forwardRef(() => TriggerDispatcherService))
+    private readonly triggerDispatcher: TriggerDispatcherService,
   ) { }
 
   //private function to lock order if he delivered and has monthly closign id
@@ -286,8 +290,112 @@ export class OrdersService {
       notes,
       ipAddress,
     });
-
+    
     await params.manager.save(log);
+    await this.handleOrderStatusChange({ 
+      orderId: params.orderId, 
+      manager: params.manager,
+      oldStatusId: params.fromStatusId,
+      newStatusId: params.toStatusId,
+    });
+  }
+
+  // ✅ Handle order status change (logs, triggers, sync)
+  public async handleOrderStatusChange(params: { 
+    orderId: string; 
+    manager: EntityManager;
+    oldStatusId?: string | null;
+    newStatusId?: string;
+  }) {
+    // Load full order with necessary relations
+
+    // Function to run after commit
+    const runAfterCommit = async () => {
+      try {
+        const order = await params.manager.findOne(OrderEntity, {
+          where: { id: params.orderId },
+          select: ['id', 'adminId', 'oldStatusId', 'statusId', 'externalId'],
+        });
+
+        if (!order || (order.oldStatusId === order.statusId)) {
+          return;
+        }
+
+        await this.triggerDispatcher.dispatch({
+          type: TriggerType.ORDER_UPDATED,
+          entityType: TriggerEntityType.ORDER,
+          entityId: order.id,
+          adminId: order.adminId,
+          payload: null,
+          orderId: order.id,
+        });
+
+
+        if (order.externalId) {
+          await this.storesService.syncOrderStatus(order.id, order.statusId, order.oldStatusId || null);
+        }
+      } catch (error) {
+        console.error("Error in handleOrderStatusChange:", error);
+      }
+    };
+
+    // Check if we're in a transaction
+    const queryRunner = params.manager.queryRunner;
+    if (queryRunner) {
+      if (!queryRunner.data.postCommitTasks) {
+        queryRunner.data.postCommitTasks = [];
+      }
+      queryRunner.data.postCommitTasks.push(runAfterCommit);
+    } else {
+      // No active transaction, run immediately
+      await runAfterCommit();
+    }
+  }
+
+  // ✅ Bulk log status changes
+  public async bulkLogStatusChange(params: {
+    adminId: string;
+    orderStatusChanges: Array<{
+      orderId: string;
+      fromStatusId: string | null;
+      toStatusId: string;
+    }>;
+    userId?: string;
+    notes?: string;
+    ipAddress?: string;
+    manager: EntityManager;
+  }) {
+    const historyRepo = params.manager.getRepository(OrderStatusHistoryEntity);
+    const logs = params.orderStatusChanges.map((change) => {
+      return historyRepo.create({
+        adminId: params.adminId,
+        orderId: change.orderId,
+        fromStatusId: change.fromStatusId,
+        toStatusId: change.toStatusId,
+        changedByUserId: params.userId || null,
+        notes: params.notes,
+        ipAddress: params.ipAddress,
+      });
+    });
+
+    // Bulk insert status history
+    await historyRepo.insert(logs);
+
+    // Now handle each order's status change (post‑commit tasks, etc.) using Promise.allSettled
+    const promises = params.orderStatusChanges.map(async (change) => {
+      try {
+        await this.handleOrderStatusChange({
+          orderId: change.orderId,
+          manager: params.manager,
+          oldStatusId: change.fromStatusId,
+          newStatusId: change.toStatusId,
+        });
+      } catch (error) {
+        console.error(`Failed to handle status change for order ${change.orderId}:`, error);
+      }
+    });
+
+    await Promise.allSettled(promises);
   }
 
   // ========================================
@@ -452,7 +560,7 @@ export class OrdersService {
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("variant.product", "product")
-      
+
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shipping")
       .leftJoinAndSelect("order.store", "store")
@@ -526,16 +634,16 @@ export class OrdersService {
       }
     }
 
-    if(q?.onlyReturned) {
+    if (q?.onlyReturned) {
       qb.innerJoinAndSelect("order.lastReturn", "lastReturn")
-      .leftJoinAndSelect("lastReturn.items", "returnItems")
-      .leftJoinAndSelect("returnItems.returnedVariant", "returnedVariant")
-      .andWhere(`status.code = :statusCode`, {
-        statusCode: OrderStatus.RETURN_PREPARING,
-      })
-      .andWhere("lastReturn.status = :returnStatus", {
-        returnStatus: ReturnRequestStatus.PENDING,
-      })
+        .leftJoinAndSelect("lastReturn.items", "returnItems")
+        .leftJoinAndSelect("returnItems.returnedVariant", "returnedVariant")
+        .andWhere(`status.code = :statusCode`, {
+          statusCode: OrderStatus.RETURN_PREPARING,
+        })
+        .andWhere("lastReturn.status = :returnStatus", {
+          returnStatus: ReturnRequestStatus.PENDING,
+        })
     }
     // do not select
     if (q?.activeIntegration) {
@@ -965,9 +1073,6 @@ export class OrdersService {
     return await this.dataSource.transaction(async (manager) => {
       // 1. Get repositories scoped to this manager
       const manifestRepo = manager.getRepository(ShipmentManifestEntity);
-      const orderRepo = manager.getRepository(OrderEntity);
-      const statusHistoryRepo = manager.getRepository(OrderStatusHistoryEntity);
-
       // 2. Check if manifest exists
       const manifest = await manifestRepo.findOne({
         where: { id, adminId },
@@ -1330,18 +1435,17 @@ export class OrdersService {
           }
         );
 
-        const statusLogs = orderIdsToUpdate.map((orderId) => ({
+        await this.bulkLogStatusChange({
           adminId,
-          orderId,
-          fromStatusId: readyStatus.id,
-          toStatusId: shippedStatus.id,
-          userId: userId,
+          manager,
+          userId,
           notes: `Assigned to Manifest: ${manifestNumber}`,
-          createdAt: new Date(),
-        }));
-
-        const statusHistoryRepo = manager.getRepository(OrderStatusHistoryEntity);
-        await statusHistoryRepo.insert(statusLogs);
+          orderStatusChanges: orderIdsToUpdate.map(orderId => ({
+            orderId,
+            fromStatusId: readyStatus.id,
+            toStatusId: shippedStatus.id,
+          })),
+        });
 
         await this.deductStockForMultipleOrders(manager, orderIdsToUpdate, adminId);
       }
@@ -1496,18 +1600,17 @@ export class OrdersService {
           );
         }
 
-        const statusLogs = orderIds.map((orderId) => ({
+        await this.bulkLogStatusChange({
           adminId,
-          orderId,
-          fromStatusId: preparingStatus.id,
-          toStatusId: returnedStatus.id,
-          userId: userId,
+          manager,
+          userId,
           notes: `Added to Return Manifest: ${manifestNumber}`,
-          createdAt: new Date(),
-        }));
-
-        const statusHistoryRepo = manager.getRepository(OrderStatusHistoryEntity);
-        await statusHistoryRepo.insert(statusLogs);
+          orderStatusChanges: orderIds.map(orderId => ({
+            orderId,
+            fromStatusId: preparingStatus.id,
+            toStatusId: returnedStatus.id,
+          })),
+        });
       }
 
       await this.logBulkOrderActions({

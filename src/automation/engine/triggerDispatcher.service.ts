@@ -90,6 +90,9 @@ export class TriggerDispatcherService {
         @InjectRepository(AutomationRunEntity)
         private readonly runRepo: Repository<AutomationRunEntity>,
 
+        @InjectRepository(OrderEntity)
+        private readonly orderRepo: Repository<OrderEntity>,
+
         private readonly flowQueue: FlowExecutionQueueService,
         private readonly triggerMatchers: TriggerMatchersRegistry,
 
@@ -104,9 +107,22 @@ export class TriggerDispatcherService {
         type: TriggerType;
         entityType: TriggerEntityType;
         entityId: string;
-        payload: any;
+        payload: any | null;
         adminId: string;
+        orderId?: string;
     }) {
+        if (trigger.entityType === TriggerEntityType.ORDER && trigger.orderId && !trigger.payload) {
+            const order = await this.orderRepo.findOne({
+                where: { id: trigger.orderId },
+                select: ['id', 'adminId', 'oldStatusId', 'statusId', 'externalId'],
+            });
+            if(!order) {
+                console.log(`[TriggerDispatcher] Order ${trigger.orderId} not found, skipping`);
+                return;
+            }
+            trigger.payload = order;
+            return;
+        }
         console.log(`[TriggerDispatcher] Received dispatch request for ${trigger.type} on ${trigger.entityType} ${trigger.entityId} (admin: ${trigger.adminId})`);
         if (!trigger.adminId) {
             console.log(`[TriggerDispatcher] No adminId provided, skipping`);

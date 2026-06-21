@@ -24,15 +24,8 @@ import { RedisService } from 'common/redis/RedisService';
 export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
     constructor(
         private dataSource: DataSource,
-        @Inject(forwardRef(() => StoresService))
-        private readonly storesService: StoresService,
         @Inject(forwardRef(() => TriggerDispatcherService))
         private readonly triggerDispatcher: TriggerDispatcherService,
-        @Inject(forwardRef(() => ShippingService))
-        private readonly shippingService: ShippingService,
-        @Inject(forwardRef(() => OrdersService))
-        private readonly ordersService: OrdersService,
-        private readonly notificationService: NotificationService,
     ) {
         // Register this subscriber in the TypeORM lifecycle
         this.dataSource.subscribers.push(this);
@@ -41,83 +34,6 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
     listenTo() {
         return OrderEntity;
     }
-
-
-    async afterUpdate(event: UpdateEvent<OrderEntity>) {
-        // Check if the status column was actually updated
-        // console.log("[OrderSubscriber] After update called for order id:", event.entity?.id);
-        const previousOrder = event.databaseEntity;
-        const currentOrder = event.entity;
-
-        if (!previousOrder || !currentOrder) {
-            // console.log("[OrderSubscriber] Missing previous or current order, skipping");
-            return;
-        }
-
-        const oldStatusId = previousOrder.statusId || previousOrder.status?.id;
-        const newStatusId = currentOrder.statusId || currentOrder.status?.id;
-
-        // إذا تغيرت القيمة فعلياً، أو إذا اعتبره TypeORM عموداً محدثاً
-        const isStatusChanged = oldStatusId !== newStatusId
-        // console.log(`[OrderSubscriber] Status changed: ${isStatusChanged} (old: ${oldStatusId}, new: ${newStatusId}) for order ${currentOrder.id}`);
-
-        if (isStatusChanged) {
-            // event.entity contains the updated fields
-            const fullOrder = await event.manager.findOne(OrderEntity, {
-                where: { id: event.entity.id },
-                relations: ['store','status', 'items', 'items.variant', "items.variant.product", "shippingCompany"],
-            });
-
-            if (!fullOrder) {
-                // console.log("[OrderSubscriber] Failed to load full order, skipping");
-                return;
-            }
-            // console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
-
-            const runAfterCommit = async () => {
-                // console.log(`[OrderSubscriber] Post-commit task running for ORDER_UPDATED on order ${fullOrder.id}`);
-                await this.triggerDispatcher.dispatch({
-                    type: TriggerType.ORDER_UPDATED,
-
-                    entityType: TriggerEntityType.ORDER,
-
-                    entityId: fullOrder.id,
-
-                    adminId: fullOrder.adminId,
-
-                    payload: {
-                        ...fullOrder,
-
-                        previousStatusId: oldStatusId,
-                        currentStatusId: newStatusId,
-                    },
-                });
-                // console.log(`[OrderSubscriber] ORDER_UPDATED trigger dispatched for order ${fullOrder.id}`);
-
-                try {
-                    if (fullOrder.externalId) {
-                        await this.storesService.syncOrderStatus(fullOrder, newStatusId,oldStatusId);
-                    }
-
-                } catch (error) {
-                    console.error("Error in store synchronization:", error);
-                }
-            };
-
-            if (event.queryRunner) {
-                if (!event.queryRunner.data.postCommitTasks) {
-                    event.queryRunner.data.postCommitTasks = [];
-                }
-                // console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
-                event.queryRunner.data.postCommitTasks.push(runAfterCommit);
-            } else {
-                // console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
-                // No active transaction, run immediately
-                await runAfterCommit();
-            }
-        }
-    }
-
 
     async afterInsert(event: InsertEvent<OrderEntity>) {
         const order = event.entity;

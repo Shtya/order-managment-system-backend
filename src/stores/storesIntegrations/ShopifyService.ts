@@ -3779,7 +3779,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             returnLineItems.push({
                 fulfillmentLineItemId: returnableItem.fulfillmentLineItem.id,
                 quantity: returnItem.quantity,
-                returnReason: returnRequest.reason || "WRONG_ITEM",
+                returnReason: "OTHER",
                 customerNote: null
             });
         }
@@ -3826,22 +3826,73 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         this.logger.log(`[Shopify] Created return request ${returnId} for order ${order.id} with ${returnLineItems.length} items`);
         return returnId;
     }
-    private async getShopifyReturnId(order: OrderEntity, store: StoreEntity): Promise<string> {
+    private async getShopifyReturnDetails(order: OrderEntity, store: StoreEntity): Promise<{
+        id: string,
+        status: string,
+        createdAt: string,
+        returnLineItems: Array<{
+            id: string;
+            quantity: number;
+            lineItem: {
+                id: string;
+                sku?: string | null;
+            };
+            reverseFulfillmentOrderLineItem?: {
+                id: string;
+            } | null;
+        }>;
+    }> {
         const query = `
     query GetOrderReturns($orderId: ID!) {
       order(id: $orderId) {
+        id
         returns(first: 10) {
           edges {
             node {
               id
               status
               createdAt
+              returnLineItems(first: 50) {
+                edges {
+                  node {
+                    ... on ReturnLineItem {
+                      id
+                      quantity
+                      fulfillmentLineItem {
+                        id
+                        lineItem {
+                          id
+                          sku
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              reverseFulfillmentOrders(first: 50) {
+                edges {
+                  node {
+                    id
+                    lineItems(first: 50) {
+                      edges {
+                        node {
+                          id
+                          fulfillmentLineItem {
+                            id
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         }
       }
     }
   `;
+
 
         const response = await this.runGraphQL(store, false, query, {
             orderId: this.normalizeOrderId(order.externalId)
@@ -3859,16 +3910,146 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         // Get the most recent return
         returns.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        return returns[0].id;
+        const returnData = returns[0];
+
+        // 1) Build a map: fulfillmentLineItemId -> reverseFulfillmentOrderLineItemId
+        const reverseMap = new Map<string, string>();
+
+        const rfoEdges = returnData.reverseFulfillmentOrders?.edges ?? [];
+        for (const rfoEdge of rfoEdges) {
+            const rfoNode = rfoEdge?.node;
+            if (!rfoNode) continue;
+
+            const lineItemEdges = rfoNode.lineItems?.edges ?? [];
+            for (const liEdge of lineItemEdges) {
+                const rfoLineItem = liEdge?.node;
+                const fulfillmentLineItemId =
+                    rfoLineItem?.fulfillmentLineItem?.id ?? null;
+
+                if (rfoLineItem?.id && fulfillmentLineItemId) {
+                    // If there are multiple RFO line items for the same fulfillment line item,
+                    // you may need to decide how to handle that. Here we just map the last one.
+                    reverseMap.set(fulfillmentLineItemId, rfoLineItem.id);
+                }
+            }
+        }
+
+
+        // Map return line items
+        const returnLineItems =
+            (returnData.returnLineItems?.edges || []).map((edge: any) => {
+                const node = edge.node;
+                const fulfillmentLineItem = node.fulfillmentLineItem ?? null;
+                const lineItem = fulfillmentLineItem?.lineItem ?? null;
+                let reverseFulfillmentOrderLineItem: { id: string } | null = null;
+                const fulfillmentLineItemId = fulfillmentLineItem?.id ?? null;
+
+                if (fulfillmentLineItemId && reverseMap.has(fulfillmentLineItemId)) {
+                    reverseFulfillmentOrderLineItem = {
+                        id: reverseMap.get(fulfillmentLineItemId)!,
+                    };
+                }
+                return {
+                    id: node.id as string,
+                    quantity: node.quantity as number,
+                    lineItem: {
+                        id: lineItem?.id ?? '',
+                        sku: lineItem?.sku ?? null,
+                    },
+                    reverseFulfillmentOrderLineItem,
+                };
+            });
+        return {
+            id: returnData.id,
+            status: returnData.status,
+            createdAt: returnData.createdAt,
+            returnLineItems,
+        };
+    }
+
+    private async getShopifyOrderTransactions(
+        order: OrderEntity,
+        store: StoreEntity,
+    ): Promise<
+        Array<{
+            id: string;
+            kind: string;
+            amountSet: {
+                shopMoney: {
+                    amount: string;
+                    currencyCode: string;
+                };
+            };
+        }>
+    > {
+        const query = `
+    query GetOrderTransactions($orderId: ID!) {
+      order(id: $orderId) {
+        id
+        transactions(first: 50) {
+          id
+          kind
+          amountSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+      }
+    }
+  `;
+
+        const response = await this.runGraphQL(store, false, query, {
+            orderId: this.normalizeOrderId(order.externalId),
+        });
+
+        const orderNode = response?.order ?? response?.data?.order ?? null;
+        if (!orderNode) {
+            throw new Error(`Failed to fetch order transactions`);
+        }
+
+        // transactions is already an array of OrderTransaction, not a connection
+        return (orderNode.transactions ?? []) as Array<{
+            id: string;
+            kind: string;
+            amountSet: {
+                shopMoney: {
+                    amount: string;
+                    currencyCode: string;
+                };
+            };
+        }>;
     }
 
     private async approveReturnRequest(
         order: OrderEntity,
         store: StoreEntity,
     ): Promise<void> {
-        const returnId = await this.getShopifyReturnId(order, store);
+        // Step 1: Get local return request
+        if (!order.lastReturnId) {
+            throw new Error(`Order ${order.id} has no last return request`);
+        }
 
-        const mutation = `
+        // Get local return with items
+        const returnRequest = await this.returnRequestRepo.findOne({
+            where: { id: order.lastReturnId },
+            relations: ['items', 'items.returnedVariant', 'items.originalItem'],
+        });
+
+        if (!returnRequest) {
+            throw new Error(`Return request ${order.lastReturnId} not found`);
+        }
+
+        // Step 2: Get Shopify return details
+        const shopifyReturn = await this.getShopifyReturnDetails(order, store);
+
+        if (shopifyReturn.status !== 'REQUESTED') {
+            throw new Error(`Return request ${shopifyReturn.id} is not in REQUESTED status`);
+        }
+
+        // Step 3: Approve the return first
+        const approveMutation = `
     mutation ReturnApproveRequest($input: ReturnApproveRequestInput!) {
       returnApproveRequest(input: $input) {
         return {
@@ -3884,35 +4065,211 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
   `;
 
+        const approveVariables = {
+            input: {
+                id: shopifyReturn.id,
+            },
+        };
+
+        const approveResponse = await this.runGraphQL(store, true, approveMutation, approveVariables);
+        const approvePayload =
+            approveResponse?.returnApproveRequest ??
+            approveResponse?.data?.returnApproveRequest ??
+            null;
+
+        if (!approvePayload) {
+            throw new Error(`returnApproveRequest returned empty payload for return ${shopifyReturn.id}`);
+        }
+
+        if (approvePayload.userErrors?.length > 0) {
+            throw new Error(`Failed to approve return request ${shopifyReturn.id}: ${approvePayload.userErrors[0].message}`);
+        }
+
+        this.logger.log(`[Shopify] Approved return request ${shopifyReturn.id} (status=${approvePayload.return?.status})`);
+
+        // Step 4: Prepare data for processAndRefundReturn
+        const locationId = await this.getFirstLocationId(store);
+        const transactions = await this.getShopifyOrderTransactions(order, store);
+
+        // Find first SALE transaction as parent
+        const parentTransaction = transactions.find(t => t.kind === 'SALE');
+        if (!parentTransaction) {
+            throw new Error(`No SALE transaction found for order ${order.id}`);
+        }
+
+        const currencyCode = parentTransaction.amountSet.shopMoney.currencyCode;
+
+        // Calculate refund amount: sum of (original item unit price * quantity) for return items
+        let totalRefundAmount = 0;
+        for (const item of returnRequest.items) {
+            totalRefundAmount += (item.originalItem?.unitPrice || 0) * item.quantity;
+        }
+
+        // Build dispositions: match local return items to Shopify return line items via SKU
+        const dispositions: Array<{
+            returnLineItemId: string;
+            quantity: number;
+            reverseFulfillmentOrderLineItemId: string;
+            locationId: string;
+            dispositionType: 'RESTOCKED' | 'DISCARDED' | 'UNKNOWN';
+        }> = [];
+
+        for (const localItem of returnRequest.items) {
+            const shopifyReturnLineItem = shopifyReturn.returnLineItems.find(
+                (rli) => rli.lineItem.sku === localItem.returnedVariant?.sku
+            );
+
+            if (!shopifyReturnLineItem) {
+                throw new Error(`Could not find Shopify return line item for SKU ${localItem.returnedVariant?.sku}`);
+            }
+
+            if (!shopifyReturnLineItem.reverseFulfillmentOrderLineItem?.id) {
+                throw new Error(`Shopify return line item ${shopifyReturnLineItem.id} has no reverse fulfillment order line item`);
+            }
+
+            dispositions.push({
+                returnLineItemId: shopifyReturnLineItem.id,
+                quantity: localItem.quantity,
+                reverseFulfillmentOrderLineItemId: shopifyReturnLineItem.reverseFulfillmentOrderLineItem.id,
+                locationId,
+                dispositionType: localItem.condition === 'Damaged' ? 'DISCARDED' : 'RESTOCKED',
+            });
+        }
+
+        // Step 5: Process and refund the return
+        await this.processAndRefundReturn(shopifyReturn.id, store, {
+            notifyCustomer: false,
+            refundAmount: totalRefundAmount.toString(),
+            currencyCode,
+            parentTransactionId: parentTransaction.id,
+            dispositions,
+        });
+    }
+
+    private async processAndRefundReturn(
+        returnId: string,
+        store: StoreEntity,
+        options: {
+            notifyCustomer?: boolean;
+            refundAmount: string; // or number
+            currencyCode: string; // e.g. "USD"
+            parentTransactionId: string; // gid://shopify/OrderTransaction/...
+            dispositions: Array<{
+                returnLineItemId: string;
+                quantity: number;
+                reverseFulfillmentOrderLineItemId: string;
+                locationId: string;
+                dispositionType: 'RESTOCKED' | 'DISCARDED' | 'UNKNOWN'; // etc.
+            }>;
+        },
+    ): Promise<void> {
+        const mutation = `
+    mutation ProcessReturn($input: ReturnProcessInput!) {
+      returnProcess(input: $input) {
+        return {
+          id
+          status
+          refunds(first: 10) {
+            edges {
+              node {
+                id
+                createdAt
+                totalRefundedSet {
+                  shopMoney {
+                    amount
+                    currencyCode
+                  }
+                }
+              }
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+          code
+        }
+      }
+    }
+  `;
+
+        const groupedByReturnLineItem: Record<string, any[]> = {};
+        for (const disp of options.dispositions) {
+            if (!groupedByReturnLineItem[disp.returnLineItemId]) {
+                groupedByReturnLineItem[disp.returnLineItemId] = [];
+            }
+            groupedByReturnLineItem[disp.returnLineItemId].push({
+                reverseFulfillmentOrderLineItemId: disp.reverseFulfillmentOrderLineItemId,
+                quantity: disp.quantity,
+                locationId: disp.locationId,
+                dispositionType: disp.dispositionType,
+            });
+        }
+
+        const returnLineItems = Object.entries(groupedByReturnLineItem).map(
+            ([returnLineItemId, dispositions]) => ({
+                id: returnLineItemId,
+                // sum quantities from dispositions or pass as known quantity
+                quantity: (dispositions as any[]).reduce(
+                    (sum, d) => sum + d.quantity,
+                    0,
+                ),
+                dispositions,
+            }),
+        );
+
         const variables = {
             input: {
-                id: returnId,
+                returnId,
+                returnLineItems,
+                financialTransfer: {
+                    issueRefund: {
+                        orderTransactions: [
+                            {
+                                parentId: options.parentTransactionId,
+                                transactionAmount: {
+                                    amount: options.refundAmount,
+                                    currencyCode: options.currencyCode,
+                                },
+                            },
+                        ],
+                    },
+                },
+                notifyCustomer: options.notifyCustomer ?? false,
             },
         };
 
         const response = await this.runGraphQL(store, true, mutation, variables);
+
         const payload =
-            response?.returnApproveRequest ??
-            response?.data?.returnApproveRequest ??
-            null;
+            response?.returnProcess ?? response?.data?.returnProcess ?? null;
 
         if (!payload) {
-            throw new Error(`returnApproveRequest returned empty payload for return ${returnId}`);
+            throw new Error(
+                `returnProcess returned empty payload for return ${returnId}`,
+            );
         }
 
         if (payload.userErrors?.length > 0) {
-            throw new Error(`Failed to approve return request ${returnId}: ${payload.userErrors[0].message}`);
+            const firstError = payload.userErrors[0];
+            throw new Error(
+                `Failed to process and refund return ${returnId}: ${firstError.message}`,
+            );
         }
 
-        this.logger.log(`[Shopify] Approved return request ${returnId} (status=${payload.return?.status})`);
+        this.logger.log(
+            `[Shopify] Processed and refunded return ${returnId} (status=${payload.return?.status})`,
+        );
     }
 
     private async declineReturnRequest(
         order: OrderEntity,
         store: StoreEntity,
     ): Promise<void> {
-        const returnId = await this.getShopifyReturnId(order, store);
-
+        const { id: returnId, status } = await this.getShopifyReturnDetails(order, store);
+        if (status !== 'REQUESTED') {
+            throw new Error(`Return request ${returnId} is not in REQUESTED status`);
+        }
         const mutation = `
     mutation ReturnDeclineRequest($input: ReturnDeclineRequestInput!) {
       returnDeclineRequest(input: $input) {
@@ -3932,6 +4289,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         const variables = {
             input: {
                 id: returnId,
+                declineReason: "OTHER"
             },
         };
 
@@ -4256,7 +4614,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             idToSlugMap.set(numericProdId, product.handle);
             const hasOnlyDefaultVariant = product.hasOnlyDefaultVariant || false;
             // Map every variant's options for this product
-            if(!hasOnlyDefaultVariant) {
+            if (!hasOnlyDefaultVariant) {
                 product.variants?.nodes?.forEach((v: any) => {
                     const numericVarId = v.id.split('/').pop();
                     variantIdToOptionsMap.set(numericVarId, v.selectedOptions);
@@ -4600,7 +4958,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
     private mapRemoteProductToDto(remote: any): MappedProductDto {
         const hasOnlyDefaultVariant = remote.hasOnlyDefaultVariant || false;
-        
+
         // Map variants from Shopify to EasyOrder variant DTO
         const variants = (remote.variants?.nodes || []).map((v: any) => {
             const baseVariant: any = {
@@ -4612,15 +4970,15 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 quantity: Number(v.inventoryQuantity) || 0,
                 sku: String(v.sku || ""),
             };
-            
+
             baseVariant.variation_props = [];
             if (!hasOnlyDefaultVariant) {
                 baseVariant.variation_props = (v.selectedOptions || []).map((o: any) => ({
                     variation: o.name?.trim(),
                     variation_prop: String(o.value)?.trim(),
                 }));
-            } 
-            
+            }
+
             return baseVariant;
         });
 
@@ -4814,7 +5172,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             }
         }
 
-            return allProducts;
+        return allProducts;
     }
 
     public override normalizeOrderId(externalOrderId: string): string {

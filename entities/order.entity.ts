@@ -248,9 +248,16 @@ export class OrderEntity {
   @ManyToOne(() => OrderStatusEntity, { eager: true })
   @JoinColumn({ name: "statusId" })
   status: OrderStatusEntity;
-
+  
   @Column({ type: 'uuid' })
   statusId: string;
+  
+  @Column({ type: 'uuid', nullable: true })
+  oldStatusId: string;
+  
+  @ManyToOne(() => OrderStatusEntity, { nullable: true })
+  @JoinColumn({ name: "oldStatusId" })
+  oldStatus: OrderStatusEntity;
 
   // ✅ Payment Information
   @Column({
