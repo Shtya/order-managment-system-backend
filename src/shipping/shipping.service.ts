@@ -508,8 +508,6 @@ export class ShippingService {
 				if (isNoneProvider) {
 					const status = await this.ordersService.findStatusByCode(newStatusCode, adminId, manager);
 
-
-
 					const trackingNumber = await this.generateUniqueManualTrackingNumber(adminId, manager);
 
 					const manualShipment = await manager.save(
@@ -876,38 +874,83 @@ export class ShippingService {
 	async getCompanyDistribution(me: any) {
 		const adminId = tenantId(me);
 
-		const stats = await this.integrationsRepo
-			.createQueryBuilder('integ')
-			.leftJoin('integ.shippingCompany', 'company')
-			.leftJoin('company.orders', 'order', 'order.adminId = :adminId', { adminId })
-			.leftJoin('order.status', 'status', 'status.code NOT IN (:...excluded)', {
-				excluded: [OrderStatus.DELIVERED, OrderStatus.CANCELLED]
-			})
+		// Step 1: Get all active shipping integrations
+		const shippingResponse = await this.activeIntegrations(me);
+
+		// Step 2: Get all company data with counts (including null company)
+		const rows = await this.ordersRepo
+			.createQueryBuilder('order')
+			.leftJoin('order.shippingCompany', 'company')
+			.leftJoin('order.status', 'status')
 			.leftJoinAndSelect(
-				"order.shipments", // افترضنا وجود علاقة (Relation) باسم shipments في Entity الطلب
+				"order.shipments",
 				"shipment",
 				`shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
 			)
+		
 			.select('company.id', 'companyId')
 			.addSelect('company.name', 'companyName')
-			.addSelect('company.code', 'code')
-			.addSelect('COUNT(status.id)', 'count')
-			.where('integ."isActive" = true')
-			.andWhere('integ."adminId" = :adminId', { adminId })
-			.andWhere("shipment.id IS NOT NULL")
-			.andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
-				shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
+			.addSelect('COUNT(order.id)', 'count')
+			.where('order.adminId = :adminId', { adminId })
+			.andWhere('status.code IN (:...included)', {
+				included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
+			})
+			.andWhere("shipment.status IN (:...status)", {
+				status: [ShipmentStatus.CREATED,ShipmentStatus.IN_TRANSIT, ShipmentStatus.SUBMITTED, ShipmentStatus.ON_HOLD],
 			})
 			.groupBy('company.id')
 			.addGroupBy('company.name')
 			.getRawMany();
 
-		return stats.map(s => ({
-			companyId: s.companyId,
-			companyName: s.companyName,
-			code: s.code,
-			count: s.count,
-		}));
+		// Create a map to quickly look up order count and name by company ID
+		const companyDataMap = new Map<string | null, { count: number; name: string | null }>();
+		rows.forEach((row) => {
+			companyDataMap.set(row.companyId ?? null, {
+				count: Number(row.count) || 0,
+				name: row.companyName ?? null,
+			});
+		});
+
+		// Set to track which companies we've already added (for deduplication)
+		const addedCompanyIds = new Set<string | null>();
+
+		// Start with all active shipping companies
+		const result = shippingResponse.integrations.map((company) => {
+			const companyId = company.providerId ?? null;
+			addedCompanyIds.add(companyId);
+			const data = companyDataMap.get(companyId);
+			return {
+				companyId: companyId,
+				companyName: company.name ?? null,
+				count: data?.count || 0,
+			};
+		});
+
+		// Add companies from query results not already in the list
+		rows.forEach((row) => {
+			const companyId = row.companyId ?? null;
+			if (!addedCompanyIds.has(companyId)) {
+				addedCompanyIds.add(companyId);
+				const data = companyDataMap.get(companyId);
+				result.push({
+					companyId: companyId,
+					companyName: companyId ? (data?.name ?? null) : "None",
+					count: data?.count || 0,
+				});
+			}
+		});
+
+		// Ensure "None" entry is present
+		if (!addedCompanyIds.has(null)) {
+			addedCompanyIds.add(null);
+			result.push({
+				companyId: null,
+				companyName: "None",
+				count: 0,
+			});
+		}
+
+		return result;
 	}
 
 
@@ -918,19 +961,18 @@ export class ShippingService {
 		const getDistributedBaseQuery = () =>
 			this.ordersRepo.createQueryBuilder('order')
 				.innerJoin('order.status', 'status')
-				.innerJoin('shipping_integrations', 'integ', 'integ.shippingCompanyId = order.shippingCompanyId AND integ.adminId = :adminId AND integ.isActive = true', { adminId })
+				.leftJoin('shipping_integrations', 'integ', 'integ.shippingCompanyId = order.shippingCompanyId AND integ.adminId = :adminId AND integ.isActive = true', { adminId })
 				.leftJoinAndSelect(
 					"order.shipments", // افترضنا وجود علاقة (Relation) باسم shipments في Entity الطلب
 					"shipment",
 					`shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
 				)
 				.where('order.adminId = :adminId', { adminId })
-				.andWhere('status.code NOT IN (:...excluded)', {
-					excluded: [OrderStatus.DELIVERED, OrderStatus.CANCELLED]
+				.andWhere('status.code IN (:...included)', {
+					included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
 				})
-				.andWhere("shipment.id IS NOT NULL")
-				.andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
-					shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
+				.andWhere("shipment.status IN (:...status)", {
+					status: [ShipmentStatus.CREATED, ShipmentStatus.IN_TRANSIT, ShipmentStatus.SUBMITTED, ShipmentStatus.ON_HOLD],
 				})
 
 

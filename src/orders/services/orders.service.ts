@@ -71,6 +71,7 @@ import { Notification, NotificationType } from "entities/notifications.entity";
 import { OrderFailStatus, StoreEntity } from "entities/stores.entity";
 import {
   ShipmentEntity,
+  ShipmentStatus,
   ShippingCompanyEntity,
   ShippingIntegrationEntity,
   UnifiedShippingStatus,
@@ -646,15 +647,15 @@ export class OrdersService {
         })
     }
     // do not select
-    if (q?.activeIntegration) {
-      qb.leftJoin("shipping.integrations", "integrations")
-        .andWhere(`integrations."isActive" = true`)
-        .andWhere(`integrations."adminId" = :adminId`, { adminId })
-        .andWhere("shipment.id IS NOT NULL")
-        .andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
-          shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
-        });
-    }
+    // if (q?.activeIntegration) {
+    //   qb.leftJoin("shipping.integrations", "integrations")
+    //     .andWhere(`integrations."isActive" = true`)
+    //     .andWhere(`integrations."adminId" = :adminId`, { adminId })
+    //     .andWhere("shipment.id IS NOT NULL")
+    //     .andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
+    //       shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
+    //     });
+    // }
 
 
     if (q?.paymentStatus) {
@@ -714,10 +715,20 @@ export class OrdersService {
       DateFilterUtil.applyToQueryBuilder(qb, "order.postponedDate", q?.postponedStartDate, q?.postponedEndDate);
     }
 
-    if (q?.shipmentStatus && q.shipmentStatus !== "all") {
-      qb.andWhere("shipment.status = :status", {
-        status: q.shipmentStatus,
-      });
+    // If status is distributed/printed/preparing/ready/packed (like DistributionTab), filter by shipment.status
+    const statusParam = q?.status;
+    const isDistributionStatus = q?.isDistributionStatus === "true" || q?.isDistributionStatus === true;
+
+    if (isDistributionStatus || (q?.shipmentStatus && q.shipmentStatus !== "all")) {
+      if (q?.shipmentStatus && q.shipmentStatus !== "all") {
+        qb.andWhere("shipment.status = :status", {
+          status: q.shipmentStatus,
+        });
+      } else {
+        qb.andWhere("shipment.status IN (:...statuses)", {
+          statuses: [ShipmentStatus.CREATED, ShipmentStatus.IN_TRANSIT, ShipmentStatus.SUBMITTED, ShipmentStatus.ON_HOLD],
+        });
+      }
     }
 
     DateFilterUtil.applyToQueryBuilder(qb, "order.shippedAt", q?.shippedStartDate, q?.shippedEndDate);
