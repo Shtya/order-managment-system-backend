@@ -202,7 +202,7 @@ export class StoreWorkerService implements OnModuleInit, OnModuleDestroy {
                         },
                     });
                     if (order) {
-                        await service?.syncOrderStatus(order, newStatusId,oldStatusId);
+                        await service?.syncOrderStatus(order, newStatusId, oldStatusId);
                         this.logger.log(`[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`);
                     }
                     break;

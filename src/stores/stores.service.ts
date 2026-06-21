@@ -55,6 +55,7 @@ export class StoresService {
     @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
     @InjectRepository(WebhookOrderFailureEntity) private readonly failureRepo: Repository<WebhookOrderFailureEntity>,
     @InjectRepository(ProductSyncStateEntity) private readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    @InjectRepository(OrderEntity) private readonly orderRepo: Repository<OrderEntity>,
     @InjectRepository(OrderEntity) private readonly ordersRepo: Repository<OrderEntity>,
     @InjectRepository(Account) private readonly safesRepo: Repository<Account>,
 
@@ -654,30 +655,34 @@ export class StoresService {
 
   }
 
-  async syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string) {
-    const { adminId, orderNumber, id, store: orderStore } = order;
+  async syncOrderStatus(orderId: string, newStatusId: string, oldStatusId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['store'],
+    });
 
-    if (!orderStore) {
-      this.logger.warn(`[Order Status Sync] No active store found to sync Order #${orderNumber} for Admin ${adminId}.`);
+
+    if (!order.store) {
+      this.logger.warn(`[Order Status Sync] No active store found to sync Order #${order.id} for Admin ${order.adminId}.`);
       return;
     }
 
     const store = await this.storesRepo.findOne({
-      where: { adminId, isActive: true, isIntegrated: true, provider: orderStore.provider }
+      where: { adminId: order.adminId, isActive: true, isIntegrated: true, provider: order.store.provider }
     });
 
     if (!store) {
-      this.logger.warn(`[Order Status Sync] No active store found to sync Order #${orderNumber} for Admin ${adminId}.`);
+      this.logger.warn(`[Order Status Sync] No active store found to sync Order #${order.id} for Admin ${order.adminId}.`);
       return;
     }
 
     // Route to the correct queue based on Provider
 
-    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId,oldStatusId);
+    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId, oldStatusId);
 
     this.logger.log(
-      `[Order Status Sync] Dispatched status update for Order #${orderNumber} (ID: ${id}) ` +
-      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`
+      `[Order Status Sync] Dispatched status update for Order #${order.id} (ID: ${orderId}) ` +
+      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${order.adminId}.`
     );
 
   }
