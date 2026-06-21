@@ -1198,10 +1198,10 @@ export class EasyOrderService extends BaseStoreProvider {
             //     orderStatus: OrderStatus.NEW,
             //     paymentStatus: null,
             // },
-            "confirmed": {
-                orderStatus: OrderStatus.CONFIRMED,
-                paymentStatus: null,
-            },
+            // "confirmed": {
+            //     orderStatus: OrderStatus.CONFIRMED,
+            //     paymentStatus: null,
+            // },
             // "processing": {
             //     orderStatus: OrderStatus.PREPARING,
             //     paymentStatus: null,
