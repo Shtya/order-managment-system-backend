@@ -31,63 +31,64 @@ import { StoreQueueService } from "./queues";
 enum ShopifyTopic {
     ORDERS_CREATE = "orders/create",
     ORDERS_UPDATED = "orders/updated",
-    ORDERS_FULFILLED = "orders/fulfilled",
     ORDERS_CANCELLED = "orders/cancelled",
     ORDERS_PAID = "orders/paid",
     ORDERS_DELETE = "orders/delete",
     ORDERS_RISK_ASSESSMENT_CHANGED = "orders/risk_assessment_changed",
 
-    REFUNDS_CREATE = "refunds/create",
+    // ORDERS_FULFILLED = "orders/fulfilled",
 
-    RETURNS_REQUEST = "returns/request",
-    RETURNS_APPROVE = "returns/approve",
-    RETURNS_PROCESS = "returns/process",
-    RETURNS_CLOSE = "returns/close",
-    RETURNS_REOPEN = "returns/reopen",
-    RETURNS_UPDATE = "returns/update",
-    RETURNS_CANCEL = "returns/cancel",
+    // REFUNDS_CREATE = "refunds/create",
 
-    FULFILLMENT_ORDERS_PLACED_ON_HOLD = "fulfillment_orders/placed_on_hold",
-    FULFILLMENT_ORDERS_HOLD_RELEASED = "fulfillment_orders/hold_released",
-    FULFILLMENT_ORDERS_RESCHEDULED = "fulfillment_orders/rescheduled",
-    FULFILLMENT_ORDERS_PROGRESS_REPORTED = "fulfillment_orders/progress_reported",
-    FULFILLMENT_ORDERS_SPLIT = "fulfillment_orders/split",
-    FULFILLMENT_ORDERS_MERGED = "fulfillment_orders/merged",
-    FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE = "fulfillment_orders/order_routing_complete",
+    // RETURNS_REQUEST = "returns/request",
+    // RETURNS_APPROVE = "returns/approve",
+    // RETURNS_PROCESS = "returns/process",
+    // RETURNS_CLOSE = "returns/close",
+    // RETURNS_REOPEN = "returns/reopen",
+    // RETURNS_UPDATE = "returns/update",
+    // RETURNS_CANCEL = "returns/cancel",
 
-    FULFILLMENTS_CREATE = "fulfillments/create",
-    FULFILLMENTS_UPDATE = "fulfillments/update",
+    // FULFILLMENT_ORDERS_PLACED_ON_HOLD = "fulfillment_orders/placed_on_hold",
+    // FULFILLMENT_ORDERS_HOLD_RELEASED = "fulfillment_orders/hold_released",
+    // FULFILLMENT_ORDERS_RESCHEDULED = "fulfillment_orders/rescheduled",
+    // FULFILLMENT_ORDERS_PROGRESS_REPORTED = "fulfillment_orders/progress_reported",
+    // FULFILLMENT_ORDERS_SPLIT = "fulfillment_orders/split",
+    // FULFILLMENT_ORDERS_MERGED = "fulfillment_orders/merged",
+    // FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE = "fulfillment_orders/order_routing_complete",
+
+    // FULFILLMENTS_CREATE = "fulfillments/create",
+    // FULFILLMENTS_UPDATE = "fulfillments/update",
 }
 
 const ShopifyTopicToGraphQL: Record<ShopifyTopic, string> = {
     [ShopifyTopic.ORDERS_CREATE]: "ORDERS_CREATE",
     [ShopifyTopic.ORDERS_UPDATED]: "ORDERS_UPDATED",
-    [ShopifyTopic.ORDERS_FULFILLED]: "ORDERS_FULFILLED",
     [ShopifyTopic.ORDERS_CANCELLED]: "ORDERS_CANCELLED",
     [ShopifyTopic.ORDERS_PAID]: "ORDERS_PAID",
     [ShopifyTopic.ORDERS_DELETE]: "ORDERS_DELETE",
     [ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED]: "ORDERS_RISK_ASSESSMENT_CHANGED",
+    
+    // [ShopifyTopic.ORDERS_FULFILLED]: "ORDERS_FULFILLED",
+    // [ShopifyTopic.REFUNDS_CREATE]: "REFUNDS_CREATE",
 
-    [ShopifyTopic.REFUNDS_CREATE]: "REFUNDS_CREATE",
+    // [ShopifyTopic.RETURNS_REQUEST]: "RETURNS_REQUEST",
+    // [ShopifyTopic.RETURNS_APPROVE]: "RETURNS_APPROVE",
+    // [ShopifyTopic.RETURNS_PROCESS]: "RETURNS_PROCESS",
+    // [ShopifyTopic.RETURNS_CLOSE]: "RETURNS_CLOSE",
+    // [ShopifyTopic.RETURNS_REOPEN]: "RETURNS_REOPEN",
+    // [ShopifyTopic.RETURNS_UPDATE]: "RETURNS_UPDATE",
+    // [ShopifyTopic.RETURNS_CANCEL]: "RETURNS_CANCEL",
 
-    [ShopifyTopic.RETURNS_REQUEST]: "RETURNS_REQUEST",
-    [ShopifyTopic.RETURNS_APPROVE]: "RETURNS_APPROVE",
-    [ShopifyTopic.RETURNS_PROCESS]: "RETURNS_PROCESS",
-    [ShopifyTopic.RETURNS_CLOSE]: "RETURNS_CLOSE",
-    [ShopifyTopic.RETURNS_REOPEN]: "RETURNS_REOPEN",
-    [ShopifyTopic.RETURNS_UPDATE]: "RETURNS_UPDATE",
-    [ShopifyTopic.RETURNS_CANCEL]: "RETURNS_CANCEL",
+    // [ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD]: "FULFILLMENT_ORDERS_PLACED_ON_HOLD",
+    // [ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED]: "FULFILLMENT_ORDERS_HOLD_RELEASED",
+    // [ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED]: "FULFILLMENT_ORDERS_RESCHEDULED",
+    // [ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED]: "FULFILLMENT_ORDERS_PROGRESS_REPORTED",
+    // [ShopifyTopic.FULFILLMENT_ORDERS_SPLIT]: "FULFILLMENT_ORDERS_SPLIT",
+    // [ShopifyTopic.FULFILLMENT_ORDERS_MERGED]: "FULFILLMENT_ORDERS_MERGED",
+    // [ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE]: "FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE",
 
-    [ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD]: "FULFILLMENT_ORDERS_PLACED_ON_HOLD",
-    [ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED]: "FULFILLMENT_ORDERS_HOLD_RELEASED",
-    [ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED]: "FULFILLMENT_ORDERS_RESCHEDULED",
-    [ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED]: "FULFILLMENT_ORDERS_PROGRESS_REPORTED",
-    [ShopifyTopic.FULFILLMENT_ORDERS_SPLIT]: "FULFILLMENT_ORDERS_SPLIT",
-    [ShopifyTopic.FULFILLMENT_ORDERS_MERGED]: "FULFILLMENT_ORDERS_MERGED",
-    [ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE]: "FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE",
-
-    [ShopifyTopic.FULFILLMENTS_CREATE]: "FULFILLMENTS_CREATE",
-    [ShopifyTopic.FULFILLMENTS_UPDATE]: "FULFILLMENTS_UPDATE",
+    // [ShopifyTopic.FULFILLMENTS_CREATE]: "FULFILLMENTS_CREATE",
+    // [ShopifyTopic.FULFILLMENTS_UPDATE]: "FULFILLMENTS_UPDATE",
 };
 
 
@@ -5189,46 +5190,47 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             return body?.order_id;
         }
 
-        const getFulfillmentOrderIdResolver: OrderIdResolver = async (body, headers, store) => {
-            let orderId = body?.fulfillment_order?.order_id;
-            if (!orderId && body?.fulfillment_order?.id && store) {
-                orderId = await this.getOrderIdFromFulfillmentOrderId(body.fulfillment_order.id, store);
-            }
-            return orderId;
-        };
+        // const getFulfillmentOrderIdResolver: OrderIdResolver = async (body, headers, store) => {
+        //     let orderId = body?.fulfillment_order?.order_id;
+        //     if (!orderId && body?.fulfillment_order?.id && store) {
+        //         orderId = await this.getOrderIdFromFulfillmentOrderId(body.fulfillment_order.id, store);
+        //     }
+        //     return orderId;
+        // };
 
         const orderIdResolvers: Record<ShopifyTopic, OrderIdResolver> = {
 
             [ShopifyTopic.ORDERS_CREATE]: (body) => Promise.resolve(body?.id),
-            [ShopifyTopic.ORDERS_UPDATED]: (body) => Promise.resolve(body?.id),
-            [ShopifyTopic.ORDERS_FULFILLED]: (body) => Promise.resolve(body?.id),
             [ShopifyTopic.ORDERS_CANCELLED]: (body) => Promise.resolve(body?.id),
-            [ShopifyTopic.ORDERS_PAID]: (body) => Promise.resolve(body?.id),
             [ShopifyTopic.ORDERS_DELETE]: (body) => Promise.resolve(body?.id),
-            [ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED]: (body) => Promise.resolve(body?.order_id),
+            [ShopifyTopic.ORDERS_UPDATED]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_PAID]: (body) => Promise.resolve(body?.id),
+            [ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED]: (body) => Promise.resolve(body?.order_id)
 
-            [ShopifyTopic.REFUNDS_CREATE]: (body) => Promise.resolve(body?.order_id),
+            
+            // [ShopifyTopic.ORDERS_FULFILLED]: (body) => Promise.resolve(body?.id),
+            // [ShopifyTopic.REFUNDS_CREATE]: (body) => Promise.resolve(body?.order_id),
 
-            [ShopifyTopic.RETURNS_REQUEST]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
-            [ShopifyTopic.RETURNS_APPROVE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
-            [ShopifyTopic.RETURNS_PROCESS]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
-            [ShopifyTopic.RETURNS_CLOSE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
-            [ShopifyTopic.RETURNS_REOPEN]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
-            [ShopifyTopic.RETURNS_UPDATE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
-            [ShopifyTopic.RETURNS_CANCEL]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            // [ShopifyTopic.RETURNS_REQUEST]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            // [ShopifyTopic.RETURNS_APPROVE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            // [ShopifyTopic.RETURNS_PROCESS]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            // [ShopifyTopic.RETURNS_CLOSE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            // [ShopifyTopic.RETURNS_REOPEN]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            // [ShopifyTopic.RETURNS_UPDATE]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
+            // [ShopifyTopic.RETURNS_CANCEL]: (body) => Promise.resolve(body?.return?.order?.id || body?.order?.id),
 
-            // 👇 fulfillment ORDER webhooks (IMPORTANT)
-            [ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD]: getFulfillmentOrderIdResolver,
-            [ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED]: getFulfillmentOrderIdResolver,
-            [ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED]: getFulfillmentOrderIdResolver,
-            [ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED]: getFulfillmentOrderIdResolver,
-            [ShopifyTopic.FULFILLMENT_ORDERS_SPLIT]: getFulfillmentOrderIdResolver,
-            [ShopifyTopic.FULFILLMENT_ORDERS_MERGED]: getFulfillmentOrderIdResolver,
-            [ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE]: getFulfillmentOrderIdResolver,
+            // // 👇 fulfillment ORDER webhooks (IMPORTANT)
+            // [ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD]: getFulfillmentOrderIdResolver,
+            // [ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED]: getFulfillmentOrderIdResolver,
+            // [ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED]: getFulfillmentOrderIdResolver,
+            // [ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED]: getFulfillmentOrderIdResolver,
+            // [ShopifyTopic.FULFILLMENT_ORDERS_SPLIT]: getFulfillmentOrderIdResolver,
+            // [ShopifyTopic.FULFILLMENT_ORDERS_MERGED]: getFulfillmentOrderIdResolver,
+            // [ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE]: getFulfillmentOrderIdResolver,
 
-            // 👇 fulfillment (shipment-level)
-            [ShopifyTopic.FULFILLMENTS_CREATE]: (body) => Promise.resolve(body?.order_id),
-            [ShopifyTopic.FULFILLMENTS_UPDATE]: (body) => Promise.resolve(body?.order_id),
+            // // 👇 fulfillment (shipment-level)
+            // [ShopifyTopic.FULFILLMENTS_CREATE]: (body) => Promise.resolve(body?.order_id),
+            // [ShopifyTopic.FULFILLMENTS_UPDATE]: (body) => Promise.resolve(body?.order_id),
         };
 
         const topic = headers["x-shopify-topic"];
