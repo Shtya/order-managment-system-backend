@@ -908,6 +908,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 return null;
         }
 
+        if(mappedStatus === OrderStatus.CANCELLED && [OrderStatus.CANCELLED,OrderStatus.REJECTED,OrderStatus.FAILED_DELIVERY,OrderStatus.OUT_OF_DELIVERY_AREA].includes(localOrderStatus)) {
+            mappedStatus = null;
+        }
         return {
             mappedStatus,
             mappedPaymentStatus,
