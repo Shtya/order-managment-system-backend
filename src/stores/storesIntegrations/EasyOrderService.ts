@@ -1194,52 +1194,52 @@ export class EasyOrderService extends BaseStoreProvider {
         }> = {
 
             // 🟡 Order lifecycle
-            "pending": {
-                orderStatus: OrderStatus.NEW,
-                paymentStatus: null,
-            },
+            // "pending": {
+            //     orderStatus: OrderStatus.NEW,
+            //     paymentStatus: null,
+            // },
             "confirmed": {
                 orderStatus: OrderStatus.CONFIRMED,
                 paymentStatus: null,
             },
-            "processing": {
-                orderStatus: OrderStatus.PREPARING,
-                paymentStatus: null,
-            },
-            "waiting_for_pickup": {
-                orderStatus: OrderStatus.READY,
-                paymentStatus: null,
-            },
-            "in_delivery": {
-                orderStatus: OrderStatus.SHIPPED,
-                paymentStatus: null,
-            },
-            "delivered": {
-                orderStatus: OrderStatus.DELIVERED,
-                paymentStatus: null,
-            },
+            // "processing": {
+            //     orderStatus: OrderStatus.PREPARING,
+            //     paymentStatus: null,
+            // },
+            // "waiting_for_pickup": {
+            //     orderStatus: OrderStatus.READY,
+            //     paymentStatus: null,
+            // },
+            // "in_delivery": {
+            //     orderStatus: OrderStatus.SHIPPED,
+            //     paymentStatus: null,
+            // },
+            // "delivered": {
+            //     orderStatus: OrderStatus.DELIVERED,
+            //     paymentStatus: null,
+            // },
             "canceled": {
                 orderStatus: OrderStatus.CANCELLED,
                 paymentStatus: null,
             },
-            "returning_from_delivery": {
-                orderStatus: OrderStatus.RETURNED,
-                paymentStatus: null,
-            },
-            "refunded": {
-                orderStatus: OrderStatus.RETURNED,
-                paymentStatus: PaymentStatus.REFUNDED,
-            },
+            // "returning_from_delivery": {
+            //     orderStatus: OrderStatus.RETURNED,
+            //     paymentStatus: null,
+            // },
+            // "refunded": {
+            //     orderStatus: OrderStatus.RETURNED,
+            //     paymentStatus: PaymentStatus.REFUNDED,
+            // },
 
-            "request_refund": {
-                orderStatus: OrderStatus.RETURN_PREPARING,
-                paymentStatus: null,
-            },
+            // "request_refund": {
+            //     orderStatus: OrderStatus.RETURN_PREPARING,
+            //     paymentStatus: null,
+            // },
 
-            "refund_in_progress": {
-                orderStatus: OrderStatus.RETURN_PREPARING,
-                paymentStatus: null,
-            },
+            // "refund_in_progress": {
+            //     orderStatus: OrderStatus.RETURN_PREPARING,
+            //     paymentStatus: null,
+            // },
 
             // 💰 Payment states
             "paid": {

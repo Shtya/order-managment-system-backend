@@ -760,16 +760,18 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         return response?.webhookSubscriptionDelete?.deletedWebhookSubscriptionId;
     }
-
+//
     public async subscribeAllWebhooks(store: StoreEntity) {
         const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
         const topics: { topic: ShopifyTopic, url?: string }[] = [
-            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, { topic: ShopifyTopic.ORDERS_UPDATED },
-            { topic: ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED },
-            { topic: ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_SPLIT }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_MERGED },
-            { topic: ShopifyTopic.FULFILLMENTS_CREATE }, { topic: ShopifyTopic.FULFILLMENTS_UPDATE }, { topic: ShopifyTopic.ORDERS_FULFILLED }, { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE },
-            { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_DELETE }, { topic: ShopifyTopic.RETURNS_REQUEST }, { topic: ShopifyTopic.REFUNDS_CREATE }, { topic: ShopifyTopic.RETURNS_APPROVE }, { topic: ShopifyTopic.RETURNS_PROCESS },
-            { topic: ShopifyTopic.RETURNS_CLOSE }, { topic: ShopifyTopic.RETURNS_REOPEN }, { topic: ShopifyTopic.RETURNS_UPDATE }, { topic: ShopifyTopic.RETURNS_CANCEL }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
+            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, 
+            { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE }, 
+            { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID },  { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
+            // { topic: ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED },
+            // { topic: ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_SPLIT }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_MERGED },
+            // { topic: ShopifyTopic.FULFILLMENTS_CREATE }, { topic: ShopifyTopic.FULFILLMENTS_UPDATE }, { topic: ShopifyTopic.ORDERS_FULFILLED },  { topic: ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE },
+            //  { topic: ShopifyTopic.RETURNS_REQUEST }, { topic: ShopifyTopic.REFUNDS_CREATE }, { topic: ShopifyTopic.RETURNS_APPROVE }, { topic: ShopifyTopic.RETURNS_PROCESS },
+            // { topic: ShopifyTopic.RETURNS_CLOSE }, { topic: ShopifyTopic.RETURNS_REOPEN }, { topic: ShopifyTopic.RETURNS_UPDATE }, { topic: ShopifyTopic.RETURNS_CANCEL }, 
         ];
 
         const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
@@ -790,12 +792,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     public async unsubscribeAllWebhooks(store: StoreEntity) {
         const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
         const topics: { topic: ShopifyTopic, url?: string }[] = [
-            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, { topic: ShopifyTopic.ORDERS_UPDATED },
-            { topic: ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED },
-            { topic: ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_SPLIT }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_MERGED },
-            { topic: ShopifyTopic.FULFILLMENTS_CREATE }, { topic: ShopifyTopic.FULFILLMENTS_UPDATE }, { topic: ShopifyTopic.ORDERS_FULFILLED }, { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE },
-            { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_DELETE }, { topic: ShopifyTopic.RETURNS_REQUEST }, { topic: ShopifyTopic.REFUNDS_CREATE }, { topic: ShopifyTopic.RETURNS_APPROVE }, { topic: ShopifyTopic.RETURNS_PROCESS },
-            { topic: ShopifyTopic.RETURNS_CLOSE }, { topic: ShopifyTopic.RETURNS_REOPEN }, { topic: ShopifyTopic.RETURNS_UPDATE }, { topic: ShopifyTopic.RETURNS_CANCEL }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
+            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, 
+            { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE }, 
+            { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID },  { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
         ];
 
         const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
@@ -822,53 +821,53 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         let note: string | null = null;
         let postponedDate: string | null = null;
         switch (topic) {
-            case ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD:
-                mappedStatus = OrderStatus.POSTPONED;
-                note = body?.created_fulfillment_hold?.reason || "";
-                break;
+            // case ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD:
+            //     mappedStatus = OrderStatus.POSTPONED;
+            //     note = body?.created_fulfillment_hold?.reason || "";
+            //     break;
 
-            case ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED:
-                if (localOrderStatus !== OrderStatus.POSTPONED) {
-                    return null;
-                }
-                mappedStatus = OrderStatus.CONFIRMED;
-                break;
-            case ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED:
-                mappedStatus = OrderStatus.PREPARING;
-                note = body?.progress_report?.reason_notes || null;
-                break;
-            case ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED:
+            // case ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED:
+            //     if (localOrderStatus !== OrderStatus.POSTPONED) {
+            //         return null;
+            //     }
+            //     mappedStatus = OrderStatus.CONFIRMED;
+            //     break;
+            // case ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED:
+            //     mappedStatus = OrderStatus.PREPARING;
+            //     note = body?.progress_report?.reason_notes || null;
+            //     break;
+            // case ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED:
 
-                mappedStatus = OrderStatus.POSTPONED;
-                mappedPaymentStatus = null;
-                postponedDate = body?.fulfillment_order?.fulfill_at ?? null;
-                break;
-            case ShopifyTopic.FULFILLMENTS_CREATE:
-            case ShopifyTopic.FULFILLMENTS_UPDATE:
-                switch (body.status) {
-                    case "SUCCESS":
-                        mappedStatus = OrderStatus.SHIPPED;
-                        break;
+            //     mappedStatus = OrderStatus.POSTPONED;
+            //     mappedPaymentStatus = null;
+            //     postponedDate = body?.fulfillment_order?.fulfill_at ?? null;
+            //     break;
+            // case ShopifyTopic.FULFILLMENTS_CREATE:
+            // case ShopifyTopic.FULFILLMENTS_UPDATE:
+            //     switch (body.status) {
+            //         case "SUCCESS":
+            //             mappedStatus = OrderStatus.SHIPPED;
+            //             break;
 
-                    case "OPEN": // deprecated
-                        mappedStatus = OrderStatus.PREPARING;
-                        break;
+            //         case "OPEN": // deprecated
+            //             mappedStatus = OrderStatus.PREPARING;
+            //             break;
 
-                    case "PENDING": // deprecated
-                        mappedStatus = OrderStatus.CONFIRMED;
-                        break;
+            //         case "PENDING": // deprecated
+            //             mappedStatus = OrderStatus.CONFIRMED;
+            //             break;
 
-                    case "ERROR":
-                    case "CANCELLED":
-                    case "FAILURE":
-                    default:
-                        return null;
-                }
-                break;
-            case ShopifyTopic.ORDERS_FULFILLED:
-                mappedStatus = OrderStatus.SHIPPED;
-                note = "Order fully fulfilled";
-                break;
+            //         case "ERROR":
+            //         case "CANCELLED":
+            //         case "FAILURE":
+            //         default:
+            //             return null;
+            //     }
+            //     break;
+            // case ShopifyTopic.ORDERS_FULFILLED:
+            //     mappedStatus = OrderStatus.SHIPPED;
+            //     note = "Order fully fulfilled";
+            //     break;
             case ShopifyTopic.ORDERS_CANCELLED:
             case ShopifyTopic.ORDERS_DELETE:
                 mappedStatus = OrderStatus.CANCELLED;
@@ -884,23 +883,23 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 }
                 break;
             case ShopifyTopic.ORDERS_PAID:
-                mappedStatus = OrderStatus.CONFIRMED;
+                mappedStatus = null;
                 mappedPaymentStatus = PaymentStatus.PAID;
                 note = "Order paid";
                 break;
-            case ShopifyTopic.REFUNDS_CREATE:
-                mappedPaymentStatus = PaymentStatus.REFUNDED; // or PARTIAL_REFUND if you support it
-                break;
-            case ShopifyTopic.RETURNS_APPROVE:
-            case ShopifyTopic.RETURNS_PROCESS:
-            case ShopifyTopic.RETURNS_REOPEN:
-                mappedStatus = OrderStatus.RETURN_PREPARING;
-                note = "Order return preparing";
-                break;
-            case ShopifyTopic.RETURNS_CLOSE:
-                mappedStatus = OrderStatus.RETURNED;
-                note = "Order returned";
-                break;
+            // case ShopifyTopic.REFUNDS_CREATE:
+            //     mappedPaymentStatus = PaymentStatus.REFUNDED; // or PARTIAL_REFUND if you support it
+            //     break;
+            // case ShopifyTopic.RETURNS_APPROVE:
+            // case ShopifyTopic.RETURNS_PROCESS:
+            // case ShopifyTopic.RETURNS_REOPEN:
+            //     mappedStatus = OrderStatus.RETURN_PREPARING;
+            //     note = "Order return preparing";
+            //     break;
+            // case ShopifyTopic.RETURNS_CLOSE:
+            //     mappedStatus = OrderStatus.RETURNED;
+            //     note = "Order returned";
+            //     break;
             case ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED:
                 mappedStatus = OrderStatus.UNDER_REVIEW;
                 break;
@@ -1015,9 +1014,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         switch (status) {
 
-            case "UNFULFILLED":
-            case "OPEN":
-                return OrderStatus.CONFIRMED;
+            // case "UNFULFILLED":
+            // case "OPEN":
+            //     return OrderStatus.CONFIRMED;
 
             case "SCHEDULED":
                 return OrderStatus.POSTPONED;
@@ -1025,15 +1024,15 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             case "ON_HOLD":
                 return OrderStatus.POSTPONED;
 
-            case "PENDING_FULFILLMENT":
-            case "IN_PROGRESS":
-                return OrderStatus.PREPARING;
+            // case "PENDING_FULFILLMENT":
+            // case "IN_PROGRESS":
+            //     return OrderStatus.PREPARING;
 
-            case "FULFILLED":
-                return OrderStatus.SHIPPED;
+            // case "FULFILLED":
+            //     return OrderStatus.SHIPPED;
 
-            case "RESTOCKED":
-                return OrderStatus.RETURNED;
+            // case "RESTOCKED":
+            //     return OrderStatus.RETURNED;
 
             default:
                 return null;
