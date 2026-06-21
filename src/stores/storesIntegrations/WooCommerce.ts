@@ -1484,18 +1484,18 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
 
         const map: Record<string, OrderStatus> = {
-            "pending": OrderStatus.NEW,
+            // "pending": OrderStatus.NEW,
             "on-hold": OrderStatus.UNDER_REVIEW,
-            "processing": OrderStatus.PREPARING,
-            "completed": OrderStatus.DELIVERED,
+            // "processing": OrderStatus.PREPARING,
+            // "completed": OrderStatus.DELIVERED,
             "cancelled": OrderStatus.CANCELLED,
             "failed": OrderStatus.CANCELLED,
-            "refunded": OrderStatus.RETURNED,
+            // "refunded": OrderStatus.RETURNED,
             "trash": OrderStatus.CANCELLED,
         };
 
         return {
-            orderStatus: map[body.status] || OrderStatus.NEW,
+            orderStatus: map[body.status] || null,
             paymentStatus: body.set_paid ? PaymentStatus.PAID : PaymentStatus.PENDING
         }
     }
