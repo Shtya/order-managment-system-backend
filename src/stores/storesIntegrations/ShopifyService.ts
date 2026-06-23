@@ -21,12 +21,10 @@ import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus, ReturnRequestEn
 import * as crypto from 'crypto';
 import { ApolloClient, InMemoryCache, HttpLink, gql, ObservableQuery } from '@apollo/client/core';
 import fetch from 'cross-fetch';
-import axios from "axios";
 import { AppGateway } from "common/app.gateway";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
-import { access } from "fs";
 import { NotificationService } from "src/notifications/notification.service";
-import { StoreQueueService } from "./queues";
+import { ProductSyncQueueService } from "src/queue/queues/product-sync.queue";
 
 enum ShopifyTopic {
     ORDERS_CREATE = "orders/create",
@@ -119,8 +117,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
         protected readonly notificationService: NotificationService,
-        @Inject(forwardRef(() => StoreQueueService))
-        protected readonly storeQueueService: StoreQueueService,
+        @Inject(forwardRef(() => ProductSyncQueueService))
+        protected readonly productSyncQueueService: ProductSyncQueueService,
     ) {
         super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.SHOPIFY)
 
@@ -227,7 +225,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         await this.storesRepo.save(store);
         const redirectUrl = `${frontendBaseUrl}/store-integration`;
         if (!oldIsIntegrated && store.syncRemoteProducts) {
-            this.storeQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
+            this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
         }
         return { url: redirectUrl };
     }

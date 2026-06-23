@@ -55,6 +55,9 @@ import { OrderAssignmentModule } from './order-assignment/order-assignment.modul
 import { BullModule } from "@nestjs/bullmq";
 import { bullQueueConfig } from "./queue/common/base-queue.config";
 import { QueueModule } from "./queue/queue.module";
+import { BullBoardModule } from '@bull-board/nestjs';
+import { ExpressAdapter } from '@bull-board/express';
+
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -70,6 +73,7 @@ import { QueueModule } from "./queue/queue.module";
 				limit: 200,
 			}
 		]),
+		
 		TypeOrmModule.forRoot({
 			type: "postgres",
 			host: process.env.DATABASE_HOST,
@@ -82,8 +86,6 @@ import { QueueModule } from "./queue/queue.module";
 			synchronize: process.env.NODE_ENV === "development",
 			logging: false
 		}),
-		// BullModule.registerQueue({ name: 'store-sync' }),/
-		BullModule.forRootAsync(bullQueueConfig),
 		QueueModule,
 		AuthModule,
 		RolesModule,

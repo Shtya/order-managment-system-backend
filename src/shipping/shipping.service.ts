@@ -23,7 +23,7 @@ import { tenantId } from 'src/category/category.service';
 import { OrderActionResult, OrderActionType, OrderEntity, OrderFlowPath, OrderItemEntity, OrderReplacementEntity, OrderStatus, OrderStatusEntity, StockDeductionStrategy } from 'entities/order.entity';
 import { ProductVariantEntity } from 'entities/sku.entity';
 import { OrdersService } from 'src/orders/services/orders.service';
-import { ShippingQueueService } from './queues/shipping.queues';
+import { OrderSyncQueueService } from 'src/queue/queues/order-sync.queue';
 import { AppGateway } from '../../common/app.gateway';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
@@ -36,7 +36,7 @@ export class ShippingService {
 	constructor(
 		private bostaProvider: BostaProvider,
 		private jtProvider: JtProvider,
-		private queueService: ShippingQueueService,
+		private orderSyncQueueService: OrderSyncQueueService,
 
 		private turboProvider: TurboProvider,
 		private dataSource: DataSource,
@@ -757,7 +757,13 @@ export class ShippingService {
 	}
 
 	async bulkAssignOrders(me: any, provider: ProviderCode, dto: BulkAssignOrderDto) {
-		return this.queueService.enqueueBulkShippingTasks(me, provider, dto);
+		const adminId = tenantId(me);
+		await this.orderSyncQueueService.enqueueBulkShippingTasks(adminId, provider, dto);
+		return {
+			success: true,
+			message: `Successfully enqueued ${dto.items.length} unique shipping tasks.`,
+			count: dto.items.length
+		};
 	}
 
 	async listShipments(adminId: string) {

@@ -7,13 +7,10 @@ import { StoresController } from "./stores.controller";
 import { EncryptionService } from "common/encryption.service";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import { CategoryEntity } from "entities/categories.entity";
-import { StoreQueueService } from "./storesIntegrations/queues";
-import { StoreWorkerService } from "./storesIntegrations/workers";
 import { StoreSubscriber } from "./store-subscriber";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { OrderEntity, OrderStatusEntity, ReturnRequestEntity, ReturnRequestItemEntity } from "entities/order.entity";
 import { WebhookOrderFailureEntity } from "entities/stores.entity";
-import { RedisModule } from "common/redis/redis.module";
 import { OrdersModule } from "src/orders/orders.module";
 import { ProductsModule } from "src/products/products.module";
 import { CategoryModule } from "src/category/category.module";
@@ -27,6 +24,7 @@ import { ProductSyncStateModule } from "src/product-sync-state/product-sync-stat
 import { PurchasesModule } from "src/purchases/purchases.module";
 import { SafesModule } from "src/safes/safes.module";
 import { Account } from "entities/safe.entity";
+import { ShippingModule } from "src/shipping/shipping.module";
 
 @Module({
   imports: [
@@ -35,6 +33,7 @@ import { Account } from "entities/safe.entity";
     forwardRef(() => CategoryModule),
     forwardRef(() => PurchasesModule),
     forwardRef(() => SafesModule),
+    forwardRef(() => ShippingModule),
     ProductSyncStateModule,
     WebSocketModule,
     TypeOrmModule.forFeature([StoreEntity, ProductSyncStateEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity, Account,ReturnRequestEntity,ReturnRequestItemEntity]),
@@ -46,10 +45,8 @@ import { Account } from "entities/safe.entity";
     EasyOrderService,      // The API Logic + Bottleneck
     ShopifyService,
     WooCommerceService,
-    StoreQueueService, // The Producer
-    StoreWorkerService,
   ],
   controllers: [StoresController, StoreWebhooksController],
-  exports: [StoresService, EasyOrderService, WooCommerceService, StoreQueueService],
+  exports: [StoresService, EasyOrderService, WooCommerceService],
 })
 export class StoresModule { }

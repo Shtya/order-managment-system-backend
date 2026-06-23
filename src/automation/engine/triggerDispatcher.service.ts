@@ -1,80 +1,11 @@
-import { Inject, Injectable, OnModuleDestroy, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationStatus, FlowNodeType, RunStatus, TriggerEntityType, TriggerType } from 'entities/automation.entity';
 import { Repository, DataSource, In } from 'typeorm';
-import { Queue } from 'groupmq';
-import Redis from 'ioredis';
 import { OrderEntity, AutomationMigrationStrategy } from 'entities/order.entity';
 import { TriggerMatchersRegistry } from './triggerMatchers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
-
-
-export interface FlowExecutionJob {
-    type: 'start' | 'resume';
-    adminId: string;
-
-    // For 'start'
-    runId?: string;
-    automationFlowId?: string;
-    versionId?: string;
-
-    // For 'resume'
-    resumeData?: {
-        originalMessageId: string;
-        buttonText: string;
-        buttonId?: string;
-    };
-}
-
-const redisUrl = process.env.REDIS_URL || "redis://127.0.0.1:6379";
-const redis = new Redis(redisUrl);
-
-export const flowExecutionQueue = new Queue({
-    redis,
-    namespace: "flow-execution",
-    jobTimeoutMs: 5 * 60000,   // 5m
-    maxAttempts: 3,
-});
-
-@Injectable()
-export class FlowExecutionQueueService implements OnModuleDestroy {
-    /**
-     * Add new flow execution job
-     */
-    async add(data: FlowExecutionJob, options: any = {}) {
-        console.log(`[FlowExecutionQueueService] Adding job to queue with data:`, JSON.stringify(data));
-        if (!data.adminId) {
-            console.log(`[FlowExecutionQueueService] No adminId provided, skipping`);
-            return;
-        }
-
-        const groupId = options.groupId ?? `admin:${data.adminId}:flow`;
-        console.log(`[FlowExecutionQueueService] Using groupId: ${groupId}`);
-
-        try {
-            const result = await flowExecutionQueue.add({
-                groupId,
-                data,
-                orderMs: Date.now(),
-                maxAttempts: options.maxAttempts ?? 3,
-                jobId: options.jobId,
-            });
-            console.log(`[FlowExecutionQueueService] Job added successfully, result:`, JSON.stringify(result));
-            return result;
-        } catch (error) {
-            console.error(`[FlowExecutionQueueService] Error adding job to queue:`, error);
-            throw error;
-        }
-    }
-
-    /**
-     * Graceful shutdown
-     */
-    async onModuleDestroy() {
-        await flowExecutionQueue.close();
-        await redis.quit();
-    }
-}
+import { AutomationQueueService } from 'src/queue/queues/automations.queue';
 
 @Injectable()
 export class TriggerDispatcherService {
@@ -92,8 +23,8 @@ export class TriggerDispatcherService {
 
         @InjectRepository(OrderEntity)
         private readonly orderRepo: Repository<OrderEntity>,
-
-        private readonly flowQueue: FlowExecutionQueueService,
+        @Inject(forwardRef(() => AutomationQueueService))
+        private readonly automationQueueService: AutomationQueueService,
         private readonly triggerMatchers: TriggerMatchersRegistry,
 
         @Inject(forwardRef(() => OrdersService))
@@ -229,13 +160,12 @@ export class TriggerDispatcherService {
                     run.errorMessage = null; // Clear previous error
                     await this.runRepo.save(run);
 
-                    await this.flowQueue.add({
-                        type: 'start',
-                        runId: run.id,
-                        automationFlowId: automation.id,
-                        versionId: newVersion.id,
+                    await this.automationQueueService.enqueueStartFlow(
+                        run.id,
+                        automation.id,
+                        newVersion.id,
                         adminId,
-                    });
+                    );
                 }
             }
         }
@@ -301,13 +231,12 @@ export class TriggerDispatcherService {
 
                 // 2. Push to queue
                 console.log(`[TriggerDispatcher] Adding job to flow queue for run ${savedRun.id}`);
-                await this.flowQueue.add({
-                    type: 'start',
-                    runId: savedRun.id,
-                    automationFlowId: automation.id,
-                    versionId: version.id,
-                    adminId: automation.adminId,
-                });
+                await this.automationQueueService.enqueueStartFlow(
+                    savedRun.id,
+                    automation.id,
+                    version.id,
+                    automation.adminId,
+                );
                 console.log(`[TriggerDispatcher] Job added to queue successfully for run ${savedRun.id}`);
 
                 return savedRun;

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import {
   CheckEmailDto,
@@ -15,6 +15,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { ChangePasswordDto, RequestEmailChangeDto, SetPasswordDto, VerifyEmailChangeDto } from 'dto/user.dto';
 import { SkipThrottle } from '@nestjs/throttler';
+import { SystemRole } from 'entities/user.entity';
 
 
 @Controller('auth')
