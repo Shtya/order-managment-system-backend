@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationStatus, RunStatus, TriggerType, VersionIncrementType } from 'entities/automation.entity';
 import { Brackets, DataSource, Repository } from 'typeorm';
@@ -6,7 +6,8 @@ import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
-import { FlowExecutionQueueService, TriggerDispatcherService } from './engine/triggerDispatcher.service';
+import { TriggerDispatcherService } from './engine/triggerDispatcher.service';
+import { AutomationQueueService } from 'src/queue/queues/automations.queue';
 import { isSuperAdmin } from 'common/healpers';
 
 @Injectable()
@@ -20,7 +21,8 @@ export class AutomationService {
         @InjectRepository(AutomationRunEntity)
         private readonly runRepo: Repository<AutomationRunEntity>,
         private readonly dispatcher: TriggerDispatcherService,
-        private readonly flowQueue: FlowExecutionQueueService,
+        @Inject(forwardRef(() => AutomationQueueService))
+        private readonly automationQueueService: AutomationQueueService,
     ) { }
 
     async getFlowsStats(me: any) {
@@ -297,13 +299,12 @@ export class AutomationService {
         await this.runRepo.save(run);
 
         // Add to queue
-        await this.flowQueue.add({
-            type: 'start',
-            runId: run.id,
-            automationFlowId: run.automationFlowId,
-            versionId: run.versionId,
+        await this.automationQueueService.enqueueStartFlow(
+            run.id,
+            run.automationFlowId,
+            run.versionId,
             adminId,
-        });
+        );
 
         return {
             message: 'Run has been queued for retry',

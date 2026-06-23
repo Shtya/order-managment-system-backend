@@ -34,6 +34,52 @@ export class AuthService {
 			user,
 		};
 	}
+
+	async validatePayload(payload: { sub: number }) {
+		const user = await this.usersRepo.createQueryBuilder('user')
+			// 
+			.leftJoinAndSelect('user.role', 'role')
+
+
+			.leftJoinAndSelect('user.admin', 'admin')
+
+
+			.leftJoinAndSelect(
+				'user.subscriptions',
+				'ownSub',
+				'ownSub.status = :status',
+				{ status: SubscriptionStatus.ACTIVE }
+			)
+			.leftJoinAndSelect('ownSub.plan', 'ownPlan')
+
+
+			.leftJoinAndSelect(
+				'admin.subscriptions',
+				'adminSub',
+				'adminSub.status = :status',
+				{ status: SubscriptionStatus.ACTIVE }
+			)
+			.leftJoinAndSelect('adminSub.plan', 'adminPlan')
+
+			.where('user.id = :userId', { userId: payload.sub })
+			.getOne();
+
+		if (!user || !user.isActive) throw new UnauthorizedException('Invalid user');
+
+
+		const isAdmin = user.role?.name === SystemRole.ADMIN;
+		const effectiveSub = (isAdmin || !user.admin)
+			? user.subscriptions?.[0]
+			: user.admin?.subscriptions?.[0];
+
+
+		user.subscriptions = effectiveSub ? [effectiveSub] : [];
+
+		delete user.admin;
+
+		return user;
+	}
+
 	private generateOtp(len = 6) {
 		const n = crypto.randomInt(0, 10 ** len);
 		return n.toString().padStart(len, '0');

@@ -1,7 +1,7 @@
 // factory pattern. A registry that holds the actual execution logic for each FlowNodeType (e.g., WhatsappHandler, UpdateOrderStatusHandler, ConditionHandler).
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
-import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
@@ -644,18 +644,12 @@ export class NodeHandlersRegistry {
 
     constructor(
         private readonly adapter: ProductionAutomationAdapter,
-        @InjectRepository(UpsellHistory)
-        private readonly upsellHistoryRepo: Repository<UpsellHistory>,
-        @InjectRepository(WhatsappAccountEntity)
-        private readonly accountRepo: Repository<WhatsappAccountEntity>,
         @InjectRepository(OrderEntity)
         private readonly orderRepo: Repository<OrderEntity>,
-        @InjectRepository(User)
-        private readonly userRepo: Repository<User>,
         @InjectRepository(OrderAssignmentEntity)
         private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
+        @Inject(forwardRef(() => OrdersService))
         private readonly ordersService: OrdersService,
-        private readonly dataSource: DataSource,
     ) {
         this.registerHandlers();
     }

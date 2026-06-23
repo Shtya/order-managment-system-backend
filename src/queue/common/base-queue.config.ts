@@ -1,7 +1,8 @@
 // src/config/bull.config.ts
+import { SharedBullAsyncConfiguration } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 
-export const bullQueueConfig = {
+export const bullQueueConfig: SharedBullAsyncConfiguration = {
   imports: [ConfigModule],
   inject: [ConfigService],
   useFactory: async (configService: ConfigService) => {
@@ -20,8 +21,16 @@ export const bullQueueConfig = {
       defaultJobOptions: {
         attempts: Number(configService.get<number>('QUEUE_DEFAULT_ATTEMPTS') || 1),
         backoff: { type: 'exponential', delay: 3000 },
-        removeOnComplete: true,
-        removeOnFail: true,
+        removeOnComplete: {
+          age: 24 * 3600, // Keep for 24 hours (in seconds)
+          count: 1000,    // Keep a maximum of 1000 jobs
+        },
+        
+        // 👇 CHANGED: Keep failed jobs longer so you can inspect the error logs
+        removeOnFail: {
+          age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+          count: 5000,        // Keep a maximum of 5000 failed jobs
+        },
       },
     };
   },

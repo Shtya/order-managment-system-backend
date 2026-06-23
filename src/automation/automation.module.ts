@@ -3,9 +3,8 @@ import { AutomationService } from './automation.service';
 import { AutomationController } from './automation.controller';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationRunStepEntity } from 'entities/automation.entity';
-import { FlowExecutionQueueService, TriggerDispatcherService } from './engine/triggerDispatcher.service';
+import { TriggerDispatcherService } from './engine/triggerDispatcher.service';
 import { EngineRunnerService } from './engine/engineRunner.service';
-import { FlowWorkerService } from './engine/flowWorker.service';
 import { VariableHydratorService } from './engine/variableHydrator.service';
 import { ConditionOrderCheckHandler, ConditionQuickOrderStatusHandler, NodeHandlersRegistry } from './engine/nodeHandlers.registry';
 import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, TriggerMatchersRegistry } from './engine/triggerMatchers.registry';
@@ -47,13 +46,13 @@ import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.mod
     ])
   ],
   controllers: [AutomationController],
-  providers: [AutomationService, TriggerDispatcherService, FlowExecutionQueueService,
-    EngineRunnerService, FlowWorkerService, VariableHydratorService,
+  providers: [AutomationService, TriggerDispatcherService,
+    EngineRunnerService, VariableHydratorService,
     NodeHandlersRegistry, ConditionQuickOrderStatusHandler, ConditionOrderCheckHandler,
     ProductionAutomationAdapter, AutomationPreviewService,
     TriggerMatchersRegistry, OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher
   ],
-  exports: [AutomationService, TriggerDispatcherService, FlowExecutionQueueService,
+  exports: [AutomationService, TriggerDispatcherService,
     EngineRunnerService, VariableHydratorService,
     NodeHandlersRegistry
   ],

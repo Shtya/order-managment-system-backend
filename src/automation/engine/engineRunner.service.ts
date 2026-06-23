@@ -5,7 +5,6 @@ import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ActionType, AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationRunStepEntity, FlowDefinition, FlowEdge, FlowNode, NodeConfig, RunStatus, SendWhatsappTemplateConfig, StepStatus } from 'entities/automation.entity';
 import { Repository, DataSource } from 'typeorm';
-import { VariableHydratorService } from './variableHydrator.service';
 import { NodeHandlerResponse, NodeHandlersRegistry } from './nodeHandlers.registry';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
@@ -31,7 +30,7 @@ export class EngineRunnerService {
         private readonly automationRepo: Repository<AutomationFlowEntity>,
         @InjectRepository(AutomationRunStepEntity)
         private readonly stepRepo: Repository<AutomationRunStepEntity>,
-        private readonly hydrator: VariableHydratorService,
+        @Inject(forwardRef(() => NodeHandlersRegistry))
         private readonly registry: NodeHandlersRegistry,
         private readonly notificationService: NotificationService,
         private readonly appGateway: AppGateway,

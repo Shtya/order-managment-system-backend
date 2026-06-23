@@ -38,12 +38,10 @@ import { WalletModule } from "src/wallet/wallet.module";
 import { OrderAssignmentModule } from "src/order-assignment/order-assignment.module";
 import { BulkUploadUsage } from "entities/plans.entity";
 import { AutomationModule } from "src/automation/automation.module";
-import { QueueModule } from "src/queue/queue.module";
 
 @Module({
   imports: [
     forwardRef(() => StoresModule),
-    forwardRef(() => QueueModule),
     forwardRef(() => AutomationModule),
     forwardRef(() => ShippingModule),
     forwardRef(() => WalletModule),

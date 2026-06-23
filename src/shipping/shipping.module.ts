@@ -16,8 +16,6 @@ import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
 import { OrderEntity } from 'entities/order.entity';
 import { OrdersModule } from 'src/orders/orders.module';
-import { ShippingQueueService } from './queues/shipping.queues';
-import { ShippingWorkerService } from './queues/shipping.workers';
 import { WebSocketModule } from '../../common/websocket.module';
 
 @Module({
@@ -29,7 +27,7 @@ import { WebSocketModule } from '../../common/websocket.module';
     TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity]),
   ],
   controllers: [ShippingController, ShippingWebhookController],
-  providers: [ShippingService, BostaProvider, JtProvider, TurboProvider, ShippingQueueService, ShippingWorkerService],
-  exports: [ShippingService, ShippingQueueService],
+  providers: [ShippingService, BostaProvider, JtProvider, TurboProvider],
+  exports: [ShippingService],
 })
 export class ShippingModule { }

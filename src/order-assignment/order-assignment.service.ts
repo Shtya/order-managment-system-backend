@@ -12,7 +12,6 @@ import * as ExcelJS from "exceljs";
 import { ProductEntity } from 'entities/sku.entity';
 import { CityEntity } from 'entities/cities.entity';
 import { ShippingCompanyEntity } from 'entities/shipping.entity';
-import { autoAssignmentQueue } from './queues';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { BitmaskHelper, WeekDayHelper } from 'common/bitmask.helper';

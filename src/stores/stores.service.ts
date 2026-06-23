@@ -9,8 +9,10 @@ import { BundleEntity } from "entities/bundle.entity";
 import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
 import { OrderEntity, OrderStatus } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
-import { StoreQueueService } from "./storesIntegrations/queues";
-import { BaseStoreProvider, ISkuFetch, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
+
+import { OrderSyncQueueService } from "src/queue/queues/order-sync.queue";
+
+import { BaseStoreProvider, IBundleSyncProvider, ISkuFetch, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import WooCommerceService from "./storesIntegrations/WooCommerce";
@@ -19,6 +21,7 @@ import { ProductsService } from "src/products/products.service";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 import { PurchasesService } from "src/purchases/purchases.service";
 import { SafesService } from "src/safes/safes.service";
+import { ShippingService } from "src/shipping/shipping.service";
 import { CreateOrderDto } from "dto/order.dto";
 import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
 import { CreatePurchaseDto, PurchaseItemDto } from "dto/purchase.dto";
@@ -32,6 +35,8 @@ import { NotificationService } from "src/notifications/notification.service";
 import { generateRandomAlphanumeric, generateSlug, getErrorMessage, normalizeSku } from "common/healpers";
 import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntityType } from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
+import { ProductSyncJobs, OrderSyncJobs } from "src/queue/common/queue.constants";
+import { ProductSyncQueueService } from "src/queue/queues/product-sync.queue";
 
 @Injectable()
 export class StoresService {
@@ -41,12 +46,12 @@ export class StoresService {
     private dataSource: DataSource,
     // private readonly encryptionService: EncryptionService,
     protected readonly redisService: RedisService,
-    protected readonly storeQueueService: StoreQueueService,
+    protected readonly productSyncQueueService: ProductSyncQueueService,
+    protected readonly orderSyncQueueService: OrderSyncQueueService,
     private readonly appGateway: AppGateway,
     private readonly notificationService: NotificationService,
     private readonly productSyncStateService: ProductSyncStateService,
-    private readonly purchasesService: PurchasesService,
-    private readonly safesService: SafesService,
+    private readonly shippingService: ShippingService,
     private readonly shopifyService: ShopifyService,
     private readonly easyOrderService: EasyOrderService,
     private readonly woocommerceService: WooCommerceService,
@@ -57,7 +62,7 @@ export class StoresService {
     @InjectRepository(ProductSyncStateEntity) private readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
     @InjectRepository(OrderEntity) private readonly orderRepo: Repository<OrderEntity>,
     @InjectRepository(OrderEntity) private readonly ordersRepo: Repository<OrderEntity>,
-    @InjectRepository(Account) private readonly safesRepo: Repository<Account>,
+    @InjectRepository(BundleEntity) private readonly bundleRepo: Repository<BundleEntity>,
 
     @Inject(forwardRef(() => OrdersService))
     protected readonly ordersService: OrdersService,
@@ -578,7 +583,7 @@ export class StoresService {
     //  Queue the jobs
     const promises = activeStores.map(store => {
       // We pass store.provider directly to our unified queue service
-      return this.storeQueueService.enqueueCategorySync(
+      return this.productSyncQueueService.enqueueCategorySync(
         category,
         store.id,
         store.provider, // Pass the provider (e.g., 'shopify')
@@ -618,7 +623,7 @@ export class StoresService {
       return;
     }
     // Route to the correct queue based on Provider
-    await this.storeQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider);
+    await this.productSyncQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider);
     this.logger.log(
       `[Product Sync] Dispatched sync job for Product: "${name}" (ID: ${id}) ` +
       `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. `
@@ -647,7 +652,7 @@ export class StoresService {
     }
 
     // Route to the correct queue based on Provider
-    await this.storeQueueService.enqueueBundleSync(bundle.id, bundle.adminId, store.id, store.provider, oldBundleData);
+    await this.productSyncQueueService.enqueueBundleSync(bundle.id, bundle.adminId, store.id, store.provider, oldBundleData);
     this.logger.log(
       `[Bundle Sync] Dispatched sync job for Bundle: "${name}" (ID: ${id}) ` +
       `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`
@@ -678,7 +683,7 @@ export class StoresService {
 
     // Route to the correct queue based on Provider
 
-    await this.storeQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId, oldStatusId);
+    await this.orderSyncQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId, oldStatusId);
 
     this.logger.log(
       `[Order Status Sync] Dispatched status update for Order #${order.id} (ID: ${orderId}) ` +
@@ -705,7 +710,7 @@ export class StoresService {
 
 
     // Route to the correct queue based on Provider
-    await this.storeQueueService.enqueueFullStoreSync(store);
+    await this.productSyncQueueService.enqueueFullStoreSync(store);
 
     this.logger.log(
       `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
@@ -742,7 +747,7 @@ export class StoresService {
 
 
     // Route to the correct queue based on Provider
-    await this.storeQueueService.enqueueFullProductSyncLocally(adminId, store.provider);
+    await this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider);
 
     this.logger.log(
       `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
@@ -781,7 +786,7 @@ export class StoresService {
     if (store.localSyncStatus === SyncStatus.SYNCING)
       throw new BadRequestException("Cannot sync: store is already syncing");
 
-    await this.storeQueueService.enqueueFullStoreSync(store, productIds);
+    await this.productSyncQueueService.enqueueFullStoreSync(store, productIds);
 
     this.logger.log(
       `[Manual Partial Sync] Dispatched sync for ${productIds.length} products in Store: "${store.name}" (ID: ${id}) ` +
@@ -1667,7 +1672,7 @@ export class StoresService {
     }
 
     // Enqueue the retry job
-    await this.storeQueueService.enqueueRetryFailedOrder(
+    await this.orderSyncQueueService.enqueueRetryFailedOrder(
       adminId,
       failureId,
       failureLog.store.provider
@@ -1820,7 +1825,7 @@ export class StoresService {
 
     const newStore = await this.storesRepo.save(store);;
     if (newStore.syncRemoteProducts) {
-      this.storeQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
+      this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
     }
     return newStore;
   }
@@ -2150,5 +2155,228 @@ export class StoresService {
 
     return { product, skuQuantityMap }
   }
+  private getService(provider: string | StoreProvider): BaseStoreProvider {
+    switch (provider) {
+      case StoreProvider.SHOPIFY:
+        return this.shopifyService;
+      case StoreProvider.EASYORDER:
+        return this.easyOrderService;
+      case StoreProvider.WOOCOMMERCE:
+        return this.woocommerceService;
+      default:
+        throw new Error(`Unsupported Store Provider: ${provider}`);
+    }
+  }
 
+  protected getErrorMessage(error: any): string {
+    return error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
+  }
+
+  async processProductSyncJob(data: any): Promise<any> {
+    const {
+      type,
+      storeType,
+      storeId,
+      productId,
+      bundleId,
+      oldBundleData,
+      category,
+      slug,
+      productIds,
+      adminId,
+    } = data;
+
+
+    try {
+      const service = storeType ? this.getService(storeType) : null;
+
+      switch (type) {
+        case ProductSyncJobs.SYNC_CATEGORY:
+          await service?.syncCategory({ category, slug });
+          this.logger.log(`[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.name?.trim()}`);
+          break;
+
+        case ProductSyncJobs.SYNC_PRODUCT:
+          const product = await this.productsRepo.findOne({
+            where: { id: productId },
+            relations: ['category', 'store']
+          });
+
+          if (!product || !product.isActive) return;
+
+          await service?.syncProduct({ productId });
+          this.logger.log(`[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${productId}`);
+          break;
+
+        case ProductSyncJobs.SYNC_BUNDLE:
+          const bundle = await this.bundleRepo.createQueryBuilder('bundle')
+            .leftJoinAndSelect('bundle.variant', 'variant')
+            .leftJoinAndSelect('variant.product', 'product')
+            .leftJoinAndSelect(
+              'bundle.items',
+              'items',
+              'items.isActive = :itemActive',
+              { itemActive: true }
+            )
+            .innerJoinAndSelect(
+              'items.variant',
+              'itemVariant',
+              'itemVariant.isActive = :active',
+              { active: true }
+            )
+            .leftJoinAndSelect('itemVariant.product', 'itemProduct')
+            .where('bundle.id = :bundleId', { bundleId })
+            .getOne();
+
+          if (!bundle) return;
+
+          const { oldMainVaraintId, oldStoreId, oldStoreType, adminId: storeAdmin } = oldBundleData ?? {};
+          if (oldMainVaraintId && oldStoreId && (bundle?.variantId !== oldMainVaraintId || bundle?.storeId !== oldStoreId)) {
+            const deleteService = this.getService(oldStoreType);
+            if ('deleteBundle' in deleteService)
+              await(deleteService as unknown as IBundleSyncProvider).deleteBundle(oldMainVaraintId, oldStoreId, storeAdmin);
+            this.logger.log(`[Delete Bundle] Provider: ${oldStoreType} | Job: ${type} | Successfully delete bundle of old varaint: ${oldMainVaraintId}`);
+          }
+
+          if (!bundle?.variant?.isActive) return;
+          if ('syncBundle' in service) {
+            await(service as unknown as IBundleSyncProvider).syncBundle(bundle);
+            this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);
+          }
+          break;
+
+        case ProductSyncJobs.FULL_SYNC:
+          const store = await this.storesRepo.findOneBy({ id: storeId });
+          if (store) {
+            await service?.syncFullStore(store, productIds);
+            this.logger.log(`[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`);
+          }
+          break;
+
+        case ProductSyncJobs.SYNC_LOCAL:
+          if (adminId && storeType) {
+            await this.syncStoreProductsLocally(adminId, storeType);
+            this.logger.log(`[Sync Products Locally] Provider: ${storeType} | Admin: ${adminId} | Successfully processed`);
+          }
+          break;
+
+        default:
+          this.logger.warn(`Unknown job type: ${type} for provider: ${storeType}`);
+      }
+    } catch (error: any) {
+      const message = this.getErrorMessage(error);
+      const stack = error instanceof Error ? error.stack : 'No stack trace available';
+      this.logger.error(
+        `[Worker Error] Provider: ${storeType} | Job: ${type} | ${message}`,
+        stack
+      );
+      throw error;
+    }
+  }
+
+  async processOrderSyncJob(data: any): Promise<any> {
+    const {
+      type,
+      storeType,
+      storeId,
+      orderId,
+      newStatusId,
+      oldStatusId,
+      orders,
+      adminId,
+      failureId,
+      provider,
+      items,
+    } = data;
+
+    try {
+      const service = storeType ? this.getService(storeType) : null;
+
+      switch (type) {
+        case OrderSyncJobs.BULK_CREATE_ORDERS:
+          if (!orders?.length) {
+            this.logger.warn(`[Bulk Orders] Empty payload for admin ${adminId}`);
+            return;
+          }
+          await this.ordersService.createBulkOrders(orders, adminId);
+          this.logger.log(
+            `[Bulk Orders] Created ${orders.length} orders for admin ${adminId}`
+          );
+          break;
+
+        case OrderSyncJobs.SYNC_ORDER_STATUS:
+          const order = await this.orderRepo.findOne({
+            where: { id: orderId },
+          });
+          if (order) {
+            await service?.syncOrderStatus(order, newStatusId, oldStatusId);
+            this.logger.log(`[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`);
+          }
+          break;
+
+        case OrderSyncJobs.RETRY_FAILED_ORDER:
+          if (failureId && adminId) {
+            const mockUser = { id: adminId, role: { name: 'admin' } };
+            const result = await this.retryFailedOrder(mockUser, failureId);
+            this.logger.log(`[Retry Failed Order] Processed failureId=${failureId}, result=${JSON.stringify(result)}`);
+          }
+          break;
+
+        case OrderSyncJobs.BULK_SHIPPING:
+          if (!items?.length) {
+            this.logger.warn(`[Bulk Shipping] Empty payload for admin ${adminId}`);
+            return;
+          }
+          await this.processBulkShipping(adminId, provider, items);
+          break;
+
+        default:
+          this.logger.warn(`Unknown job type: ${type} for provider: ${storeType}`);
+      }
+    } catch (error: any) {
+      const message = this.getErrorMessage(error);
+      const stack = error instanceof Error ? error.stack : 'No stack trace available';
+      this.logger.error(
+        `[Worker Error] Provider: ${storeType} | Job: ${type} | ${message}`,
+        stack
+      );
+      throw error;
+    }
+  }
+
+  private async processBulkShipping(
+    adminId: string,
+    provider: any,
+    items: any[],
+  ) {
+    const mockUser = { id: adminId, role: { name: 'admin' } };
+    const chunkSize = 3;
+    
+    for (let i = 0; i < items.length; i += chunkSize) {
+      const chunk = items.slice(i, i + chunkSize);
+      this.logger.log(`[Bulk Shipping] Processing chunk ${Math.floor(i / chunkSize) + 1} (${chunk.length} items)`);
+      
+      const results = await Promise.allSettled(
+        chunk.map(async (item) => {
+          try {
+            const { orderId, ...individualDto } = item;
+            await this.shippingService.createShipment(
+              mockUser,
+              provider,
+              individualDto,
+              orderId,
+            );
+            return { orderId, success: true };
+          } catch (error) {
+            this.logger.error(`[Bulk Shipping] Failed to process order ${item.orderId}:`, error);
+            return { orderId: item.orderId, success: false, error };
+          }
+        })
+      );
+      
+      const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
+      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
+      this.logger.log(`[Bulk Shipping] Chunk complete. Success: ${successful}, Failed: ${failed}`);
+    }
+  }
 }

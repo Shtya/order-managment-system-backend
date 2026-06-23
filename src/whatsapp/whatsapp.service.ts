@@ -8,7 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
 import { getErrorMessage, imageSrc, calculateRange } from 'common/healpers';
-import { FlowExecutionQueueService } from 'src/automation/engine/triggerDispatcher.service';
+import { AutomationQueueService } from 'src/queue/queues/automations.queue';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { ConversationService } from 'src/conversation/conversation.service';
@@ -36,7 +36,8 @@ export class WhatsappService {
         @InjectRepository(WhatsappTemplateEntity)
         private readonly templateRepo: Repository<WhatsappTemplateEntity>,
         private readonly templateService: WhatsappTemplateService,
-        private readonly flowQueue: FlowExecutionQueueService,
+        @Inject(forwardRef(() => AutomationQueueService))
+        private readonly automationQueueService: AutomationQueueService,
         @Inject(forwardRef(() => OrdersService))
         private readonly orderService: OrdersService,
         @Inject(forwardRef(() => ConversationService))
@@ -1313,15 +1314,14 @@ export class WhatsappService {
             const originalMessageId = metaMsg.context?.id;
             if (originalMessageId) {
                 // Push resume job to queue instead of direct execution
-                await this.flowQueue.add({
-                    type: 'resume',
-                    adminId: account.adminId,
-                    resumeData: {
+                await this.automationQueueService.enqueueResumeFlow(
+                    account.adminId,
+                    {
                         originalMessageId,
                         buttonText: replyData.text,
                         buttonId: replyData.id
                     }
-                });
+                );
             }
         }
     }

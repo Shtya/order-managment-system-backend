@@ -79,12 +79,12 @@ import {
 import { BulkUploadUsage, SubscriptionStatus } from "entities/plans.entity";
 import { DateFilterUtil } from "common/date-filter.util";
 import { RedisService } from "common/redis/RedisService";
-import { ShippingQueueService } from "src/shipping/queues/shipping.queues";
 import { WalletService } from "src/wallet/wallet.service";
 import { NotificationService } from "src/notifications/notification.service";
 import { StoresService } from "src/stores/stores.service";
 import { ShippingService } from "src/shipping/shipping.service";
-import { StoreQueueService } from "src/stores/storesIntegrations/queues";
+import { OrderSyncQueueService } from "src/queue/queues/order-sync.queue";
+
 import { CRUD } from "common/crud.service";
 import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
 import { randomBytes } from "crypto";
@@ -107,7 +107,7 @@ export function tenantId(me: any): any | null {
 export class OrdersService {
   constructor(
     private dataSource: DataSource,
-    protected readonly queueService: StoreQueueService,
+    protected readonly orderSyncQueueService: OrderSyncQueueService,
 
     @InjectRepository(OrderEntity)
     private orderRepo: Repository<OrderEntity>,
@@ -155,12 +155,6 @@ export class OrdersService {
 
     @InjectRepository(OrderActionLogEntity)
     private orderActionLogRepo: Repository<OrderActionLogEntity>,
-
-
-
-
-    @Inject(forwardRef(() => ShippingQueueService))
-    private shippingQueueService: ShippingQueueService,
 
     @Inject(forwardRef(() => WalletService))
     private walletService: WalletService,
@@ -291,10 +285,10 @@ export class OrdersService {
       notes,
       ipAddress,
     });
-    
+
     await params.manager.save(log);
-    await this.handleOrderStatusChange({ 
-      orderId: params.orderId, 
+    await this.handleOrderStatusChange({
+      orderId: params.orderId,
       manager: params.manager,
       oldStatusId: params.fromStatusId,
       newStatusId: params.toStatusId,
@@ -302,8 +296,8 @@ export class OrdersService {
   }
 
   // ✅ Handle order status change (logs, triggers, sync)
-  public async handleOrderStatusChange(params: { 
-    orderId: string; 
+  public async handleOrderStatusChange(params: {
+    orderId: string;
     manager: EntityManager;
     oldStatusId?: string | null;
     newStatusId?: string;
@@ -781,11 +775,7 @@ export class OrdersService {
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
-
-    if (q?.status === OrderStatus.CONFIRMED && records.length > 0) {
-      await this.shippingQueueService.attachIsAssigningState(records);
-    }
-
+      
     return {
       total_records: total,
       current_page: page,
@@ -793,7 +783,7 @@ export class OrdersService {
       records,
     };
   }
-
+ 
   async getShippedStatsByCompany(me: any, q?: any) {
     const superAdmin = isSuperAdmin(me);
     let adminId = tenantId(me);
@@ -5227,7 +5217,7 @@ export class OrdersService {
     }
 
     if (validOrderPayloads.length > 0) {
-      await this.queueService.enqueueBulkOrderCreate(adminId, validOrderPayloads);
+      await this.orderSyncQueueService.enqueueBulkOrderCreate(adminId, validOrderPayloads);
     }
 
     return {
