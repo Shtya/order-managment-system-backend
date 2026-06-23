@@ -4,7 +4,7 @@ import { BullBoardModule } from '@bull-board/nestjs';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express'; // Make sure this is installed
 
-import { QueueNames } from './common/queue.constants';
+import { QueueNames, QueueConfigs } from './common/queue.constants';
 import { AutoAssignmentQueueService, AutoAssignmentWorkerService } from './queues/auto-assignment.queue';
 import { OrdersModule } from 'src/orders/orders.module';
 import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.module';
@@ -19,14 +19,25 @@ import { bullQueueConfig } from './common/base-queue.config';
 import { BullBoardAuthMiddleware } from './common/bull-board-auth-middleware';
 import { AuthModule } from 'src/auth/auth.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { MetricsTime } from 'bullmq';
 
 const registeredQueues = Object.values(QueueNames).map((queueName) => ({
   name: queueName,
+  metrics: {
+    // Retain 2 weeks of data points in Redis for all queues, or isolate to PRODUCT_SYNC
+    maxDataPoints: queueName === QueueNames.PRODUCT_SYNC 
+      ? MetricsTime.ONE_WEEK * 2 
+      : 60, 
+  },
 }));
 
 const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
   name: queueName,
   adapter: BullMQAdapter,
+  options: {
+    displayName: QueueConfigs[queueName].displayName,
+    description: QueueConfigs[queueName].description,
+  },
 }));
 
 @Global()

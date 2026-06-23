@@ -7,6 +7,25 @@ export enum QueueNames {
   AUTOMATIONS = 'automations',
 }
 
+export const QueueConfigs: Record<QueueNames, { displayName: string; description: string }> = {
+  [QueueNames.AUTO_ASSIGNMENT]: {
+    displayName: 'Auto Assignment Queue',
+    description: 'Handles automatic order assignment to employee based on configured rules',
+  },
+  [QueueNames.PRODUCT_SYNC]: {
+    displayName: 'Product Sync Queue',
+    description: 'Synchronizes products, categories, bundles, and full store data with external stores',
+  },
+  [QueueNames.ORDER_SYNC]: {
+    displayName: 'Order Sync Queue',
+    description: 'Creates bulk orders, syncs order statuses, retries failed orders, and processes bulk shipping tasks',
+  },
+  [QueueNames.AUTOMATIONS]: {
+    displayName: 'Automations Queue',
+    description: 'Runs automation flows and resumes them from WhatsApp or upsell replay events',
+  },
+};
+
 export const AutoAssignmentJobs = {
   ASSIGN_ORDERS: 'assign-orders'
 } as const;
