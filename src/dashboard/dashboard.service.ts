@@ -3,6 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import {
   endOfDay,
   endOfMonth,
+  format,
   startOfDay,
   startOfMonth,
   startOfWeek,
@@ -25,6 +26,7 @@ import * as ExcelJS from "exceljs";
 import { calculateRange, calculatePreviousRange } from "common/healpers";
 import { User } from "entities/user.entity";
 import { DateFilterUtil } from "common/date-filter.util";
+import { OrderFailStatus, WebhookOrderFailureEntity } from "entities/stores.entity";
 
 @Injectable()
 export class DashboardService {
@@ -39,8 +41,8 @@ export class DashboardService {
     @InjectRepository(User)
     private usersRepo: Repository<User>,
 
-    @InjectRepository(OrderScanLogEntity)
-    private scanLogsRepo: Repository<OrderScanLogEntity>,
+    @InjectRepository(WebhookOrderFailureEntity)
+    private webhookOrderFailureRepo: Repository<WebhookOrderFailureEntity>,
   ) { }
 
   async getSummary(
@@ -605,7 +607,7 @@ export class DashboardService {
         }),
       )
       .andWhere("status.isActive = true")
-           // GROUP BY every non-aggregated selected column (Postgres requires this)
+      // GROUP BY every non-aggregated selected column (Postgres requires this)
       .groupBy("status.id")
       .addGroupBy("status.name")
       .addGroupBy("status.code")
@@ -1288,5 +1290,378 @@ export class DashboardService {
     });
 
     return formattedStats;
+  }
+
+  async getAdvancedStats(user: any, filters: any) {
+    const adminId = tenantId(user);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    // Calculate Date Boundaries
+    let { start: startRange, end: endRange } = calculateRange(filters.range);
+    const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
+    const startDate = startRange ? startRange : start;
+    const endDate = endRange ? endRange : end;
+    // ====================================================================
+    // QUERY 1: Main Order Aggregations
+    // ====================================================================
+    const mainQb = this.orderRepo.createQueryBuilder("o")
+      .leftJoin("o.status", "st")
+      .leftJoin("o.oldStatus", "oldSt")
+      // .leftJoin("o.cityDetails", "cityDetails")
+      .where("o.adminId = :adminId", { adminId });
+
+    // Apply Filters to Main Query
+    if (filters.storeId) mainQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    if (filters.cityId) mainQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    if (filters.shippingCompanyId) {
+      mainQb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+    }
+    if (startDate) mainQb.andWhere("o.created_at >= :startDate", { startDate });
+    if (endDate) mainQb.andWhere("o.created_at <= :endDate", { endDate });
+
+    if (filters.productIds && filters.productIds.length > 0) {
+      const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
+      mainQb.andWhere(`EXISTS (
+        SELECT 1 FROM order_items oi
+        INNER JOIN product_variants pv ON oi."variantId" = pv.id
+        WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
+      )`, { pIds });
+    }
+
+    if (filters.assignedUserId) {
+      mainQb.andWhere(`
+    :assignedUserId = (
+      SELECT oa."employeeId"
+      FROM order_assignments oa
+      WHERE oa."orderId" = o.id
+      ORDER BY oa."assignedAt" DESC
+      LIMIT 1
+    )
+  `, { assignedUserId: filters.assignedUserId });
+    }
+  const statusQb = mainQb.clone();
+    mainQb.select([
+      `COUNT(DISTINCT o.id) AS "totalOrders"`,
+
+      // Corrected Orders
+      `COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END) AS "correctedOrders"`,
+
+      // Confirmed Counts (Assumes "isConfirmed" is a boolean column on orders table)
+      `COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END) AS "confirmedCount"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END) AS "deliveredFromConfirmed"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "deliveredFromTotal"`,
+
+      // Financials
+      `COALESCE(SUM(o."finalTotal"), 0) AS "totalSales"`,
+      `COALESCE(SUM(CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o."finalTotal" ELSE 0 END), 0) AS "deliveredSales"`,
+      `COALESCE(SUM(o."collectedAmount"), 0) AS "collectedAmount"`,
+
+      // Status Breakdowns
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.NEW}' THEN o.id END) AS "newOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.RETURNED}' THEN o.id END) AS "returnedOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.POSTPONED}' THEN o.id END) AS "postponedOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.OUT_OF_DELIVERY_AREA}' THEN o.id END) AS "outOfDeliveryOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.WRONG_NUMBER}' THEN o.id END) AS "wrongNumberOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CANCELLED}' THEN o.id END) AS "canceledOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CONFIRMED}' THEN o.id END) AS "statusConfirmedOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END) AS "shippedOrders"`,
+      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "statusDeliveredOrders"`,
+
+      // Canceled and under review logic
+      `COUNT(DISTINCT CASE 
+        WHEN (st.code = '${OrderStatus.CANCELLED}' AND EXISTS (SELECT 1 FROM order_assignments oa WHERE oa."orderId" = o.id AND oa."isAssignmentActive" = true))
+        OR (st.code = '${OrderStatus.UNDER_REVIEW}' AND oldSt.code = '${OrderStatus.CANCELLED}') 
+      THEN o.id END) AS "canceledAndUnderReview"`,
+
+      // In Warehouse
+      `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.PACKED}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`
+    ]);
+
+    // ====================================================================
+    // QUERY 2: Pending/Failed Webhook Orders
+    // ====================================================================
+    // Extracted from WebhookOrderFailureEntity where status != SUCCESS
+    const pendingQb = this.webhookOrderFailureRepo
+      .createQueryBuilder("wf")
+      .where("wf.adminId = :adminId", { adminId })
+      .andWhere("wf.status != :successStatus", { successStatus: OrderFailStatus.SUCCESS }); // Ensure 'SUCCESS' matches your OrderFailStatus enum
+
+    if (filters.storeId) pendingQb.andWhere("wf.storeId = :storeId", { storeId: filters.storeId });
+    if (start) pendingQb.andWhere("wf.created_at >= :start", { start });
+    if (end) pendingQb.andWhere("wf.created_at <= :end", { end });
+
+    pendingQb.select("COUNT(DISTINCT wf.id)", "count");
+
+    // ====================================================================
+    // Execution and Result Formatting
+    // ====================================================================
+    
+    statusQb.select([
+      `st.id AS "statusId"`,
+      `st.name AS "name"`,
+      `st.system AS "system"`,
+      `st.code AS "code"`,
+      `COUNT(DISTINCT o.id) AS "count"`
+    ])
+    .groupBy('st.id, st.name, st.system, st.code');
+
+    const [mainStats, pendingStats, statusBreakdown] = await Promise.all([
+      mainQb.getRawOne(),
+      pendingQb.getRawOne(),
+      statusQb.getRawMany(),
+    ]);
+
+    // Note: TypeORM getRawOne often lowercases aliases depending on DB drivers. Checking both.
+    const getVal = (key1: string, key2: string) => Number(mainStats[key1] ?? mainStats[key2]) || 0;
+
+    return {
+      totalOrders: getVal("totalOrders", "totalorders"),
+      correctedOrders: getVal("correctedOrders", "correctedorders"),
+      confirmedCount: getVal("confirmedCount", "confirmedcount"),
+      deliveredFromConfirmed: getVal("deliveredFromConfirmed", "deliveredfromconfirmed"),
+      deliveredFromTotal: getVal("deliveredFromTotal", "deliveredfromtotal"),
+      totalSales: getVal("totalSales", "totalsales"),
+      deliveredSales: getVal("deliveredSales", "deliveredsales"),
+      collectedAmount: getVal("collectedAmount", "collectedamount"),
+      statuses: {
+        new: getVal("newOrders", "neworders"),
+        returned: getVal("returnedOrders", "returnedorders"),
+        postponed: getVal("postponedOrders", "postponedorders"),
+        outOfDelivery: getVal("outOfDeliveryOrders", "outofdeliveryorders"),
+        wrongNumber: getVal("wrongNumberOrders", "wrongnumberorders"),
+        canceled: getVal("canceledOrders", "canceledorders"),
+        confirmed: getVal("statusConfirmedOrders", "statusconfirmedorders"),
+        shipped: getVal("shippedOrders", "shippedorders"),
+        delivered: getVal("statusDeliveredOrders", "statusdeliveredorders"),
+      },
+      statusBreakdown,
+      canceledAndUnderReview: getVal("canceledAndUnderReview", "canceledandunderreview"),
+      pendingOrders: Number(pendingStats?.count || 0),
+      inWarehouseOrders: getVal("inWarehouseOrders", "inwarehouseorders"),
+    };
+  }
+
+  async getWeeklyTrend(user: any, filters: any) {
+    const adminId = tenantId(user);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    // Calculate exact timeframe: Last 7 days including today
+    const endDate = new Date();
+    endDate.setHours(23, 59, 59, 999);
+
+    const startDate = subDays(new Date(), 6);
+    startDate.setHours(0, 0, 0, 0);
+
+    const qb = this.orderRepo.createQueryBuilder("o")
+      .leftJoin("o.status", "st")
+      .where("o.adminId = :adminId", { adminId })
+      .andWhere("TO_CHAR(o.created_at, 'YYYY-MM-DD') >= :startDate", { startDate })
+      .andWhere("TO_CHAR(o.created_at, 'YYYY-MM-DD') <= :endDate", { endDate });
+
+    // Apply exact same filters as advanced-stats
+    if (filters.storeId) qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    if (filters.cityId) qb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    if (filters.shippingCompanyId) {
+      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+    }
+
+    if (filters.productIds && filters.productIds.length > 0) {
+      const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
+      qb.andWhere(`EXISTS (
+        SELECT 1 FROM order_items oi
+        INNER JOIN product_variants pv ON oi."variantId" = pv.id
+        WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
+      )`, { pIds });
+    }
+
+    if (filters.assignedUserId) {
+      qb.andWhere(`
+        :assignedUserId = (
+          SELECT oa."employeeId"
+          FROM order_assignments oa
+          WHERE oa."orderId" = o.id
+          ORDER BY oa."assignedAt" DESC
+          LIMIT 1
+        )
+      `, { assignedUserId: filters.assignedUserId });
+    }
+
+    // Group by the date of creation
+    // Replace the select and groupBy lines with this:
+    qb.select(`TO_CHAR(o.created_at, 'YYYY-MM-DD')`, 'date')
+      .addSelect(`COUNT(DISTINCT o.id)`, 'created')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`, 'delivered')
+      .groupBy(`TO_CHAR(o.created_at, 'YYYY-MM-DD')`);
+
+    const rawResults = await qb.getRawMany();
+
+    // Format output to guarantee all 7 days exist in the array (even if counts are 0)
+
+    const results = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const targetDate = subDays(new Date(), i);
+
+      // Use date-fns format to safely get the local YYYY-MM-DD without UTC shifts
+      const dateString = format(targetDate, 'yyyy-MM-dd');
+
+      const dayOfWeek = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
+
+      // Now we just strictly match the string from Postgres
+      const foundData = rawResults.find((row) => row.date === dateString);
+
+      results.push({
+        date: dateString,
+        day_of_week: dayOfWeek,
+        created: Number(foundData?.created || 0),
+        delivered: Number(foundData?.delivered || 0)
+      });
+    }
+
+    return results;
+  }
+
+  async getTopCitiesStats(user: any, filters: any) {
+    const adminId = tenantId(user);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
+    const limit = filters.limit ? Number(filters.limit) : 5;
+
+    const qb = this.orderRepo.createQueryBuilder("o")
+      .leftJoin("o.status", "st")
+      .leftJoin("o.cityDetails", "cityDetails") // Join using the requested relation
+      .where("o.adminId = :adminId", { adminId })
+      .andWhere("cityDetails.id IS NOT NULL");
+
+    // Apply Filters
+    if (filters.storeId) qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    if (filters.shippingCompanyId) {
+      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+    }
+    if (start) qb.andWhere("o.created_at >= :start", { start });
+    if (end) qb.andWhere("o.created_at <= :end", { end });
+
+    if (filters.productIds && filters.productIds.length > 0) {
+      const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
+      qb.andWhere(`EXISTS (
+        SELECT 1 FROM order_items oi
+        INNER JOIN product_variants pv ON oi."variantId" = pv.id
+        WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
+      )`, { pIds });
+    }
+
+    if (filters.assignedUserId) {
+      qb.andWhere(`
+        :assignedUserId = (
+          SELECT oa."employeeId"
+          FROM order_assignments oa
+          WHERE oa."orderId" = o.id
+          ORDER BY oa."assignedAt" DESC
+          LIMIT 1
+        )
+      `, { assignedUserId: filters.assignedUserId });
+    }
+
+    // Selects and Aggregations grouped by City Entity Details
+    qb.select('cityDetails.id', 'id')
+      .addSelect('cityDetails.nameEn', 'nameEn')
+      .addSelect('cityDetails.nameAr', 'nameAr')
+      .addSelect(`COUNT(DISTINCT o.id)`, 'totalOrders')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END)`, 'correctedOrders')
+      .addSelect(`COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END)`, 'confirmedCount')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END)`, 'shippedOrders')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`, 'deliveredTotal')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END)`, 'deliveredFromConfirmed')
+      .groupBy('cityDetails.id')
+      .addGroupBy('cityDetails.nameEn')
+      .addGroupBy('cityDetails.nameAr')
+      .orderBy('"deliveredTotal"', 'DESC')
+      .addOrderBy('"totalOrders"', 'DESC')
+      .limit(limit);
+
+    const rawResults = await qb.getRawMany();
+
+    // Map results while safely handling case flattening variations across DB drivers
+    return rawResults.map(row => ({
+      id: row.id,
+      nameEn: row.nameEn || row.nameen,
+      nameAr: row.nameAr || row.namear,
+      totalOrders: Number(row.totalOrders || row.totalorders || 0),
+      correctedOrders: Number(row.correctedOrders || row.correctedorders || 0),
+      confirmedCount: Number(row.confirmedCount || row.confirmedcount || 0),
+      shippedOrders: Number(row.shippedOrders || row.shippedorders || 0),
+      deliveredTotal: Number(row.deliveredTotal || row.deliveredtotal || 0),
+      deliveredFromConfirmed: Number(row.deliveredFromConfirmed || row.deliveredfromconfirmed || 0),
+    }));
+  }
+
+  async getTopProductsStats(user: any, filters: any) {
+    const adminId = tenantId(user);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
+    const limit = filters.limit ? Number(filters.limit) : 5;
+
+    // Use OrderItems as the base to join products properly, then join back to Order
+    const qb = this.orderRepo.createQueryBuilder("o")
+      .innerJoin("o.items", "oi")
+      .innerJoin("oi.variant", "pv")
+      .innerJoin("pv.product", "p")
+      .leftJoin("o.status", "st")
+      .where("o.adminId = :adminId", { adminId });
+
+    // Apply Filters
+    if (filters.storeId) qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    if (filters.cityId) qb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    if (filters.shippingCompanyId) {
+      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+    }
+    if (start) qb.andWhere("o.created_at >= :start", { start });
+    if (end) qb.andWhere("o.created_at <= :end", { end });
+
+    if (filters.assignedUserId) {
+      qb.andWhere(`
+        :assignedUserId = (
+          SELECT oa."employeeId"
+          FROM order_assignments oa
+          WHERE oa."orderId" = o.id
+          ORDER BY oa."assignedAt" DESC
+          LIMIT 1
+        )
+      `, { assignedUserId: filters.assignedUserId });
+    }
+
+    // Selects and Aggregations grouped by Product
+    qb.select('p.id', 'id')
+      .addSelect('p.name', 'name')
+      .addSelect('p.mainImage', 'image')
+      .addSelect(`COUNT(DISTINCT o.id)`, 'totalOrders') // Distinct ensures 1 order = 1 count even if multiple items
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END)`, 'correctedOrders')
+      .addSelect(`COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END)`, 'confirmedCount')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END)`, 'shippedOrders')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`, 'deliveredTotal')
+      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END)`, 'deliveredFromConfirmed')
+      .groupBy('p.id')
+      .addGroupBy('p.name')
+      .addGroupBy('p.mainImage')
+      .orderBy('"deliveredTotal"', 'DESC')
+      .addOrderBy('"totalOrders"', 'DESC')
+      .limit(limit);
+
+    const rawResults = await qb.getRawMany();
+
+    // Map results safely handling PostgreSQL lowercase aliases
+    return rawResults.map(row => ({
+      id: row.id,
+      name: row.name,
+      image: row.image,
+      totalOrders: Number(row.totalOrders || row.totalorders || 0),
+      correctedOrders: Number(row.correctedOrders || row.correctedorders || 0),
+      confirmedCount: Number(row.confirmedCount || row.confirmedcount || 0),
+      shippedOrders: Number(row.shippedOrders || row.shippedorders || 0),
+      deliveredTotal: Number(row.deliveredTotal || row.deliveredtotal || 0),
+      deliveredFromConfirmed: Number(row.deliveredFromConfirmed || row.deliveredfromconfirmed || 0),
+    }));
   }
 }

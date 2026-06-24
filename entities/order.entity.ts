@@ -251,6 +251,12 @@ export class OrderEntity {
   
   @Column({ type: 'uuid' })
   statusId: string;
+
+  @Column({ type: 'boolean', default: false })
+  isConfirmed: boolean;
+
+  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  confirmedAt?: Date;
   
   @Column({ type: 'uuid', nullable: true })
   oldStatusId: string;
