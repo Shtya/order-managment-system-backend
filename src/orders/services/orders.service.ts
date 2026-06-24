@@ -5749,6 +5749,7 @@ export class OrdersService {
       // Update existing record
       settings = this.retryRepo.merge(settings, {
         ...dto,
+        defaultWhatsAppAccountId: dto.defaultWhatsAppAccountId || settings.defaultWhatsAppAccountId || null,
         notificationSettings: {
           ...(settings.notificationSettings ?? {}),
           ...(dto.notificationSettings ?? {}),
