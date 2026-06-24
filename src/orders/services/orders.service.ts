@@ -816,6 +816,7 @@ export class OrdersService {
           .select("shipping.id", "companyId")
           .addSelect("shipping.name", "companyName")
           .addSelect("COUNT(order.id)", "count")
+          .addSelect("COALESCE(SUM(order.finalTotal), 0)", "totalFinalTotal")
           .where("status.code = :shippedCode", { shippedCode: OrderStatus.SHIPPED });
 
         if (adminId) {
@@ -837,11 +838,12 @@ export class OrdersService {
     ]);
 
     // Create a map to quickly look up order count and name by company ID
-    const companyDataMap = new Map<string | null, { count: number; name: string | null }>();
+    const companyDataMap = new Map<string | null, { count: number; name: string | null; totalFinalTotal: number }>();
     rows.forEach((row) => {
       companyDataMap.set(row.companyId ?? null, {
         count: Number(row.count) || 0,
         name: row.companyName ?? null,
+        totalFinalTotal: Number(row.totalFinalTotal) || 0,
       });
     });
 
@@ -857,6 +859,7 @@ export class OrdersService {
         companyId: companyId,
         companyName: company.name ?? null,
         count: data?.count || 0,
+        totalFinalTotal: data?.totalFinalTotal || 0,
       };
     });
 
@@ -870,6 +873,7 @@ export class OrdersService {
           companyId: companyId,
           companyName: companyId ? (data?.name ?? null) : "None",
           count: data?.count || 0,
+          totalFinalTotal: data?.totalFinalTotal || 0,
         });
       }
     });
@@ -881,6 +885,7 @@ export class OrdersService {
         companyId: null,
         companyName: "None",
         count: 0,
+        totalFinalTotal: 0,
       });
     }
 
