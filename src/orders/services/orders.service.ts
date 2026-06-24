@@ -775,7 +775,7 @@ export class OrdersService {
       .skip((page - 1) * limit)
       .take(limit)
       .getMany();
-      
+
     return {
       total_records: total,
       current_page: page,
@@ -783,7 +783,7 @@ export class OrdersService {
       records,
     };
   }
- 
+
   async getShippedStatsByCompany(me: any, q?: any) {
     const superAdmin = isSuperAdmin(me);
     let adminId = tenantId(me);
@@ -2602,9 +2602,9 @@ export class OrdersService {
 
     // If auto-cancel is enabled and it's a duplicate, set status to CANCELLED
     if (autoCancel && duplicateCount > 0) {
-      const cancelledStatus = await this.findStatusByCode(OrderStatus.CANCELLED, adminId);
-      if (cancelledStatus) {
-        initialStatusId = cancelledStatus.id;
+      const duplicateStatus = await this.findStatusByCode(OrderStatus.DUPLICATE, adminId);
+      if (duplicateStatus) {
+        initialStatusId = duplicateStatus.id;
       }
     }
 
@@ -3225,6 +3225,11 @@ export class OrdersService {
         order.shippedAt = new Date();
       }
 
+      if (newStatusCode === OrderStatus.CONFIRMED) {
+        order.confirmedAt = new Date();
+        order.isConfirmed = true;
+      }
+
       if (newStatusCode === OrderStatus.POSTPONED && dto.postponedDate) {
         order.postponedDate = new Date(dto.postponedDate);
         order.reminderDaysBefore = dto.reminderDaysBefore;
@@ -3596,6 +3601,12 @@ export class OrdersService {
       }
       order.status = newStatus;
       order.updatedByUserId = employeeId;
+
+      if (newStatus.code === OrderStatus.CONFIRMED) {
+        order.confirmedAt = new Date();
+        order.isConfirmed = true;
+      }
+
 
       // Save Entities
       await manager.save(OrderAssignmentEntity, activeAssignment);

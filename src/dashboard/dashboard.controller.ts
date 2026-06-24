@@ -118,4 +118,73 @@ export class DashboardController {
   async getEmployeeAnalysisStats(@Req() req: any, @Query() query) {
     return this.dashboardService.getEmployeeAnalysisStats(req.user, query);
   }
+
+  @Permissions("dashboard.read")
+  @Get('advanced-stats')
+  async getAdvancedStats(
+    @Req() req: any,
+    @Query() filters: {
+      storeId?: string;
+      shippingCompanyId?: string;
+      assignedUserId?: string;
+      productIds?: string | string[];
+      cityId?: string;
+      startDate?: string;
+      endDate?: string;
+      range?: string;
+    }
+  ) {
+    return this.dashboardService.getAdvancedStats(req.user, filters);
+  }
+
+  @Permissions("dashboard.read")
+  @Get('weekly-trend')
+  async getWeeklyTrend(
+    @Req() req: any,
+    @Query() filters: {
+      storeId?: string;
+      shippingCompanyId?: string;
+      assignedUserId?: string;
+      productIds?: string | string[];
+      cityId?: string;
+    }
+  ) {
+    return this.dashboardService.getWeeklyTrend(req.user, filters);
+  }
+
+ @Permissions("dashboard.read")
+  @Get('top-cities-stats')
+  async getTopCitiesStats(
+    @Req() req: any,
+    @Query() filters: {
+      storeId?: string;
+      shippingCompanyId?: string;
+      assignedUserId?: string;
+      productIds?: string | string[];
+      startDate?: string;
+      endDate?: string;
+      range?: string;
+      limit?: number;
+    }
+  ) {
+    return this.dashboardService.getTopCitiesStats(req.user, filters);
+  }
+
+  @Permissions("dashboard.read")
+  @Get('top-products-stats')
+  async getTopProductsStats(
+    @Req() req: any,
+    @Query() filters: {
+      storeId?: string;
+      shippingCompanyId?: string;
+      assignedUserId?: string;
+      cityId?: string;
+      startDate?: string;
+      endDate?: string;
+      range?: string;
+      limit?: number;
+    }
+  ) {
+    return this.dashboardService.getTopProductsStats(req.user, filters);
+  }
 }
