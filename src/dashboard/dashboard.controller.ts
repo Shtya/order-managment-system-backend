@@ -93,6 +93,19 @@ export class DashboardController {
   }
 
   @Permissions("dashboard.read")
+  @Get('orders/top-products/export')
+  async exportTopProductsReport(@Req() req: any, @Query() query, @Res() res: Response) {
+    const buffer = await this.dashboardService.exportTopProductsReport(req.user, query);
+
+    const filename = `top_products_report_${new Date().toISOString().split('T')[0]}.xlsx`;
+
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+
+    return res.send(buffer);
+  }
+
+  @Permissions("dashboard.read")
   @Get('employees/stats')
   async getEmployeeStats(
     @Req() req: any,

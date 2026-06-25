@@ -814,85 +814,95 @@ export class DashboardService {
   }
 
   async exportTopAreasReport(user: any, filters: any) {
-    // 1. جلب البيانات من الدالة التي قمنا بتعديلها (Top Selling Areas)
-    const reportData = await this.getTopAreasReport(user, filters);
+    // 1. Get the data from our getTopCitiesStats method
+    const reportData = await this.getTopCitiesStats(user, filters);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("تقرير مبيعات المناطق");
+    const worksheet = workbook.addWorksheet("Top Areas Report");
 
-    // 2. تعريف الأعمدة بناءً على التعديلات الأخيرة
+    // 2. Define columns matching the frontend table
     worksheet.columns = [
-      { header: "المدينة", key: "city", width: 20 },
-      { header: "إجمالي الطلبات", key: "totalOrders", width: 15 },
-      { header: "الطلبات المؤكدة", key: "confirmedOrders", width: 15 },
-      { header: "الطلبات المشحونة", key: "shippedOrders", width: 15 },
-      { header: "الطلبات المستلمة", key: "deliveredOrders", width: 15 },
-      { header: "إجمالي المبيعات", key: "sales", width: 20 },
-      { header: "نسبة التوصيل (%)", key: "deliveryRate", width: 15 },
+      { header: "City Area", key: "cityArea", width: 25 },
+      { header: "Total Orders", key: "totalOrders", width: 15 },
+      { header: "Corrected Orders", key: "correctedOrders", width: 18 },
+      { header: "Confirmed Count", key: "confirmedCount", width: 18 },
+      { header: "Shipped Orders", key: "shippedOrders", width: 18 },
+      { header: "Delivered Total", key: "deliveredTotal", width: 18 },
+      { header: "Delivered from Confirmed", key: "deliveredFromConfirmed", width: 22 },
     ];
 
-    // 3. تنسيق الهيدر (اللون البرتقالي الأساسي)
+    // 3. Format header
     worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
     worksheet.getRow(1).fill = {
       type: "pattern",
       pattern: "solid",
-      fgColor: { argb: "FFFF8B00" },
+      fgColor: { argb: "FF6366F1" }, // Primary color
     };
     worksheet.getRow(1).alignment = {
       horizontal: "center",
       vertical: "middle",
     };
 
-    // 4. إضافة البيانات وتنسيق الصفوف
+    // 4. Add data and format rows
     reportData.forEach((row) => {
       const newRow = worksheet.addRow({
-        ...row,
-        deliveryRate: `${row.deliveryRate}%`,
+        cityArea: row.nameEn || row.nameAr || '',
+        totalOrders: row.totalOrders,
+        correctedOrders: row.correctedOrders,
+        confirmedCount: row.confirmedCount,
+        shippedOrders: row.shippedOrders,
+        deliveredTotal: row.deliveredTotal,
+        deliveredFromConfirmed: row.deliveredFromConfirmed,
       });
-
-      // تنسيق العملات لخانة المبيعات
-      newRow.getCell("sales").numFmt = "#,##0.00";
-
-      // تلوين نسبة التوصيل (أخضر إذا كانت فوق 70%)
-      const rateCell = newRow.getCell("deliveryRate");
-      const rateValue = parseInt(row.deliveryRate);
-      rateCell.font = {
-        color: { argb: rateValue >= 70 ? "FF008000" : "FFFF0000" },
-        bold: true,
-      };
-
       newRow.alignment = { horizontal: "center" };
-      newRow.getCell("city").alignment = { horizontal: "right" }; // محاذاة النص العربي لليمين
     });
 
-    // 5. إضافة صف الإجمالي الكلي
-    const totals = reportData.reduce(
-      (acc, r) => ({
-        total: acc.total + r.totalOrders,
-        delivered: acc.delivered + r.deliveredOrders,
-        sales: acc.sales + r.sales,
-      }),
-      { total: 0, delivered: 0, sales: 0 },
-    );
+    return await workbook.xlsx.writeBuffer();
+  }
 
-    const footerRow = worksheet.addRow({
-      city: "الإجمالي الكلي",
-      totalOrders: totals.total,
-      deliveredOrders: totals.delivered,
-      sales: totals.sales,
-      deliveryRate:
-        totals.total > 0
-          ? `${Math.round((totals.delivered / totals.total) * 100)}%`
-          : "0%",
-    });
+  async exportTopProductsReport(user: any, filters: any) {
+    // 1. Get the data from our getTopProductsStats method
+    const reportData = await this.getTopProductsStats(user, filters);
 
-    footerRow.font = { bold: true };
-    footerRow.fill = {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Top Products Report");
+
+    // 2. Define columns matching the frontend table
+    worksheet.columns = [
+      { header: "Product Name", key: "name", width: 30 },
+      { header: "Total Orders", key: "totalOrders", width: 15 },
+      { header: "Corrected Orders", key: "correctedOrders", width: 18 },
+      { header: "Confirmed Count", key: "confirmedCount", width: 18 },
+      { header: "Shipped Orders", key: "shippedOrders", width: 18 },
+      { header: "Delivered Total", key: "deliveredTotal", width: 18 },
+      { header: "Delivered from Confirmed", key: "deliveredFromConfirmed", width: 22 },
+    ];
+
+    // 3. Format header
+    worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    worksheet.getRow(1).fill = {
       type: "pattern",
       pattern: "solid",
-      fgColor: { argb: "FFF9FAFB" },
+      fgColor: { argb: "FF6366F1" }, // Primary color
     };
-    footerRow.getCell("sales").numFmt = "#,##0.00";
+    worksheet.getRow(1).alignment = {
+      horizontal: "center",
+      vertical: "middle",
+    };
+
+    // 4. Add data and format rows
+    reportData.forEach((row) => {
+      const newRow = worksheet.addRow({
+        name: row.name,
+        totalOrders: row.totalOrders,
+        correctedOrders: row.correctedOrders,
+        confirmedCount: row.confirmedCount,
+        shippedOrders: row.shippedOrders,
+        deliveredTotal: row.deliveredTotal,
+        deliveredFromConfirmed: row.deliveredFromConfirmed,
+      });
+      newRow.alignment = { horizontal: "center" };
+    });
 
     return await workbook.xlsx.writeBuffer();
   }
@@ -1301,27 +1311,137 @@ export class DashboardService {
     const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
     const startDate = startRange ? startRange : start;
     const endDate = endRange ? endRange : end;
-    // ====================================================================
-    // QUERY 1: Main Order Aggregations
-    // ====================================================================
-    const mainQb = this.orderRepo.createQueryBuilder("o")
+    
+    // Calculate previous range for comparison
+    const prevRange = calculatePreviousRange(
+      filters.range,
+      startDate ? new Date(startDate) : undefined,
+      endDate ? new Date(endDate) : undefined
+    );
+
+    // Function to fetch data for a specific range
+    const fetchData = async (rangeStart: Date | string, rangeEnd: Date | string) => {
+      const mainQb = this.orderRepo.createQueryBuilder("o")
+        .leftJoin("o.status", "st")
+        .leftJoin("o.oldStatus", "oldSt")
+        .where("o.adminId = :adminId", { adminId });
+
+      // Apply Filters to Main Query
+      if (filters.storeId) mainQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+      if (filters.cityId) mainQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+      if (filters.shippingCompanyId) {
+        mainQb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+      }
+      if (rangeStart) mainQb.andWhere("o.created_at >= :rangeStart", { rangeStart });
+      if (rangeEnd) mainQb.andWhere("o.created_at <= :rangeEnd", { rangeEnd });
+
+      if (filters.productIds && filters.productIds.length > 0) {
+        const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
+        mainQb.andWhere(`EXISTS (
+          SELECT 1 FROM order_items oi
+          INNER JOIN product_variants pv ON oi."variantId" = pv.id
+          WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
+        )`, { pIds });
+      }
+
+      if (filters.assignedUserId) {
+        mainQb.andWhere(`
+          :assignedUserId = (
+            SELECT oa."employeeId"
+            FROM order_assignments oa
+            WHERE oa."orderId" = o.id
+            ORDER BY oa."assignedAt" DESC
+            LIMIT 1
+          )
+        `, { assignedUserId: filters.assignedUserId });
+      }
+
+      mainQb.select([
+        `COUNT(DISTINCT o.id) AS "totalOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END) AS "correctedOrders"`,
+        `COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END) AS "confirmedCount"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END) AS "deliveredFromConfirmed"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "deliveredFromTotal"`,
+        `COALESCE(SUM(o."finalTotal"), 0) AS "totalSales"`,
+        `COALESCE(SUM(CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o."finalTotal" ELSE 0 END), 0) AS "deliveredSales"`,
+        `COALESCE(SUM(o."collectedAmount"), 0) AS "collectedAmount"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.NEW}' THEN o.id END) AS "newOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.RETURNED}' THEN o.id END) AS "returnedOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.POSTPONED}' THEN o.id END) AS "postponedOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.OUT_OF_DELIVERY_AREA}' THEN o.id END) AS "outOfDeliveryOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.WRONG_NUMBER}' THEN o.id END) AS "wrongNumberOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CANCELLED}' THEN o.id END) AS "canceledOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CONFIRMED}' THEN o.id END) AS "statusConfirmedOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END) AS "shippedOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "statusDeliveredOrders"`,
+        `COUNT(DISTINCT CASE 
+          WHEN (st.code = '${OrderStatus.CANCELLED}' AND EXISTS (SELECT 1 FROM order_assignments oa WHERE oa."orderId" = o.id AND oa."isAssignmentActive" = true))
+          OR (st.code = '${OrderStatus.UNDER_REVIEW}' AND oldSt.code = '${OrderStatus.CANCELLED}') 
+        THEN o.id END) AS "canceledAndUnderReview"`,
+        `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.PACKED}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`
+      ]);
+
+      // QUERY 2: Pending/Failed Webhook Orders
+      const pendingQb = this.webhookOrderFailureRepo
+        .createQueryBuilder("wf")
+        .where("wf.adminId = :adminId", { adminId })
+        .andWhere("wf.status != :successStatus", { successStatus: OrderFailStatus.SUCCESS });
+
+      if (filters.storeId) pendingQb.andWhere("wf.storeId = :storeId", { storeId: filters.storeId });
+      if (rangeStart) pendingQb.andWhere("wf.created_at >= :rangeStart", { rangeStart });
+      if (rangeEnd) pendingQb.andWhere("wf.created_at <= :rangeEnd", { rangeEnd });
+      
+      pendingQb.select("COUNT(DISTINCT wf.id)", "count");
+
+      const [mainStats, pendingStats] = await Promise.all([
+        mainQb.getRawOne(),
+        pendingQb.getRawOne()
+      ]);
+
+      const getVal = (key1: string, key2: string) => Number(mainStats[key1] ?? mainStats[key2]) || 0;
+
+      return {
+        totalOrders: getVal("totalOrders", "totalorders"),
+        correctedOrders: getVal("correctedOrders", "correctedorders"),
+        confirmedCount: getVal("confirmedCount", "confirmedcount"),
+        deliveredFromConfirmed: getVal("deliveredFromConfirmed", "deliveredfromconfirmed"),
+        deliveredFromTotal: getVal("deliveredFromTotal", "deliveredfromtotal"),
+        totalSales: getVal("totalSales", "totalsales"),
+        deliveredSales: getVal("deliveredSales", "deliveredsales"),
+        collectedAmount: getVal("collectedAmount", "collectedamount"),
+        statuses: {
+          new: getVal("newOrders", "neworders"),
+          returned: getVal("returnedOrders", "returnedorders"),
+          postponed: getVal("postponedOrders", "postponedorders"),
+          outOfDelivery: getVal("outOfDeliveryOrders", "outofdeliveryorders"),
+          wrongNumber: getVal("wrongNumberOrders", "wrongnumberorders"),
+          canceled: getVal("canceledOrders", "canceledorders"),
+          confirmed: getVal("statusConfirmedOrders", "statusconfirmedorders"),
+          shipped: getVal("shippedOrders", "shippedorders"),
+          delivered: getVal("statusDeliveredOrders", "statusdeliveredorders"),
+        },
+        canceledAndUnderReview: getVal("canceledAndUnderReview", "canceledandunderreview"),
+        pendingOrders: Number(pendingStats?.count || 0),
+        inWarehouseOrders: getVal("inWarehouseOrders", "inwarehouseorders"),
+      };
+    };
+
+    // Fetch current range status breakdown separately
+    const statusQb = this.orderRepo.createQueryBuilder("o")
       .leftJoin("o.status", "st")
-      .leftJoin("o.oldStatus", "oldSt")
-      // .leftJoin("o.cityDetails", "cityDetails")
       .where("o.adminId = :adminId", { adminId });
 
-    // Apply Filters to Main Query
-    if (filters.storeId) mainQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
-    if (filters.cityId) mainQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    if (filters.storeId) statusQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    if (filters.cityId) statusQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
     if (filters.shippingCompanyId) {
-      mainQb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+      statusQb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
     }
-    if (startDate) mainQb.andWhere("o.created_at >= :startDate", { startDate });
-    if (endDate) mainQb.andWhere("o.created_at <= :endDate", { endDate });
+    if (startDate) statusQb.andWhere("o.created_at >= :startDate", { startDate });
+    if (endDate) statusQb.andWhere("o.created_at <= :endDate", { endDate });
 
     if (filters.productIds && filters.productIds.length > 0) {
       const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
-      mainQb.andWhere(`EXISTS (
+      statusQb.andWhere(`EXISTS (
         SELECT 1 FROM order_items oi
         INNER JOIN product_variants pv ON oi."variantId" = pv.id
         WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
@@ -1329,73 +1449,17 @@ export class DashboardService {
     }
 
     if (filters.assignedUserId) {
-      mainQb.andWhere(`
-    :assignedUserId = (
-      SELECT oa."employeeId"
-      FROM order_assignments oa
-      WHERE oa."orderId" = o.id
-      ORDER BY oa."assignedAt" DESC
-      LIMIT 1
-    )
-  `, { assignedUserId: filters.assignedUserId });
+      statusQb.andWhere(`
+        :assignedUserId = (
+          SELECT oa."employeeId"
+          FROM order_assignments oa
+          WHERE oa."orderId" = o.id
+          ORDER BY oa."assignedAt" DESC
+          LIMIT 1
+        )
+      `, { assignedUserId: filters.assignedUserId });
     }
-  const statusQb = mainQb.clone();
-    mainQb.select([
-      `COUNT(DISTINCT o.id) AS "totalOrders"`,
 
-      // Corrected Orders
-      `COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END) AS "correctedOrders"`,
-
-      // Confirmed Counts (Assumes "isConfirmed" is a boolean column on orders table)
-      `COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END) AS "confirmedCount"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END) AS "deliveredFromConfirmed"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "deliveredFromTotal"`,
-
-      // Financials
-      `COALESCE(SUM(o."finalTotal"), 0) AS "totalSales"`,
-      `COALESCE(SUM(CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o."finalTotal" ELSE 0 END), 0) AS "deliveredSales"`,
-      `COALESCE(SUM(o."collectedAmount"), 0) AS "collectedAmount"`,
-
-      // Status Breakdowns
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.NEW}' THEN o.id END) AS "newOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.RETURNED}' THEN o.id END) AS "returnedOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.POSTPONED}' THEN o.id END) AS "postponedOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.OUT_OF_DELIVERY_AREA}' THEN o.id END) AS "outOfDeliveryOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.WRONG_NUMBER}' THEN o.id END) AS "wrongNumberOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CANCELLED}' THEN o.id END) AS "canceledOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CONFIRMED}' THEN o.id END) AS "statusConfirmedOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END) AS "shippedOrders"`,
-      `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "statusDeliveredOrders"`,
-
-      // Canceled and under review logic
-      `COUNT(DISTINCT CASE 
-        WHEN (st.code = '${OrderStatus.CANCELLED}' AND EXISTS (SELECT 1 FROM order_assignments oa WHERE oa."orderId" = o.id AND oa."isAssignmentActive" = true))
-        OR (st.code = '${OrderStatus.UNDER_REVIEW}' AND oldSt.code = '${OrderStatus.CANCELLED}') 
-      THEN o.id END) AS "canceledAndUnderReview"`,
-
-      // In Warehouse
-      `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.PACKED}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`
-    ]);
-
-    // ====================================================================
-    // QUERY 2: Pending/Failed Webhook Orders
-    // ====================================================================
-    // Extracted from WebhookOrderFailureEntity where status != SUCCESS
-    const pendingQb = this.webhookOrderFailureRepo
-      .createQueryBuilder("wf")
-      .where("wf.adminId = :adminId", { adminId })
-      .andWhere("wf.status != :successStatus", { successStatus: OrderFailStatus.SUCCESS }); // Ensure 'SUCCESS' matches your OrderFailStatus enum
-
-    if (filters.storeId) pendingQb.andWhere("wf.storeId = :storeId", { storeId: filters.storeId });
-    if (start) pendingQb.andWhere("wf.created_at >= :start", { start });
-    if (end) pendingQb.andWhere("wf.created_at <= :end", { end });
-
-    pendingQb.select("COUNT(DISTINCT wf.id)", "count");
-
-    // ====================================================================
-    // Execution and Result Formatting
-    // ====================================================================
-    
     statusQb.select([
       `st.id AS "statusId"`,
       `st.name AS "name"`,
@@ -1405,39 +1469,16 @@ export class DashboardService {
     ])
     .groupBy('st.id, st.name, st.system, st.code');
 
-    const [mainStats, pendingStats, statusBreakdown] = await Promise.all([
-      mainQb.getRawOne(),
-      pendingQb.getRawOne(),
+    const [currentStats, comparisonStats, statusBreakdown] = await Promise.all([
+      fetchData(startDate, endDate),
+      prevRange.start && prevRange.end ? fetchData(prevRange.start, prevRange.end) : Promise.resolve(null),
       statusQb.getRawMany(),
     ]);
 
-    // Note: TypeORM getRawOne often lowercases aliases depending on DB drivers. Checking both.
-    const getVal = (key1: string, key2: string) => Number(mainStats[key1] ?? mainStats[key2]) || 0;
-
     return {
-      totalOrders: getVal("totalOrders", "totalorders"),
-      correctedOrders: getVal("correctedOrders", "correctedorders"),
-      confirmedCount: getVal("confirmedCount", "confirmedcount"),
-      deliveredFromConfirmed: getVal("deliveredFromConfirmed", "deliveredfromconfirmed"),
-      deliveredFromTotal: getVal("deliveredFromTotal", "deliveredfromtotal"),
-      totalSales: getVal("totalSales", "totalsales"),
-      deliveredSales: getVal("deliveredSales", "deliveredsales"),
-      collectedAmount: getVal("collectedAmount", "collectedamount"),
-      statuses: {
-        new: getVal("newOrders", "neworders"),
-        returned: getVal("returnedOrders", "returnedorders"),
-        postponed: getVal("postponedOrders", "postponedorders"),
-        outOfDelivery: getVal("outOfDeliveryOrders", "outofdeliveryorders"),
-        wrongNumber: getVal("wrongNumberOrders", "wrongnumberorders"),
-        canceled: getVal("canceledOrders", "canceledorders"),
-        confirmed: getVal("statusConfirmedOrders", "statusconfirmedorders"),
-        shipped: getVal("shippedOrders", "shippedorders"),
-        delivered: getVal("statusDeliveredOrders", "statusdeliveredorders"),
-      },
+      ...currentStats,
       statusBreakdown,
-      canceledAndUnderReview: getVal("canceledAndUnderReview", "canceledandunderreview"),
-      pendingOrders: Number(pendingStats?.count || 0),
-      inWarehouseOrders: getVal("inWarehouseOrders", "inwarehouseorders"),
+      comparison: comparisonStats,
     };
   }
 
