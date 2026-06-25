@@ -4236,7 +4236,7 @@ export class OrdersService {
             : order.status?.name || "N/A",
           shippingDays: shippingDays ?? "N/A",
           trackingNumber: shipment?.trackingNumber || order.trackingNumber || "N/A",
-          shipmentStatus: shipment?.unifiedStatus || shipment?.status || "N/A",
+          shipmentStatus: shipment?.status || "N/A",
           shipmentDate: shipment?.created_at || order.shippedAt
             ? new Date(shipment?.created_at || order.shippedAt).toLocaleDateString()
             : "N/A",
