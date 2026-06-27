@@ -21,6 +21,7 @@ import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/pr
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
+import { imageSrc } from "common/healpers";
 
 
 @Injectable()
@@ -31,6 +32,7 @@ export class EasyOrderService extends BaseStoreProvider {
     code: StoreProvider = StoreProvider.EASYORDER;
     displayName: string = "EasyOrder";
     baseUrl: string = process.env.EASY_ORDER_BASE_URL || "https://api.easy-orders.net/api/v1/external-apps";
+    readonly baseImageUrl: string = "https://seller.easy-orders.net";
     constructor(
         @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
         @InjectRepository(OrderStatusEntity) protected readonly statusRepo: Repository<OrderStatusEntity>,
@@ -1586,8 +1588,8 @@ export class EasyOrderService extends BaseStoreProvider {
             type: isSingle ? ProductType.SINGLE : ProductType.VARIABLE,
             sku: isSingle ? (variants[0]?.sku || remote.sku || "") : (remote.sku || ""),//
             upsellings: [],
-            thumb: remote.thumb || "",
-            images: remote.images || [],
+            thumb: imageSrc(remote.thumb || "", this.baseImageUrl),
+            images: (remote.images || []).map((i: string) => imageSrc(i, this.baseImageUrl) || ""),
             categories: (remote.categories || []).map((c: any) => ({
                 id: String(c.id),
                 name: c.name,
