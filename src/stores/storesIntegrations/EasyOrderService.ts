@@ -1496,7 +1496,7 @@ export class EasyOrderService extends BaseStoreProvider {
             const response = await this.sendRequest(store, {
                 method: 'GET',
                 url: `/products/${id}`,
-            }, 0, false);
+            }, 0, false);   
 
             return this.mapRemoteProductToDto(response);
         } catch (error: any) {

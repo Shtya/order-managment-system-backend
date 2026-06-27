@@ -1210,8 +1210,8 @@ export class ProductsService {
       const mainImageUrl = dto.mainImage;
       if (!p.mainImage) {
         if (mainImageUrl && mainImageUrl.trim() !== "") {
-          const newMainUrl = await this.remoteImageHelper.downloadAndSaveImage(mainImageUrl)
-          p.mainImage = newMainUrl.url;
+          // const newMainUrl = await this.remoteImageHelper.downloadAndSaveImage(mainImageUrl)
+          p.mainImage = mainImageUrl;
         } else if (mainOrphanId) {
           const mainRow = await mgr.getRepository(OrphanFileEntity).findOne({
             where: {
@@ -1237,9 +1237,9 @@ export class ProductsService {
         (dto.images ?? [])
           .filter((img) => typeof img.url === "string" && img.url.trim() !== "")
           .map(async (img) => {
-            const file = await this.remoteImageHelper.downloadAndSaveImage(img.url);
+            // const file = await this.remoteImageHelper.downloadAndSaveImage(img.url);
 
-            return { url: file.url };
+            return { url: img.url };
           })
       );
       const orphanIds = Array.isArray((dto as any).imagesOrphanIds) ? (dto as any).imagesOrphanIds : [];

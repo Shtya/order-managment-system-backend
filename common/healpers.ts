@@ -75,14 +75,12 @@ export function calculatePreviousRange(range?: string, currentStart?: Date, curr
     }
 }
 
-export function imageSrc(url, baseImagePath ) {
+export function imageSrc(url: string, baseImagePath?: string | null) {
     if (!url) return "";
     if (url.startsWith("http")) return url;
     const base = baseImagePath  ? baseImagePath  : process.env.IMAGE_BASE_URL || "";
     return `${base.replace(/\/+$/, "")}/${url.replace(/^\/+/, "")}`;
 }
-
-
 
 export async function deletePhysicalFiles(urls: string[]) {
     for (const url of urls) {
