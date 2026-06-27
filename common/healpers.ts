@@ -75,10 +75,10 @@ export function calculatePreviousRange(range?: string, currentStart?: Date, curr
     }
 }
 
-export function imageSrc(url) {
+export function imageSrc(url, baseImagePath ) {
     if (!url) return "";
     if (url.startsWith("http")) return url;
-    const base = process.env.IMAGE_BASE_URL || "";
+    const base = baseImagePath  ? baseImagePath  : process.env.IMAGE_BASE_URL || "";
     return `${base.replace(/\/+$/, "")}/${url.replace(/^\/+/, "")}`;
 }
 
