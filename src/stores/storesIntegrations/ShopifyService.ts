@@ -210,8 +210,10 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         const isValid = hmac === generatedHmac;
 
         if (!isValid) {
-            return { url: `${frontendBaseUrl}/login?error=shopify_security_verification_failed` };
+            return { url: `${frontendBaseUrl}/store-integration?error=shopify_security_verification_failed` };
         }
+
+        try {
 
         const oldIsIntegrated = store.isIntegrated;
         if (!oldIsIntegrated) {
@@ -228,6 +230,11 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
         }
         return { url: redirectUrl };
+        } catch (error) {
+            this.logger.error(`[Shopify] Error in Init: ${error.message}`, store);
+            const errorMessage = this.getErrorMessage(error);
+            return { url: `${frontendBaseUrl}/store-integration?errorMessage=${encodeURIComponent(errorMessage)}` };
+        }
     }
 
 
