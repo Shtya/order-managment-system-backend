@@ -140,6 +140,7 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         status: 'in_progress' | 'completed' | 'failed' | 'warning';
         message?: string;
         error?: string;
+        accountId?: string;
     }) {
         this.server.to(`user_${userId}`).emit("whatsapp:signup-status", {
             ...payload,

@@ -1670,6 +1670,15 @@ export class WhatsappService {
             });
             const savedAccount = await this.accountRepo.save(account);
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'completed' });
+            
+            // Check if it's the first account and set as default
+            const accountCount = await this.accountRepo.count({ where: { adminId } });
+            if (accountCount === 1) {
+                await this.orderService.upsertSettings(
+                    { id: adminId,adminId }, // me object
+                    { defaultWhatsAppAccountId: savedAccount.id }
+                );
+            }
 
             // 7. Sync Templates (Using transaction manager only here)
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'in_progress' });
@@ -1684,7 +1693,7 @@ export class WhatsappService {
                     );
                 });
                 this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'completed' });
-                this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'COMPLETED', status: 'completed' });
+                this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'COMPLETED', status: 'completed', accountId: savedAccount.id });
             } catch (tplError) {
                 this.logger.error(`Failed to sync templates during signup: ${tplError.message}`, tplError.stack);
                 this.appGateway.emitWhatsappSignupStatus(adminId, {
@@ -1751,6 +1760,15 @@ export class WhatsappService {
             const pin = Math.floor(100000 + Math.random() * 900000).toString();
             await this.whatsappApi.registerPhoneNumber(account.phoneNumberId, account.accessToken, pin);
             const savedAccount = await this.accountRepo.save(account);
+            
+            // Check if it's the first account and set as default
+            const accountCount = await this.accountRepo.count({ where: { adminId } });
+            if (accountCount === 1) {
+                await this.orderService.upsertSettings(
+                    { id: adminId, adminId }, // me object
+                    { defaultWhatsAppAccountId: savedAccount.id }
+                );
+            }
 
             // Sync Templates
             try {
