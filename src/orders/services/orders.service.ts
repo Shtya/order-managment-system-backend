@@ -1013,8 +1013,11 @@ export class OrdersService {
       .leftJoin("orders.items", "items")
       // ✅ FIX: Use the relation path "items.variant" instead of just "items"
       .leftJoin("items.variant", "variant")
+      .leftJoin("variant.product", "product")
       .leftJoinAndSelect("orders.lastReturn", "lastReturn")
       .leftJoinAndSelect("lastReturn.items", "returnItems")
+      .leftJoin("returnItems.returnedVariant", "returnVariant")
+      .leftJoin("returnVariant.product", "returnProduct")
       .select([
         "manifest",
         "shippingCompany", // Selects the whole joined entity
@@ -1027,6 +1030,8 @@ export class OrdersService {
         "items.quantity",
         "lastReturn",
         "returnItems",
+        "returnVariant",
+        "returnProduct",
       ])
       .where("manifest.adminId = :adminId", { adminId });
 
