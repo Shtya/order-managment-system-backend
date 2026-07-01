@@ -100,7 +100,7 @@ export class DashboardService {
           "SUM(CASE WHEN s.code = :deliveredStatus THEN o.finalTotal ELSE 0 END) as totalSales",
           "SUM(CASE WHEN s.code = :deliveredStatus THEN o.profit ELSE 0 END) as totalProfit",
           "COUNT(CASE WHEN s.code = :newStatus THEN 1 END) as newOrders",
-          'COUNT(CASE WHEN s."isConfirmed" THEN 1 END) as confirmedOrders',
+          'COUNT(CASE WHEN o."isConfirmed" THEN 1 END) as confirmedOrders',
           "COUNT(CASE WHEN s.code = :deliveredStatus THEN 1 END) as deliveredOrders",
           "COUNT(CASE WHEN s.code = :cancelledStatus THEN 1 END) as cancelledOrders",
           "COUNT(CASE WHEN s.code = :shippedStatus THEN 1 END) as inDelivery",
