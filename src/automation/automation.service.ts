@@ -249,6 +249,18 @@ export class AutomationService {
 
                 await automationRepo.save(automation);
 
+                // Schedule retry task after commit
+                if (!manager.queryRunner.data.postCommitTasks) {
+                    manager.queryRunner.data.postCommitTasks = [];
+                }
+                manager.queryRunner.data.postCommitTasks.push(async () => {
+                    try {
+                        await this.dispatcher.autoRetryFailedRuns(adminId, id);
+                    } catch (e) {
+                        console.error(`Failed to auto-retry runs for automation ${id}:`, e);
+                    }
+                });
+
                 return {
                     ...automation,
                     newVersion: savedVersion // for compatibility if needed
@@ -262,17 +274,6 @@ export class AutomationService {
                 relations: ['latestVersion'],
             });
         });
-
-        // Trigger automatic retry/migration logic for failed runs
-        // We do this after the transaction to ensure the latestVersion is accessible
-        if (dto.flow) {
-            try {
-                await this.dispatcher.autoRetryFailedRuns(adminId, id)
-            } catch (e) {
-                console.error(`Failed to auto-retry runs for automation ${id}:`, e);
-            };
-
-        }
 
         return result;
     }

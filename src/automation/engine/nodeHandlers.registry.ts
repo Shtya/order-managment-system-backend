@@ -379,7 +379,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
 
             // Handle Location Header if present
             let locationData = undefined;
-            if (template.templateConfig.headerType.toUpperCase() === 'LOCATION' && hydratedConfig.locationData) {
+            if (template.templateConfig?.headerType?.toUpperCase() === 'LOCATION' && hydratedConfig.locationData) {
                 const locValues = this.mapVariablesToValues({
                     name: hydratedConfig.locationData.name,
                     address: hydratedConfig.locationData.address
