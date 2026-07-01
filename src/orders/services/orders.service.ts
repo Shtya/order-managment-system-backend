@@ -2724,7 +2724,7 @@ export class OrdersService {
   // ========================================
   // ✅ UPDATE ORDER
   // ========================================
-  async update(me: any, id: string, dto: UpdateOrderDto, ipAddress?: string) {
+  async update(me: any, id: string, dto: UpdateOrderDto, ipAddress?: string, options?: { skipStockValidation?: boolean }) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -2885,7 +2885,7 @@ export class OrdersService {
           const qtyDiff = newQty - oldQty;
 
           // 1. Stock Validation
-          if (qtyDiff > 0) {
+          if (qtyDiff > 0 && !options?.skipStockValidation) {
             await this.validateStockAvailability(
               adminId,
               [{ variantId: dtoItem.variantId, quantity: qtyDiff, variant }],

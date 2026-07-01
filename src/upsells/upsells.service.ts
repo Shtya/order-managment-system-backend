@@ -536,7 +536,9 @@ export class UpsellsService {
                         addQuantity: true
                     }
                 ]
-            } as any);
+            } as any, null, {
+                skipStockValidation: true
+            });
 
             // 6. Update History
             history.status = UpsellStatus.ACCEPTED;
