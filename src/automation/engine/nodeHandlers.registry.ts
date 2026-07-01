@@ -1,20 +1,17 @@
 // factory pattern. A registry that holds the actual execution logic for each FlowNodeType (e.g., WhatsappHandler, UpdateOrderStatusHandler, ConditionHandler).
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
-import { TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
-import { User } from "entities/user.entity";
+import { TemplateStatus} from "entities/whatsapp.entity";
 
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
 import { ProductionAutomationAdapter } from "./adapters/production.adapters";
-import { DataSource, In, Repository } from "typeorm";
-import { Upsell, UpsellHistory, UpsellStatus } from "entities/upsells.entity";
+import { Repository } from "typeorm";
 import { InjectRepository } from "@nestjs/typeorm";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
-import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
 
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -300,12 +297,30 @@ export class ActionUpdateOrderStatusHandler extends FlowNodeHandler {
 export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
     private readonly logger = new Logger(ActionSendWhatsappTemplateMessageHandler.name);
 
+    // Preprocess aliases to store in a map grouped by root key (e.g., "items[]")
+    private readonly pathAliasesByRoot: Map<string, { aliasPath: string; actualPath: string }> = new Map();
+
+    // Original alias map
+    private readonly pathAliases: Record<string, string> = {
+        'items[].productName': 'items[].variant.product.name',
+        'items[].sku': 'items[].variant.sku',
+        'items[].quantity': 'items[].quantity',
+        'items[].price': 'items[].unitPrice',
+        'items[].unitCost': 'items[].unitCost',
+        'items[].lineTotal': 'items[].lineTotal',
+    };
+
     constructor(
         private readonly adapter: AutomationAdapter,
         @InjectRepository(OrderEntity)
         protected readonly orderRepo: Repository<OrderEntity>,
     ) {
         super(orderRepo);
+        // Initialize the optimized alias map
+        for (const [aliasPath, actualPath] of Object.entries(this.pathAliases)) {
+            const root = aliasPath.split('.')[0];
+            this.pathAliasesByRoot.set(root, { aliasPath, actualPath });
+        }
     }
 
     async execute(hydratedConfig: SendWhatsappTemplateConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
@@ -425,6 +440,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
         }
     }
 
+
     private mapVariablesToValues(variables: Record<string, any>, orderData: OrderEntity): Record<string, string> {
         const result: Record<string, string> = {};
         Object.entries(variables).forEach(([key, varDetails]) => {
@@ -446,29 +462,135 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                     throw new Error(`Variable "${key}" not found at path "${varDetails.variablePath}" in order data`);
                 }
             }
+            
+            // Truncate to max 30 characters by removing words first
+            textValue = this.truncateToMaxLength(textValue, 30);
+            
             result[key] = textValue;
         });
         return result;
     }
 
+    private truncateToMaxLength(text: string, maxLength: number): string {
+        if (text.length <= maxLength) {
+            return text;
+        }
 
+        let words = text.split(' ');
+        
+        // Try removing words one by one from the end until it fits
+        while (words.length > 1) {
+            words.pop();
+            const truncated = words.join(' ');
+            if (truncated.length <= maxLength) {
+                return truncated;
+            }
+        }
 
-    private getValueByPath(obj: any, path: string): any {
+        // If only one word left, truncate it directly
+        return text.substring(0, maxLength);
+    }
+
+    // Helper to get value by a single path (without aliases)
+    private getValueBySinglePath(obj: any, path: string): any {
         if (!path) return undefined;
 
         return path.split('.').reduce((acc, part) => {
             if (acc === undefined || acc === null) return undefined;
 
-            // Handle array access like items[0]
-            const arrayMatch = part.match(/^(\w+)\[(\d+)\]$/);
+            // Handle array access like items[0] or items[-1]
+            const arrayMatch = part.match(/^(\w+)\[(-?\d+)\]$/);
             if (arrayMatch) {
-                const [, key, index] = arrayMatch;
+                const [, key, indexStr] = arrayMatch;
                 const arr = acc[key];
-                return Array.isArray(arr) ? arr[Number(index)] : undefined;
+                if (!Array.isArray(arr)) return undefined;
+                let index = Number(indexStr);
+                // Handle negative indices
+                if (index < 0) {
+                    index = arr.length + index;
+                }
+                return arr[index];
             }
 
             return acc[part];
         }, obj);
+    }
+
+    private getValueByPath(obj: any, path: string): any {
+        if (!path) return undefined;
+
+        const parts = path.split('.');
+
+        // Iterate through path parts
+        for (let i = 0; i < parts.length; i++) {
+            let part = parts[i];
+
+            // Check if part has [] suffix for array mapping
+            if (part.endsWith('[]')) {
+                const arrayKey = part.slice(0, -2); // Remove [] from the end
+                const array = obj[arrayKey];
+
+                if (Array.isArray(array)) {
+                    // Get remaining path parts after this array part
+                    const remainingPath = parts.slice(i + 1).join('.');
+                    if (remainingPath) {
+                        // Map each item through the remaining path
+                        return array.map((item: any) => this.getValueByPath(item, remainingPath));
+                    } else {
+                        // Just return the array itself if no remaining path
+                        return array;
+                    }
+                }
+            } else {
+                // Check if this part is an alias root
+                const aliasConfig = this.pathAliasesByRoot.get(part);
+                if (aliasConfig) {
+                    const { aliasPath, actualPath } = aliasConfig;
+                    const aliasRoot = aliasPath.split('.')[0];
+                    const aliasRootWithoutBrackets = aliasRoot.endsWith('[]') ? aliasRoot.slice(0, -2) : aliasRoot;
+                    const array = obj[aliasRootWithoutBrackets];
+
+                    if (Array.isArray(array)) {
+                        // Get sub-path after alias root from actual path
+                        const actualRoot = actualPath.split('.')[0];
+                        const actualRootWithoutBrackets = actualRoot.endsWith('[]') ? actualRoot.slice(0, -2) : actualRoot;
+                        const actualSubPath = actualPath.substring(actualRoot.length + 1);
+                        // Get remaining user path after the alias root part
+                        const userSubPath = parts.slice(i + 1).join('.');
+                        const fullActualPath = [actualSubPath, userSubPath].filter(Boolean).join('.');
+
+                        return array.map((item: any) => this.getValueByPath(item, fullActualPath));
+                    }
+                }
+
+                // Check for array access with index like [0] or [-1]
+                const arrayMatch = part.match(/^(\w+)\[(-?\d+)\]$/);
+                if (arrayMatch) {
+                    const [, key, indexStr] = arrayMatch;
+                    const arr = obj[key];
+                    if (!Array.isArray(arr)) {
+                        return undefined;
+                    }
+                    let index = Number(indexStr);
+                    if (index < 0) {
+                        index = arr.length + index;
+                    }
+                    obj = arr[index];
+                    if (obj === undefined || obj === null) {
+                        return undefined;
+                    }
+                    continue;
+                }
+            }
+
+            // If not array or alias, proceed normally
+            obj = obj[part];
+            if (obj === undefined || obj === null) {
+                return undefined;
+            }
+        }
+
+        return obj;
     }
 }
 
