@@ -21,6 +21,7 @@ import { OrderEntity } from 'entities/order.entity';
 import { User } from 'entities/user.entity';
 import { OrderAssignmentEntity } from 'entities/assignment.entity';
 import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.module';
+import { PostCommitTasksSubscriber } from './post-commit-tasks.subscriber';
 
 
 @Module({
@@ -50,7 +51,8 @@ import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.mod
     EngineRunnerService, VariableHydratorService,
     NodeHandlersRegistry, ConditionQuickOrderStatusHandler, ConditionOrderCheckHandler,
     ProductionAutomationAdapter, AutomationPreviewService,
-    TriggerMatchersRegistry, OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher
+    TriggerMatchersRegistry, OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher,
+    // PostCommitTasksSubscriber
   ],
   exports: [AutomationService, TriggerDispatcherService,
     EngineRunnerService, VariableHydratorService,
