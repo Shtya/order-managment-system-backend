@@ -420,7 +420,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
             return {
                 success: true,
                 shouldPause: hydratedConfig.branches?.length > 0,
-                resumeAfter: 2500,
+                resumeAfter: 4000,
                 output: {
                     messageId: adapterResponse.messageId,
                     recipient: to,
