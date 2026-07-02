@@ -20,6 +20,7 @@ export interface NodeHandlerResponse {
     success: boolean;
     output?: any;
     error?: string;
+    resumeAfter?: number;
     // لتحديد المسار القادم في حال كانت العقدة عبارة عن شرط (Condition)
     chosenBranch?: string;
     // هل يجب إيقاف الأتمتة مؤقتاً بعد هذه الخطوة بانتظار حدث خارجي (مثل الواتساب)؟
@@ -415,15 +416,11 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                 orderData.adminId,
             );
 
-            const shouldPause = hydratedConfig.branches?.length > 0;
-
-            if (!shouldPause) {
-                await new Promise(resolve => setTimeout(resolve, 800)); // 800ms = 8 seconds
-            }
 
             return {
                 success: true,
-                shouldPause,
+                shouldPause: hydratedConfig.branches?.length > 0,
+                resumeAfter: 2500,
                 output: {
                     messageId: adapterResponse.messageId,
                     recipient: to,

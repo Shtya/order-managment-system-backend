@@ -396,7 +396,9 @@ export class EngineRunnerService {
                 this.logger.log(`Executing handler for node ${currentNodeId}`);
                 const result = await handler.execute(nodeConfig, run);
                 this.logger.log(`Handler result:`, result);
-
+                if(result?.resumeAfter) {
+                    await new Promise(resolve => setTimeout(resolve, result.resumeAfter)); 
+                }
                 // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
                 this.logger.log(`Saving step result for ${currentNodeId}`);
                 await this.saveStepResult(run, node, result, nodeConfig);
