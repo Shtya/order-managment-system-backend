@@ -415,9 +415,15 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                 orderData.adminId,
             );
 
+            const shouldPause = hydratedConfig.branches?.length > 0;
+
+            if (!shouldPause) {
+                await new Promise(resolve => setTimeout(resolve, 800)); // 800ms = 8 seconds
+            }
+
             return {
                 success: true,
-                shouldPause: hydratedConfig.branches?.length > 0,
+                shouldPause,
                 output: {
                     messageId: adapterResponse.messageId,
                     recipient: to,
