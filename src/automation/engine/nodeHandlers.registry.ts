@@ -4,7 +4,7 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
-import { TemplateStatus} from "entities/whatsapp.entity";
+import { TemplateStatus } from "entities/whatsapp.entity";
 
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
@@ -362,11 +362,11 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                 return { success: false, error: 'WhatsApp template body variables count does not match' };
             }
 
-            const dynamicUrlButtons = buttons.filter(btn => btn.type === 'VISIT_WEBSITE' && btn.urlType === 'Dynamic');
+            const dynamicButtons = buttons.filter(btn => (btn.type === 'VISIT_WEBSITE' && btn.urlType === 'Dynamic') || btn.type === 'COPY_CODE');
             const configButtonVarsCount = Object.keys(hydratedConfig.buttonVariables || {}).length;
 
-            if (dynamicUrlButtons.length !== configButtonVarsCount) {
-                return { success: false, error: 'WhatsApp template dynamic URL buttons variables count does not match' };
+            if (dynamicButtons.length !== configButtonVarsCount) {
+                return { success: false, error: 'WhatsApp template dynamic buttons variables count does not match' };
             }
 
             if (headerVarsLength !== Object.keys(hydratedConfig.headerVariables || {}).length) {
@@ -465,10 +465,10 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                     throw new Error(`Variable "${key}" not found at path "${varDetails.variablePath}" in order data`);
                 }
             }
-            
+
             // Truncate to max 30 characters by removing words first
             textValue = this.truncateToMaxLength(textValue, 30);
-            
+
             result[key] = textValue;
         });
         return result;
@@ -480,7 +480,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
         }
 
         let words = text.split(' ');
-        
+
         // Try removing words one by one from the end until it fits
         while (words.length > 1) {
             words.pop();
@@ -631,12 +631,12 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
             if (upsells.length === 0) {
                 return { success: true, shouldPause: false, chosenBranch: 'skipped', output: { reason: 'No upsells found for products' } };
             }
-            
+
             const sentUpsells = [];
 
             // Send each upsell using the adapter
             for (const upsell of upsells) {
-                
+
                 const history = await this.adapter.sendUpsell(upsell, orderData, run);
                 if (history) {
                     sentUpsells.push({

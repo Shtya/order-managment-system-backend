@@ -656,9 +656,19 @@ export class WhatsappService {
             const parameters: any[] = [];
 
             if (hType === 'TEXT' && input.headerVariables) {
-                Object.values(input.headerVariables).forEach(val => {
-                    parameters.push({ type: 'text', text: String(val?.value ?? val) });
-                });
+                if (template.templateConfig.parameterFormat === 'named') {
+                    Object.entries(input.headerVariables).forEach(([key, val]) => {
+                        parameters.push({
+                            type: 'text',
+                            parameter_name: key,
+                            text: String(val?.value ?? val)
+                        });
+                    });
+                } else {
+                    Object.values(input.headerVariables).forEach(val => {
+                        parameters.push({ type: 'text', text: String(val?.value ?? val) });
+                    });
+                }
             } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(hType)) {
                 const mediaUrl = input.headerUrl || template.templateConfig.headerUrl;
                 if (mediaUrl) {
@@ -691,10 +701,19 @@ export class WhatsappService {
 
         // 2. Build Body
         if (input.bodyVariables) {
-            const parameters = Object.values(input.bodyVariables).map(val => ({
-                type: 'text',
-                text: String(val?.value ?? val)
-            }));
+            let parameters: any[] = [];
+            if (template.templateConfig.parameterFormat === 'named') {
+                parameters = Object.entries(input.bodyVariables).map(([key, val]) => ({
+                    type: 'text',
+                    parameter_name: key,
+                    text: String(val?.value ?? val)
+                }));
+            } else {
+                parameters = Object.values(input.bodyVariables).map(val => ({
+                    type: 'text',
+                    text: String(val?.value ?? val)
+                }));
+            }
             if (parameters.length > 0) {
                 components.push({ type: 'body', parameters });
             }
@@ -703,15 +722,28 @@ export class WhatsappService {
         // 3. Build Buttons
         if (input.buttonVariables) {
             Object.entries(input.buttonVariables).forEach(([index, val]: [string, any]) => {
-                components.push({
-                    type: 'button',
-                    sub_type: 'url',
-                    index: String(index),
-                    parameters: [{
-                        type: 'text',
-                        text: String(val?.value ?? val)
-                    }]
-                });
+                const button = template.templateConfig.buttons?.[Number(index)];
+                if (button?.type === 'COPY_CODE') {
+                    components.push({
+                        type: 'button',
+                        sub_type: 'copy_code',
+                        index: String(index),
+                        parameters: [{
+                            type: 'coupon_code',
+                            coupon_code: String(val?.value ?? val)
+                        }]
+                    });
+                } else {
+                    components.push({
+                        type: 'button',
+                        sub_type: 'url',
+                        index: String(index),
+                        parameters: [{
+                            type: 'text',
+                            text: String(val?.value ?? val)
+                        }]
+                    });
+                }
             });
         }
 

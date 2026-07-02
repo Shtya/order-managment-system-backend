@@ -55,10 +55,11 @@ export enum TemplateStatus {
 export type TemplateConfig = {
     headerType?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
     headerText?: string;
+    headerNamedKey?: string;
     headerExample?: string;
     headerUrl?: string;
     bodyText: string;
-
+    parameterFormat?: "positional" | "named";
     footerText?: string;
 
     examples?: Record<string, string>;
@@ -83,6 +84,7 @@ export type TemplateConfig = {
         | "PHONE_NUMBER"
         | "VISIT_WEBSITE"
         | "WHATSAPP_CALL"
+        | "COPY_CODE"
 
         text: string; // max 25
         url?: string;
@@ -91,6 +93,7 @@ export type TemplateConfig = {
         activeForDays?: number;
         countryCode?: string;
         phoneNumber?: string; // max 20
+        example?: string; // max 20 for COPY_CODE
     }>;
 };
 

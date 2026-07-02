@@ -331,6 +331,7 @@ export interface WhatsappTemplateLanguage {
 
 export interface WhatsappTemplateParameterText {
   type: 'text';
+  parameter_name?: string;
   text: string;
 }
 
@@ -351,7 +352,8 @@ export interface WhatsappTemplateParameterDateTime {
 }
 
 export interface WhatsappTemplateParameterMedia {
-  type: 'image' | 'video' | 'document';
+  type: 'image' | 'video' | 'document' | "coupon_code";
+  coupon_code?:  string;
   image?: WhatsappMediaObject;
   video?: WhatsappMediaObject;
   document?: WhatsappMediaObject;
@@ -375,7 +377,7 @@ export interface WhatsappTemplateComponentBody {
 
 export interface WhatsappTemplateComponentButton {
   type: 'button';
-  sub_type?: 'url' | 'quick_reply';
+  sub_type?: 'url' | 'quick_reply' | "copy_code";
   index: string;
   parameters?: WhatsappTemplateParameter[];
 }
@@ -569,8 +571,9 @@ export class WhatsappApiService {
   /**
    * دالة معالجة الأخطاء الموحدة
    */
-  private handleError(error: unknown, method: string): never {
-    const message = getErrorMessage(error);
+  private handleError(error: any, method: string): never {
+    const initailMessage = error?.response?.data?.error?.error_data?.details;
+    const message = initailMessage ? initailMessage : getErrorMessage(error);
     this.logger.error(`[WhatsApp API ${method}] Error:`, message);
     throw new BadRequestException(message);
   }
@@ -1292,9 +1295,16 @@ export class WhatsappApiService {
 
     if (config.headerType) {
       if (config.headerType === 'TEXT' && config.headerText) {
+        const headerParam: WhatsappTemplateParameterText = {
+          type: 'text',
+          text: config.headerText,
+        };
+        if (config.parameterFormat === 'named' && config.headerNamedKey) {
+          headerParam.parameter_name = config.headerNamedKey;
+        }
         components.push({
           type: 'header',
-          parameters: [{ type: 'text', text: config.headerText }],
+          parameters: [headerParam],
         });
       }
 
@@ -1318,12 +1328,22 @@ export class WhatsappApiService {
     }
 
     if (config.bodyText) {
-      components.push({
-        type: 'body',
-        parameters: Object.values(config.examples ?? {}).map((value) => ({
+      let bodyParams: WhatsappTemplateParameterText[] = [];
+      if (config.parameterFormat === 'named') {
+        bodyParams = Object.entries(config.examples ?? {}).map(([key, value]) => ({
+          type: 'text',
+          parameter_name: key,
+          text: value,
+        }));
+      } else {
+        bodyParams = Object.values(config.examples ?? {}).map((value) => ({
           type: 'text',
           text: value,
-        })),
+        }));
+      }
+      components.push({
+        type: 'body',
+        parameters: bodyParams,
       });
     }
 
@@ -1338,6 +1358,18 @@ export class WhatsappApiService {
               {
                 type: 'text',
                 text: button.urlExample ?? button.url,
+              },
+            ],
+          });
+        } else if (button.type === 'COPY_CODE') {
+          components.push({
+            type: 'button',
+            sub_type: 'copy_code',
+            index: String(index),
+            parameters: [
+              {
+                type: 'coupon_code',
+                coupon_code: button.example ?? 'SAVE20',
               },
             ],
           });
@@ -1422,6 +1454,10 @@ export class ButtonsComponentDto {
       type: 'otp';
       otp_type: string;
       text?: string;
+    } | {
+      type: 'COPY_CODE';
+      text?: string;
+      example?: string[];
     }
   >;
 }

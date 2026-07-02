@@ -17,7 +17,7 @@ import {
     Max,
     ArrayMaxSize,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { Transform, Type } from "class-transformer";
 import { TemplateCategory, TemplateSubCategory } from "entities/whatsapp.entity";
 
 
@@ -28,12 +28,14 @@ export class TemplateButtonDto {
         "PHONE_NUMBER",
         "VISIT_WEBSITE",
         "WHATSAPP_CALL",
+        "COPY_CODE",
     ])
     type:
         | "CUSTOM"
         | "PHONE_NUMBER"
         | "VISIT_WEBSITE"
-        | "WHATSAPP_CALL";
+        | "WHATSAPP_CALL"
+        | "COPY_CODE";
 
     @IsString()
     @IsNotEmpty()
@@ -70,6 +72,12 @@ export class TemplateButtonDto {
     @IsString()
     @MaxLength(20)
     phoneNumber?: string;
+
+    // COPY_CODE example
+    @IsOptional()
+    @IsString()
+    @MaxLength(20)
+    example?: string;
 }
 
 
@@ -86,12 +94,23 @@ export class TemplateConfigDto {
 
     @IsOptional()
     @IsString()
+    headerNamedKey?: string;
+
+    @IsOptional()
+    @IsString()
     headerExample?: string;
 
     // MEDIA HEADER
     @IsOptional()
     @IsString()
     headerUrl?: string;
+
+    @IsOptional()
+    @IsEnum(["positional", "named"])
+    @Transform(({ value }) =>
+        ["positional", "named"].includes(value) ? value : "positional",
+    )
+    parameterFormat?: "positional" | "named";
 
     // BODY
     @IsString()
@@ -170,8 +189,9 @@ export class CreateWhatsappTemplateDto {
     @IsEnum(TemplateSubCategory)
     subCategory: TemplateSubCategory;
 
-    @IsIn(["ar", "en"])
-    language: "ar" | "en";
+    // @IsIn(["ar", "en"])
+    @IsString()
+    language: string;
 
     @ValidateNested()
     @Type(() => TemplateConfigDto)

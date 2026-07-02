@@ -250,7 +250,7 @@ export class WhatsappTemplateService {
             bodyText: tpl.body ?? '',
             footerText: tpl.footer ?? undefined,
             examples: this.mapBodyExamples(tpl.body_params, tpl.body_param_types),
-            buttons: this.mapButtonsFromMeta(tpl.buttons),
+            buttons: this.mapButtonsFromMeta(tpl.buttons, tpl.language),
             uiSubcategory: tpl.usecase, // preserved meta key context for frontend dialog structures
         };
 
@@ -451,7 +451,8 @@ export class WhatsappTemplateService {
         // Meta auto re-approves unless review fails
         if (!isSuperAdmin &&
             template.status === TemplateStatus.APPROVED ||
-            template.status === TemplateStatus.PAUSED
+            template.status === TemplateStatus.PAUSED ||
+            template.status === TemplateStatus.REJECTED
         ) {
             template.status = TemplateStatus.PENDING;
         }
@@ -550,21 +551,29 @@ export class WhatsappTemplateService {
         }
 
         let components: WhatsappTemplateComponentDto[] = [];
-
+        const parameterFormat = cfg.parameterFormat || "positional";
         //header
         if (cfg.headerType === 'TEXT' && !!cfg.headerText) {
             let header: HeaderTextComponentDto = { type: 'HEADER', text: cfg.headerText, format: "TEXT" }
             if (cfg?.headerExample)
-                //Property 'example' does not exist on type '{ type: string; text: string; }'.
-                header.example = {
-                    "header_text": [
-                        cfg.headerExample
-                    ]
+                if (parameterFormat === "positional") {
+                    header.example = {
+                        header_text: [
+                            cfg.headerExample
+                        ]
+                    }
+                } else {
+                    header.example = {
+                        header_text_named_params: [
+                            {
+                                param_name: cfg.headerNamedKey,
+                                example: cfg.headerExample
+                            }
+                        ]
+                    }
                 }
             components.push(header)
-        } else if (
-            ["IMAGE", "VIDEO", "DOCUMENT"].includes(cfg.headerType)
-        ) {
+        } else if (["IMAGE", "VIDEO", "DOCUMENT"].includes(cfg.headerType)) {
             const handle = await this.resolveHeaderHandle(data, accountId);
 
             if (!handle) {
@@ -594,13 +603,25 @@ export class WhatsappTemplateService {
         if (cfg?.bodyText) {
             let body: BodyComponentDto = { type: 'BODY', text: cfg.bodyText }
             if (cfg?.examples) {
-                const sortedValues = Object.keys(cfg.examples)
-                    .sort((a, b) => Number(a) - Number(b)) // 👈 important
-                    .map((key) => cfg.examples[key]);
+                if (parameterFormat === "positional") {
+                    const sortedValues = Object.keys(cfg.examples)
+                        .sort((a, b) => Number(a) - Number(b)) // 👈 important
+                        .map((key) => cfg.examples[key]);
 
-                body.example = {
-                    body_text: [sortedValues],
-                };
+                    body.example = {
+                        body_text: [sortedValues],
+                    };
+                }
+                else {
+                    body.example = {
+                        body_text_named_params: Object.entries(cfg.examples ?? {}).map(
+                            ([param_name, example]) => ({
+                                param_name,
+                                example,
+                            }),
+                        ),
+                    };
+                }
             }
             components.push(body)
         } else if (cfg?.addSecurityRecommendation) {
@@ -625,7 +646,7 @@ export class WhatsappTemplateService {
         //buttons
         let buttonsComp: ButtonsComponentDto | null = null;
         if (cfg?.buttons?.length) {
-            buttonsComp = this.mapButtons(cfg.buttons);
+            buttonsComp = this.mapButtons(cfg.buttons, data.language);
         }
 
         const catLower = String(data.category || "").toLowerCase();
@@ -662,7 +683,7 @@ export class WhatsappTemplateService {
             sub_category: metaSubCategoryForPayload(data.category, data.subCategory),
             ...(ttl != null ? { message_send_ttl_seconds: ttl } : {}),
             // display_format: "ORDER_DETAILS",
-            parameter_format: "POSITIONAL",
+            parameter_format:  parameterFormat === "positional" ? "POSITIONAL" : "NAMED",
             allow_category_change: false,
             // cta_url_link_tracking_opted_out: false,
             // send_type: "DIRECT",
@@ -672,6 +693,7 @@ export class WhatsappTemplateService {
 
     private mapButtons(
         buttons: WhatsappTemplateEntity["templateConfig"]["buttons"] = [],
+        language?: string,
     ): ButtonsComponentDto | null {
         if (!buttons.length) return null;
 
@@ -722,6 +744,17 @@ export class WhatsappTemplateService {
                         ttl_minutes: (btn.activeForDays ?? 7) * 24 * 60,
                     });
                     break;
+
+                case "COPY_CODE": {
+                    const example = btn.example ? [btn.example] : undefined;
+                    const staticText = language === "ar" ? "نسخ رمز العرض" : "Copy offer code";
+                    metaButtons.push({
+                        type: "COPY_CODE",
+                        text: staticText.slice(0, 25),
+                        ...(example ? { example } : {}),
+                    });
+                    break;
+                }
             }
         }
 
@@ -730,6 +763,7 @@ export class WhatsappTemplateService {
         let voiceCalls = [];
         let urls = [];
         let phoneNumbers = [];
+        let copyCodes = [];
 
         metaButtons.forEach((btn) => {
             if (btn.type === "QUICK_REPLY") {
@@ -740,6 +774,8 @@ export class WhatsappTemplateService {
                 urls.push(btn);
             } else if (btn.type === "PHONE_NUMBER") {
                 phoneNumbers.push(btn);
+            } else if (btn.type === "COPY_CODE") {
+                copyCodes.push(btn);
             }
         });
 
@@ -751,6 +787,9 @@ export class WhatsappTemplateService {
         }
         if (phoneNumbers.length > 1) {
             throw new BadRequestException("Max 1 phone number buttons allowed");
+        }
+        if (copyCodes.length > 1) {
+            throw new BadRequestException("Max 1 copy code button allowed");
         }
 
         if (quickReplies.length > 10) {
@@ -775,7 +814,7 @@ export class WhatsappTemplateService {
         };
     }
 
-    private mapButtonsFromMeta(buttons?: any[]): TemplateConfig['buttons'] {
+    private mapButtonsFromMeta(buttons?: any[], language?: string,): TemplateConfig['buttons'] {
         if (!buttons?.length) return undefined;
 
         return buttons.map((btn) => {
@@ -821,6 +860,15 @@ export class WhatsappTemplateService {
                 };
             }
 
+            if (btn.type === 'COPY_CODE') {
+                const staticText = language === "ar" ? "نسخ رمز العرض" : "Copy offer code";
+                return {
+                    type: 'COPY_CODE',
+                    text: language === "ar" ? btn.text : staticText,
+                    example: btn.example?.[0],
+                };
+            }
+
             // FLOW / FORMS / unknown Meta button types
             return {
                 type: 'CUSTOM',
@@ -849,13 +897,6 @@ export class WhatsappTemplateService {
             default:
                 return TemplateSubCategory.BOOKING_STATUS;
         }
-    }
-
-    private languageFromMeta(metaLang: string): "ar" | "en" {
-        if (!metaLang) return "en";
-        const lang = metaLang.toLowerCase();
-        if (lang.startsWith("ar")) return "ar";
-        return "en";
     }
 
     private qualityFromMeta(metaQuality?: string): TemplateQuality {
@@ -990,7 +1031,7 @@ export class WhatsappTemplateService {
         const templatesToSave = [];
 
         for (const metaTpl of metaTemplates) {
-            if (metaTpl.parameter_format === 'NAMED') continue;
+            const parameterFormat = metaTpl.parameter_format === 'POSITIONAL' ? "positional" : "named";
             const status = await this.statusFromMeta(metaTpl.status);
             const quality = this.qualityFromMeta(metaTpl.quality_score?.score);
             const language = metaTpl.language;
@@ -1004,6 +1045,8 @@ export class WhatsappTemplateService {
                 buttons: [],
             };
 
+            templateConfig.parameterFormat = parameterFormat;
+
             for (const comp of metaTpl.components) {
                 if (comp.type === 'HEADER') {
                     templateConfig.headerType = comp.format;
@@ -1011,6 +1054,9 @@ export class WhatsappTemplateService {
                         templateConfig.headerText = comp.text;
                         if (comp.example?.header_text?.[0]) {
                             templateConfig.headerExample = comp.example.header_text[0];
+                        } else if (comp.example?.header_text_named_params?.[0]) {
+                            templateConfig.headerExample = comp.example.header_text_named_params[0].example;
+                            templateConfig.headerNamedKey = comp.example.header_text_named_params[0].param_name;
                         }
                     } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(comp.format)) {
                         if (comp.example?.header_handle?.[0]) {
@@ -1024,11 +1070,16 @@ export class WhatsappTemplateService {
                         comp.example.body_text[0].forEach((ex, i) => {
                             templateConfig.examples[String(i + 1)] = ex;
                         });
+                    } else if (comp.example?.body_text_named_params) {
+                        templateConfig.examples = {};
+                        comp.example.body_text_named_params.forEach((np: any) => {
+                            templateConfig.examples[np.param_name] = np.example;
+                        });
                     }
                 } else if (comp.type === 'FOOTER') {
                     templateConfig.footerText = comp.text;
                 } else if (comp.type === 'BUTTONS') {
-                    templateConfig.buttons = this.mapButtonsFromMeta(comp.buttons);
+                    templateConfig.buttons = this.mapButtonsFromMeta(comp.buttons, language);
                 }
             }
 
