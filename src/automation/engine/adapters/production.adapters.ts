@@ -30,6 +30,8 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
         private readonly upsellsService: UpsellsService,
         @InjectRepository(WhatsappTemplateEntity)
         private readonly templateRepo: Repository<WhatsappTemplateEntity>,
+        @InjectRepository(WhatsappAccountEntity)
+        private readonly accountRepo: Repository<WhatsappAccountEntity>,
         private readonly orderAssignmentService: OrderAssignmentService,
     ) { }
 
@@ -145,6 +147,12 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     }> {
 
       const ids  = orders.map(order => order.id);
-        return await this.orderAssignmentService.processAutoAssignment(adminId, ids);
+        return this.orderAssignmentService.processAutoAssignment(adminId, ids);
+    }
+
+    async getWhatsappAccount(accountId: string): Promise<WhatsappAccountEntity | null> {
+        return this.accountRepo.findOne({
+            where: { id: accountId, isActive: true }
+        });
     }
 }

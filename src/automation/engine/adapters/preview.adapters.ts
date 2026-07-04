@@ -192,4 +192,10 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
     }> {
         return this.orderAssignmentService.previewAutoAssignment(adminId, orders);
     }
+
+    async getWhatsappAccount(accountId: string): Promise<WhatsappAccountEntity | null> {
+        return this.accountRepo.findOne({
+            where: { id: accountId, isActive: true }
+        });
+    }
 }

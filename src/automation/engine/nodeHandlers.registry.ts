@@ -2,9 +2,9 @@
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
-import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
+import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
-import { TemplateStatus } from "entities/whatsapp.entity";
+import { TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
 
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
@@ -15,6 +15,8 @@ import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { OrdersService } from "src/orders/services/orders.service";
+import { getValueByPath } from "common/whatsapp.helper";
+import { WhatsappService } from "src/whatsapp/whatsapp.service";
 
 export interface NodeHandlerResponse {
     success: boolean;
@@ -301,27 +303,12 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
     // Preprocess aliases to store in a map grouped by root key (e.g., "items[]")
     private readonly pathAliasesByRoot: Map<string, { aliasPath: string; actualPath: string }> = new Map();
 
-    // Original alias map
-    private readonly pathAliases: Record<string, string> = {
-        'items[].productName': 'items[].variant.product.name',
-        'items[].sku': 'items[].variant.sku',
-        'items[].quantity': 'items[].quantity',
-        'items[].price': 'items[].unitPrice',
-        'items[].unitCost': 'items[].unitCost',
-        'items[].lineTotal': 'items[].lineTotal',
-    };
-
     constructor(
         private readonly adapter: AutomationAdapter,
         @InjectRepository(OrderEntity)
         protected readonly orderRepo: Repository<OrderEntity>,
     ) {
         super(orderRepo);
-        // Initialize the optimized alias map
-        for (const [aliasPath, actualPath] of Object.entries(this.pathAliases)) {
-            const root = aliasPath.split('.')[0];
-            this.pathAliasesByRoot.set(root, { aliasPath, actualPath });
-        }
     }
 
     async execute(hydratedConfig: SendWhatsappTemplateConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
@@ -455,7 +442,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                     throw new Error(`Variable "${key}" is direct type but has no value`);
                 }
             } else if (varDetails.type === 'variable') {
-                const val = this.getValueByPath(orderData, varDetails.variablePath);
+                const val = getValueByPath(orderData, varDetails.variablePath);
                 if (Array.isArray(val)) {
                     textValue = val.map(v => String(v)).join(', ');
                 } else {
@@ -492,108 +479,105 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
 
         // If only one word left, truncate it directly
         return text.substring(0, maxLength);
+    }    
+}
+
+
+@Injectable()
+export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
+    private readonly logger = new Logger(this.constructor.name);
+    constructor(
+        private readonly adapter: AutomationAdapter,
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+        private readonly whatsappService?: any
+    ) {
+        super(orderRepo);
     }
-
-    // Helper to get value by a single path (without aliases)
-    private getValueBySinglePath(obj: any, path: string): any {
-        if (!path) return undefined;
-
-        return path.split('.').reduce((acc, part) => {
-            if (acc === undefined || acc === null) return undefined;
-
-            // Handle array access like items[0] or items[-1]
-            const arrayMatch = part.match(/^(\w+)\[(-?\d+)\]$/);
-            if (arrayMatch) {
-                const [, key, indexStr] = arrayMatch;
-                const arr = acc[key];
-                if (!Array.isArray(arr)) return undefined;
-                let index = Number(indexStr);
-                // Handle negative indices
-                if (index < 0) {
-                    index = arr.length + index;
-                }
-                return arr[index];
+    async execute(config: SendWhatsappMessageConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
+        try {
+            let orderData = await this.getOrder(run.executionState.trigger.output);
+            if (!orderData) {
+                return { success: false, error: 'Order data not found in trigger output' };
             }
 
-            return acc[part];
-        }, obj);
-    }
+            // Check WhatsApp account
+            const account = await this.adapter.getWhatsappAccount(config.accountId);
+            if (!account) {
+                return { success: false, error: 'WhatsApp account not found' };
+            }
 
-    private getValueByPath(obj: any, path: string): any {
-        if (!path) return undefined;
+            // Process messageData to replace variables
+            const processedMessageData = this.deepReplaceVariables(config.messageData, orderData);
 
-        const parts = path.split('.');
+            // Determine recipient
+            const to = config.recipientNumber
+                ? normalizeEgyptianPhoneNumber(config.recipientNumber)
+                : orderData.normalizedPhoneNumber
+                    ? orderData.normalizedPhoneNumber
+                    : normalizeEgyptianPhoneNumber(orderData.phoneNumber);
 
-        // Iterate through path parts
-        for (let i = 0; i < parts.length; i++) {
-            let part = parts[i];
+            if (!to) {
+                return { success: false, error: 'Recipient phone number not found' };
+            }
 
-            // Check if part has [] suffix for array mapping
-            if (part.endsWith('[]')) {
-                const arrayKey = part.slice(0, -2); // Remove [] from the end
-                const array = obj[arrayKey];
+            const payload: any = {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to,
+                ...processedMessageData
+            };
 
-                if (Array.isArray(array)) {
-                    // Get remaining path parts after this array part
-                    const remainingPath = parts.slice(i + 1).join('.');
-                    if (remainingPath) {
-                        // Map each item through the remaining path
-                        return array.map((item: any) => this.getValueByPath(item, remainingPath));
-                    } else {
-                        // Just return the array itself if no remaining path
-                        return array;
-                    }
-                }
+            let response: any;
+            if (this.whatsappService) {
+                // Send the message only if service is available (production mode)
+                response = await this.whatsappService.sendMessage(
+                    { adminId: orderData.adminId },
+                    payload,
+                    config.accountId
+                );
             } else {
-                // Check if this part is an alias root
-                const aliasConfig = this.pathAliasesByRoot.get(part);
-                if (aliasConfig) {
-                    const { aliasPath, actualPath } = aliasConfig;
-                    const aliasRoot = aliasPath.split('.')[0];
-                    const aliasRootWithoutBrackets = aliasRoot.endsWith('[]') ? aliasRoot.slice(0, -2) : aliasRoot;
-                    const array = obj[aliasRootWithoutBrackets];
-
-                    if (Array.isArray(array)) {
-                        // Get sub-path after alias root from actual path
-                        const actualRoot = actualPath.split('.')[0];
-                        const actualRootWithoutBrackets = actualRoot.endsWith('[]') ? actualRoot.slice(0, -2) : actualRoot;
-                        const actualSubPath = actualPath.substring(actualRoot.length + 1);
-                        // Get remaining user path after the alias root part
-                        const userSubPath = parts.slice(i + 1).join('.');
-                        const fullActualPath = [actualSubPath, userSubPath].filter(Boolean).join('.');
-
-                        return array.map((item: any) => this.getValueByPath(item, fullActualPath));
-                    }
-                }
-
-                // Check for array access with index like [0] or [-1]
-                const arrayMatch = part.match(/^(\w+)\[(-?\d+)\]$/);
-                if (arrayMatch) {
-                    const [, key, indexStr] = arrayMatch;
-                    const arr = obj[key];
-                    if (!Array.isArray(arr)) {
-                        return undefined;
-                    }
-                    let index = Number(indexStr);
-                    if (index < 0) {
-                        index = arr.length + index;
-                    }
-                    obj = arr[index];
-                    if (obj === undefined || obj === null) {
-                        return undefined;
-                    }
-                    continue;
-                }
+                // Preview mode, mock response
+                response = {
+                    messages: [{ id: `preview-${Date.now()}` }]
+                };
             }
 
-            // If not array or alias, proceed normally
-            obj = obj[part];
-            if (obj === undefined || obj === null) {
-                return undefined;
-            }
+            return {
+                success: true,
+                output: {
+                    messageId: response.messages?.[0]?.id,
+                    recipient: to
+                }
+            };
+        } catch (error) {
+            this.logger.error(`Failed to send WhatsApp message: ${error.message}`, error.stack);
+            return {
+                success: false,
+                error: `WhatsApp send failed: ${error.message}`
+            };
         }
+    }
 
-        return obj;
+    private deepReplaceVariables(data: any, orderData: any): any {
+        if (typeof data === 'string') {
+            // Replace {{variablePath}} patterns
+            return data.replace(/\{\{([^}]+)\}\}/g, (match, variablePath) => {
+                const value = getValueByPath(orderData, variablePath.trim());
+                return value !== null && value !== undefined ? String(value) : match;
+            });
+        } else if (Array.isArray(data)) {
+            return data.map(item => this.deepReplaceVariables(item, orderData));
+        } else if (data && typeof data === 'object') {
+            const result: any = {};
+            for (const key in data) {
+                if (Object.prototype.hasOwnProperty.call(data, key)) {
+                    result[key] = this.deepReplaceVariables(data[key], orderData);
+                }
+            }
+            return result;
+        }
+        return data;
     }
 }
 
@@ -775,6 +759,8 @@ export class NodeHandlersRegistry {
         private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
         @Inject(forwardRef(() => OrdersService))
         private readonly ordersService: OrdersService,
+        @Inject(forwardRef(() => WhatsappService))
+        private readonly whatsappService: WhatsappService,
     ) {
         this.registerHandlers();
     }
@@ -785,6 +771,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler(this.orderRepo));
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo));
         this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo));
+        this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.whatsappService));
         this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo));
         this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
     }

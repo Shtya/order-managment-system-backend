@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, DeleteDateColumn, Entity, Index, JoinColumn, 
 import { User } from "./user.entity";
 import { TemplateConfig } from "./whatsapp.entity";
 import { OrderEntity } from "./order.entity";
+import { WhatsappMessageData } from "src/whatsapp/services/WhatsappApi.service";
 
 
 export enum TriggerType {
@@ -104,6 +105,7 @@ export class AutomationFlowEntity {
 export enum ActionType {
     UPDATE_ORDER_STATUS = 'update_order_status',
     SEND_WHATSAPP_TEMPLATE = 'send_whatsapp_template',
+    SEND_WHATSAPP_MESSAGE = 'send_whatsapp_message',
     SEND_UPSELL = 'send_upsell',
     ASSIGN_ORDER_TO_EMPLOYEE = 'assign_order_to_employee',
 }
@@ -211,7 +213,25 @@ export interface SendWhatsappTemplateConfig {
         sourceButton: any;
     }[];
 }
+export enum MessageType {
+    TEXT = 'text',
+    IMAGE = 'image',
+    VIDEO = 'video',
+    DOCUMENT = 'document',
+    LOCATION = 'location',
+    LOCATION_REQUEST = 'location_request',
+    CONTACT = 'contact',
+    LIST = 'list',
+    INTERACTIVE = 'interactive',
+}
 
+export interface SendWhatsappMessageConfig {
+    messageType: MessageType,
+    messageData: WhatsappMessageData,
+    recipientNumber: string,
+    accountId: string,
+    accountName?: string,
+}
 export interface QuickOrderStatusConfig {
     status: string;
     statusId: string;

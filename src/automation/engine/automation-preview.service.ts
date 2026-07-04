@@ -46,6 +46,7 @@ import {
   ActionSendWhatsappTemplateMessageHandler,
   ActionSendUpsellHandler,
   ActionAssignOrderToEmployeeHandler,
+  ActionSendWhatsappMessageHandler,
 } from './nodeHandlers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -538,6 +539,11 @@ class PreviewNodeHandlersRegistry {
     this.handlers.set(
       ActionType.SEND_WHATSAPP_TEMPLATE,
       new ActionSendWhatsappTemplateMessageHandler(this.adapter,orderRepo),
+    );
+
+    this.handlers.set(
+      ActionType.SEND_WHATSAPP_MESSAGE,
+      new ActionSendWhatsappMessageHandler(this.adapter,orderRepo),
     );
 
     this.handlers.set(

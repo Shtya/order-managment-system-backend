@@ -1,6 +1,6 @@
 import { SendWhatsappTemplateConfig, AutomationRunEntity, VariableDetails } from 'entities/automation.entity';
 import { Repository, EntityManager } from 'typeorm';
-import { WhatsappTemplateEntity } from 'entities/whatsapp.entity';
+import { WhatsappTemplateEntity, WhatsappAccountEntity } from 'entities/whatsapp.entity';
 import { WhatsappInteractiveMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
 import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 import { OrderEntity } from 'entities/order.entity';
@@ -132,4 +132,8 @@ export interface AutomationAdapter {
      * Get active assignment rules
      */
     
+    /**
+     * Get WhatsApp account by ID
+     */
+    getWhatsappAccount(accountId: string): Promise<WhatsappAccountEntity | null>;
 }

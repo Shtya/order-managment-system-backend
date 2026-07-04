@@ -415,6 +415,11 @@ export type WhatsappSendMessagePayload =
   | WhatsappInteractiveMessagePayload
   | WhatsappTemplateMessagePayload;
 
+export type WhatsappMessageData = Omit<
+  WhatsappSendMessagePayload,
+  keyof WhatsappMessageBase
+>;
+
 export interface WhatsappMessageResponseContact {
   input?: string;
   wa_id?: string;
