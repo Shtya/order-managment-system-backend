@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, DeleteDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, Relation, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
-import { TemplateConfig } from "./whatsapp.entity";
+import { MessageActionIntent, TemplateConfig } from "./whatsapp.entity";
 import { OrderEntity } from "./order.entity";
 import { WhatsappMessageData } from "src/whatsapp/services/WhatsappApi.service";
 
@@ -230,6 +230,7 @@ export interface SendWhatsappMessageConfig {
     messageData: WhatsappMessageData,
     recipientNumber: string,
     accountId: string,
+    actionIntent?: MessageActionIntent,
     accountName?: string,
 }
 export interface QuickOrderStatusConfig {

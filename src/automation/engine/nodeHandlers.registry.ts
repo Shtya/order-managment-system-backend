@@ -4,7 +4,7 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
-import { TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
+import { MessageActionIntent, TemplateStatus, WhatsappAccountEntity } from "entities/whatsapp.entity";
 
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
@@ -534,7 +534,10 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
                 response = await this.whatsappService.sendMessage(
                     { adminId: orderData.adminId },
                     payload,
-                    config.accountId
+                    config.accountId,
+                    null,
+                    config.actionIntent || MessageActionIntent.NONE,
+                    orderData.id,
                 );
             } else {
                 // Preview mode, mock response

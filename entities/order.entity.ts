@@ -402,6 +402,20 @@ export class OrderEntity {
     shipping: number;
   };
 
+  // Inside OrderEntity
+
+  @Column({ type: 'double precision', nullable: true })
+  latitude?: number;
+
+  @Column({ type: 'double precision', nullable: true })
+  longitude?: number;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  locationName?: string;
+
+  @Column({ type: 'text', nullable: true })
+  locationAddress?: string;
+
   @OneToOne("OrderReplacementEntity", "originalOrder", { nullable: true })
   replacementRequest: Relation<OrderReplacementEntity>;
 

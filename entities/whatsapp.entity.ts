@@ -12,6 +12,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { CustomerEntity } from './customers.entity';
+import { OrderEntity } from './order.entity';
 
 
 export enum TemplateCategory {
@@ -415,7 +416,21 @@ export class WhatsappTemplateEntity {
     @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 }
+export enum MessageActionIntent {
+    NONE = 'none',
+    LOCATION_REQUEST = 'location_request',
+}
 
+export enum MessageActionStatus {
+    NOT_APPLICABLE = 'not_applicable', // For regular chat messages
+    PENDING = 'pending',                 // Message sent, waiting for customer response
+    COMPLETED = 'completed',             // Customer replied and OrderEntity was updated
+    EXPIRED = 'expired',                // Order changed status or timed out
+    FAILED = 'failed',                 // Customer replied with invalid payload
+}
+
+@Index(['messageId',"adminId"])
+@Index(['messageId',"adminId", "actionStatus"])
 @Entity('whatsapp_messages')
 export class WhatsappMessageEntity {
     @PrimaryGeneratedColumn('uuid')
@@ -522,6 +537,36 @@ export class WhatsappMessageEntity {
     })
     @JoinColumn({ name: 'customerId' })
     customer: CustomerEntity;
+
+    @Index()
+    @Column({
+        type: 'enum',
+        enum: MessageActionIntent,
+        default: MessageActionIntent.NONE,
+    })
+    actionIntent: MessageActionIntent;
+
+    /**
+     * Tracks whether the customer has fulfilled this action
+    */
+    @Index()
+    @Column({
+        type: 'enum',
+        enum: MessageActionStatus,
+        default: MessageActionStatus.NOT_APPLICABLE,
+    })
+    actionStatus: MessageActionStatus;
+
+    @Column({ type: 'timestamptz', nullable: true })
+    actionCompletedAt?: Date;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    orderId?: string;
+
+    @ManyToOne(() => OrderEntity, { onDelete: 'SET NULL', nullable: true })
+    @JoinColumn({ name: 'orderId' })
+    order?: OrderEntity;
 
     // --- New Relations for Reactions and Replies ---
     @Index()
