@@ -1,14 +1,15 @@
 import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationStatus, RunStatus, TriggerType, VersionIncrementType } from 'entities/automation.entity';
-import { Brackets, DataSource, Repository } from 'typeorm';
+import { Brackets, DataSource, EntityManager, Repository } from 'typeorm';
 import { CreateAutomationDto, UpdateAutomationDto } from 'dto/automation.dto';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
 import { TriggerDispatcherService } from './engine/triggerDispatcher.service';
 import { AutomationQueueService } from 'src/queue/queues/automations.queue';
-import { isSuperAdmin } from 'common/healpers';
+import { isSuperAdmin, deletePhysicalFiles } from 'common/healpers';
+import { OrphanFilesService } from 'src/orphan-files/orphan-files.service';
 
 @Injectable()
 export class AutomationService {
@@ -23,6 +24,7 @@ export class AutomationService {
         private readonly dispatcher: TriggerDispatcherService,
         @Inject(forwardRef(() => AutomationQueueService))
         private readonly automationQueueService: AutomationQueueService,
+        private readonly orphanFilesService: OrphanFilesService,
     ) { }
 
     async getFlowsStats(me: any) {
@@ -88,6 +90,38 @@ export class AutomationService {
         return result;
     }
 
+    private extractBasePaths(urls: string[]): string[] {
+        return urls.map((url) => {
+            try {
+                const urlObj = new URL(url);
+                return urlObj.pathname.startsWith("/")
+                    ? urlObj.pathname.slice(1)
+                    : urlObj.pathname;
+            } catch {
+                return url.startsWith("/")
+                    ? url.slice(1)
+                    : url;
+            }
+        });
+    }
+
+    private async schedulePhysicalFileDeletion(
+        manager: EntityManager,
+        urls: string[],
+    ): Promise<void> {
+        const basePaths = this.extractBasePaths(urls);
+
+        if (manager.queryRunner?.data) {
+            manager.queryRunner.data.postCommitTasks ??= [];
+
+            manager.queryRunner.data.postCommitTasks.push(async () => {
+                await deletePhysicalFiles(basePaths);
+            });
+        } else {
+            await deletePhysicalFiles(basePaths);
+        }
+    }
+
     async create(me: any, dto: CreateAutomationDto) {
         const adminId = tenantId(me);
         const isSuperAdminFlag = isSuperAdmin(me);
@@ -133,6 +167,18 @@ export class AutomationService {
 
             savedAutomation.latestVersionId = savedVersion.id;
             await automationRepo.save(savedAutomation);
+
+            // Handle newIds: resolve and delete entities (keep files)
+            if (dto.orphanFiles?.newIds) {
+                await this.orphanFilesService.deleteOrphansByIds(manager, adminId, dto.orphanFiles.newIds);
+            }
+
+            if (dto.orphanFiles?.deletedOldUrls?.length) {
+                await this.schedulePhysicalFileDeletion(
+                    manager,
+                    dto.orphanFiles.deletedOldUrls,
+                );
+            }
 
             return {
                 ...savedAutomation,
@@ -187,6 +233,19 @@ export class AutomationService {
                 automation.status = AutomationStatus.PUBLISHED;
                 await automationRepo.save(automation);
                 const savedVersion = await versionRepo.save(automation.latestVersion);
+
+                // Handle newIds: resolve and delete entities (keep files)
+                if (dto.orphanFiles?.newIds) {
+                    await this.orphanFilesService.deleteOrphansByIds(manager, adminId, dto.orphanFiles.newIds);
+                }
+
+                if (dto.orphanFiles?.deletedOldUrls?.length) {
+                    await this.schedulePhysicalFileDeletion(
+                        manager,
+                        dto.orphanFiles.deletedOldUrls,
+                    );
+                }
+
                 return {
                     ...automation,
                     newVersion: savedVersion
@@ -249,17 +308,17 @@ export class AutomationService {
 
                 await automationRepo.save(automation);
 
-                // Schedule retry task after commit
-                if (!manager.queryRunner.data.postCommitTasks) {
-                    manager.queryRunner.data.postCommitTasks = [];
+                // Handle newIds: resolve and delete entities (keep files)
+                if (dto.orphanFiles?.newIds) {
+                    await this.orphanFilesService.deleteOrphansByIds(manager, adminId, dto.orphanFiles.newIds);
                 }
-                manager.queryRunner.data.postCommitTasks.push(async () => {
-                    try {
-                        await this.dispatcher.autoRetryFailedRuns(adminId, id);
-                    } catch (e) {
-                        console.error(`Failed to auto-retry runs for automation ${id}:`, e);
-                    }
-                });
+
+                if (dto.orphanFiles?.deletedOldUrls?.length) {
+                    await this.schedulePhysicalFileDeletion(
+                        manager,
+                        dto.orphanFiles.deletedOldUrls,
+                    );
+                }
 
                 return {
                     ...automation,
@@ -268,6 +327,18 @@ export class AutomationService {
             }
 
             await automationRepo.save(automation);
+
+            // Handle newIds: resolve and delete entities (keep files)
+            if (dto.orphanFiles?.newIds) {
+                await this.orphanFilesService.deleteOrphansByIds(manager, adminId, dto.orphanFiles.newIds);
+            }
+
+            if (dto.orphanFiles?.deletedOldUrls?.length) {
+                await this.schedulePhysicalFileDeletion(
+                    manager,
+                    dto.orphanFiles.deletedOldUrls,
+                );
+            }
 
             return await automationRepo.findOne({
                 where: { id, adminId },
@@ -316,7 +387,7 @@ export class AutomationService {
     async findAll(me: any, q?: any) {
         const adminId = tenantId(me);
         const isSuperAdminFlag = isSuperAdmin(me);
-    
+
         if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
 
         const page = Number(q?.page ?? 1);

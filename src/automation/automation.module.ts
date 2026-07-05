@@ -21,11 +21,13 @@ import { OrderEntity } from 'entities/order.entity';
 import { User } from 'entities/user.entity';
 import { OrderAssignmentEntity } from 'entities/assignment.entity';
 import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.module';
+import { OrphanFilesModule } from 'src/orphan-files/orphan-files.module';
 
 
 @Module({
   imports: [
     forwardRef(() => UpsellsModule),
+    forwardRef(() => OrphanFilesModule),
     forwardRef(() => OrdersModule),
     forwardRef(() => WhatsappModule),
     forwardRef(() => OrderAssignmentModule),

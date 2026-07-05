@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { EntityManager, In, Repository } from "typeorm";
 import { OrphanFileEntity } from "entities/files.entity";
+import { deletePhysicalFiles } from "common/healpers";
 
 @Injectable()
 export class OrphanFilesService {
@@ -11,11 +12,10 @@ export class OrphanFilesService {
   ) { }
 
 
-
   async resolveOrphanUrlsOrThrow(
     mgr: EntityManager,
     adminId: string,
-    ids: number[],
+    ids: string[],
   ) {
 
     const repo = mgr.getRepository(OrphanFileEntity);
@@ -31,14 +31,20 @@ export class OrphanFilesService {
     return rows.map((r) => ({ id: r.id, url: r.url }));
   }
 
-  async deleteOrphansByIds(mgr: EntityManager, adminId: string, ids: number[]) {
+  async deleteOrphansByIds(mgr: EntityManager, adminId: string, ids: string[]) {
     const cleanIds = (ids ?? [])
-      .map((x) => Number(x))
-      .filter((x) => Number.isFinite(x) && x > 0);
+      .filter((x) => typeof x === 'string' && x.length > 0);
     if (!cleanIds.length) return;
 
-    await mgr.getRepository(OrphanFileEntity).delete({ adminId, id: In(cleanIds) } as any);
+    const repo = mgr.getRepository(OrphanFileEntity);
+    const files = await repo.find({
+      where: { adminId, id: In(cleanIds) } as any,
+      select: ["url"],
+    });
+
+    await repo.delete({ adminId, id: In(cleanIds) } as any);
   }
+  
   async create(adminId: string, url: string) {
     const row = this.orphanRepo.create({ adminId, url });
     return this.orphanRepo.save(row);
@@ -53,10 +59,11 @@ export class OrphanFilesService {
     if (!file) {
       throw new BadRequestException("Orphan file not found");
     }
-    return await repo.delete({
+    const result = await repo.delete({
       adminId,
       id
     } as any);
+    return result;
   }
 }
 

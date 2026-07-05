@@ -1263,9 +1263,8 @@ export class ProductsService {
       }
 
       // delete used orphans AFTER product save
-      const toDelete = [
-        Number.isFinite(mainOrphanId) && mainOrphanId > 0 ? mainOrphanId : null, ...orphanRows.map((r) => r.id),
-      ].filter(Boolean) as number[];
+      const toDelete = [mainOrphanId, ...orphanRows.map((r) => r.id),
+      ].filter(Boolean) as string[];
       await this.orphanFilesService.deleteOrphansByIds(mgr, String(adminId), toDelete);
 
       const productType = p.type === ProductType.VARIABLE ? ProductType.VARIABLE : ProductType.SINGLE;

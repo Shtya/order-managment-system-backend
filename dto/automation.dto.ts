@@ -267,6 +267,18 @@ class FlowEdgeDto {
     targetHandle?: string;
 }
 
+class OrphanFilesDto {
+    @IsOptional()
+    @IsString({ each: true })
+    @Type(() => String)
+    deletedOldUrls?: string[];
+
+    @IsOptional()
+    @IsString({ each: true })
+    @Type(() => String)
+    newIds?: string[];
+}
+
 class FlowDefinitionDto {
     @Validate(ValidFlowGraphConstraint)
     @ValidateNested({ each: true })
@@ -299,9 +311,15 @@ export class CreateAutomationDto {
     @Type(() => FlowDefinitionDto)
     flow: FlowDefinitionDto;
 
+    
     @IsOptional()
     @IsBoolean()
     publish?: boolean;
+
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => OrphanFilesDto)
+    orphanFiles?: OrphanFilesDto;
 }
 
 
@@ -313,4 +331,9 @@ export class UpdateAutomationDto {
     @IsOptional()
     @IsString()
     version?: string;
+
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => OrphanFilesDto)
+    orphanFiles?: OrphanFilesDto;
 }

@@ -1,14 +1,15 @@
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { existsSync, mkdirSync } from 'fs';
+import { deleteFile } from './healpers';
 
 export const multerOptions = {
   storage: diskStorage({
     // Use 'storage' instead of 'Storage'
     destination: (req, file, cb) => {
-      const uploadDir = './uploads'; 
+      const uploadDir = './uploads/assets';
       if (!existsSync(uploadDir)) {
-        mkdirSync(uploadDir, { recursive: true });  
+        mkdirSync(uploadDir, { recursive: true });
       }
       cb(null, uploadDir);
     },
@@ -23,6 +24,10 @@ export const multerOptions = {
       cb(null, `${name}-${randomName}${extension}`); // Generate a unique filename
     },
   }),
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50 MB
+  },
+
   fileFilter: (req, file, cb) => {
     cb(null, true); // Accept all file types
   },
@@ -64,3 +69,5 @@ export const multerOptionsPdf = {
     }
   },
 };
+
+

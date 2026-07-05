@@ -41,6 +41,21 @@ const multerOptions = {
   },
 };
 
+const anyFileStorage = diskStorage({
+  destination: "./uploads/files",
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `file-${uniqueSuffix}${extname(file.originalname)}`);
+  },
+});
+
+const anyFileMulterOptions = {
+  storage: anyFileStorage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB
+  },
+};
+
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("orphan-files")
 export class OrphanFilesController {
@@ -60,6 +75,24 @@ export class OrphanFilesController {
     return {
       id: row.id,
       url: row.url,
+    };
+  }
+
+  @Post("any")
+  @UseInterceptors(FileInterceptor("file", anyFileMulterOptions))
+  async uploadAny(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException("No file provided");
+
+    const adminId = tenantId(req.user);
+    if (!adminId) throw new BadRequestException("Missing adminId");
+
+    const url = `/uploads/files/${file.filename}`;
+    const row = await this.orphanFiles.create(String(adminId), url);
+
+    return {
+      id: row.id,
+      url: row.url,
+      filename: file.filename,
     };
   }
 
