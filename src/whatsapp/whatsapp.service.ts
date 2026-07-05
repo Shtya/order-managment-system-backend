@@ -593,7 +593,7 @@ export class WhatsappService {
         return this.whatsappApi.streamMedia(resolvedAccountId, mediaUrl, headers);
     }
 
-    async sendMessage(me: any, payload: WhatsappSendMessagePayload & { metadata?: Record<string, any>; }, accountId?: string, localId?: string, actionIntent?: MessageActionIntent, orderId?: string, ) {
+    async sendMessage(me: any, payload: WhatsappSendMessagePayload & { metadata?: Record<string, any>; }, accountId?: string, localId?: string, actionIntent?: MessageActionIntent, orderId?: string,) {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException("Missing adminId");
 
@@ -618,7 +618,7 @@ export class WhatsappService {
             (response as any).localId = localId;
         }
 
-        await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response, metadata, actionIntent, orderId );
+        await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response, metadata, actionIntent, orderId);
 
         return response;
     }
@@ -882,7 +882,7 @@ export class WhatsappService {
 
             // Emit notifications
             this.appGateway.emitNewMessage(adminId, finalMsg);
-            
+
             return finalMsg;
         } catch (e) {
             this.logger.error(`Failed to process outbound message: ${e.message}`, e.stack);
@@ -896,11 +896,11 @@ export class WhatsappService {
         adminId: string,
         payload: any,
     ): Promise<void> {
-        try {   
-            
+        try {
+
             // 1. Check if the incoming message has a context (replying to another message)
             const parentMessageWamid = payload.context?.id;
-            console.log(parentMessageWamid);
+
             if (!parentMessageWamid) return;
 
             // 2. Find the parent message and ensure it has a pending action tied to an order
@@ -910,8 +910,21 @@ export class WhatsappService {
                     adminId,
                     actionStatus: MessageActionStatus.PENDING,
                 },
+                relations: {
+                    order: true,
+                },
+                select: {
+                    id: true,
+                    orderId: true,
+                    actionIntent: true,
+                    actionStatus: true,
+                    order: {
+                        id: true,
+                        orderNumber: true,
+                    },
+                },
             });
-            
+
             if (!parentMessage || !parentMessage.orderId) {
                 return; // Parent message doesn't require an action or isn't linked to an order
             }
@@ -923,7 +936,7 @@ export class WhatsappService {
                 payload.location
             ) {
                 const { latitude, longitude, name, address } = payload.location;
-                
+
                 // Update the order repository directly
                 await this.orderRepo.update(parentMessage.orderId, {
                     latitude: latitude ?? null,
@@ -942,7 +955,7 @@ export class WhatsappService {
                     userId: adminId,
                     type: NotificationType.ORDER_LOCATION_UPDATED,
                     title: "Order Location Updated",
-                    message: `Order #${parentMessage.orderId} location has been updated from whatsapp.`,
+                    message: `Order #${parentMessage.order.orderNumber} location has been updated from whatsapp.`,
                     relatedEntityType: "order",
                     relatedEntityId: String(parentMessage.orderId),
                 });
@@ -1437,7 +1450,7 @@ export class WhatsappService {
             }
         }
 
-        await this.processMessageActions( account.adminId, metaMsg);
+        await this.processMessageActions(account.adminId, metaMsg);
     }
 
     private extractReplyData(metaMsg: any): { id?: string; text: string } | null {
