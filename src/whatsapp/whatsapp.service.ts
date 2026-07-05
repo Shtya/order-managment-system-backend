@@ -897,9 +897,11 @@ export class WhatsappService {
         payload: any,
         incomingMsgId: string
     ): Promise<void> {
-        try {
+        try {   
+            console.log(payload);
             // 1. Check if the incoming message has a context (replying to another message)
             const parentMessageWamid = payload.context?.id;
+            console.log(parentMessageWamid);
             if (!parentMessageWamid) return;
 
             // 2. Find the parent message and ensure it has a pending action tied to an order
@@ -910,7 +912,7 @@ export class WhatsappService {
                     actionStatus: MessageActionStatus.PENDING,
                 },
             });
-
+            console.log(parentMessage);
             if (!parentMessage || !parentMessage.orderId) {
                 return; // Parent message doesn't require an action or isn't linked to an order
             }
@@ -922,7 +924,7 @@ export class WhatsappService {
                 payload.location
             ) {
                 const { latitude, longitude, name, address } = payload.location;
-
+                console.log(latitude, longitude, name, address);
                 // Update the order repository directly
                 await this.orderRepo.update(parentMessage.orderId, {
                     latitude: latitude ?? null,
