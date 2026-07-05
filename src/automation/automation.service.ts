@@ -239,12 +239,12 @@ export class AutomationService {
                     await this.orphanFilesService.deleteOrphansByIds(manager, adminId, dto.orphanFiles.newIds);
                 }
 
-                if (dto.orphanFiles?.deletedOldUrls?.length) {
-                    await this.schedulePhysicalFileDeletion(
-                        manager,
-                        dto.orphanFiles.deletedOldUrls,
-                    );
-                }
+                // if (dto.orphanFiles?.deletedOldUrls?.length) {
+                //     await this.schedulePhysicalFileDeletion(
+                //         manager,
+                //         dto.orphanFiles.deletedOldUrls,
+                //     );
+                // }
 
                 return {
                     ...automation,
@@ -313,12 +313,12 @@ export class AutomationService {
                     await this.orphanFilesService.deleteOrphansByIds(manager, adminId, dto.orphanFiles.newIds);
                 }
 
-                if (dto.orphanFiles?.deletedOldUrls?.length) {
-                    await this.schedulePhysicalFileDeletion(
-                        manager,
-                        dto.orphanFiles.deletedOldUrls,
-                    );
-                }
+                // if (dto.orphanFiles?.deletedOldUrls?.length) {
+                //     await this.schedulePhysicalFileDeletion(
+                //         manager,
+                //         dto.orphanFiles.deletedOldUrls,
+                //     );
+                // }
 
                 return {
                     ...automation,
