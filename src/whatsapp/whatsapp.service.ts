@@ -842,6 +842,7 @@ export class WhatsappService {
                 customerId: conversation.customerId,
                 conversationId: conversation.id,
                 actionIntent,
+                actionStatus: actionIntent ? MessageActionStatus.PENDING : MessageActionStatus.NOT_APPLICABLE,
                 orderId,
                 metadata: {
                     ...(response.localId ? { localId: response.localId } : {}),
