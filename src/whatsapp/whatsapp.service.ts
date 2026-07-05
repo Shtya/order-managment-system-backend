@@ -882,7 +882,7 @@ export class WhatsappService {
 
             // Emit notifications
             this.appGateway.emitNewMessage(adminId, finalMsg);
-            await this.processMessageActions(adminId, payload, savedMsg.id);
+            
             return finalMsg;
         } catch (e) {
             this.logger.error(`Failed to process outbound message: ${e.message}`, e.stack);
@@ -895,10 +895,9 @@ export class WhatsappService {
     private async processMessageActions(
         adminId: string,
         payload: any,
-        incomingMsgId: string
     ): Promise<void> {
         try {   
-            console.log(payload);
+            
             // 1. Check if the incoming message has a context (replying to another message)
             const parentMessageWamid = payload.context?.id;
             console.log(parentMessageWamid);
@@ -912,7 +911,7 @@ export class WhatsappService {
                     actionStatus: MessageActionStatus.PENDING,
                 },
             });
-            console.log(parentMessage);
+            
             if (!parentMessage || !parentMessage.orderId) {
                 return; // Parent message doesn't require an action or isn't linked to an order
             }
@@ -924,7 +923,7 @@ export class WhatsappService {
                 payload.location
             ) {
                 const { latitude, longitude, name, address } = payload.location;
-                console.log(latitude, longitude, name, address);
+                
                 // Update the order repository directly
                 await this.orderRepo.update(parentMessage.orderId, {
                     latitude: latitude ?? null,
@@ -1214,7 +1213,7 @@ export class WhatsappService {
         // this.logger.log(`WhatsApp Webhook Received - mainWabaId: ${mainWabaId} -  Main Account: ${JSON.stringify(mainAccount)}`);
 
         // Step 1: Validate request
-        // this.validateSignature(rawBody, signature, mainAccount.appSecret);
+        this.validateSignature(rawBody, signature, mainAccount.appSecret);
 
 
         for (const entry of entries) {
@@ -1437,6 +1436,8 @@ export class WhatsappService {
                 );
             }
         }
+
+        await this.processMessageActions( account.adminId, metaMsg);
     }
 
     private extractReplyData(metaMsg: any): { id?: string; text: string } | null {
