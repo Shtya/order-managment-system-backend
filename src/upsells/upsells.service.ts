@@ -363,7 +363,10 @@ export class UpsellsService {
             if (config.headerType === 'TEXT') {
                 interactive.header = { type: 'text', text: config.headerText };
             } else {
-                const media = await this.whatsappService.uploadMedia({ id: adminId, adminId }, { url: config.headerUrl });
+                const url = config.headerUrl ? config.headerUrl : config.headerType?.toUpperCase() === "IMAGE" ? upsell.upsellProduct?.mainImage : null;
+                config.headerUrl = url;
+                if (!url) return null;
+                const media = await this.whatsappService.uploadMedia({ id: adminId, adminId }, { url });
                 interactive.header = {
                     type: config.headerType.toLowerCase(),
                     [config.headerType.toLowerCase()]: {
