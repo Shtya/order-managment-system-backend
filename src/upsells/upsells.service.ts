@@ -517,6 +517,7 @@ export class UpsellsService {
         if (history.status === UpsellStatus.EXPIRED || (history.expiresAt && history.expiresAt < new Date())) {
             if (history.status !== UpsellStatus.EXPIRED) {
                 history.status = UpsellStatus.EXPIRED;
+                 history.respondedAt = new Date();
                 await this.upsellHistoryRepo.save(history);
             }
             return { success: false, code: 'UPSELL_EXPIRED', message: `Upsell link for order ${order?.orderNumber} has expired` };
@@ -675,8 +676,6 @@ export class UpsellsService {
         const worksheet = workbook.addWorksheet('Upsell History');
 
         worksheet.columns = [
-            { header: 'Order ID', key: 'orderId', width: 25 },
-            { header: 'Upsell Rule', key: 'upsellName', width: 25 },
             { header: 'Trigger Product', key: 'triggerProduct', width: 25 },
             { header: 'Upsell Product', key: 'upsellProduct', width: 25 },
             { header: 'Offered SKU', key: 'upsellSku', width: 20 },
