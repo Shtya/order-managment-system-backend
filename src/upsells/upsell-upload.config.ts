@@ -21,13 +21,13 @@ export const upsellMediaMulterOptions = {
   storage: upsellMediaStorage,
   limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
-    const ok =
-      /^image\/(jpeg|jpg|png)$/i.test(file.mimetype) ||
-      file.mimetype === "video/mp4" ||
-      file.mimetype === "application/pdf";
-    if (!ok) {
-      return cb(new BadRequestException("Invalid media type"), false);
-    }
+    // const ok =
+    //   /^image\/(jpeg|jpg|png)$/i.test(file.mimetype) ||
+    //   file.mimetype === "video/mp4" ||
+    //   file.mimetype === "application/pdf";
+    // if (!ok) {
+    //   return cb(new BadRequestException("Invalid media type"), false);
+    // }
     cb(null, true);
   },
 };

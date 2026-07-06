@@ -2,7 +2,6 @@
 import { diskStorage, MulterError } from 'multer';
 import { extname, join } from 'path';
 import { existsSync, mkdirSync, unlinkSync } from 'fs';
-import type { Express } from 'express';
 import { BadRequestException, Catch, ExceptionFilter, ArgumentsHost, ParseFilePipe, MaxFileSizeValidator, FileTypeValidator } from '@nestjs/common';
 
 /* ===================== Config ===================== */

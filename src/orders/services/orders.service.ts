@@ -20,6 +20,7 @@ import {
   MoreThan,
   MoreThanOrEqual,
 } from "typeorm";
+import axios from 'axios';
 import * as ExcelJS from "exceljs";
 import {
   OrderEntity,
@@ -269,6 +270,7 @@ export class OrdersService {
     ipAddress?: string;
     manager: EntityManager; // Removed optional '?' because getRepository needs it
   }) {
+
     // [2025-12-24] Trim string identifiers for clean history
     const adminId = params.adminId;
     const notes = params.notes?.trim() || null;

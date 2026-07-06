@@ -80,16 +80,16 @@ export class UpsellsService {
 
         // 3. Handle media handle if applicable
         const messageConfig = { ...dto.messageConfig };
-        if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType) && messageConfig.headerUrl) {
-            try {
-                const accountId = await this.whatsappService.getDefaultAccountId(adminId);
-                messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
-            } catch (err) {
-                console.error('Failed to upload media to Meta:', err);
-                // We might still want to save, or throw error. Usually better to throw if it's required.
-                throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
-            }
-        }
+        // if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType) && messageConfig.headerUrl) {
+        //     try {
+        //         const accountId = await this.whatsappService.getDefaultAccountId(adminId);
+        //         messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
+        //     } catch (err) {
+        //         console.error('Failed to upload media to Meta:', err);
+        //         // We might still want to save, or throw error. Usually better to throw if it's required.
+        //         throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
+        //     }
+        // }
 
         const upsell = this.upsellRepo.create({
             ...dto,
@@ -154,16 +154,16 @@ export class UpsellsService {
         const messageConfig = dto.messageConfig ? { ...dto.messageConfig } : upsell.messageConfig;
 
         // If headerUrl changed, re-upload to Meta
-        if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
-            if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType)) {
-                try {
-                    const accountId = await this.whatsappService.getDefaultAccountId(adminId);
-                    messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
-                } catch (err) {
-                    throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
-                }
-            }
-        }
+        // if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
+        //     if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType)) {
+        //         try {
+        //             const accountId = await this.whatsappService.getDefaultAccountId(adminId);
+        //             messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
+        //         } catch (err) {
+        //             throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
+        //         }
+        //     }
+        // }
 
         if (dto.expireTimeM !== undefined) {
             upsell.expireTimeM = dto.expireTimeM;

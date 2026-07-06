@@ -12,7 +12,7 @@ import { getErrorMessage, imageSrc } from 'common/healpers';
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
-
+import * as mime from 'mime-types';
 type MetaApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 type WhatsappRequestOptions = {
@@ -353,7 +353,7 @@ export interface WhatsappTemplateParameterDateTime {
 
 export interface WhatsappTemplateParameterMedia {
   type: 'image' | 'video' | 'document' | "coupon_code";
-  coupon_code?:  string;
+  coupon_code?: string;
   image?: WhatsappMediaObject;
   video?: WhatsappMediaObject;
   document?: WhatsappMediaObject;
@@ -715,38 +715,56 @@ export class WhatsappApiService {
     }
 
     // 1. Convert local URL → absolute file path
-    const filePath = path.join(process.cwd(), fileUrl);
+    let fileBuffer: Buffer;
+    let fileName: string;
+    let fileLength: number;
+    let fileType: string;
 
-    if (!fs.existsSync(filePath)) {
-      throw new BadRequestException('File not found: ' + filePath);
+    if (/^https?:\/\//i.test(fileUrl)) {
+      // Remote file
+      const response = await axios.get<ArrayBuffer>(fileUrl, {
+        responseType: 'arraybuffer',
+      });
+
+      fileBuffer = Buffer.from(response.data);
+
+      const urlObj = new URL(fileUrl);
+      fileName = path.basename(urlObj.pathname);
+      fileLength = fileBuffer.length;
+
+      const contentType = response.headers['content-type'];
+
+      fileType =
+        typeof contentType === 'string'
+          ? contentType
+          : mime.lookup(fileName) || '';
+
+    } else {
+      // Local file
+      const filePath = path.join(
+        process.cwd(),
+        fileUrl.replace(/^\/+/, ''),
+      );
+
+      if (!fs.existsSync(filePath)) {
+        throw new BadRequestException(`File not found: ${filePath}`);
+      }
+
+      fileBuffer = fs.readFileSync(filePath);
+
+      fileName = path.basename(filePath);
+      fileLength = fileBuffer.length;
+
+      fileType = mime.lookup(filePath) || '';
     }
 
-    const fileBuffer = fs.readFileSync(filePath);
-    const fileStats = fs.statSync(filePath);
-
-    const fileName = path.basename(filePath);
-    const fileLength = fileStats.size;
-
-    // 2. Detect MIME type (simple version)
-    const ext = path.extname(filePath).toLowerCase();
-
-    const mimeTypeMap: Record<string, string> = {
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.pdf': 'application/pdf',
-      '.mp4': 'video/mp4',
-    };
-
-    const fileType = mimeTypeMap[ext];
-
     if (!fileType) {
-      throw new BadRequestException('Unsupported file type');
+      throw new BadRequestException('Unable to determine file type');
     }
 
     try {
       // 3. Start upload session
-      const sessionRes = await axios.post<{ id: string }>(
+      const sessionRes = await axios.post(
         `https://graph.facebook.com/${version}/${appId}/uploads`,
         null,
         {
@@ -759,7 +777,7 @@ export class WhatsappApiService {
         },
       );
 
-      const sessionId = sessionRes.data.id; // upload:xxxx
+      const sessionId = sessionRes.data.id;
 
       // 4. Upload file
       const uploadRes = await axios.post<{ h: string }>(
