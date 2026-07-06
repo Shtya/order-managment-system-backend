@@ -314,6 +314,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       rawState: state,
       trackingNumber,
       providerShipmentId,
+      notes: body?.notes || body?.exceptionReason || body?.message || "",
     };
   }
 

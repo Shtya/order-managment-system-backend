@@ -720,7 +720,7 @@ export class OrdersService {
         });
       } else {
         qb.andWhere("shipment.status IN (:...statuses)", {
-          statuses: [ShipmentStatus.CREATED, ShipmentStatus.IN_TRANSIT, ShipmentStatus.SUBMITTED, ShipmentStatus.ON_HOLD],
+          statuses: [ShipmentStatus.PENDING_ACTION, ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
         });
       }
     }
@@ -1446,6 +1446,40 @@ export class OrdersService {
           }
         );
 
+        // Update active shipments status to OUT_FOR_DELIVERY
+        const orderIds = ordersToUpdate.map(order => order.id);
+
+        if (orderIds.length > 0) {
+          // 1. Fetch the latest matching shipment ID for each order
+          const latestShipments = await manager
+            .getRepository(ShipmentEntity)
+            .createQueryBuilder('shipment')
+            .select('shipment.id')
+            .innerJoin('orders', 'order', 'order.id = shipment.orderId AND order.trackingNumber = shipment.trackingNumber')
+            .where('shipment.orderId IN (:...orderIds)', { orderIds })
+            // Distinguish latest per order using database DISTINCT ON (Postgres) 
+            // OR fetch all and filter in memory if order list is small
+            .orderBy('shipment.orderId')
+            .addOrderBy('shipment.created_at', 'DESC')
+            .getMany();
+
+          // Deduplicate in Node.js to guarantee only the latest per order ID
+          const uniqueShipmentIds = Array.from(
+            new Map(latestShipments.map(s => [s.orderId, s.id])).values()
+          );
+
+          // 2. Perform one batch update
+          if (uniqueShipmentIds.length > 0) {
+            await manager
+              .getRepository(ShipmentEntity)
+              .createQueryBuilder()
+              .update()
+              .set({ status: ShipmentStatus.OUT_FOR_DELIVERY })
+              .whereInIds(uniqueShipmentIds)
+              .execute();
+          }
+        }
+
         await this.bulkLogStatusChange({
           adminId,
           manager,
@@ -1595,6 +1629,42 @@ export class OrdersService {
             manifestId: manifest.id, // Ensure manifest linkage is saved
           }
         );
+
+        // Update active shipments status to RETURNED_TO_WAREHOUSE
+
+        if (orderIds.length > 0) {
+          const shipmentRepo = manager.getRepository(ShipmentEntity);
+
+          // 1. Fetch the latest matching shipment ID for each order
+          const latestShipments = await shipmentRepo
+            .createQueryBuilder('shipment')
+            .select('shipment.id')
+            .addSelect('shipment.orderId')
+            .innerJoin(
+              'orders',
+              'order',
+              'order.id = shipment.orderId AND order.trackingNumber = shipment.trackingNumber'
+            )
+            .where('shipment.orderId IN (:...orderIds)', { orderIds })
+            .orderBy('shipment.orderId')
+            .addOrderBy('shipment.created_at', 'DESC')
+            .getMany();
+
+          // Deduplicate in memory to guarantee only the single latest shipment per order ID
+          const uniqueShipmentIds = Array.from(
+            new Map(latestShipments.map(s => [s.orderId, s.id])).values()
+          );
+
+          // 2. Perform one batch update
+          if (uniqueShipmentIds.length > 0) {
+            await shipmentRepo
+              .createQueryBuilder()
+              .update()
+              .set({ status: ShipmentStatus.RETURNED_TO_WAREHOUSE })
+              .whereInIds(uniqueShipmentIds)
+              .execute();
+          }
+        }
 
         const returnIds = orders
           .map(order => order.lastReturnId)
@@ -1933,6 +2003,42 @@ export class OrdersService {
         },
       );
 
+      
+
+      if (orderIds.length > 0) {
+        const shipmentRepo = manager.getRepository(ShipmentEntity);
+
+        // 1. Fetch the latest matching shipment ID for each order
+        const latestShipments = await shipmentRepo
+          .createQueryBuilder('shipment')
+          .select('shipment.id')
+          .addSelect('shipment.orderId')
+          .innerJoin(
+            'orders',
+            'order',
+            'order.id = shipment.orderId AND order.trackingNumber = shipment.trackingNumber'
+          )
+          .where('shipment.orderId IN (:...orderIds)', { orderIds })
+          .orderBy('shipment.orderId')
+          .addOrderBy('shipment.created_at', 'DESC')
+          .getMany();
+
+        // Deduplicate in memory to guarantee only the single latest shipment per order ID
+        const uniqueShipmentIds = Array.from(
+          new Map(latestShipments.map(s => [s.orderId, s.id])).values()
+        );
+
+        // 2. Perform one batch update
+        if (uniqueShipmentIds.length > 0) {
+          await shipmentRepo
+            .createQueryBuilder()
+            .update()
+            .set({ status: ShipmentStatus.PREPARING })
+            .whereInIds(uniqueShipmentIds)
+            .execute();
+        }
+      }
+
       // 4. ✅ Log the Operational Movement (Bulk)
       // This creates the "OP-XXXXX" entries for the "Waybill Printed" action
       if (newPrintOrders.length > 0) {
@@ -2147,6 +2253,19 @@ export class OrdersService {
         await manager.update(OrderEntity, order.id, {
           statusId: readyStatus.id,
         });
+
+        // Update active shipment status to READY_TO_SHIP
+        const shipmentRepo = manager.getRepository(ShipmentEntity);
+        const shipment = await shipmentRepo
+          .createQueryBuilder('shipment')
+          .where('shipment.orderId = :orderId', { orderId: order.id })
+          .andWhere('shipment.trackingNumber = (SELECT "trackingNumber" FROM orders WHERE id = :orderId)', { orderId: order.id })
+          .orderBy('shipment.created_at', 'DESC')
+          .getOne();
+
+        if (shipment) {
+          await shipmentRepo.update(shipment.id, { status: ShipmentStatus.READY_TO_SHIP });
+        }
 
         await this.logStatusChange({
           adminId,

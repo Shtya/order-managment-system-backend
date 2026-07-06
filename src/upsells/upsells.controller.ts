@@ -132,7 +132,13 @@ export class UpsellsController {
                 try {
                     const response = await axios({ method: 'get', url: headerUrl, responseType: 'arraybuffer' });
                     const contentType = response.headers['content-type'] || '';
-                    const ext = contentType.includes('image') ? '.jpg' : contentType.includes('video') ? '.mp4' : '.pdf';
+                    const type = typeof contentType === "string" ? contentType : "";
+
+                    const ext = type.includes("image")
+                        ? ".jpg"
+                        : type.includes("video")
+                            ? ".mp4"
+                            : ".pdf";
                     const filename = `upsell_${Date.now()}${ext}`;
                     const filePath = path.join(process.cwd(), 'uploads', 'upsells', filename);
 

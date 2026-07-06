@@ -19,7 +19,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from "@nestjs/common";
-import { FileFieldsInterceptor, FileInterceptor } from "@nestjs/platform-express";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { Response } from "express";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";

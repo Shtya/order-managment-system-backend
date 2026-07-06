@@ -1,11 +1,11 @@
 // --- File: backend/src/shipping/shipping.controller.ts ---
-import { Body, Controller, Get, Param, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req,Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ShippingService } from './shipping.service';
 import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
 import { tenantId } from 'src/category/category.service';
 import { ProviderCode } from './providers/shipping-provider.interface';
-
+import { Response } from 'express';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { RequireSubscription } from 'common/require-subscription.decorator';
@@ -191,6 +191,22 @@ export class ShippingController {
 	@Post('providers/:provider/mass-awb')
 	printMassAWB(@Req() req: any, @Param('provider') provider: string, @Body() dto: PrintMassAWBDto) {
 		return this.shipping.printMassAWB(req.user, provider, dto);
+	}
+
+	@Permissions("shipping-companies.read")
+	@Get('external-logs')
+	listExternalLogs(@Req() req: any, @Query() q: any) {
+		return this.shipping.listExternalShipmentLogs(req.user, q);
+	}
+
+	@Permissions("shipping-companies.read")
+	@Get('external-logs/export')
+	async exportExternalLogs(@Req() req: any, @Res() res: Response, @Query() q: any) {
+		const buffer = await this.shipping.exportExternalShipmentLogs(req.user, q);
+		res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+		res.setHeader('Content-Disposition', 'attachment; filename=shipment-logs.xlsx');
+		res.send(buffer);
+
 	}
 
 }

@@ -9,7 +9,7 @@ import { ShippingWebhookController } from './shipping.webhook.controller';
 import { ShippingService } from './shipping.service';
 
 import { ShippingCompanyEntity } from '../../entities/shipping.entity';
-import { ShipmentEntity, ShippingIntegrationEntity, ShipmentEventEntity } from '../../entities/shipping.entity';
+import { ShipmentEntity, ShippingIntegrationEntity, ShipmentEventEntity, ExternalShipmentLogEntity } from '../../entities/shipping.entity';
 
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
@@ -24,7 +24,7 @@ import { WebSocketModule } from '../../common/websocket.module';
     forwardRef(() => AuthModule),
     forwardRef(() => OrdersModule),
     WebSocketModule,
-    TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity]),
+    TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity, ExternalShipmentLogEntity]),
   ],
   controllers: [ShippingController, ShippingWebhookController],
   providers: [ShippingService, BostaProvider, JtProvider, TurboProvider],

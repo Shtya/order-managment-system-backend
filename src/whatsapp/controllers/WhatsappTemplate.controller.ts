@@ -154,7 +154,7 @@ export class WhatsappTemplateController {
             if (headerUrl.startsWith('http://') || headerUrl.startsWith('https://')) {
                 try {
                     const response = await axios({ method: 'get', url: headerUrl, responseType: 'arraybuffer' });
-                    const ext = this.getFileExtension(response.headers['content-type'] || headerUrl);
+                    const ext = this.getFileExtension(String(response.headers["content-type"] || ""), headerUrl);
                     const filename = `${Date.now()}_header${ext}`;
                     const filePath = path.join(process.cwd(), 'uploads', 'whatsapp-templates', filename);
 

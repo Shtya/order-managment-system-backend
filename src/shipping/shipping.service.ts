@@ -6,16 +6,19 @@ import * as crypto from 'crypto';
 
 
 import {
-	ShipmentEntity,
-	ShipmentEventEntity,
-	ShipmentStatus,
-	ShippingCompanyEntity,
-	ShippingIntegrationEntity,
-	UnifiedShippingStatus,
+  ShipmentEntity,
+  ShipmentEventEntity,
+  ShipmentStatus,
+  ShippingCompanyEntity,
+  ShippingIntegrationEntity,
+  UnifiedShippingStatus,
+  ExternalShipmentLogEntity,
 } from '../../entities/shipping.entity';
+import { DateFilterUtil } from 'common/date-filter.util';
+import * as ExcelJS from 'exceljs';
 
 import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto } from './shipping.dto';
-import { IMassAWBProvider, ProviderCode, ShippingProvider } from './providers/shipping-provider.interface';
+import { IMassAWBProvider, ProviderCode, ProviderWebhookResult, ShippingProvider } from './providers/shipping-provider.interface';
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
@@ -55,6 +58,8 @@ export class ShippingService {
 
 		@InjectRepository(ShipmentEventEntity)
 		private eventsRepo: Repository<ShipmentEventEntity>,
+		@InjectRepository(ExternalShipmentLogEntity)
+		private externalShipmentLogsRepo: Repository<ExternalShipmentLogEntity>,
 		@Inject(forwardRef(() => OrdersService))
 		private readonly ordersService: OrdersService,
 		private readonly notificationService: NotificationService,
@@ -515,7 +520,7 @@ export class ShippingService {
 							adminId,
 							orderId,
 							shippingCompanyId: null,
-							status: ShipmentStatus.CREATED,
+							status: ShipmentStatus.PENDING_ACTION,
 							cityId: order.cityId,
 							address: order.address,
 							landmark: order.landmark,
@@ -575,7 +580,7 @@ export class ShippingService {
 						landmark: order.landmark,
 						area: order.area,
 						shippingCompanyId: companyId,
-						status: ShipmentStatus.SUBMITTED,
+						status: ShipmentStatus.PENDING_ACTION,
 						unifiedStatus: UnifiedShippingStatus.NEW,
 					}),
 				);
@@ -593,7 +598,7 @@ export class ShippingService {
 
 				shipment.trackingNumber = res.trackingNumber || null;
 				shipment.providerShipmentId = res.providerShipmentId || null;
-				shipment.status = ShipmentStatus.CREATED;
+				// shipment.status = ShipmentStatus.PENDING_ACTION;
 				shipment.unifiedStatus = UnifiedShippingStatus.IN_PROGRESS;
 				shipment.providerRaw = {
 					request: payload,
@@ -850,6 +855,73 @@ export class ShippingService {
 		return { ok: true, statuses: Object.values(ShipmentStatus) };
 	}
 
+	async listExternalShipmentLogs(me: any, q?: any) {
+		const adminId = tenantId(me);
+		const orderId = q?.orderId;
+		const shipmentId = q?.shipmentId;
+		const page = Number(q?.page ?? 1);
+		const limit = Number(q?.limit ?? 10);
+
+		const qb = this.externalShipmentLogsRepo.createQueryBuilder('log')
+		.leftJoinAndSelect('log.shipment', 'shipment')
+		.leftJoinAndSelect('log.order', 'order')
+		.leftJoin('shipment.shippingCompany', 'shippingCompany')
+		.where('shipment.adminId = :adminId', { adminId });
+		
+		if (shipmentId) {
+			qb.andWhere('log.shipmentId = :shipmentId', { shipmentId });
+		}
+		if (orderId) {
+			qb.andWhere('log.orderId = :orderId', { orderId });
+		}
+
+		DateFilterUtil.applyToQueryBuilder(qb, 'log.created_at', q?.startDate, q?.endDate);
+
+		qb.orderBy('log.created_at', 'DESC');
+
+		const [records, total] = await qb
+			.skip((page - 1) * limit)
+			.take(limit)
+			.getManyAndCount();
+
+		return { total_records: total, current_page: page, per_page: limit, records };
+	}
+
+	async exportExternalShipmentLogs(me: any, q?: any) {
+		const { records } = await this.listExternalShipmentLogs(me, { ...q, limit: 1000, page: 1 });
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet('External Shipment Logs');
+
+		worksheet.columns = [
+			{ header: "Order Number", key: "orderNumber", width: 25},
+			{ header: 'Tracking Number', key: 'trackingNumber', width: 25 },
+			{ header: 'Shipping Company', key: 'shippingCompany', width: 25 },
+			{ header: 'Status', key: 'rawStatus', width: 20 },
+			{ header: 'Notes', key: 'notes', width: 30 },
+			{ header: 'Created At', key: 'createdAt', width: 25 },
+		];
+
+		worksheet.getRow(1).font = { bold: true };
+		worksheet.getRow(1).fill = {
+			type: 'pattern',
+			pattern: 'solid',
+			fgColor: { argb: 'FFE0E0E0' },
+		};
+
+		records.forEach(log => {
+			worksheet.addRow({
+				orderNumber: log.order.orderNumber || 'N/A',
+				trackingNumber: log.shipment?.trackingNumber || 'N/A',
+				shippingCompany: log.shipment?.shippingCompany?.name || 'N/A',
+				rawStatus: log.rawStatus || 'N/A',
+				notes: log.notes || 'N/A',
+				createdAt: log.created_at,
+			});
+		});
+
+		return await workbook.xlsx.writeBuffer();
+	}
+
 	async trackShipment(me: any, trackingNumber: string) {
 		const adminId = tenantId(me);
 		const shipment = await this.shipmentsRepo.findOne({
@@ -902,7 +974,7 @@ export class ShippingService {
 				included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
 			})
 			.andWhere("shipment.status IN (:...status)", {
-				status: [ShipmentStatus.CREATED,ShipmentStatus.IN_TRANSIT, ShipmentStatus.SUBMITTED, ShipmentStatus.ON_HOLD],
+				status: [ShipmentStatus.PENDING_ACTION,ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
 			})
 			.groupBy('company.id')
 			.addGroupBy('company.name')
@@ -978,7 +1050,7 @@ export class ShippingService {
 					included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
 				})
 				.andWhere("shipment.status IN (:...status)", {
-					status: [ShipmentStatus.CREATED, ShipmentStatus.IN_TRANSIT, ShipmentStatus.SUBMITTED, ShipmentStatus.ON_HOLD],
+					status: [ShipmentStatus.PENDING_ACTION,ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
 				})
 
 
@@ -1157,7 +1229,7 @@ export class ShippingService {
 	private async applyMappedUnifiedStatusInTransaction(
 		manager: EntityManager,
 		shipment: ShipmentEntity & { order: OrderEntity & { items: OrderItemEntity[] } },
-		mapped: { unifiedStatus: UnifiedShippingStatus },
+		mapped: ProviderWebhookResult,
 		eventMeta: { eventSource: string; payload: any },
 	): Promise<void> {
 
@@ -1195,7 +1267,7 @@ export class ShippingService {
 				await Promise.all([...restockUpdates, itemsUpdate]);
 			}
 		}
-
+		shipment.rawStatus = mapped.rawState;
 		if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
 			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
 			shipment.status = ShipmentStatus.CANCELLED;
@@ -1218,7 +1290,10 @@ export class ShippingService {
 			});
 		} else {
 			shipment.unifiedStatus = mapped.unifiedStatus;
-			shipment.status = this.mapUnifiedToLegacy(mapped.unifiedStatus);
+			const newStatus = await this.mapUnifiedToLegacy(mapped.unifiedStatus);
+			if(newStatus) {
+				shipment.status = newStatus;
+			}
 		}
 
 		if (mapped.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
@@ -1283,6 +1358,19 @@ export class ShippingService {
 				payload: eventMeta.payload,
 			}),
 		);
+
+		// Log to external shipment logs
+		await manager.save(
+			manager.create(ExternalShipmentLogEntity, {
+				shipmentId: shipment.id,
+				orderId: shipment.orderId,
+				adminId: shipment.adminId,
+				notes: mapped.notes,
+				rawState: eventMeta.payload,
+				rawStatus: mapped.rawState,
+				unifiedStatus: mapped.unifiedStatus,
+			})
+		);
 	}
 
 	async updateShipmentStatusManually(me: any, shipmentId: string, dto: ManualUpdateShipmentStatusDto) {
@@ -1337,7 +1425,7 @@ export class ShippingService {
 
 
 	private mapUnifiedToLegacy(u: UnifiedShippingStatus): ShipmentStatus {
-		if (u === UnifiedShippingStatus.NEW) return ShipmentStatus.CREATED;
+		// if (u === UnifiedShippingStatus.NEW) return ShipmentStatus.CREATED;
 		if (u === UnifiedShippingStatus.DELIVERED) return ShipmentStatus.DELIVERED;
 		if (u === UnifiedShippingStatus.CANCELLED) return ShipmentStatus.CANCELLED;
 
@@ -1345,14 +1433,15 @@ export class ShippingService {
 			return ShipmentStatus.FAILED;
 		}
 
-		if ([UnifiedShippingStatus.IN_TRANSIT, UnifiedShippingStatus.PICKED_UP, UnifiedShippingStatus.IN_PROGRESS].includes(u)) {
-			return ShipmentStatus.IN_TRANSIT;
-		}
+		// if ([UnifiedShippingStatus.IN_TRANSIT, UnifiedShippingStatus.PICKED_UP, UnifiedShippingStatus.IN_PROGRESS].includes(u)) {
+		// 	return ShipmentStatus.IN_TRANSIT;
+		// }
 
-		if (u === UnifiedShippingStatus.RETURNED) return ShipmentStatus.RETURNED;
-		if ([UnifiedShippingStatus.ON_HOLD, UnifiedShippingStatus.ACTION_REQUIRED].includes(u)) return ShipmentStatus.ON_HOLD;
-		if (u === UnifiedShippingStatus.ARCHIVED) return ShipmentStatus.ARCHIVED;
+		// if (u === UnifiedShippingStatus.RETURNED) return ShipmentStatus.RETURNED;
+		// if ([UnifiedShippingStatus.ON_HOLD, UnifiedShippingStatus.ACTION_REQUIRED].includes(u)) return ShipmentStatus.ON_HOLD;
+		// if (u === UnifiedShippingStatus.ARCHIVED) return ShipmentStatus.ARCHIVED;
 
-		return ShipmentStatus.SUBMITTED;
+		// return ShipmentStatus.SUBMITTED;
+		return null;
 	}
 }

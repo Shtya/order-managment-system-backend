@@ -32,6 +32,7 @@ export type ProviderWebhookResult = {
 	rawState?: any;
 	trackingNumber?: string | null;
 	providerShipmentId?: string | null;
+	notes?: string | null;
 };
 
 export type ProviderCapability<T = any> = {

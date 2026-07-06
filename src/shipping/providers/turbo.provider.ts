@@ -304,6 +304,7 @@ export class TurboProvider extends ShippingProvider {
       rawState: statusCode,
       trackingNumber: trackingNumber,
       providerShipmentId: body?.order_number?.toString(),
+      notes: body?.notes || body?.exceptionReason || body?.message || "",
     };
   }
 

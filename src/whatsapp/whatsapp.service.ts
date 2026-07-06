@@ -520,7 +520,7 @@ export class WhatsappService {
             try {
                 const response = await axios.get(url, { responseType: 'arraybuffer' });
                 const buffer = Buffer.from(response.data, 'binary');
-                const contentType = response.headers['content-type']?.split(';')[0]; // Clean mime type (remove charset)
+                const contentType = String(response.headers["content-type"] ?? "").split(";")[0];
 
                 // Clean filename: remove query params and hash
                 const urlPath = url.split('?')[0].split('#')[0];

@@ -15,15 +15,51 @@ import { User } from './user.entity';
 import { CityEntity } from './cities.entity';
 
 export enum ShipmentStatus {
-	CREATED = 'created',
-	SUBMITTED = 'submitted',
-	IN_TRANSIT = 'in_transit',
-	DELIVERED = 'delivered',
+	// Old statuses (to be removed after migration)
+	// CREATED = 'created',
+	// SUBMITTED = 'submitted',
+	// IN_TRANSIT = 'in_transit',
 	FAILED = 'failed',
-	RETURNED = 'returned',
+	// RETURNED = 'returned',
 	CANCELLED = 'cancelled',
-	ON_HOLD = 'on_hold',
-	ARCHIVED = 'archived',
+	// ON_HOLD = 'on_hold',
+	// ARCHIVED = 'archived',
+
+	/**
+	 * تم إنشاء الشحنة بعد توزيع الطلب على شركة الشحن
+	 * قيد الإجراء
+	 */
+	PENDING_ACTION = 'pending_action',
+
+	/**
+	 * بدأت عملية الطباعة والإسكان
+	 * قيد التحضير
+	 */
+	PREPARING = 'preparing',
+
+	/**
+	 * اكتملت عملية الإسكان
+	 * جاهز للشحن
+	 */
+	READY_TO_SHIP = 'ready_to_ship',
+
+	/**
+	 * تمت إضافتها إلى ملف الخروج
+	 * خرج للتوصيل
+	 */
+	OUT_FOR_DELIVERY = 'out_for_delivery',
+
+	/**
+	 * تم تسليم الطلب للعميل
+	 * وصل
+	 */
+	DELIVERED = 'delivered',
+
+	/**
+	 * تم إنشاء المرتجع وإرساله للمستودع
+	 * رجع للمستودع
+	 */
+	RETURNED_TO_WAREHOUSE = 'returned_to_warehouse',
 }
 
 export enum UnifiedShippingStatus {
@@ -165,11 +201,14 @@ export class ShipmentEntity {
 	@Column({ type: 'varchar', length: 120, nullable: true })
 	trackingNumber?: string | null;
 
-	@Column({ type: 'enum', enum: ShipmentStatus, default: ShipmentStatus.CREATED })
+	@Column({ type: 'enum', enum: ShipmentStatus, default: ShipmentStatus.PENDING_ACTION })
 	status: ShipmentStatus;
 
-	@Column({ type: 'enum', enum: UnifiedShippingStatus, default: UnifiedShippingStatus.NEW })
+	@Column({ type: 'enum', enum: UnifiedShippingStatus, nullable: true })
 	unifiedStatus: UnifiedShippingStatus;
+
+	@Column({ type: 'varchar', length: 120, nullable: true })
+	rawStatus?: string;
 
 	@Column({ type: 'jsonb', nullable: true })
 	providerRaw?: any;
@@ -223,6 +262,52 @@ export class ShipmentEventEntity {
 
 	@Column({ type: 'jsonb', nullable: true })
 	payload?: any;
+
+	@CreateDateColumn({ type: 'timestamptz' })
+	created_at: Date;
+}
+
+@Entity({ name: 'external_shipment_logs' })
+@Index(['shipmentId', 'orderId', 'adminId', 'created_at'])
+export class ExternalShipmentLogEntity {
+	@PrimaryGeneratedColumn('uuid')
+	id: string;
+
+	@Index()
+	@Column({ type: 'uuid', nullable: true })
+	adminId: string;
+
+	@ManyToOne(() => User, { onDelete: 'SET NULL' }) // or 'CASCADE'
+	@JoinColumn({ name: 'adminId' })
+	admin: User;
+
+	@Column({ type: 'uuid', nullable: true })
+	@Index()
+	shipmentId: string;
+
+	@ManyToOne(() => ShipmentEntity, { onDelete: 'CASCADE', nullable: true })
+	@JoinColumn({ name: 'shipmentId' })
+	shipment: ShipmentEntity;
+
+	@Column({ type: 'uuid', nullable: true })
+	@Index()
+	orderId: string;
+
+	@ManyToOne(() => OrderEntity, { onDelete: 'CASCADE', nullable: true })
+	@JoinColumn({ name: 'orderId' })
+	order: OrderEntity;
+
+	@Column({ type: 'text', nullable: true })
+	notes: string;
+
+	@Column({ type: 'jsonb', nullable: true })
+	rawState: any;
+
+	@Column({ type: 'varchar', length: 80, nullable: true })
+	rawStatus: any;
+
+	@Column({ type: 'enum', enum: UnifiedShippingStatus, nullable: true })
+	unifiedStatus: UnifiedShippingStatus;
 
 	@CreateDateColumn({ type: 'timestamptz' })
 	created_at: Date;

@@ -49,8 +49,8 @@ export class RemoteImageHelper {
             });
 
             const contentType = response.headers["content-type"];
-            if (!contentType?.startsWith("image/")) {
-                throw new BadRequestException("Only image types are allowed");
+            if (typeof contentType !== "string" || !contentType.startsWith("image/")) {
+                throw new Error("Response is not an image");
             }
 
             const size = Buffer.byteLength(response.data);
