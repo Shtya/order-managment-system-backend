@@ -299,6 +299,7 @@ export interface ExecutionState {
     steps: Record<string, StepExecutionResult>;
 }
 
+@Index(['triggerEntityType', 'triggerEntityId'])
 @Entity('automation_runs')
 export class AutomationRunEntity {
     @PrimaryGeneratedColumn('uuid')

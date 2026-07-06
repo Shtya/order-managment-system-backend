@@ -447,7 +447,7 @@ export class OrderEntity {
   @ManyToOne(() => MonthlyClosingEntity)
   @JoinColumn({ name: 'monthlyClosingId' })
   monthlyClosing: Relation<MonthlyClosingEntity>;
-
+  
 
   @DeleteDateColumn({ name: "deleted_at", nullable: true, type: "timestamptz" })
   deleted_at?: Date;

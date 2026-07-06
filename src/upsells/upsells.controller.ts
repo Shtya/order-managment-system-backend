@@ -73,6 +73,27 @@ export class UpsellsController {
         res.send(buffer);
     }
 
+    @Get("history")
+    @Permissions('upsells.read')
+    async listHistory(@Req() req: any, @Query() q: any) {
+        return await this.svc.listHistory(req.user, q);
+    }
+
+    @Get('export-history')
+    @Permissions('upsells.read')
+    async exportHistory(@Req() req: any, @Query() q: any, @Res() res: Response) {
+        const buffer = await this.svc.exportHistory(req.user, q);
+        res.setHeader(
+            'Content-Type',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        );
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename=upsell-history-${Date.now()}.xlsx`,
+        );
+        res.send(buffer);
+    }
+
     @Get('stats')
     @Permissions('upsells.read')
     async stats(@Req() req: any) {

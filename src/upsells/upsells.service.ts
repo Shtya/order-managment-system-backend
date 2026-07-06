@@ -606,4 +606,108 @@ export class UpsellsService {
 
         return await workbook.xlsx.writeBuffer();
     }
+
+    async listHistory(me: any, q?: any) {
+        const adminId = me.tenantId || me.id; // Replace with your tenantId(me) helper
+        const page = Number(q?.page ?? 1);
+        const limit = Number(q?.limit ?? 10);
+        const search = String(q?.search ?? '').trim();
+        const status = q?.status;
+        const orderId = q?.orderId;
+        const upsellId = q?.upsellId;
+
+        const qb = this.upsellHistoryRepo.createQueryBuilder('uh')
+            .leftJoinAndSelect('uh.upsell', 'u')
+            .leftJoinAndSelect('uh.triggerProduct', 'tp')
+            .leftJoinAndSelect('uh.upsellProduct', 'up')
+            .leftJoinAndSelect('uh.upsellSku', 'us')
+            .where('uh.adminId = :adminId', { adminId });
+
+        // Filter by Order ID (Crucial for the Order Details Modal)
+        if (orderId) {
+            qb.andWhere('uh.orderId = :orderId', { orderId });
+        }
+
+        // Filter by Upsell ID
+        if (upsellId) {
+            qb.andWhere('uh.upsellId = :upsellId', { upsellId });
+        }
+
+        // Filter by Status
+        if (status && status !== 'all') {
+            qb.andWhere('uh.status = :status', { status });
+        }
+
+        // Date Range Filter
+        // DateFilterUtil.applyToQueryBuilder(qb, 'uh.createdAt', q?.startDate, q?.endDate);
+        if (q?.startDate && q?.endDate) {
+            qb.andWhere('uh.createdAt BETWEEN :startDate AND :endDate', {
+                startDate: q.startDate,
+                endDate: q.endDate,
+            });
+        }
+
+        // Search Filter (Matches product names, SKUs, or message IDs)
+        if (search) {
+            qb.andWhere(new Brackets(sq => {
+                sq.where('tp.name ILIKE :s', { s: `%${search}%` })
+                  .orWhere('up.name ILIKE :s', { s: `%${search}%` })
+                  .orWhere('us.sku ILIKE :s', { s: `%${search}%` })
+                  .orWhere('uh.messageId ILIKE :s', { s: `%${search}%` });
+            }));
+        }
+
+        qb.orderBy('uh.createdAt', 'DESC');
+
+        const [records, total] = await qb
+            .skip((page - 1) * limit)
+            .take(limit)
+            .getManyAndCount();
+
+        return { total_records: total, current_page: page, per_page: limit, records };
+    }
+
+    async exportHistory(me: any, q: any) {
+        // Fetch all matching records without pagination restrictions
+        const { records } = await this.listHistory(me, { ...q, limit: 10000, page: 1 });
+        
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Upsell History');
+
+        worksheet.columns = [
+            { header: 'Order ID', key: 'orderId', width: 25 },
+            { header: 'Upsell Rule', key: 'upsellName', width: 25 },
+            { header: 'Trigger Product', key: 'triggerProduct', width: 25 },
+            { header: 'Upsell Product', key: 'upsellProduct', width: 25 },
+            { header: 'Offered SKU', key: 'upsellSku', width: 20 },
+            { header: 'Sent Price', key: 'sentPrice', width: 15 },
+            { header: 'Status', key: 'status', width: 15 },
+            { header: 'Sent At', key: 'createdAt', width: 22 },
+            { header: 'Responded At', key: 'respondedAt', width: 22 },
+            { header: 'Expires At', key: 'expiresAt', width: 22 },
+        ];
+
+        // Style the Header Row
+        worksheet.getRow(1).font = { bold: true };
+        worksheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFE0E0E0' },
+        };
+
+        records.forEach(uh => {
+            worksheet.addRow({
+                triggerProduct: uh.triggerProduct?.name || 'N/A',
+                upsellProduct: uh.upsellProduct?.name || 'N/A',
+                upsellSku: uh.upsellSku?.sku || 'N/A',
+                sentPrice: Number(uh.sentPrice) || 0,
+                status: uh.status || 'PENDING',
+                createdAt: uh.createdAt ? new Date(uh.createdAt).toLocaleString() : '-',
+                respondedAt: uh.respondedAt ? new Date(uh.respondedAt).toLocaleString() : '-',
+                expiresAt: uh.expiresAt ? new Date(uh.expiresAt).toLocaleString() : '-',
+            });
+        });
+
+        return await workbook.xlsx.writeBuffer();
+    }
 }

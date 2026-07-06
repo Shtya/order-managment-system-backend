@@ -576,6 +576,17 @@ export class OrdersService {
         `cityTenantConfig.adminId = order.adminId`
       )
       .leftJoinAndSelect("assignment.employee", "employee");
+
+    qb.addSelect(
+      `(SELECT COUNT(*) FROM "automation_runs" ar WHERE ar."triggerEntityId" = "order".id::text AND ar."triggerEntityType" = 'order')`,
+      "automationRunCount"
+    );
+
+    // ✅ Subquery for Upsell History Count
+    qb.addSelect(
+      `(SELECT COUNT(*) FROM "upsell_history" uh WHERE uh."orderId" = "order".id)`,
+      "upsellHistoryCount"
+    );
     if (superAdmin) {
       qb.leftJoinAndSelect("order.admin", "admin")
     }
@@ -771,10 +782,23 @@ export class OrdersService {
     }
 
     const total = await qb.getCount();
-    const records = await qb
+    const { entities, raw } = await qb
       .skip((page - 1) * limit)
       .take(limit)
-      .getMany();
+      .getRawAndEntities();
+
+    // 3. دمج حقول الـ Count المخصصة من الـ Raw داخل الـ Entities
+    const records = entities.map((order) => {
+      // البحث عن السطر الخام المقابل للطلب الحالي لمطابقة المعرف
+      const rawData = raw.find((r) => r.order_id === order.id || r.id === order.id);
+
+      return {
+        ...order,
+        // عمل parseInt لأن قيم COUNT
+        automationRunCount: rawData?.automationRunCount ? parseInt(rawData.automationRunCount, 10) : 0,
+        upsellHistoryCount: rawData?.upsellHistoryCount ? parseInt(rawData.upsellHistoryCount, 10) : 0,
+      };
+    });
 
     return {
       total_records: total,
@@ -2003,7 +2027,7 @@ export class OrdersService {
         },
       );
 
-      
+
 
       if (orderIds.length > 0) {
         const shipmentRepo = manager.getRepository(ShipmentEntity);

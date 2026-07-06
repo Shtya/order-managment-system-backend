@@ -635,52 +635,56 @@ export class AutomationService {
 
         const qb = this.runRepo
             .createQueryBuilder("run")
-            .leftJoinAndSelect('run.automationFlow', 'automationFlow')
+            .leftJoinAndSelect('run.automationFlow', 'automation_flow')
             .leftJoinAndSelect('run.version', 'version')
-            .where("run.automationFlowId IN (SELECT id FROM automation_flows WHERE \"adminId\" = :adminId)", { adminId });
+            .where('run."adminId" = :adminId', { adminId });
 
         // Filters
-        // if (q?.status) {
-        //     qb.andWhere("run.status = :status", { status: q.status });
-        // }
-
         if (q?.status) {
             const statusParam = q.status;
             if (typeof statusParam === "string" && statusParam.includes(",")) {
                 const statusCodes = statusParam.split(",").map((s) => s.trim());
-                qb.andWhere("run.status IN (:...statusCodes)", { statusCodes });
+                qb.andWhere('run.status IN (:...statusCodes)', { statusCodes });
             } else {
-                qb.andWhere("run.status = :status", { status: statusParam });
+                qb.andWhere('run.status = :status', { status: statusParam });
             }
         }
 
         if (q?.automationFlowId) {
-            qb.andWhere("run.automationFlowId = :automationFlowId", { automationFlowId: q.automationFlowId });
+            qb.andWhere('run."automationFlowId" = :automationFlowId', { automationFlowId: q.automationFlowId });
         }
 
         if (q?.triggerType) {
-            qb.andWhere("automationFlow.triggerType = :triggerType", { triggerType: q.triggerType });
+            qb.andWhere('automation_flow."triggerType" = :triggerType', { triggerType: q.triggerType });
+        }
+
+        if (q?.triggerEntityType) {
+            qb.andWhere('run."triggerEntityType" = :triggerEntityType', { triggerEntityType: q.triggerEntityType });
+        }
+
+        if (q?.entityId) {
+            qb.andWhere('run."triggerEntityId" = :entityId', { entityId: q.entityId });
         }
 
         // Date range
-        DateFilterUtil.applyToQueryBuilder(qb, "run.startedAt", q?.startDate, q?.endDate);
+        DateFilterUtil.applyToQueryBuilder(qb, 'run.startedAt', q?.startDate, q?.endDate);
 
         // Search (by triggerEntityId)
         if (search) {
-            qb.andWhere("run.triggerEntityId ILIKE :s", { s: `%${search}%` });
+            qb.andWhere('run."triggerEntityId" ILIKE :s', { s: `%${search}%` });
         }
 
         // Sorting
         const sortColumns: Record<string, string> = {
-            startedAt: "run.startedAt",
-            status: "run.status",
-            completedAt: "run.completedAt",
+            startedAt: 'run.startedAt',
+            status: 'run.status',
+            completedAt: 'run.completedAt',
         };
 
         if (sortColumns[sortBy]) {
             qb.orderBy(sortColumns[sortBy], sortDir);
         } else {
-            qb.orderBy("run.startedAt", "DESC");
+            qb.orderBy('run.startedAt', 'DESC');
         }
 
         const total = await qb.getCount();
