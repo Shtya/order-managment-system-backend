@@ -52,7 +52,6 @@ export class TriggerDispatcherService {
                 return;
             }
             trigger.payload = order;
-            return;
         }
         console.log(`[TriggerDispatcher] Received dispatch request for ${trigger.type} on ${trigger.entityType} ${trigger.entityId} (admin: ${trigger.adminId})`);
         if (!trigger.adminId) {
