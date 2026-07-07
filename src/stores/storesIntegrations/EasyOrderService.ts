@@ -1280,7 +1280,8 @@ export class EasyOrderService extends BaseStoreProvider {
             [OrderStatus.UNDER_REVIEW]: "pending",
             [OrderStatus.POSTPONED]: "pending",
             [OrderStatus.NO_ANSWER]: "pending",
-
+            [OrderStatus.NO_ANSWER_FOLLOW_UP]: "pending",
+            [OrderStatus.CANCELLED_FOLLOW_UP]: "pending",
             // مرحلة النجاح في التأكيد
             [OrderStatus.CONFIRMED]: "confirmed",
 

@@ -34,11 +34,13 @@ export enum OrderStatus {
   POSTPONED = "postponed", //
   CONFIRMED = "confirmed",
   NO_ANSWER = "no_answer", //
+  NO_ANSWER_FOLLOW_UP = "no_answer_follow_up", //
   WRONG_NUMBER = "wrong_number", //
   OUT_OF_DELIVERY_AREA = "out_of_area", //
   DUPLICATE = "duplicate", //
   REJECTED = "rejected",//
   CANCELLED = "cancelled", //
+  CANCELLED_FOLLOW_UP = "cancelled_follow_up", //
   FAILED_DELIVERY = "failed_delivery", //
   
   DISTRIBUTED = "distributed",

@@ -615,6 +615,14 @@ export class OrdersService {
       });
     }
 
+    if (q?.hasActiveAssignment !== undefined && q.hasActiveAssignment !== "all") {
+      if (q.hasActiveAssignment === "true" || q.hasActiveAssignment === true) {
+        qb.andWhere("assignment.isAssignmentActive = :isActive", { isActive: true });
+      } else if (q.hasActiveAssignment === "false" || q.hasActiveAssignment === false) {
+        qb.andWhere("assignment.isAssignmentActive IS NULL OR assignment.isAssignmentActive = :isActive", { isActive: false });
+      }
+    }
+
     if (q?.statusId) {
       qb.andWhere("order.statusId = :statusId", {
         statusId: q.statusId,
@@ -4194,180 +4202,10 @@ export class OrdersService {
   // ✅ EXPORT ORDERS TO EXCEL
   // ========================================
   async exportOrders(me: any, q?: any) {
-    const superAdmin = isSuperAdmin(me);
-    let adminId = tenantId(me);
-
-    if (superAdmin && q?.adminId) {
-      adminId = q.adminId;
-    }
-
-    if (!adminId && !superAdmin) throw new BadRequestException("Missing adminId");
-
-    const search = String(q?.search ?? "").trim();
     const isShippedExport = String(q?.status ?? "").trim() === OrderStatus.SHIPPED;
 
-    const qb = this.orderRepo
-      .createQueryBuilder("order");
-
-    if (adminId) qb.where("order.adminId = :adminId", { adminId })
-
-    qb.leftJoinAndSelect("order.items", "items")
-      .leftJoinAndSelect("items.variant", "variant")
-      .leftJoinAndSelect("variant.product", "product")
-      .leftJoinAndSelect("order.status", "status")
-      .leftJoinAndSelect("order.shippingCompany", "shipping")
-      .leftJoinAndSelect("order.store", "store");
-
-    if (isShippedExport) {
-      qb.leftJoinAndSelect(
-        "order.assignments",
-        "assignment",
-        `assignment.id = (SELECT sub.id FROM order_assignments sub WHERE sub."orderId" = "order".id ORDER BY sub."assignedAt" DESC LIMIT 1)`,
-      )
-        .leftJoinAndSelect("assignment.employee", "employee")
-        .leftJoinAndSelect(
-          "order.shipments",
-          "shipment",
-          `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
-        )
-        .leftJoinAndSelect("order.cityDetails", "cityDetails")
-        .leftJoinAndSelect(
-          "cityDetails.tenantConfigs",
-          "cityTenantConfig",
-          `cityTenantConfig.adminId = order.adminId`,
-        );
-    } else {
-      qb.leftJoinAndSelect(
-        "order.assignments",
-        "assignment",
-        "assignment.isAssignmentActive = true",
-      )
-        .leftJoinAndSelect("assignment.employee", "employee");
-    }
-
-    // Filter by assigned employee (userId)
-    if (q?.userId) {
-      qb.andWhere("assignment.employeeId = :userId", {
-        userId: q.userId,
-      });
-    }
-    if (q?.status) {
-      const statusParam = q.status;
-      if (typeof statusParam === "string" && statusParam.includes(",")) {
-        const statusCodes = statusParam.split(",").map((s) => s.trim());
-        qb.andWhere("status.code IN (:...statusCodes)", { statusCodes });
-      } else if (!isNaN(Number(statusParam))) {
-        qb.andWhere("order.statusId = :statusId", {
-          statusId: Number(statusParam),
-        });
-      } else {
-        qb.andWhere("status.code = :statusCode", {
-          statusCode: String(statusParam).trim(),
-        });
-      }
-    }
-    if (q?.paymentStatus)
-      qb.andWhere("order.paymentStatus = :paymentStatus", {
-        paymentStatus: q.paymentStatus,
-      });
-    if (q?.paymentMethod)
-      qb.andWhere("order.paymentMethod = :paymentMethod", {
-        paymentMethod: q.paymentMethod,
-      });
-    if (q?.shippingCompanyId && q.shippingCompanyId !== "all") {
-      if (q.shippingCompanyId === "none") {
-        qb.andWhere("order.shippingCompanyId IS NULL");
-      } else if (q.shippingCompanyId !== "all") {
-        qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
-          shippingCompanyId: q.shippingCompanyId,
-        });
-      }
-    }
-    if (q?.storeId) {
-      if (q.storeId === "none") {
-        qb.andWhere("order.storeId IS NULL");
-      } else if (q.storeId !== "all") {
-        qb.andWhere("order.storeId = :storeId", {
-          storeId: q.storeId,
-        });
-      }
-    }
-    DateFilterUtil.applyToQueryBuilder(qb, 'order.created_at', q?.startDate, q?.endDate);
-
-    const needsShipmentJoin =
-      !isShippedExport &&
-      (q?.shipmentStatus ||
-        q?.shippedStartDate ||
-        q?.shippedEndDate ||
-        q?.minShippingDays ||
-        q?.lateShipping);
-
-    if (needsShipmentJoin) {
-      qb.leftJoinAndSelect(
-        "order.shipments",
-        "shipment",
-        `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
-      )
-        .leftJoinAndSelect("order.cityDetails", "cityDetails")
-        .leftJoinAndSelect(
-          "cityDetails.tenantConfigs",
-          "cityTenantConfig",
-          `cityTenantConfig.adminId = order.adminId`,
-        );
-    }
-
-    if (q?.shipmentStatus && q.shipmentStatus !== "all") {
-      qb.andWhere("shipment.status = :status", {
-        status: q.shipmentStatus,
-      });
-    }
-
-    DateFilterUtil.applyToQueryBuilder(qb, "order.shippedAt", q?.shippedStartDate, q?.shippedEndDate);
-
-    if (q?.minShippingDays !== undefined && q?.minShippingDays !== "") {
-      qb.andWhere('"order"."shippedAt" IS NOT NULL');
-      qb.andWhere(
-        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) >= :minShippingDays`,
-        { minShippingDays: Number(q.minShippingDays) },
-      );
-    }
-
-    if (q?.lateShipping === "true" || q?.lateShipping === true) {
-      qb.andWhere('"order"."shippedAt" IS NOT NULL');
-      qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
-      qb.andWhere(
-        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
-      );
-    }
-
-    if (q?.labelPrinted !== undefined && q.labelPrinted !== "all") {
-      if (q.labelPrinted === "true" || q.labelPrinted === true) {
-        qb.andWhere("order.labelPrinted IS NOT NULL");
-      } else if (q.labelPrinted === "false" || q.labelPrinted === false) {
-        qb.andWhere("order.labelPrinted IS NULL");
-      }
-    }
-
-    if (q?.productId && q.productId !== "all") {
-      qb.andWhere("variant.productId = :productId", {
-        productId: q.productId,
-      });
-    }
-    // Search
-    if (search) {
-      qb.andWhere(
-        new Brackets((sq) => {
-          sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` })
-            .orWhere("order.customerName ILIKE :s", { s: `%${search}%` })
-            .orWhere("order.phoneNumber ILIKE :s", { s: `%${search}%` });
-        }),
-      );
-    }
-
-    qb.orderBy("order.created_at", "DESC");
-
-    // Get all records (no pagination for export)
-    const orders = await qb.getMany();
+    // Use list method to get all orders (no pagination)
+    const { records: orders } = await this.list(me, { ...q, limit: 10000 });
 
     if (isShippedExport) {
       const exportData = orders.map((order) => {

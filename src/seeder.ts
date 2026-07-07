@@ -59,55 +59,61 @@ async function runGlobalSeed() {
 			name: 'No Answer', code: OrderStatus.NO_ANSWER, isDefault: false, order: 5, color: '#FF5722', // برتقالي محروق (تحذير)
 		},
 		{
-			name: 'Wrong Number', code: OrderStatus.WRONG_NUMBER, isDefault: false, order: 6, color: '#795548', // بني
+			name: 'No Answer - Follow Up', code: OrderStatus.NO_ANSWER_FOLLOW_UP, isDefault: false, order: 6, color: '#FF5722', // Same as No Answer
 		},
 		{
-			name: 'Out of Delivery Area', code: OrderStatus.OUT_OF_DELIVERY_AREA, isDefault: false, order: 7, color: '#673AB7', // بنفسجي غامق
+			name: 'Wrong Number', code: OrderStatus.WRONG_NUMBER, isDefault: false, order: 7, color: '#795548', // بني
 		},
 		{
-			name: 'Duplicate', code: OrderStatus.DUPLICATE, isDefault: false, order: 8, color: '#E91E63', // وردي (تنبيه تكرار)
+			name: 'Out of Delivery Area', code: OrderStatus.OUT_OF_DELIVERY_AREA, isDefault: false, order: 8, color: '#673AB7', // بنفسجي غامق
 		},
 		{
-			name: 'Rejected', code: OrderStatus.REJECTED, isDefault: false, order: 9, color: '#F44336', // Red (Matches stats.cancelledShipping)
+			name: 'Duplicate', code: OrderStatus.DUPLICATE, isDefault: false, order: 9, color: '#E91E63', // وردي (تنبيه تكرار)
 		},
 		{
-			name: 'Cancelled', code: OrderStatus.CANCELLED, isDefault: false, order: 10, color: '#F44336', // Matches stats.cancelledShipping (Red)
+			name: 'Rejected', code: OrderStatus.REJECTED, isDefault: false, order: 10, color: '#F44336', // Red (Matches stats.cancelledShipping)
 		},
 		{
-			name: 'Failed Delivery', code: OrderStatus.FAILED_DELIVERY, isDefault: false, order: 11, color: '#E91E63', // Pink (Alert for delivery issues)
+			name: 'Cancelled', code: OrderStatus.CANCELLED, isDefault: false, order: 11, color: '#F44336', // Matches stats.cancelledShipping (Red)
 		},
 		{
-			name: 'Distributed', code: OrderStatus.DISTRIBUTED, isDefault: false, order: 12, color: '#9C27B0', // Purple (Indicates it's out for handling)
-		},
-		{ name: 'Printed', code: OrderStatus.PRINTED, isDefault: false, order: 13, color: '#3F51B5', },
-		{
-			name: 'Preparing', code: OrderStatus.PREPARING, isDefault: false, order: 14, color: '#9C27B0', // Matches stats.total/processing (Purple)
+			name: 'Cancelled - Follow Up', code: OrderStatus.CANCELLED_FOLLOW_UP, isDefault: false, order: 12, color: '#F44336', // Same as Cancelled
 		},
 		{
-			name: 'Ready', code: OrderStatus.READY, isDefault: false, order: 15, color: '#009688', // Matches stats.postponed/teal (Teal/Ready)
+			name: 'Failed Delivery', code: OrderStatus.FAILED_DELIVERY, isDefault: false, order: 13, color: '#E91E63', // Pink (Alert for delivery issues)
+		},
+		{
+			name: 'Distributed', code: OrderStatus.DISTRIBUTED, isDefault: false, order: 14, color: '#9C27B0', // Purple (Indicates it's out for handling)
+		},
+		{ name: 'Printed', code: OrderStatus.PRINTED, isDefault: false, order: 15, color: '#3F51B5', },
+		{
+			name: 'Preparing', code: OrderStatus.PREPARING, isDefault: false, order: 16, color: '#9C27B0', // Matches stats.total/processing (Purple)
+		},
+		{
+			name: 'Ready', code: OrderStatus.READY, isDefault: false, order: 17, color: '#009688', // Matches stats.postponed/teal (Teal/Ready)
 		},
 		{
 			name: 'Packed',
 			code: OrderStatus.PACKED,
 			isDefault: false,
-			order: 16,
+			order: 18,
 			color: '#795548' // Brown (Boxed and ready for pickup)
 		},
 		{
-			name: 'Shipped', code: OrderStatus.SHIPPED, isDefault: false, order: 17, color: '#03A9F4', // Matches stats.inShipping (Light Blue)
+			name: 'Shipped', code: OrderStatus.SHIPPED, isDefault: false, order: 19, color: '#03A9F4', // Matches stats.inShipping (Light Blue)
 		},
 		{
-			name: 'Delivered', code: OrderStatus.DELIVERED, isDefault: false, order: 18, color: '#4CAF50', // Matches stats.delivered (Green)
+			name: 'Delivered', code: OrderStatus.DELIVERED, isDefault: false, order: 20, color: '#4CAF50', // Matches stats.delivered (Green)
 		},
 		{
 			name: 'Return Preparing',
 			code: OrderStatus.RETURN_PREPARING,
 			isDefault: false,
-			order: 19,
+			order: 21,
 			color: '#FF9800', // Orange (Matches "Under Review" style)
 		},
 		{
-			name: 'Returned', code: OrderStatus.RETURNED, isDefault: false, order: 20, color: '#607D8B', // Grey (Standard for Returned/Archive)
+			name: 'Returned', code: OrderStatus.RETURNED, isDefault: false, order: 22, color: '#607D8B', // Grey (Standard for Returned/Archive)
 		},
 	];
 

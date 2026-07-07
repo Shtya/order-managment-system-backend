@@ -7,7 +7,7 @@ import { OrderEntity, OrderStatus, OrderStatusEntity, AssignmentMode, TimeUnit }
 import { User } from 'entities/user.entity';
 import { tenantId } from 'src/category/category.service';
 import { OrdersService } from 'src/orders/services/orders.service';
-import { Brackets, DataSource, In, Repository } from 'typeorm';
+import { Brackets, DataSource, EntityManager, In, Repository } from 'typeorm';
 import * as ExcelJS from "exceljs";
 import { ProductEntity } from 'entities/sku.entity';
 import { CityEntity } from 'entities/cities.entity';
@@ -16,8 +16,6 @@ import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { BitmaskHelper, WeekDayHelper } from 'common/bitmask.helper';
 import { StoreEntity } from 'entities/stores.entity';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 
 @Injectable()
 export class OrderAssignmentService {
@@ -55,6 +53,238 @@ export class OrderAssignmentService {
         @InjectRepository(StoreEntity)
         private readonly storeRepo: Repository<StoreEntity>,
     ) { }
+
+    private async bulkUpdateOrderStatusOnAssignment(orderIds: string[], adminId: string, manager: EntityManager): Promise<void> {
+        // Step 1: Fetch all orders with their statuses
+        const orders = await manager
+            .createQueryBuilder(OrderEntity, 'order')
+            .innerJoinAndSelect('order.status', 'status')
+            .where('order.id IN (:...orderIds)', { orderIds })
+            .getMany();
+
+        if (!orders.length) return;
+
+        // Step 2: Find the required new statuses for this admin
+        const [cancelledFollowUpStatus, noAnswerFollowUpStatus, noAnswerStatus, cancelledStatus] = await Promise.all([
+            this.ordersService.findStatusByCode(OrderStatus.CANCELLED_FOLLOW_UP, adminId, manager),
+            this.ordersService.findStatusByCode(OrderStatus.NO_ANSWER_FOLLOW_UP, adminId, manager),
+            this.ordersService.findStatusByCode(OrderStatus.NO_ANSWER, adminId, manager),
+            this.ordersService.findStatusByCode(OrderStatus.CANCELLED, adminId, manager)
+        ]);
+
+        // Step 3: Determine which orders need updating and prepare changes
+        const orderStatusChanges: Array<{
+            orderId: string;
+            fromStatusId: string | null;
+            toStatusId: string;
+        }> = [];
+
+        const ordersToUpdate: string[] = [];
+
+        for (const order of orders) {
+            let newStatus = null;
+            if (order.status?.code === OrderStatus.CANCELLED && cancelledFollowUpStatus) {
+                newStatus = cancelledFollowUpStatus;
+            } else if (order.status?.code === OrderStatus.NO_ANSWER && noAnswerFollowUpStatus) {
+                newStatus = noAnswerFollowUpStatus;
+            }
+
+            if (newStatus) {
+                ordersToUpdate.push(order.id);
+                orderStatusChanges.push({
+                    orderId: order.id,
+                    fromStatusId: order.statusId,
+                    toStatusId: newStatus.id,
+                });
+            }
+        }
+
+        if (!ordersToUpdate.length) return;
+        // Update all orders in one query using CASE statement
+        await manager
+            .createQueryBuilder()
+            .update(OrderEntity)
+            .set({
+                statusId: () => `
+                        CASE 
+                            WHEN statusId = :cancelledStatusId THEN :cancelledFollowUpStatusId
+                            WHEN statusId = :noAnswerStatusId THEN :noAnswerFollowUpStatusId
+                            ELSE statusId
+                        END
+                    `,
+                oldStatusId: 'statusId'
+            })
+            .where('id IN (:...orderIds)', { orderIds: ordersToUpdate })
+            .setParameters({
+                cancelledStatusId: cancelledStatus?.id,
+                cancelledFollowUpStatusId: cancelledFollowUpStatus.id,
+                noAnswerStatusId: noAnswerStatus?.id,
+                noAnswerFollowUpStatusId: noAnswerFollowUpStatus.id,
+            })
+            .execute();
+
+
+        // Step 5: Bulk log status changes
+        if (orderStatusChanges.length) {
+            await this.ordersService.bulkLogStatusChange({
+                adminId,
+                manager,
+                orderStatusChanges,
+                notes: 'Status updated automatically on employee assignment',
+            });
+        }
+    }
+
+    private async bulkRevertOrderStatusOnUnassignment(
+        orderIds: string[],
+        adminId: string,
+        manager: EntityManager,
+    ): Promise<void> {
+        const orders = await manager
+            .createQueryBuilder(OrderEntity, 'order')
+            .innerJoinAndSelect('order.status', 'status')
+            .where('order.id IN (:...orderIds)', { orderIds })
+            .getMany();
+
+        if (!orders.length) return;
+
+        const [
+            cancelledStatus,
+            noAnswerStatus,
+            cancelledFollowUpStatus,
+            noAnswerFollowUpStatus,
+        ] = await Promise.all([
+            this.ordersService.findStatusByCode(
+                OrderStatus.CANCELLED,
+                adminId,
+                manager,
+            ),
+            this.ordersService.findStatusByCode(
+                OrderStatus.NO_ANSWER,
+                adminId,
+                manager,
+            ),
+            this.ordersService.findStatusByCode(
+                OrderStatus.CANCELLED_FOLLOW_UP,
+                adminId,
+                manager,
+            ),
+            this.ordersService.findStatusByCode(
+                OrderStatus.NO_ANSWER_FOLLOW_UP,
+                adminId,
+                manager,
+            ),
+        ]);
+
+        const orderStatusChanges: Array<{
+            orderId: string;
+            fromStatusId: string | null;
+            toStatusId: string;
+        }> = [];
+
+        const ordersToUpdate: string[] = [];
+
+        for (const order of orders) {
+            let newStatus = null;
+
+            if (
+                order.status?.code === OrderStatus.CANCELLED_FOLLOW_UP &&
+                cancelledStatus
+            ) {
+                newStatus = cancelledStatus;
+            } else if (
+                order.status?.code === OrderStatus.NO_ANSWER_FOLLOW_UP &&
+                noAnswerStatus
+            ) {
+                newStatus = noAnswerStatus;
+            }
+
+            if (newStatus) {
+                ordersToUpdate.push(order.id);
+                orderStatusChanges.push({
+                    orderId: order.id,
+                    fromStatusId: order.statusId,
+                    toStatusId: newStatus.id,
+                });
+            }
+        }
+
+        if (!ordersToUpdate.length) return;
+
+        await manager
+            .createQueryBuilder()
+            .update(OrderEntity)
+            .set({
+                statusId: () => `
+                CASE
+                    WHEN statusId = :cancelledFollowUpStatusId THEN :cancelledStatusId
+                    WHEN statusId = :noAnswerFollowUpStatusId THEN :noAnswerStatusId
+                    ELSE statusId
+                END
+            `,
+                oldStatusId: 'statusId',
+            })
+            .where('id IN (:...orderIds)', { orderIds: ordersToUpdate })
+            .setParameters({
+                cancelledFollowUpStatusId: cancelledFollowUpStatus?.id,
+                cancelledStatusId: cancelledStatus?.id,
+                noAnswerFollowUpStatusId: noAnswerFollowUpStatus?.id,
+                noAnswerStatusId: noAnswerStatus?.id,
+            })
+            .execute();
+
+        if (orderStatusChanges.length) {
+            await this.ordersService.bulkLogStatusChange({
+                adminId,
+                manager,
+                orderStatusChanges,
+                notes: 'Status reverted automatically on employee unassignment',
+            });
+        }
+    }
+
+
+    async removeActiveAssignments(me: any, orderIds: string[]) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        return this.dataSource.transaction(async (manager) => {
+            // Find active assignments
+            const assignments = await manager.find(OrderAssignmentEntity, {
+                where: {
+                    assignedByAdminId: adminId,
+                    isAssignmentActive: true,
+                    orderId: In(orderIds),
+                },
+            });
+
+            if (!assignments.length) {
+                throw new NotFoundException(
+                    "No active assignments found for the provided orders",
+                );
+            }
+
+            const assignmentOrderIds = assignments.map((a) => a.orderId);
+
+            // Revert follow-up statuses back to their original statuses
+            await this.bulkRevertOrderStatusOnUnassignment(
+                assignmentOrderIds,
+                adminId,
+                manager,
+            );
+
+            await manager.delete(OrderAssignmentEntity, {
+                assignedByAdminId: adminId,
+                isAssignmentActive: true,
+                orderId: In(assignmentOrderIds),
+            });
+
+            return {
+                success: true,
+                message: `${assignmentOrderIds.length} active assignment(s) removed successfully`,
+            };
+        });
+    }
 
     async getEmployeesByLoad(me: any, limit: number = 20, cursor: number | null, role?: string) {
         const adminId = tenantId(me);
@@ -213,6 +443,9 @@ export class OrderAssignmentService {
                 assignmentsToSave,
             );
 
+            // Update order statuses if needed
+            await this.bulkUpdateOrderStatusOnAssignment(allOrderIds, adminId, manager);
+
             // return helpful summary
             const summary = {
                 success: true,
@@ -231,7 +464,7 @@ export class OrderAssignmentService {
         });
     }
 
-     async manualAssign(employeeId: string, order: OrderEntity, adminId: string): Promise<string> {
+    async manualAssign(employeeId: string, order: OrderEntity, adminId: string): Promise<string> {
         return await this.dataSource.transaction(async (manager) => {
             // Verify employee exists and belongs to admin
             const employee = await manager.findOne(User, {
@@ -277,6 +510,9 @@ export class OrderAssignmentService {
                     isAssignmentActive: true,
                 })
             );
+
+            // Update order status if needed
+            await this.bulkUpdateOrderStatusOnAssignment([order.id], adminId, manager);
 
             return 'assigned';
         });
@@ -380,6 +616,10 @@ export class OrderAssignmentService {
                 OrderAssignmentEntity,
                 assignmentsToSave,
             );
+
+            // Update order statuses if needed
+            const allOrderIds = freeOrders.map((o) => o.id);
+            await this.bulkUpdateOrderStatusOnAssignment(allOrderIds, adminId, manager);
 
             return {
                 success: true,
@@ -913,6 +1153,67 @@ export class OrderAssignmentService {
         return { count };
     }
 
+    async getAssignmentStats(me: any) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const todayEnd = new Date();
+        todayEnd.setHours(23, 59, 59, 999);
+
+        const now = new Date();
+
+        const [
+            activeAssignmentsCount,
+            assignedEmployeesResult,
+            // activeAssignedTodayCount,
+            lockedAssignmentsCount,
+        ] = await Promise.all([
+            // 1. Active Assignments
+            this.orderAssignmentRepo.count({
+                where: {
+                    assignedByAdminId: adminId,
+                    isAssignmentActive: true,
+                },
+            }),
+
+            // 2. Assigned Employees
+            this.orderAssignmentRepo
+                .createQueryBuilder("assignment")
+                .select("COUNT(DISTINCT assignment.employeeId)", "count")
+                .where("assignment.assignedByAdminId = :adminId", { adminId })
+                .andWhere("assignment.isAssignmentActive = true")
+                .getRawOne(),
+
+            // 3. Assigned Today
+            // this.orderAssignmentRepo
+            //     .createQueryBuilder("assignment")
+            //     .where("assignment.assignedByAdminId = :adminId", { adminId })
+            //     .andWhere("assignment.isAssignmentActive = true")
+            //     .andWhere("assignment.assignedAt >= :todayStart", { todayStart })
+            //     .andWhere("assignment.assignedAt <= :todayEnd", { todayEnd })
+            //     .getCount(),
+
+            // 4. Locked Assignments
+            this.orderAssignmentRepo
+                .createQueryBuilder("assignment")
+                .where("assignment.assignedByAdminId = :adminId", { adminId })
+                .andWhere("assignment.isAssignmentActive = true")
+                .andWhere("assignment.lockedUntil IS NOT NULL")
+                .andWhere("assignment.lockedUntil > :now", { now })
+                .getCount(),
+        ]);
+
+        return {
+            activeAssignmentsCount,
+            assignedEmployeesCount: parseInt(assignedEmployeesResult?.count ?? "0", 10),
+            // activeAssignedTodayCount,
+            lockedAssignmentsCount,
+        };
+    }
+
     // =========================================================================
     // AUTO ASSIGN RULES MANAGEMENT
     // =========================================================================
@@ -1186,6 +1487,83 @@ export class OrderAssignmentService {
 
         if (!adminId) throw new BadRequestException("Missing adminId");
 
+        return this.dataSource.transaction(async (manager) => {
+            // 1. Get active rules ordered by priority
+            const rules = await manager.find(AutoAssignRuleEntity, {
+                where: { adminId, isActive: true },
+                relations: ["products", "cities", "employees", "stores"],
+                order: { priority: "ASC", createdAt: "ASC" },
+            });
+
+            if (!rules.length) return { message: "No active rules found", noActiveRules: true, assignedCount: 0 };
+
+            // 2. Fetch orders with necessary details
+            const orders = await manager.find(OrderEntity, {
+                where: { id: In(orderIds), adminId },
+                relations: ["items", "items.variant", "items.variant.product", "cityDetails", "status"],
+            });
+
+            const settings = await this.ordersService.getCachedSettings(adminId);
+            if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
+                return { message: "Auto-assignment is disabled", assignedCount: 0 };
+            }
+            const maxRetries = settings?.maxRetries || 3;
+
+            let assignedCount = 0;
+            const results = [];
+
+            for (const order of orders) {
+                // Check if already assigned
+                const existingAssignment = await manager.findOne(OrderAssignmentEntity, {
+                    where: { orderId: order.id, isAssignmentActive: true }
+                });
+                if (existingAssignment) continue;
+
+                // Check if status allowed
+                if (order.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
+                    continue;
+                }
+
+                // Find matching rule
+                const rule = this.findMatchingRule(order, rules);
+                if (rule && rule.employees?.length) {
+                    const employee = await this.selectEmployeeByStrategy(rule);
+                    if (employee) {
+                        await manager.save(manager.create(OrderAssignmentEntity, {
+                            orderId: order.id,
+                            employeeId: employee.id,
+                            assignedByAdminId: adminId,
+                            maxRetriesAtAssignment: maxRetries,
+                            isAssignmentActive: true,
+                        }));
+                        assignedCount++;
+                        //send notification to admin about thi assignment
+
+                        await this.notificationService.create({
+                            userId: adminId,
+                            type: NotificationType.ORDER_ASSIGNED,
+                            title: "Order Assigned",
+                            message: `Order #${order.orderNumber} has been assigned to employee ${employee.name} with rule ${rule.name}.`,
+                            relatedEntityType: "order",
+                            relatedEntityId: String(order.id),
+                        });
+
+                        // Update order status if needed
+                        await this.bulkUpdateOrderStatusOnAssignment([order.id], adminId, manager);
+
+                        results.push({ orderId: order.id, orderNumber: order.orderNumber, employeeId: employee.id, ruleName: rule.name });
+                    }
+                }
+            }
+
+            return { success: true, assignedCount, results };
+        });
+    }
+
+    async previewAutoAssignment(adminId: string, orders: OrderEntity[]) {
+
+        if (!adminId) throw new BadRequestException("Missing adminId");
+
         // 1. Get active rules ordered by priority
         const rules = await this.autoAssignRuleRepo.find({
             where: { adminId, isActive: true },
@@ -1195,17 +1573,10 @@ export class OrderAssignmentService {
 
         if (!rules.length) return { message: "No active rules found", noActiveRules: true, assignedCount: 0 };
 
-        // 2. Fetch orders with necessary details
-        const orders = await this.orderRepo.find({
-            where: { id: In(orderIds), adminId },
-            relations: ["items", "items.variant", "items.variant.product", "cityDetails", "status"],
-        });
-
         const settings = await this.ordersService.getCachedSettings(adminId);
         if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
             return { message: "Auto-assignment is disabled", assignedCount: 0 };
         }
-        const maxRetries = settings?.maxRetries || 3;
 
         let assignedCount = 0;
         const results = [];
@@ -1227,71 +1598,6 @@ export class OrderAssignmentService {
             if (rule && rule.employees?.length) {
                 const employee = await this.selectEmployeeByStrategy(rule);
                 if (employee) {
-                    await this.orderAssignmentRepo.save(this.orderAssignmentRepo.create({
-                        orderId: order.id,
-                        employeeId: employee.id,
-                        assignedByAdminId: adminId,
-                        maxRetriesAtAssignment: maxRetries,
-                        isAssignmentActive: true,
-                    }));
-                    assignedCount++;
-                    //send notification to admin about thi assignment
-
-                    await this.notificationService.create({
-                        userId: adminId,
-                        type: NotificationType.ORDER_ASSIGNED,
-                        title: "Order Assigned",
-                        message: `Order #${order.orderNumber} has been assigned to employee ${employee.name} with rule ${rule.name}.`,
-                        relatedEntityType: "order",
-                        relatedEntityId: String(order.id),
-                    });
-
-                    results.push({ orderId: order.id, orderNumber: order.orderNumber, employeeId: employee.id, ruleName: rule.name });
-                }
-            }
-        }
-
-        return { success: true, assignedCount, results };
-    }
-
-    async previewAutoAssignment(adminId: string, orders: OrderEntity[])  {
-
-        if (!adminId) throw new BadRequestException("Missing adminId");
-
-        // 1. Get active rules ordered by priority
-        const rules = await this.autoAssignRuleRepo.find({
-            where: { adminId, isActive: true },
-            relations: ["products", "cities", "employees", "stores"],
-            order: { priority: "ASC", createdAt: "ASC" },
-        });
-
-        if (!rules.length) return { message: "No active rules found", noActiveRules: true, assignedCount: 0 };
-
-        const settings = await this.ordersService.getCachedSettings(adminId);
-        if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
-            return { message: "Auto-assignment is disabled", assignedCount: 0 };
-        }
-    
-        let assignedCount = 0;
-        const results = [];
-
-        for (const order of orders) {
-            // Check if already assigned
-            const existingAssignment = await this.orderAssignmentRepo.findOne({
-                where: { orderId: order.id, isAssignmentActive: true }
-            });
-            if (existingAssignment) continue;
-
-            // Check if status allowed
-            if (order.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
-                continue;
-            }
-
-            // Find matching rule
-            const rule = this.findMatchingRule(order, rules);
-            if (rule && rule.employees?.length) {
-                const employee = await this.selectEmployeeByStrategy(rule);
-                if (employee) {       
                     assignedCount++;
 
                     results.push({ orderId: order.id, orderNumber: order.orderNumber, employeeId: employee.id, ruleName: rule.name });
@@ -1444,5 +1750,5 @@ export class OrderAssignmentService {
         return null;
     }
 
-    
+
 }

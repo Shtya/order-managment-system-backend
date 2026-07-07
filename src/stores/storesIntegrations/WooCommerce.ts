@@ -858,49 +858,8 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         })));
     }
 
-    private mapInternalStatusToWoo(internalStatus: OrderStatus): string | null {
-        const map: Record<OrderStatus, string> = {
-
-            // Pending stage
-            [OrderStatus.NEW]: "pending",
-            [OrderStatus.UNDER_REVIEW]: "pending",
-            [OrderStatus.POSTPONED]: "on-hold",
-            [OrderStatus.NO_ANSWER]: "on-hold",
-
-            // Confirmed
-            [OrderStatus.CONFIRMED]: "processing",
-            [OrderStatus.PRINTED]: "processing",
-
-            // Preparing / shipping
-            [OrderStatus.PREPARING]: "processing",
-            [OrderStatus.READY]: "processing",
-            [OrderStatus.PACKED]: "processing",
-            [OrderStatus.SHIPPED]: "processing",
-            [OrderStatus.DISTRIBUTED]: "processing",
-
-            // Delivered
-            [OrderStatus.DELIVERED]: "completed",
-
-            // Cancel states
-            [OrderStatus.FAILED_DELIVERY]: "cancelled",
-            [OrderStatus.WRONG_NUMBER]: "cancelled",
-            [OrderStatus.OUT_OF_DELIVERY_AREA]: "cancelled",
-            [OrderStatus.DUPLICATE]: "cancelled",
-            [OrderStatus.CANCELLED]: "cancelled",
-            [OrderStatus.REJECTED]: "cancelled",
-
-            // Return states
-            [OrderStatus.RETURNED]: "refunded",
-            [OrderStatus.RETURN_PREPARING]: "refunded",
-        };
-
-        return map[internalStatus] || null;
-    }
-
-
-
     public async updateOrderStatus(order: OrderEntity, store: StoreEntity, newStatusId: string) {
-
+        
         if (!order.externalId)
             return;
 
@@ -909,7 +868,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             throw new Error(`No status found for order (${order.id}) `)
         }
 
-        const remoteStatus = this.mapInternalStatusToWoo(status.code as OrderStatus);
+        const remoteStatus = this.mapInternalStatusToExternal(status.code as OrderStatus);
 
         if (!remoteStatus) {
             return;
@@ -1531,6 +1490,8 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             [OrderStatus.NO_ANSWER]: "on-hold",
 
             [OrderStatus.CONFIRMED]: "on-hold",
+            [OrderStatus.NO_ANSWER_FOLLOW_UP]: "on-hold",
+            [OrderStatus.CANCELLED_FOLLOW_UP]: "on-hold",
 
 
             [OrderStatus.WRONG_NUMBER]: "cancelled",

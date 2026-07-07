@@ -1374,10 +1374,8 @@ export class DashboardService {
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CONFIRMED}' THEN o.id END) AS "statusConfirmedOrders"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END) AS "shippedOrders"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "statusDeliveredOrders"`,
-        `COUNT(DISTINCT CASE 
-          WHEN (st.code = '${OrderStatus.CANCELLED}' AND EXISTS (SELECT 1 FROM order_assignments oa WHERE oa."orderId" = o.id AND oa."isAssignmentActive" = true))
-          OR (st.code = '${OrderStatus.UNDER_REVIEW}' AND oldSt.code = '${OrderStatus.CANCELLED}') 
-        THEN o.id END) AS "canceledAndUnderReview"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CANCELLED_FOLLOW_UP}' THEN o.id END) AS "canceledAndUnderReview"`,
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.NO_ANSWER_FOLLOW_UP}' THEN o.id END) AS "noAnswerFollowUp"`,
         `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.PACKED}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`
       ]);
 
@@ -1421,6 +1419,7 @@ export class DashboardService {
           delivered: getVal("statusDeliveredOrders", "statusdeliveredorders"),
         },
         canceledAndUnderReview: getVal("canceledAndUnderReview", "canceledandunderreview"),
+        noAnswerFollowUp: getVal("noAnswerFollowUp", "noanswerfollowup"),
         pendingOrders: Number(pendingStats?.count || 0),
         inWarehouseOrders: getVal("inWarehouseOrders", "inwarehouseorders"),
       };

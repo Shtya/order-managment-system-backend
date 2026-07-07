@@ -169,4 +169,22 @@ export class OrderAssignmentController {
   deleteRule(@Req() req: any, @Param('id') id: string) {
     return this.orderAssignmentService.deleteAutoAssignRule(req.user, id);
   }
+
+  @Permissions("orders.assign")
+  @Delete("assignments")
+  removeActiveAssignments(
+    @Req() req: any,
+    @Body("orderIds") orderIds: string[],
+  ) {
+    return this.orderAssignmentService.removeActiveAssignments(
+      req.user,
+      orderIds,
+    );
+  }
+
+  @Permissions("orders.assign")
+  @Get("active-stats")
+  getAssignmentStats(@Req() req: any) {
+    return this.orderAssignmentService.getAssignmentStats(req.user);
+  }
 }
