@@ -16,6 +16,11 @@ export class CitiesController {
     return this.citiesService.findAllWithProviders();
   }
 
+  @Get(':cityId/areas')
+  findAreas(@Req() req: any, @Param('cityId') cityId: string) {
+    return this.citiesService.findAreas(cityId);
+  }
+
   @Get('my-config')
   @Permissions('city.read')
   findAllWithConfig(@Req() req: any, @Query() q: any) {

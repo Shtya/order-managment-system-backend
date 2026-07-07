@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
-import { CityEntity, CityTenantConfigEntity, ProviderLocationEntity } from '../../entities/cities.entity';
+import { AreaEntity, CityEntity, CityTenantConfigEntity, ProviderLocationEntity } from '../../entities/cities.entity';
 
 import { UpdateCityTenantConfigDto } from 'dto/cities.dto';
 import * as ExcelJS from 'exceljs';
@@ -15,18 +15,25 @@ export class CitiesService {
 	constructor(
 		@InjectRepository(CityEntity)
 		private cityRepo: Repository<CityEntity>,
-		@InjectRepository(ProviderLocationEntity)
-		private providerLocationRepo: Repository<ProviderLocationEntity>,
+		@InjectRepository(AreaEntity)
+		private areaRepo: Repository<AreaEntity>,
 		@InjectRepository(CityTenantConfigEntity)
 		private tenantConfigRepo: Repository<CityTenantConfigEntity>,
 	) { }
 
-	
+
 
 	async findAllWithProviders() {
 		return this.cityRepo.find({
 			relations: ['providerLocations'],
 			where: { isActive: true },
+			order: { nameEn: 'ASC' }
+		});
+	}
+
+	async findAreas(cityId: string) {
+		return this.areaRepo.find({
+			where: { cityId },
 			order: { nameEn: 'ASC' }
 		});
 	}
@@ -57,7 +64,7 @@ export class CitiesService {
 		}
 
 		DateFilterUtil.applyToQueryBuilder(qb, 'config."createdAt"', q?.startDate, q?.endDate);
-	
+
 
 		if (q?.isConfigured === 'true') {
 			qb.andWhere('config.id IS NOT NULL');

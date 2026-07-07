@@ -16,18 +16,43 @@ export class CityEntity {
     @Column()
     nameAr: string;
 
-    @Column({default: true})
+    @Column({ default: true })
     isActive: boolean;
 
     @OneToMany(() => ProviderLocationEntity, (providerLocation) => providerLocation.city)
     providerLocations: ProviderLocationEntity[];
-    
+
     @OneToMany(() => CityTenantConfigEntity, (tenantConfig) => tenantConfig.city)
     tenantConfigs: CityTenantConfigEntity[];
 }
 
+@Index(["nameEn"])
+@Index(["nameAr"])
+@Entity('areas')
+export class AreaEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Column()
+    nameEn: string;
+
+    @Column()
+    nameAr: string;
+
+    @Column({ default: true })
+    isActive: boolean;
+
+    @Index()
+    @Column({ type: 'uuid' })
+    cityId: string;
+
+    @ManyToOne(() => CityEntity, { onDelete: 'SET NULL' }) // or 'CASCADE'
+    @JoinColumn({ name: 'cityId' })
+    city: CityEntity;
+}
+
 @Index(['provider', 'providerCityId'], { unique: true })
-@Index(['cityId', 'provider']) 
+@Index(['cityId', 'provider'])
 @Entity('provider_locations')
 export class ProviderLocationEntity {
     @PrimaryGeneratedColumn('uuid')
@@ -36,16 +61,16 @@ export class ProviderLocationEntity {
     @Column({ type: 'varchar', })
     provider: ProviderCode;
 
-    
-    @Column({type: 'varchar'})
-    providerCityId: string; 
 
-    
-    @Column({type: 'varchar'})
-    providerCityNameAr: string; 
+    @Column({ type: 'varchar' })
+    providerCityId: string;
 
-    @Column({type: 'varchar', nullable: true})
-    providerCityNameEn: string; 
+
+    @Column({ type: 'varchar' })
+    providerCityNameAr: string;
+
+    @Column({ type: 'varchar', nullable: true })
+    providerCityNameEn: string;
 
 
     @ManyToOne(() => CityEntity, (city) => city.providerLocations, {
@@ -58,15 +83,15 @@ export class ProviderLocationEntity {
     @Column({ nullable: true })
     cityId: string;
 
-    @Column({default: true})
+    @Column({ default: true })
     dropOff: boolean;
-    
-    @Column({default: true})
+
+    @Column({ default: true })
     pickup: boolean;
 }
 
 
-@Index(['adminId', 'cityId'], { unique: true }) 
+@Index(['adminId', 'cityId'], { unique: true })
 @Entity('city_tenant_configs')
 export class CityTenantConfigEntity {
     @PrimaryGeneratedColumn('uuid')
@@ -76,7 +101,7 @@ export class CityTenantConfigEntity {
     @Column({ type: 'uuid' })
     adminId: string;
 
-    @ManyToOne(() => User, { onDelete: 'CASCADE' }) 
+    @ManyToOne(() => User, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'adminId' })
     admin: User;
 
@@ -96,7 +121,7 @@ export class CityTenantConfigEntity {
 
     @Column({ nullable: true })
     maxShippingDays: number;
-    
+
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
