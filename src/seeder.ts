@@ -50,29 +50,11 @@ async function runGlobalSeed() {
 			name: 'Under Review', code: OrderStatus.UNDER_REVIEW, isDefault: false, order: 2, color: '#FF9800', // Matches stats.pendingConfirmation (Orange)
 		},
 		{
-			name: 'Confirmed', code: OrderStatus.CONFIRMED, isDefault: false, order: 3, color: '#4CAF50', // أخضر (نجاح التأكيد)
+			name: 'PostPoned', code: OrderStatus.POSTPONED, isDefault: false, order: 3, color: '#00BCD4', // سماوي
 		},
 		{
-			name: 'Distributed', code: OrderStatus.DISTRIBUTED, isDefault: false, order: 4, color: '#9C27B0', // Purple (Indicates it's out for handling)
+			name: 'Confirmed', code: OrderStatus.CONFIRMED, isDefault: false, order: 4, color: '#4CAF50', // أخضر (نجاح التأكيد)
 		},
-		{
-			name: 'Return Preparing',
-			code: OrderStatus.RETURN_PREPARING,
-			isDefault: false,
-			order: 10,
-			color: '#FF9800', // Orange (Matches "Under Review" style)
-		},
-		{
-			name: 'Packed',
-			code: OrderStatus.PACKED,
-			isDefault: false,
-			order: 7,
-			color: '#795548' // Brown (Boxed and ready for pickup)
-		},
-		{
-			name: 'PostPoned', code: OrderStatus.POSTPONED, isDefault: false, order: 4, color: '#00BCD4', // سماوي
-		},
-		{ name: 'Printed', code: OrderStatus.PRINTED, isDefault: false, order: 5, color: '#3F51B5', },
 		{
 			name: 'No Answer', code: OrderStatus.NO_ANSWER, isDefault: false, order: 5, color: '#FF5722', // برتقالي محروق (تحذير)
 		},
@@ -86,29 +68,47 @@ async function runGlobalSeed() {
 			name: 'Duplicate', code: OrderStatus.DUPLICATE, isDefault: false, order: 8, color: '#E91E63', // وردي (تنبيه تكرار)
 		},
 		{
-			name: 'Preparing', code: OrderStatus.PREPARING, isDefault: false, order: 9, color: '#9C27B0', // Matches stats.total/processing (Purple)
+			name: 'Rejected', code: OrderStatus.REJECTED, isDefault: false, order: 9, color: '#F44336', // Red (Matches stats.cancelledShipping)
 		},
 		{
-			name: 'Ready', code: OrderStatus.READY, isDefault: false, order: 10, color: '#009688', // Matches stats.postponed/teal (Teal/Ready)
+			name: 'Cancelled', code: OrderStatus.CANCELLED, isDefault: false, order: 10, color: '#F44336', // Matches stats.cancelledShipping (Red)
 		},
 		{
-			name: 'Shipped', code: OrderStatus.SHIPPED, isDefault: false, order: 11, color: '#03A9F4', // Matches stats.inShipping (Light Blue)
+			name: 'Failed Delivery', code: OrderStatus.FAILED_DELIVERY, isDefault: false, order: 11, color: '#E91E63', // Pink (Alert for delivery issues)
 		},
 		{
-			name: 'Delivered', code: OrderStatus.DELIVERED, isDefault: false, order: 12, color: '#4CAF50', // Matches stats.delivered (Green)
+			name: 'Distributed', code: OrderStatus.DISTRIBUTED, isDefault: false, order: 12, color: '#9C27B0', // Purple (Indicates it's out for handling)
+		},
+		{ name: 'Printed', code: OrderStatus.PRINTED, isDefault: false, order: 13, color: '#3F51B5', },
+		{
+			name: 'Preparing', code: OrderStatus.PREPARING, isDefault: false, order: 14, color: '#9C27B0', // Matches stats.total/processing (Purple)
 		},
 		{
-			name: 'Cancelled', code: OrderStatus.CANCELLED, isDefault: false, order: 13, color: '#F44336', // Matches stats.cancelledShipping (Red)
+			name: 'Ready', code: OrderStatus.READY, isDefault: false, order: 15, color: '#009688', // Matches stats.postponed/teal (Teal/Ready)
 		},
 		{
-			name: 'Returned', code: OrderStatus.RETURNED, isDefault: false, order: 14, color: '#607D8B', // Grey (Standard for Returned/Archive)
+			name: 'Packed',
+			code: OrderStatus.PACKED,
+			isDefault: false,
+			order: 16,
+			color: '#795548' // Brown (Boxed and ready for pickup)
 		},
 		{
-			name: 'Rejected', code: OrderStatus.REJECTED, isDefault: false, order: 15, color: '#F44336', // Red (Matches stats.cancelledShipping)
+			name: 'Shipped', code: OrderStatus.SHIPPED, isDefault: false, order: 17, color: '#03A9F4', // Matches stats.inShipping (Light Blue)
 		},
 		{
-			name: 'Failed Delivery', code: OrderStatus.FAILED_DELIVERY, isDefault: false, order: 16, color: '#E91E63', // Pink (Alert for delivery issues)
-		}
+			name: 'Delivered', code: OrderStatus.DELIVERED, isDefault: false, order: 18, color: '#4CAF50', // Matches stats.delivered (Green)
+		},
+		{
+			name: 'Return Preparing',
+			code: OrderStatus.RETURN_PREPARING,
+			isDefault: false,
+			order: 19,
+			color: '#FF9800', // Orange (Matches "Under Review" style)
+		},
+		{
+			name: 'Returned', code: OrderStatus.RETURNED, isDefault: false, order: 20, color: '#607D8B', // Grey (Standard for Returned/Archive)
+		},
 	];
 
 	for (const s of systemStatuses) {
@@ -141,16 +141,16 @@ async function runGlobalSeed() {
 	
 
 	// 1. Seed Unified Cities 
-	for (const city of citiesData) {
-		const exists = await cityRepo.findOne({ where: { nameEn: city.nameEn } });
-		if (!exists) {
-			await cityRepo.save(cityRepo.create(city));
-			console.log(`✅ City seeded: ${city.nameEn}`);
-		}
-	}
+	// for (const city of citiesData) {
+	// 	const exists = await cityRepo.findOne({ where: { nameEn: city.nameEn } });
+	// 	if (!exists) {
+	// 		await cityRepo.save(cityRepo.create(city));
+	// 		console.log(`✅ City seeded: ${city.nameEn}`);
+	// 	}
+	// }
 
 	// 2. Sync Provider Locations (using the reusable logic)
-	await syncProviderLocationsLogic(cityRepo, providerLocationRepo);
+	// await syncProviderLocationsLogic(cityRepo, providerLocationRepo);
 
 	/** =========================
 	 * Global Categories
@@ -187,22 +187,22 @@ async function runGlobalSeed() {
 			adminId: null,
 		},
 	];
-	for (const c of categories) {
-		const exists = await categoryRepo.findOne({
-			where: { name: c.name, adminId: null },
-		});
+	// for (const c of categories) {
+	// 	const exists = await categoryRepo.findOne({
+	// 		where: { name: c.name, adminId: null },
+	// 	});
 
-		if (!exists) {
-			await categoryRepo.save(
-				categoryRepo.create({
-					adminId: null,
-					name: c.name,
-					slug: c.slug, // IMPORTANT
-					image: c.image ?? null,
-				}),
-			);
-		}
-	}
+	// 	if (!exists) {
+	// 		await categoryRepo.save(
+	// 			categoryRepo.create({
+	// 				adminId: null,
+	// 				name: c.name,
+	// 				slug: c.slug, // IMPORTANT
+	// 				image: c.image ?? null,
+	// 			}),
+	// 		);
+	// 	}
+	// }
 
 	/** =========================
 	 * Global Stores

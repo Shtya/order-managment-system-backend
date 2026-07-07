@@ -19,9 +19,9 @@ export enum ShipmentStatus {
 	// CREATED = 'created',
 	// SUBMITTED = 'submitted',
 	// IN_TRANSIT = 'in_transit',
-	FAILED = 'failed',
+	
 	// RETURNED = 'returned',
-	CANCELLED = 'cancelled',
+	
 	// ON_HOLD = 'on_hold',
 	// ARCHIVED = 'archived',
 
@@ -60,6 +60,8 @@ export enum ShipmentStatus {
 	 * رجع للمستودع
 	 */
 	RETURNED_TO_WAREHOUSE = 'returned_to_warehouse',
+	FAILED = 'failed',
+	CANCELLED = 'cancelled',
 }
 
 export enum UnifiedShippingStatus {

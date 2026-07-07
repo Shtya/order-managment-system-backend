@@ -852,7 +852,18 @@ export class ShippingService {
 	}
 
 	getUnifiedStatuses() {
-		return { ok: true, statuses: Object.values(ShipmentStatus) };
+		// Define the statuses in the exact order they should appear
+		const orderedStatuses = [
+			ShipmentStatus.PENDING_ACTION,
+			ShipmentStatus.PREPARING,
+			ShipmentStatus.READY_TO_SHIP,
+			ShipmentStatus.OUT_FOR_DELIVERY,
+			ShipmentStatus.DELIVERED,
+			ShipmentStatus.RETURNED_TO_WAREHOUSE,
+			ShipmentStatus.FAILED,
+			ShipmentStatus.CANCELLED,
+		];
+		return { ok: true, statuses: orderedStatuses };
 	}
 
 	async listExternalShipmentLogs(me: any, q?: any) {

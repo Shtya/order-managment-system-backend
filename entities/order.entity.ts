@@ -32,24 +32,25 @@ export enum OrderStatus {
   NEW = "new",   //
   UNDER_REVIEW = "under_review", //
   POSTPONED = "postponed", //
+  CONFIRMED = "confirmed",
   NO_ANSWER = "no_answer", //
   WRONG_NUMBER = "wrong_number", //
   OUT_OF_DELIVERY_AREA = "out_of_area", //
   DUPLICATE = "duplicate", //
-  FAILED_DELIVERY = "failed_delivery", //
   REJECTED = "rejected",//
   CANCELLED = "cancelled", //
-  CONFIRMED = "confirmed",
-
-  RETURNED = "returned",  // 
-  DELIVERED = "delivered",//
+  FAILED_DELIVERY = "failed_delivery", //
+  
   DISTRIBUTED = "distributed",
   PRINTED = "printed",
   PREPARING = "preparing",
   READY = "ready",
   PACKED = "packed",
   SHIPPED = "shipped",
-  RETURN_PREPARING = "return_preparing",
+  
+  DELIVERED = "delivered",//
+  RETURN_PREPARING = "return_preparing", //
+  RETURNED = "returned",  // 
 }
 
 

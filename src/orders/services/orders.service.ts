@@ -458,10 +458,13 @@ export class OrdersService {
 
     const stats = await qb.getRawMany();
     return stats.map((stat) => ({
-      ...stat,
       id: stat.id,
-      count: Number(stat.count) || 0,
+      name: stat.name,
+      code: stat.code,
+      color: stat.color,
       system: !!stat.system,
+      sortOrder: stat.sortOrder ?? stat.sort_order ?? stat.sortorder ?? 0,
+      count: Number(stat.count) || 0,
     }));
   }
 
@@ -501,7 +504,14 @@ export class OrdersService {
       .orderBy("status.sortOrder", "ASC")
       .getRawMany();
 
-    return statuses;
+    return statuses.map((stat) => ({
+      id: stat.id,
+      name: stat.name,
+      code: stat.code,
+      color: stat.color,
+      system: !!stat.system,
+      sortOrder: stat.sortOrder ?? stat.sort_order ?? stat.sortorder ?? 0,
+    }));
   }
 
   async getStatus(me: any, id: string) {
