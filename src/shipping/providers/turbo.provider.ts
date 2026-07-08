@@ -158,7 +158,7 @@ export class TurboProvider extends ShippingProvider {
       government: meta.cityId, // اسم المحافظة بالعربي
       area: meta.zoneId,       // اسم المنطقة بالعربي
       address: order.address || "",
-      notes: [dto.notes, order.customerNotes].filter(Boolean).join(" | ") || "",
+      notes: order.customerNotes,
       invoice_number: order.orderNumber,
       // تعديل سطر ملخص الطلب في TurboProvider
       order_summary: order.items

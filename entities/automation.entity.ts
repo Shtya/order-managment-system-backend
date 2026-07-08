@@ -8,7 +8,8 @@ import { WhatsappMessageData } from "src/whatsapp/services/WhatsappApi.service";
 export enum TriggerType {
     ORDER_CREATED = 'order_created',
     ORDER_UPDATED = 'order_updated',
-    // TEMPLATE_RESPONSE = 'template_response',
+    SHIPMENT_CREATED = 'shipment_created',
+    SHIPMENT_UPDATED = 'shipment_updated',
 }
 
 export enum AutomationStatus {
@@ -177,6 +178,15 @@ export interface OrderCreatedConfig {
 export interface OrderUpdatedConfig {
     status?: string;
     statusId?: string;
+}
+
+export interface ShipmentUpdatedConfig {
+    shipmentStatus?: string;
+}
+
+export interface ShipmentCreatedConfig {
+    shippingCompany?: string;
+    shippingCompanyId?: string;
 }
 
 export interface UpdateOrderStatusConfig {

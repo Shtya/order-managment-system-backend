@@ -31,6 +31,8 @@ import { AppGateway } from '../../common/app.gateway';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { generateRandomAlphanumeric, isSuperAdmin } from 'common/healpers';
+import { TriggerDispatcherService } from 'src/automation/engine/triggerDispatcher.service';
+import { TriggerEntityType, TriggerType } from 'entities/automation.entity';
 
 @Injectable()
 export class ShippingService {
@@ -63,6 +65,8 @@ export class ShippingService {
 		@Inject(forwardRef(() => OrdersService))
 		private readonly ordersService: OrdersService,
 		private readonly notificationService: NotificationService,
+		@Inject(forwardRef(() => TriggerDispatcherService))
+		private readonly triggerDispatcher: TriggerDispatcherService,
 	) {
 		this.providers = {
 			bosta: this.bostaProvider,
@@ -510,6 +514,28 @@ export class ShippingService {
 				const settings = await this.ordersService.getCachedSettings(adminId);
 				const newStatusCode = settings.orderFlowPath === OrderFlowPath.SHIPPING ? OrderStatus.SHIPPED : OrderStatus.DISTRIBUTED;
 
+				// Function to dispatch shipment created trigger after commit
+				const dispatchShipmentCreated = async (shipmentId: string) => {
+					try {
+						const fullOrder = await manager.findOne(OrderEntity, {
+							where: { id: orderId },
+							relations: ['status', 'items', 'items.variant', "items.variant.product"],
+						});
+
+						if (fullOrder) {
+							await this.triggerDispatcher.dispatch({
+								type: TriggerType.SHIPMENT_CREATED,
+								entityType: TriggerEntityType.ORDER,
+								entityId: fullOrder.id,
+								adminId: fullOrder.adminId,
+								payload: fullOrder,
+							});
+						}
+					} catch (error) {
+						console.error("Error dispatching SHIPMENT_CREATED trigger:", error);
+					}
+				};
+
 				if (isNoneProvider) {
 					const status = await this.ordersService.findStatusByCode(newStatusCode, adminId, manager);
 
@@ -560,6 +586,17 @@ export class ShippingService {
 							payload: { manualCreated: true, trackingNumber },
 						}),
 					);
+
+					// Add post-commit task to dispatch trigger
+					const queryRunner = manager.queryRunner;
+					if (queryRunner) {
+						if (!queryRunner.data.postCommitTasks) {
+							queryRunner.data.postCommitTasks = [];
+						}
+						queryRunner.data.postCommitTasks.push(() => dispatchShipmentCreated(manualShipment.id));
+					} else {
+						await dispatchShipmentCreated(manualShipment.id);
+					}
 
 					return {
 						ok: true,
@@ -625,6 +662,17 @@ export class ShippingService {
 					shippingCompanyId: companyId,
 					details: `Assigned to ${provider}. Tracking: ${shipment.trackingNumber}`
 				});
+
+				// Add post-commit task to dispatch trigger
+				const queryRunner = manager.queryRunner;
+				if (queryRunner) {
+					if (!queryRunner.data.postCommitTasks) {
+						queryRunner.data.postCommitTasks = [];
+					}
+					queryRunner.data.postCommitTasks.push(() => dispatchShipmentCreated(shipment.id));
+				} else {
+					await dispatchShipmentCreated(shipment.id);
+				}
 
 				return {
 					ok: true,
@@ -1251,6 +1299,7 @@ export class ShippingService {
 		});
 
 		const oldStatusId = order.statusId;
+		const oldShipmentStatus = shipment.status;
 		let statusChanged = false;
 
 		const returnStock = async () => {
@@ -1358,6 +1407,40 @@ export class ShippingService {
 				notes: `Automated status update from shipping provider: ${eventMeta.eventSource}`,
 				manager,
 			});
+		}
+
+		// Check if shipment status changed and dispatch trigger
+		if (oldShipmentStatus !== shipment.status) {
+			const dispatchShipmentUpdated = async () => {
+				try {
+					const fullOrder = await manager.findOne(OrderEntity, {
+						where: { id: shipment.orderId },
+						relations: ['status', 'items', 'items.variant', "items.variant.product"],
+					});
+
+					if (fullOrder) {
+						await this.triggerDispatcher.dispatch({
+							type: TriggerType.SHIPMENT_UPDATED,
+							entityType: TriggerEntityType.ORDER,
+							entityId: fullOrder.id,
+							adminId: fullOrder.adminId,
+							payload: fullOrder,
+						});
+					}
+				} catch (error) {
+					console.error("Error dispatching SHIPMENT_UPDATED trigger:", error);
+				}
+			};
+
+			const queryRunner = manager.queryRunner;
+			if (queryRunner) {
+				if (!queryRunner.data.postCommitTasks) {
+					queryRunner.data.postCommitTasks = [];
+				}
+				queryRunner.data.postCommitTasks.push(dispatchShipmentUpdated);
+			} else {
+				await dispatchShipmentUpdated();
+			}
 		}
 
 		await manager.save(shipment);

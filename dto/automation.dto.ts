@@ -1,7 +1,7 @@
 import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Validate, ValidateNested, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, NodeConfig, SendWhatsappTemplateConfig, TriggerType } from 'entities/automation.entity';
-import { OmitType } from '@nestjs/mapped-types';
+
 
 @ValidatorConstraint({ name: 'UniqueNodeIds', async: false })
 export class UniqueNodeIdsConstraint implements ValidatorConstraintInterface {

@@ -17,10 +17,12 @@ import { TurboProvider } from './providers/turbo.provider';
 import { OrderEntity } from 'entities/order.entity';
 import { OrdersModule } from 'src/orders/orders.module';
 import { WebSocketModule } from '../../common/websocket.module';
+import { AutomationModule } from 'src/automation/automation.module';
 
 @Module({
   imports: [
     HttpModule,
+    forwardRef(() => AutomationModule),
     forwardRef(() => AuthModule),
     forwardRef(() => OrdersModule),
     WebSocketModule,

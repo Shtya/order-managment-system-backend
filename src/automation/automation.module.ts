@@ -7,7 +7,7 @@ import { TriggerDispatcherService } from './engine/triggerDispatcher.service';
 import { EngineRunnerService } from './engine/engineRunner.service';
 import { VariableHydratorService } from './engine/variableHydrator.service';
 import { ConditionOrderCheckHandler, ConditionQuickOrderStatusHandler, NodeHandlersRegistry } from './engine/nodeHandlers.registry';
-import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, TriggerMatchersRegistry } from './engine/triggerMatchers.registry';
+import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, ShipmentCreatedTriggerMatcher, ShipmentUpdatedTriggerMatcher, TriggerMatchersRegistry } from './engine/triggerMatchers.registry';
 import { OrdersModule } from 'src/orders/orders.module';
 import { WhatsappModule } from 'src/whatsapp/whatsapp.module';
 import { WhatsappAccountEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
@@ -53,11 +53,12 @@ import { OrphanFilesModule } from 'src/orphan-files/orphan-files.module';
     NodeHandlersRegistry, ConditionQuickOrderStatusHandler, ConditionOrderCheckHandler,
     ProductionAutomationAdapter, AutomationPreviewService,
     TriggerMatchersRegistry, OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher,
+    ShipmentUpdatedTriggerMatcher, ShipmentCreatedTriggerMatcher
     // PostCommitTasksSubscriber
   ],
   exports: [AutomationService, TriggerDispatcherService,
     EngineRunnerService, VariableHydratorService,
-    NodeHandlersRegistry
+    NodeHandlersRegistry,TriggerMatchersRegistry
   ],
 })
 export class AutomationModule { }

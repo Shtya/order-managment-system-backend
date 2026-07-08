@@ -225,7 +225,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       type: isExchange ? BostaDeliveryType.Exchange : BostaDeliveryType.Deliver,
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
-      notes: [dto.notes, order.customerNotes].filter(Boolean).join(" |\n "),
+      notes: order.customerNotes,
       cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.deposit ) || 0 : 0,
       specs: {
         packageType: "Parcel",

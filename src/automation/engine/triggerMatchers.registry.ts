@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { TriggerType, OrderCreatedConfig, OrderUpdatedConfig } from "entities/automation.entity";
+import { TriggerType, OrderCreatedConfig, OrderUpdatedConfig, ShipmentUpdatedConfig, ShipmentCreatedConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 
 export interface TriggerMatcher {
@@ -29,12 +29,38 @@ export class OrderUpdatedTriggerMatcher implements TriggerMatcher {
 }
 
 @Injectable()
+export class ShipmentCreatedTriggerMatcher implements TriggerMatcher {
+    shouldRun(config: ShipmentCreatedConfig, payload: OrderEntity): boolean {
+    
+         if (config.shippingCompanyId && payload.shippingCompanyId !== config.shippingCompanyId) {
+            return false;
+        }
+
+        return true;
+    }
+}
+
+@Injectable()
+export class ShipmentUpdatedTriggerMatcher implements TriggerMatcher {
+    shouldRun(config: ShipmentUpdatedConfig, payload: OrderEntity): boolean {
+        // Status filter
+        if (!config.shipmentStatus) {
+            return false;
+        }
+        return true;
+    }
+}
+
+
+@Injectable()
 export class TriggerMatchersRegistry {
     private readonly matchers = new Map<TriggerType, TriggerMatcher>();
 
     constructor(
         private readonly orderCreatedMatcher: OrderCreatedTriggerMatcher,
         private readonly orderUpdatedMatcher: OrderUpdatedTriggerMatcher,
+        private readonly shipmentCreatedMatcher: ShipmentCreatedTriggerMatcher,
+        private readonly shipmentUpdatedMatcher: ShipmentUpdatedTriggerMatcher,
     ) {
         this.registerMatchers();
     }
@@ -42,6 +68,8 @@ export class TriggerMatchersRegistry {
     private registerMatchers() {
         this.matchers.set(TriggerType.ORDER_CREATED, this.orderCreatedMatcher);
         this.matchers.set(TriggerType.ORDER_UPDATED, this.orderUpdatedMatcher);
+        this.matchers.set(TriggerType.SHIPMENT_CREATED, this.shipmentCreatedMatcher);
+        this.matchers.set(TriggerType.SHIPMENT_UPDATED, this.shipmentUpdatedMatcher);
     }
 
     getMatcher(triggerType: TriggerType): TriggerMatcher {

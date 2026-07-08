@@ -37,7 +37,7 @@ import {
   VariableDetails,
 } from 'entities/automation.entity';
 import { OrderEntity } from 'entities/order.entity';
-import { evaluateCondition, findNextNodeId, getActualFieldValue } from './automation-helpers';
+import { evaluateCondition, findNextNodeId } from './automation-helpers';
 import { PreviewAutomationAdapter } from './adapters/preview.adapters';
 import {
   ConditionQuickOrderStatusHandler,
@@ -148,6 +148,13 @@ export class AutomationPreviewService {
   private readonly logger = new Logger(AutomationPreviewService.name);
   private readonly keyPrefix = 'automation:preview';
   private readonly ttlSeconds = 60;
+  
+  private readonly TRIGGER_TYPE_TO_ENTITY_MAP: Record<TriggerType, TriggerEntityType> = {
+    [TriggerType.ORDER_CREATED]: TriggerEntityType.ORDER,
+    [TriggerType.ORDER_UPDATED]: TriggerEntityType.ORDER,
+    [TriggerType.SHIPMENT_CREATED]: TriggerEntityType.ORDER,
+    [TriggerType.SHIPMENT_UPDATED]: TriggerEntityType.ORDER,
+  };
 
   constructor(
     private readonly redis: RedisService,
@@ -205,8 +212,7 @@ export class AutomationPreviewService {
         trigger: input.trigger,
         steps: {},
       },
-      triggerEntityType: input.trigger.type === TriggerType.ORDER_CREATED || input.trigger.type === TriggerType.ORDER_UPDATED ? TriggerEntityType.ORDER
-        : TriggerEntityType.ORDER,
+      triggerEntityType: this.TRIGGER_TYPE_TO_ENTITY_MAP[input.trigger.type],
       triggerEntityId: input.trigger.output?.__mock ? null : input.trigger.output?.id,
       waitingForInteraction: null,
       startedAt: now,
