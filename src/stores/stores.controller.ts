@@ -8,6 +8,7 @@ import { StoresService } from "./stores.service";
 import { CreateStoreDto, IntegrateDto, UpdateStoreDto } from "dto/stores.dto";
 import { Response } from "express";
 import { StoreProvider } from "entities/stores.entity";
+import { minutes, Throttle } from "@nestjs/throttler";
 
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -22,6 +23,7 @@ export class StoresController {
   //   return this.storesService.manualSync(req.user, id);
   // }
   //sync from store endpoint
+  @Throttle({ default: { limit: 2, ttl: minutes(1) } }) 
   @Permissions("stores.update") // Requires update permissions
   @Post(":id/sync")
   async syncFromStore(@Req() req: any, @Param("id") id: string) {
@@ -29,6 +31,7 @@ export class StoresController {
   }
 
   @Permissions("stores.update")
+  @Throttle({ default: { limit: 5, ttl: minutes(1) } }) 
   @Post(":id/sync-products")
   async syncSpecificProducts(
     @Req() req: any,
