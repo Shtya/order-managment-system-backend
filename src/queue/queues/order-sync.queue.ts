@@ -8,6 +8,7 @@ import { QueueDelayConfig, QueueDelayService } from "../common/queue-delay.servi
 import { StoreProvider } from "entities/stores.entity";
 import { ProviderCode } from "src/shipping/providers/shipping-provider.interface";
 import { BulkAssignOrderDto } from "src/shipping/shipping.dto";
+import { createHash } from 'crypto';
 
 @Injectable()
 export class OrderSyncQueueService {
@@ -34,8 +35,9 @@ export class OrderSyncQueueService {
         adminId,
       },
       {
-        jobId: options.jobId,
-        ...options
+        // jobId: options.jobId,
+        ...options,
+        jobId: undefined,
       }
     );
   }
@@ -46,7 +48,19 @@ export class OrderSyncQueueService {
   ) {
     if (!orders?.length) return;
 
-    const jobId = `bulk-orders::${adminId}:${Date.now()}`;
+    // Extract order identifiers to generate consistent hash
+    // If orders don't have id, use Date.now() as fallback
+    let orderHash;
+    const orderIds = orders.map(o => o.id || o.orderId).filter(Boolean);
+    if (orderIds.length === orders.length) {
+      orderHash = createHash('sha1')
+        .update([...orderIds].sort().join(','))
+        .digest('hex');
+    } else {
+      orderHash = Date.now().toString();
+    }
+    
+    const jobId = `bulk-orders::${adminId}:${orderHash}`;
 
     await this.addJob(
       adminId,
@@ -85,7 +99,11 @@ export class OrderSyncQueueService {
   ) {
     if (!dto?.items?.length) return;
 
-    const jobId = `bulk-shipping:${adminId}:${Date.now()}`;
+    const orderHash = createHash('sha1')
+      .update([...dto.items.map(item => item.orderId)].sort().join(','))
+      .digest('hex');
+      
+    const jobId = `bulk-shipping:${adminId}:${orderHash}`;
 
     await this.addJob(
       adminId,
@@ -139,6 +157,6 @@ export class OrderSyncWorkerService extends WorkerHost {
   private async handleJob(job: Job): Promise<any> {
     const { type } = job.data;
     this.logger.debug(`Processing Job ${job.id} | Type: ${type}`);
-    await this.storesService.processOrderSyncJob(job.data);
+    return await this.storesService.processOrderSyncJob(job.data);
   }
 }

@@ -21,18 +21,18 @@ export const bullQueueConfig: SharedBullAsyncConfiguration = {
       defaultJobOptions: {
         attempts: Number(configService.get<number>('QUEUE_DEFAULT_ATTEMPTS') || 1),
         backoff: { type: 'exponential', delay: 3000 },
-        removeOnComplete: true,
-        //  {
-        //   age: 24 * 3600, // Keep for 24 hours (in seconds)
-        //   count: 1000,    // Keep a maximum of 1000 jobs
-        // },
+        // removeOnComplete: true,
+         removeOnComplete: {
+          age: 24 * 3600, // Keep for 24 hours (in seconds)
+          count: 1000,    // Keep a maximum of 1000 jobs
+        },
         
         // 👇 CHANGED: Keep failed jobs longer so you can inspect the error logs
-        removeOnFail: true,
-        //  {
-        //   age: 7 * 24 * 3600, // Keep failed jobs for 7 days
-        //   count: 5000,        // Keep a maximum of 5000 failed jobs
-        // },
+        // removeOnFail: true,
+        removeOnFail: {
+          age: 7 * 24 * 3600, // Keep failed jobs for 7 days
+          count: 2000,        // Keep a maximum of 2000 failed jobs
+        },
       },
     };
   },

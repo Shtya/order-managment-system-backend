@@ -1560,6 +1560,7 @@ export class StoresService {
         return {
           message: "Order successfully retried and created",
           orderId: result.orderId || null,
+          result: result,
         };
       } catch (error: any) {
         const errorMessage = getErrorMessage(error);
@@ -2008,41 +2009,6 @@ export class StoresService {
         }
       }
 
-      // 5. Generate purchase for initial stock if items exist
-      // if (purchaseItems.length > 0) {
-      //   try {
-      //     // Find or create default safe
-      //     const safeName = "الخزنة الرئيسية";
-      //     let defaultSafe = await this.safesRepo.findOne({ where: { adminId } as any });
-
-      //     if (!defaultSafe) {
-      //       const createAccountDto: CreateAccountDto = {
-      //         name: safeName,
-      //         type: AccountType.CASH,
-      //         initialBalance: 0,
-      //       };
-      //       defaultSafe = await this.safesService.createAccount(me, createAccountDto);
-      //     }
-
-      //     const totalCost = purchaseItems.reduce((acc, item) => acc + (item.quantity * item.purchaseCost), 0);
-
-      //     const randomCode = generateRandomAlphanumeric(8);
-      //     const createPurchaseDto: CreatePurchaseDto = {
-      //       receiptNumber: `SYNC-${randomCode}`,
-      //       safeId: defaultSafe.id,
-      //       items: purchaseItems,
-      //       paidAmount: totalCost,
-      //       saveAsDraft: true,
-      //       notes: `Initial stock sync from ${store.name} store`,
-      //     };
-
-      //     await this.purchasesService.create(me, createPurchaseDto);
-      //     this.logger.log(`[Sync] Successfully generated initial stock purchase for ${purchaseItems.length} SKUs.`);
-      //   } catch (purchaseError: any) {
-      //     this.logger.error(`[Sync] Failed to generate initial stock purchase: ${getErrorMessage(purchaseError)}`);
-      //   }
-      // }
-
       // 6. Send final summary notification
       const total = remoteProducts.length;
       await this.notificationService.create({
@@ -2186,14 +2152,21 @@ export class StoresService {
       adminId,
     } = data;
 
+    const result: any = {
+      type,
+      actions: [] as string[],
+      success: true,
+      skipped: false
+    };
 
     try {
       const service = storeType ? this.getService(storeType) : null;
 
       switch (type) {
         case ProductSyncJobs.SYNC_CATEGORY:
-          await service?.syncCategory({ category, slug });
+          const categoryResult = await service?.syncCategory({ category, slug });
           this.logger.log(`[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.name?.trim()}`);
+          return categoryResult;
           break;
 
         case ProductSyncJobs.SYNC_PRODUCT:
@@ -2204,8 +2177,9 @@ export class StoresService {
 
           if (!product || !product.isActive) return;
 
-          await service?.syncProduct({ productId });
+          const productResult = await service?.syncProduct({ productId });
           this.logger.log(`[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${productId}`);
+          return productResult;
           break;
 
         case ProductSyncJobs.SYNC_BUNDLE:
@@ -2234,13 +2208,13 @@ export class StoresService {
           if (oldMainVaraintId && oldStoreId && (bundle?.variantId !== oldMainVaraintId || bundle?.storeId !== oldStoreId)) {
             const deleteService = this.getService(oldStoreType);
             if ('deleteBundle' in deleteService)
-              await(deleteService as unknown as IBundleSyncProvider).deleteBundle(oldMainVaraintId, oldStoreId, storeAdmin);
+              await (deleteService as unknown as IBundleSyncProvider).deleteBundle(oldMainVaraintId, oldStoreId, storeAdmin);
             this.logger.log(`[Delete Bundle] Provider: ${oldStoreType} | Job: ${type} | Successfully delete bundle of old varaint: ${oldMainVaraintId}`);
           }
 
           if (!bundle?.variant?.isActive) return;
           if ('syncBundle' in service) {
-            await(service as unknown as IBundleSyncProvider).syncBundle(bundle);
+            await (service as unknown as IBundleSyncProvider).syncBundle(bundle);
             this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);
           }
           break;
@@ -2248,15 +2222,17 @@ export class StoresService {
         case ProductSyncJobs.FULL_SYNC:
           const store = await this.storesRepo.findOneBy({ id: storeId });
           if (store) {
-            await service?.syncFullStore(store, productIds);
+            const fullSyncResult = await service?.syncFullStore(store, productIds);
             this.logger.log(`[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`);
+            return fullSyncResult;
           }
           break;
 
         case ProductSyncJobs.SYNC_LOCAL:
           if (adminId && storeType) {
-            await this.syncStoreProductsLocally(adminId, storeType);
+            const syncResult = await this.syncStoreProductsLocally(adminId, storeType);
             this.logger.log(`[Sync Products Locally] Provider: ${storeType} | Admin: ${adminId} | Successfully processed`);
+            return syncResult;
           }
           break;
 
@@ -2298,10 +2274,13 @@ export class StoresService {
             this.logger.warn(`[Bulk Orders] Empty payload for admin ${adminId}`);
             return;
           }
-          await this.ordersService.createBulkOrders(orders, adminId);
-          this.logger.log(
-            `[Bulk Orders] Created ${orders.length} orders for admin ${adminId}`
-          );
+          if (orders.length > 0) {
+            const result = await this.ordersService.createBulkOrders(orders, adminId);
+            this.logger.log(
+              `[Bulk Orders] Created ${orders.length} orders for admin ${adminId}`
+            );
+            return result;
+          }
           break;
 
         case OrderSyncJobs.SYNC_ORDER_STATUS:
@@ -2309,8 +2288,9 @@ export class StoresService {
             where: { id: orderId },
           });
           if (order) {
-            await service?.syncOrderStatus(order, newStatusId, oldStatusId);
+            const result = await service?.syncOrderStatus(order, newStatusId, oldStatusId);
             this.logger.log(`[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`);
+            return result;
           }
           break;
 
@@ -2319,6 +2299,7 @@ export class StoresService {
             const mockUser = { id: adminId, role: { name: 'admin' } };
             const result = await this.retryFailedOrder(mockUser, failureId);
             this.logger.log(`[Retry Failed Order] Processed failureId=${failureId}, result=${JSON.stringify(result)}`);
+            return result;
           }
           break;
 
@@ -2327,7 +2308,8 @@ export class StoresService {
             this.logger.warn(`[Bulk Shipping] Empty payload for admin ${adminId}`);
             return;
           }
-          await this.processBulkShipping(adminId, provider, items);
+          const result = await this.processBulkShipping(adminId, provider, items);
+          return result;
           break;
 
         default:
@@ -2351,11 +2333,11 @@ export class StoresService {
   ) {
     const mockUser = { id: adminId, role: { name: 'admin' } };
     const chunkSize = 3;
-    
+
     for (let i = 0; i < items.length; i += chunkSize) {
       const chunk = items.slice(i, i + chunkSize);
       this.logger.log(`[Bulk Shipping] Processing chunk ${Math.floor(i / chunkSize) + 1} (${chunk.length} items)`);
-      
+
       const results = await Promise.allSettled(
         chunk.map(async (item) => {
           try {
@@ -2373,7 +2355,7 @@ export class StoresService {
           }
         })
       );
-      
+
       const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
       const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
       this.logger.log(`[Bulk Shipping] Chunk complete. Success: ${successful}, Failed: ${failed}`);

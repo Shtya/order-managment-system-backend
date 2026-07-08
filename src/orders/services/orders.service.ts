@@ -5433,6 +5433,8 @@ export class OrdersService {
           "No orders were created from the uploaded Excel file. Please check the errors and try again.",
       });
     }
+
+    return createdOrders;
   }
 
   public async deductStockForOrder(

@@ -1099,7 +1099,7 @@ export class EasyOrderService extends BaseStoreProvider {
             throw new Error(`No active store enabled for admin (${order.adminId})`);
         }
 
-        await this.updateOrderStatus(order, store, newStatusId);
+        return await this.updateOrderStatus(order, store, newStatusId);
     }
 
     /**

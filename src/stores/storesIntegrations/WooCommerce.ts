@@ -1174,7 +1174,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             throw new Error("Store not found or inactive")
         }
 
-        await this.updateOrderStatus(order, store, newStatusId);
+        return await this.updateOrderStatus(order, store, newStatusId);
     }
 
     private async syncCategoriesCursor(store: StoreEntity): Promise<Map<string, string>> {

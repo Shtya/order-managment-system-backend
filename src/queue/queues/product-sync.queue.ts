@@ -38,8 +38,9 @@ export class ProductSyncQueueService {
                 adminId,
             },
             {
-                jobId: options.jobId,
-                ...options
+                // jobId: options.jobId,
+                ...options,
+                jobId: undefined,
             }
         );
     }
@@ -168,6 +169,7 @@ export class ProductSyncWorkerService extends WorkerHost {
         const { type } = job.data;
         this.logger.debug(`Processing Job ${job.id} | Type: ${type}`);
 
-        await this.storesService.processProductSyncJob(job.data);
+        const result = await this.storesService.processProductSyncJob(job.data);
+        return result;
     }
 }

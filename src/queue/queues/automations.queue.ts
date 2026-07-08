@@ -29,8 +29,9 @@ export class AutomationQueueService {
                 adminId,
             },
             {
-                jobId: options.jobId,
-                ...options
+                // jobId: options.jobId,
+                ...options,
+                jobId: undefined,
             }
         );
     }

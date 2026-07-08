@@ -60,9 +60,10 @@ export class AutoAssignmentQueueService {
                 orderIds: data.orderIds,
             },
             {
-                jobId,
-                delay: delayMs,
+                // jobId,
                 ...opts,
+                delay: delayMs,
+                jobId: undefined,
             },
         );
     }
@@ -108,7 +109,7 @@ export class AutoAssignmentWorkerService extends WorkerHost {
         );
 
         try {
-            await this.orderAssignmentService.processAutoAssignment(
+            return await this.orderAssignmentService.processAutoAssignment(
                 adminId,
                 orderIds,
             );

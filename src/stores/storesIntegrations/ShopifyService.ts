@@ -2707,13 +2707,13 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         }
     }
 
-    public async syncOrderStatus(order: OrderEntity, newStatusId: string, oldStatusId?: string): Promise<void> {
+    public async syncOrderStatus(order: OrderEntity, newStatusId: string, oldStatusId?: string): Promise<{ actions: ShopifyAction[] }> {
         const store = await this.getStoreForSync(order.adminId);
         if (!store) {
             throw new Error(`No active store enabled for admin (${order.adminId})`);
         }
 
-        await this.updateOrderStatus(order, store, newStatusId, oldStatusId);
+        return await this.updateOrderStatus(order, store, newStatusId, oldStatusId);
     }
 
     public async updateOrderStatus(
@@ -2721,10 +2721,11 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         store: StoreEntity,
         newStatusId?: string,
         oldStatusId?: string,
-    ): Promise<void> {
+    ): Promise<{ actions: ShopifyAction[] }> {
+        const actions: ShopifyAction[] = [];
 
         if (!order.externalId)
-            return;
+            return { actions };
 
         // 1) Resolve internal status record
         const status = await this.ordersService.findStatusById(
@@ -2744,10 +2745,17 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         const internalStatus = status.code as OrderStatus;
         const internalOldStatus = oldStatus.code as OrderStatus;
         const startAction = this.mapOldStatusToShopifyAction(internalStatus, internalOldStatus);
-        await this.startAction(order, startAction, store);
+        if (startAction !== 'NONE') {
+            await this.startAction(order, startAction, store);
+            actions.push(startAction);
+        }
         const action = this.mapStatusToShopifyAction(internalStatus);
-        await this.startAction(order, action, store);
+        if (action !== 'NONE' && action !== startAction) {
+            await this.startAction(order, action, store);
+            actions.push(action);
+        }
 
+        return { actions };
     }
 
     private async startAction(

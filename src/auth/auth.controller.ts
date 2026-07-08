@@ -14,7 +14,7 @@ import { Response } from 'express';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { ChangePasswordDto, RequestEmailChangeDto, SetPasswordDto, VerifyEmailChangeDto } from 'dto/user.dto';
-import { SkipThrottle } from '@nestjs/throttler';
+import { minutes, SkipThrottle, Throttle } from '@nestjs/throttler';
 import { SystemRole } from 'entities/user.entity';
 
 
@@ -53,7 +53,7 @@ export class AuthController {
     return await this.auth.resendRegisterOtp(dto.email);
   }
 
-  @SkipThrottle({ default: true })
+  @Throttle({ default: { limit: 10, ttl: minutes(1) } }) 
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
