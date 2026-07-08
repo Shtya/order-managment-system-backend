@@ -193,15 +193,15 @@ export class BundlesService {
 			const store = await this.storesService.getStoreById(me, dto.storeId);
 			if (!store) throw new BadRequestException("Store not found");
 
-			// Get provider from StoresService to check bundle support and max items
-			const provider = this.storesService.getProvider(store.provider);
-			if (!provider.supportBundle) {
-				throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
-			}
+			// // Get provider from StoresService to check bundle support and max items
+			// const provider = this.storesService.getProvider(store.provider);
+			// if (!provider.supportBundle) {
+			// 	throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
+			// }
 
-			if (provider.maxBundleItems !== undefined && items.length > provider.maxBundleItems) {
-				throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
-			}
+			// if (provider.maxBundleItems !== undefined && items.length > provider.maxBundleItems) {
+			// 	throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
+			// }
 		}
 
 		for (const it of items) {
@@ -388,26 +388,27 @@ export class BundlesService {
 				const store = await this.storesService.getStoreById(me, dto.storeId);
 				if (!store) throw new BadRequestException("Store not found");
 
-				const provider = this.storesService.getProvider(store.provider);
-				if (!provider.supportBundle) {
-					throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
-				}
+				// const provider = this.storesService.getProvider(store.provider);
+				// if (!provider.supportBundle) {
+				// 	throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
+				// }
 
-				// Check items count for the store
-				const itemsToValidate = dto.items !== undefined ? dto.items : b.items;
-				if (provider.maxBundleItems !== undefined && itemsToValidate.length > provider.maxBundleItems) {
-					throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
-				}
+				// // Check items count for the store
+				// const itemsToValidate = dto.items !== undefined ? dto.items : b.items;
+				// if (provider.maxBundleItems !== undefined && itemsToValidate.length > provider.maxBundleItems) {
+				// 	throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
+				// }
 				b.storeId = dto.storeId;
 			}
-		} else if (dto.items !== undefined && b.storeId) {
-			// storeId didn't change but items did, re-validate max items
-			const store = await this.storesService.getStoreById(me, b.storeId);
-			const provider = this.storesService.getProvider(store.provider);
-			if (provider.maxBundleItems !== undefined && dto.items.length > provider.maxBundleItems) {
-				throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
-			}
-		}
+		} 
+		// else if (dto.items !== undefined && b.storeId) {
+		// 	// storeId didn't change but items did, re-validate max items
+		// 	const store = await this.storesService.getStoreById(me, b.storeId);
+		// 	const provider = this.storesService.getProvider(store.provider);
+		// 	if (provider.maxBundleItems !== undefined && dto.items.length > provider.maxBundleItems) {
+		// 		throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
+		// 	}
+		// }
 
 		if (dto.items !== undefined) {
 			const items = Array.isArray(dto.items) ? dto.items : [];
