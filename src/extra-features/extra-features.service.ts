@@ -174,6 +174,7 @@ export class ExtraFeaturesService {
             { header: "Feature Type", key: "featureType", width: 20 },
             { header: "Paid Price", key: "price", width: 15 },
             { header: "Status", key: "status", width: 15 },
+            { header: "Availability", key: "availability", width: 15 },
             { header: "Purchase Date", key: "startDate", width: 20 },
         ];
 
@@ -185,6 +186,7 @@ export class ExtraFeaturesService {
             featureType: uf.feature?.type?.toUpperCase() || '—',
             price: Number(uf.priceAtPurchase || 0),
             status: uf.status?.toUpperCase() || '—',
+            availability: uf.feature.availability?.toUpperCase() || '—',
             startDate: uf.startDate ? new Date(uf.startDate).toISOString().split('T')[0] : '—',
         }));
 
@@ -219,6 +221,7 @@ export class ExtraFeaturesService {
         if (dto.name) feature.name = dto.name.trim();
         if (dto.price !== undefined) feature.price = dto.price;
         if (dto.isActive !== undefined) feature.isActive = dto.isActive;
+        if (dto.availability) feature.availability = dto.availability;
 
         return await this.featuresRepo.save(feature);
     }
@@ -328,6 +331,7 @@ export class ExtraFeaturesService {
                 type: feature.type,
                 price: Number(feature.price),
                 isActive: feature.isActive,
+                availability: feature.availability,
                 subscription: uf
                     ? {
                         id: uf.id,

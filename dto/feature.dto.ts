@@ -1,5 +1,5 @@
 import { IsString, IsNumber, IsOptional, Min, IsBoolean, IsEnum } from 'class-validator';
-import { SubscriptionStatus } from 'entities/plans.entity';
+import { FeatureAvailability, SubscriptionStatus } from 'entities/plans.entity';
 
 export class UpdateFeatureDto {
     @IsOptional()
@@ -14,6 +14,10 @@ export class UpdateFeatureDto {
     @IsOptional()
     @IsBoolean()
     isActive?: boolean;
+
+    @IsOptional()
+    @IsEnum(FeatureAvailability)
+    availability?: FeatureAvailability = FeatureAvailability.READY;
 }
 
 export class AssignUserFeatureDto {

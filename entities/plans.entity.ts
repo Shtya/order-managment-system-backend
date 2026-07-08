@@ -234,7 +234,11 @@ export enum FeatureType {
 	AI_ANALYTICS = 'ai_analytics',
 	FRAUD_DETECTION = 'fraud_detection',
 }
-
+export enum FeatureAvailability {
+    READY = 'ready',                 // Can be purchased
+    COMING_SOON = 'coming_soon',     // Visible but unavailable
+    FREE_TRIAL = 'free_trial',       // Free until a date
+}
 @Entity('features')
 export class Feature {
 	@PrimaryGeneratedColumn('uuid')
@@ -252,9 +256,17 @@ export class Feature {
 	@Column({ default: true })
 	isActive: boolean;
 
+	@Column({
+		type: 'enum',
+		enum: FeatureAvailability,
+		default: FeatureAvailability.READY,
+	})
+	availability: FeatureAvailability;
+
 	@OneToMany(() => UserFeature, (userFeature) => userFeature.feature)
 	userFeatures: Relation<UserFeature[]>;
 }
+
 
 
 @Entity('user_features')
@@ -279,6 +291,7 @@ export class UserFeature {
 
 	@Column({ type: 'enum', enum: SubscriptionStatus, default: SubscriptionStatus.PENDING })
 	status: SubscriptionStatus;
+	
 
 	@Column({ type: 'decimal', precision: 10, scale: 2 })
 	priceAtPurchase: number; // Snapshot
