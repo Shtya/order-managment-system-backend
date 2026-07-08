@@ -50,7 +50,7 @@ import {
 } from './nodeHandlers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { InjectRepository } from '@nestjs/typeorm';
-import { WhatsappAccountEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
+import { WhatsappAccountEntity, WhatsappMessageEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { DataSource, Repository } from 'typeorm';
 import { AppGateway } from 'common/app.gateway';
 import { RedisService } from 'common/redis/RedisService';
@@ -180,6 +180,8 @@ export class AutomationPreviewService {
     private readonly dataSource: DataSource,
     @Inject(forwardRef(() => UpsellsService))
     private readonly upsellsService: UpsellsService,
+    @InjectRepository(WhatsappMessageEntity)
+    private readonly messageRepo: Repository<WhatsappMessageEntity>,
   ) { }
 
   /**
@@ -519,6 +521,7 @@ export class AutomationPreviewService {
   private registry = new PreviewNodeHandlersRegistry(
     new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.userRepo, this.ordersService, this.orderAssignmentService, this.dataSource, this.upsellsService),
     this.orderRepo, 
+    this.messageRepo,
     this.orderAssignmentRepo,
     this.ordersService,
   );
@@ -531,6 +534,9 @@ class PreviewNodeHandlersRegistry {
     private readonly adapter: PreviewAutomationAdapter,
     @InjectRepository(OrderEntity)
     protected readonly orderRepo: Repository<OrderEntity>,
+    @InjectRepository(WhatsappMessageEntity)
+    private readonly messageRepo: Repository<WhatsappMessageEntity>,
+
     @InjectRepository(OrderAssignmentEntity)
     private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
     private readonly ordersService: OrdersService,
@@ -544,17 +550,17 @@ class PreviewNodeHandlersRegistry {
     );
     this.handlers.set(
       ActionType.SEND_WHATSAPP_TEMPLATE,
-      new ActionSendWhatsappTemplateMessageHandler(this.adapter,orderRepo),
+      new ActionSendWhatsappTemplateMessageHandler(this.adapter,orderRepo, this.messageRepo),
     );
 
     this.handlers.set(
       ActionType.SEND_WHATSAPP_MESSAGE,
-      new ActionSendWhatsappMessageHandler(this.adapter,orderRepo),
+      new ActionSendWhatsappMessageHandler(this.adapter,orderRepo, this.messageRepo),
     );
 
     this.handlers.set(
       ActionType.SEND_UPSELL,
-      new ActionSendUpsellHandler(this.adapter, this.orderRepo),
+      new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo),
     );
     this.handlers.set(
       ActionType.ASSIGN_ORDER_TO_EMPLOYEE,

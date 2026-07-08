@@ -4,7 +4,7 @@
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
 import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
-import { MessageActionIntent, TemplateStatus } from "entities/whatsapp.entity";
+import { MessageActionIntent, MessageStatus, TemplateStatus, WhatsappMessageEntity } from "entities/whatsapp.entity";
 
 import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
@@ -17,6 +17,31 @@ import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 import { getValueByPath } from "common/whatsapp.helper";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
+
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const checkMessageStatus = async (
+    messageId: string,
+    messageRepo: Repository<WhatsappMessageEntity>,
+    logger: Logger,
+) => {
+    if (!messageId) {
+        logger.warn("No message ID provided to check status");
+        return;
+    }
+
+    const message = await messageRepo.findOne({ where: { messageId } });
+    if (!message) {
+        logger.warn(`Message with ID ${messageId} not found after 5 seconds`);
+        return;
+    }
+
+    if (message.status === MessageStatus.FAILED) {
+        const errorMsg = message.error || "Message sending failed";
+        logger.error(`Message ${messageId} failed: ${errorMsg}`);
+        throw new Error(`Failed to send WhatsApp message: ${errorMsg}`);
+    }
+};
 
 export interface NodeHandlerResponse {
     success: boolean;
@@ -307,6 +332,8 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
         private readonly adapter: AutomationAdapter,
         @InjectRepository(OrderEntity)
         protected readonly orderRepo: Repository<OrderEntity>,
+        @InjectRepository(WhatsappMessageEntity)
+        private readonly messageRepo: Repository<WhatsappMessageEntity>,
     ) {
         super(orderRepo);
     }
@@ -479,7 +506,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
 
         // If only one word left, truncate it directly
         return text.substring(0, maxLength);
-    }    
+    }
 }
 
 
@@ -490,7 +517,9 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
         private readonly adapter: AutomationAdapter,
         @InjectRepository(OrderEntity)
         protected readonly orderRepo: Repository<OrderEntity>,
-        private readonly whatsappService?: any
+        @InjectRepository(WhatsappMessageEntity)
+        private readonly messageRepo: Repository<WhatsappMessageEntity>,
+        private readonly whatsappService?: WhatsappService
     ) {
         super(orderRepo);
     }
@@ -539,6 +568,8 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
                     config.actionIntent || MessageActionIntent.NONE,
                     orderData.id,
                 );
+                const messageId = response.messages?.[0]?.id;
+
             } else {
                 // Preview mode, mock response
                 response = {
@@ -546,10 +577,17 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
                 };
             }
 
+            const finalMessageId = response.messages?.[0]?.id;
+            await wait(4000);
+            // Check message status after 5 seconds (only in production mode)
+            if (this.whatsappService && finalMessageId) {
+                await checkMessageStatus(finalMessageId, this.messageRepo, this.logger);
+            }
+
             return {
                 success: true,
                 output: {
-                    messageId: response.messages?.[0]?.id,
+                    messageId: finalMessageId,
                     recipient: to
                 }
             };
@@ -592,6 +630,8 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
         private readonly adapter: AutomationAdapter,
         @InjectRepository(OrderEntity)
         protected readonly orderRepo: Repository<OrderEntity>,
+        @InjectRepository(WhatsappMessageEntity)
+        private readonly messageRepo: Repository<WhatsappMessageEntity>,
     ) {
         super(orderRepo);
     }
@@ -633,6 +673,12 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
                         triggerProductId: upsell.triggerProductId,
                         upsellProductId: upsell.upsellProductId
                     });
+                }
+            }
+            await wait(4000);
+            for (const history of sentUpsells) {
+                if (history.messageId) {
+                    await checkMessageStatus(history.messageId, this.messageRepo, this.logger);
                 }
             }
 
@@ -758,6 +804,8 @@ export class NodeHandlersRegistry {
         private readonly adapter: ProductionAutomationAdapter,
         @InjectRepository(OrderEntity)
         private readonly orderRepo: Repository<OrderEntity>,
+        @InjectRepository(WhatsappMessageEntity)
+        private readonly messageRepo: Repository<WhatsappMessageEntity>,
         @InjectRepository(OrderAssignmentEntity)
         private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
         @Inject(forwardRef(() => OrdersService))
@@ -773,9 +821,9 @@ export class NodeHandlersRegistry {
         this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler(this.orderRepo));
         this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler(this.orderRepo));
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo));
-        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo));
-        this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.whatsappService));
-        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo));
+        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo, this.messageRepo));
+        this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.whatsappService));
+        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo));
         this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
     }
 

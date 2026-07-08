@@ -1,6 +1,6 @@
 import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { WhatsappTemplateEntity, WhatsappAccountEntity } from 'entities/whatsapp.entity';
+import { WhatsappTemplateEntity, WhatsappAccountEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
 import { Repository, In, DataSource } from 'typeorm';
 import { AutomationAdapter } from './automation-adapters.interface';
 import { randomUUID } from 'crypto';

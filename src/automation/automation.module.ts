@@ -10,7 +10,7 @@ import { ConditionOrderCheckHandler, ConditionQuickOrderStatusHandler, NodeHandl
 import { OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher, ShipmentCreatedTriggerMatcher, ShipmentUpdatedTriggerMatcher, TriggerMatchersRegistry } from './engine/triggerMatchers.registry';
 import { OrdersModule } from 'src/orders/orders.module';
 import { WhatsappModule } from 'src/whatsapp/whatsapp.module';
-import { WhatsappAccountEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
+import { WhatsappAccountEntity, WhatsappMessageEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
 import { NotificationModule } from 'src/notifications/notification.module';
 import { WebSocketModule } from 'common/websocket.module';
 import { ProductionAutomationAdapter } from './engine/adapters/production.adapters';
@@ -44,7 +44,8 @@ import { OrphanFilesModule } from 'src/orphan-files/orphan-files.module';
       WhatsappAccountEntity,
       OrderEntity,
       User,
-      OrderAssignmentEntity
+      OrderAssignmentEntity,
+      WhatsappMessageEntity
     ])
   ],
   controllers: [AutomationController],
