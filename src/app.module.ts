@@ -68,7 +68,7 @@ import { createHash } from 'crypto';
 				throttlers: [
 					{
 						ttl: minutes(1),
-						limit: 150
+						limit: 200
 					}
 				],
 				errorMessage: "Too many attempts. Please wait before trying again.",

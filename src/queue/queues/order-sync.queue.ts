@@ -122,7 +122,7 @@ export class OrderSyncQueueService {
 }
 
 @Processor(QueueNames.ORDER_SYNC, {
-  concurrency: 10,
+  concurrency: 20,
   maxStartedAttempts: 200,
   metrics: {
     maxDataPoints: MetricsTime.ONE_WEEK * 2,

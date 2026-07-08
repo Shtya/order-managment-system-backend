@@ -43,7 +43,7 @@ export class EngineRunnerService {
     /**
      * نقطة البداية لتشغيل الأتمتة (تستدعى من الـ Worker الخاص بـ BullMQ)
      */
-    async startExecution(runId: string): Promise<void> {
+    async startExecution(runId: string): Promise<{ success: boolean; message: string; runId: string; status?: RunStatus }> {
         console.log('=== [EngineRunner] startExecution CALLED with runId:', runId);
         console.log('=== [EngineRunner] this.runRepo:', this.runRepo);
         this.logger.log(`=== EngineRunner.startExecution(${runId}) ===`);
@@ -51,7 +51,7 @@ export class EngineRunnerService {
         if (this.currentlyRunning.has(runId)) {
             this.logger.log(`Run ${runId} is already being executed, skipping duplicate request.`);
             console.log('=== [EngineRunner] runId is already in currentlyRunning set');
-            return;
+            return { success: false, message: 'Run is already in progress', runId };
         }
 
         console.log('=== [EngineRunner] About to query runRepo for runId:', runId);
@@ -60,7 +60,7 @@ export class EngineRunnerService {
         if (!run) {
             this.logger.error(`Run ${runId} not found in database!`);
             console.log('=== [EngineRunner] returning because run not found');
-            return;
+            return { success: false, message: 'Run not found', runId };
         }
         this.logger.log(`Found run ${runId} with status ${run.status}`);
 
@@ -68,12 +68,14 @@ export class EngineRunnerService {
         const allowedStatuses = [RunStatus.PENDING, RunStatus.RUNNING, RunStatus.FAILED];
         if (!allowedStatuses.includes(run.status)) {
             this.logger.log(`Run ${runId} has status ${run.status}, skipping execution.`);
-            return;
+            return { success: false, message: `Run status ${run.status} not allowed`, runId, status: run.status };
         }
 
         // Add to currently running set
         this.currentlyRunning.add(runId);
         this.logger.log(`Added ${runId} to currently running set (now has ${this.currentlyRunning.size} items)`);
+
+        let result: { success: boolean; message: string; runId: string; status?: RunStatus } = { success: true, message: 'Execution started', runId, status: run.status };
 
         try {
             // If it's a new run or being restarted, set to RUNNING
@@ -102,7 +104,7 @@ export class EngineRunnerService {
             if (!version) {
                 this.logger.error(`Version ${run.versionId} not found for run ${runId}`);
                 await this.failRun(run, 'This automation version is no longer available. The execution was stopped before starting.');
-                return;
+                return { success: false, message: 'Version not found', runId, status: RunStatus.FAILED };
             }
             this.logger.log(`Found version ${version.id} for run ${runId}`);
 
@@ -128,7 +130,7 @@ export class EngineRunnerService {
                         run.status = RunStatus.PAUSED;
                         await this.runRepo.save(run);
                         await this.emitRunUpdate(run);
-                        return;
+                        return { success: true, message: 'Run paused - waiting for branch choice', runId, status: RunStatus.PAUSED };
                     }
                     startNodeId = findNextNodeId(
                         version.flow.edges,
@@ -153,22 +155,26 @@ export class EngineRunnerService {
                 this.logger.log(`No start node, marking run as completed`);
                 run.status = RunStatus.COMPLETED;
                 await this.runRepo.save(run);
-                return;
+                return { success: true, message: 'Run completed (no start node found)', runId, status: RunStatus.COMPLETED };
             }
 
             this.logger.log(`Starting runLoop for ${runId} at node ${startNodeId}`);
             await this.runLoop(run, version.flow, startNodeId);
+            result = { success: true, message: 'Execution completed', runId, status: run.status };
         } catch (error) {
             this.logger.error(`=== ERROR in startExecution(${runId}):`, error);
             await this.failRun(run, `Error in startExecution: ${error.message}`);
+            result = { success: false, message: `Error in startExecution: ${error.message}`, runId, status: RunStatus.FAILED };
         } finally {
             // Always remove from currently running set when done
             this.currentlyRunning.delete(runId);
             this.logger.log(`=== EngineRunner.startExecution(${runId}) finished ===`);
         }
+
+        return result;
     }
 
-    async resumeFromWhatsappInteraction(originalMessageId: string, buttonText: string, buttonId?: string): Promise<void> {
+    async resumeFromWhatsappInteraction(originalMessageId: string, buttonText: string, buttonId?: string): Promise<{ success: boolean; message: string; runId?: string; status?: RunStatus }> {
         // 1. البحث السريع عن الخطوة التي أنتجت هذه الرسالة باستخدام JSONB Query (سريع جداً في Postgres)
         // نبحث في الحقل الأساسي messageId أو داخل مصفوفة sentUpsells في حال وجود عروض متعددة
         const step = await this.stepRepo.createQueryBuilder('step')
@@ -181,7 +187,7 @@ export class EngineRunnerService {
 
         if (!step) {
             this.logger.warn(`Interactive reply received for message ${originalMessageId}, but no matching automation step was found.`);
-            return;
+            return { success: false, message: 'No matching automation step found' };
         }
 
         const run = await this.runRepo.findOne({ where: { id: step.runId } });
@@ -231,22 +237,22 @@ export class EngineRunnerService {
             this.logger.error(`=== ERROR in resumeFromWhatsappInteraction(${step.runId}):`, error);
             const message = getErrorMessage(error);
             await this.failRun(run, `Error: ${message}`);
-            return;
+            return { success: false, message: `Error: ${message}`, runId: step.runId, status: RunStatus.FAILED };
         }
 
         
         if (!run || run.status !== RunStatus.PAUSED) {
             this.logger.warn(`Automation run ${step.runId} is not in PAUSED state. Cannot resume.`);
-            return;
+            return { success: false, message: 'Run is not in PAUSED state', runId: step.runId, status: run?.status };
         }
 
         if (run.currentNodeId !== step.nodeId) {
             await this.failRun(run, `Current node ID ${run.currentNodeId} does not match step node ID ${step.nodeId}. Cannot resume.`);
-            return;
+            return { success: false, message: 'Current node ID does not match step node ID', runId: run.id, status: RunStatus.FAILED };
         }
 
         const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
-        if (!version) return;
+        if (!version) return { success: false, message: 'Version not found', runId: run.id };
 
         // 2. جلب العقدة (Node) الخاصة بالواتساب من المخطط لمعرفة مساراتها
         const node = version.flow.nodes.find(n => n.id === step.nodeId);
@@ -280,7 +286,7 @@ export class EngineRunnerService {
         if (!chosenBranch) {
             this.logger.error(`No matching branch found for button "${buttonText}" in node ${node.id}`);
             await this.failRun(run, `User clicked an invalid button that has no configured branch: ${buttonText}`);
-            return;
+            return { success: false, message: 'No matching branch found', runId: run.id, status: RunStatus.FAILED };
         }
 
         // 4. تحديث الـ executionState التراكمي لتسجيل اختيار العميل قبل الاستكمال
@@ -298,23 +304,27 @@ export class EngineRunnerService {
         );
         // 5. إيقاظ الأتمتة وتوجيهها للمسار الصحيح
         await this.resumeExecution(run.id, step.nodeId, chosenBranch.id);
+
+        return { success: true, message: 'Automation resumed successfully', runId: run.id, status: run.status };
     }
 
     /**
      * نقطة استكمال الأتمتة بعد الاستيقاظ من الـ Webhook (الـ Resume)
      */
-    async resumeExecution(runId: string, resumedNodeId: string, chosenBranchId?: string): Promise<void> {
+    async resumeExecution(runId: string, resumedNodeId: string, chosenBranchId?: string): Promise<{ success: boolean; message: string; runId: string; status?: RunStatus }> {
         // Check if run is already in progress
         if (this.currentlyRunning.has(runId)) {
             this.logger.log(`Run ${runId} is already being executed, skipping duplicate request.`);
-            return;
+            return { success: false, message: 'Run is already in progress', runId };
         }
 
         const run = await this.runRepo.findOne({ where: { id: runId } });
-        if (!run) return;
+        if (!run) return { success: false, message: 'Run not found', runId };
 
         // Add to currently running set
         this.currentlyRunning.add(runId);
+
+        let result: { success: boolean; message: string; runId: string; status?: RunStatus } = { success: true, message: 'Execution resumed', runId, status: run.status };
 
         try {
             run.status = RunStatus.RUNNING;
@@ -328,14 +338,17 @@ export class EngineRunnerService {
             if (!nextNodeId) {
                 run.status = RunStatus.COMPLETED;
                 await this.runRepo.save(run);
-                return;
+                return { success: true, message: 'Run completed (no next node found)', runId, status: RunStatus.COMPLETED };
             }
 
             await this.runLoop(run, version.flow, nextNodeId);
+            result = { success: true, message: 'Execution completed', runId, status: run.status };
         } finally {
             // Always remove from currently running set when done
             this.currentlyRunning.delete(runId);
         }
+
+        return result;
     }
 
     /**

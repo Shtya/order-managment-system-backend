@@ -1177,12 +1177,12 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         return await this.updateOrderStatus(order, store, newStatusId);
     }
 
-    private async syncCategoriesCursor(store: StoreEntity): Promise<Map<string, string>> {
+    private async syncCategoriesCursor(store: StoreEntity): Promise<{ categoryMap: Map<string, string>; report: { processed: number; created: number; updated: number; errors: number } }> {
 
         const categoryMap = new Map<string, string>();
         let lastId = "";
         let hasMore = true;
-        let stats = { processed: 0, created: 0, updated: 0 };
+        let stats = { processed: 0, created: 0, updated: 0, errors: 0 };
 
         while (hasMore) {
             // 1. Fetch local batch using cursor pagination
@@ -1224,6 +1224,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                 } catch (error) {
                     const message = this.getErrorMessage(error);
                     this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${message}`, store);
+                    stats.errors++;
                 }
                 stats.processed++;
             }
@@ -1233,11 +1234,19 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
 
         this.logCtx(`[Sync] ✓ Category sync completed | Total: ${stats.processed} | Created: ${stats.created} | Updated: ${stats.updated}`, store);
-        return categoryMap;
+        return {
+            categoryMap,
+            report: {
+                processed: stats.processed,
+                created: stats.created,
+                updated: stats.updated,
+                errors: stats.errors
+            }
+        };
     }
 
 
-    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>, productIds?: string[]) {
+    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>, productIds?: string[]): Promise<{ processed: number; created: number; updated: number; errors: number }> {
         this.logCtx(`[Sync] Starting product synchronization (Individual API calls)`, store);
 
         let lastId = "";
@@ -1375,16 +1384,25 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
 
         this.logCtx(`[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Errors: ${totalErrors}`, store);
+        return {
+            processed: totalProcessed,
+            created: totalCreated,
+            updated: totalUpdated,
+            errors: totalErrors
+        };
     }
 
-    public async syncFullStore(store: StoreEntity, productIds?: string[]) {
+    public async syncFullStore(store: StoreEntity, productIds?: string[]): Promise<{ categoryReport: any; productReport: any }> {
         if (!store || !store.isActive) {
             throw new Error("Store not found or inactive")
         }
         const hasProductIds = productIds?.length > 0;
         if (store.localSyncStatus === SyncStatus.SYNCING) {
-            return;
+            return { categoryReport: { processed: 0, created: 0, updated: 0, errors: 0 }, productReport: { processed: 0, created: 0, updated: 0, errors: 0 } };
         }
+
+        let categoryReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+        let productReport = { processed: 0, created: 0, updated: 0, errors: 0 };
 
         try {
             const syncStartTime = Date.now();
@@ -1396,10 +1414,12 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
 
             let categoryMap = new Map<string, string>();
             if (!hasProductIds) {
-                categoryMap = await this.syncCategoriesCursor(store);
+                const { categoryMap: map, report } = await this.syncCategoriesCursor(store);
+                categoryMap = map;
+                categoryReport = report;
             }
 
-            await this.syncProductsCursor(store, categoryMap, productIds);
+            productReport = await this.syncProductsCursor(store, categoryMap, productIds);
 
 
             await this.storesRepo.update(store.id, {
@@ -1430,7 +1450,10 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
                     type: "remote",
                 });
             }
+            throw error;
         }
+
+        return { categoryReport, productReport };
     }
 
     private mapExternalStatusToInternal(body, localStatus: OrderStatus) {

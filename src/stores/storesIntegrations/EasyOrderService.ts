@@ -284,7 +284,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
  * Sync Categories: Fetch 30 by 30 using ID as cursor
  */
-    private async syncCategoriesCursor(store: StoreEntity): Promise<Map<string, string>> {
+    private async syncCategoriesCursor(store: StoreEntity): Promise<{ categoryMap: Map<string, string>; report: { processed: number; created: number; updated: number; errors: number } }> {
 
         const categoryMap = new Map<string, string>();
         let lastId = "";
@@ -292,6 +292,7 @@ export class EasyOrderService extends BaseStoreProvider {
         let totalProcessed = 0;
         let totalCreated = 0;
         let totalUpdated = 0;
+        let totalErrors = 0;
 
         while (hasMore) {
             const localBatch = await this.categoryRepo.find({
@@ -331,6 +332,7 @@ export class EasyOrderService extends BaseStoreProvider {
                 } catch (error) {
                     const message = this.getErrorMessage(error);
                     this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${message}`, store);
+                    totalErrors++;
                 }
 
                 totalProcessed++;
@@ -340,7 +342,15 @@ export class EasyOrderService extends BaseStoreProvider {
         }
 
         this.logCtx(`[Sync] ✓ Category sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated}`, store);
-        return categoryMap;
+        return { 
+            categoryMap, 
+            report: { 
+                processed: totalProcessed, 
+                created: totalCreated, 
+                updated: totalUpdated, 
+                errors: totalErrors 
+            } 
+        };
     }
 
     public async syncExternalCategory(user: any, remoteCategory: any, manager?: EntityManager): Promise<string | null> {
@@ -626,7 +636,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Sync Products: Fetch 20 by 20 with Variants
      */
-    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>, productIds?: string[]) {
+    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>, productIds?: string[]): Promise<{ processed: number; created: number; updated: number; errors: number }> {
         let lastId = "";
         let hasMore = true;
         let totalProcessed = 0;
@@ -746,6 +756,12 @@ export class EasyOrderService extends BaseStoreProvider {
         }
 
         this.logCtx(`[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
+        return { 
+            processed: totalProcessed, 
+            created: totalCreated, 
+            updated: totalUpdated, 
+            errors: totalErrors 
+        };
     }
 
     private async syncExternalProductToLocal(adminId: string, store: StoreEntity, remoteProduct: any, manager: EntityManager): Promise<ProductEntity> {
@@ -1105,7 +1121,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
     * Main entry point for full store synchronization using Cursor Pagination
     */
-    public async syncFullStore(store: StoreEntity, productIds?: string[]) {
+    public async syncFullStore(store: StoreEntity, productIds?: string[]): Promise<{ categoryReport: any; productReport: any }> {
         if (!store || !store.isActive) {
             throw new Error(`Store is inactive or null`);
         }
@@ -1113,6 +1129,9 @@ export class EasyOrderService extends BaseStoreProvider {
         if (store.localSyncStatus === SyncStatus.SYNCING) {
             throw new Error(`Store is already syncing. Skipping.`);
         }
+
+        let categoryReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+        let productReport = { processed: 0, created: 0, updated: 0, errors: 0 };
 
         try {
 
@@ -1124,10 +1143,12 @@ export class EasyOrderService extends BaseStoreProvider {
             // 1. Sync Categories (Build ID mapping)
             let categoryMap = new Map<string, string>();
             if (!hasProductIds) {
-                categoryMap = await this.syncCategoriesCursor(store);
+                const { categoryMap: map, report } = await this.syncCategoriesCursor(store);
+                categoryMap = map;
+                categoryReport = report;
             }
 
-            await this.syncProductsCursor(store, categoryMap, productIds);
+            productReport = await this.syncProductsCursor(store, categoryMap, productIds);
 
             // 2. Sync Products (Cursor based)
 
@@ -1159,6 +1180,8 @@ export class EasyOrderService extends BaseStoreProvider {
             }
             throw error;
         }
+
+        return { categoryReport, productReport };
     }
 
 

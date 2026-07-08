@@ -54,7 +54,7 @@ export class AutomationQueueService {
 }
 
 @Processor(QueueNames.AUTOMATIONS, {
-    concurrency: 10,
+    concurrency: 20,
     maxStartedAttempts: 200,
     metrics: {
         maxDataPoints: MetricsTime.ONE_WEEK * 2,
@@ -93,16 +93,18 @@ export class AutomationWorkerService extends WorkerHost {
         try {
             if (type === AutomationJobs.START && runId) {
                 this.logger.log(`=== STARTING Job ${job.id} | Type: ${type} | Executing startExecution for run ${runId}`);
-                await this.engineRunner.startExecution(runId);
+                const result = await await this.engineRunner.startExecution(runId);
                 this.logger.log(`=== SUCCESS: Finished job ${job.id} (run ${runId})`);
+                return result;
             } else if (type === AutomationJobs.RESUME && resumeData) {
                 this.logger.log(`=== STARTING Job ${job.id} | Type: ${type} | Executing resumeFromWhatsappInteraction`);
-                await this.engineRunner.resumeFromWhatsappInteraction(
+                const result = await this.engineRunner.resumeFromWhatsappInteraction(
                     resumeData.originalMessageId,
                     resumeData.buttonText,
                     resumeData.buttonId
                 );
                 this.logger.log(`=== SUCCESS: Finished resume job ${job.id}`);
+                return result;
             }
         } catch (error) {
             this.logger.error(`=== ERROR processing job ${job.id}:`, error);

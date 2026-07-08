@@ -2160,6 +2160,7 @@ export class StoresService {
     };
 
     try {
+      
       const service = storeType ? this.getService(storeType) : null;
 
       switch (type) {
