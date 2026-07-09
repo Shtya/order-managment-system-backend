@@ -22,6 +22,7 @@ import { User } from 'entities/user.entity';
 import { OrderAssignmentEntity } from 'entities/assignment.entity';
 import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.module';
 import { OrphanFilesModule } from 'src/orphan-files/orphan-files.module';
+import { AutomationSubscriber } from './automation-subscriber';
 
 
 @Module({
@@ -54,7 +55,8 @@ import { OrphanFilesModule } from 'src/orphan-files/orphan-files.module';
     NodeHandlersRegistry, ConditionQuickOrderStatusHandler, ConditionOrderCheckHandler,
     ProductionAutomationAdapter, AutomationPreviewService,
     TriggerMatchersRegistry, OrderCreatedTriggerMatcher, OrderUpdatedTriggerMatcher,
-    ShipmentUpdatedTriggerMatcher, ShipmentCreatedTriggerMatcher
+    ShipmentUpdatedTriggerMatcher, ShipmentCreatedTriggerMatcher,
+    AutomationSubscriber
     // PostCommitTasksSubscriber
   ],
   exports: [AutomationService, TriggerDispatcherService,

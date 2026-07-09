@@ -254,17 +254,17 @@ export class AutomationService {
 
             if (dto.flow) {
                 let parentVersion = automation.latestVersion;
-                let isPatch = false;
+                // let isPatch = false;
 
-                if (dto.version) {
-                    parentVersion = await versionRepo.findOne({
-                        where: { versionString: dto.version, automationFlowId: id },
-                    });
-                    if (!parentVersion) {
-                        throw new BadRequestException('Parent version not found');
-                    }
-                    isPatch = true;
-                }
+                // if (dto.version) {
+                //     parentVersion = await versionRepo.findOne({
+                //         where: { versionString: dto.version, automationFlowId: id },
+                //     });
+                //     if (!parentVersion) {
+                //         throw new BadRequestException('Parent version not found');
+                //     }
+                //     isPatch = true;
+                // }
 
                 // 2- if passed flow exactly as previous so nothing to update so just skip update
                 if (parentVersion && this.isFlowEqual(dto.flow, parentVersion.flow)) {
@@ -279,14 +279,14 @@ export class AutomationService {
 
                 let nextVersion = '';
                 // 1- if user pass version ... so get it and create sub version from it but it not pass any thing create major version
-                if (isPatch) {
-                    nextVersion = await this.generateNextPatchVersion(
-                        automation.id,
-                        parentVersion.versionString,
-                    );
-                } else {
+                // if (isPatch) {
+                //     nextVersion = await this.generateNextPatchVersion(
+                //         automation.id,
+                //         parentVersion.versionString,
+                //     );
+                // } else {
                     nextVersion = await this.generateNextVersion(automation.id);
-                }
+                // }
 
                 const newVersion = versionRepo.create({
                     automationFlowId: id,
@@ -301,7 +301,8 @@ export class AutomationService {
                 const savedVersion = await versionRepo.save(newVersion);
 
                 // Update latestVersion if it's a major update or if we're fixing the current latest version
-                if (!dto.version || (parentVersion && parentVersion.id === automation.latestVersionId)) {
+                // if (!dto.version || (parentVersion && parentVersion.id === automation.latestVersionId)) {
+                if (parentVersion) {
                     automation.latestVersionId = savedVersion.id;
                     automation.latestVersion = savedVersion;
                 }
@@ -349,7 +350,7 @@ export class AutomationService {
         return result;
     }
 
-    async retryRun(me: any, runId: string) {
+    async retryRun(me: any, runId: string, useLatestVersion?: boolean) {
         const adminId = tenantId(me);
 
         const run = await this.runRepo.findOne({
@@ -363,6 +364,26 @@ export class AutomationService {
 
         if (run.status !== RunStatus.FAILED) {
             throw new BadRequestException('Only failed runs can be retried');
+        }
+
+        if(useLatestVersion) {
+            // Load automation flow with latestVersion
+            const automationFlow = await this.automationRepo.findOne({
+                where: { id: run.automationFlowId },
+                relations: ['latestVersion'],
+            });
+            if (automationFlow?.latestVersionId) {
+                run.versionId = automationFlow.latestVersionId;
+                // Reset execution state since we're using a new version
+                run.version = automationFlow.latestVersion;
+                run.currentNodeId = null;
+                run.completedNodeIds = [];
+                // Keep the original trigger data, reset steps
+                run.executionState = {
+                    trigger: run.executionState.trigger,
+                    steps: {},
+                };
+            }
         }
 
         // Reset status and clear error
@@ -706,7 +727,7 @@ export class AutomationService {
 
         const run = await this.runRepo.findOne({
             where: { id },
-            relations: ['automationFlow', 'version', 'steps']
+            relations: ['automationFlow','automationFlow.latestVersion', 'version', 'steps']
         });
 
         if (!run) {
@@ -792,7 +813,3 @@ export class AutomationService {
     }
 
 }
-
-// قيد التغيل
-
-// و الاعدادات التغيل التلقاءي

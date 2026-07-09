@@ -698,7 +698,7 @@ export enum StockDeductionStrategy {
 
 export enum AutomationMigrationStrategy {
   LATEST_MAJOR = "latest_major",
-  LATEST_PATCH = "latest_patch",
+  // LATEST_PATCH = "latest_patch",
   MANUAL = "manual",
 }
 
@@ -837,7 +837,7 @@ export class OrderRetrySettingsEntity {
   @Column({
     type: "enum",
     enum: AutomationMigrationStrategy,
-    default: AutomationMigrationStrategy.LATEST_PATCH,
+    default: AutomationMigrationStrategy.MANUAL,
   })
   automationMigrationStrategy: AutomationMigrationStrategy;
 

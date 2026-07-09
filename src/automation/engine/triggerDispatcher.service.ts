@@ -47,7 +47,7 @@ export class TriggerDispatcherService {
                 where: { id: trigger.orderId },
                 select: ['id', 'adminId', 'oldStatusId', 'statusId', 'externalId'],
             });
-            if(!order) {
+            if (!order) {
                 console.log(`[TriggerDispatcher] Order ${trigger.orderId} not found, skipping`);
                 return;
             }
@@ -99,12 +99,12 @@ export class TriggerDispatcherService {
      */
     async autoRetryFailedRuns(adminId: string, automationFlowId: string) {
         const settings = await this.ordersService.getCachedSettings(adminId);
-        const strategy = settings?.automationMigrationStrategy || AutomationMigrationStrategy.LATEST_PATCH;
+        const strategy = settings?.automationMigrationStrategy || AutomationMigrationStrategy.LATEST_MAJOR;
 
         if (strategy === AutomationMigrationStrategy.MANUAL) {
             return;
         }
-
+        
         const automation = await this.automationRepo.findOne({
             where: { id: automationFlowId, adminId },
             relations: ['latestVersion'],
@@ -124,39 +124,27 @@ export class TriggerDispatcherService {
 
         let newVersion = automation.latestVersion;
 
-        for (const run of failedRuns) {
-            let shouldMigrate = false;
-            const [currentMajorStr, currentMinorStr] = run.version?.versionString.split('.') || [];
-            const currentMajor = parseInt(currentMajorStr, 10);
+        // Define your batch size here (e.g., 10 runs at a time)
+        const BATCH_SIZE = 5;
 
-            if (strategy === AutomationMigrationStrategy.LATEST_MAJOR) {
-                // Migrate everything to the newest version
-                shouldMigrate = run.versionId !== newVersion.id;
-            } else if (strategy === AutomationMigrationStrategy.LATEST_PATCH) {
-                newVersion = await this.versionRepo.createQueryBuilder('version')
-                    .where('version.automationFlowId = :automationFlowId', { automationFlowId: run.automationFlowId })
-                    .andWhere("CAST(split_part(version.versionString, '.', 1) AS INTEGER) = :major", { major: currentMajor })
-                    .orderBy("CAST(split_part(version.versionString, '.', 2) AS INTEGER)", 'DESC')
-                    .getOne();
-                if (!newVersion) continue;
+        // Loop through the array in chunks of BATCH_SIZE
+        for (let i = 0; i < failedRuns.length; i += BATCH_SIZE) {
+            const batch = failedRuns.slice(i, i + BATCH_SIZE);
 
-                shouldMigrate = run.versionId !== newVersion.id;
-            }
-
-            if (shouldMigrate) {
-                // Re-verify if the run still matches the trigger (e.g. if filters changed)
-                const triggerData = {
-                    type: automation.triggerType,
-                    payload: run.initialPayload,
-                };
-
-                const stillMatches = this.shouldStartAutomation(automation, triggerData);
-
-                if (stillMatches) {
+            // Process the current batch in parallel
+            await Promise.all(
+                batch.map(async (run) => {
                     run.versionId = newVersion.id;
                     run.version = newVersion;
+                    run.currentNodeId = null;
+                    run.completedNodeIds = [];
+                    run.executionState = {
+                        trigger: run.executionState.trigger,
+                        steps: {},
+                    };
                     run.status = RunStatus.PENDING;
-                    run.errorMessage = null; // Clear previous error
+                    run.errorMessage = null;
+
                     await this.runRepo.save(run);
 
                     await this.automationQueueService.enqueueStartFlow(
@@ -165,8 +153,10 @@ export class TriggerDispatcherService {
                         newVersion.id,
                         adminId,
                     );
-                }
-            }
+
+
+                })
+            );
         }
     }
 

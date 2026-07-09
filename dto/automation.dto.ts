@@ -328,9 +328,9 @@ export class UpdateAutomationDto {
     @Type(() => FlowDefinitionDto)
     flow: FlowDefinitionDto;
 
-    @IsOptional()
-    @IsString()
-    version?: string;
+    // @IsOptional()
+    // @IsString()
+    // version?: string;
 
     @IsOptional()
     @ValidateNested()

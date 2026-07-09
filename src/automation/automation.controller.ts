@@ -125,8 +125,8 @@ export class AutomationController {
 
   @Post('runs/:id/retry')
   @Permissions('automation.update')
-  retryRun(@Req() req: any, @Param('id') id: string) {
-    return this.automationService.retryRun(req.user, id);
+  retryRun(@Req() req: any, @Param('id') id: string, @Body() body?: { useLatestVersion?: boolean }) {
+    return this.automationService.retryRun(req.user, id, body?.useLatestVersion);
   }
 
   @Get(':id')
