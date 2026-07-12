@@ -12,6 +12,8 @@ import { DataSource, Repository } from 'typeorm';
 import * as ExcelJS from "exceljs";
 import { DateFilterUtil } from 'common/date-filter.util';
 import { AssignUserFeatureDto, UpdateFeatureDto } from 'dto/feature.dto';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
+import { tenantId } from 'src/category/category.service';
 
 @Injectable()
 export class ExtraFeaturesService {
@@ -33,6 +35,8 @@ export class ExtraFeaturesService {
         private readonly featuresRepo: Repository<Feature>,
 
         private readonly notificationService: NotificationService,
+        private readonly translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
     ) { }
 
     private isSuperAdmin(me: User) {
@@ -51,16 +55,16 @@ export class ExtraFeaturesService {
                 where: { id: user.id },
             });
 
-            if (!userData) throw new BadRequestException("User not found");
+            if (!userData) throw new BadRequestException(this.translations.t('domains.auth.user_not_found'));
 
             const feature = await manager.findOne(Feature, { where: { id: featureId, isActive: true } });
-            if (!feature) throw new NotFoundException('Feature not found or inactive');
+            if (!feature) throw new NotFoundException(this.translations.t('domains.extra_features.feature_not_found_or_inactive'));
 
             // Check if user already has this feature ACTIVE
             const existing = await manager.findOne(UserFeature, {
                 where: { userId: user.id, featureId: feature.id, status: SubscriptionStatus.ACTIVE }
             });
-            if (existing) throw new BadRequestException('You already have this feature active');
+            if (existing) throw new BadRequestException(this.translations.t('domains.extra_features.feature_already_active'));
 
             // Create PENDING user feature
             let userFeature = await manager.findOne(UserFeature, {
@@ -143,52 +147,53 @@ export class ExtraFeaturesService {
     }
 
     async exportExtraFeatures(me: User, q?: any) {
-        const search = String(q?.search ?? '').trim();
-        const sortBy = String(q?.sortBy ?? 'startDate');
-        const sortDir: 'ASC' | 'DESC' = String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+		const adminId = tenantId(me);
+		const search = String(q?.search ?? '').trim();
+		const sortBy = String(q?.sortBy ?? 'startDate');
+		const sortDir: 'ASC' | 'DESC' = String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-        const qb = this.userFeatureRepo
-            .createQueryBuilder('uf')
-            .leftJoinAndSelect('uf.user', 'user')
-            .leftJoinAndSelect('uf.feature', 'feature');
+		const qb = this.userFeatureRepo
+			.createQueryBuilder('uf')
+			.leftJoinAndSelect('uf.user', 'user')
+			.leftJoinAndSelect('uf.feature', 'feature');
 
-        if (!this.isSuperAdmin(me)) {
-            qb.where('uf.userId = :meId', { meId: me.id });
-        }
+		if (!this.isSuperAdmin(me)) {
+			qb.where('uf.userId = :meId', { meId: me.id });
+		}
 
-        if (q?.status) qb.andWhere('uf.status = :status', { status: q.status });
-        if (search) {
-            qb.andWhere(`(user.name ILIKE :s OR user.email ILIKE :s OR feature.name ILIKE :s)`, { s: `%${search}%` });
-        }
+		if (q?.status) qb.andWhere('uf.status = :status', { status: q.status });
+		if (search) {
+			qb.andWhere(`(user.name ILIKE :s OR user.email ILIKE :s OR feature.name ILIKE :s)`, { s: `%${search}%` });
+		}
 
-        const records = await qb.orderBy(`uf.${sortBy}`, sortDir).getMany();
+		const records = await qb.orderBy(`uf.${sortBy}`, sortDir).getMany();
 
-        const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Extra Features");
+		const workbook = new ExcelJS.Workbook();
+		const worksheet = workbook.addWorksheet(this.translations.t('domains.extra_features.export_sheet'));
 
-        // 1. تحديد الأعمدة
-        worksheet.columns = [
-            { header: "User Name", key: "userName", width: 25 },
-            { header: "User Email", key: "userEmail", width: 30 },
-            { header: "Feature Name", key: "featureName", width: 20 },
-            { header: "Feature Type", key: "featureType", width: 20 },
-            { header: "Paid Price", key: "price", width: 15 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Availability", key: "availability", width: 15 },
-            { header: "Purchase Date", key: "startDate", width: 20 },
-        ];
+		// 1. تحديد الأعمدة
+		worksheet.columns = [
+			{ header: this.translations.t('domains.extra_features.export_user_name'), key: "userName", width: 25 },
+			{ header: this.translations.t('domains.extra_features.export_user_email'), key: "userEmail", width: 30 },
+			{ header: this.translations.t('domains.extra_features.export_feature_name'), key: "featureName", width: 20 },
+			{ header: this.translations.t('domains.extra_features.export_feature_type'), key: "featureType", width: 20 },
+			{ header: this.translations.t('domains.extra_features.export_paid_price'), key: "price", width: 15 },
+			{ header: this.translations.t('domains.extra_features.export_status'), key: "status", width: 15 },
+			{ header: this.translations.t('domains.extra_features.export_availability'), key: "availability", width: 15 },
+			{ header: this.translations.t('domains.extra_features.export_purchase_date'), key: "startDate", width: 20 },
+		];
 
-        // 2. معالجة البيانات
-        const rows = records.map(uf => ({
-            userName: uf.user?.name?.trim() || '—',
-            userEmail: uf.user?.email?.trim() || '—',
-            featureName: uf.feature?.name?.trim() || 'Deleted Feature',
-            featureType: uf.feature?.type?.toUpperCase() || '—',
-            price: Number(uf.priceAtPurchase || 0),
-            status: uf.status?.toUpperCase() || '—',
-            availability: uf.feature.availability?.toUpperCase() || '—',
-            startDate: uf.startDate ? new Date(uf.startDate).toISOString().split('T')[0] : '—',
-        }));
+		// 2. معالجة البيانات
+		const rows = records.map(uf => ({
+			userName: uf.user?.name?.trim() || '—',
+			userEmail: uf.user?.email?.trim() || '—',
+			featureName: uf.feature?.name?.trim() || this.translations.t('domains.extra_features.deleted_feature'),
+			featureType: uf.feature?.type?.toUpperCase() || '—',
+			price: Number(uf.priceAtPurchase || 0),
+			status: uf.status?.toUpperCase() || '—',
+			availability: uf.feature.availability?.toUpperCase() || '—',
+			startDate: uf.startDate ? new Date(uf.startDate).toISOString().split('T')[0] : '—',
+		}));
 
         worksheet.addRows(rows);
 
@@ -208,13 +213,13 @@ export class ExtraFeaturesService {
 
     async updateFeature(me: any, featureId: string, dto: UpdateFeatureDto) {
         if (!this.isSuperAdmin(me)) {
-            throw new ForbiddenException('You do not have permission');
+            throw new ForbiddenException(this.translations.t('common.permission_denied_action'));
         }
 
         const feature = await this.featuresRepo.findOne({ where: { id: featureId } });
 
         if (!feature) {
-            throw new NotFoundException(`Feature with ID ${featureId} not found`);
+            throw new NotFoundException(this.translations.t('domains.extra_features.feature_not_found_with_id', { args: { featureId } }));
         }
 
         // تحديث الحقول إذا تم إرسالها
@@ -238,19 +243,19 @@ export class ExtraFeaturesService {
     async assignFeatureToUser(me: User, dto: AssignUserFeatureDto) {
         // 1️⃣ التحقق من الصلاحيات
         if (!this.isSuperAdmin(me)) {
-            throw new ForbiddenException('You do not have permission to perform this action');
+            throw new ForbiddenException(this.translations.t('common.permission_denied_action'));
         }
 
         return await this.dataSource.transaction(async (manager) => {
             // 2️⃣ التأكد من وجود المستخدم والميزة
             const user = await manager.findOne(User, { where: { id: dto.userId } });
-            if (!user) throw new NotFoundException('User not found');
+            if (!user) throw new NotFoundException(this.translations.t('domains.auth.user_not_found'));
 
             const feature = await manager.findOne(Feature, { where: { id: dto.featureId } });
-            if (!feature) throw new NotFoundException('Feature definition not found');
+            if (!feature) throw new NotFoundException(this.translations.t('domains.extra_features.feature_definition_not_found'));
 
             if (!feature.isActive) {
-                throw new BadRequestException('This feature is currently deactivated');
+                throw new BadRequestException(this.translations.t('domains.extra_features.feature_deactivated'));
             }
 
             // 3️⃣ التحقق من عدم وجود نفس الميزة نشطة حالياً لنفس المستخدم
@@ -258,7 +263,7 @@ export class ExtraFeaturesService {
                 where: { userId: user.id, featureId: feature.id, status: SubscriptionStatus.ACTIVE }
             });
             if (existing) {
-                throw new BadRequestException('User already has this feature active');
+                throw new BadRequestException(this.translations.t('domains.extra_features.user_feature_already_active'));
             }
 
             const finalPrice = dto.price ?? Number(feature.price);
@@ -295,8 +300,8 @@ export class ExtraFeaturesService {
             await this.notificationService.create({
                 userId: user.adminId || me.id,
                 type: NotificationType.EXTRA_FEATURE_ASSIGNED,
-                title: "Extra Feature Assigned",
-                message: `Feature "${feature.name}" has been assigned to user ${user.name || user.email}.`,
+                title: await this.requestTranslations.tAsync('domains.extra_features.extra_feature_assigned', user.adminId || me.id),
+                message: await this.requestTranslations.tAsync('domains.extra_features.extra_feature_assigned_message', user.adminId || me.id, { args: { featureName: feature.name, userName: user.name || user.email } }),
             });
 
             return {

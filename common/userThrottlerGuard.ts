@@ -1,31 +1,38 @@
-import { ExecutionContext, HttpException, HttpStatus, Injectable } from '@nestjs/common';
-import { ModuleRef, Reflector } from '@nestjs/core';
+import { ExecutionContext, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { ThrottlerGuard, ThrottlerLimitDetail, ThrottlerModuleOptions, ThrottlerStorage } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerLimitDetail
+ } from '@nestjs/throttler';
+import { TranslationService } from './translation.service';
 
 @Injectable()
 export class UserThrottlerGuard extends ThrottlerGuard {
-    constructor(
-        options: ThrottlerModuleOptions,
-        storageService: ThrottlerStorage,
-        reflector: Reflector,
-        moduleRef: ModuleRef,
-        private jwtService: JwtService
-    ) {
-        super(options, storageService, reflector);
-    }
+
     protected async getTracker(req: any): Promise<string> {
         const auth = req.headers.authorization;
 
-        if (auth?.startsWith('Bearer ')) {
+       if (auth?.startsWith('Bearer ')) {
             try {
                 const token = auth.substring(7);
-                const payload = this.jwtService.verify(token);
-                return `user:${payload.sub}`;
-            } catch { }
+                
+                // JWTs are formatted as: header.payload.signature
+                const payloadBase64 = token.split('.')[1]; 
+                
+                if (payloadBase64) {
+                    // Decode the Base64 payload using Node's native Buffer
+                    const decodedPayload = Buffer.from(payloadBase64, 'base64').toString('utf8');
+                    const payload = JSON.parse(decodedPayload);
+                    
+                    if (payload.sub) {
+                        return `user:${payload.sub}`;
+                    }
+                }
+            } catch { 
+                // If the token is malformed, it silently falls back to IP tracking
+            }
         }
 
-        return req.ip;
+        return Promise.resolve(req.ip);
     }
 
     protected async throwThrottlingException(
@@ -35,9 +42,8 @@ export class UserThrottlerGuard extends ThrottlerGuard {
         throw new HttpException(
             {
                 statusCode: HttpStatus.TOO_MANY_REQUESTS,
-                error: 'Too Many Requests',
-                message:
-                    "You've reached the allowed request limit. Please wait before trying again.",
+                error: "Too Many Requests",
+                message: "You've reached the allowed request limit. Please wait before trying again.",
             },
             HttpStatus.TOO_MANY_REQUESTS,
         );

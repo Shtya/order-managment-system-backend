@@ -5,21 +5,24 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Notification, NotificationType } from "entities/notifications.entity";
-import { OrderRetrySettingsEntity } from "entities/order.entity";
 import { User } from "entities/user.entity";
 import { RedisService } from "common/redis/RedisService";
 import { Brackets, EntityManager, Repository } from "typeorm";
+import { TranslationService } from "common/translation.service";
+import { ClientSettingsEntity } from "entities/clientSettings.entity";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
 
 @Injectable()
 export class NotificationService {
   constructor(
     @InjectRepository(Notification)
     private notificationRepo: Repository<Notification>,
-    @InjectRepository(OrderRetrySettingsEntity)
-    private retrySettingsRepo: Repository<OrderRetrySettingsEntity>,
+    @InjectRepository(ClientSettingsEntity)
+    private clientSettingsRepo: Repository<ClientSettingsEntity>,
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private redisService: RedisService,
+    private readonly translations: TranslationService,
   ) { }
   async list(me: any, q?: any) {
     const userId = me?.id; // Notifications are personal to the logged-in user
@@ -73,11 +76,11 @@ export class NotificationService {
     });
 
     if (!notification) {
-      throw new NotFoundException("Notification not found or access denied");
+      throw new NotFoundException(this.translations.t('domains.notifications.not_found_or_access_denied'));
     }
 
     if (notification.isRead) {
-      throw new BadRequestException("Notification is already marked as read");
+      throw new BadRequestException(this.translations.t('domains.notifications.already_marked_read'));
     }
 
     return this.notificationRepo.update(id, { isRead: true });
@@ -102,7 +105,7 @@ export class NotificationService {
 
   private async getUserSettings(userId: string, manager: EntityManager = null) {
     const userCacheKey = `user_admin_id:${userId}`;
-    const retrySettingsRepo = manager ? manager.getRepository(OrderRetrySettingsEntity) : this.retrySettingsRepo;
+    const clientSettingsRepo = manager ? manager.getRepository(ClientSettingsEntity) : this.clientSettingsRepo;
     const userRepo = manager ? manager.getRepository(User) : this.userRepo;
     // 1. Get Admin ID (from cache or DB)
     let adminId = await this.redisService.get<string>(userCacheKey);
@@ -130,10 +133,10 @@ export class NotificationService {
 
     // 2. Get Settings (from cache or DB)
     const settingsCacheKey = `admin_notification_settings:${adminId}`;
-    let settings = await this.redisService.get<OrderRetrySettingsEntity>(settingsCacheKey);
+    let settings = await this.redisService.get<ClientSettingsEntity>(settingsCacheKey);
 
     if (!settings) {
-      settings = await retrySettingsRepo.findOneBy({ adminId });
+      settings = await clientSettingsRepo.findOneBy({ adminId });
       if (settings) {
         await this.redisService.set(settingsCacheKey, settings, 3600);
       }

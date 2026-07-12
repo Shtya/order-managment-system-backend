@@ -1,23 +1,25 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsIn, IsNotEmpty, IsOptional, IsString, Matches, Max, MinLength } from 'class-validator';
+import { Language } from 'entities/clientSettings.entity';
+import { i18nValidationMessage } from 'nestjs-i18n';
 
 export class CheckEmailDto {
-  @IsEmail({}, { message: 'Invalid email format' })
-  @IsNotEmpty()
+  @IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   @Transform(({ value }) => typeof value === 'string' ? value.trim().toLowerCase() : value)
   email: string;
 }
 
 export class RegisterDto {
-  @IsString()
-  @IsNotEmpty({ message: 'Name is required' })
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   name: string;
 
-  @IsEmail({}, { message: 'Invalid email format' })
+  @IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
   email: string;
 
-  @IsString()
-  @MinLength(8, { message: 'Password must be at least 8 characters' })
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MinLength(8, {message: i18nValidationMessage('validation.min_length')})
   /**
    * This Regex ensures the password has at least:
    * 1. One uppercase letter
@@ -26,58 +28,62 @@ export class RegisterDto {
    * (Matching your frontend "score" logic)
    */
   @Matches(/((?=.*\d)(?=.*[a-z])(?=.*[A-Z]))/, {
-    message: 'Password is too weak. Must include uppercase, lowercase, and numbers.',
+    message: i18nValidationMessage('validation.password_week'),
   })
   password: string;
 
-  @IsString()
-  @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   phone: string;
 
-  @IsString()
-  @IsNotEmpty({ message: 'Company name is required' })
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   companyName: string;
 
-  @IsString()
-  @IsNotEmpty({ message: 'Business type is required' })
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   businessType: string;
 
 }
 
 export class LoginDto {
-  @IsEmail()
+
+  @IsEmail({}, { message: i18nValidationMessage('validation.is_email') })
   email: string;
 
-  @IsString() @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')}) 
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   password: string;
 }
 
 export class ForgotPasswordDto {
-  @IsEmail()
+  @IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
   email: string;
 }
 
 export class VerifyOtpDto {
-  @IsEmail()
+  @IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
   email: string;
 
-  @IsString() @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')}) 
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   otp: string;
 }
 
 export class ResetPasswordDto {
-  @IsEmail()
+  @IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
   email: string;
 
-  @IsString() @MinLength(6)
+  @IsString({message: i18nValidationMessage('validation.is_string')}) 
+  @MinLength(6, { message: i18nValidationMessage('validation.min_length') })
   newPassword: string;
 }
 
 // Google
 export class GoogleLoginDto {
-  @IsString() @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')}) @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   idToken: string;
 
-  @IsOptional() @IsString()
+  @IsOptional() @IsString({message: i18nValidationMessage('validation.is_string')})
   name?: string;
 }

@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
 import * as mime from 'mime-types';
+import { TranslationService } from 'common/translation.service';
 type MetaApiMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 type WhatsappRequestOptions = {
@@ -544,6 +545,7 @@ export class WhatsappApiService {
     private readonly httpService: HttpService,
     @InjectRepository(WhatsappAccountEntity)
     private readonly accountRepo: Repository<WhatsappAccountEntity>,
+    private readonly translations: TranslationService,
   ) { }
 
   /**
@@ -567,7 +569,7 @@ export class WhatsappApiService {
     });
 
     if (!account || !account.accessToken || !account.wabaId) {
-      throw new BadRequestException('WhatsApp account is inactive or missing credentials');
+      throw new BadRequestException(this.translations.t('domains.whatsapp.whatsapp_account_inactive_or_missing_credentials'));
     }
 
     return account;
@@ -747,7 +749,7 @@ export class WhatsappApiService {
       );
 
       if (!fs.existsSync(filePath)) {
-        throw new BadRequestException(`File not found: ${filePath}`);
+        throw new BadRequestException(this.translations.t('domains.whatsapp.file_not_found', { args: {filePath} }));
       }
 
       fileBuffer = fs.readFileSync(filePath);
@@ -759,7 +761,7 @@ export class WhatsappApiService {
     }
 
     if (!fileType) {
-      throw new BadRequestException('Unable to determine file type');
+      throw new BadRequestException(this.translations.t('domains.whatsapp.unable_to_determine_file_type'));
     }
 
     try {
@@ -1422,7 +1424,7 @@ export class WhatsappApiService {
     });
 
     if (!template) {
-      throw new BadRequestException('Template not found or inactive');
+      throw new BadRequestException(this.translations.t('domains.whatsapp.template_not_found_or_inactive'));
     }
 
     return this.sendTemplateFromEntity(accountId, {

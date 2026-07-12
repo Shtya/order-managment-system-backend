@@ -6,6 +6,7 @@ import { CreateAccountDto, UpdateAccountDto, CreateTransactionDto, CreateTransfe
 import { tenantId } from 'src/category/category.service';
 import * as ExcelJS from 'exceljs';
 import { formatReferenceMeta } from 'common/healpers';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class SafesService {
@@ -17,6 +18,7 @@ export class SafesService {
         @InjectRepository(AccountTransfer)
         private transferRepo: Repository<AccountTransfer>,
         private dataSource: DataSource,
+        private translations: TranslationService,
     ) { }
 
 
@@ -94,15 +96,18 @@ export class SafesService {
             relations: ['managedBy'],
         });
 
-        if (!account) throw new NotFoundException('Account not found');
+        if (!account) {
+            throw new NotFoundException(
+                this.translations.t("domains.safe.account_not_found")
+            );
+        }
+
         return account;
     }
-
 
     async createAccount(me: any, dto: CreateAccountDto) {
         const adminId = tenantId(me);
 
-        // We use the dataSource to start a database transaction
         return await this.dataSource.transaction(async (manager) => {
 
             const existing = await manager.findOne(Account, {
@@ -113,14 +118,14 @@ export class SafesService {
             });
 
             if (existing) {
-                throw new BadRequestException("Account name already exists");
+                throw new BadRequestException(
+                    this.translations.t("domains.safe.account_name_already_exists")
+                );
             }
 
-            // 1. Create the Account entity
             const account = manager.create(Account, {
                 ...dto,
                 adminId,
-                // The current balance starts as the initial balance
                 currentBalance: 0,
             });
 
@@ -131,10 +136,19 @@ export class SafesService {
                     accountId: savedAccount.id,
                     amount: dto.initialBalance || 0,
                     referenceType: TransactionReferenceType.INITIAL_DEPOSIT,
-                    notes: 'Initial Balance',
-                }
-                await this.createTransaction(me, { ...financialDto, direction: TransactionDirection.IN }, manager);
+                    notes: this.translations.t("domains.safe.initial_balance"),
+                };
+
+                await this.createTransaction(
+                    me,
+                    {
+                        ...financialDto,
+                        direction: TransactionDirection.IN,
+                    },
+                    manager
+                );
             }
+
             return savedAccount;
         });
     }
@@ -208,62 +222,126 @@ export class SafesService {
             relations: ['account', 'createdBy'],
         });
 
-        if (!trx) throw new NotFoundException('Transaction not found');
+        if (!trx) {
+            throw new NotFoundException(
+                this.translations.t("domains.safe.transaction_not_found")
+            );
+        }
+
         return trx;
     }
 
     async deposit(me: any, dto: CreateTransactionDto, manager?: EntityManager) {
-        return await this.createTransaction(me, { ...dto, direction: TransactionDirection.IN }, manager);
+        return await this.createTransaction(
+            me,
+            { ...dto, direction: TransactionDirection.IN },
+            manager
+        );
     }
 
     async withdraw(me: any, dto: CreateTransactionDto, manager?: EntityManager) {
-        return await this.createTransaction(me, { ...dto, direction: TransactionDirection.OUT }, manager);
+        return await this.createTransaction(
+            me,
+            { ...dto, direction: TransactionDirection.OUT },
+            manager
+        );
     }
 
-    private async createTransaction(me: any, data: CreateTransactionDto & { direction: TransactionDirection, skipCommission?: boolean }, manager?: EntityManager) {
+    private async createTransaction(
+        me: any,
+        data: CreateTransactionDto & {
+            direction: TransactionDirection;
+            skipCommission?: boolean;
+        },
+        manager?: EntityManager,
+    ) {
         const run = async (em: EntityManager) => {
             const adminId = tenantId(me);
-            const account = await em.findOne(Account, { where: { id: data.accountId, adminId } });
-            if (!account) throw new NotFoundException('Account not found');
-            if (account.status === AccountStatus.SUSPENDED) throw new BadRequestException('Account is suspended');
 
-            const amount = Number(data.amount);
-            if (amount <= 0) throw new BadRequestException('Amount must be greater than 0');
+            const account = await em.findOne(Account, {
+                where: { id: data.accountId, adminId },
+            });
 
-            // Calculate Commission
-            let commission = 0;
-            if (data.direction === TransactionDirection.OUT && account.commissionRate > 0 && !data.skipCommission) {
-                commission = Number((amount * (account.commissionRate / 100)).toFixed(2));
-            }
-
-            const totalDeduction = amount + commission;
-            if (data.direction === TransactionDirection.OUT && Number(account.currentBalance) < totalDeduction) {
-                throw new BadRequestException(
-                    `Insufficient balance in "${account.name}": available ${account.currentBalance}, required ${totalDeduction} (incl. commission).`
+            if (!account) {
+                throw new NotFoundException(
+                    this.translations.t("domains.safe.account_not_found")
                 );
             }
 
-            // Update Account Balance
-            const balanceChange = data.direction === TransactionDirection.IN ? amount : -totalDeduction;
+            if (account.status === AccountStatus.SUSPENDED) {
+                throw new BadRequestException(
+                    this.translations.t("domains.safe.account_suspended")
+                );
+            }
+
+            const amount = Number(data.amount);
+
+            if (amount <= 0) {
+                throw new BadRequestException(
+                    this.translations.t("domains.safe.amount_must_be_greater_than_zero")
+                );
+            }
+
+            let commission = 0;
+
+            if (
+                data.direction === TransactionDirection.OUT &&
+                account.commissionRate > 0 &&
+                !data.skipCommission
+            ) {
+                commission = Number(
+                    (amount * (account.commissionRate / 100)).toFixed(2)
+                );
+            }
+
+            const totalDeduction = amount + commission;
+
+            if (
+                data.direction === TransactionDirection.OUT &&
+                Number(account.currentBalance) < totalDeduction
+            ) {
+                throw new BadRequestException(
+                    this.translations.t(
+                        "domains.safe.insufficient_account_balance",
+                        {
+                            args: {
+                                accountName: account.name,
+                                available: account.currentBalance,
+                                required: totalDeduction,
+                            },
+                        },
+                    ),
+                );
+            }
+
+            const balanceChange =
+                data.direction === TransactionDirection.IN
+                    ? amount
+                    : -totalDeduction;
+
             const result = await em
                 .createQueryBuilder()
                 .update(Account)
                 .set({
                     currentBalance: () =>
-                        `currentBalance ${balanceChange >= 0 ? "+" : "-"} ${Math.abs(balanceChange)}`
+                        `currentBalance ${balanceChange >= 0 ? "+" : "-"} ${Math.abs(balanceChange)}`,
                 })
                 .where("id = :id", { id: account.id })
                 .returning(["currentBalance"])
                 .execute();
-                
+
             const newBalance = result.raw[0].currentBalance;
 
             const number = await this.generateTrxNumber(em);
+
             const trx = em.create(FinancialTransaction, {
                 ...data,
-                number: number,
-                commission: commission,
-                commissionRate: data.direction === TransactionDirection.OUT ? account.commissionRate : null,
+                number,
+                commission,
+                commissionRate:
+                    data.direction === TransactionDirection.OUT
+                        ? account.commissionRate
+                        : null,
                 currency: account.currency,
                 accountId: data.accountId,
                 adminId,
@@ -275,8 +353,6 @@ export class SafesService {
             });
 
             const savedTrx = await em.save(trx);
-
-
 
             return { ...savedTrx, commission };
         };
@@ -336,39 +412,84 @@ export class SafesService {
     }
 
     async transfer(me: any, dto: CreateTransferDto) {
-        if (dto.fromAccountId === dto.toAccountId) throw new BadRequestException('Cannot transfer to the same account');
+        if (dto.fromAccountId === dto.toAccountId) {
+            throw new BadRequestException(
+                this.translations.t("domains.safe.cannot_transfer_to_same_account")
+            );
+        }
 
         return await this.dataSource.transaction(async (em) => {
             const adminId = tenantId(me);
 
             // Ensure both accounts exist and are active
             const [fromAccount, toAccount] = await Promise.all([
-                em.findOne(Account, { where: { id: dto.fromAccountId, adminId } }),
-                em.findOne(Account, { where: { id: dto.toAccountId, adminId } })
+                em.findOne(Account, {
+                    where: { id: dto.fromAccountId, adminId },
+                }),
+                em.findOne(Account, {
+                    where: { id: dto.toAccountId, adminId },
+                }),
             ]);
 
-            if (!fromAccount) throw new NotFoundException('Source account not found');
-            if (!toAccount) throw new NotFoundException('Destination account not found');
-            if (fromAccount.status !== AccountStatus.ACTIVE) throw new BadRequestException('Source account is suspended');
-            if (toAccount.status !== AccountStatus.ACTIVE) throw new BadRequestException('Destination account is suspended');
+            if (!fromAccount) {
+                throw new NotFoundException(
+                    this.translations.t("domains.safe.source_account_not_found")
+                );
+            }
+
+            if (!toAccount) {
+                throw new NotFoundException(
+                    this.translations.t("domains.safe.destination_account_not_found")
+                );
+            }
+
+            if (fromAccount.status !== AccountStatus.ACTIVE) {
+                throw new BadRequestException(
+                    this.translations.t("domains.safe.source_account_suspended")
+                );
+            }
+
+            if (toAccount.status !== AccountStatus.ACTIVE) {
+                throw new BadRequestException(
+                    this.translations.t("domains.safe.destination_account_suspended")
+                );
+            }
 
             // 1. Withdraw from Source
-            const outTrx = await this.createTransaction(me, {
-                accountId: dto.fromAccountId,
-                amount: Number(dto.amount),
-                direction: TransactionDirection.OUT,
-                referenceType: TransactionReferenceType.TRANSFER_OUT,
-                notes: `Transfer to ${toAccount.name}. ${dto.notes || ''}`,
-            }, em);
+            const outTrx = await this.createTransaction(
+                me,
+                {
+                    accountId: dto.fromAccountId,
+                    amount: Number(dto.amount),
+                    direction: TransactionDirection.OUT,
+                    referenceType: TransactionReferenceType.TRANSFER_OUT,
+                    notes: this.translations.t("domains.safe.transfer_to_notes", {
+                        args: {
+                            accountName: toAccount.name,
+                            notes: dto.notes || "",
+                        },
+                    }),
+                },
+                em,
+            );
 
             // 2. Deposit to Destination
-            const inTrx = await this.createTransaction(me, {
-                accountId: dto.toAccountId,
-                amount: dto.amount,
-                direction: TransactionDirection.IN,
-                referenceType: TransactionReferenceType.TRANSFER_IN,
-                notes: `Transfer from ${fromAccount.name}. ${dto.notes || ''}`,
-            }, em);
+            const inTrx = await this.createTransaction(
+                me,
+                {
+                    accountId: dto.toAccountId,
+                    amount: dto.amount,
+                    direction: TransactionDirection.IN,
+                    referenceType: TransactionReferenceType.TRANSFER_IN,
+                    notes: this.translations.t("domains.safe.transfer_from_notes", {
+                        args: {
+                            accountName: fromAccount.name,
+                            notes: dto.notes || "",
+                        },
+                    }),
+                },
+                em,
+            );
 
             // 3. Create Transfer Record
             const transfer = em.create(AccountTransfer, {
@@ -396,24 +517,74 @@ export class SafesService {
         const { records } = await this.listAccounts(me, { ...q, limit: 5000 });
 
         const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Accounts');
+        const sheet = workbook.addWorksheet(
+            this.translations.t("domains.safe.accounts_sheet")
+        );
 
         sheet.columns = [
-            { header: 'Account Name', key: 'name', width: 25 },
-            { header: 'Type', key: 'type', width: 15 },
-            { header: 'Currency', key: 'currency', width: 10 },
-            { header: 'Balance', key: 'balance', width: 15 },
-            { header: 'Initial Balance', key: 'initialBalance', width: 15 },
-            { header: 'Bank Name', key: 'bankName', width: 20 },
-            { header: 'Owner', key: 'accountOwnerName', width: 25 },
-            { header: 'Number', key: 'accountNumber', width: 25 },
-            { header: 'Commission Rate', key: 'commissionRate', width: 15 },
-            { header: 'Total In', key: 'totalIn', width: 15 },
-            { header: 'Total Out', key: 'totalOut', width: 15 },
-            { header: 'Status', key: 'status', width: 12 },
+            {
+                header: this.translations.t("domains.safe.account_name"),
+                key: "name",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.type"),
+                key: "type",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.currency"),
+                key: "currency",
+                width: 10,
+            },
+            {
+                header: this.translations.t("domains.safe.balance"),
+                key: "balance",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.initial_balance"),
+                key: "initialBalance",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.bank_name"),
+                key: "bankName",
+                width: 20,
+            },
+            {
+                header: this.translations.t("domains.safe.owner"),
+                key: "accountOwnerName",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.number"),
+                key: "accountNumber",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.commission_rate"),
+                key: "commissionRate",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.total_in"),
+                key: "totalIn",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.total_out"),
+                key: "totalOut",
+                width: 15,
+            },
+            {
+                header: this.translations.t("common.status"),
+                key: "status",
+                width: 12,
+            },
         ];
 
-        records.forEach(a => {
+        records.forEach((a) => {
             sheet.addRow({
                 name: a.name,
                 type: a.type,
@@ -437,30 +608,80 @@ export class SafesService {
         const { records } = await this.listTransfers(me, { ...q, limit: 10000 });
 
         const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Transfers');
+        const sheet = workbook.addWorksheet(
+            this.translations.t("domains.safe.transfers_sheet")
+        );
 
         sheet.columns = [
-            { header: 'ID', key: 'id', width: 10 },
-            { header: 'Date', key: 'date', width: 22 },
-            { header: 'From Account', key: 'fromAccount', width: 25 },
-            { header: 'Balance After (From)', key: 'fromBalanceAfter', width: 20 },
-            { header: 'To Account', key: 'toAccount', width: 25 },
-            { header: 'Balance After (To)', key: 'toBalanceAfter', width: 20 },
-            { header: 'Amount', key: 'amount', width: 15 },
-            { header: 'Commission', key: 'commission', width: 15 },
-            { header: 'Currency', key: 'currency', width: 10 },
-            { header: 'Created By', key: 'createdBy', width: 25 },
-            { header: 'Notes', key: 'notes', width: 40 },
+            {
+                header: this.translations.t("common.id"),
+                key: "id",
+                width: 10,
+            },
+            {
+                header: this.translations.t("domains.safe.date"),
+                key: "date",
+                width: 22,
+            },
+            {
+                header: this.translations.t("domains.safe.from_account"),
+                key: "fromAccount",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.balance_after_from"),
+                key: "fromBalanceAfter",
+                width: 20,
+            },
+            {
+                header: this.translations.t("domains.safe.to_account"),
+                key: "toAccount",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.balance_after_to"),
+                key: "toBalanceAfter",
+                width: 20,
+            },
+            {
+                header: this.translations.t("domains.safe.amount"),
+                key: "amount",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.commission"),
+                key: "commission",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.currency"),
+                key: "currency",
+                width: 10,
+            },
+            {
+                header: this.translations.t("domains.safe.created_by"),
+                key: "createdBy",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.notes"),
+                key: "notes",
+                width: 40,
+            },
         ];
 
-        records.forEach(tr => {
+        records.forEach((tr) => {
             sheet.addRow({
                 id: tr.id,
                 date: new Date(tr.createdAt).toLocaleString(),
                 fromAccount: tr.fromAccount?.name,
-                fromBalanceAfter: tr.outTransaction ? Number(tr.outTransaction.balanceAfter) : null,
+                fromBalanceAfter: tr.outTransaction
+                    ? Number(tr.outTransaction.balanceAfter)
+                    : null,
                 toAccount: tr.toAccount?.name,
-                toBalanceAfter: tr.inTransaction ? Number(tr.inTransaction.balanceAfter) : null,
+                toBalanceAfter: tr.inTransaction
+                    ? Number(tr.inTransaction.balanceAfter)
+                    : null,
                 amount: Number(tr.amount),
                 commission: Number(tr.commission),
                 currency: tr.fromAccount?.currency,
@@ -476,25 +697,79 @@ export class SafesService {
         const { records } = await this.listTransactions(me, { ...q, limit: 10000 });
 
         const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Transactions');
+        const sheet = workbook.addWorksheet(
+            this.translations.t("domains.safe.transactions_sheet")
+        );
 
         sheet.columns = [
-            { header: 'TRX #', key: 'number', width: 18 },
-            { header: 'Date', key: 'date', width: 22 },
-            { header: 'Account', key: 'accountName', width: 25 },
-            { header: 'Type', key: 'referenceType', width: 20 },
-            { header: 'Metadata', key: 'referenceMeta', width: 35 },
-            { header: 'Direction', key: 'direction', width: 12 },
-            { header: 'Amount', key: 'amount', width: 15 },
-            { header: 'Commission', key: 'commission', width: 15 },
-            { header: 'CommissionRate', key: 'commissionRate', width: 15 },
-            { header: 'Currency', key: 'currency', width: 10 },
-            { header: 'Balance After', key: 'balanceAfter', width: 15 },
-            { header: 'Created By', key: 'createdBy', width: 25 },
-            { header: 'Notes', key: 'notes', width: 40 },
+            {
+                header: this.translations.t("domains.safe.transaction_number"),
+                key: "number",
+                width: 18,
+            },
+            {
+                header: this.translations.t("domains.safe.date"),
+                key: "date",
+                width: 22,
+            },
+            {
+                header: this.translations.t("domains.safe.account"),
+                key: "accountName",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.type"),
+                key: "referenceType",
+                width: 20,
+            },
+            {
+                header: this.translations.t("domains.safe.metadata"),
+                key: "referenceMeta",
+                width: 35,
+            },
+            {
+                header: this.translations.t("domains.safe.direction"),
+                key: "direction",
+                width: 12,
+            },
+            {
+                header: this.translations.t("domains.safe.amount"),
+                key: "amount",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.commission"),
+                key: "commission",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.commission_rate"),
+                key: "commissionRate",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.currency"),
+                key: "currency",
+                width: 10,
+            },
+            {
+                header: this.translations.t("domains.safe.balance_after"),
+                key: "balanceAfter",
+                width: 15,
+            },
+            {
+                header: this.translations.t("domains.safe.created_by"),
+                key: "createdBy",
+                width: 25,
+            },
+            {
+                header: this.translations.t("domains.safe.notes"),
+                key: "notes",
+                width: 40,
+            },
         ];
 
-        records.forEach(t => {
+        records.forEach((t) => {
             sheet.addRow({
                 number: t.number,
                 date: new Date(t.transactionDate).toLocaleString(),

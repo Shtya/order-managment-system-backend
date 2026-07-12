@@ -11,6 +11,7 @@ import { CRUD } from "../../common/crud.service";
 import * as ExcelJS from "exceljs";
 import { StoresService } from "src/stores/stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class BundlesService {
@@ -30,12 +31,13 @@ export class BundlesService {
 		private readonly ordersService: OrdersService,
 
 		private readonly dataSource: DataSource,
+		private readonly translations: TranslationService,
 	) { }
 
 
 	async checkSku(me: any, sku: string, bundleId?: string) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		if (bundleId) {
 			const entity = await this.bundleRepo.findOne({ where: { id: bundleId, adminId } as any });
@@ -139,7 +141,7 @@ export class BundlesService {
 			where: { id, adminId },
 		});
 
-		if (!bundle) throw new BadRequestException("bundle not found");
+		if (!bundle) throw new BadRequestException(this.translations.t('domains.bundles.not_found'));
 
 		const itemCondition = bundle.isActive
 			? "items.isActive = true"
@@ -166,32 +168,32 @@ export class BundlesService {
 			.where("bundle.sku = :sku AND bundle.adminId = :adminId", { sku, adminId })
 			.getOne();
 
-		if (!bundle) throw new BadRequestException("bundle SKU not found");
+		if (!bundle) throw new BadRequestException(this.translations.t('domains.bundles.sku_not_found'));
 		return bundle;
 	}
 
 	async create(me: any, dto: CreateBundleDto) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		const items = Array.isArray(dto.items) ? dto.items : [];
-		if (!items.length) throw new BadRequestException("items is required");
+		if (!items.length) throw new BadRequestException(this.translations.t('domains.bundles.items_required'));
 
 		// ensure main variant is not in items
 		if (items.some(it => it.variantId === dto.variantId)) {
-			throw new BadRequestException("Main variant cannot be part of bundle items");
+			throw new BadRequestException(this.translations.t('domains.bundles.main_variant_in_items'));
 		}
 
 		// ensure items are unique
 		const itemIds = items.map(it => it.variantId);
 		if (new Set(itemIds).size !== itemIds.length) {
-			throw new BadRequestException("Bundle cannot contain duplicate items");
+			throw new BadRequestException(this.translations.t('domains.bundles.duplicate_items'));
 		}
 
 		// Validate Store if storeId is provided
 		if (dto.storeId) {
 			const store = await this.storesService.getStoreById(me, dto.storeId);
-			if (!store) throw new BadRequestException("Store not found");
+			if (!store) throw new BadRequestException(this.translations.t('common.store_not_found'));
 
 			// // Get provider from StoresService to check bundle support and max items
 			// const provider = this.storesService.getProvider(store.provider);
@@ -205,7 +207,7 @@ export class BundlesService {
 		}
 
 		for (const it of items) {
-			if (!Number.isInteger(it.qty) || it.qty <= 0) throw new BadRequestException("qty must be > 0");
+			if (!Number.isInteger(it.qty) || it.qty <= 0) throw new BadRequestException(this.translations.t('common.qty_must_be_positive'));
 		}
 
 		// ensure variants exist and belong to admin
@@ -216,7 +218,7 @@ export class BundlesService {
 
 		for (const it of items) {
 			if (!variantSet.has(it.variantId)) {
-				throw new BadRequestException(`variantId not found: ${it.variantId}`);
+				throw new BadRequestException(this.translations.t('domains.bundles.variant_id_not_found', { args: { variantId: it.variantId } }));
 			}
 		}
 
@@ -317,19 +319,19 @@ export class BundlesService {
 
 		// 9. Generate Excel with Branding
 		const workbook = new ExcelJS.Workbook();
-		const worksheet = workbook.addWorksheet("Bundles");
+		const worksheet = workbook.addWorksheet(this.translations.t('domains.bundles.export_sheet'));
 
 		worksheet.columns = [
-			{ header: "ID", key: "id", width: 10 },
-			{ header: "Name", key: "name", width: 30 },
-			{ header: "SKU", key: "sku", width: 25 },
-			{ header: "Price", key: "price", width: 15 },
-			{ header: "Main Variant SKU", key: "variantSku", width: 25 },
-			{ header: "Main Variant Name", key: "variantName", width: 30 },
-			{ header: "Store Name", key: "storeName", width: 25 },
-			{ header: "Items Count", key: "itemsCount", width: 15 },
-			{ header: "Description", key: "description", width: 40 },
-			{ header: "Created At", key: "created_at", width: 18 },
+			{ header: this.translations.t('domains.bundles.export_id'), key: "id", width: 10 },
+			{ header: this.translations.t('domains.bundles.export_name'), key: "name", width: 30 },
+			{ header: this.translations.t('domains.bundles.export_sku'), key: "sku", width: 25 },
+			{ header: this.translations.t('domains.bundles.export_price'), key: "price", width: 15 },
+			{ header: this.translations.t('domains.bundles.export_main_variant_sku'), key: "variantSku", width: 25 },
+			{ header: this.translations.t('domains.bundles.export_main_variant_name'), key: "variantName", width: 30 },
+			{ header: this.translations.t('domains.bundles.export_store_name'), key: "storeName", width: 25 },
+			{ header: this.translations.t('domains.bundles.export_items_count'), key: "itemsCount", width: 15 },
+			{ header: this.translations.t('domains.bundles.export_description'), key: "description", width: 40 },
+			{ header: this.translations.t('domains.bundles.export_created_at'), key: "created_at", width: 18 },
 		];
 
 		// Apply Header Styling (Purple Theme)
@@ -356,7 +358,7 @@ export class BundlesService {
 			where: { id, adminId } as any,
 			relations: ["items"],
 		});
-		if (!b) throw new BadRequestException("bundle not found");
+		if (!b) throw new BadRequestException(this.translations.t('domains.bundles.not_found'));
 
 		if (dto.name !== undefined) b.name = dto.name;
 		// if (dto.sku !== undefined) b.sku = dto.sku;
@@ -369,14 +371,14 @@ export class BundlesService {
 
 		// ensure main variant is not in items
 		if (finalItems.some((it: any) => it.variantId === finalVariantId)) {
-			throw new BadRequestException("Main variant cannot be part of bundle items");
+			throw new BadRequestException(this.translations.t('domains.bundles.main_variant_in_items'));
 		}
 
 		// ensure items are unique
 		if (dto.items !== undefined) {
 			const itemIds = dto.items.map((it) => it.variantId);
 			if (new Set(itemIds).size !== itemIds.length) {
-				throw new BadRequestException("Bundle cannot contain duplicate items");
+				throw new BadRequestException(this.translations.t('domains.bundles.duplicate_items'));
 			}
 		}
 
@@ -386,7 +388,7 @@ export class BundlesService {
 				b.storeId = null;
 			} else {
 				const store = await this.storesService.getStoreById(me, dto.storeId);
-				if (!store) throw new BadRequestException("Store not found");
+				if (!store) throw new BadRequestException(this.translations.t('common.store_not_found'));
 
 				// const provider = this.storesService.getProvider(store.provider);
 				// if (!provider.supportBundle) {
@@ -412,10 +414,10 @@ export class BundlesService {
 
 		if (dto.items !== undefined) {
 			const items = Array.isArray(dto.items) ? dto.items : [];
-			if (!items.length) throw new BadRequestException("items is required");
+			if (!items.length) throw new BadRequestException(this.translations.t('domains.bundles.items_required'));
 
 			for (const it of items) {
-				if (!Number.isInteger(it?.qty) || it.qty <= 0) throw new BadRequestException("qty must be > 0");
+				if (!Number.isInteger(it?.qty) || it.qty <= 0) throw new BadRequestException(this.translations.t('common.qty_must_be_positive'));
 			}
 
 			const ids = items.map((x) => x.variantId);
@@ -427,7 +429,7 @@ export class BundlesService {
 
 			for (const it of items) {
 				if (!variantSet.has(it.variantId)) {
-					throw new BadRequestException(`variantId not found: ${it.variantId}`);
+					throw new BadRequestException(this.translations.t('domains.bundles.variant_id_not_found', { args: { variantId: it.variantId } }));
 				}
 			}
 
@@ -500,7 +502,7 @@ export class BundlesService {
 
 	async restore(me: any, id: string) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		return await this.dataSource.transaction(async (manager) => {
 			const bundleRepo = manager.getRepository(BundleEntity);
@@ -512,7 +514,7 @@ export class BundlesService {
 			});
 
 			if (!product) {
-				throw new NotFoundException("Bundle not found");
+				throw new NotFoundException(this.translations.t('domains.bundles.not_found'));
 			}
 
 			await bundleRepo.update(
@@ -543,7 +545,7 @@ export class BundlesService {
 	// ✅ OPTIONAL helper: consume bundle stock (use it in invoices/orders)
 	async consumeBundleStock(me: any, bundleSku: string, qty: number) {
 		const adminId = tenantId(me);
-		if (!Number.isInteger(qty) || qty <= 0) throw new BadRequestException("qty must be > 0");
+		if (!Number.isInteger(qty) || qty <= 0) throw new BadRequestException(this.translations.t('common.qty_must_be_positive'));
 
 		const bundle = await this.getBySku(me, bundleSku);
 		const items = bundle.items ?? [];
@@ -551,7 +553,7 @@ export class BundlesService {
 		// check availability
 		for (const it of items) {
 			const v = await this.pvRepo.findOne({ where: { id: it.variantId, adminId } as any });
-			if (!v) throw new BadRequestException(`variant not found: ${it.variantId}`);
+			if (!v) throw new BadRequestException(this.translations.t('domains.bundles.variant_not_found', { args: { variantId: it.variantId } }));
 
 			const need = it.qty * qty;
 			const available = await this.ordersService.calculateAvailableStock(
@@ -560,7 +562,7 @@ export class BundlesService {
 				adminId,
 			);
 			if (available < need) {
-				throw new BadRequestException(`Not enough stock for variantId=${it.variantId}`);
+				throw new BadRequestException(this.translations.t('domains.bundles.insufficient_stock', { args: { variantId: it.variantId } }));
 			}
 		}
 

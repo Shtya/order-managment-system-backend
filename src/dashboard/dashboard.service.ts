@@ -27,6 +27,7 @@ import { calculateRange, calculatePreviousRange } from "common/healpers";
 import { User } from "entities/user.entity";
 import { DateFilterUtil } from "common/date-filter.util";
 import { OrderFailStatus, WebhookOrderFailureEntity } from "entities/stores.entity";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class DashboardService {
@@ -43,6 +44,7 @@ export class DashboardService {
 
     @InjectRepository(WebhookOrderFailureEntity)
     private webhookOrderFailureRepo: Repository<WebhookOrderFailureEntity>,
+    private readonly translations: TranslationService,
   ) { }
 
   async getSummary(
@@ -485,15 +487,15 @@ export class DashboardService {
     const reportData = await this.getProfitReport(user, q);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("تقرير الأرباح");
+    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_profit_report_sheet'));
 
     // 2. تعريف الأعمدة (تطابق profitCols في الفرونت إند)
     worksheet.columns = [
-      { header: "الفترة الزمنية", key: "period", width: 25 },
-      { header: "إجمالي المبيعات", key: "sales", width: 20 },
-      { header: "تكلفة البضاعة", key: "costs", width: 20 },
-      { header: "إجمالي الربح", key: "profit", width: 20 },
-      { header: "نسبة الربح (%)", key: "margin", width: 15 },
+      { header: this.translations.t('domains.dashboard.export_time_period'), key: "period", width: 25 },
+      { header: this.translations.t('domains.dashboard.export_total_sales'), key: "sales", width: 20 },
+      { header: this.translations.t('domains.dashboard.export_cost_of_goods'), key: "costs", width: 20 },
+      { header: this.translations.t('domains.dashboard.export_total_profit'), key: "profit", width: 20 },
+      { header: this.translations.t('domains.dashboard.export_profit_margin'), key: "margin", width: 15 },
     ];
 
     // 3. تنسيق الهيدر (استخدام ألوان هويتك البرتقالية)
@@ -533,7 +535,7 @@ export class DashboardService {
     const totalProfit = reportData.reduce((sum, r) => sum + r.profit, 0);
 
     const footerRow = worksheet.addRow({
-      period: "الإجمالي الكلي",
+      period: this.translations.t('domains.dashboard.export_total_period'),
       sales: totalSales,
       profit: totalProfit,
       margin:
@@ -553,7 +555,7 @@ export class DashboardService {
 
   async getOrderAnalysisStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // 1. حساب النطاق الزمني
     let { start, end } = calculateRange(filters.range);
@@ -818,17 +820,17 @@ export class DashboardService {
     const reportData = await this.getTopCitiesStats(user, filters);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Top Areas Report");
+    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_top_areas_sheet'));
 
     // 2. Define columns matching the frontend table
     worksheet.columns = [
-      { header: "City Area", key: "cityArea", width: 25 },
-      { header: "Total Orders", key: "totalOrders", width: 15 },
-      { header: "Corrected Orders", key: "correctedOrders", width: 18 },
-      { header: "Confirmed Count", key: "confirmedCount", width: 18 },
-      { header: "Shipped Orders", key: "shippedOrders", width: 18 },
-      { header: "Delivered Total", key: "deliveredTotal", width: 18 },
-      { header: "Delivered from Confirmed", key: "deliveredFromConfirmed", width: 22 },
+      { header: this.translations.t('domains.dashboard.export_city_area'), key: "cityArea", width: 25 },
+      { header: this.translations.t('domains.dashboard.export_total_orders'), key: "totalOrders", width: 15 },
+      { header: this.translations.t('domains.dashboard.export_corrected_orders'), key: "correctedOrders", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_confirmed_count'), key: "confirmedCount", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_shipped_orders'), key: "shippedOrders", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_delivered_total'), key: "deliveredTotal", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_delivered_from_confirmed'), key: "deliveredFromConfirmed", width: 22 },
     ];
 
     // 3. Format header
@@ -865,17 +867,17 @@ export class DashboardService {
     const reportData = await this.getTopProductsStats(user, filters);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Top Products Report");
+    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_top_products_sheet'));
 
     // 2. Define columns matching the frontend table
     worksheet.columns = [
-      { header: "Product Name", key: "name", width: 30 },
-      { header: "Total Orders", key: "totalOrders", width: 15 },
-      { header: "Corrected Orders", key: "correctedOrders", width: 18 },
-      { header: "Confirmed Count", key: "confirmedCount", width: 18 },
-      { header: "Shipped Orders", key: "shippedOrders", width: 18 },
-      { header: "Delivered Total", key: "deliveredTotal", width: 18 },
-      { header: "Delivered from Confirmed", key: "deliveredFromConfirmed", width: 22 },
+      { header: this.translations.t('domains.dashboard.export_product_name'), key: "name", width: 30 },
+      { header: this.translations.t('domains.dashboard.export_total_orders'), key: "totalOrders", width: 15 },
+      { header: this.translations.t('domains.dashboard.export_corrected_orders'), key: "correctedOrders", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_confirmed_count'), key: "confirmedCount", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_shipped_orders'), key: "shippedOrders", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_delivered_total'), key: "deliveredTotal", width: 18 },
+      { header: this.translations.t('domains.dashboard.export_delivered_from_confirmed'), key: "deliveredFromConfirmed", width: 22 },
     ];
 
     // 3. Format header
@@ -909,7 +911,7 @@ export class DashboardService {
 
   async getEmployeePerformance(user: any, q: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -1091,16 +1093,16 @@ export class DashboardService {
 
     // --- إنشاء ملف ExcelJS ---
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("أداء الموظفين");
+    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_employee_performance_sheet'));
 
     worksheet.columns = [
-      { header: "اسم الموظف", key: "name", width: 25 },
-      { header: "إجمالي التكليفات", key: "totalAssigned", width: 15 },
-      { header: "المؤكدة", key: "confirmedCount", width: 12 },
-      { header: "نسبة التأكيد", key: "confirmedPercent", width: 15 },
-      { header: "المشحونة", key: "shippedCount", width: 12 },
-      { header: "المستلمة", key: "deliveredCount", width: 15 },
-      { header: "نسبة النجاح", key: "deliveryRate", width: 15 },
+      { header: this.translations.t('domains.dashboard.export_employee_name'), key: "name", width: 25 },
+      { header: this.translations.t('domains.dashboard.export_total_assignments'), key: "totalAssigned", width: 15 },
+      { header: this.translations.t('domains.dashboard.export_confirmed'), key: "confirmedCount", width: 12 },
+      { header: this.translations.t('domains.dashboard.export_confirmation_rate'), key: "confirmedPercent", width: 15 },
+      { header: this.translations.t('domains.dashboard.export_shipped'), key: "shippedCount", width: 12 },
+      { header: this.translations.t('domains.dashboard.export_delivered'), key: "deliveredCount", width: 15 },
+      { header: this.translations.t('domains.dashboard.export_success_rate'), key: "deliveryRate", width: 15 },
     ];
 
     // تنسيق الهيدر (اللون البرتقالي)
@@ -1146,7 +1148,7 @@ export class DashboardService {
 
   async getEmployeeAnalysisStats(user: any, q: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const targetCodes = [
       OrderStatus.NEW,
@@ -1304,7 +1306,7 @@ export class DashboardService {
 
   async getAdvancedStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // Calculate Date Boundaries
     let { start: startRange, end: endRange } = calculateRange(filters.range);
@@ -1483,7 +1485,7 @@ export class DashboardService {
 
   async getWeeklyTrend(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // Calculate exact timeframe: Last 7 days including today
     const endDate = new Date();
@@ -1563,7 +1565,7 @@ export class DashboardService {
 
   async getTopCitiesStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
     const limit = filters.limit ? Number(filters.limit) : 5;
@@ -1638,7 +1640,7 @@ export class DashboardService {
 
   async getTopProductsStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
     const limit = filters.limit ? Number(filters.limit) : 5;

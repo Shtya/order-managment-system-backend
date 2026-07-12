@@ -10,6 +10,7 @@ import { SafesService } from '../safes/safes.service';
 import { tenantId } from 'src/category/category.service';
 import * as ExcelJS from 'exceljs';
 import { ApprovalStatus } from 'common/enums';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class SupplierPaymentsService {
@@ -24,18 +25,20 @@ export class SupplierPaymentsService {
         private accountRepo: Repository<Account>,
         private safesService: SafesService,
         private dataSource: DataSource,
+        private translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
     ) { }
 
     async create(me: any, dto: CreateSupplierPaymentDto) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException('Missing adminId');
+        if (!adminId) throw new BadRequestException(await this.requestTranslations.tAsync('common.missing_admin_id', adminId));
 
         return await this.dataSource.transaction(async (manager) => {
             const supplier = await manager.findOne(SupplierEntity, { where: { id: dto.supplierId, adminId } });
-            if (!supplier) throw new NotFoundException('Supplier not found');
+            if (!supplier) throw new NotFoundException(this.translations.t('domains.suppliers.supplier_not_found'));
 
             const safe = await manager.findOne(Account, { where: { id: dto.safeId, adminId } });
-            if (!safe) throw new NotFoundException('Safe not found');
+            if (!safe) throw new NotFoundException(this.translations.t('domains.safe.account_not_found'));
 
             let remainingToAllocate = dto.amount;
             const allocations: SupplierPaymentAllocationEntity[] = [];
@@ -63,10 +66,18 @@ export class SupplierPaymentsService {
                 const invoice = await manager.findOne(PurchaseInvoiceEntity, {
                     where: { id: dto.invoiceId, supplierId: dto.supplierId, adminId }
                 });
-                if (!invoice) throw new NotFoundException('Invoice not found for this supplier');
+                if (!invoice) {
+                    throw new NotFoundException(
+                        this.translations.t(
+                            "domains.suppliers.invoice_not_found_for_supplier"
+                        )
+                    );
+                }
+
+
 
                 const payable = Math.min(remainingToAllocate, Number(invoice.remainingAmount));
-                if (payable <= 0) throw new BadRequestException('Invoice is already fully paid or amount is invalid');
+                if (payable <= 0) throw new BadRequestException(this.translations.t('domains.suppliers.invoice_already_paid'));
 
                 const alloc = this.prepareAllocation(manager, invoice, payable);
                 allocations.push(alloc);
@@ -133,7 +144,17 @@ export class SupplierPaymentsService {
                     ...(invoicesToUpdate.length === 1 ? { invoicesNumber: invoicesToUpdate[0].receiptNumber } : {}),
                     ...(remainingToAllocate > 0 ? { unallocatedAmount: remainingToAllocate } : {})
                 },
-                notes: dto.notes || `Payment to supplier ${supplier.name}`,
+                notes:
+                    dto.notes ||
+                    await this.requestTranslations.tAsync(
+                        "domains.suppliers.payment_to_supplier",
+                        adminId,
+                        {
+                            args: {
+                                supplierName: supplier.name,
+                            },
+                        }
+                    ),
                 transactionDate: savedPayment.paymentDate
             }, manager);
 
@@ -154,7 +175,7 @@ export class SupplierPaymentsService {
 
     async getStats(me: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException('Missing adminId');
+        if (!adminId) throw new BadRequestException(await this.requestTranslations.tAsync('common.missing_admin_id', adminId));
 
         const stats = await this.supplierRepo.createQueryBuilder('s')
             .select('COUNT(s.id)', 'totalSuppliers')
@@ -225,7 +246,7 @@ export class SupplierPaymentsService {
             relations: ['supplier', 'safe', 'createdByUser', 'allocations', 'allocations.invoice']
         });
 
-        if (!payment) throw new NotFoundException('Payment not found');
+        if (!payment) throw new NotFoundException(await this.requestTranslations.tAsync('common.payment_not_found', adminId));
         return payment;
     }
 
@@ -233,19 +254,21 @@ export class SupplierPaymentsService {
         const { records } = await this.findAll(me, { ...q, limit: '10000' });
 
         const workbook = new ExcelJS.Workbook();
-        const sheet = workbook.addWorksheet('Supplier Payments');
+       const sheet = workbook.addWorksheet(
+        this.translations.t("domains.suppliers.supplier_payments_sheet")
+    );
 
-        sheet.columns = [
-            { header: 'Date', key: 'paymentDate', width: 20 },
-            { header: 'Supplier', key: 'supplier', width: 25 },
-            { header: 'Invoices', key: 'invoices', width: 30 },
-            { header: 'Safe/Account', key: 'safe', width: 20 },
-            { header: 'Total Amount', key: 'amount', width: 15 },
-            { header: 'Currency', key: 'currency', width: 10 },
-            { header: 'Notes', key: 'notes', width: 35 },
-            { header: 'Supplier Balance After', key: 'balanceAfter', width: 20 },
-            { header: 'Created By', key: 'createdBy', width: 20 },
-        ];
+    sheet.columns = [
+        { header: this.translations.t("common.date"), key: "paymentDate", width: 20 },
+        { header: this.translations.t("domains.suppliers.supplier"), key: "supplier", width: 25 },
+        { header: this.translations.t("common.invoices"), key: "invoices", width: 30 },
+        { header: this.translations.t("domains.suppliers.safe_account"), key: "safe", width: 20 },
+        { header: this.translations.t("common.total_amount"), key: "amount", width: 15 },
+        { header: this.translations.t("common.currency"), key: "currency", width: 10 },
+        { header: this.translations.t("common.notes"), key: "notes", width: 35 },
+        { header: this.translations.t("domains.suppliers.supplier_balance_after_payment"), key: "balanceAfter", width: 20 },
+        { header: this.translations.t("common.created_by"), key: "createdBy", width: 20 },
+    ];
 
         records.forEach(p => {
             const invoiceDetails = p.allocations

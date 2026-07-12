@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { TranslationService } from 'common/translation.service';
 import { CreateManualExpenseCategoryDto, UpdateManualExpenseCategoryDto } from 'dto/accounting.dto';
 import { ManualExpenseCategoryEntity } from 'entities/accounting.entity';
 import { tenantId } from 'src/category/category.service';
@@ -10,13 +11,14 @@ export class ExpenseCategoriesService {
     constructor(
         @InjectRepository(ManualExpenseCategoryEntity)
         private categoryRepo: Repository<ManualExpenseCategoryEntity>,
+        private readonly translations: TranslationService,
     ) { }
 
     async createCategory(me: any, dto: CreateManualExpenseCategoryDto) {
         const adminId = tenantId(me);
         const existing = await this.categoryRepo.findOne({ where: { adminId, name: dto.name } });
         if (existing) {
-            throw new BadRequestException('The category name already exists. Please choose a different name.');
+            this.translations.t('domains.expenses.category_name_exists')
         }
         const category = this.categoryRepo.create({ ...dto, adminId });
         return await this.categoryRepo.save(category);
@@ -50,7 +52,7 @@ export class ExpenseCategoriesService {
 
         const category = await this.categoryRepo.findOne({ where: { id, adminId } });
         if (!category) {
-            throw new NotFoundException('Category not found');
+          throw new NotFoundException(this.translations.t('domains.expenses.category_not_found'));
         }
 
         if (dto.name && dto.name !== category.name) {
@@ -58,7 +60,7 @@ export class ExpenseCategoriesService {
                 where: { adminId, name: dto.name, id: Not(id) }
             });
             if (nameExists) {
-                throw new BadRequestException('Another category with the same name already exists.');
+                throw new BadRequestException(this.translations.t('domains.expenses.category_name_exists'));
             }
         }
 
@@ -74,11 +76,12 @@ export class ExpenseCategoriesService {
         });
 
         if (!category) {
-            throw new NotFoundException('Category not found');
+            throw new NotFoundException(this.translations.t('domains.expenses.category_not_found'));
         }
 
         await this.categoryRepo.remove(category);
-        return { success: true, message: 'Category deleted successfully' };
+        return { success: true,message: this.translations.t('domains.expenses.category_deleted_successfully') 
+        };
     }
 }
 

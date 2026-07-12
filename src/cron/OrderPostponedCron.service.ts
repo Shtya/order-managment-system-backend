@@ -5,6 +5,7 @@ import { OrderEntity, OrderStatus } from 'entities/order.entity';
 import { NotificationType } from 'entities/notifications.entity';
 import { Repository, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { NotificationService } from '../notifications/notification.service';
+import { RequestTranslationService } from 'common/translation.service';
 
 @Injectable()
 export class OrderPostponedCronService {
@@ -14,6 +15,7 @@ export class OrderPostponedCronService {
     @InjectRepository(OrderEntity)
     private readonly orderRepo: Repository<OrderEntity>,
     private readonly notificationService: NotificationService,
+    private requestTranslations: RequestTranslationService,
   ) { }
 
   @Cron(CronExpression.EVERY_HOUR)
@@ -34,11 +36,15 @@ export class OrderPostponedCronService {
     });
 
     for (const order of ordersDueToday) {
+      const title = await this.requestTranslations.tAsync('domains.orders.postponed_order_due_title', order.adminId);
+      const message = await this.requestTranslations.tAsync('domains.orders.postponed_order_due_message', order.adminId, {
+        args: { orderNumber: order.orderNumber }
+      });
       await this.notificationService.create({
         userId: order.adminId,
         type: NotificationType.ORDER_POSTPONED_REMINDER,
-        title: 'Postponed Order Due',
-        message: `Order #${order.orderNumber} is scheduled for today.`,
+        title,
+        message,
         relatedEntityType: 'order',
         relatedEntityId: order.id,
       });
@@ -74,11 +80,18 @@ export class OrderPostponedCronService {
       reminderDate.setDate(reminderDate.getDate() - order.reminderDaysBefore);
 
       if (now >= reminderDate) {
+        const title = await this.requestTranslations.tAsync('domains.orders.postponed_order_reminder_title', order.adminId);
+        const message = await this.requestTranslations.tAsync('domains.orders.postponed_order_reminder_message', order.adminId, {
+          args: {
+            orderNumber: order.orderNumber,
+            reminderDaysBefore: order.reminderDaysBefore
+          }
+        });
         await this.notificationService.create({
           userId: order.adminId,
           type: NotificationType.ORDER_POSTPONED_REMINDER,
-          title: 'Postponed Order Reminder',
-          message: `Reminder for postponed order #${order.orderNumber} (${order.reminderDaysBefore} days before).`,
+          title,
+          message,
           relatedEntityType: 'order',
           relatedEntityId: order.id,
         });
@@ -99,14 +112,18 @@ export class OrderPostponedCronService {
     });
 
     for (const order of ordersDueTomorrow) {
-      await this.notificationService.create({
-        userId: order.adminId,
-        type: NotificationType.ORDER_POSTPONED_REMINDER,
-        title: 'Postponed Order Reminder',
-        message: `Order #${order.orderNumber} is scheduled for tomorrow.`,
-        relatedEntityType: 'order',
-        relatedEntityId: order.id,
+      const title = await this.requestTranslations.tAsync('domains.orders.postponed_order_tomorrow_title', order.adminId);
+      const message = await this.requestTranslations.tAsync('domains.orders.postponed_order_tomorrow_message', order.adminId, {
+        args: { orderNumber: order.orderNumber }
       });
+      await this.notificationService.create({
+          userId: order.adminId,
+          type: NotificationType.ORDER_POSTPONED_REMINDER,
+          title,
+          message,
+          relatedEntityType: 'order',
+          relatedEntityId: order.id,
+        });
       order.oneDayBeforeNotificationSent = true;
       await this.orderRepo.save(order);
       this.logger.log(`Sent one-day-before reminder for postponed order #${order.orderNumber}`);

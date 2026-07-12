@@ -8,6 +8,7 @@ import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { CustomerService } from '../customer/customer.service';
 import { AppGateway } from 'common/app.gateway';
 import { tenantId } from 'src/category/category.service';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class ConversationService {
@@ -17,11 +18,12 @@ export class ConversationService {
     private readonly customerService: CustomerService,
     private readonly appGateway: AppGateway,
     private readonly dataSource: DataSource,
+    private readonly translations: TranslationService,
   ) { }
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return this.dataSource.transaction(async (manager) => {
       const customer = await this.customerService.getOrCreateCustomer(me, payload, manager);
@@ -54,7 +56,7 @@ export class ConversationService {
 
   async createConversation(me: any, payload: CreateConversationDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return this.dataSource.transaction(async (manager) => {
       const customer = await this.customerService.createCustomer(me, payload, manager);
@@ -87,7 +89,7 @@ export class ConversationService {
 
   async findAllPaginated(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const limit = Number(q?.limit ?? 50);
     const search = String(q?.search ?? '').trim();
@@ -169,14 +171,14 @@ export class ConversationService {
 
   async findOne(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const conversation = await this.conversationRepo.findOne({
       where: { id, adminId },
       relations: ['customer', 'messages', 'messages.account', 'lastMessage'],
     });
 
-    if (!conversation) throw new NotFoundException('Conversation not found');
+    if (!conversation) throw new NotFoundException(this.translations.t('domains.conversation.not_found'));
 
     return conversation;
   }

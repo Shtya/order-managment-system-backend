@@ -8,7 +8,6 @@ import {
   Param,
   Patch,
   Post,
-  Put,
   Query,
   Req,
   Res,
@@ -22,6 +21,7 @@ import { Permissions } from "common/permissions.decorator";
 import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { ProductsService } from "./products.service";
+import { TranslationService } from "common/translation.service";
 
 import {
   AdjustVariantStockDto,
@@ -49,6 +49,8 @@ export const multerOptions = {
   storage: productsStorage,
   fileFilter: (req, file, cb) => {
     if (!file.mimetype.startsWith('image/')) {
+      // Note: This is a temporary hardcoded message since we can't inject TranslationService here
+      // In a real app, we might handle this differently or move the validation to the controller/service
       return cb(new BadRequestException('Only image files are allowed!'), false);
     }
     cb(null, true);
@@ -86,7 +88,7 @@ function parseNumber(val: any): number | null | undefined {
 @Controller("products")
 @RequireSubscription()
 export class ProductsController {
-  constructor(private products: ProductsService) { }
+  constructor(private products: ProductsService, private translations: TranslationService) { }
 
   @Permissions("products.read")
   @Get()
@@ -270,8 +272,8 @@ export class ProductsController {
     const purchaseReceipt = files?.purchaseReceiptAsset?.[0];
 
     if (!dto.mainImageOrphanId && !dto.mainImage) {
-      throw new BadRequestException("mainImageOrphanId is required");
-    }
+        throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_id_required"));
+      }
 
     if (purchaseReceipt && dto.purchase) {
       dto.purchase.receiptAsset = `/uploads/products/${purchaseReceipt.filename}`;

@@ -5,7 +5,7 @@ import { NotificationController } from "./notification.controller";
 import { NotificationService } from "./notification.service";
 import { NotificationSubscriber } from "./NotificationSubscriber";
 import { Notification } from "entities/notifications.entity";
-import { OrderRetrySettingsEntity } from "entities/order.entity";
+import { ClientSettingsEntity } from "entities/clientSettings.entity";
 import { WebSocketModule } from "common/websocket.module";
 import { OrdersModule } from "src/orders/orders.module";
 
@@ -13,7 +13,7 @@ import { OrdersModule } from "src/orders/orders.module";
 @Module({
   imports: [
     forwardRef(() => OrdersModule),
-    TypeOrmModule.forFeature([Notification, User, OrderRetrySettingsEntity]),
+    TypeOrmModule.forFeature([Notification, User, ClientSettingsEntity]),
     WebSocketModule,
   ],
   controllers: [NotificationController],

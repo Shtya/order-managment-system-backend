@@ -16,8 +16,7 @@ import { PermissionsGuard } from "common/permissions.guard";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 import { SubscriptionsService } from "./subscription.service";
 import { Permissions } from "common/permissions.decorator";
-import { RequireSubscription } from "common/require-subscription.decorator";
-import { SubscriptionGuard } from "common/subscription.guard";
+
 import {
   CreateSubscriptionDto,
   UpdateSubscriptionDto,

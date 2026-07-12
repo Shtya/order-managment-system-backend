@@ -19,6 +19,7 @@ import { upsellMediaMulterOptions } from './upsell-upload.config';
 import axios from 'axios';
 import * as path from 'path';
 import * as fs from 'fs';
+import { TranslationService } from 'common/translation.service';
 
 function collectValidationMessages(errors: ValidationError[]): string[] {
     const out: string[] = [];
@@ -55,7 +56,9 @@ function parseJsonField(raw: unknown): any {
 @Controller('upsells')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 export class UpsellsController {
-    constructor(private readonly svc: UpsellsService) { }
+    constructor(
+        private readonly svc: UpsellsService, private readonly translations: TranslationService,
+    ) { }
 
     @Get()
     @Permissions('upsells.read')
@@ -120,7 +123,7 @@ export class UpsellsController {
     ) {
         const f = files?.headerMedia?.[0];
         if (!f) {
-            throw new BadRequestException('headerMedia file is required');
+            throw new BadRequestException(this.translations.t('common.headerMedia_required'));
         }
         return { headerUrl: `uploads/upsells/${f.filename}` };
     }
@@ -170,7 +173,11 @@ export class UpsellsController {
                     messageConfig.headerUrl = `uploads/upsells/${filename}`;
                 } catch (error) {
                     console.error('Error downloading header media:', error);
-                    throw new BadRequestException('Failed to download header media from URL');
+                    throw new BadRequestException(
+                        this.translations.t(
+                            "domains.upsells.failed_to_download_header_media_from_url",
+                        ),
+                    );
                 }
             } else if (headerUrl.startsWith('uploads/') || headerUrl.startsWith('/uploads/')) {
                 messageConfig.headerUrl = headerUrl.startsWith('/') ? headerUrl.slice(1) : headerUrl;

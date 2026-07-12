@@ -14,6 +14,7 @@ import { Account, AccountStatus, TransactionReferenceType } from "entities/safe.
 import * as fs from "fs";
 import * as path from "path";
 import * as ExcelJS from "exceljs";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 export function tenantId(me: any): any | null {
 	if (!me) return null;
@@ -47,6 +48,8 @@ export class PurchasesService {
 		private accountRepo: Repository<Account>,
 
 		private safesService: SafesService,
+		private translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
 	) { }
 
 	private async log(params: {
@@ -84,7 +87,7 @@ export class PurchasesService {
 
 	async stats(me: any) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
 		const accepted = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.ACCEPTED } as any });
 		const pending = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.PENDING } as any });
@@ -96,7 +99,7 @@ export class PurchasesService {
 
 	async list(me: any, q?: any) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
 		const page = Number(q?.page ?? 1);
 		const limit = Number(q?.limit ?? 10);
@@ -195,7 +198,7 @@ export class PurchasesService {
 
 	async get(me: any, id: string) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
 		const inv = await this.invRepo.findOne({
 			where: { id, adminId } as any,
@@ -206,13 +209,13 @@ export class PurchasesService {
 			where: { id: inv.supplierId }
 		});
 
-		if (!inv) throw new BadRequestException("purchase invoice not found");
+		if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_invoice.not_found"));
 		return { ...inv, supplier };
 	}
 
 	async getAuditLogs(me: any, id: string) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
 		// ensure invoice exists and belongs to tenant
 		await this.get(me, id);
@@ -225,13 +228,13 @@ export class PurchasesService {
 
 	async acceptPreview(me: any, id: string) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
 		const inv = await this.invRepo.findOne({
 			where: { id, adminId } as any,
 			relations: ["items", "items.variant", "safe"],
 		});
-		if (!inv) throw new BadRequestException("purchase invoice not found");
+		if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_invoice.not_found"));
 
 		const oldStatus = inv.status;
 		const willApply = oldStatus !== ApprovalStatus.ACCEPTED;
@@ -262,7 +265,7 @@ export class PurchasesService {
 			if (!v) {
 				return {
 					variantId,
-					error: "Variant not found",
+					error: this.translations.t("common.variant_not_found"),
 				};
 			}
 
@@ -317,651 +320,651 @@ export class PurchasesService {
 	}
 
 	async create(me: any, dto: CreatePurchaseDto, ipAddress?: string, manager?: EntityManager) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
-		if (!dto.items?.length) throw new BadRequestException("Items are required");
-
-		const runWithManager = async (manager: EntityManager) => {
-			const repo = manager.getRepository(PurchaseInvoiceEntity);
-			const itemRepo = manager.getRepository(PurchaseInvoiceItemEntity);
-			const accountRepo = manager.getRepository(Account);
-			const supplierRepo = manager.getRepository(SupplierEntity);
-
-			const exists = await repo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
-			if (exists) throw new BadRequestException("receiptNumber already exists");
-
-			if (dto.supplierId) {
-				const supplier = await supplierRepo.findOne({ where: { id: dto.supplierId } as any });
-				if (!supplier) throw new BadRequestException("supplier not found");
-			}
-
-			if (dto.safeId) {
-				const safe = await accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
-				if (!safe) throw new BadRequestException("Safe/Account not found");
-				if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
-			}
-
-			const items = (dto.items || []).map((it) => {
-				const lineSubtotal = it.purchaseCost * it.quantity;
-				const lineTotal = lineSubtotal;
-
-				return itemRepo.create({
-					adminId,
-					variantId: it.variantId,
-					quantity: it.quantity,
-					purchaseCost: it.purchaseCost,
-					lineSubtotal,
-					lineTotal,
-				} as any);
-			});
-
-			const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
-			const total = subtotal;
-
-			const paidAmount = dto.paidAmount ?? 0;
-			const remainingAmount = total - paidAmount;
-
-			const inv = repo.create({
-				adminId,
-				supplierId: dto.supplierId ?? null,
-				receiptNumber: dto.receiptNumber,
-				receiptAsset: dto.receiptAsset ?? null,
-				safeId: dto.safeId ?? null,
-				paidAmount,
-				subtotal,
-				total,
-				remainingAmount,
-				status: dto.saveAsDraft ? ApprovalStatus.DRAFT : ApprovalStatus.PENDING,
-				notes: dto.notes ?? null,
-				items,
-			} as any);
-
-			const saved: any = await repo.save(inv);
-
-			await this.log({
-				adminId,
-				invoiceId: saved.id,
-				userId: me?.id ?? null,
-				action: PurchaseAuditAction.CREATED,
-				newData: { id: saved.id, status: saved.status },
-				description: `Purchase invoice created (status: ${saved.status})`,
-				ipAddress,
-				manager
-			});
-
-			return saved;
-		};
-
-		if (manager) {
-			return runWithManager(manager);
-		} else {
-			return this.dataSource.transaction(runWithManager);
-		}
-	}
-
-	async update(me: any, id: string, dto: UpdatePurchaseDto, ipAddress?: string) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
-
-		const inv = await this.get(me, id);
-		if (inv.closingId) {
-			throw new BadRequestException("Cannot update a purchase that has been closed.");
-		}
-		// Delete old file if a new one is uploaded
-		if (dto.receiptAsset && inv.receiptAsset && dto.receiptAsset !== inv.receiptAsset) {
-			const oldPath = path.join(process.cwd(), inv.receiptAsset);
-			if (fs.existsSync(oldPath)) {
-				try {
-					fs.unlinkSync(oldPath);
-				} catch (e) {
-					console.error(`Failed to delete old file: ${oldPath}`, e);
-				}
-			}
-		}
-
-		// Save old values for financial sync
-
-		const oldSupplierId = inv.supplierId;
-		const oldStatus = inv.status;
-		const oldTotal = inv.total ?? 0;
-		const oldRemaining = inv.remainingAmount ?? 0;
-
-		if (dto.receiptNumber && dto.receiptNumber !== inv.receiptNumber) {
-			const exists = await this.invRepo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
-			if (exists) throw new BadRequestException("receiptNumber already exists");
-		}
-
-		if (inv.status === ApprovalStatus.ACCEPTED && dto.items) {
-			throw new BadRequestException("Cannot modify items of an ACCEPTED purchase. Change status first.");
-		}
-
-		if (dto.supplierId) {
-			const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } as any });
-			if (!supplier) throw new BadRequestException("supplier not found");
-			inv.supplierId = dto.supplierId;
-			inv.supplier = supplier;
-		}
-
-		if (dto.safeId) {
-			const safe = await this.accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
-			if (!safe) throw new BadRequestException("Safe/Account not found");
-			if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
-			inv.safeId = dto.safeId;
-			inv.safe = safe;
-		}
-
-		let saved;
-		if (dto.items) {
-			await this.itemRepo.delete({ invoiceId: id } as any);
-
-			const items = dto.items.map((it) => {
-				const lineSubtotal = it.purchaseCost * it.quantity;
-				const lineTotal = lineSubtotal;
-
-				return this.itemRepo.create({
-					adminId,
-					invoiceId: id,
-					variantId: it.variantId,
-					quantity: it.quantity,
-					purchaseCost: it.purchaseCost,
-					lineSubtotal,
-					lineTotal,
-				} as any);
-			});
-
-			const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
-			const total = subtotal;
-
-			const paidAmount = dto.paidAmount ?? inv.paidAmount ?? 0;
-			const remainingAmount = total - paidAmount;
-
-			Object.assign(inv as any, dto, { subtotal, total, paidAmount, remainingAmount, items });
-			saved = await this.invRepo.save(inv as any);
-		} else {
-			Object.assign(inv as any, dto);
-			if (typeof dto.paidAmount === "number") {
-				(inv as any).remainingAmount = ((inv as any).total ?? 0) - dto.paidAmount;
-			}
-			saved = await this.invRepo.save(inv as any);
-		}
-
-		// --- Sync supplier financials only if status is ACCEPTED ---
-
-		await this.syncSupplierFinancials({
-			oldStatus: oldStatus,
-			newStatus: saved.status,
-			oldSupplierId: oldSupplierId,
-			newSupplierId: saved.supplierId,
-			total: saved.total ?? 0,
-			remainingAmount: saved.remainingAmount ?? 0,
-			oldTotal: oldTotal,
-			oldRemainingAmount: oldRemaining,
-		});
-
-
-		await this.log({
-			adminId,
-			invoiceId: saved.id,
-			userId: me?.id ?? null,
-			action: PurchaseAuditAction.UPDATED,
-			description: `Purchase invoice updated`,
-			ipAddress,
-		});
-
-		return saved;
-	}
-
-	async updatePaidAmount(me: any, id: string, dto: UpdatePaidAmountDto, ipAddress?: string) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
-
-		return await this.dataSource.transaction(async (manager) => {
-			const inv = await manager.findOne(PurchaseInvoiceEntity, {
-				where: { id, adminId } as any,
-			});
-			if (!inv) throw new BadRequestException("purchase invoice not found");
-			if (inv.closingId) {
-				throw new BadRequestException("Cannot update a purchase that has been closed.");
-			}
-
-			const total = (inv as any).total ?? 0;
-			const oldRemaining = inv.remainingAmount ?? 0;
-			const oldStatus = inv.status;
-			const oldPaidAmount = Number(inv.paidAmount || 0);
-			const newPaidAmount = Number(dto.paidAmount);
-
-			(inv as any).paidAmount = newPaidAmount;
-			(inv as any).remainingAmount = total - newPaidAmount;
-
-			/** Recorded supplier payment ↑ → withdraw delta from safe; correction ↓ → deposit back */
-			if (oldStatus === ApprovalStatus.ACCEPTED && inv.safeId) {
-				const delta = Math.round((newPaidAmount - oldPaidAmount) * 100) / 100;
-				if (delta > 0) {
-					await this.safesService.withdraw(me,
-						{
-							accountId: inv.safeId,
-							amount: delta,
-							referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
-							referenceId: inv.id,
-							referenceMeta: {
-								purchaseNumber: inv.receiptNumber || null,
-							},
-							notes: `Purchase invoice #${inv.receiptNumber} paid amount adjustment (+${delta}).`,
-						},
-						manager,
-					);
-				} else if (delta < 0) {
-					await this.safesService.deposit(me,
-						{
-							accountId: inv.safeId,
-							amount: -delta,
-							referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
-							referenceId: inv.id,
-							referenceMeta: {
-								purchaseNumber: inv.receiptNumber || null,
-							},
-							notes: `Purchase invoice #${inv.receiptNumber} paid amount adjustment (${delta}).`,
-						},
-						manager,
-					);
-				}
-			}
-
-			const saved = await manager.save(PurchaseInvoiceEntity, inv);
-
-			if (oldStatus === ApprovalStatus.ACCEPTED) {
-				await this.syncSupplierFinancials({
-					oldStatus: ApprovalStatus.ACCEPTED,
-					newStatus: ApprovalStatus.ACCEPTED,
-					oldSupplierId: inv.supplierId,
-					newSupplierId: inv.supplierId,
-					total: inv.total,
-					remainingAmount: saved.remainingAmount,
-					oldTotal: inv.total,
-					oldRemainingAmount: oldRemaining,
-					manager,
-				});
-			}
-
-			await this.log({
-				adminId,
-				invoiceId: saved.id,
-				userId: me?.id ?? null,
-				action: PurchaseAuditAction.PAID_AMOUNT_UPDATED,
-				description: `Paid amount updated`,
-				ipAddress,
-				manager,
-			});
-
-			return saved;
-		});
-	}
-
-	async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string, manager?: EntityManager) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
-
-		const runWithManager = async (manager: EntityManager) => {
-			const inv = await manager.findOne(PurchaseInvoiceEntity, {
-				where: { id, adminId } as any,
-				relations: ["items", "items.variant"],
-			});
-			if (!inv) throw new BadRequestException("purchase invoice not found");
-			if (inv.closingId) {
-				throw new BadRequestException("Cannot update a purchase that has been closed.");
-			}
-
-			const oldStatus = inv.status;
-			if (oldStatus === status) return inv;
-
-			// =========================================================
-			// 1) IF going ACCEPTED from non-accepted:
-			//    - apply stock
-			//    - update price by weighted average
-			//    - write audit logs (STOCK_APPLIED + price_updated)
-			// =========================================================
-			if (status === ApprovalStatus.ACCEPTED && oldStatus !== ApprovalStatus.ACCEPTED) {
-				const byVariant = new Map<string, { qty: number; incomingCostTotal: number }>();
-
-				for (const it of inv.items ?? []) {
-					const vid = it.variantId;
-					const qty = Number(it.quantity) || 0;
-					const cost = Number(it.purchaseCost) || 0;
-
-					const cur = byVariant.get(vid) ?? { qty: 0, incomingCostTotal: 0 };
-					cur.qty += qty;
-					cur.incomingCostTotal += cost * qty;
-					byVariant.set(vid, cur);
-				}
-
-				const variantIds = [...byVariant.keys()];
-				if (!variantIds.length) throw new BadRequestException("No items to apply");
-
-				const variants = await manager.find(ProductVariantEntity, {
-					where: { adminId, id: In(variantIds) } as any,
-				});
-
-				const byId = new Map<string, ProductVariantEntity>();
-				for (const v of variants) byId.set(v.id, v);
-
-				for (const variantId of variantIds) {
-					if (!byId.get(variantId)) throw new BadRequestException(`Variant not found: ${variantId}`);
-				}
-
-				const changedVariants: ProductVariantEntity[] = [];
-				const stockChanges: any[] = [];
-				const priceChanges: any[] = [];
-
-				for (const variantId of variantIds) {
-					const v = byId.get(variantId)!;
-					const agg = byVariant.get(variantId)!;
-
-					const addQty = agg.qty;
-					const oldStock = Number(v.stockOnHand) || 0;
-
-					const nextStock = oldStock + addQty;
-					v.stockOnHand = nextStock;
-
-					stockChanges.push({ variantId, oldStock, addQty, newStock: nextStock });
-
-					const incomingAvg = addQty > 0 ? agg.incomingCostTotal / addQty : 0;
-
-					const oldPrice = v.unitCost ?? null;
-					let newPrice: number | null = oldPrice;
-
-					if (oldPrice == null) {
-						newPrice = Number.isFinite(incomingAvg) ? Math.round(incomingAvg) : null;
-					} else {
-						const denom = oldStock + addQty;
-						if (denom > 0) {
-							const weighted = (oldPrice * oldStock + incomingAvg * addQty) / denom;
-							newPrice = Number.isFinite(weighted) ? Math.round(weighted) : oldPrice;
-						}
-					}
-
-					if (oldPrice !== newPrice) {
-						v.unitCost = newPrice ?? undefined;
-						priceChanges.push({
-							variantId,
-							sku: v.sku ?? null,
-							oldPrice,
-							incomingAvgCost: Math.round(incomingAvg),
-							newPrice,
-						});
-					}
-
-					changedVariants.push(v);
-				}
-
-				await manager.save(ProductVariantEntity, changedVariants);
-
-				await this.log({
-					adminId,
-					invoiceId: inv.id,
-					userId: me?.id ?? null,
-					action: PurchaseAuditAction.STOCK_APPLIED,
-					changes: stockChanges,
-					description: `Stock applied (status -> ACCEPTED)`,
-					ipAddress,
-					manager
-				});
-
-				if (priceChanges.length) {
-					await this.log({
-						adminId,
-						invoiceId: inv.id,
-						userId: me?.id ?? null,
-						action: "price_updated" as any,
-						changes: priceChanges,
-						description: `Variant price updated by weighted average`,
-						ipAddress,
-						manager
-					});
-				}
-
-				// Withdraw from safe if paidAmount > 0 and safeId is provided
-				if (Number(inv.paidAmount) > 0 && inv.safeId) {
-					await this.safesService.withdraw(me, {
-						accountId: inv.safeId,
-						amount: Number(inv.paidAmount),
-						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
-						referenceId: inv.id,
-						referenceMeta: {
-							purchaseNumber: inv.receiptNumber || null,
-						},
-						notes: `Purchase invoice #${inv.receiptNumber} accepted.`,
-					}, manager);
-				}
-			}
-
-			// =========================================================
-			// 2) IF leaving ACCEPTED:
-			//    - remove stock (for both pending/rejected)
-			//    - rollback price for BOTH pending/rejected
-			// =========================================================
-			if (oldStatus === ApprovalStatus.ACCEPTED && status !== ApprovalStatus.ACCEPTED) {
-				const byVariant = new Map<string, number>();
-
-				for (const it of inv.items ?? []) {
-					const vid = it.variantId;
-					const qty = Number(it.quantity) || 0;
-					byVariant.set(vid, (byVariant.get(vid) ?? 0) + qty);
-				}
-
-				const variantIds = [...byVariant.keys()];
-				if (variantIds.length) {
-					const variants = await manager.find(ProductVariantEntity, {
-						where: { adminId, id: In(variantIds) } as any,
-					});
-
-					const byId = new Map<string, ProductVariantEntity>();
-					for (const v of variants) byId.set(v.id, v);
-
-					for (const variantId of variantIds) {
-						if (!byId.get(variantId)) throw new BadRequestException(`Variant not found: ${variantId}`);
-					}
-
-					const changedVariants: ProductVariantEntity[] = [];
-					const stockChanges: any[] = [];
-
-					for (const variantId of variantIds) {
-						const v = byId.get(variantId)!;
-
-						const removeQty = byVariant.get(variantId) ?? 0;
-						const oldStock = Number(v.stockOnHand) || 0;
-						const next = oldStock - removeQty;
-
-						if (next < 0) {
-							throw new BadRequestException(
-								`Cannot remove stock below zero for sku=${v.sku} (oldStock=${oldStock}, remove=${removeQty})`
-							);
-						}
-
-						v.stockOnHand = next;
-						stockChanges.push({ variantId, oldStock, removeQty, newStock: next });
-						changedVariants.push(v);
-					}
-
-					await manager.save(ProductVariantEntity, changedVariants);
-
-					await this.log({
-						adminId,
-						invoiceId: inv.id,
-						userId: me?.id ?? null,
-						action: PurchaseAuditAction.STOCK_REMOVED,
-						changes: stockChanges,
-						description: `Stock removed (status left ACCEPTED)`,
-						ipAddress,
-						manager
-					});
-
-					// ✅ Price rollback when leaving ACCEPTED to (REJECTED or PENDING or DRAFT)
-					if (status === ApprovalStatus.REJECTED || status === ApprovalStatus.PENDING || status === ApprovalStatus.DRAFT) {
-						const lastPriceLog = await manager.findOne(PurchaseAuditLogEntity, {
-							where: { adminId, invoiceId: inv.id, action: "price_updated" as any } as any,
-							order: { created_at: "DESC" },
-						});
-
-						const priceChanges = (lastPriceLog as any)?.changes ?? [];
-						if (Array.isArray(priceChanges) && priceChanges.length) {
-							const priceVariantIds = [
-								...new Set(priceChanges.map((x: any) => x.variantId).filter(Boolean)),
-							];
-
-							const priceVariants = await manager.find(ProductVariantEntity, {
-								where: { adminId, id: In(priceVariantIds) } as any,
-							});
-
-							const pvById = new Map<string, ProductVariantEntity>();
-							for (const v of priceVariants) pvById.set(v.id, v);
-
-							const touched: ProductVariantEntity[] = [];
-
-							for (const ch of priceChanges) {
-								const vid = ch.variantId;
-								const v = pvById.get(vid);
-								if (!v) continue;
-
-								const oldPrice = ch.oldPrice;
-								v.unitCost = oldPrice === null || oldPrice === undefined ? undefined : Number(oldPrice);
-								touched.push(v);
-							}
-
-							if (touched.length) {
-								await manager.save(ProductVariantEntity, touched);
-
-								await this.log({
-									adminId,
-									invoiceId: inv.id,
-									userId: me?.id ?? null,
-									action: "price_rolled_back" as any,
-									changes: priceChanges,
-									description: `Price rollback applied (status -> ${status})`,
-									ipAddress,
-									manager
-								});
-							}
-						}
-					}
-				}
-
-				// Refund to safe if paidAmount > 0 and safeId was provided
-				if (Number(inv.paidAmount) > 0 && inv.safeId) {
-					await this.safesService.deposit(me, {
-						accountId: inv.safeId,
-						amount: Number(inv.paidAmount),
-						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
-						referenceId: inv.id,
-						referenceMeta: {
-							purchaseNumber: inv.receiptNumber || null,
-						},
-						notes: `Purchase invoice #${inv.receiptNumber} status changed from ACCEPTED to ${status}. Refunded to safe.`,
-					}, manager);
-				}
-			}
-
-			// =========================================================
-			// 3) Update invoice status + audit log
-			// =========================================================
-			inv.status = status;
-			const saved = await manager.save(PurchaseInvoiceEntity, inv);
-
-			await this.log({
-				adminId,
-				invoiceId: saved.id,
-				userId: me?.id ?? null,
-				action: PurchaseAuditAction.STATUS_CHANGED,
-				oldData: { status: oldStatus },
-				newData: { status },
-				description: `Status changed from ${oldStatus} to ${status}`,
-				ipAddress,
-				manager
-			});
-
-
-			await this.syncSupplierFinancials({
-				oldStatus: oldStatus,
-				newStatus: status,
-				oldSupplierId: inv.supplierId,
-				newSupplierId: inv.supplierId, // Supplier doesn't change on status update
-				total: inv.total ?? 0,
-				remainingAmount: inv.remainingAmount ?? 0,
-				manager
-			});
-			return saved;
-		};
-
-		if (manager) {
-			return runWithManager(manager);
-		} else {
-			return this.dataSource.transaction(runWithManager);
-		}
-	}
-
-
-	async remove(me: any, id: string, ipAddress?: string, manager?: EntityManager) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
-
-		const runWithManager = async (manager: EntityManager) => {
-			const inv = await manager.findOne(PurchaseInvoiceEntity, {
-				where: { id, adminId } as any,
-				relations: ["items", "items.variant"],
-			});
-			if (!inv) throw new BadRequestException("purchase invoice not found");
-
-			if (inv.closingId) {
-				throw new BadRequestException("Cannot delete a purchase that has been closed.");
-			}
-
-			// Rollback supplier financials if invoice was ACCEPTED before deletion
-			if (inv.status === ApprovalStatus.ACCEPTED) {
-				await this.syncSupplierFinancials({
-					oldStatus: inv.status,
-					newStatus: undefined, // It's being deleted
-					oldSupplierId: inv.supplierId,
-					newSupplierId: null,
-					total: inv.total ?? 0,
-					remainingAmount: inv.remainingAmount ?? 0,
-					manager,
-				});
-
-				// Refund to safe if paidAmount > 0 and safeId was provided
-				if (Number(inv.paidAmount) > 0 && inv.safeId) {
-					await this.safesService.deposit(me, {
-						accountId: inv.safeId,
-						amount: Number(inv.paidAmount),
-						referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
-						referenceId: inv.id,
-						referenceMeta: {
-							purchaseNumber: inv.receiptNumber || null,
-						},
-						notes: `Purchase invoice #${inv.receiptNumber} deleted. Refunded to safe.`,
-					}, manager);
-				}
-			}
-
-			await manager.delete(PurchaseInvoiceEntity, { id, adminId });
-
-			await this.log({
-				adminId,
-				invoiceId: id,
-				userId: me?.id ?? null,
-				action: PurchaseAuditAction.DELETED,
-				description: `Purchase invoice deleted`,
-				ipAddress,
-				manager,
-			});
-
-			return { ok: true };
-		};
-
-		if (manager) {
-			return runWithManager(manager);
-		} else {
-			return this.dataSource.transaction(runWithManager);
-		}
-	}
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+        if (!dto.items?.length) throw new BadRequestException(this.translations.t("domains.purchase_invoice.items_required"));
+
+        const runWithManager = async (manager: EntityManager) => {
+            const repo = manager.getRepository(PurchaseInvoiceEntity);
+            const itemRepo = manager.getRepository(PurchaseInvoiceItemEntity);
+            const accountRepo = manager.getRepository(Account);
+            const supplierRepo = manager.getRepository(SupplierEntity);
+
+            const exists = await repo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
+            if (exists) throw new BadRequestException(this.translations.t("domains.purchase_invoice.receipt_number_exists"));
+
+            if (dto.supplierId) {
+                const supplier = await supplierRepo.findOne({ where: { id: dto.supplierId } as any });
+                if (!supplier) throw new BadRequestException(this.translations.t("domains.purchase_invoice.supplier_not_found"));
+            }
+
+            if (dto.safeId) {
+                const safe = await accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
+                if (!safe) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_found"));
+                if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_active"));
+            }
+
+            const items = (dto.items || []).map((it) => {
+                const lineSubtotal = it.purchaseCost * it.quantity;
+                const lineTotal = lineSubtotal;
+
+                return itemRepo.create({
+                    adminId,
+                    variantId: it.variantId,
+                    quantity: it.quantity,
+                    purchaseCost: it.purchaseCost,
+                    lineSubtotal,
+                    lineTotal,
+                } as any);
+            });
+
+            const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
+            const total = subtotal;
+
+            const paidAmount = dto.paidAmount ?? 0;
+            const remainingAmount = total - paidAmount;
+
+            const inv = repo.create({
+                adminId,
+                supplierId: dto.supplierId ?? null,
+                receiptNumber: dto.receiptNumber,
+                receiptAsset: dto.receiptAsset ?? null,
+                safeId: dto.safeId ?? null,
+                paidAmount,
+                subtotal,
+                total,
+                remainingAmount,
+                status: dto.saveAsDraft ? ApprovalStatus.DRAFT : ApprovalStatus.PENDING,
+                notes: dto.notes ?? null,
+                items,
+            } as any);
+
+            const saved: any = await repo.save(inv);
+
+            await this.log({
+                adminId,
+                invoiceId: saved.id,
+                userId: me?.id ?? null,
+                action: PurchaseAuditAction.CREATED,
+                newData: { id: saved.id, status: saved.status },
+                description: await this.requestTranslations.tAsync("domains.purchase_invoice.purchase_invoice_created_description", adminId, { args: {status: saved.status} }),
+                ipAddress,
+                manager
+            });
+
+            return saved;
+        };
+
+        if (manager) {
+            return runWithManager(manager);
+        } else {
+            return this.dataSource.transaction(runWithManager);
+        }
+    }
+
+    async update(me: any, id: string, dto: UpdatePurchaseDto, ipAddress?: string) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+
+        const inv = await this.get(me, id);
+        if (inv.closingId) {
+            throw new BadRequestException(this.translations.t("domains.purchase_invoice.cannot_update_closed"));
+        }
+        // Delete old file if a new one is uploaded
+        if (dto.receiptAsset && inv.receiptAsset && dto.receiptAsset !== inv.receiptAsset) {
+            const oldPath = path.join(process.cwd(), inv.receiptAsset);
+            if (fs.existsSync(oldPath)) {
+                try {
+                    fs.unlinkSync(oldPath);
+                } catch (e) {
+                    console.error(`Failed to delete old file: ${oldPath}`, e);
+                }
+            }
+        }
+
+        // Save old values for financial sync
+
+        const oldSupplierId = inv.supplierId;
+        const oldStatus = inv.status;
+        const oldTotal = inv.total ?? 0;
+        const oldRemaining = inv.remainingAmount ?? 0;
+
+        if (dto.receiptNumber && dto.receiptNumber !== inv.receiptNumber) {
+            const exists = await this.invRepo.findOne({ where: { adminId, receiptNumber: dto.receiptNumber } as any });
+            if (exists) throw new BadRequestException(this.translations.t("domains.purchase_invoice.receipt_number_exists"));
+        }
+
+        if (inv.status === ApprovalStatus.ACCEPTED && dto.items) {
+            throw new BadRequestException(this.translations.t("domains.purchase_invoice.cannot_modify_accepted_items"));
+        }
+
+        if (dto.supplierId) {
+            const supplier = await this.supplierRepo.findOne({ where: { id: dto.supplierId } as any });
+            if (!supplier) throw new BadRequestException(this.translations.t("domains.purchase_invoice.supplier_not_found"));
+            inv.supplierId = dto.supplierId;
+            inv.supplier = supplier;
+        }
+
+        if (dto.safeId) {
+            const safe = await this.accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
+            if (!safe) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_found"));
+            if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_active"));
+            inv.safeId = dto.safeId;
+            inv.safe = safe;
+        }
+
+        let saved;
+        if (dto.items) {
+            await this.itemRepo.delete({ invoiceId: id } as any);
+
+            const items = dto.items.map((it) => {
+                const lineSubtotal = it.purchaseCost * it.quantity;
+                const lineTotal = lineSubtotal;
+
+                return this.itemRepo.create({
+                    adminId,
+                    invoiceId: id,
+                    variantId: it.variantId,
+                    quantity: it.quantity,
+                    purchaseCost: it.purchaseCost,
+                    lineSubtotal,
+                    lineTotal,
+                } as any);
+            });
+
+            const subtotal = items.reduce((s, x: any) => s + x.lineSubtotal, 0);
+            const total = subtotal;
+
+            const paidAmount = dto.paidAmount ?? inv.paidAmount ?? 0;
+            const remainingAmount = total - paidAmount;
+
+            Object.assign(inv as any, dto, { subtotal, total, paidAmount, remainingAmount, items });
+            saved = await this.invRepo.save(inv as any);
+        } else {
+            Object.assign(inv as any, dto);
+            if (typeof dto.paidAmount === "number") {
+                (inv as any).remainingAmount = ((inv as any).total ?? 0) - dto.paidAmount;
+            }
+            saved = await this.invRepo.save(inv as any);
+        }
+
+        // --- Sync supplier financials only if status is ACCEPTED ---
+
+        await this.syncSupplierFinancials({
+            oldStatus: oldStatus,
+            newStatus: saved.status,
+            oldSupplierId: oldSupplierId,
+            newSupplierId: saved.supplierId,
+            total: saved.total ?? 0,
+            remainingAmount: saved.remainingAmount ?? 0,
+            oldTotal: oldTotal,
+            oldRemainingAmount: oldRemaining,
+        });
+
+
+        await this.log({
+            adminId,
+            invoiceId: saved.id,
+            userId: me?.id ?? null,
+            action: PurchaseAuditAction.UPDATED,
+            description: `Purchase invoice updated`,
+            ipAddress,
+        });
+
+        return saved;
+    }
+
+    async updatePaidAmount(me: any, id: string, dto: UpdatePaidAmountDto, ipAddress?: string) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+
+        return await this.dataSource.transaction(async (manager) => {
+            const inv = await manager.findOne(PurchaseInvoiceEntity, {
+                where: { id, adminId } as any,
+            });
+            if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_invoice.invoice_not_found"));
+            if (inv.closingId) {
+                throw new BadRequestException(this.translations.t("domains.purchase_invoice.cannot_update_closed"));
+            }
+
+            const total = (inv as any).total ?? 0;
+            const oldRemaining = inv.remainingAmount ?? 0;
+            const oldStatus = inv.status;
+            const oldPaidAmount = Number(inv.paidAmount || 0);
+            const newPaidAmount = Number(dto.paidAmount);
+
+            (inv as any).paidAmount = newPaidAmount;
+            (inv as any).remainingAmount = total - newPaidAmount;
+
+            /** Recorded supplier payment ↑ → withdraw delta from safe; correction ↓ → deposit back */
+            if (oldStatus === ApprovalStatus.ACCEPTED && inv.safeId) {
+                const delta = Math.round((newPaidAmount - oldPaidAmount) * 100) / 100;
+                if (delta > 0) {
+                    await this.safesService.withdraw(me,
+                        {
+                            accountId: inv.safeId,
+                            amount: delta,
+                            referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+                            referenceId: inv.id,
+                            referenceMeta: {
+                                purchaseNumber: inv.receiptNumber || null,
+                            },
+                            notes: await this.requestTranslations.tAsync("domains.purchase_invoice.paid_amount_adjustment_positive_notes", adminId, { args: {receiptNumber: inv.receiptNumber, delta} }),
+                        },
+                        manager,
+                    );
+                } else if (delta < 0) {
+                    await this.safesService.deposit(me,
+                        {
+                            accountId: inv.safeId,
+                            amount: -delta,
+                            referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+                            referenceId: inv.id,
+                            referenceMeta: {
+                                purchaseNumber: inv.receiptNumber || null,
+                            },
+                            notes: await this.requestTranslations.tAsync("domains.purchase_invoice.paid_amount_adjustment_notes", adminId, { args: {receiptNumber: inv.receiptNumber, delta} }),
+                        },
+                        manager,
+                    );
+                }
+            }
+
+            const saved = await manager.save(PurchaseInvoiceEntity, inv);
+
+            if (oldStatus === ApprovalStatus.ACCEPTED) {
+                await this.syncSupplierFinancials({
+                    oldStatus: ApprovalStatus.ACCEPTED,
+                    newStatus: ApprovalStatus.ACCEPTED,
+                    oldSupplierId: inv.supplierId,
+                    newSupplierId: inv.supplierId,
+                    total: inv.total,
+                    remainingAmount: saved.remainingAmount,
+                    oldTotal: inv.total,
+                    oldRemainingAmount: oldRemaining,
+                    manager,
+                });
+            }
+
+            await this.log({
+                adminId,
+                invoiceId: saved.id,
+                userId: me?.id ?? null,
+                action: PurchaseAuditAction.PAID_AMOUNT_UPDATED,
+                description: `Paid amount updated`,
+                ipAddress,
+                manager,
+            });
+
+            return saved;
+        });
+    }
+
+    async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string, manager?: EntityManager) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+
+        const runWithManager = async (manager: EntityManager) => {
+            const inv = await manager.findOne(PurchaseInvoiceEntity, {
+                where: { id, adminId } as any,
+                relations: ["items", "items.variant"],
+            });
+            if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_invoice.invoice_not_found"));
+            if (inv.closingId) {
+                throw new BadRequestException(this.translations.t("domains.purchase_invoice.cannot_update_closed"));
+            }
+
+            const oldStatus = inv.status;
+            if (oldStatus === status) return inv;
+
+            // =========================================================
+            // 1) IF going ACCEPTED from non-accepted:
+            //    - apply stock
+            //    - update price by weighted average
+            //    - write audit logs (STOCK_APPLIED + price_updated)
+            // =========================================================
+            if (status === ApprovalStatus.ACCEPTED && oldStatus !== ApprovalStatus.ACCEPTED) {
+                const byVariant = new Map<string, { qty: number; incomingCostTotal: number }>();
+
+                for (const it of inv.items ?? []) {
+                    const vid = it.variantId;
+                    const qty = Number(it.quantity) || 0;
+                    const cost = Number(it.purchaseCost) || 0;
+
+                    const cur = byVariant.get(vid) ?? { qty: 0, incomingCostTotal: 0 };
+                    cur.qty += qty;
+                    cur.incomingCostTotal += cost * qty;
+                    byVariant.set(vid, cur);
+                }
+
+                const variantIds = [...byVariant.keys()];
+                if (!variantIds.length) throw new BadRequestException(this.translations.t("domains.purchase_invoice.no_items_to_apply"));
+
+                const variants = await manager.find(ProductVariantEntity, {
+                    where: { adminId, id: In(variantIds) } as any,
+                });
+
+                const byId = new Map<string, ProductVariantEntity>();
+                for (const v of variants) byId.set(v.id, v);
+
+                for (const variantId of variantIds) {
+                    if (!byId.get(variantId)) throw new BadRequestException(this.translations.t("domains.purchase_invoice.variant_not_found", { args: { variantId } }));
+                }
+
+                const changedVariants: ProductVariantEntity[] = [];
+                const stockChanges: any[] = [];
+                const priceChanges: any[] = [];
+
+                for (const variantId of variantIds) {
+                    const v = byId.get(variantId)!;
+                    const agg = byVariant.get(variantId)!;
+
+                    const addQty = agg.qty;
+                    const oldStock = Number(v.stockOnHand) || 0;
+
+                    const nextStock = oldStock + addQty;
+                    v.stockOnHand = nextStock;
+
+                    stockChanges.push({ variantId, oldStock, addQty, newStock: nextStock });
+
+                    const incomingAvg = addQty > 0 ? agg.incomingCostTotal / addQty : 0;
+
+                    const oldPrice = v.unitCost ?? null;
+                    let newPrice: number | null = oldPrice;
+
+                    if (oldPrice == null) {
+                        newPrice = Number.isFinite(incomingAvg) ? Math.round(incomingAvg) : null;
+                    } else {
+                        const denom = oldStock + addQty;
+                        if (denom > 0) {
+                            const weighted = (oldPrice * oldStock + incomingAvg * addQty) / denom;
+                            newPrice = Number.isFinite(weighted) ? Math.round(weighted) : oldPrice;
+                        }
+                    }
+
+                    if (oldPrice !== newPrice) {
+                        v.unitCost = newPrice ?? undefined;
+                        priceChanges.push({
+                            variantId,
+                            sku: v.sku ?? null,
+                            oldPrice,
+                            incomingAvgCost: Math.round(incomingAvg),
+                            newPrice,
+                        });
+                    }
+
+                    changedVariants.push(v);
+                }
+
+                await manager.save(ProductVariantEntity, changedVariants);
+
+                await this.log({
+                    adminId,
+                    invoiceId: inv.id,
+                    userId: me?.id ?? null,
+                    action: PurchaseAuditAction.STOCK_APPLIED,
+                    changes: stockChanges,
+                    description: `Stock applied (status -> ACCEPTED)`,
+                    ipAddress,
+                    manager
+                });
+
+                if (priceChanges.length) {
+                    await this.log({
+                        adminId,
+                        invoiceId: inv.id,
+                        userId: me?.id ?? null,
+                        action: "price_updated" as any,
+                        changes: priceChanges,
+                        description: `Variant price updated by weighted average`,
+                        ipAddress,
+                        manager
+                    });
+                }
+
+                // Withdraw from safe if paidAmount > 0 and safeId is provided
+                if (Number(inv.paidAmount) > 0 && inv.safeId) {
+                    await this.safesService.withdraw(me, {
+                        accountId: inv.safeId,
+                        amount: Number(inv.paidAmount),
+                        referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+                        referenceId: inv.id,
+                        referenceMeta: {
+                            purchaseNumber: inv.receiptNumber || null,
+                        },
+                        notes: await this.requestTranslations.tAsync('domains.purchase_invoice.log_purchase_invoice_accepted', adminId, { args: { purchaseNumber: inv.receiptNumber || null } }),
+                    }, manager);
+                }
+            }
+
+            // =========================================================
+            // 2) IF leaving ACCEPTED:
+            //    - remove stock (for both pending/rejected)
+            //    - rollback price for BOTH pending/rejected
+            // =========================================================
+            if (oldStatus === ApprovalStatus.ACCEPTED && status !== ApprovalStatus.ACCEPTED) {
+                const byVariant = new Map<string, number>();
+
+                for (const it of inv.items ?? []) {
+                    const vid = it.variantId;
+                    const qty = Number(it.quantity) || 0;
+                    byVariant.set(vid, (byVariant.get(vid) ?? 0) + qty);
+                }
+
+                const variantIds = [...byVariant.keys()];
+                if (variantIds.length) {
+                    const variants = await manager.find(ProductVariantEntity, {
+                        where: { adminId, id: In(variantIds) } as any,
+                    });
+
+                    const byId = new Map<string, ProductVariantEntity>();
+                    for (const v of variants) byId.set(v.id, v);
+
+                    for (const variantId of variantIds) {
+                        if (!byId.get(variantId)) throw new BadRequestException(this.translations.t("domains.purchase_invoice.variant_not_found", { args: { variantId } }));
+                    }
+
+                    const changedVariants: ProductVariantEntity[] = [];
+                    const stockChanges: any[] = [];
+
+                    for (const variantId of variantIds) {
+                        const v = byId.get(variantId)!;
+
+                        const removeQty = byVariant.get(variantId) ?? 0;
+                        const oldStock = Number(v.stockOnHand) || 0;
+                        const next = oldStock - removeQty;
+
+                        if (next < 0) {
+                            throw new BadRequestException(
+                                this.translations.t("domains.purchase_invoice.cannot_remove_stock_below_zero", { args: { sku: v.sku, oldStock, removeQty } })
+                            );
+                        }
+
+                        v.stockOnHand = next;
+                        stockChanges.push({ variantId, oldStock, removeQty, newStock: next });
+                        changedVariants.push(v);
+                    }
+
+                    await manager.save(ProductVariantEntity, changedVariants);
+
+                    await this.log({
+                        adminId,
+                        invoiceId: inv.id,
+                        userId: me?.id ?? null,
+                        action: PurchaseAuditAction.STOCK_REMOVED,
+                        changes: stockChanges,
+                        description: `Stock removed (status left ACCEPTED)`,
+                        ipAddress,
+                        manager
+                    });
+
+                    // Price rollback when leaving ACCEPTED to (REJECTED or PENDING or DRAFT)
+                    if (status === ApprovalStatus.REJECTED || status === ApprovalStatus.PENDING || status === ApprovalStatus.DRAFT) {
+                        const lastPriceLog = await manager.findOne(PurchaseAuditLogEntity, {
+                            where: { adminId, invoiceId: inv.id, action: "price_updated" as any } as any,
+                            order: { created_at: "DESC" },
+                        });
+
+                        const priceChanges = (lastPriceLog as any)?.changes ?? [];
+                        if (Array.isArray(priceChanges) && priceChanges.length) {
+                            const priceVariantIds = [
+                                ...new Set(priceChanges.map((x: any) => x.variantId).filter(Boolean)),
+                            ];
+
+                            const priceVariants = await manager.find(ProductVariantEntity, {
+                                where: { adminId, id: In(priceVariantIds) } as any,
+                            });
+
+                            const pvById = new Map<string, ProductVariantEntity>();
+                            for (const v of priceVariants) pvById.set(v.id, v);
+
+                            const touched: ProductVariantEntity[] = [];
+
+                            for (const ch of priceChanges) {
+                                const vid = ch.variantId;
+                                const v = pvById.get(vid);
+                                if (!v) continue;
+
+                                const oldPrice = ch.oldPrice;
+                                v.unitCost = oldPrice === null || oldPrice === undefined ? undefined : Number(oldPrice);
+                                touched.push(v);
+                            }
+
+                            if (touched.length) {
+                                await manager.save(ProductVariantEntity, touched);
+
+                                await this.log({
+                                    adminId,
+                                    invoiceId: inv.id,
+                                    userId: me?.id ?? null,
+                                    action: "price_rolled_back" as any,
+                                    changes: priceChanges,
+                                    description: `Price rollback applied (status -> ${status})`,
+                                    ipAddress,
+                                    manager
+                                });
+                            }
+                        }
+                    }
+                }
+
+                // Refund to safe if paidAmount > 0 and safeId was provided
+                if (Number(inv.paidAmount) > 0 && inv.safeId) {
+                    await this.safesService.deposit(me, {
+                        accountId: inv.safeId,
+                        amount: Number(inv.paidAmount),
+                        referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+                        referenceId: inv.id,
+                        referenceMeta: {
+                            purchaseNumber: inv.receiptNumber || null,
+                        },
+                        notes: await this.requestTranslations.tAsync("domains.purchase_invoice.status_changed_refunded_notes", adminId, { args: {receiptNumber: inv.receiptNumber, status} }),
+                    }, manager);
+                }
+            }
+
+            // =========================================================
+            // 3) Update invoice status + audit log
+            // =========================================================
+            inv.status = status;
+            const saved = await manager.save(PurchaseInvoiceEntity, inv);
+
+            await this.log({
+                adminId,
+                invoiceId: saved.id,
+                userId: me?.id ?? null,
+                action: PurchaseAuditAction.STATUS_CHANGED,
+                oldData: { status: oldStatus },
+                newData: { status },
+                description: `Status changed from ${oldStatus} to ${status}`,
+                ipAddress,
+                manager
+            });
+
+
+            await this.syncSupplierFinancials({
+                oldStatus: oldStatus,
+                newStatus: status,
+                oldSupplierId: inv.supplierId,
+                newSupplierId: inv.supplierId, // Supplier doesn't change on status update
+                total: inv.total ?? 0,
+                remainingAmount: inv.remainingAmount ?? 0,
+                manager
+            });
+            return saved;
+        };
+
+        if (manager) {
+            return runWithManager(manager);
+        } else {
+            return this.dataSource.transaction(runWithManager);
+        }
+    }
+
+
+    async remove(me: any, id: string, ipAddress?: string, manager?: EntityManager) {
+        const adminId = tenantId(me);
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+
+        const runWithManager = async (manager: EntityManager) => {
+            const inv = await manager.findOne(PurchaseInvoiceEntity, {
+                where: { id, adminId } as any,
+                relations: ["items", "items.variant"],
+            });
+            if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_invoice.invoice_not_found"));
+
+            if (inv.closingId) {
+                throw new BadRequestException(this.translations.t("domains.purchase_invoice.cannot_delete_closed"));
+            }
+
+            // Rollback supplier financials if invoice was ACCEPTED before deletion
+            if (inv.status === ApprovalStatus.ACCEPTED) {
+                await this.syncSupplierFinancials({
+                    oldStatus: inv.status,
+                    newStatus: undefined, // It's being deleted
+                    oldSupplierId: inv.supplierId,
+                    newSupplierId: null,
+                    total: inv.total ?? 0,
+                    remainingAmount: inv.remainingAmount ?? 0,
+                    manager,
+                });
+
+                // Refund to safe if paidAmount > 0 and safeId was provided
+                if (Number(inv.paidAmount) > 0 && inv.safeId) {
+                    await this.safesService.deposit(me, {
+                        accountId: inv.safeId,
+                        amount: Number(inv.paidAmount),
+                        referenceType: TransactionReferenceType.PURCHASE_PAYMENT,
+                        referenceId: inv.id,
+                        referenceMeta: {
+                            purchaseNumber: inv.receiptNumber || null,
+                        },
+                        notes: await this.requestTranslations.tAsync("domains.purchase_invoice.purchase_invoice_deleted_refunded_notes", adminId, { args: {receiptNumber: inv.receiptNumber, status} }),
+                    }, manager);
+                }
+            }
+
+            await manager.delete(PurchaseInvoiceEntity, { id, adminId });
+
+            await this.log({
+                adminId,
+                invoiceId: id,
+                userId: me?.id ?? null,
+                action: PurchaseAuditAction.DELETED,
+                description: `Purchase invoice deleted`,
+                ipAddress,
+                manager,
+            });
+
+            return { ok: true };
+        };
+
+        if (manager) {
+            return runWithManager(manager);
+        } else {
+            return this.dataSource.transaction(runWithManager);
+        }
+    }
 
 	/**
 	 * Sync supplier financials based on invoice status transition.
@@ -1066,7 +1069,7 @@ export class PurchasesService {
 
 	async exportPurchases(me: any, q?: any) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
 		const search = String(q?.search ?? "").trim();
 		const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
@@ -1105,18 +1108,20 @@ export class PurchasesService {
 		const records = await qb.getMany();
 
 		const workbook = new ExcelJS.Workbook();
-		const worksheet = workbook.addWorksheet("Purchases");
+		const worksheet = workbook.addWorksheet(
+			this.translations.t("domains.purchase_invoice.sheet_name")
+		);
 
 		worksheet.columns = [
-			{ header: "ID", key: "id", width: 10 },
-			{ header: "Supplier", key: "supplier", width: 25 },
-			{ header: "Receipt #", key: "receiptNumber", width: 20 },
-			{ header: "Status", key: "status", width: 15 },
-			{ header: "Subtotal", key: "subtotal", width: 15 },
-			{ header: "Total", key: "total", width: 15 },
-			{ header: "Paid Amount", key: "paidAmount", width: 15 },
-			{ header: "Remaining Amount", key: "remainingAmount", width: 15 },
-			{ header: "Created At", key: "created_at", width: 18 },
+			{ header: this.translations.t("common.id"), key: "id", width: 10 },
+			{ header: this.translations.t("domains.purchase_invoice.supplier"), key: "supplier", width: 25 },
+			{ header: this.translations.t("domains.purchase_invoice.receipt_number"), key: "receiptNumber", width: 20 },
+			{ header: this.translations.t("common.status"), key: "status", width: 15 },
+			{ header: this.translations.t("domains.purchase_invoice.subtotal"), key: "subtotal", width: 15 },
+			{ header: this.translations.t("domains.purchase_invoice.total"), key: "total", width: 15 },
+			{ header: this.translations.t("domains.purchase_invoice.paid_amount"), key: "paidAmount", width: 15 },
+			{ header: this.translations.t("domains.purchase_invoice.remaining_amount"), key: "remainingAmount", width: 15 },
+			{ header: this.translations.t("common.created_at"), key: "created_at", width: 18 },
 		];
 
 		worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };

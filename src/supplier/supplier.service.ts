@@ -8,6 +8,7 @@ import { CRUD } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import { SafesService } from "src/safes/safes.service";
 import { TransactionReferenceType } from "entities/safe.entity";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 @Injectable()
 export class SuppliersService {
@@ -16,6 +17,8 @@ export class SuppliersService {
 		@InjectRepository(SupplierCategoryEntity) private categoryRepo: Repository<SupplierCategoryEntity>,
 		private safesService: SafesService,
 		private dataSource: DataSource,
+		private translations: TranslationService,
+		private requestTranslations: RequestTranslationService,
 	) { }
 
 	async list(me: any, q?: any) {
@@ -86,16 +89,23 @@ export class SuppliersService {
 
 	private async validateCategories(me: any, categoryIds: string[]) {
 		if (!categoryIds || categoryIds.length === 0) {
-			throw new BadRequestException("At least one category is required");
+			throw new BadRequestException(
+				this.translations.t(
+					"domains.suppliers.at_least_one_category_required"
+				)
+			);
 		}
-
 		const adminId = tenantId(me);
 		const categories = await this.categoryRepo.find({
 			where: categoryIds.map((id) => ({ id, adminId })) as any,
 		});
 
 		if (categories.length !== categoryIds.length) {
-			throw new BadRequestException("Some categories not found or not in your tenant");
+			throw new BadRequestException(
+				this.translations.t(
+					"domains.suppliers.some_categories_not_found"
+				)
+			);
 		}
 
 		return categories;
@@ -113,7 +123,11 @@ export class SuppliersService {
 			where: { id, adminId: me.adminId }
 		});
 
-		if (!supplier) throw new NotFoundException('Supplier not found');
+		if (!supplier) {
+			throw new NotFoundException(
+				this.translations.t("domains.suppliers.supplier_not_found")
+			);
+		}
 
 		// Perform the withdrawal
 		await this.safesService.withdraw(me, {
@@ -124,8 +138,22 @@ export class SuppliersService {
 			referenceMeta: {
 				supplierName: supplier.name,
 			},
-			notes: dto.notes || `Payment to supplier ${supplier.name}`,
-		}, manager);
+			notes:
+				dto.notes ||
+				await this.requestTranslations.tAsync(
+					"domains.suppliers.payment_to_supplier",
+					tenantId(me),
+					{
+						args: {
+							supplierName: supplier.name,
+						},
+						fromSettings: true,
+					}
+				),
+		},
+			manager
+		);
+
 
 		// Decrease the supplier's due balance
 		supplier.dueBalance = Number(supplier.dueBalance) - Number(dto.amount);
@@ -136,7 +164,11 @@ export class SuppliersService {
 
 	async create(me: any, dto: CreateSupplierDto) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) {
+			throw new BadRequestException(
+				this.translations.t("common.missing_admin_id")
+			);
+		}
 
 		const categories = await this.validateCategories(me, dto.categoryIds);
 
@@ -213,20 +245,19 @@ export class SuppliersService {
 	async export(me: any, q?: any) {
 		const data = await this.list(me, { ...q, limit: 1000000 });
 
-		// Transform for Excel export
 		const records = data.records.map((s: any) => ({
-			"الرقم": s.id,
-			"اسم المورد": s.name,
-			"رقم الهاتف": s.phone,
-			"رقم الهاتف الثاني": s.secondPhone || "",
-			"البريد الإلكتروني": s.email || "",
-			"العنوان": s.address || "",
-			"الفئات": s.categories?.map((c: any) => c.name).join(", ") || "",
-			"الرصيد المستحق": s.dueBalance,
-			"قيمة المشتريات": s.purchaseValue,
-			"تاريخ الإنشاء": s.created_at,
+			[this.translations.t("common.id")]: s.id,
+			[this.translations.t("common.name")]: s.name,
+			[this.translations.t("common.phone")]: s.phone,
+			[this.translations.t("common.second_phone")]: s.secondPhone || "",
+			[this.translations.t("common.email")]: s.email || "",
+			[this.translations.t("common.address")]: s.address || "",
+			[this.translations.t("common.categories")]:
+				s.categories?.map((c: any) => c.name).join(", ") || "",
+			[this.translations.t("common.due_balance")]: s.dueBalance,
+			[this.translations.t("common.purchase_value")]: s.purchaseValue,
+			[this.translations.t("common.created_at")]: s.created_at,
 		}));
-
 		return records;
 	}
 }

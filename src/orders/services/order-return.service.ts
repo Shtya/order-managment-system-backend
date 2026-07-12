@@ -6,6 +6,7 @@ import { OrdersService, tenantId } from "./orders.service";
 import { CreateReturnDto } from "dto/order.dto";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 @Injectable()
 export class OrderReturnService {
@@ -17,6 +18,8 @@ export class OrderReturnService {
         private readonly orderRepo: Repository<OrderEntity>,
         private readonly ordersService: OrdersService, // Inject the main service
         private readonly notificationService: NotificationService,
+        private readonly translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
     ) { }
 
 
@@ -37,35 +40,41 @@ export class OrderReturnService {
             });
 
             if (!order) {
-                throw new NotFoundException(`Order with ID ${dto.orderId} not found.`);
-            }
+            throw new NotFoundException(this.translations.t('domains.orders.return.order_not_found', { args: { orderId: dto.orderId } }));
+        }
 
             const orderItemsMap = new Map(order.items.map(item => [item.id, item]));
 
             // 2. Validate requested items
             for (const returnItem of dto.items) {
-                const originalOrderItem = orderItemsMap.get(returnItem.originalItemId);
-                let errorDetail;
+            const originalOrderItem = orderItemsMap.get(returnItem.originalItemId);
+            let errorDetail;
+            let errorDetail2;
 
-                if (!originalOrderItem) {
-                    errorDetail = `Item ID ${returnItem.originalItemId} not found in Order ${dto.orderId}`.trim();
-                } else if (returnItem.quantity > originalOrderItem.quantity) {
-                    errorDetail = `Qty mismatch: Requested ${returnItem.quantity}, Purchased ${originalOrderItem.quantity}`.trim();
-                }
-
-                if (errorDetail) {
-                    await this.ordersService.logOrderAction({
-                        manager,
-                        adminId,
-                        userId,
-                        orderId: dto.orderId,
-                        actionType: OrderActionType.RETURN,
-                        result: OrderActionResult.FAILED,
-                        details: errorDetail
-                    });
-                    throw new BadRequestException(errorDetail);
-                }
+            if (!originalOrderItem) {
+                errorDetail = await this.requestTranslations.tAsync('domains.orders.return.item_not_found', adminId, { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
+            } else if (returnItem.quantity > originalOrderItem.quantity) {
+                errorDetail = await this.requestTranslations.tAsync('domains.orders.return.qty_mismatch', adminId, { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
             }
+            if (!originalOrderItem) {
+                errorDetail2 = this.translations.t('domains.orders.return.item_not_found', { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
+            } else if (returnItem.quantity > originalOrderItem.quantity) {
+                errorDetail2 = this.translations.t('domains.orders.return.qty_mismatch', { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
+            }
+
+            if (errorDetail) {
+                await this.ordersService.logOrderAction({
+                    manager,
+                    adminId,
+                    userId,
+                    orderId: dto.orderId,
+                    actionType: OrderActionType.RETURN,
+                    result: OrderActionResult.FAILED,
+                    details: errorDetail
+                });
+                throw new BadRequestException(errorDetail2);
+            }
+        }
 
             const cleanReason = dto.reason?.trim();
 
@@ -109,7 +118,7 @@ export class OrderReturnService {
                     fromStatusId: oldStatusId,
                     toStatusId: preparingStatus.id,
                     userId,
-                    notes: "Automatic: Moved to Return Preparing via return request",
+                    notes: await this.requestTranslations.tAsync('domains.orders.return.moved_to_return_preparing', adminId, {}),
                     manager
                 });
             }
@@ -122,14 +131,14 @@ export class OrderReturnService {
                 orderId: dto.orderId,
                 actionType: OrderActionType.RETURN,
                 result: OrderActionResult.SUCCESS,
-                details: `Order ${order.orderNumber || dto.orderId} has been prepered for returned for ${dto.items.length} items.`.trim()
+                details: await this.requestTranslations.tAsync('domains.orders.return.return_request_created_log', adminId, { args: { orderNumberOrId: order.orderNumber || dto.orderId, itemsCount: dto.items.length } })
             });
 
             await this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.RETURN_REQUEST_CREATED,
-                title: "Return Request Created",
-                message: `A return request has been created for order #${order.orderNumber}.`,
+                title: await this.requestTranslations.tAsync('domains.orders.return.return_request_created_title', adminId),
+                message: await this.requestTranslations.tAsync('domains.orders.return.return_request_created_message', adminId, { fromSettings: true, args: { orderNumber: order.orderNumber } }),
                 relatedEntityType: "order",
                 relatedEntityId: String(order.id),
             });

@@ -3,10 +3,11 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ProductVariantEntity } from 'entities/sku.entity';
 import { User } from 'entities/user.entity';
-import { OrderRetrySettingsEntity } from 'entities/order.entity';
+import { ClientSettingsEntity } from 'entities/clientSettings.entity';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity'; // Adjust import path as needed
 import { Brackets, Repository } from 'typeorm';
+import { RequestTranslationService } from 'common/translation.service';
 
 @Injectable()
 export class LowStockService {
@@ -20,9 +21,10 @@ export class LowStockService {
     private readonly productVariantRepo: Repository<ProductVariantEntity>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
-    @InjectRepository(OrderRetrySettingsEntity)
-    private readonly settingsRepo: Repository<OrderRetrySettingsEntity>,
+    @InjectRepository(ClientSettingsEntity)
+    private readonly settingsRepo: Repository<ClientSettingsEntity>,
     private readonly notificationService: NotificationService,
+    private requestTranslations: RequestTranslationService,
   ) { }
 
   // Runs every 24 hours at 2:00 AM
@@ -89,16 +91,21 @@ export class LowStockService {
         }
 
         // Create a summary message
+        const title = await this.requestTranslations.tAsync('domains.products.low_stock_alert_title', adminId);
         const message = variants.length === 1
-          ? `Product "${variants[0].product?.name || variants[0].sku}" is running low on stock.`
-          : `You have ${variants.length} product variants running low on stock. Please check your inventory.`;
+          ? await this.requestTranslations.tAsync('domains.products.low_stock_alert_single', adminId, {
+              args: { productName: variants[0].product?.name || variants[0].sku }
+            })
+          : await this.requestTranslations.tAsync('domains.products.low_stock_alert_multiple', adminId, {
+              args: { count: variants.length }
+            });
 
         // Send the notification using your standard method
         await this.notificationService.create({
           userId: adminId,
           type: NotificationType.LOW_STOCK_ALERT, // Make sure this enum value exists
-          title: 'Low Stock Alert',
-          message: message,
+          title,
+          message,
           relatedEntityType: 'product',
           relatedEntityId: variants.length === 1 ? variants[0].productId.toString() : undefined,
         });

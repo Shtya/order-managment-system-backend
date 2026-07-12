@@ -13,45 +13,46 @@ import {
   ValidateNested,
 } from "class-validator";
 import { OmitType, PartialType } from "@nestjs/mapped-types";
+import { i18nValidationMessage } from "nestjs-i18n";
 
 export class BundleItemDto {
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   variantId!: string;
 
-  @IsInt()
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
   qty!: number;
 }
 
 export class CreateBundleDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+  @MaxLength(200, {message: i18nValidationMessage('validation.max_length')})
   name!: string;
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional() // Description is usually optional
-  @MaxLength(2000) // Matches your Yup schema
+  @MaxLength(2000, { message: i18nValidationMessage('validation.max_length') }) // Matches your Yup schema
   description?: string;
 
-  @IsInt()
-  @Min(1)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(1, {message: i18nValidationMessage('validation.min')})
   price!: number;
 
-  @IsString()
-  @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   variantId!: string;
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   storeId?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(120)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+  @MaxLength(120, { message: i18nValidationMessage('validation.max_length') })
   sku!: string;
 
-  @IsArray()
-  @ArrayMinSize(1, { message: 'At least one item is required' })
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
+  @ArrayMinSize(1, {message: i18nValidationMessage('validation.array_min_size')})
   @ValidateNested({ each: true })
   @Type(() => BundleItemDto)
   items!: BundleItemDto[];
@@ -61,7 +62,7 @@ export class UpdateBundleDto extends PartialType(
   OmitType(CreateBundleDto, ['sku'] as const),
 ) {
   @IsOptional()
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => BundleItemDto)
   items?: BundleItemDto[];

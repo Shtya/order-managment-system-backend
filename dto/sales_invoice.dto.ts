@@ -12,74 +12,76 @@ import {
   ValidateNested,
 } from "class-validator";
 import { PaymentMethod, PaymentStatus } from "common/enums";
+import { i18nValidationMessage } from "nestjs-i18n";
+
 
 export class SalesInvoiceItemDto {
-@IsString()
+@IsString({message: i18nValidationMessage('validation.is_string')})
   variantId: string;
 
-  @IsInt()
-  @Min(1)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(1, {message: i18nValidationMessage('validation.min')})
   quantity: number;
 
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   unitPrice: number;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   discount?: number; // per line
 
   @IsOptional()
-  @IsBoolean()
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   taxInclusive?: boolean;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   taxRate?: number;
 }
 
 export class CreateSalesInvoiceDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   invoiceNumber: string;
 
-  @IsString()
-  @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   customerName: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   phone?: string;
 
   @IsOptional()
-  @IsEnum(PaymentMethod)
+  @IsEnum(PaymentMethod,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentMethod).join(', ')], }); }})
   paymentMethod?: PaymentMethod;
 
   @IsOptional()
-  @IsEnum(PaymentStatus)
+  @IsEnum(PaymentStatus,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentStatus).join(', ')], }); }})
   paymentStatus?: PaymentStatus;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   safeId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   notes?: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   shippingCost?: number;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   paidAmount?: number;
 
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => SalesInvoiceItemDto)
   items: SalesInvoiceItemDto[];
@@ -87,51 +89,51 @@ export class CreateSalesInvoiceDto {
 
 export class UpdateSalesInvoiceDto {
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   invoiceNumber?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   customerName?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   phone?: string;
 
   @IsOptional()
-  @IsEnum(PaymentMethod)
+  @IsEnum(PaymentMethod,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentMethod).join(', ')], }); }})
   paymentMethod?: PaymentMethod;
 
   @IsOptional()
-  @IsEnum(PaymentStatus)
+  @IsEnum(PaymentStatus,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentStatus).join(', ')], }); }})
   paymentStatus?: PaymentStatus;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   safeId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   notes?: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   shippingCost?: number;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   paidAmount?: number;
 
   @IsOptional()
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => SalesInvoiceItemDto)
   items?: SalesInvoiceItemDto[];
 }
 
 export class UpdateSalesPaymentStatusDto {
-  @IsEnum(PaymentStatus)
+  @IsEnum(PaymentStatus,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentStatus).join(', ')], }); }})
   paymentStatus: PaymentStatus;
 }

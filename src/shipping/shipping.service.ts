@@ -6,24 +6,24 @@ import * as crypto from 'crypto';
 
 
 import {
-  ShipmentEntity,
-  ShipmentEventEntity,
-  ShipmentStatus,
-  ShippingCompanyEntity,
-  ShippingIntegrationEntity,
-  UnifiedShippingStatus,
-  ExternalShipmentLogEntity,
+	ShipmentEntity,
+	ShipmentEventEntity,
+	ShipmentStatus,
+	ShippingCompanyEntity,
+	ShippingIntegrationEntity,
+	UnifiedShippingStatus,
+	ExternalShipmentLogEntity,
 } from '../../entities/shipping.entity';
 import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
 
-import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto } from './shipping.dto';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto } from 'dto/shipping.dto';
 import { IMassAWBProvider, ProviderCode, ProviderWebhookResult, ShippingProvider } from './providers/shipping-provider.interface';
 import { BostaProvider } from './providers/bosta.provider';
 import { JtProvider } from './providers/jt.provider';
 import { TurboProvider } from './providers/turbo.provider';
 import { tenantId } from 'src/category/category.service';
-import { OrderActionResult, OrderActionType, OrderEntity, OrderFlowPath, OrderItemEntity, OrderReplacementEntity, OrderStatus, OrderStatusEntity, StockDeductionStrategy } from 'entities/order.entity';
+import { OrderActionResult, OrderActionType, OrderEntity, OrderItemEntity, OrderReplacementEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
 import { ProductVariantEntity } from 'entities/sku.entity';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { OrderSyncQueueService } from 'src/queue/queues/order-sync.queue';
@@ -33,6 +33,9 @@ import { NotificationType } from 'entities/notifications.entity';
 import { generateRandomAlphanumeric, isSuperAdmin } from 'common/healpers';
 import { TriggerDispatcherService } from 'src/automation/engine/triggerDispatcher.service';
 import { TriggerEntityType, TriggerType } from 'entities/automation.entity';
+import { OrderFlowPath } from 'entities/clientSettings.entity';
+import { ClientSettingsService } from 'src/client-settings/client-settings.service';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class ShippingService {
@@ -67,6 +70,9 @@ export class ShippingService {
 		private readonly notificationService: NotificationService,
 		@Inject(forwardRef(() => TriggerDispatcherService))
 		private readonly triggerDispatcher: TriggerDispatcherService,
+		private readonly clientSettingsService: ClientSettingsService,
+		private readonly translations: TranslationService,
+		private requestTranslations: RequestTranslationService,
 	) {
 		this.providers = {
 			bosta: this.bostaProvider,
@@ -166,50 +172,95 @@ export class ShippingService {
 		const adminId = tenantId(me);
 		const p = this.getProvider(providerCode);
 
-		// Check if provider supports mass AWB
-		if (!('printMassAWB' in p)) {
-			throw new BadRequestException(`Provider ${providerCode} does not support mass AWB printing.`);
+		if (!("printMassAWB" in p)) {
+			throw new BadRequestException(
+				this.translations.t("domains.shipping.provider_not_support_mass_awb", {
+					args: {
+						providerCode,
+					},
+				}),
+			);
 		}
 
 		const massAWBProvider = p as unknown as IMassAWBProvider;
 
 		if (dto.orderIds.length > 50) {
-			throw new BadRequestException('Supports a maximum of 50 orders per mass AWB request.');
+			throw new BadRequestException(
+				this.translations.t("domains.shipping.mass_awb_max_orders"),
+			);
 		}
 
-		// Fetch orders and validate
 		const orders = await this.ordersRepo.find({
 			where: {
 				id: In(dto.orderIds),
 				adminId,
-				shippingCompany: { code: providerCode }
+				shippingCompany: {
+					code: providerCode,
+				},
 			},
-			relations: ['status', 'shippingCompany']
+			relations: ["status", "shippingCompany"],
 		});
 
 		if (orders.length !== dto.orderIds.length) {
-			throw new BadRequestException('Some orders were not found or do not belong to the selected provider.');
+			throw new BadRequestException(
+				this.translations.t(
+					"domains.shipping.orders_not_found_or_invalid_provider",
+				),
+			);
 		}
 
 		const trackingNumbers: string[] = [];
+
 		for (const order of orders) {
 			if (!order.trackingNumber) {
-				throw new BadRequestException(`Order ${order.orderNumber} does not have a tracking number.`);
+				throw new BadRequestException(
+					this.translations.t(
+						"domains.shipping.order_missing_tracking_number",
+						{
+							args: {
+								orderNumber: order.orderNumber,
+							},
+						},
+					),
+				);
 			}
-			// Status check: must be distributed or later in the flow
-			// Assuming distributed or shipped are valid for AWB printing
-			if (![OrderStatus.DISTRIBUTED, OrderStatus.SHIPPED, OrderStatus.PRINTED].includes(order.status?.code as OrderStatus)) {
-				throw new BadRequestException(`Order ${order.orderNumber} is not in a valid status for AWB printing (current status: ${order.status?.code}).`);
+
+			if (
+				![
+					OrderStatus.DISTRIBUTED,
+					OrderStatus.SHIPPED,
+					OrderStatus.PRINTED,
+				].includes(order.status?.code as OrderStatus)
+			) {
+				throw new BadRequestException(
+					this.translations.t(
+						"domains.shipping.order_invalid_awb_status",
+						{
+							args: {
+								orderNumber: order.orderNumber,
+								status: order.status?.code,
+							},
+						},
+					),
+				);
 			}
+
 			trackingNumbers.push(order.trackingNumber);
 		}
 
-		const { apiKey } = await this.requireApiKey(adminId, providerCode);
+		const { apiKey } = await this.requireApiKey(
+			adminId,
+			providerCode,
+		);
 
-		const result = await massAWBProvider.printMassAWB(apiKey, trackingNumbers, {
-			requestedAwbType: dto.requestedAwbType,
-			lang: dto.lang
-		});
+		const result = await massAWBProvider.printMassAWB(
+			apiKey,
+			trackingNumbers,
+			{
+				requestedAwbType: dto.requestedAwbType,
+				lang: dto.lang,
+			},
+		);
 
 		if (!result.success) {
 			throw new BadRequestException(result.error);
@@ -217,7 +268,7 @@ export class ShippingService {
 
 		return {
 			success: true,
-			data: result.data
+			data: result.data,
 		};
 	}
 
@@ -253,14 +304,22 @@ export class ShippingService {
 	private getProvider(provider: string | ProviderCode): ShippingProvider {
 		const key = (provider || '').toLowerCase().trim();
 		const p = this.providers[key];
-		if (!p) throw new BadRequestException(`Unsupported shipping provider: ${provider}`);
+		if (!p) throw new BadRequestException(this.translations.t("domains.shipping.unsupported_provider", {
+			args: {
+				provider,
+			},
+		}));
 		return p;
 	}
 
 	private async getCompanyByProviderForAdmin(_adminId: string, provider: string) {
 
 		const company = await this.companiesRepo.findOne({ where: { code: provider } });
-		if (!company) throw new BadRequestException(`Company record not found for provider "${provider}"`);
+		if (!company) throw new BadRequestException(this.translations.t("domains.shipping.company_not_found", {
+			args: {
+				provider,
+			},
+		}));
 		return company;
 	}
 
@@ -284,11 +343,11 @@ export class ShippingService {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
 		const integ = await this.getOrCreateIntegration(adminId, company.id);
 
-		if (!integ.isActive) throw new BadRequestException('Shipping company is disabled');
+		if (!integ.isActive) throw new BadRequestException(this.translations.t("domains.shipping.integration_disabled"));
 
 		const apiKey = integ.credentials?.apiKey;
 
-		if (!apiKey) throw new BadRequestException('Provider credentials not configured (missing apiKey)');
+		if (!apiKey) throw new BadRequestException(this.translations.t("domains.shipping.credentials_not_configured"));
 
 		return { apiKey, companyId: company.id, integId: integ.id, integ };
 	}
@@ -302,7 +361,7 @@ export class ShippingService {
 		const { valid, message } = await p.verifyCredentials(apiKey, accountId);
 		if (!valid) {
 			throw new BadRequestException(
-				message || `Unable to validate the integration to ${p.displayName}.`,
+				message || this.translations.t("domains.shipping.connection_failed", { args: { provider } }),
 			);
 		}
 
@@ -324,7 +383,7 @@ export class ShippingService {
 			webhookSecret: credentials.webhookSecret ? String(credentials.webhookSecret).trim() : (integ.credentials?.webhookSecret || undefined),
 		};
 
-		if (!next.apiKey) throw new BadRequestException('Missing apiKey');
+		if (!next.apiKey) throw new BadRequestException(this.translations.t("domains.shipping.api_key_missing"));
 
 		await this.dataSource.transaction(async (manager) => {
 
@@ -354,7 +413,7 @@ export class ShippingService {
 		if (isActive) {
 			const apiKey = integ.credentials?.apiKey;
 			if (!apiKey) {
-				throw new BadRequestException(`Cannot activate: No API key found for ${provider}.`);
+				throw new BadRequestException(this.translations.t("domains.shipping.api_key_not_found", { args: { provider } }));
 			}
 
 
@@ -451,7 +510,7 @@ export class ShippingService {
 		try {
 			// Validation: Order ID required
 			if (!orderId) {
-				throw new BadRequestException("Order is required to create a shipment.");
+				throw new BadRequestException(this.translations.t("domains.shipping.order_required"));
 			}
 
 			// Validation: Order exists
@@ -470,11 +529,11 @@ export class ShippingService {
 				]
 			});
 
-			if (!order) throw new BadRequestException("Order not found.");
+			if (!order) throw new BadRequestException(this.translations.t("domains.shipping.order_not_found"));
 
 			// Validation: Order status
 			if (![OrderStatus.CONFIRMED, OrderStatus.FAILED_DELIVERY].includes(order.status?.code as OrderStatus)) {
-				throw new BadRequestException(`Cannot create shipment for order in status "${order.status?.code}". Only orders in "confirmed" or "failed_delivery" status can be assigned for shipping.`)
+				throw new BadRequestException(this.translations.t("domains.shipping.invalid_order_status", { args: { status: order.status?.code } }));
 			}
 
 			// Cancel previous shipment if exists (latest for this order)
@@ -497,7 +556,7 @@ export class ShippingService {
 				} catch (e: any) {
 					const prevTracking = prevShipment?.trackingNumber || prevShipment?.providerShipmentId;
 					throw new BadRequestException(
-						`Cannot create shipment. Previous shipment (${prevTracking}) not cancelled: ${e?.message || e}`
+						this.translations.t("domains.shipping.previous_shipment_not_cancelled", { args: { prevTracking } })
 					);
 				}
 			}
@@ -511,7 +570,7 @@ export class ShippingService {
 
 			// Execute shipment creation transaction
 			const result = await this.dataSource.transaction(async (manager) => {
-				const settings = await this.ordersService.getCachedSettings(adminId);
+				const settings = await this.clientSettingsService.getCachedSettings(adminId);
 				const newStatusCode = settings.orderFlowPath === OrderFlowPath.SHIPPING ? OrderStatus.SHIPPED : OrderStatus.DISTRIBUTED;
 
 				// Function to dispatch shipment created trigger after commit
@@ -575,7 +634,7 @@ export class ShippingService {
 						orderId,
 						actionType: OrderActionType.COURIER_ASSIGNED,
 						result: OrderActionResult.SUCCESS,
-						details: `Assigned for Manual Shipping (No Provider). Tracking: ${trackingNumber}`,
+						details: await this.requestTranslations.tAsync("domains.shipping.courier_assigned_manual", adminId, { args: { trackingNumber } }),
 					});
 
 					await manager.save(
@@ -660,7 +719,7 @@ export class ShippingService {
 					actionType: OrderActionType.COURIER_ASSIGNED,
 					result: OrderActionResult.SUCCESS,
 					shippingCompanyId: companyId,
-					details: `Assigned to ${provider}. Tracking: ${shipment.trackingNumber}`
+					details: await this.requestTranslations.tAsync("domains.shipping.courier_assigned_provider", adminId, { args: { provider, trackingNumber: shipment.trackingNumber } }),
 				});
 
 				// Add post-commit task to dispatch trigger
@@ -699,10 +758,13 @@ export class ShippingService {
 			await this.notificationService.create({
 				userId: adminId,
 				type: NotificationType.SHIPMENT_CREATED,
-				title: provider === 'none' ? "Order Distributed" : "Shipment Created",
+				title:
+					provider === "none"
+						? await this.requestTranslations.tAsync("domains.shipping.order_distributed_title", adminId)
+						: await this.requestTranslations.tAsync("domains.shipping.shipment_created_title", adminId),
 				message: provider === 'none'
-					? `Order #${order.orderNumber} has been assigned for manual shipping. Tracking: ${result.trackingNumber ?? '—'}.`
-					: `Shipment for order #${order.orderNumber} has been created successfully. Tracking: ${result.trackingNumber}`,
+					? await this.requestTranslations.tAsync("domains.shipping.manual_shipping_assigned", adminId, { args: { orderNumber: order.orderNumber, trackingNumber: result.trackingNumber ?? '—' } })
+					: await this.requestTranslations.tAsync("domains.shipping.shipment_created_successfully", adminId, { args: { orderNumber: order.orderNumber, trackingNumber: result.trackingNumber } }),
 				relatedEntityType: "order",
 				relatedEntityId: String(order.id),
 			});
@@ -739,8 +801,8 @@ export class ShippingService {
 			await this.notificationService.create({
 				userId: adminId,
 				type: NotificationType.SHIPMENT_CREATED,
-				title: "Shipment Creation Failed",
-				message: `Failed to create shipment for order #${order?.orderNumber}. Error: ${errorMessage}`,
+				title: await this.requestTranslations.tAsync("domains.shipping.shipment_creation_failed", adminId),
+				message: await this.requestTranslations.tAsync("domains.shipping.shipment_failed_message", adminId, { args: { orderNumber: order?.orderNumber, errorMessage: errorMessage } }),
 				relatedEntityType: "order",
 				relatedEntityId: String(order?.id),
 			});
@@ -759,9 +821,9 @@ export class ShippingService {
 			relations: ['order', 'order.items']
 		});
 
-		if (!shipment) throw new NotFoundException("Shipment not found.");
+		if (!shipment) throw new NotFoundException(this.translations.t("domains.shipping.shipment_not_found"));
 		if (shipment.status === ShipmentStatus.CANCELLED) {
-			throw new BadRequestException("Shipment is already cancelled.");
+			throw new BadRequestException(this.translations.t("domains.shipping.shipment_already_cancelled"));
 		}
 
 		return await this.dataSource.transaction(async (manager) => {
@@ -769,7 +831,7 @@ export class ShippingService {
 				const isCancelled = await p.cancelShipment(apiKey, shipment.providerShipmentId || shipment.trackingNumber);
 
 				if (!isCancelled) {
-					throw new Error("Provider refused to cancel the shipment.");
+					throw new Error(this.translations.t("domains.shipping.provider_cancel_failed"));
 				}
 
 				shipment.status = ShipmentStatus.CANCELLED;
@@ -778,7 +840,7 @@ export class ShippingService {
 
 				const result = {
 					ok: true,
-					message: "Shipment cancelled successfully and stock restored.",
+					message: this.translations.t("domains.shipping.shipment_cancel_success"),
 					shipmentId: shipment.id,
 					status: shipment.unifiedStatus
 				};
@@ -786,8 +848,8 @@ export class ShippingService {
 				await this.notificationService.create({
 					userId: adminId,
 					type: NotificationType.SHIPMENT_CANCELLED,
-					title: "Shipment Cancelled",
-					message: `Shipment for order #${shipment.order.orderNumber} has been cancelled and stock has been restored.`,
+					title: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_title", adminId),
+					message: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_message", adminId, { args: { orderNumber: shipment.order.orderNumber } }),
 					relatedEntityType: "order",
 					relatedEntityId: String(shipment.order.id),
 				});
@@ -814,7 +876,7 @@ export class ShippingService {
 		await this.orderSyncQueueService.enqueueBulkShippingTasks(adminId, provider, dto);
 		return {
 			success: true,
-			message: `Successfully enqueued ${dto.items.length} unique shipping tasks.`,
+			message: await this.translations.t("domains.shipping.bulk_shipping_enqueued", { args: { count: dto.items.length } }),
 			count: dto.items.length
 		};
 	}
@@ -842,7 +904,7 @@ export class ShippingService {
 
 	async getShipment(adminId: string, id: string) {
 		const s = await this.shipmentsRepo.findOne({ where: { id, adminId } });
-		if (!s) throw new BadRequestException('Shipment not found');
+		if (!s) throw new BadRequestException(this.translations.t("domains.shipping.shipment_not_found"));
 
 		return {
 			ok: true,
@@ -860,7 +922,7 @@ export class ShippingService {
 
 	async getShipmentByTrackingNumber(adminId: string, trackingNumber: string) {
 		const s = await this.shipmentsRepo.findOne({ where: { trackingNumber, adminId } });
-		if (!s) throw new BadRequestException('Shipment not found');
+		if (!s) throw new BadRequestException(this.translations.t("domains.shipping.shipment_not_found"));
 
 		return {
 			ok: true,
@@ -878,7 +940,7 @@ export class ShippingService {
 
 	async getShipmentEvents(adminId: string, id: string) {
 		const s = await this.shipmentsRepo.findOne({ where: { id, adminId } });
-		if (!s) throw new BadRequestException('Shipment not found');
+		if (!s) throw new BadRequestException(this.translations.t("domains.shipping.shipment_not_found"));
 
 		const events = await this.eventsRepo.find({
 			where: { shipmentId: s.id },
@@ -922,11 +984,11 @@ export class ShippingService {
 		const limit = Number(q?.limit ?? 10);
 
 		const qb = this.externalShipmentLogsRepo.createQueryBuilder('log')
-		.leftJoinAndSelect('log.shipment', 'shipment')
-		.leftJoinAndSelect('log.order', 'order')
-		.leftJoin('shipment.shippingCompany', 'shippingCompany')
-		.where('shipment.adminId = :adminId', { adminId });
-		
+			.leftJoinAndSelect('log.shipment', 'shipment')
+			.leftJoinAndSelect('log.order', 'order')
+			.leftJoin('shipment.shippingCompany', 'shippingCompany')
+			.where('shipment.adminId = :adminId', { adminId });
+
 		if (shipmentId) {
 			qb.andWhere('log.shipmentId = :shipmentId', { shipmentId });
 		}
@@ -949,15 +1011,39 @@ export class ShippingService {
 	async exportExternalShipmentLogs(me: any, q?: any) {
 		const { records } = await this.listExternalShipmentLogs(me, { ...q, limit: 1000, page: 1 });
 		const workbook = new ExcelJS.Workbook();
-		const worksheet = workbook.addWorksheet('External Shipment Logs');
+		const worksheet = workbook.addWorksheet(this.translations.t("domains.shipping.external_shipment_logs"));
 
 		worksheet.columns = [
-			{ header: "Order Number", key: "orderNumber", width: 25},
-			{ header: 'Tracking Number', key: 'trackingNumber', width: 25 },
-			{ header: 'Shipping Company', key: 'shippingCompany', width: 25 },
-			{ header: 'Status', key: 'rawStatus', width: 20 },
-			{ header: 'Notes', key: 'notes', width: 30 },
-			{ header: 'Created At', key: 'createdAt', width: 25 },
+			{
+				header: this.translations.t("domains.shipping.order_number"),
+				key: "orderNumber",
+				width: 25,
+			},
+			{
+				header: this.translations.t("domains.shipping.tracking_number"),
+				key: "trackingNumber",
+				width: 25,
+			},
+			{
+				header: this.translations.t("domains.shipping.shipping_company"),
+				key: "shippingCompany",
+				width: 25,
+			},
+			{
+				header: this.translations.t("domains.shipping.status"),
+				key: "rawStatus",
+				width: 20,
+			},
+			{
+				header: this.translations.t("domains.shipping.notes"),
+				key: "notes",
+				width: 30,
+			},
+			{
+				header: this.translations.t("domains.shipping.created_at"),
+				key: "createdAt",
+				width: 25,
+			},
 		];
 
 		worksheet.getRow(1).font = { bold: true };
@@ -987,17 +1073,17 @@ export class ShippingService {
 			where: { trackingNumber, adminId },
 			relations: ['shippingCompany']
 		});
-		if (!shipment) throw new BadRequestException('Shipment not found');
-		if (!shipment.shippingCompany) throw new BadRequestException('Shipping company not found for this shipment');
+		if (!shipment) throw new BadRequestException(this.translations.t("domains.shipping.shipment_not_found"));
+		if (!shipment.shippingCompany) throw new BadRequestException(this.translations.t("domains.shipping.shipment_company_not_found"));
 
 		const provider = this.getProvider(shipment.shippingCompany.code);
 		const integ = await this.getOrCreateIntegration(adminId, shipment.shippingCompany.id);
-		if (!integ.isActive) throw new BadRequestException('Shipping company is disabled');
+		if (!integ.isActive) throw new BadRequestException(this.translations.t("domains.shipping.integration_disabled"));
 
 		const accountId = integ?.credentials?.accountId ? String(integ?.credentials?.accountId).trim() : (integ?.credentials?.accountId || undefined)
 		const apiKey = integ?.credentials?.apiKey;
 
-		if (!apiKey) throw new BadRequestException('Provider credentials not configured (missing apiKey)');
+		if (!apiKey) throw new BadRequestException(this.translations.t("domains.shipping.credentials_not_configured"));
 		const { unifiedStatus, providerShipmentId, rawState } = await provider.getShipmentStatus(apiKey, shipment.trackingNumber, accountId);
 		return {
 			ok: true,
@@ -1024,7 +1110,7 @@ export class ShippingService {
 				"shipment",
 				`shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`
 			)
-		
+
 			.select('company.id', 'companyId')
 			.addSelect('company.name', 'companyName')
 			.addSelect('COUNT(order.id)', 'count')
@@ -1033,7 +1119,7 @@ export class ShippingService {
 				included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
 			})
 			.andWhere("shipment.status IN (:...status)", {
-				status: [ShipmentStatus.PENDING_ACTION,ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
+				status: [ShipmentStatus.PENDING_ACTION, ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
 			})
 			.groupBy('company.id')
 			.addGroupBy('company.name')
@@ -1109,7 +1195,7 @@ export class ShippingService {
 					included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
 				})
 				.andWhere("shipment.status IN (:...status)", {
-					status: [ShipmentStatus.PENDING_ACTION,ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
+					status: [ShipmentStatus.PENDING_ACTION, ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
 				})
 
 
@@ -1259,7 +1345,7 @@ export class ShippingService {
 			]);
 			if (!dupShip && !dupOrder) return trackingNumber;
 		}
-		throw new BadRequestException('Could not allocate a unique manual tracking number');
+		throw new BadRequestException(this.translations.t("domains.shipping.could_not_allocate_unique_manual_tracking_number"));
 	}
 
 	async cancelManualShipment(me: any, shipmentId: string) {
@@ -1269,9 +1355,9 @@ export class ShippingService {
 				where: { id: shipmentId, adminId },
 				relations: ['order', 'order.items', 'shippingCompany'],
 			});
-			if (!shipment) throw new NotFoundException('Shipment not found');
+			if (!shipment) throw new NotFoundException(this.translations.t("domains.shipping.shipment_not_found"));
 			if (shipment.status === ShipmentStatus.CANCELLED) {
-				return { ok: true, message: 'Already cancelled', shipmentId: shipment.id };
+				return { ok: true, message: this.translations.t("domains.shipping.already_cancelled"), shipmentId: shipment.id };
 			}
 
 			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
@@ -1281,7 +1367,7 @@ export class ShippingService {
 				await manager.increment(ProductVariantEntity, { id: item.variantId, adminId }, 'stockOnHand', item.quantity);
 			}
 			await manager.save(shipment);
-			return { ok: true, shipmentId: shipment.id, message: 'Manual shipment cancelled.' };
+			return { ok: true, shipmentId: shipment.id, message: this.translations.t("domains.shipping.manual_shipment_cancelled") };
 		});
 	}
 
@@ -1343,15 +1429,19 @@ export class ShippingService {
 			await this.notificationService.create({
 				userId: shipment.adminId,
 				type: NotificationType.SHIPMENT_CANCELLED,
-				title: "Shipment Cancelled",
-				message: `Shipment for order #${order.orderNumber} has been cancelled and stock has been restored.`,
+				title: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_title", shipment.adminId),
+				message: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_message", shipment.adminId, {
+					args: {
+						orderNumber: order.orderNumber,
+					},
+				}),
 				relatedEntityType: "order",
 				relatedEntityId: String(order.id),
 			});
 		} else {
 			shipment.unifiedStatus = mapped.unifiedStatus;
 			const newStatus = await this.mapUnifiedToLegacy(mapped.unifiedStatus);
-			if(newStatus) {
+			if (newStatus) {
 				shipment.status = newStatus;
 			}
 		}
@@ -1370,8 +1460,12 @@ export class ShippingService {
 			await this.notificationService.create({
 				userId: shipment.adminId,
 				type: NotificationType.SHIPMENT_DELIVERED,
-				title: "Shipment Delivered",
-				message: `Order #${order.orderNumber} has been successfully delivered.`,
+				title: await this.requestTranslations.tAsync("domains.shipping.shipment_delivered_title", shipment.adminId),
+				message: await this.requestTranslations.tAsync("domains.shipping.shipment_delivered_message", shipment.adminId, {
+					args: {
+						orderNumber: order.orderNumber,
+					},
+				}),
 				relatedEntityType: "order",
 				relatedEntityId: String(order.id),
 			});
@@ -1391,8 +1485,13 @@ export class ShippingService {
 			await this.notificationService.create({
 				userId: shipment.adminId,
 				type: NotificationType.SHIPMENT_FAILED,
-				title: "Shipment Failed",
-				message: `Shipment for order #${order.orderNumber} has failed (${mapped.unifiedStatus}).`,
+				title: await this.requestTranslations.tAsync("domains.shipping.shipment_failed_title", shipment.adminId),
+				message: await this.requestTranslations.tAsync("domains.shipping.shipment_failed_message", shipment.adminId, {
+					args: {
+						orderNumber: order.orderNumber,
+						status: mapped.unifiedStatus,
+					},
+				}),
 				relatedEntityType: "order",
 				relatedEntityId: String(order.id),
 			});
@@ -1404,7 +1503,11 @@ export class ShippingService {
 				orderId: order.id,
 				fromStatusId: oldStatusId,
 				toStatusId: order.statusId,
-				notes: `Automated status update from shipping provider: ${eventMeta.eventSource}`,
+				notes: await this.requestTranslations.tAsync("domains.shipping.automated_status_update_from_provider", shipment.adminId, {
+					args: {
+						eventSource: eventMeta.eventSource,
+					},
+				}),
 				manager,
 			});
 		}

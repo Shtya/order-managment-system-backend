@@ -9,6 +9,7 @@ import { deleteFile } from 'common/healpers';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { Account, AccountStatus, TransactionReferenceType } from 'entities/safe.entity';
 import { SafesService } from 'src/safes/safes.service';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class ExpensesService {
@@ -25,6 +26,8 @@ export class ExpensesService {
         private categoryRepo: Repository<ManualExpenseCategoryEntity>,
 
         private safesService: SafesService,
+        private translations: TranslationService,
+        private requestTranslationsService: RequestTranslationService,
     ) { }
 
     async listExpenses(me: any, q?: any) {
@@ -86,12 +89,12 @@ export class ExpensesService {
             },
             relations: ["category", "user", "safe"],
         });
-        if (!expense) throw new NotFoundException("Expense not found");
+        if (!expense) throw new NotFoundException(this.translations.t('domains.expenses.expense_not_found'));
         return expense;
     }
     async exportExpenses(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const qb = this.expenseRepo
             .createQueryBuilder("expense")
@@ -134,17 +137,17 @@ export class ExpensesService {
         }));
 
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Manual Expenses");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.expenses.excel_worksheet_title'));
 
         worksheet.columns = [
-            { header: "ID", key: "id", width: 10 },
-            { header: "Category", key: "category", width: 20 },
-            { header: "Amount", key: "amount", width: 15 },
-            { header: "Description", key: "description", width: 40 },
-            { header: "Safe", key: "safe", width: 20 },
-            { header: "Collection Date", key: "collectionDate", width: 20 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Created At", key: "createdAt", width: 20 },
+            { header: this.translations.t('common.id'), key: "id", width: 10 },
+            { header: this.translations.t('domains.expenses.excel_header_category'), key: "category", width: 20 },
+            { header: this.translations.t('common.amount'), key: "amount", width: 15 },
+            { header: this.translations.t('common.description'), key: "description", width: 40 },
+            { header: this.translations.t('domains.expenses.excel_header_safe'), key: "safe", width: 20 },
+            { header: this.translations.t('domains.expenses.excel_header_collection_date'), key: "collectionDate", width: 20 },
+            { header: this.translations.t('common.status'), key: "status", width: 15 },
+            { header: this.translations.t('domains.expenses.excel_header_created_at'), key: "createdAt", width: 20 },
         ];
 
         // Style header row
@@ -172,13 +175,15 @@ export class ExpensesService {
             });
 
             if (!category) {
-                throw new NotFoundException(`Category with ID ${dto.categoryId} not found for this tenant`);
+                throw new NotFoundException(
+                    this.translations.t('domains.expenses.category_not_found_with_id', { args: { categoryId: dto.categoryId } })
+                );
             }
 
             if (dto.safeId) {
                 const safe = await manager.findOne(Account, { where: { id: dto.safeId, adminId } as any });
-                if (!safe) throw new BadRequestException("Safe/Account not found");
-                if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+                if (!safe) throw new BadRequestException(this.translations.t('domains.expenses.safe_account_not_found'));
+                if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException(this.translations.t('domains.expenses.safe_account_not_active'));
             }
 
             const expense = manager.create(ManualExpenseEntity, {
@@ -190,15 +195,16 @@ export class ExpensesService {
             const savedExpense = await manager.save(expense);
 
             if (Number(savedExpense.amount) > 0 && savedExpense.safeId) {
+                const categoryName = category?.name || "N/A";
                 await this.safesService.withdraw(me, {
                     accountId: savedExpense.safeId,
                     amount: Number(savedExpense.amount),
                     referenceType: TransactionReferenceType.OPERATING_EXPENSE,
                     referenceMeta: {
-                        category: category?.name || "N/A",
+                        category: categoryName,
                     },
                     referenceId: savedExpense.id,
-                    notes: `Expense ${savedExpense.amount} for category ${category?.name || "N/A"} accepted.`,
+                    notes: await this.requestTranslationsService.tAsync('domains.expenses.log_expense_accepted', adminId,{ args: { amount: savedExpense.amount, categoryName } }),
                 }, manager);
             }
 
@@ -216,11 +222,11 @@ export class ExpensesService {
             });
 
             if (!expense) {
-                throw new NotFoundException('Expense record not found');
+                throw new NotFoundException(this.translations.t('domains.expenses.expense_record_not_found'));
             }
 
             if (expense.monthlyClosingId) {
-                throw new BadRequestException("Cannot update a expense that has been closed.");
+                throw new BadRequestException(this.translations.t('domains.expenses.cannot_update_closed'));
             }
 
             const oldAmount = Number(expense.amount || 0);
@@ -232,27 +238,30 @@ export class ExpensesService {
                 });
 
                 if (!category) {
-                    throw new NotFoundException(`Category with ID ${dto.categoryId} not found for this tenant`);
+                    throw new NotFoundException(
+                        this.translations.t('domains.expenses.category_not_found_with_id', { args: { categoryId: dto.categoryId } })
+                    );
                 }
             }
 
             if (dto.safeId) {
                 const safe = await manager.findOne(Account, { where: { id: dto.safeId, adminId } as any });
-                if (!safe) throw new BadRequestException("Safe/Account not found");
-                if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+                if (!safe) throw new BadRequestException(this.translations.t('domains.expenses.safe_account_not_found'));
+                if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException(this.translations.t('domains.expenses.safe_account_not_active'));
             }
 
             // Reverse old safe transaction if it existed
             if (oldAmount > 0 && oldSafeId) {
+                const categoryName = expense.category?.name || "N/A";
                 await this.safesService.deposit(me, {
                     accountId: oldSafeId,
                     amount: oldAmount,
                     referenceType: TransactionReferenceType.EXPENSE_REFUND,
                     referenceId: expense.id,
                     referenceMeta: {
-                        category: expense.category?.name || "N/A",
+                        category: categoryName,
                     },
-                    notes: `Reversing old expense amount ${oldAmount} due to update.`,
+                    notes: await this.requestTranslationsService.tAsync('domains.expenses.log_reversing_old_expense', adminId, { args: { oldAmount } }),
                 }, manager);
             }
 
@@ -268,15 +277,16 @@ export class ExpensesService {
                 const category = await manager.findOne(ManualExpenseCategoryEntity, {
                     where: { id: savedExpense.categoryId, adminId },
                 });
+                const categoryName = category?.name || "N/A";
                 await this.safesService.withdraw(me, {
                     accountId: savedExpense.safeId,
                     amount: Number(savedExpense.amount),
                     referenceType: TransactionReferenceType.OPERATING_EXPENSE,
                     referenceId: savedExpense.id,
                     referenceMeta: {
-                        category: category?.name || "N/A",
+                        category: categoryName,
                     },
-                    notes: `Expense ${savedExpense.amount} for category ${category?.name || "N/A"} updated.`,
+                    notes: await this.requestTranslationsService.tAsync('domains.expenses.log_expense_updated', adminId,{ args: { amount: savedExpense.amount, categoryName } }),
                 }, manager);
             }
 
@@ -294,11 +304,11 @@ export class ExpensesService {
             });
 
             if (!expense) {
-                throw new NotFoundException('Expense record not found');
+                throw new NotFoundException(this.translations.t('domains.expenses.expense_record_not_found'));
             }
 
             if (expense.monthlyClosingId) {
-                throw new BadRequestException("Cannot delete a expense that has been closed.");
+                throw new BadRequestException(this.translations.t('domains.expenses.cannot_delete_closed'));
             }
 
             const amount = Number(expense.amount || 0);
@@ -306,15 +316,16 @@ export class ExpensesService {
 
             // Reverse safe transaction (Deposit back)
             if (amount > 0 && safeId) {
+                const categoryName = expense.category?.name || "N/A";
                 await this.safesService.deposit(me, {
                     accountId: safeId,
                     amount: amount,
                     referenceType: TransactionReferenceType.EXPENSE_REFUND,
                     referenceId: expense.id,
                     referenceMeta: {
-                        category: expense.category?.name || "N/A",
+                        category: categoryName,
                     },
-                    notes: `Expense ${amount} deleted. Refunding to safe.`,
+                    notes: await this.requestTranslationsService.tAsync('domains.expenses.log_expense_deleted_refunding', adminId, { args: { amount } }),
                 }, manager);
             }
 
@@ -326,7 +337,7 @@ export class ExpensesService {
 
             return {
                 success: true,
-                message: 'Expense deleted successfully'
+                message: this.translations.t('domains.expenses.expense_deleted_successfully')
             };
         });
     }

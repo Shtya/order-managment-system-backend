@@ -1,5 +1,5 @@
 import { ExecutionContext, Module } from "@nestjs/common";
-import { ConfigModule } from "@nestjs/config";
+import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { GlobalExceptionFilter, QueryExceptionFilter } from "common/GlobalExceptionFilter";
 import { AuthModule } from "./auth/auth.module";
@@ -19,7 +19,6 @@ import { SupplierCategoriesModule } from "./supplier/categories/categories.modul
 import { PurchasesModule } from './purchases/purchases.module';
 import { PurchasesReturnModule } from './purchases-return/purchases-return.module';
 import { OrdersModule } from './orders/orders.module';
-import { SalesInvoiceModule } from './sales_invoice/sales_invoice.module';
 import { BundlesModule } from './bundles/bundles.module';
 import { EncryptionService } from "common/encryption.service";
 import { ShippingModule } from "./shipping/shipping.module";
@@ -55,6 +54,8 @@ import { OrderAssignmentModule } from './order-assignment/order-assignment.modul
 import { QueueModule } from "./queue/queue.module";
 import { UserThrottlerGuard } from "common/userThrottlerGuard";
 import { createHash } from 'crypto';
+import { TranslationModule } from "common/translation.service";
+import { ClientSettingsModule } from './client-settings/client-settings.module';
 
 @Module({
 	imports: [
@@ -64,24 +65,24 @@ import { createHash } from 'crypto';
 			envFilePath: ['.env', `.env.${process.env.NODE_ENV || 'production'}`],
 			load: [kashierConfig],
 		}),
-			ThrottlerModule.forRoot({
-				throttlers: [
-					{
-						ttl: minutes(1),
-						limit: 200
-					}
-				],
-				errorMessage: "Too many attempts. Please wait before trying again.",
-				generateKey: (
-					context: ExecutionContext,
-					trackerString: string,
-					throttlerName: string,
-				) => {
-					return createHash('sha256')
-						.update(`${throttlerName}:${trackerString}`)
-						.digest('hex');
+		ThrottlerModule.forRoot({
+			throttlers: [
+				{
+					ttl: minutes(1),
+					limit: 200
 				}
-			}),
+			],
+			errorMessage: "Too many attempts. Please wait before trying again.",
+			generateKey: (
+				context: ExecutionContext,
+				trackerString: string,
+				throttlerName: string,
+			) => {
+				return createHash('sha256')
+					.update(`${throttlerName}:${trackerString}`)
+					.digest('hex');
+			}
+		}),
 		TypeOrmModule.forRoot({
 			type: "postgres",
 			host: process.env.DATABASE_HOST,
@@ -90,12 +91,14 @@ import { createHash } from 'crypto';
 			password: process.env.DATABASE_PASSWORD,
 			database: process.env.DATABASE_NAME,
 			entities: [__dirname + '/../**/*.entity{.ts,.js}', ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity],
-			// entities: [User, Role, Permission, SupplierEntity, SupplierCategoryEntity ,ProductVariantEntity, Plan, Transaction, CategoryEntity, StoreEntity, WarehouseEntity, ProductEntity, Asset],
 			synchronize: process.env.NODE_ENV === "development",
 			logging: false
 		}),
-		QueueModule,
 		AuthModule,
+		CitiesModule,
+		ClientSettingsModule,
+		TranslationModule,
+		QueueModule,
 		RolesModule,
 		PermissionsModule,
 		UsersModule,
@@ -112,7 +115,6 @@ import { createHash } from 'crypto';
 		PurchasesModule,
 		PurchasesReturnModule,
 		OrdersModule,
-		SalesInvoiceModule,
 		BundlesModule,
 		// ShippingCompaniesModule
 		WebSocketModule,
@@ -138,11 +140,12 @@ import { createHash } from 'crypto';
 		UpsellsModule,
 		ConversationModule,
 		CustomerModule,
-		CitiesModule,
-		OrderAssignmentModule
+		OrderAssignmentModule,
+		ClientSettingsModule
 	],
 	providers: [
-		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService, {
+		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,
+		{
 			provide: APP_GUARD,
 			useClass: UserThrottlerGuard
 		}

@@ -19,6 +19,8 @@ import {
 } from "class-validator";
 import { Transform, Type } from "class-transformer";
 import { TemplateCategory, TemplateSubCategory } from "entities/whatsapp.entity";
+import { i18nValidationMessage } from "nestjs-i18n";
+
 
 
 
@@ -37,160 +39,160 @@ export class TemplateButtonDto {
         | "WHATSAPP_CALL"
         | "COPY_CODE";
 
-    @IsString()
-    @IsNotEmpty()
-    @MaxLength(25)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+    @MaxLength(25, { message: i18nValidationMessage('validation.max_length') })
     text: string;
 
     // URL
     @IsOptional()
-    @IsUrl()
+    @IsUrl({}, {message: i18nValidationMessage('validation.is_url')})
     url?: string;
 
     @IsOptional()
-    @IsEnum(["Static", "Dynamic"])
+    @IsEnum(["Static", "Dynamic"],{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(["Static", "Dynamic"]).join(', ')], }); }})
     urlType?: "Static" | "Dynamic";
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     urlExample?: string;
 
     // Active for days
     @IsOptional()
-    @IsNumber()
-    @Min(1)
-    @Max(30)
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+    @Min(1, {message: i18nValidationMessage('validation.min')})
+    @Max(30, {message: i18nValidationMessage('validation.max')})
     activeForDays?: number;
 
     // Phone
     @IsOptional()
-    @IsString()
-    @MaxLength(10)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @MaxLength(10, { message: i18nValidationMessage('validation.max_length') })
     countryCode?: string;
 
     @IsOptional()
-    @IsString()
-    @MaxLength(20)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @MaxLength(20, { message: i18nValidationMessage('validation.max_length') })
     phoneNumber?: string;
 
     // COPY_CODE example
     @IsOptional()
-    @IsString()
-    @MaxLength(20)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @MaxLength(20, { message: i18nValidationMessage('validation.max_length') })
     example?: string;
 }
 
 
 export class TemplateConfigDto {
     @IsOptional()
-    @IsEnum(["TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION"])
+    @IsEnum(["TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION"],{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(["TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION"]).join(', ')], }); }})
     headerType?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
 
     // TEXT HEADER
     @IsOptional()
-    @IsString()
-    @MaxLength(60)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @MaxLength(60, { message: i18nValidationMessage('validation.max_length') })
     headerText?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     headerNamedKey?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     headerExample?: string;
 
     // MEDIA HEADER
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     headerUrl?: string;
 
     @IsOptional()
-    @IsEnum(["positional", "named"])
+    @IsEnum(["positional", "named"],{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(["positional", "named"]).join(', ')], }); }})
     @Transform(({ value }) =>
         ["positional", "named"].includes(value) ? value : "positional",
     )
     parameterFormat?: "positional" | "named";
 
     // BODY
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
-    @MaxLength(1024)
+    @MaxLength(1024, { message: i18nValidationMessage('validation.max_length') })
     bodyText: string;
 
     // FOOTER
     @IsOptional()
-    @IsString()
-    @MaxLength(60)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @MaxLength(60, { message: i18nValidationMessage('validation.max_length') })
     footerText?: string;
 
     // VARIABLES
     @IsOptional()
-    @IsObject()
+    @IsObject({message: i18nValidationMessage('validation.is_object')})
     examples?: Record<string, string>;
 
     // BUTTONS
     @IsOptional()
-    @IsArray()
-    @ArrayMaxSize(10)
+    @IsArray({message: i18nValidationMessage('validation.is_array')})
+    @ArrayMaxSize(10, {message: i18nValidationMessage('validation.array_max_size')})
     @ValidateNested({ each: true })
     @Type(() => TemplateButtonDto)
     buttons?: TemplateButtonDto[];
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     uiSubcategory?: string;
 
     @IsOptional()
-    @IsBoolean()
+    @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
     useCustomValidity?: boolean;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     validityPeriod?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     authMethod?: string;
 
     @IsOptional()
-    @IsString()
-    @MaxLength(25)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @MaxLength(25, { message: i18nValidationMessage('validation.max_length') })
     otpCopyButtonText?: string;
 
     @IsOptional()
-    @IsBoolean()
+    @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
     addSecurityRecommendation?: boolean;
 
     @IsOptional()
-    @IsBoolean()
+    @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
     addExpirationTime?: boolean;
 
     @IsOptional()
-    @IsNumber()
-    @Min(1)
-    @Max(90)
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+    @Min(1, {message: i18nValidationMessage('validation.min')})
+    @Max(90, {message: i18nValidationMessage('validation.max')})
     expirationMinutes?: number;
 }
 
 export class CreateWhatsappTemplateDto {
-    @IsUUID()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     @IsOptional()
     accountId?: string;
 
-    @IsString()
-    @IsNotEmpty()
-    @MaxLength(512)
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+    @MaxLength(512, { message: i18nValidationMessage('validation.max_length') })
     name: string;
 
-    @IsEnum(TemplateCategory)
+    @IsEnum(TemplateCategory,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TemplateCategory).join(', ')], }); }})
     category: TemplateCategory;
 
-    @IsEnum(TemplateSubCategory)
+    @IsEnum(TemplateSubCategory,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TemplateSubCategory).join(', ')], }); }})
     subCategory: TemplateSubCategory;
 
     // @IsIn(["ar", "en"])
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     language: string;
 
     @ValidateNested()
@@ -200,16 +202,16 @@ export class CreateWhatsappTemplateDto {
 
 export class UpdateWhatsappTemplateDto {
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
-    @MaxLength(512)
+    @MaxLength(512, { message: i18nValidationMessage('validation.max_length') })
     name: string;
 
-    @IsEnum(TemplateCategory)
+    @IsEnum(TemplateCategory,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TemplateCategory).join(', ')], }); }})
     @IsOptional()
     category: TemplateCategory;
 
-    @IsEnum(TemplateSubCategory)
+    @IsEnum(TemplateSubCategory,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TemplateSubCategory).join(', ')], }); }})
     @IsOptional()
     subCategory: TemplateSubCategory;
 
@@ -223,84 +225,84 @@ export class UpdateWhatsappTemplateDto {
 }
 
 export class CreateConversationDto {
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     phoneNumber: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     name?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     email?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     profilePicture?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     initialMessage?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     notes?: string;
 
-    @IsUUID()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     @IsOptional()
     accountId?: string;
 }
 
 export class EmbeddedSignupDto {
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     code: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     wabaId: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     phoneNumberId: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     businessId: string;
 }
 
 export class ManualAddAccountDto {
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     name: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     phoneNumber: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     phoneNumberId: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     businessId: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     accessToken: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     wabaId: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     appId: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     appSecret: string;
 }
 
@@ -308,34 +310,34 @@ export class ManualAddAccountDto {
 
 export class UpdateManualAccountDto {
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     name?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     phoneNumber?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     phoneNumberId?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     businessId?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     accessToken?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     wabaId?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     appId?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     appSecret?: string;
 }

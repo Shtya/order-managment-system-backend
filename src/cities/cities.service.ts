@@ -7,6 +7,7 @@ import { UpdateCityTenantConfigDto } from 'dto/cities.dto';
 import * as ExcelJS from 'exceljs';
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class CitiesService {
@@ -19,6 +20,7 @@ export class CitiesService {
 		private areaRepo: Repository<AreaEntity>,
 		@InjectRepository(CityTenantConfigEntity)
 		private tenantConfigRepo: Repository<CityTenantConfigEntity>,
+		private readonly translations: TranslationService,
 	) { }
 
 
@@ -40,7 +42,7 @@ export class CitiesService {
 
 	async findAllWithTenantConfig(me: any, q?: any) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException('Missing adminId');
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		const page = Number(q?.page ?? 1);
 		const limit = Number(q?.limit ?? 10);
@@ -90,16 +92,17 @@ export class CitiesService {
 
 	async exportCitiesConfig(me: any, q?: any) {
 		const { records } = await this.findAllWithTenantConfig(me, { ...q, limit: 10000 });
+		const adminId = tenantId(me);
 
 		const workbook = new ExcelJS.Workbook();
-		const worksheet = workbook.addWorksheet("Cities Configuration");
+		const worksheet = workbook.addWorksheet(this.translations.t('domains.cities.export_sheet'));
 
 		worksheet.columns = [
-			{ header: "City Name (En)", key: "nameEn", width: 25 },
-			{ header: "City Name (Ar)", key: "nameAr", width: 25 },
-			{ header: "Min Shipping Days", key: "minDays", width: 20 },
-			{ header: "Max Shipping Days", key: "maxDays", width: 20 },
-			{ header: "Status", key: "status", width: 15 },
+			{ header: this.translations.t('domains.cities.export_city_name_en'), key: "nameEn", width: 25 },
+			{ header: this.translations.t('domains.cities.export_city_name_ar'), key: "nameAr", width: 25 },
+			{ header: this.translations.t('domains.cities.export_min_shipping_days'), key: "minDays", width: 20 },
+			{ header: this.translations.t('domains.cities.export_max_shipping_days'), key: "maxDays", width: 20 },
+			{ header: this.translations.t('domains.cities.export_status'), key: "status", width: 15 },
 		];
 
 		const rows = records.map(city => {
@@ -110,7 +113,7 @@ export class CitiesService {
 				nameAr: city.nameAr,
 				minDays: config?.minShippingDays ?? '—',
 				maxDays: config?.maxShippingDays ?? '—',
-				status: isConfigured ? 'Configured' : 'Not Configured',
+				status: isConfigured ? this.translations.t('domains.cities.status_configured') : this.translations.t('domains.cities.status_not_configured'),
 			};
 		});
 
@@ -130,10 +133,10 @@ export class CitiesService {
 
 	async upsertTenantConfig(me: any, cityId: string, payload: UpdateCityTenantConfigDto) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException('Missing adminId');
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		const city = await this.cityRepo.findOne({ where: { id: cityId } });
-		if (!city) throw new NotFoundException('City not found');
+		if (!city) throw new NotFoundException(this.translations.t('domains.cities.not_found'));
 
 		let config = await this.tenantConfigRepo.findOne({
 			where: { adminId, cityId }
@@ -154,13 +157,13 @@ export class CitiesService {
 
 	async deleteTenantConfig(me: any, cityId: string) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException('Missing adminId');
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		const config = await this.tenantConfigRepo.findOne({
 			where: { adminId, cityId }
 		});
 
-		if (!config) throw new NotFoundException('Configuration not found');
+		if (!config) throw new NotFoundException(this.translations.t('domains.cities.config_not_found'));
 
 		await this.tenantConfigRepo.remove(config);
 		return { success: true };

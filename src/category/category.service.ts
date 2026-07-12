@@ -5,6 +5,7 @@ import { CategoryEntity } from "entities/categories.entity";
 import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
 import { CRUD } from "../../common/crud.service";
 import { copyPhysicalFile, deletePhysicalFiles } from "common/healpers";
+import { TranslationService } from "common/translation.service";
 
 export function tenantId(me: any): string | null {
 	if (!me) return null;
@@ -18,7 +19,10 @@ export function tenantId(me: any): string | null {
 
 @Injectable()
 export class CategoriesService {
-	constructor(@InjectRepository(CategoryEntity) private catRepo: Repository<CategoryEntity>) { }
+	constructor(
+		@InjectRepository(CategoryEntity) private catRepo: Repository<CategoryEntity>,
+		private readonly translations: TranslationService,
+	) { }
 
 	async list(me: any, q?: any) {
 
@@ -56,13 +60,13 @@ export class CategoriesService {
 	async create(me: any, dto: CreateCategoryDto) {
 		const adminId = tenantId(me);
 
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		const existsName = await this.catRepo.findOne({ where: { adminId, name: dto.name } as any });
-		if (existsName) throw new BadRequestException("Category name already exists");
+		if (existsName) throw new BadRequestException(this.translations.t('domains.category.name_already_exists'));
 
 		const existsSlug = await this.catRepo.findOne({ where: { adminId, slug: dto.slug } as any });
-		if (existsSlug) throw new BadRequestException("Category slug already exists");
+		if (existsSlug) throw new BadRequestException(this.translations.t('domains.category.slug_already_exists'));
 
 		// slug uniqueness handled by index + entity hook if empty
 		const cat = this.catRepo.create({ adminId, ...dto } as any);
@@ -75,12 +79,12 @@ export class CategoriesService {
 
 		if (dto.name && dto.name !== (cat as any).name) {
 			const existsName = await this.catRepo.findOne({ where: { adminId, name: dto.name } as any });
-			if (existsName) throw new BadRequestException("Category name already exists");
+			if (existsName) throw new BadRequestException(this.translations.t('domains.category.name_already_exists'));
 		}
 
 		if (dto.slug && dto.slug !== (cat as any).slug) {
 			const existsName = await this.catRepo.findOne({ where: { adminId, slug: dto.slug } as any });
-			if (existsName) throw new BadRequestException("Category slug already exists");
+			if (existsName) throw new BadRequestException(this.translations.t('domains.category.slug_already_exists'));
 		}
 
 		// Delete old image if a new one is provided or if it's being removed
@@ -103,16 +107,16 @@ export class CategoriesService {
 
 	async duplicate(me: any, id: string, dto: { name: string; slug: string }) {
 		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 		const source = await this.get(me, id);
-		if (!source) throw new BadRequestException("Source category not found");
+		if (!source) throw new BadRequestException(this.translations.t('domains.category.source_not_found'));
 
 		const existsName = await this.catRepo.findOne({ where: { adminId, name: dto.name } as any });
-		if (existsName) throw new BadRequestException("Category name already exists");
+		if (existsName) throw new BadRequestException(this.translations.t('domains.category.name_already_exists'));
 
 		const existsSlug = await this.catRepo.findOne({ where: { adminId, slug: dto.slug } as any });
-		if (existsSlug) throw new BadRequestException("Category slug already exists");
+		if (existsSlug) throw new BadRequestException(this.translations.t('domains.category.slug_already_exists'));
 
 		let newImagePath = null;
 		if ((source as any).image) {
@@ -133,7 +137,7 @@ export class CategoriesService {
 	async checkSlug(me: any, slug, categoryId) {
 		const adminId = tenantId(me);
 		const formatedSlug = slug.trim().toLowerCase();
-		if (!adminId) throw new BadRequestException("Missing adminId");
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 		if (categoryId) {
 			const cat = await this.get(me, categoryId);
 			if (formatedSlug === cat.slug) return {

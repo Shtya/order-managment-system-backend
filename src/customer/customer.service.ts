@@ -7,6 +7,7 @@ import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
 import { AppGateway } from 'common/app.gateway';
 import { deleteFile } from 'common/healpers';
 import { tenantId } from 'src/category/category.service';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class CustomerService {
@@ -14,16 +15,17 @@ export class CustomerService {
     @InjectRepository(CustomerEntity)
     private readonly customerRepo: Repository<CustomerEntity>,
     private readonly appGateway: AppGateway,
+    private readonly translations: TranslationService,
   ) { }
 
   async update(me: any, id: string, payload: UpdateCustomerDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const customer = await this.customerRepo.findOne({
       where: { id, adminId },
     });
-    if (!customer) throw new NotFoundException('Customer not found');
+    if (!customer) throw new NotFoundException(this.translations.t('domains.customer.not_found'));
 
     if (payload.phoneNumber) {
       customer.phoneNumber = normalizeEgyptianPhoneNumber(payload.phoneNumber);
@@ -54,7 +56,7 @@ export class CustomerService {
 
   async getOrCreateCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const repo = manager ? manager.getRepository(CustomerEntity) : this.customerRepo;
     const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.phoneNumber);
@@ -84,7 +86,7 @@ export class CustomerService {
 
   async createCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const repo = manager ? manager.getRepository(CustomerEntity) : this.customerRepo;
     const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.phoneNumber);
@@ -94,7 +96,7 @@ export class CustomerService {
     });
 
     if (existing) {
-      throw new ConflictException('Customer with this phone number already exists');
+      throw new ConflictException(this.translations.t('domains.customer.phone_already_exists'));
     }
 
     const customer = repo.create({
@@ -116,7 +118,7 @@ export class CustomerService {
 
   async findAllPaginated(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -166,14 +168,14 @@ export class CustomerService {
 
   async findOne(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException('Missing adminId');
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const customer = await this.customerRepo.findOne({
       where: { id, adminId },
       relations: ['conversations'],
     });
 
-    if (!customer) throw new NotFoundException('Customer not found');
+    if (!customer) throw new NotFoundException(this.translations.t('domains.customer.not_found'));
 
     return customer;
   }

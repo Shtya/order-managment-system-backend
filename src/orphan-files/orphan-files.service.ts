@@ -3,12 +3,14 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { EntityManager, In, Repository } from "typeorm";
 import { OrphanFileEntity } from "entities/files.entity";
 import { deletePhysicalFiles } from "common/healpers";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class OrphanFilesService {
   constructor(
     @InjectRepository(OrphanFileEntity)
     private readonly orphanRepo: Repository<OrphanFileEntity>,
+    private readonly translations: TranslationService
   ) { }
 
 
@@ -25,7 +27,7 @@ export class OrphanFilesService {
     });
 
     if (rows.length !== ids.length) {
-      throw new BadRequestException("Some orphan files were not found");
+      throw new BadRequestException(this.translations.t("domains.orphan_files.some_not_found"));
     }
 
     return rows.map((r) => ({ id: r.id, url: r.url }));
@@ -57,7 +59,7 @@ export class OrphanFilesService {
     const repo = mgr ? mgr.getRepository(OrphanFileEntity) : this.orphanRepo;
     const file = await repo.findOne({ where: { adminId, id } as any });
     if (!file) {
-      throw new BadRequestException("Orphan file not found");
+      throw new BadRequestException(this.translations.t("domains.orphan_files.not_found"));
     }
     const result = await repo.delete({
       adminId,

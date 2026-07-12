@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
+import { TranslationService } from "common/translation.service";
 import { UpdateAdminSettingsDto } from "dto/adminSettings.dto";
 import { AdminSettingsEntity } from "entities/adminSettings.entity";
 import { SystemRole, User } from "entities/user.entity";
@@ -10,6 +11,7 @@ export class AdminSettingsService {
   constructor(
     @InjectRepository(AdminSettingsEntity)
     private readonly settingsRepo: Repository<AdminSettingsEntity>,
+    private readonly translations: TranslationService
   ) {}
   private isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;
@@ -37,7 +39,7 @@ export class AdminSettingsService {
   ): Promise<AdminSettingsEntity> {
     if (!this.isSuperAdmin(me)) {
       throw new ForbiddenException(
-        "You do not have permission to modify platform settings.",
+        this.translations.t("common.permission_denied_action"),
       );
     }
 

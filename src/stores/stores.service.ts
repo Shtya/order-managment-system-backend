@@ -37,6 +37,8 @@ import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntit
 import { NotificationType } from "entities/notifications.entity";
 import { ProductSyncJobs, OrderSyncJobs } from "src/queue/common/queue.constants";
 import { ProductSyncQueueService } from "src/queue/queues/product-sync.queue";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 @Injectable()
 export class StoresService {
@@ -71,6 +73,9 @@ export class StoresService {
 
     @InjectRepository(StoreEntity)
     private readonly storesRepo: Repository<StoreEntity>,
+    private readonly clientSettingsService: ClientSettingsService,
+    private readonly translations: TranslationService,
+    private requestTranslations: RequestTranslationService,
   ) {
     this.providers = {
       shopify: this.shopifyService,
@@ -91,7 +96,8 @@ export class StoresService {
   public getProvider(provider: string): BaseStoreProvider {
     const key = (provider || '').toLowerCase().trim();
     const p = this.providers[key];
-    if (!p) throw new BadRequestException(`Unsupported shipping provider: ${provider}`);
+    if (!p)
+      throw new BadRequestException(this.translations.t('domains.stores.unsupported_shipping_provider', { args: { provider } }));
     return p;
   }
 
@@ -128,7 +134,7 @@ export class StoresService {
 
   async list(me: any, q?: any) {
     const adminId = tenantId(me); // Normalized and trimmed adminId
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -210,7 +216,7 @@ export class StoresService {
 
   async listWithCredentials(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const stores = await this.storesRepo.find({
       where: { adminId },
@@ -235,10 +241,10 @@ export class StoresService {
 
   async getStoreById(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(`Store not found`);
+    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
     return store;
   }
 
@@ -293,7 +299,7 @@ export class StoresService {
         : baseCredentials;
 
     if (!credentials.apiKey) {
-      throw new BadRequestException('API Key is required for integration.');
+      throw new BadRequestException(this.translations.t('domains.stores.api_key_required'));
     }
 
     // 3. Transactional Save & Connection Validation
@@ -322,7 +328,9 @@ export class StoresService {
         try {
           const isAuth = await p.validateProviderConnection(savedStore);
           if (!isAuth) {
-            throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
+            throw new BadRequestException(
+              this.translations.t('domains.stores.authentication_failed_provider', { args: { providerName: p.displayName } })
+            );
           }
         } catch (error: any) {
           this.logger.error(`Validation failed for ${dto.provider}: ${error.message}`);
@@ -353,7 +361,7 @@ export class StoresService {
 
   async upsertIntegrate(me: any, dto: IntegrateDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const store = await this.storesRepo.findOne({ where: { adminId, provider: dto.provider } });
 
@@ -396,12 +404,12 @@ export class StoresService {
 
   async cancelIntegration(me: any, provider: StoreProvider) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const store = await this.storesRepo.findOne({ where: { adminId, provider } });
 
     if (!store) {
-      throw new BadRequestException("No integrated store was found. Please connect your store first..");
+      throw new BadRequestException(this.translations.t('domains.stores.store_not_found'));
     }
 
     const p = this.getProvider(provider);
@@ -417,15 +425,13 @@ export class StoresService {
 
   async regenerateWebhookSecrets(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(`Store not found`);
-
+    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
     if (store.provider !== StoreProvider.WOOCOMMERCE) {
-      throw new BadRequestException("Webhook regeneration is only supported for WooCommerce stores.");
+      throw new BadRequestException(this.translations.t('domains.stores.woocommerce_only_webhook_regeneration'));
     }
-
     store.credentials = {
       ...(store.credentials || {}),
       webhookCreateOrderSecret: this.generateSecret(),
@@ -444,10 +450,10 @@ export class StoresService {
 
   async update(me: any, id: string, dto: UpdateStoreDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
     // Find the existing store
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(`Store not found`);
+    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
 
     const p = this.getProvider(store.provider);
     return await this.dataSource.transaction(async (manager) => {
@@ -484,14 +490,17 @@ export class StoresService {
       if (dto.credentials || dto.isActive)
         try {
           const isAuth = await p.validateProviderConnection(store);
+
           if (!isAuth) {
-            throw new BadRequestException(`Unable to authenticate with the provided credentials for ${p.displayName}. Please check your API key and other settings.`);
+            throw new BadRequestException(
+              this.translations.t('domains.stores.authentication_failed_provider', { args: { providerName: p.displayName } })
+            );
           }
         } catch (error) {
           throw new BadRequestException(
             store.provider === StoreProvider.SHOPIFY
-              ? `Unable to validate the Shopify connection. Please install the app and verify your credentials and store URL.`
-              : `Unable to validate the connection to ${p.displayName}. Please verify your credentials and settings.`
+              ? this.translations.t('domains.stores.shopify_validation_failed')
+              : this.translations.t('domains.stores.connection_validation_failed_provider', { args: { providerName: p.displayName } })
           );
         }
 
@@ -515,12 +524,11 @@ export class StoresService {
 
   async remove(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(`Store not found`);
+    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
 
-    if (!store) throw new NotFoundException(`Store not found`);
     const removedStore = await this.storesRepo.remove(store);
     await this.clearStoreCache(store.id);
     return this.getMaskedStoreIntegrations(removedStore);
@@ -694,19 +702,28 @@ export class StoresService {
 
   async manualSync(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(`Store with ID ${id} not found`);
+    if (!store) {
+      throw new NotFoundException(
+        this.translations.t('domains.stores.store_id_not_found', { args: { id } })
+      );
+    }
 
-    if (!store.isActive) throw new BadRequestException("Cannot sync: store is inactive");
+    if (!store.isActive) {
+      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_inactive'));
+    }
 
-    if (!store.isIntegrated) throw new BadRequestException(
-      `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
-    );
+    if (!store.isIntegrated) {
+      throw new BadRequestException(
+        this.translations.t('domains.stores.store_not_integrated', { args: { storeName: store.name.trim() } })
+      );
+    }
 
-    if (store.localSyncStatus === SyncStatus.SYNCING)
-      throw new BadRequestException("Cannot sync: store is already syncing");
+    if (store.localSyncStatus === SyncStatus.SYNCING) {
+      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_already_syncing'));
+    }
 
 
     // Route to the correct queue based on Provider
@@ -718,26 +735,35 @@ export class StoresService {
     );
 
     return {
-      message: `Full synchronization job for "${store.name}" has been queued.`,
+      message: this.translations.t('domains.stores.sync_job_queued', { args: { storeName: store.name } }),
       storeId: id
     };
   }
 
   async manualSyncFromStore(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(`Store with ID ${id} not found`);
+    if (!store) {
+      throw new NotFoundException(
+        this.translations.t('domains.stores.store_id_not_found', { args: { id } })
+      );
+    }
 
-    if (!store.isActive) throw new BadRequestException("Cannot sync: store is inactive");
+    if (!store.isActive) {
+      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_inactive'));
+    }
 
-    if (!store.isIntegrated) throw new BadRequestException(
-      `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
-    );
+    if (!store.isIntegrated) {
+      throw new BadRequestException(
+        this.translations.t('domains.stores.store_not_integrated', { args: { storeName: store.name.trim() } })
+      );
+    }
 
-    if (store.syncStatus === SyncStatus.SYNCING)
-      throw new BadRequestException("Cannot sync: store is already syncing");
+    if (store.syncStatus === SyncStatus.SYNCING) {
+      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_already_syncing'));
+    }
 
 
     await this.storesRepo.update(store.id, {
@@ -755,36 +781,45 @@ export class StoresService {
     );
 
     return {
-      message: `Full synchronization job for "${store.name}" has been queued.`,
+      message: this.translations.t('domains.stores.sync_job_queued', { args: { storeName: store.name } }),
       storeId: id
     };
   }
 
   async manualSyncSpecificProducts(me: any, id: string, productIds: string[]) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     if (!productIds || productIds.length === 0) {
-      throw new BadRequestException("No product IDs provided for sync");
+      throw new BadRequestException(this.translations.t('domains.stores.no_products_provided'));
     }
 
     if (productIds.length > 50) {
-      throw new BadRequestException("Max 50 product allowed to sync at one time");
+      throw new BadRequestException(this.translations.t('domains.stores.max_products_exceeded'));
     }
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(`Store with ID ${id} not found`);
+    if (!store) {
+      throw new NotFoundException(
+        this.translations.t('domains.stores.store_id_not_found', { args: { id } })
+      );
+    }
 
-    if (!store.isActive) throw new BadRequestException("Cannot sync: store is inactive");
+    if (!store.isActive) {
+      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_inactive'));
+    }
 
-    if (!store.isIntegrated) throw new BadRequestException(
-      `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
-    );
+    if (!store.isIntegrated) {
+      throw new BadRequestException(
+        this.translations.t('domains.stores.store_not_integrated', { args: { storeName: store.name.trim() } })
+      );
+    }
 
     // We don't necessarily block partial sync if a full sync is running, 
     // but it's safer to check.
-    if (store.localSyncStatus === SyncStatus.SYNCING)
-      throw new BadRequestException("Cannot sync: store is already syncing");
+    if (store.localSyncStatus === SyncStatus.SYNCING) {
+      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_already_syncing'));
+    }
 
     await this.productSyncQueueService.enqueueFullStoreSync(store, productIds);
 
@@ -794,7 +829,7 @@ export class StoresService {
     );
 
     return {
-      message: `Sync job for ${productIds.length} products has been queued for "${store.name}".`,
+      message: this.translations.t('domains.stores.partial_sync_job_queued', { args: { count: productIds.length, storeName: store.name } }),
       storeId: id
     };
   }
@@ -839,8 +874,10 @@ export class StoresService {
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_CREATTION_FAILED,
-      title: "Order Creation Failed",
-      message: `Failed to process order from ${store.name}: ${reason}`,
+      title: await this.requestTranslations.tAsync('domains.stores.order_creation_failed_title', adminId),
+      message: await this.requestTranslations.tAsync('domains.stores.order_creation_failed_message', adminId, {
+        args: { storeName: store.name, reason }
+      }),
       relatedEntityType: "webhook_order_failures",
       relatedEntityId: String(created.id),
     });
@@ -901,25 +938,25 @@ export class StoresService {
 
     if (!localProduct) {
       throw new BadRequestException(
-        `The product "${item.name}" could not be found in your system.`,
+        this.translations.t('domains.stores.product_not_found_in_system', { args: { itemName: item.name } })
       );
     }
 
     if (!localProduct.isActive) {
       throw new BadRequestException(
-        `The Product "${item.name}" is no longer active.`,
+        this.translations.t('domains.stores.product_not_active', { args: { itemName: item.name } })
       );
     }
 
     if (!matchedVariant) {
       throw new BadRequestException(
-        `No valid variant found for product "${item.name}".`,
+        this.translations.t('domains.stores.variant_not_found', { args: { itemName: item.name } })
       );
     }
 
     if (!matchedVariant.isActive) {
       throw new BadRequestException(
-        `The selected variant for "${item.name}" is no longer active.`,
+        this.translations.t('domains.stores.variant_not_active', { args: { itemName: item.name } })
       );
     }
 
@@ -976,10 +1013,10 @@ export class StoresService {
           syncStates?.filter(s => s.remoteProductId).map(s => [s?.remoteProductId, s?.product])
         );
 
-        const retrySettings = await this.ordersService.getCachedSettings(
+        const settings = await this.clientSettingsService.getCachedSettings(
           adminId,
         );
-        const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
+        const skuFallbackEnabled = settings?.storeOrderSkuFallback !== false;
 
         const items = [];
         for (const item of payload.cartItems) {
@@ -1019,8 +1056,10 @@ export class StoresService {
         await this.notificationService.create({
           userId: adminId,
           type: NotificationType.ORDER_CREATED,
-          title: "New Order Created",
-          message: `Order "${newOrder.orderNumber}" created successfully from ${store.name}.`,
+          title: await this.requestTranslations.tAsync('domains.stores.new_order_created_title', adminId),
+          message: await this.requestTranslations.tAsync('domains.stores.new_order_created_message', adminId, {
+            args: { orderNumber: newOrder.orderNumber, storeName: store.name }
+          }),
           relatedEntityType: "order",
           relatedEntityId: String(newOrder.id),
         });
@@ -1039,8 +1078,10 @@ export class StoresService {
           await this.notificationService.create({
             userId: adminId,
             type: NotificationType.ORDER_CREATTION_FAILED,
-            title: "Retry Order Creation Failed",
-            message: `Failed to retry order creation for ${store.name}: ${errorMessage}`,
+            title: await this.requestTranslations.tAsync('domains.stores.retry_order_failed_title', adminId),
+            message: await this.requestTranslations.tAsync('domains.stores.retry_order_failed_message', adminId, {
+              args: { storeName: store.name, errorMessage }
+            }),
             relatedEntityType: "webhook_order_failures",
             relatedEntityId: String(failureLog.id),
           });
@@ -1111,7 +1152,7 @@ export class StoresService {
       const order = await this.ordersService.findByExternalId(externalOrderId, adminId);
 
       if (!order) {
-        throw new Error(`Unknown order ${externalOrderId}`);
+        throw new Error(`Unknown order`);
       }
       const payload =
         p.mapWebhookUpdate(
@@ -1197,8 +1238,10 @@ export class StoresService {
         await this.notificationService.create({
           userId: order.adminId.toString(),
           type: NotificationType.ORDER_UPDATED,
-          title: "Order Payment Status Updated",
-          message: `Order #${order.orderNumber} payment status has been updated to ${payload.mappedPaymentStatus}.`,
+          title: await this.requestTranslations.tAsync('domains.stores.order_payment_status_updated_title', adminId),
+          message: await this.requestTranslations.tAsync('domains.stores.order_payment_status_updated_message', adminId, {
+            args: { orderNumber: order.orderNumber, status: payload.mappedPaymentStatus }
+          }),
           relatedEntityType: "order",
           relatedEntityId: String(order.id),
         });
@@ -1216,8 +1259,10 @@ export class StoresService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.SYSTEM_ERROR,
-        title: "Webhook Order Update Failed",
-        message: message,
+        title: await this.requestTranslations.tAsync('domains.stores.webhook_order_update_failed_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.stores.webhook_order_update_failed_message', adminId, {
+          args: { error: message }
+        }),
         relatedEntityType: "webhook",
         relatedEntityId: provider,
       });
@@ -1228,7 +1273,7 @@ export class StoresService {
 
   async listFailedOrders(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -1285,7 +1330,7 @@ export class StoresService {
 
   async getFailedOrderDetail(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 
     const failure = await this.failureRepo.findOne({
@@ -1294,14 +1339,14 @@ export class StoresService {
     });
 
     if (!failure) {
-      throw new NotFoundException("Failed order retry details not found");
+      throw new NotFoundException(this.translations.t('domains.stores.failed_order_retry_not_found'));
     }
 
     const storeId = failure.store?.id;
     const payload = failure.payload;
     const problems = [];
 
-    const retrySettings = await this.ordersService.getCachedSettings(
+    const retrySettings = await this.clientSettingsService.getCachedSettings(
       adminId,
     );
     const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
@@ -1360,8 +1405,8 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_NOT_FOUND,
-            problem: `Product "${item.name}" was not found`,
-            details: `The product "${item.name}" does not exist in your local products.`,
+            problem: this.translations.t('domains.stores.problem_product_not_found', { args: { name: item.name } }),
+            details: this.translations.t('domains.stores.problem_product_not_found_details', { args: { name: item.name } }),
           });
           continue;
         }
@@ -1373,8 +1418,8 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_INACTIVE,
-            problem: `Product "${item.name}" is no longer active.`,
-            details: `The product "${item.name}" has been deactivated.`,
+            problem: this.translations.t('domains.stores.problem_product_inactive', { args: { name: item.name } }),
+            details: this.translations.t('domains.stores.problem_product_inactive_details', { args: { name: item.name } }),
           });
           continue;
         }
@@ -1394,10 +1439,10 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.SKU_NOT_FOUND,
-            problem: `Variant with key "${item.variant?.key}" product "${item.productSlug}" was not found`,
+            problem: this.translations.t('domains.stores.problem_variant_not_found', { args: { key: item.variant?.key, slug: item.productSlug } }),
             details: localProduct.type === ProductType.SINGLE
-              ? "Product is set as single but has no SKU/variant."
-              : `Variant was not found.`
+              ? this.translations.t('domains.stores.problem_single_product_no_sku')
+              : this.translations.t('domains.stores.problem_variant_missing_details')
           });
           continue;
         }
@@ -1410,8 +1455,8 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.SKU_NOT_FOUND,
-            problem: `Variant for "${item.name}" is no longer active.`,
-            details: `The selected variant for "${item.name}" has been deactivated.`,
+            problem: this.translations.t('domains.stores.problem_variant_inactive', { args: { name: item.name } }),
+            details: this.translations.t('domains.stores.problem_variant_inactive_details', { args: { name: item.name } }),
           });
           continue;
         }
@@ -1430,8 +1475,8 @@ export class StoresService {
             name: item.name,
             sku: matchedVariant.sku,
             code: WebhookOrderProblem.INSUFFICIENT_STOCK,
-            problem: `Insufficient stock for variant "${item.variant?.key}" product "${item.productSlug}"`,
-            details: `Requested quantity is ${item.quantity}, but only ${availableStock} is available in stock.`
+            problem: this.translations.t('domains.stores.problem_insufficient_stock', { args: { key: item.variant?.key, slug: item.productSlug } }),
+            details: this.translations.t('domains.stores.problem_insufficient_stock_details', { args: { quantity: item.quantity, available: availableStock } })
           });
         }
       }
@@ -1445,18 +1490,22 @@ export class StoresService {
 
   async updateFailedOrderPayload(me: any, id: string, payload: WebhookOrderPayload) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const failure = await this.failureRepo.findOne({
       where: { id, adminId },
     });
 
     if (!failure) {
-      throw new NotFoundException("Failed order not found");
+      throw new NotFoundException(this.translations.t('domains.stores.failed_order_not_found'));
     }
 
     if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failure.status as any)) {
-      throw new BadRequestException(`Cannot update payload. Current status is: ${failure.status}`);
+      throw new BadRequestException(
+        this.translations.t('domains.stores.cannot_update_payload_current_status', {
+          args: { status: failure.status },
+        }),
+      );
     }
 
     failure.payload = payload;
@@ -1471,7 +1520,7 @@ export class StoresService {
 
   async getFailedOrdersStatistics(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const raw = await this.failureRepo
       .createQueryBuilder("failure")
@@ -1502,22 +1551,29 @@ export class StoresService {
 
   async retryFailedOrder(me: any, failureId: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
-
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return await this.dataSource.transaction(async (manager) => {
       const { failureLog, problems } = await this.getFailedOrderDetail(me, failureId);
       try {
-
         if (!failureLog || !failureLog.store) {
-          throw new NotFoundException(`Failed order or store not found`);
+          throw new NotFoundException(this.translations.t('domains.stores.failed_order_or_store_not_found'));
         }
+
         if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
-          throw new BadRequestException(`Store ${failureLog.store.name} is inactive or missing integration`);
+          throw new BadRequestException(
+            this.translations.t('domains.stores.store_inactive_or_missing_integration', {
+              args: { storeName: failureLog.store.name },
+            }),
+          );
         }
 
         if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
-          throw new BadRequestException(`Cannot retry. Current status is: ${failureLog.status}`);
+          throw new BadRequestException(
+            this.translations.t('domains.stores.cannot_retry_current_status', {
+              args: { status: failureLog.status },
+            }),
+          );
         }
 
         if (problems.length > 0) {
@@ -1525,19 +1581,19 @@ export class StoresService {
           const moreCount = problems.length - 2;
           const suffix = moreCount > 0 ? ` +${moreCount}...` : "";
 
-          throw new BadRequestException(`Cannot retry. Problems: ${displayed}${suffix}`);
+          throw new BadRequestException(
+            this.translations.t('domains.stores.cannot_retry_problems', {
+              args: { problems: `${displayed}${suffix}` },
+            }),
+          );
         }
 
         const store = failureLog.store;
-
         const payload = failureLog.payload;
 
         failureLog.status = OrderFailStatus.RETRYING;
         failureLog.attempts += 1;
         await manager.save(failureLog);
-
-        // const slugsToSync = payload.cart_items.map(item => item.product_slug);
-        // await p.syncProductsFromProvider(store, slugsToSync, manager);
 
         const result = await this.processMappedWebhookOrder(
           adminId,
@@ -1546,21 +1602,24 @@ export class StoresService {
           failureLog.rawPayload,
           false,
           failureLog,
-          manager
+          manager,
         );
 
         if (!result.ok) {
-          // 🔴 Emit failed again
-          throw new BadRequestException(`Retry failed again: ${result.reason}`);
+          throw new BadRequestException(
+            this.translations.t('domains.stores.retry_failed_again', {
+              args: { reason: result.reason },
+            }),
+          );
         } else {
           failureLog.status = OrderFailStatus.SUCCESS;
           await manager.save(failureLog);
         }
 
         return {
-          message: "Order successfully retried and created",
+          message: this.translations.t('domains.stores.order_successfully_retried_and_created'),
           orderId: result.orderId || null,
-          result: result,
+          result,
         };
       } catch (error: any) {
         const errorMessage = getErrorMessage(error);
@@ -1575,7 +1634,7 @@ export class StoresService {
 
   async exportFailedOrders(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const qb = this.failureRepo
       .createQueryBuilder("failure")
@@ -1590,7 +1649,6 @@ export class StoresService {
       );
     }
 
-    // Filters
     if (q?.storeId) {
       qb.andWhere("failure.storeId = :storeId", {
         storeId: q.storeId,
@@ -1609,30 +1667,29 @@ export class StoresService {
 
     const failures = await qb.getMany();
 
-    // Prepare export data
     const exportData = failures.map((f) => ({
       id: f.id,
-      store: f.store?.name || "N/A",
+      store: f.store?.name || this.translations.t("common.not_available"),
       status: f.status,
-      reason: f.reason || "N/A",
+      reason: f.reason || this.translations.t("common.not_available"),
       createdAt: f.created_at
         ? new Date(f.created_at).toLocaleDateString()
-        : "N/A",
+        : this.translations.t("common.not_available"),
     }));
 
-    // Create workbook
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Failed Orders");
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.stores.failed_orders")
+    );
 
     worksheet.columns = [
-      { header: "Failure ID", key: "id", width: 15 },
-      { header: "Store", key: "store", width: 25 },
-      { header: "Status", key: "status", width: 15 },
-      { header: "Reason", key: "reason", width: 40 },
-      { header: "Created At", key: "createdAt", width: 20 },
+      { header: this.translations.t("domains.stores.failure_id"), key: "id", width: 15 },
+      { header: this.translations.t("common.store"), key: "store", width: 25 },
+      { header: this.translations.t("common.status"), key: "status", width: 15 },
+      { header: this.translations.t("common.reason"), key: "reason", width: 40 },
+      { header: this.translations.t("common.created_at"), key: "createdAt", width: 20 },
     ];
 
-    // Header style
     worksheet.getRow(1).font = { bold: true };
     worksheet.getRow(1).fill = {
       type: "pattern",
@@ -1648,28 +1705,34 @@ export class StoresService {
 
   async queueRetryFailedOrder(me: any, failureId: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // Fetch the failure log to get the store provider
     const { failureLog, problems } = await this.getFailedOrderDetail(me, failureId);
 
     if (!failureLog || !failureLog.store) {
-      throw new NotFoundException("Failure log or associated store not found");
+      throw new NotFoundException(this.translations.t('domains.stores.failure_log_or_store_not_found'));
     }
 
     if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
-      throw new BadRequestException(`Cannot retry. Current status is: ${failureLog.status}`);
+      throw new BadRequestException(
+        this.translations.t('domains.stores.cannot_retry_status', { args: { status: failureLog.status } })
+      );
     }
     if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
-      throw new BadRequestException(`Store ${failureLog.store.name} is inactive or missing integration`);
+      throw new BadRequestException(
+        this.translations.t('domains.stores.store_inactive_or_missing_integration', { args: { storeName: failureLog.store.name } })
+      );
     }
 
     if (problems.length > 0) {
       const displayed = problems.slice(0, 2).map((p) => p.problem).join(", ");
       const moreCount = problems.length - 2;
-      const suffix = moreCount > 0 ? ` +${moreCount}...` : "";
+      const suffix = moreCount > 0 ? this.translations.t('domains.stores.problems_count_suffix', { args: { count: moreCount } }) : "";
 
-      throw new BadRequestException(`Cannot retry. Problems: ${displayed}${suffix}`);
+      throw new BadRequestException(
+        this.translations.t('domains.stores.cannot_retry_problems', { args: { problems: displayed, suffix } })
+      );
     }
 
     // Enqueue the retry job
@@ -1682,7 +1745,7 @@ export class StoresService {
     this.logger.log(`[Queue Retry] Enqueued retry job for failureId=${failureId}, adminId=${adminId}`);
 
     return {
-      message: "Retry job queued successfully",
+      message: this.translations.t('domains.stores.retry_job_queued_successfully'),
       failureId,
     };
   }
@@ -1814,7 +1877,9 @@ export class StoresService {
       where: { adminId, provider: StoreProvider.EASYORDER },
     });
     if (!store) {
-      throw new Error("EasyOrder store not found");
+      throw new Error(
+        this.translations.t('domains.stores.easyorder_store_not_found')
+      );
     }
 
     store.credentials = {
@@ -1831,23 +1896,32 @@ export class StoresService {
     return newStore;
   }
 
-
   public async getFullProductById(userContext: any, provider: StoreProvider, id: string) {
     const adminId = tenantId(userContext);
     const store = await this.storesRepo.findOne({
       where: { adminId, provider }
     });
     if (!store) {
-      throw new BadRequestException(`Store not found, provider: ${provider}`);
+      throw new BadRequestException(
+        this.translations.t('domains.stores.store_not_found_provider', {
+          args: { provider },
+        }),
+      );
     }
 
     if (!store.isIntegrated) {
       throw new BadRequestException(
-        `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
+        this.translations.t('domains.stores.store_not_integrated', {
+          args: { storeName: store.name.trim() },
+        }),
       );
+
     }
     if (!store.isActive) {
-      throw new BadRequestException("Store not active");
+      throw new BadRequestException(
+        this.translations.t('domains.stores.store_not_active'),
+      );
+
     }
 
     const p = this.getProvider(provider)
@@ -1855,7 +1929,10 @@ export class StoresService {
     try {
       const product = await p.getFullProductById(store, id);
       if (!product) {
-        throw new BadRequestException("Product not found");
+        throw new BadRequestException(
+          this.translations.t('domains.stores.product_not_found'),
+        );
+
       }
       return { ...product, storeId: store.id };
     } catch (error: any) {
@@ -1865,10 +1942,21 @@ export class StoresService {
       const status = error.response?.status;
 
       if (status === 429) {
-        throw new BadRequestException(`Rate limit hit for ${provider}. Please wait and try again.`);
+        throw new BadRequestException(
+          this.translations.t('domains.stores.provider_rate_limit_hit', {
+            args: { provider },
+          }),
+        );
       }
 
-      throw new BadRequestException(`Failed to fetch product from ${provider}: ${message}`);
+      throw new BadRequestException(
+        this.translations.t('domains.stores.failed_to_fetch_product', {
+          args: {
+            provider,
+            message,
+          },
+        }),
+      );
     }
   }
 
@@ -1882,11 +1970,15 @@ export class StoresService {
 
     if (!store.isIntegrated) {
       throw new BadRequestException(
-        `The store "${store.name.trim()}" is not integrated. Please connect your store first.`
+        this.translations.t('domains.stores.store_not_integrated', {
+          args: { storeName: store.name.trim() },
+        }),
       );
     }
     if (!store.isActive) {
-      throw new BadRequestException("Store not active");
+      throw new BadRequestException(
+        this.translations.t('domains.stores.store_not_active'),
+      );
     }
 
     try {
@@ -1998,7 +2090,16 @@ export class StoresService {
               remoteProductId: remoteProduct.id || null,
               action: ProductSyncAction.PULL,
               errorMessage: errMsg,
-              userMessage: `Failed to sync product "${remoteProduct.name}" to ${store.name}: ${errMsg}`,
+              userMessage: this.translations.t(
+                'domains.stores.failed_to_sync_product_to_store',
+                {
+                  args: {
+                    productName: remoteProduct.name,
+                    storeName: store.name,
+                    message: errMsg,
+                  },
+                },
+              ),
               responseStatus: error?.response?.status,
               requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
             }
@@ -2014,8 +2115,28 @@ export class StoresService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.REMOTE_SYNC_END,
-        title: `Full Store Sync Finished: ${store.name}`,
-        message: `Sync process completed. Total: ${total}, New Products: ${newTotal} (Success: ${newSuccess}, Failed: ${newFailed}), Already Linked: ${total - newTotal}. Please check the purchase details.`,
+        title: await this.requestTranslations.tAsync(
+          'domains.stores.full_store_sync_finished',
+          adminId,
+          {
+            args: {
+              storeName: store.name,
+            },
+          },
+        ),
+        message: await this.requestTranslations.tAsync(
+          'domains.stores.full_store_sync_finished_message',
+          adminId,
+          {
+            args: {
+              total,
+              newTotal,
+              newSuccess,
+              newFailed,
+              alreadyLinked: total - newTotal,
+            },
+          },
+        ),
       });
 
 
@@ -2052,7 +2173,6 @@ export class StoresService {
     }
 
   }
-
 
   private mapMappedProductToCreateDto(p: MappedProductDto, store: StoreEntity): { product: CreateProductDto, skuQuantityMap: Map<string, number> } {
     //qunatity map 
@@ -2121,6 +2241,7 @@ export class StoresService {
 
     return { product, skuQuantityMap }
   }
+
   private getService(provider: string | StoreProvider): BaseStoreProvider {
     switch (provider) {
       case StoreProvider.SHOPIFY:
@@ -2160,7 +2281,7 @@ export class StoresService {
     };
 
     try {
-      
+
       const service = storeType ? this.getService(storeType) : null;
 
       switch (type) {

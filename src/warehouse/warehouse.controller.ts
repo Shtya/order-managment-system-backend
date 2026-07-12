@@ -6,9 +6,11 @@ import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { WarehousesService } from "./warehouse.service";
 import { CreateWarehouseDto, UpdateWarehouseDto } from "dto/warehouse.dto";
+import { PrivateGuard } from "common/private.guard";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("warehouses")
+@UseGuards(PrivateGuard)
 @RequireSubscription()
 export class WarehousesController {
 	constructor(private wh: WarehousesService) { }

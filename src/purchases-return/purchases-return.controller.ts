@@ -12,6 +12,7 @@ import { FileFieldsInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path/win32";
 import { parseJsonField, parseNumber } from "common/healpers";
+import { TranslationService } from "common/translation.service";
 
 const purchasesStorage = diskStorage({
   destination: "./uploads/purchases-returns",
@@ -26,7 +27,10 @@ const purchasesStorage = diskStorage({
 @Controller("purchases-return")
 @RequireSubscription()
 export class PurchaseReturnsController {
-  constructor(private svc: PurchaseReturnsService) { }
+  constructor(
+    private svc: PurchaseReturnsService,
+    private translations: TranslationService,
+  ) { }
 
   @Permissions("purchase_returns.read")
   @Get("stats")
@@ -119,11 +123,11 @@ export class PurchaseReturnsController {
 
 
     if (!dto.returnNumber) {
-      throw new BadRequestException("returnNumber is required");
+      throw new BadRequestException(this.translations.t("domains.purchase_return.return_number_required"));
     }
 
     if (!Array.isArray(dto.items) || !dto.items.length) {
-      throw new BadRequestException("At least one item is required for return");
+      throw new BadRequestException(this.translations.t("domains.purchase_return.at_least_one_item_required"));
     }
 
 

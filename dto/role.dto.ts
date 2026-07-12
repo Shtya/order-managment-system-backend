@@ -1,11 +1,13 @@
 import { IsArray, IsOptional, IsString } from 'class-validator';
+import { i18nValidationMessage } from "nestjs-i18n";
+
 
 export class CreateRoleDto {
-	@IsString() name: string; // unique
-	@IsOptional() @IsString() description?: string;
+	@IsString({message: i18nValidationMessage('validation.is_string')}) name: string; // unique
+	@IsOptional() @IsString({message: i18nValidationMessage('validation.is_string')}) description?: string;
 
 	@IsOptional()
-	@IsArray()
+	@IsArray({message: i18nValidationMessage('validation.is_array')})
 	permissionNames?: string[];
 
 	@IsOptional() adminId?: string;
@@ -14,10 +16,10 @@ export class CreateRoleDto {
 }
 
 export class UpdateRoleDto {
-	@IsOptional() @IsString() description?: string;
+	@IsOptional() @IsString({message: i18nValidationMessage('validation.is_string')}) description?: string;
 	@IsOptional() name?: string; // unique
 
 	@IsOptional()
-	@IsArray()
+	@IsArray({message: i18nValidationMessage('validation.is_array')})
 	permissionNames?: string[];
 }

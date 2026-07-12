@@ -25,26 +25,22 @@ import { PartialType } from "@nestjs/mapped-types";
 import {
   PaymentStatus,
   PaymentMethod,
-  OrderFlowPath,
-  StockDeductionStrategy,
-  AutomationMigrationStrategy,
-  NotificationSettings,
-  AssignmentMode,
-  TimeUnit,
 } from "entities/order.entity";
+import { i18nValidationMessage } from "nestjs-i18n";
+
 
 export class CreateStatusDto {
-  @IsString()
-  @MaxLength(50)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MaxLength(50, { message: i18nValidationMessage('validation.max_length') })
   name: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   description?: string;
 
   @IsOptional()
-  @IsNumber()
-  @Min(0)
+  @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   sortOrder?: number;
 
   @IsOptional()
@@ -53,182 +49,182 @@ export class CreateStatusDto {
 }
 export class UpdateStatusDto extends PartialType(CreateStatusDto) {
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   statusId?: string;
 }
 
 export class OrderItemDto {
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   variantId: string;
 
-  @IsInt()
-  @Min(1)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(1, {message: i18nValidationMessage('validation.min')})
   quantity: number;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   unitPrice: number;
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
-  @Min(0)
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   unitCost?: number;
 
   @IsOptional()
-  @IsBoolean()
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   isAdditional?: boolean;
 
   @IsOptional()
-  @IsBoolean()
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   addQuantity?: boolean; // If true, add quantity to existing instead of replacing
 }
 // ✅ Order Item DTO
 export class RemovedOrderItemDto {
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   variantId: string;
 }
 
 export class ShippingMetadataDto {
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   cityId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   districtId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   zoneId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   locationId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   buildingNumber?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   secondPhone?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   orderSize?: string;
 }
 
 // ✅ Create Order DTO
 export class CreateOrderDto {
   // Customer Info
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+  @MaxLength(200, { message: i18nValidationMessage('validation.max_length') })
   customerName: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+  @MaxLength(50, { message: i18nValidationMessage('validation.max_length') })
   phoneNumber: string;
 
   @IsOptional()
   @Transform(({ value }) => value === "" ? undefined : value)
-  @IsEmail()
-  @MaxLength(200)
+  @IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
+  @MaxLength(200, { message: i18nValidationMessage('validation.max_length') })
   email?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(1000)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+  @MaxLength(1000, { message: i18nValidationMessage('validation.max_length') })
   address: string;
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
-  @MaxLength(300)
+  @MaxLength(300, { message: i18nValidationMessage('validation.max_length') })
   landmark?: string;
 
-  @IsNumber()
+  @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
   @IsOptional()
   deposit?: number = 0;
 
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+  @MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
   city: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   cityId?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(100)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
   area?: string;
 
   // Payment
-  @IsEnum(PaymentMethod)
+  @IsEnum(PaymentMethod,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentMethod).join(', ')], }); }})
   paymentMethod: PaymentMethod;
 
   @IsOptional()
-  @IsEnum(PaymentStatus)
+  @IsEnum(PaymentStatus,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentStatus).join(', ')], }); }})
   paymentStatus?: PaymentStatus;
 
   // Shipping
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   shippingCompanyId: string;
   @IsOptional()
-  @IsBoolean()
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   allowOpenPackage?: boolean;
 
   // Shipping
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   storeId: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   shippingCost?: number;
 
   // Added Optional Second Name
   @IsOptional()
-  @IsString()
-  @MaxLength(200)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MaxLength(200, { message: i18nValidationMessage('validation.max_length') })
   secondPhoneNumber?: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(0)
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   discount?: number;
 
   // Notes
   @IsOptional()
-  @IsString()
-  @MaxLength(4000)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MaxLength(4000, { message: i18nValidationMessage('validation.max_length') })
   notes?: string;
 
   @IsOptional()
-  @IsString()
-  @MaxLength(4000)
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MaxLength(4000, { message: i18nValidationMessage('validation.max_length') })
   customerNotes?: string;
 
   // Items
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)
   items: OrderItemDto[];
 
   @IsOptional()
-  @IsObject()
+  @IsObject({message: i18nValidationMessage('validation.is_object')})
   @ValidateNested()
   @Type(() => ShippingMetadataDto)
   shippingMetadata?: ShippingMetadataDto;
 
   @IsOptional()
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => RemovedOrderItemDto)
   removedItems?: RemovedOrderItemDto[]; // Items explicitly removed
@@ -237,15 +233,15 @@ export class CreateOrderDto {
 // ✅ Update Order DTO
 export class UpdateOrderDto extends PartialType(CreateOrderDto) {
   @IsOptional()
-  @IsNumber()
+  @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
   statusId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   trackingNumber?: string;
 
   @IsOptional()
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => RemovedOrderItemDto)
   removedItems?: RemovedOrderItemDto[]; // Items explicitly removed
@@ -253,44 +249,43 @@ export class UpdateOrderDto extends PartialType(CreateOrderDto) {
 
 export class BulkUpdateShippingMetadataDto {
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   districtId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   zoneId?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   orderSize?: string;
 }
 
 export class BulkUpdateShippingFieldItemDto {
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   id: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   customerName?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @MinLength(5, {
-    message: 'Address is too short. It must be at least 5 characters.',
+    message: i18nValidationMessage('validation.min_length'),
   })
   address?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @Matches(/^01[0125][0-9]{8}$/, {
-    message:
-      "phoneNumber must be an Egyptian mobile number starting with 010, 011, 012, or 015 and contain 11 digits",
+    message: i18nValidationMessage('validation.egyptian_mobile'),
   })
   phoneNumber?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   cityId?: string;
 
 
@@ -303,10 +298,10 @@ export class BulkUpdateShippingFieldItemDto {
 export class BulkUpdateShippingFieldsDto {
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   code?: string;
 
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => BulkUpdateShippingFieldItemDto)
   items: BulkUpdateShippingFieldItemDto[];
@@ -314,250 +309,110 @@ export class BulkUpdateShippingFieldsDto {
 
 // ✅ Change Order Status DTO
 export class ChangeOrderStatusDto {
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   statusId: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   notes?: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsDateString({}, {message: i18nValidationMessage('validation.is_date_string')})
   postponedDate?: string;
 
   @IsOptional()
-  @IsInt()
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
   reminderDaysBefore?: number;
 }
 
 // ✅ Update Payment Status DTO
 export class UpdatePaymentStatusDto {
-  @IsEnum(PaymentStatus)
+  @IsEnum(PaymentStatus,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentStatus).join(', ')], }); }})
   paymentStatus: PaymentStatus;
 }
 
 // ✅ Add Order Message DTO
 export class AddOrderMessageDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   message: string;
 
-  @IsEnum(["admin", "customer"])
+  @IsEnum(["admin", "customer"],{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(["admin", "customer"]).join(', ')], }); }})
   senderType: "admin" | "customer";
 }
 
 // ✅ Mark Messages Read DTO
 export class MarkMessagesReadDto {
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   messageIds: string[];
 }
 
-export class ShippingSettingsDto {
-
-  @IsString()
-  @IsOptional()
-  shippingCompanyId?: string;
-
-  @IsString()
-  @IsOptional()
-  triggerStatus?: string;
-
-  @IsBoolean()
-  @IsOptional()
-  notifyOnShipment?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  autoGenerateLabel?: boolean;
-
-  @IsNumber()
-  @IsOptional()
-  partialPaymentThreshold?: number;
-
-  @IsBoolean()
-  @IsOptional()
-  requireFullPayment?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  autoShipAfterWarehouse?: boolean;
-
-  @IsString()
-  @IsOptional()
-  warehouseDefaultShippingCompanyId?: string;
-}
-
-export class UpsertOrderRetrySettingsDto {
-  @IsEnum(AssignmentMode)
-  @IsOptional()
-  assignmentMode?: AssignmentMode;
-
-  @IsInt()
-  @Min(1)
-  @IsOptional()
-  assignmentDelay?: number;
-
-  @IsEnum(TimeUnit)
-  @IsOptional()
-  assignmentDelayUnit?: TimeUnit;
-
-  @IsBoolean()
-  @IsOptional()
-  enabled?: boolean;
-
-  @IsNumber()
-  @IsOptional()
-  maxRetries?: number;
-
-  @IsNumber()
-  @IsOptional()
-  retryInterval?: number;
-
-  @IsString()
-  @IsOptional()
-  autoMoveStatus?: string;
-
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  retryStatuses?: string[];
-
-  @IsArray()
-  @IsString({ each: true })
-  @IsOptional()
-  confirmationStatuses?: string[];
-
-  @IsBoolean()
-  @IsOptional()
-  notifyEmployee?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  notifyAdmin?: boolean;
-
-  @IsObject()
-  @IsOptional()
-  notificationSettings?: Partial<NotificationSettings>;
-
-  @IsBoolean()
-  @IsOptional()
-  notifyLowStock?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  notifyMarketing?: boolean;
-
-  @IsEnum(StockDeductionStrategy)
-  @IsOptional()
-  stockDeductionStrategy?: StockDeductionStrategy;
-
-  @IsEnum(OrderFlowPath)
-  @IsOptional()
-  orderFlowPath?: OrderFlowPath;
-
-  @IsBoolean()
-  @IsOptional()
-  storeOrderSkuFallback?: boolean;
-
-  @IsObject()
-  @IsOptional()
-  workingHours?: {
-    enabled: boolean;
-    start: string;
-    end: string;
-  };
-
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => ShippingSettingsDto)
-  shipping?: ShippingSettingsDto;
-
-  @IsEnum(AutomationMigrationStrategy)
-  @IsOptional()
-  automationMigrationStrategy?: AutomationMigrationStrategy;
-
-  @IsString()
-  @IsOptional()
-  defaultWhatsAppAccountId?: string;
-
-  @IsBoolean()
-  @IsOptional()
-  reservedEnabled?: boolean;
-
-  @IsInt()
-  @IsOptional()
-  duplicateWindowHours?: number;
-
-  @IsBoolean()
-  @IsOptional()
-  autoCancelDuplicates?: boolean;
-}
 
 export class ReplacementItemDto {
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @Type(() => Number)
   originalOrderItemId: string;
 
-  @IsInt()
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
   @Type(() => Number)
   quantityToReplace: number;
 
-  @IsString()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   newVariantId: string;
 
-  @IsInt()
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
   @Type(() => Number)
-  @Min(0)
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   newUnitPrice: number;
 }
 
 export class CreateReplacementDto {
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   reason: string;
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   anotherReason?: string;
 
-  @IsString()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   originalOrderId: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   internalNotes?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   customerNotes?: string;
 
   @IsOptional()
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   returnImages?: string[];
 
   @IsOptional()
-  @IsString()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   shippingCompanyId?: string;
 
   @IsOptional()
-  @IsInt()
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
   @Type(() => Number)
-  @Min(0)
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   discount?: number;
 
   // Payment
-  @IsEnum(PaymentMethod)
+  @IsEnum(PaymentMethod,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentMethod).join(', ')], }); }})
   paymentMethod: PaymentMethod;
 
   @IsOptional()
-  @IsInt()
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
   @Type(() => Number)
-  @Min(0)
+  @Min(0, {message: i18nValidationMessage('validation.min')})
   shippingCost?: number;
 
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Transform(({ value }) => {
     if (typeof value === "string") {
@@ -578,44 +433,44 @@ export class CreateReplacementDto {
 }
 
 export class CreateManifestDto {
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   shippingCompanyId: string;
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   driverName?: string;
 
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   orderIds: string[];
 }
 
 export class ReturnItemDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   originalItemId: string;
 
-  @IsNumber()
-  @Min(1)
+  @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+  @Min(1, {message: i18nValidationMessage('validation.min')})
   quantity: number;
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   @Transform(({ value }) => value?.trim()) // [2025-12-24] Trim applied
   condition?: string;
 }
 
 export class CreateReturnDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   orderId: string;
 
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   @Transform(({ value }) => value?.trim()) // [2025-12-24] Trim applied
   reason?: string;
 
-  @IsArray()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
   @ValidateNested({ each: true })
   @Type(() => ReturnItemDto)
   items: ReturnItemDto[];

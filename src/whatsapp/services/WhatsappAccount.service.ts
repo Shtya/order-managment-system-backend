@@ -6,6 +6,7 @@ import { WhatsappAccountEntity, WhatsappMessageEntity, MessageStatus, MessageDir
 import { tenantId } from 'src/category/category.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { ConversationEntity } from 'entities/whatsapp.entity';
+import { TranslationService } from 'common/translation.service';
 
 
 @Injectable()
@@ -17,11 +18,12 @@ export class WhatsappAccountService {
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
     @InjectRepository(ConversationEntity)
     private readonly conversationRepo: Repository<ConversationEntity>,
+    private readonly translations: TranslationService,
   ) { }
 
   async getStats(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
@@ -68,7 +70,7 @@ export class WhatsappAccountService {
 
   async list(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -133,7 +135,7 @@ export class WhatsappAccountService {
   async findOne(me: any, id: string) {
     const adminId = tenantId(me);
     const account = await this.accountRepo.findOne({ where: { id, adminId } });
-    if (!account) throw new NotFoundException("WhatsApp account not found");
+    if (!account) throw new NotFoundException(this.translations.t("domains.whatsapp.whatsapp_account_not_found"));
     return account;
   }
 
@@ -150,15 +152,41 @@ export class WhatsappAccountService {
     const { records } = await this.list(me, { ...q, limit: 5000, page: 1 });
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("حسابات واتساب");
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.whatsapp.whatsapp_accounts_sheet"),
+    );
 
     worksheet.columns = [
-      { header: "Name", key: "name", width: 25 },
-      { header: "Mobile Number", key: "mobileNumber", width: 20 },
-      { header: "WABA ID", key: "wabaId", width: 25 },
-      { header: "Phone Number ID", key: "phoneNumberId", width: 25 },
-      { header: "Status", key: "isActive", width: 12 },
-      { header: "Created At", key: "createdAt", width: 20 },
+      {
+        header: this.translations.t("common.name"),
+        key: "name",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.whatsapp.mobile_number"),
+        key: "mobileNumber",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.whatsapp.waba_id"),
+        key: "wabaId",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.whatsapp.phone_number_id"),
+        key: "phoneNumberId",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.status"),
+        key: "isActive",
+        width: 12,
+      },
+      {
+        header: this.translations.t("common.created_at"),
+        key: "createdAt",
+        width: 20,
+      },
     ];
 
     // Styling the header

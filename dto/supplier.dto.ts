@@ -1,121 +1,123 @@
 import { IsString, IsOptional, IsEmail, MaxLength, IsArray, IsNumber, IsIn } from "class-validator";
+import { i18nValidationMessage } from "nestjs-i18n";
+
 
 export class CreateSupplierDto {
-	@IsString()
-	@MaxLength(120)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(120, { message: i18nValidationMessage('validation.max_length') })
 	name: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(200)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(200, { message: i18nValidationMessage('validation.max_length') })
 	address?: string;
 
 	@IsOptional()
-	@IsString()
+	@IsString({message: i18nValidationMessage('validation.is_string')})
 	description?: string;
 
-	@IsString()
-	@MaxLength(30)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(30, { message: i18nValidationMessage('validation.max_length') })
 	phone: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(10)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(10, { message: i18nValidationMessage('validation.max_length') })
 	phoneCountry?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(30)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(30, { message: i18nValidationMessage('validation.max_length') })
 	secondPhone?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(10)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(10, { message: i18nValidationMessage('validation.max_length') })
 	secondPhoneCountry?: string;
 
 	@IsOptional()
-	@IsEmail()
-	@MaxLength(100)
+	@IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
+	@MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
 	email?: string;
 
-	@IsArray()
+	@IsArray({message: i18nValidationMessage('validation.is_array')})
 	categoryIds: string[];
 }
 
 export class UpdateSupplierDto {
 	@IsOptional()
-	@IsString()
-	@MaxLength(120)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(120, { message: i18nValidationMessage('validation.max_length') })
 	name?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(200)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(200, { message: i18nValidationMessage('validation.max_length') })
 	address?: string;
 
 	@IsOptional()
-	@IsString()
+	@IsString({message: i18nValidationMessage('validation.is_string')})
 	description?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(30)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(30, { message: i18nValidationMessage('validation.max_length') })
 	phone?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(10)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(10, { message: i18nValidationMessage('validation.max_length') })
 	phoneCountry?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(30)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(30, { message: i18nValidationMessage('validation.max_length') })
 	secondPhone?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(10)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(10, { message: i18nValidationMessage('validation.max_length') })
 	secondPhoneCountry?: string;
 
 	@IsOptional()
-	@IsEmail()
-	@MaxLength(100)
+	@IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
+	@MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
 	email?: string;
 
-	@IsArray()
+	@IsArray({message: i18nValidationMessage('validation.is_array')})
 	categoryIds: string[];
 }
 
 export class UpdateSupplierFinancialsDto {
 	@IsOptional()
-	@IsNumber()
+	@IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
 	dueBalance?: number;
 
 	@IsOptional()
-	@IsNumber()
+	@IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
 	purchaseValue?: number;
 }
 
 
 export class CreateSupplierCategoryDto {
-	@IsString()
-	@MaxLength(100)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
 	name: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(500)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(500, { message: i18nValidationMessage('validation.max_length') })
 	description?: string;
 }
 
 export class UpdateSupplierCategoryDto {
 	@IsOptional()
-	@IsString()
-	@MaxLength(100)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
 	name?: string;
 
 	@IsOptional()
-	@IsString()
-	@MaxLength(500)
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	@MaxLength(500, { message: i18nValidationMessage('validation.max_length') })
 	description?: string;
 }

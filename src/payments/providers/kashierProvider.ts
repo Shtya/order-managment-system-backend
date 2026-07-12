@@ -7,6 +7,7 @@ import { User } from 'entities/user.entity';
 import { CheckoutOptions, CheckoutResponse, ParsedRedirectData, ParsedWebhookData, PaymentProvider, PaymentProviderEnum, PaymentSessionEntity, PaymentSessionResponse, PaymentSessionStatusEnum } from 'entities/payments.entity';
 import { Repository } from 'typeorm';
 import { stringify as querystringStringify } from 'querystring';
+import { TranslationService } from 'common/translation.service';
 
 
 @Injectable()
@@ -23,7 +24,9 @@ export class KashierProvider extends PaymentProvider {
     constructor(
         private readonly configService: ConfigService,
         @InjectRepository(PaymentSessionEntity) private sessionRepo: Repository<PaymentSessionEntity>,
-        @InjectRepository(User) private readonly userRepo: Repository<User>,) {
+        @InjectRepository(User) private readonly userRepo: Repository<User>,
+        private readonly translations: TranslationService,
+    ) {
         super();
 
         const config = this.configService.get('kashier');
@@ -40,7 +43,7 @@ export class KashierProvider extends PaymentProvider {
         const manager = options.manager;
         const user = await manager.findOneBy(User, { id: options.userId });
         if (!user) {
-            throw new NotFoundException(`User with ID ${options.userId} not found`);
+            throw new NotFoundException(this.translations.t('common.user_not_found'));
         }
 
         const expireMinutes = Number(process.env.PAYMENT_EXPIRE_MINUTES) || 30;

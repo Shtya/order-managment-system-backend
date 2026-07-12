@@ -10,6 +10,9 @@ import { MailService } from '../../common/nodemailer';
 import { RegisterDto } from 'dto/auth.dto';
 import { SubscriptionStatus } from 'entities/plans.entity';
 import { UsersService } from 'src/users/users.service';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
+import { NotificationService } from 'src/notifications/notification.service';
+import { NotificationType } from 'entities/notifications.entity';
 
 @Injectable()
 export class AuthService {
@@ -23,6 +26,9 @@ export class AuthService {
 		private firebase: FirebaseService,
 		@Inject(forwardRef(() => UsersService))
 		private usersService: UsersService,
+		private translations: TranslationService,
+		private requestTranslations: RequestTranslationService,
+		private notificationService: NotificationService,
 	) { }
 
 	RESEND_COOLDOWN_SECONDS = 60;
@@ -64,7 +70,7 @@ export class AuthService {
 			.where('user.id = :userId', { userId: payload.sub })
 			.getOne();
 
-		if (!user || !user.isActive) throw new UnauthorizedException('Invalid user');
+		if (!user || !user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_user'));
 
 
 		const isAdmin = user.role?.name === SystemRole.ADMIN;
@@ -108,11 +114,11 @@ export class AuthService {
 
 		// 1. Primary Check: Is this email already in the live Users table?
 		const exists = await this.usersRepo.findOne({ where: { email } });
-		if (exists) throw new BadRequestException('Email already used');
+		if (exists) throw new BadRequestException(this.translations.t('domains.auth.email_already_used'));
 
 		// 2. Role Check
 		const userRole = await this.rolesRepo.findOne({ where: { name: SystemRole.ADMIN } });
-		if (!userRole) throw new BadRequestException('USER role not seeded');
+		if (!userRole) throw new BadRequestException(this.translations.t('domains.auth.role_not_seeded'));
 
 		// 3. Pending User & Cooldown Logic
 		let pendingUser = await this.pendingUserRepository.findOne({ where: { email } });
@@ -126,7 +132,7 @@ export class AuthService {
 				const remainingSeconds = Math.ceil(this.RESEND_COOLDOWN_SECONDS - timeElapsedSeconds);
 
 				throw new ForbiddenException(
-					`Please wait ${remainingSeconds} seconds before requesting a new code.`
+					this.translations.t('domains.auth.cooldown_wait', { args: { remainingSeconds } })
 				);
 			}
 		}
@@ -169,7 +175,7 @@ export class AuthService {
 		// 7. Send the Plain OTP via Email
 
 		return {
-			message: 'Verification code sent to your email',
+			message: this.translations.t('common.verification_code_sent'),
 			email
 		};
 	}
@@ -181,12 +187,12 @@ export class AuthService {
 			relations: { role: true }
 		});
 
-		if (!pendingUser) throw new BadRequestException('Verification session not found');
+		if (!pendingUser) throw new BadRequestException(this.translations.t('domains.auth.verification_session_not_found'));
 
 		// 2. Check Expiration
 		const exp = Number(pendingUser.otpExpiresAt) || 0;
 		if (!pendingUser.otpCodeHash || Date.now() > exp) {
-			throw new BadRequestException('OTP expired,  request new OTP');
+			throw new BadRequestException(this.translations.t('domains.auth.otp_expired'));
 		}
 
 		// 3. Handle Attempts
@@ -197,14 +203,14 @@ export class AuthService {
 			pendingUser.otpCodeHash = null;
 			pendingUser.otpExpiresAt = null;
 			await this.pendingUserRepository.save(pendingUser);
-			throw new BadRequestException('Too many attempts, request new OTP');
+			throw new BadRequestException(this.translations.t('domains.auth.too_many_attempts'));
 		}
 
 		// 4. Verify Hash
 		const isMatch = this.hashOtp(otp) === pendingUser.otpCodeHash;
 		if (!isMatch) {
 			await this.pendingUserRepository.save(pendingUser);
-			throw new BadRequestException('Invalid OTP');
+			throw new BadRequestException(this.translations.t('domains.auth.invalid_otp'));
 		}
 
 		// 5. TRANSACTION: Create User and Delete Pending
@@ -257,7 +263,7 @@ export class AuthService {
 		// 1. Find the pending user
 		const pendingUser = await this.pendingUserRepository.findOne({ where: { email } });
 		if (!pendingUser) {
-			throw new BadRequestException('No pending registration found for this email.');
+			throw new BadRequestException(this.translations.t('domains.auth.no_pending_email_change'));
 		}
 
 		// 2. Enforce Cooldown (using the bigint/number logic)
@@ -286,18 +292,26 @@ export class AuthService {
 			userName: pendingUser.name,
 		});
 
-		return { message: 'A new verification code has been sent.' };
+		return { message: this.translations.t('common.verification_code_sent') };
 	}
 
 	// ✅ UPDATED: Include plan relation on login
 	async login(email: string, password: string) {
-
 		const user = await this.usersService.getFullUserByEmail(email, true);
+		await this.notificationService.create({
+			userId: user.id,
+			type: NotificationType.ORDER_UPDATED,
+			title: await this.requestTranslations.tAsync('domains.orders.order_updated_title', user.id),
+			message: await this.requestTranslations.tAsync('domains.orders.order_updated_message', user.id,{args: { orderNumber: user.name } }),
+			relatedEntityType: "user",
+			relatedEntityId: String(user.id),
+		});
+		return;
 
-		if (!user || !user.isActive) throw new UnauthorizedException('Invalid credentials');
+		if (!user || !user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_credentials'));
 
 		const ok = await bcrypt.compare(password, user.passwordHash || '');
-		if (!ok) throw new UnauthorizedException('Invalid credentials');
+		if (!ok) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_credentials'));
 
 		const { passwordHash, ...finalUser } = user;
 		return this.sign(finalUser as User);
@@ -311,7 +325,7 @@ export class AuthService {
 		const user = await this.usersRepo.findOne({ where: { email } });
 
 		if (!user) {
-			return { message: 'If the email exists, you will receive an OTP.' };
+			return { message: this.translations.t('common.otp_conditional_receive') };
 		}
 
 		const otp = this.generateOtp(6);
@@ -327,7 +341,7 @@ export class AuthService {
 			userName: user.name || 'there',
 		});
 
-		return { message: 'OTP sent if email exists' };
+		return { message: this.translations.t('common.otp_sent_conditional') };
 	}
 
 	// auth.service.ts
@@ -336,7 +350,7 @@ export class AuthService {
 		const user = await this.usersRepo.findOne({ where: { id: userId } });
 
 		if (!user || !user.pendingNewEmail) {
-			throw new BadRequestException('No pending email change request found');
+			throw new BadRequestException(this.translations.t('domains.auth.no_pending_email_change'));
 		}
 
 		// Optional: Check cooldown (using your RESEND_COOLDOWN_SECONDS)
@@ -356,16 +370,16 @@ export class AuthService {
 			userName: user.name || 'there',
 		});
 
-		return { message: 'A new verification code has been sent' };
+		return { message: this.translations.t('common.new_code_sent') };
 	}
 
 	async verifyResetOtp(email: string, otp: string) {
 		const user = await this.usersRepo.findOne({ where: { email } });
-		if (!user) throw new BadRequestException('Invalid OTP');
+		if (!user) throw new BadRequestException(this.translations.t('domains.auth.invalid_request'));
 
 		const exp = user.otpExpiresAt || 0;
 		if (!user.otpCodeHash || Date.now() > exp) {
-			throw new BadRequestException('OTP expired');
+			throw new BadRequestException(this.translations.t('domains.auth.otp_expired'));
 		}
 
 		user.otpAttempts = (user.otpAttempts || 0) + 1;
@@ -374,29 +388,29 @@ export class AuthService {
 			user.otpExpiresAt = null;
 			user.otpVerified = false;
 			await this.usersRepo.save(user);
-			throw new BadRequestException('Too many attempts, request new OTP');
+			throw new BadRequestException(this.translations.t('domains.auth.too_many_attempts'));
 		}
 
 		const ok = this.hashOtp(otp) === user.otpCodeHash;
 		if (!ok) {
 			await this.usersRepo.save(user);
-			throw new BadRequestException('Invalid OTP');
+			throw new BadRequestException(this.translations.t('domains.auth.invalid_otp'));
 		}
 
 		user.otpVerified = true;
 		await this.usersRepo.save(user);
 
-		return { message: 'OTP verified' };
+		return { message: this.translations.t('common.otp_verified') };
 	}
 
 	// ✅ UPDATED: Include plan relation
 	async resetPasswordByOtp(email: string, newPassword: string) {
 		const user = await this.usersRepo.findOne({ where: { email } });
-		if (!user) throw new BadRequestException('Invalid request');
+		if (!user) throw new BadRequestException(this.translations.t('domains.auth.invalid_request'));
 
 		const exp = user.otpExpiresAt || 0;
 		if (!user.otpVerified || !user.otpCodeHash || Date.now() > exp) {
-			throw new BadRequestException('OTP verification required');
+			throw new BadRequestException(this.translations.t('domains.auth.otp_verification_required'));
 		}
 
 		user.passwordHash = await bcrypt.hash(newPassword, 10);
@@ -410,7 +424,7 @@ export class AuthService {
 		// ✅ UPDATED: Include plan
 		const fullUser = await this.usersService.getFullUser(user.id);
 		return {
-			message: 'Password updated successfully',
+			message: this.translations.t('common.password_updated'),
 			...this.sign(fullUser),
 		};
 	}
@@ -420,16 +434,16 @@ export class AuthService {
 		const decoded = await this.firebase.verifyIdToken(idToken);
 
 		const email = decoded.email;
-		if (!email) throw new UnauthorizedException('Google account has no email');
+		if (!email) throw new UnauthorizedException(this.translations.t('domains.auth.google_no_email'));
 
 		let user = await this.usersService.getFullUserByEmail(email)
 
 		if (!user) {
 			const userRole = await this.rolesRepo.findOne({ where: { name: SystemRole.USER } });
-			if (!userRole) throw new BadRequestException('USER role not seeded');
+			if (!userRole) throw new BadRequestException(this.translations.t('domains.auth.role_not_seeded'));
 
 			user = this.usersRepo.create({
-				name: decoded.name || fallbackName || 'Google User',
+				name: decoded.name || fallbackName || this.translations.t('domains.auth.fallback_google_user'),
 				email,
 				passwordHash: null,
 				roleId: userRole.id,
@@ -446,7 +460,7 @@ export class AuthService {
 			user = await this.usersService.getFullUser(user.id)
 		}
 
-		if (!user.isActive) throw new UnauthorizedException('Account is inactive');
+		if (!user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.account_inactive'));
 
 		return this.sign(user);
 	}
@@ -473,7 +487,7 @@ export class AuthService {
 		const parsedState = this.parseOAuthState(state);
 		const redirectPath = parsedState?.redirectPath || '/';
 
-		if (!email) throw new UnauthorizedException('Google account has no email');
+		if (!email) throw new UnauthorizedException(this.translations.t('domains.auth.google_no_email'));
 
 		let user = await this.usersRepo.createQueryBuilder('user')
 			// Join Role
@@ -495,10 +509,10 @@ export class AuthService {
 
 		if (!user) {
 			const userRole = await this.rolesRepo.findOne({ where: { name: SystemRole.ADMIN } });
-			if (!userRole) throw new BadRequestException('USER role not seeded');
+			if (!userRole) throw new BadRequestException(this.translations.t('domains.auth.role_not_seeded'));
 
 			user = this.usersRepo.create({
-				name: name || 'Google User',
+				name: name || '',
 				email,
 				passwordHash: null,
 				roleId: userRole.id,
@@ -517,7 +531,7 @@ export class AuthService {
 
 		}
 
-		if (!user.isActive) throw new UnauthorizedException('Account is inactive');
+		if (!user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.account_inactive'));
 
 		const { accessToken } = await this.sign(user);
 		const newResult = { accessToken, redirectPath };
@@ -528,7 +542,7 @@ export class AuthService {
 	async signUser(id) {
 		const user = await this.usersService.getFullUser(id);
 
-		if (!user) throw new NotFoundException('User not found');
+		if (!user) throw new NotFoundException(this.translations.t('domains.auth.user_not_found'));
 
 		const result = await this.sign(user);
 
@@ -545,11 +559,11 @@ export class AuthService {
 				id: true,
 			}
 		});
-		if (!user) throw new NotFoundException('User not found');
+		if (!user) throw new NotFoundException(this.translations.t('domains.auth.user_not_found'));
 
 		// Verify old password
 		const isMatch = await bcrypt.compare(oldPassword, user.passwordHash || '');
-		if (!isMatch) throw new BadRequestException('Invalid current password');
+		if (!isMatch) throw new BadRequestException(this.translations.t('domains.auth.invalid_current_password'));
 
 		// Hash and update new password
 		user.passwordHash = await bcrypt.hash(newPassword, 10);
@@ -559,7 +573,7 @@ export class AuthService {
 			userName: user.name || 'there',
 		});
 
-		return { message: 'Password updated successfully' };
+		return { message: this.translations.t('domains.auth.password_already_exists') };
 	}
 
 	async setPassword(userId: string, newPassword: string) {
@@ -569,12 +583,12 @@ export class AuthService {
 			.where('user.id = :id', { id: userId })
 			.getOne();
 
-		if (!user) throw new NotFoundException('User not found');
+		if (!user) throw new NotFoundException(this.translations.t('domains.auth.user_not_found'));
 
 		// 🚫 Prevent overriding existing password
 		if (user.passwordHash) {
 			throw new BadRequestException(
-				'Password already exists. Please use change password instead.'
+				this.translations.t('domains.auth.password_already_exists')
 			);
 		}
 
@@ -586,19 +600,19 @@ export class AuthService {
 			userName: user.name || 'there',
 		});
 
-		return { message: 'Password set successfully' };
+		return { message: this.translations.t('domains.auth.password_set') };
 	}
 
 	// Step 1: Request Email Change
 	async requestEmailChange(userId: string, newEmail: string) {
 		// 1. Check if the new email is already used by another account
 		const emailExists = await this.usersRepo.findOne({ where: { email: newEmail } });
-		if (emailExists) throw new ConflictException('Email is already in use by another account');
+		if (emailExists) throw new ConflictException(this.translations.t('domains.auth.email_in_use'));
 
 		const user = await this.usersRepo.findOne({ where: { id: userId } });
-		if (!user) throw new NotFoundException('User not found');
+		if (!user) throw new NotFoundException(this.translations.t('domains.auth.user_not_found'));
 
-		if (user.email === newEmail) throw new BadRequestException('This is already your current email');
+		if (user.email === newEmail) throw new BadRequestException(this.translations.t('domains.auth.already_current_email'));
 
 		// 2. Generate and hash OTP
 		const otp = this.generateOtp(6);
@@ -615,7 +629,7 @@ export class AuthService {
 			userName: user.name || 'there',
 		});
 
-		return { message: 'A verification code has been sent to your new email address' };
+		return { message: this.translations.t('domains.auth.email_change_code_sent') };
 	}
 
 	// Step 2: Verify OTP and apply Email Change
@@ -624,13 +638,13 @@ export class AuthService {
 		const user = await this.usersService.getFullUser(userId)
 
 		if (!user || !user.pendingNewEmail) {
-			throw new BadRequestException('No pending email change request found');
+			throw new BadRequestException(this.translations.t('domains.auth.no_pending_email_change'));
 		}
 
 		// 1. Check Expiration
 		const exp = Number(user.newEmailOtpExpiresAt) || 0;
 		if (!user.newEmailOtpCodeHash || Date.now() > exp) {
-			throw new BadRequestException('OTP expired, please request a new one');
+			throw new BadRequestException(this.translations.t('domains.auth.otp_expired'));
 		}
 
 		// 2. Handle Attempts
@@ -639,14 +653,14 @@ export class AuthService {
 			user.newEmailOtpCodeHash = null;
 			user.newEmailOtpExpiresAt = null;
 			await this.usersRepo.save(user);
-			throw new BadRequestException('Too many attempts, request a new OTP');
+			throw new BadRequestException(this.translations.t('domains.auth.too_many_attempts'));
 		}
 
 		// 3. Verify Hash
 		const isMatch = this.hashOtp(otp) === user.newEmailOtpCodeHash;
 		if (!isMatch) {
 			await this.usersRepo.save(user);
-			throw new BadRequestException('Invalid OTP');
+			throw new BadRequestException(this.translations.t('domains.auth.invalid_otp'));
 		}
 
 		// 4. Success: Apply new email and clear OTP data
@@ -660,7 +674,7 @@ export class AuthService {
 
 		// Return new signed token because the email (and possibly payload) has changed
 		return {
-			message: 'Email updated successfully',
+			message: this.translations.t('common.email_updated'),
 			...await this.sign(user),
 		};
 	}

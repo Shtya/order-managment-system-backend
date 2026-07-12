@@ -11,44 +11,45 @@ import {
 } from "class-validator";
 import { Type } from "class-transformer";
 import { WhatsAppIntegrationMode } from "entities/adminSettings.entity";
+import { i18nValidationMessage } from "nestjs-i18n";
 
 class SocialsDto {
   @IsOptional()
-  @IsUrl()
+  @IsUrl({}, {message: i18nValidationMessage('validation.is_url')})
   facebook?: string;
   @IsOptional()
-  @IsUrl()
+  @IsUrl({}, {message: i18nValidationMessage('validation.is_url')})
   instagram?: string;
   @IsOptional()
-  @IsUrl()
+  @IsUrl({}, {message: i18nValidationMessage('validation.is_url')})
   x?: string;
   @IsOptional()
-  @IsUrl()
+  @IsUrl({}, {message: i18nValidationMessage('validation.is_url')})
   linkedin?: string;
   @IsOptional()
-  @IsUrl()
+  @IsUrl({}, {message: i18nValidationMessage('validation.is_url')})
   github?: string;
   @IsOptional()
-  @IsUrl()
+  @IsUrl({}, {message: i18nValidationMessage('validation.is_url')})
   youtube?: string;
 }
 
 export class UpdateAdminSettingsDto {
   @IsOptional()
-  @IsEmail()
+  @IsEmail({}, {message: i18nValidationMessage('validation.is_email')})
   email?: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
   whatsapp?: string;
 
-  @IsOptional()
+  @IsOptional() 
   @ValidateNested()
   @Type(() => SocialsDto)
   socials?: SocialsDto;
 
   @IsOptional()
-  @IsEnum(WhatsAppIntegrationMode)
-  @IsNotEmpty()
+  @IsEnum(WhatsAppIntegrationMode,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(WhatsAppIntegrationMode).join(', ')], }); }})
+  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   whatsappIntegrationMode?: WhatsAppIntegrationMode;
 }

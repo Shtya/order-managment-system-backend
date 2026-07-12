@@ -37,7 +37,6 @@ import {
   MarkMessagesReadDto,
   CreateStatusDto,
   UpdateStatusDto,
-  UpsertOrderRetrySettingsDto,
   CreateManifestDto,
 } from "dto/order.dto";
 import { ScanLogType, ScanReason } from "entities/order.entity";
@@ -334,18 +333,6 @@ export class OrdersController {
         message: err.message || "Excel validation failed",
       });
     }
-  }
-
-  @Get("retry-settings")
-  @Permissions("orders.readSettings")
-  getRetry(@Req() req: any) {
-    return this.svc.getSettings(req.user);
-  }
-
-  @Post("retry-settings")
-  @Permissions("orders.updateSettings")
-  upsertRetry(@Req() req: any, @Body() dto: UpsertOrderRetrySettingsDto) {
-    return this.svc.upsertSettings(req.user, dto);
   }
 
   @Permissions("orders.read", "orders.confirm-incoming")

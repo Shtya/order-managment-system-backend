@@ -3,10 +3,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Permission } from 'entities/user.entity';
 import { Repository } from 'typeorm';
 import { CreatePermissionDto } from 'dto/permission.dto';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class PermissionsService implements OnModuleInit {
-	constructor(@InjectRepository(Permission) private permsRepo: Repository<Permission>) { }
+	constructor(
+		@InjectRepository(Permission) private permsRepo: Repository<Permission>,
+		private readonly translations: TranslationService
+	) { }
 
 	async onModuleInit() {
 		await this.seed();
@@ -72,14 +76,14 @@ export class PermissionsService implements OnModuleInit {
 
 	async create(dto: CreatePermissionDto) {
 		const exists = await this.permsRepo.findOne({ where: { name: dto.name } });
-		if (exists) throw new BadRequestException('Permission already exists');
+		if (exists) throw new BadRequestException(this.translations.t('domains.permissions.already_exists'));
 		return this.permsRepo.save(this.permsRepo.create({ name: dto.name }));
 	}
 
 	async remove(id: string) {
 		const p = await this.permsRepo.findOne({ where: { id } });
-		if (!p) throw new NotFoundException('Permission not found');
+		if (!p) throw new NotFoundException(this.translations.t('domains.permissions.not_found'));
 		await this.permsRepo.delete(id);
-		return { message: 'Permission deleted' };
+		return { message: this.translations.t('domains.permissions.deleted') };
 	}
 }

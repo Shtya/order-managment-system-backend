@@ -7,6 +7,7 @@ import { DateFilterUtil } from 'common/date-filter.util';
 import * as ExcelJS from 'exceljs';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class ProductSyncStateService {
@@ -16,13 +17,16 @@ export class ProductSyncStateService {
         @InjectRepository(ProductSyncErrorLogEntity)
         private readonly syncErrorLogRepo: Repository<ProductSyncErrorLogEntity>,
         private readonly notificationService: NotificationService,
+        private readonly translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
+        
     ) { }
 
     // ─── SYNC STATE ──────────────────────────────────────────────────────────
 
     async list(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -65,7 +69,7 @@ export class ProductSyncStateService {
 
     async getById(me: any, id: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const record = await this.syncStateRepo.findOne({
             where: { id, adminId },
@@ -73,7 +77,7 @@ export class ProductSyncStateService {
         });
 
         if (!record) {
-            throw new NotFoundException("Product sync state record not found");
+            throw new NotFoundException(this.translations.t('domains.product_sync.state_not_found'));
         }
 
         return record;
@@ -81,7 +85,7 @@ export class ProductSyncStateService {
 
     async getStatistics(me: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const raw = await this.syncStateRepo
             .createQueryBuilder("syncState")
@@ -110,7 +114,7 @@ export class ProductSyncStateService {
 
     async export(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const qb = this.syncStateRepo
             .createQueryBuilder("syncState")
@@ -137,31 +141,33 @@ export class ProductSyncStateService {
         const records = await qb.getMany();
 
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Product Sync State");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.product_sync.state_sheet'));
+        const naText = this.translations.t('domains.product_sync.n_a');
+        const noneText = this.translations.t('domains.product_sync.none');
 
         worksheet.columns = [
-            { header: "ID", key: "id", width: 36 },
-            { header: "Product Name", key: "productName", width: 30 },
-            { header: "Product Slug", key: "productSlug", width: 20 },
-            { header: "Store", key: "store", width: 20 },
-            { header: "Remote Product ID", key: "remoteId", width: 20 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Last Error", key: "lastError", width: 40 },
-            { header: "Last Synced At", key: "lastSyncedAt", width: 20 },
-            { header: "Created At", key: "createdAt", width: 20 },
+            { header: this.translations.t('domains.product_sync.id'), key: "id", width: 36 },
+            { header: this.translations.t('domains.product_sync.product_name'), key: "productName", width: 30 },
+            { header: this.translations.t('domains.product_sync.product_slug'), key: "productSlug", width: 20 },
+            { header: this.translations.t('domains.product_sync.store'), key: "store", width: 20 },
+            { header: this.translations.t('domains.product_sync.remote_id'), key: "remoteId", width: 20 },
+            { header: this.translations.t('domains.product_sync.status'), key: "status", width: 15 },
+            { header: this.translations.t('domains.product_sync.last_error'), key: "lastError", width: 40 },
+            { header: this.translations.t('domains.product_sync.last_synced_at'), key: "lastSyncedAt", width: 20 },
+            { header: this.translations.t('domains.product_sync.created_at'), key: "createdAt", width: 20 },
         ];
 
         records.forEach((r) => {
             worksheet.addRow({
                 id: r.id,
-                productName: r.product?.name || "N/A",
-                productSlug: r.product?.slug || "N/A",
-                store: r.store?.name || "N/A",
-                remoteId: r.remoteProductId || "N/A",
+                productName: r.product?.name || naText,
+                productSlug: r.product?.slug || naText,
+                store: r.store?.name || naText,
+                remoteId: r.remoteProductId || naText,
                 status: r.status,
-                lastError: r.lastError || "None",
-                lastSyncedAt: r.lastSynced_at ? r.lastSynced_at.toLocaleString() : "N/A",
-                createdAt: r.created_at ? r.created_at.toLocaleString() : "N/A",
+                lastError: r.lastError || noneText,
+                lastSyncedAt: r.lastSynced_at ? r.lastSynced_at.toLocaleString() : naText,
+                createdAt: r.created_at ? r.created_at.toLocaleString() : naText,
             });
         });
 
@@ -179,7 +185,7 @@ export class ProductSyncStateService {
 
     async listLogs(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -226,14 +232,14 @@ export class ProductSyncStateService {
 
     async getLogById(me: any, id: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const record = await this.syncErrorLogRepo.findOne({
             where: { id, adminId },
         });
 
         if (!record) {
-            throw new NotFoundException("Product sync error log not found");
+            throw new NotFoundException(this.translations.t('domains.product_sync.error_log_not_found'));
         }
 
         return record;
@@ -241,7 +247,7 @@ export class ProductSyncStateService {
 
     async getLogsStatistics(me: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const raw = await this.syncErrorLogRepo
             .createQueryBuilder("log")
@@ -274,7 +280,7 @@ export class ProductSyncStateService {
 
     async exportLogs(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const qb = this.syncErrorLogRepo
             .createQueryBuilder("log")
@@ -306,18 +312,19 @@ export class ProductSyncStateService {
         const records = await qb.getMany();
 
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Sync Error Logs");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.product_sync.error_logs_sheet'));
+        const naText = this.translations.t('domains.product_sync.n_a');
 
         worksheet.columns = [
-            { header: "ID", key: "id", width: 36 },
-            { header: "Product Name", key: "productName", width: 30 },
-            { header: "Bundle Name", key: "bundleName", width: 30 },
-            { header: "Store Name", key: "storeName", width: 30 },
-            { header: "Remote ID", key: "remoteId", width: 20 },
-            { header: "Action", key: "action", width: 15 },
-            { header: "Error Message", key: "error", width: 50 },
-            { header: "Status", key: "status", width: 10 },
-            { header: "Created At", key: "createdAt", width: 20 },
+            { header: this.translations.t('domains.product_sync.id'), key: "id", width: 36 },
+            { header: this.translations.t('domains.product_sync.product_name'), key: "productName", width: 30 },
+            { header: this.translations.t('domains.product_sync.bundle_name'), key: "bundleName", width: 30 },
+            { header: this.translations.t('domains.product_sync.store_name'), key: "storeName", width: 30 },
+            { header: this.translations.t('domains.product_sync.remote_id'), key: "remoteId", width: 20 },
+            { header: this.translations.t('domains.product_sync.action'), key: "action", width: 15 },
+            { header: this.translations.t('domains.product_sync.error_message'), key: "error", width: 50 },
+            { header: this.translations.t('domains.product_sync.status'), key: "status", width: 10 },
+            { header: this.translations.t('domains.product_sync.created_at'), key: "createdAt", width: 20 },
         ];
 
         records.forEach((r) => {
@@ -329,7 +336,7 @@ export class ProductSyncStateService {
                 action: r.action,
                 error: r.errorMessage,
                 status: r.responseStatus,
-                createdAt: r.created_at ? r.created_at.toLocaleString() : "N/A",
+                createdAt: r.created_at ? r.created_at.toLocaleString() : naText,
             });
         });
 
@@ -367,16 +374,16 @@ export class ProductSyncStateService {
         }
     ) {
         if (!adminId || !storeId) {
-            throw new Error('adminId and storeId are required');
+            throw new Error(this.translations.t('domains.product_sync.admin_id_and_store_id_required'));
         }
 
         // ✅ Validate entity
         if (entityType === SyncEntityType.PRODUCT && !productId) {
-            throw new Error('productId is required for PRODUCT entityType');
+            throw new Error(this.translations.t('domains.product_sync.product_id_required_for_product_entity'));
         }
 
         if (entityType === SyncEntityType.BUNDLE && !bundleId) {
-            throw new Error('bundleId is required for BUNDLE entityType');
+            throw new Error(this.translations.t('domains.product_sync.bundle_id_required_for_bundle_entity'));
         }
 
         const { userMessage, ...payload } = data;
@@ -396,12 +403,23 @@ export class ProductSyncStateService {
         await this.notificationService.create({
             userId: adminId,
             type: NotificationType.PRODUCT_SYNC_FAILED, // you can later split this if needed
-            title: entityType === SyncEntityType.PULL ? "Pull Product Sync Failed" : isProduct ? "Product Sync Failed" : "Bundle Sync Failed",
+            title: await this.requestTranslations.tAsync(
+                entityType === SyncEntityType.PULL 
+                    ? 'domains.product_sync.pull_sync_failed_title' 
+                    : isProduct 
+                        ? 'domains.product_sync.product_sync_failed_title' 
+                        : 'domains.product_sync.bundle_sync_failed_title',
+                adminId
+            ),
             message:
-                !!userMessage ? userMessage :  entityType === SyncEntityType.PULL ? "Failed to pull product" :
-                    isProduct
-                        ? "Failed to sync product"
-                        : "Failed to sync bundle",
+                !!userMessage ? userMessage : await this.requestTranslations.tAsync(
+                    entityType === SyncEntityType.PULL 
+                        ? 'domains.product_sync.failed_to_pull_product' 
+                        : isProduct 
+                            ? 'domains.product_sync.failed_to_sync_product' 
+                            : 'domains.product_sync.failed_to_sync_bundle',
+                    adminId
+                ),
             relatedEntityType: entityType === SyncEntityType.PULL ? null : isProduct ? "product" : "bundle",
             relatedEntityId: entityType === SyncEntityType.PULL ? null : isProduct ? productId : bundleId,
         });
@@ -416,7 +434,7 @@ export class ProductSyncStateService {
     ): Promise<ProductSyncStateEntity> {
 
         if (!adminId || !productId || !storeId) {
-            throw new Error('adminId, productId, storeId, externalStoreId are required');
+            throw new Error(this.translations.t('domains.product_sync.admin_id_product_id_store_id_required'));
         }
 
 

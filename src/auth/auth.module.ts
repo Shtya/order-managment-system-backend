@@ -1,4 +1,4 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { forwardRef, Global, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PendingUser, Role, User } from 'entities/user.entity';
 import { JwtModule } from '@nestjs/jwt';
@@ -10,6 +10,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { FirebaseService } from './firebase.service';
 import { UsersModule } from 'src/users/users.module';
 import { MailService } from '../../common/nodemailer';
+
 
 @Module({
   imports: [
@@ -32,3 +33,16 @@ import { MailService } from '../../common/nodemailer';
   exports: [JwtModule, AuthService, MailService],
 })
 export class AuthModule { }
+
+
+// auth-core.module.ts
+@Global()
+@Module({
+  imports: [
+    PassportModule.register({ defaultStrategy: 'jwt' }),
+    forwardRef(() => AuthModule), // JwtStrategy needs AuthService
+  ],
+  providers: [JwtStrategy],
+  exports: [JwtStrategy, PassportModule],
+})
+export class AuthCoreModule {}

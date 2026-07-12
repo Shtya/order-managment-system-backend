@@ -3,7 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { AutoAssignDto, AutoPreviewDto, CreateAutoAssignRuleDto, GetFreeOrdersDto, ManualAssignManyDto, UpdateAutoAssignRuleDto } from 'dto/order-assignment.dto';
 import { OrderAssignmentEntity, AutoAssignRuleEntity, AutoAssignRuleType, AssignmentStrategy, WeekDay } from 'entities/assignment.entity';
-import { OrderEntity, OrderStatus, OrderStatusEntity, AssignmentMode, TimeUnit } from 'entities/order.entity';
+import { OrderEntity, OrderStatus, OrderStatusEntity } from 'entities/order.entity';
+import { AssignmentMode } from 'entities/clientSettings.entity';
+import { TimeUnit } from 'entities/clientSettings.entity';
 import { User } from 'entities/user.entity';
 import { tenantId } from 'src/category/category.service';
 import { OrdersService } from 'src/orders/services/orders.service';
@@ -16,6 +18,8 @@ import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { BitmaskHelper, WeekDayHelper } from 'common/bitmask.helper';
 import { StoreEntity } from 'entities/stores.entity';
+import { ClientSettingsService } from 'src/client-settings/client-settings.service';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class OrderAssignmentService {
@@ -52,6 +56,9 @@ export class OrderAssignmentService {
 
         @InjectRepository(StoreEntity)
         private readonly storeRepo: Repository<StoreEntity>,
+        private readonly clientSettingsService: ClientSettingsService,
+        private readonly translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
     ) { }
 
     private async bulkUpdateOrderStatusOnAssignment(orderIds: string[], adminId: string, manager: EntityManager): Promise<void> {
@@ -130,7 +137,7 @@ export class OrderAssignmentService {
                 adminId,
                 manager,
                 orderStatusChanges,
-                notes: 'Status updated automatically on employee assignment',
+                notes: this.translations.t('domains.order_assignment.status_updated_on_assignment'),
             });
         }
     }
@@ -238,7 +245,7 @@ export class OrderAssignmentService {
                 adminId,
                 manager,
                 orderStatusChanges,
-                notes: 'Status reverted automatically on employee unassignment',
+                notes: this.translations.t('domains.order_assignment.status_reverted_on_unassignment'),
             });
         }
     }
@@ -246,7 +253,7 @@ export class OrderAssignmentService {
 
     async removeActiveAssignments(me: any, orderIds: string[]) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         return this.dataSource.transaction(async (manager) => {
             // Find active assignments
@@ -260,7 +267,7 @@ export class OrderAssignmentService {
 
             if (!assignments.length) {
                 throw new NotFoundException(
-                    "No active assignments found for the provided orders",
+                    this.translations.t('domains.order_assignment.no_active_assignments'),
                 );
             }
 
@@ -281,14 +288,16 @@ export class OrderAssignmentService {
 
             return {
                 success: true,
-                message: `${assignmentOrderIds.length} active assignment(s) removed successfully`,
+                message: this.translations.t('domains.order_assignment.assignments_removed_success', {
+                    args: { count: assignmentOrderIds.length },
+                }),
             };
         });
     }
 
     async getEmployeesByLoad(me: any, limit: number = 20, cursor: number | null, role?: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const fetchLimit = Number(limit) || 20;
 
@@ -354,7 +363,7 @@ export class OrderAssignmentService {
 
     async manualAssignMany(me: any, dto: ManualAssignManyDto) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 
         // collect all employee ids and all order ids from payload
@@ -370,7 +379,7 @@ export class OrderAssignmentService {
         );
         if (allOrderIds.length !== payloadOrderCount) {
             throw new BadRequestException(
-                "Each order may only be assigned to a single employee in the same request",
+                this.translations.t('domains.order_assignment.order_single_employee_only'),
             );
         }
 
@@ -382,7 +391,7 @@ export class OrderAssignmentService {
 
             if (employees.length !== employeeIds.length) {
                 throw new NotFoundException(
-                    `Employees not found or not belonging to admin`,
+                    this.translations.t('domains.order_assignment.employees_not_found'),
                 );
             }
 
@@ -405,20 +414,27 @@ export class OrderAssignmentService {
             for (const order of freeOrders) {
                 if (order.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
                     throw new BadRequestException(
-                        `Order #${order.orderNumber} has status "${order.status.name}" which is not allowed for assignment. Allowed statuses: ${[...this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT].join(", ")}`,
+                        this.translations.t('domains.order_assignment.order_status_not_allowed', {
+                            args: {
+                                orderNumber: order.orderNumber,
+                                statusName: order.status.name,
+                                allowedStatuses: [...this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT].join(", "),
+                            },
+                        }),
                     );
                 }
             }
 
             if (freeOrders.length !== allOrderIds.length) {
                 throw new BadRequestException(
-                    `Some orders are either invalid, restricted, or already actively assigned.`,
+                    this.translations.t('domains.order_assignment.orders_invalid_restricted_assigned'),
                 );
             }
 
-            freeOrders.forEach(async o => await this.ordersService.throwIfDelivered(o, "Cannot assign a order that has been closed."));
+            const cannotAssignClosedMessage = this.translations.t('domains.order_assignment.cannot_assign_closed_order');
+            freeOrders.forEach(async o => await this.ordersService.throwIfDelivered(o, cannotAssignClosedMessage));
             // 4) fetch settings
-            const settings = await this.ordersService.getCachedSettings(adminId);
+            const settings = await this.clientSettingsService.getCachedSettings(adminId);
             const maxRetries = settings?.maxRetries || 3;
 
             // 5) create assignment entities in bulk
@@ -471,7 +487,7 @@ export class OrderAssignmentService {
                 where: { id: employeeId, adminId } as any
             });
             if (!employee) {
-                throw new NotFoundException('Employee not found');
+                throw new NotFoundException(this.translations.t('domains.order_assignment.employee_not_found'));
             }
 
             // Verify order is free and eligible
@@ -497,7 +513,7 @@ export class OrderAssignmentService {
             }
 
             // Get settings
-            const settings = await this.ordersService.getCachedSettings(adminId);
+            const settings = await this.clientSettingsService.getCachedSettings(adminId);
             const maxRetries = settings?.maxRetries || 3;
 
             // Create assignment
@@ -520,7 +536,7 @@ export class OrderAssignmentService {
 
     async autoAssign(me: any, dto: AutoAssignDto) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         return this.dataSource.transaction(async (manager) => {
             // 1. Find 'Free' Orders (No active assignments)
@@ -546,22 +562,34 @@ export class OrderAssignmentService {
             for (const order of freeOrders) {
                 if (order.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
                     throw new BadRequestException(
-                        `Order #${order.orderNumber} has status "${order.status.name}" which is not allowed for assignment. Allowed statuses: ${[...this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT].join(", ")}`,
+                        this.translations.t('domains.order_assignment.order_status_not_allowed', {
+                            args: {
+                                orderNumber: order.orderNumber,
+                                statusName: order.status.name,
+                                allowedStatuses: [...this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT].join(", "),
+                            },
+                        }),
                     );
                 }
             }
 
             if (freeOrders.length === 0) {
                 throw new NotFoundException(
-                    "No free orders found matching these criteria",
+                    this.translations.t('domains.order_assignment.no_free_orders'),
                 );
             }
             if (freeOrders.length !== dto.orderCount) {
                 throw new BadRequestException(
-                    `Cannot fulfill request. You requested ${dto.orderCount} orders, but only ${freeOrders.length} unassigned orders were found for the selected statuses.`,
+                    this.translations.t('domains.order_assignment.cannot_fulfill_order_count', {
+                        args: {
+                            requestedCount: dto.orderCount,
+                            availableCount: freeOrders.length,
+                        },
+                    }),
                 );
             }
-            freeOrders.forEach(async o => await this.ordersService.throwIfDelivered(o, "Cannot assign a order that has been closed."));
+            const cannotAssignClosedMessage = this.translations.t('domains.order_assignment.cannot_assign_closed_order');
+            freeOrders.forEach(async o => await this.ordersService.throwIfDelivered(o, cannotAssignClosedMessage));
 
             // 2. Find 'Least Busy' Employees
             // We count active assignments for each employee and sort ASC
@@ -583,17 +611,22 @@ export class OrderAssignmentService {
                 .getRawMany();
 
             if (employees.length === 0) {
-                throw new NotFoundException("No eligible employees found");
+                throw new NotFoundException(this.translations.t('domains.order_assignment.no_eligible_employees'));
             }
 
             if (employees.length < dto.employeeCount) {
                 throw new BadRequestException(
-                    `Insufficient employees. You requested assignment to ${dto.employeeCount} employees, but only ${employees.length} are available.`,
+                    this.translations.t('domains.order_assignment.insufficient_employees', {
+                        args: {
+                            requestedCount: dto.employeeCount,
+                            availableCount: employees.length,
+                        },
+                    }),
                 );
             }
 
             // 3. Fetch Settings
-            const settings = await this.ordersService.getCachedSettings(adminId);
+            const settings = await this.clientSettingsService.getCachedSettings(adminId);
             const maxRetries = settings?.maxRetries || 3;
 
             const assignmentsToSave: OrderAssignmentEntity[] = [];
@@ -728,10 +761,10 @@ export class OrderAssignmentService {
 
     async listMyAssignedOrders(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const myUserId = me?.id;
-        if (!myUserId) throw new BadRequestException("Missing user ID");
+        if (!myUserId) throw new BadRequestException(this.translations.t('common.missing_user_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -841,10 +874,10 @@ export class OrderAssignmentService {
 
     async exportMyAssignedOrders(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const myUserId = me?.id;
-        if (!myUserId) throw new BadRequestException("Missing user ID");
+        if (!myUserId) throw new BadRequestException(this.translations.t('common.missing_user_id'));
 
         // 1. نفس منطق بناء الاستعلام (Query Builder)
         const search = String(q?.search ?? "").trim();
@@ -897,38 +930,39 @@ export class OrderAssignmentService {
         const orders = await qb.getMany();
 
         // 4. تحضير البيانات (Prepare Data)
+        const notApplicable = this.translations.t('common.not_applicable');
         const exportData = orders.map((order) => {
             return {
-                orderNumber: order.orderNumber || "N/A",
-                status: order.status?.name || order.status?.code || "N/A",
-                customerName: order.customerName || "N/A",
-                phoneNumber: order.phoneNumber || "N/A",
-                city: order.city || "N/A",
-                paymentStatus: order.paymentStatus || "N/A",
-                shippingCompany: order.shippingCompany?.name || "N/A",
-                store: order.store?.name || "N/A",
+                orderNumber: order.orderNumber || notApplicable,
+                status: order.status?.name || order.status?.code || notApplicable,
+                customerName: order.customerName || notApplicable,
+                phoneNumber: order.phoneNumber || notApplicable,
+                city: order.city || notApplicable,
+                paymentStatus: order.paymentStatus || notApplicable,
+                shippingCompany: order.shippingCompany?.name || notApplicable,
+                store: order.store?.name || notApplicable,
                 finalTotal: order.finalTotal || 0,
                 createdAt: order.created_at
                     ? new Date(order.created_at).toLocaleString("en-GB")
-                    : "N/A",
+                    : notApplicable,
             };
         });
 
         // 5. إنشاء ملف الإكسل (Create Workbook)
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("My Assigned Orders");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.order_assignment.export_my_assigned_orders_sheet'));
 
         const columns = [
-            { header: "Order Number", key: "orderNumber", width: 20 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Customer Name", key: "customerName", width: 25 },
-            { header: "Phone Number", key: "phoneNumber", width: 18 },
-            { header: "City", key: "city", width: 18 },
-            { header: "Final Total", key: "finalTotal", width: 15 },
-            { header: "Payment Status", key: "paymentStatus", width: 18 },
-            { header: "Shipping Company", key: "shippingCompany", width: 20 },
-            { header: "Store", key: "store", width: 20 },
-            { header: "Created At", key: "createdAt", width: 20 },
+            { header: this.translations.t('common.export_order_number'), key: "orderNumber", width: 20 },
+            { header: this.translations.t('common.export_status'), key: "status", width: 15 },
+            { header: this.translations.t('domains.order_assignment.export_customer_name'), key: "customerName", width: 25 },
+            { header: this.translations.t('domains.order_assignment.export_phone_number'), key: "phoneNumber", width: 18 },
+            { header: this.translations.t('domains.order_assignment.export_city'), key: "city", width: 18 },
+            { header: this.translations.t('domains.order_assignment.export_final_total'), key: "finalTotal", width: 15 },
+            { header: this.translations.t('domains.order_assignment.export_payment_status'), key: "paymentStatus", width: 18 },
+            { header: this.translations.t('common.export_shipping_company'), key: "shippingCompany", width: 20 },
+            { header: this.translations.t('domains.order_assignment.export_store'), key: "store", width: 20 },
+            { header: this.translations.t('domains.order_assignment.export_created_at'), key: "createdAt", width: 20 },
         ];
 
         worksheet.columns = columns;
@@ -955,7 +989,7 @@ export class OrderAssignmentService {
 
     async getNextAssignedOrder(me: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const order = await this.orderRepo
             .createQueryBuilder("order")
@@ -1067,7 +1101,7 @@ export class OrderAssignmentService {
 
     async getFreeOrders(me: any, q: GetFreeOrdersDto) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const fetchLimit = Number(q.limit) || 20;
 
@@ -1125,7 +1159,7 @@ export class OrderAssignmentService {
         q: { statusIds: string[]; startDate?: string; endDate?: string },
     ) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const qb = this.orderRepo
             .createQueryBuilder("order")
@@ -1155,7 +1189,7 @@ export class OrderAssignmentService {
 
     async getAssignmentStats(me: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
@@ -1220,7 +1254,7 @@ export class OrderAssignmentService {
 
     async listAutoAssignRules(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -1272,10 +1306,10 @@ export class OrderAssignmentService {
 
     async createAutoAssignRule(me: any, dto: CreateAutoAssignRuleDto) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const existingRule = await this.autoAssignRuleRepo.findOne({ where: { name: dto.name, adminId } });
-        if (existingRule) throw new BadRequestException("Rule name already exists");
+        if (existingRule) throw new BadRequestException(this.translations.t('domains.order_assignment.rule_name_exists'));
 
         const rule = this.autoAssignRuleRepo.create({
             ...dto,
@@ -1285,28 +1319,28 @@ export class OrderAssignmentService {
         const promises: Promise<any>[] = [];
 
         if (dto.productIds?.length) {
-            promises.push(this.productRepo.find({ where: { id: In(dto.productIds), isActive: true } }).then(products => {
-                if (products.length !== dto.productIds.length) throw new BadRequestException("Some Products not found");
+            promises.push(this.productRepo.find({ where: { id: In(dto.productIds), isActive: true } }).then(async products => {
+                if (products.length !== dto.productIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_products_not_found'));
                 rule.products = products;
             }));
         }
         if (dto.cityIds?.length) {
-            promises.push(this.cityRepo.find({ where: { id: In(dto.cityIds), isActive: true } }).then(cities => {
-                if (cities.length !== dto.cityIds.length) throw new BadRequestException("Some Cities not found");
+            promises.push(this.cityRepo.find({ where: { id: In(dto.cityIds), isActive: true } }).then(async cities => {
+                if (cities.length !== dto.cityIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_cities_not_found'));
                 rule.cities = cities;
             }));
         }
 
         if (dto.storeIds?.length) {
-            promises.push(this.storeRepo.find({ where: { id: In(dto.storeIds), isActive: true } }).then(stores => {
-                if (stores.length !== dto.storeIds.length) throw new BadRequestException("Some Stores not found");
+            promises.push(this.storeRepo.find({ where: { id: In(dto.storeIds), isActive: true } }).then(async stores => {
+                if (stores.length !== dto.storeIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_stores_not_found'));
                 rule.stores = stores;
             }));
         }
 
         if (dto.employeeIds?.length) {
-            promises.push(this.userRepo.find({ where: { id: In(dto.employeeIds), adminId, isActive: true } }).then(employees => {
-                if (employees.length !== dto.employeeIds.length) throw new BadRequestException("Some Employees not found");
+            promises.push(this.userRepo.find({ where: { id: In(dto.employeeIds), adminId, isActive: true } }).then(async employees => {
+                if (employees.length !== dto.employeeIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_employees_not_found'));
                 rule.employees = employees;
             }));
         }
@@ -1318,14 +1352,14 @@ export class OrderAssignmentService {
 
     async updateAutoAssignRule(me: any, id: string, dto: UpdateAutoAssignRuleDto) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const rule = await this.autoAssignRuleRepo.findOne({ where: { id, adminId } });
-        if (!rule) throw new NotFoundException("Rule not found");
+        if (!rule) throw new NotFoundException(this.translations.t('domains.order_assignment.rule_not_found'));
 
         if (dto.name && dto.name !== rule.name) {
             const existingRule = await this.autoAssignRuleRepo.findOne({ where: { name: dto.name, adminId } });
-            if (existingRule) throw new BadRequestException("Rule name already exists");
+            if (existingRule) throw new BadRequestException(this.translations.t('domains.order_assignment.rule_name_exists'));
         }
 
         Object.assign(rule, dto);
@@ -1333,28 +1367,28 @@ export class OrderAssignmentService {
         const promises: Promise<any>[] = [];
 
         if (dto.productIds !== undefined) {
-            promises.push((dto.productIds.length ? this.productRepo.find({ where: { id: In(dto.productIds), isActive: true } }) : Promise.resolve([])).then(products => {
-                if (dto.productIds.length && products.length !== dto.productIds.length) throw new BadRequestException("Some Products not found");
+            promises.push((dto.productIds.length ? this.productRepo.find({ where: { id: In(dto.productIds), isActive: true } }) : Promise.resolve([])).then(async products => {
+                if (dto.productIds.length && products.length !== dto.productIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_products_not_found'));
                 rule.products = products;
             }));
         }
         if (dto.cityIds !== undefined) {
-            promises.push((dto.cityIds.length ? this.cityRepo.find({ where: { id: In(dto.cityIds), isActive: true } }) : Promise.resolve([])).then(cities => {
-                if (dto.cityIds.length && cities.length !== dto.cityIds.length) throw new BadRequestException("Some Cities not found");
+            promises.push((dto.cityIds.length ? this.cityRepo.find({ where: { id: In(dto.cityIds), isActive: true } }) : Promise.resolve([])).then(async cities => {
+                if (dto.cityIds.length && cities.length !== dto.cityIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_cities_not_found'));
                 rule.cities = cities;
             }));
         }
 
         if (dto.storeIds !== undefined) {
-            promises.push((dto.storeIds.length ? this.storeRepo.find({ where: { id: In(dto.storeIds), isActive: true } }) : Promise.resolve([])).then(stores => {
-                if (dto.storeIds.length && stores.length !== dto.storeIds.length) throw new BadRequestException("Some Stores not found");
+            promises.push((dto.storeIds.length ? this.storeRepo.find({ where: { id: In(dto.storeIds), isActive: true } }) : Promise.resolve([])).then(async stores => {
+                if (dto.storeIds.length && stores.length !== dto.storeIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_stores_not_found'));
                 rule.stores = stores;
             }));
         }
 
         if (dto.employeeIds !== undefined) {
-            promises.push((dto.employeeIds.length ? this.userRepo.find({ where: { id: In(dto.employeeIds), adminId, isActive: true } }) : Promise.resolve([])).then(employees => {
-                if (dto.employeeIds.length && employees.length !== dto.employeeIds.length) throw new BadRequestException("Some Employees not found");
+            promises.push((dto.employeeIds.length ? this.userRepo.find({ where: { id: In(dto.employeeIds), adminId, isActive: true } }) : Promise.resolve([])).then(async employees => {
+                if (dto.employeeIds.length && employees.length !== dto.employeeIds.length) throw new BadRequestException(this.translations.t('domains.order_assignment.some_employees_not_found'));
                 rule.employees = employees;
             }));
         }
@@ -1366,23 +1400,23 @@ export class OrderAssignmentService {
 
     async getAutoAssignRuleDetails(me: any, id: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const rule = await this.autoAssignRuleRepo.findOne({
             where: { id, adminId },
             relations: ["products", "cities", "employees"],
         });
 
-        if (!rule) throw new NotFoundException("Rule not found");
+        if (!rule) throw new NotFoundException(this.translations.t('domains.order_assignment.rule_not_found'));
         return rule;
     }
 
     async toggleAutoAssignRuleActive(me: any, id: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const rule = await this.autoAssignRuleRepo.findOne({ where: { id, adminId } });
-        if (!rule) throw new NotFoundException("Rule not found");
+        if (!rule) throw new NotFoundException(this.translations.t('domains.order_assignment.rule_not_found'));
 
         rule.isActive = !rule.isActive;
         return this.autoAssignRuleRepo.save(rule);
@@ -1390,10 +1424,10 @@ export class OrderAssignmentService {
 
     async deleteAutoAssignRule(me: any, id: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const rule = await this.autoAssignRuleRepo.findOne({ where: { id, adminId } });
-        if (!rule) throw new NotFoundException("Rule not found");
+        if (!rule) throw new NotFoundException(this.translations.t('domains.order_assignment.rule_not_found'));
 
         await this.autoAssignRuleRepo.remove(rule);
         return { success: true };
@@ -1401,7 +1435,7 @@ export class OrderAssignmentService {
 
     async getAutoAssignRulesStats(me: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const [generalStats, typeStats] = await Promise.all([
             this.autoAssignRuleRepo
@@ -1433,30 +1467,30 @@ export class OrderAssignmentService {
 
     async exportAutoAssignRules(me: any, q?: any) {
         const { records } = await this.listAutoAssignRules(me, { ...q, limit: 10000 });
-
+        const adminId = tenantId(me);
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Auto Assign Rules");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.order_assignment.export_auto_assign_rules_sheet'));
 
         worksheet.columns = [
-            { header: "Name", key: "name", width: 25 },
-            { header: "Type", key: "ruleType", width: 20 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Priority", key: "priority", width: 10 },
-            { header: "Description", key: "description", width: 30 },
-            { header: "Strategy", key: "strategy", width: 15 },
-            { header: "Min Amount", key: "minAmount", width: 15 },
-            { header: "Max Amount", key: "maxAmount", width: 15 },
-            { header: "Payment Status", key: "paymentStatus", width: 15 },
-            { header: "Target Employees", key: "employees", width: 30 },
-            { header: "Products", key: "products", width: 30 },
-            { header: "Cities", key: "cities", width: 30 },
-            { header: "Stores", key: "stores", width: 30 },
+            { header: this.translations.t('domains.order_assignment.export_name'), key: "name", width: 25 },
+            { header: this.translations.t('domains.order_assignment.export_type'), key: "ruleType", width: 20 },
+            { header: this.translations.t('domains.order_assignment.export_status'), key: "status", width: 15 },
+            { header: this.translations.t('domains.order_assignment.export_priority'), key: "priority", width: 10 },
+            { header: this.translations.t('domains.order_assignment.export_description'), key: "description", width: 30 },
+            { header: this.translations.t('domains.order_assignment.export_strategy'), key: "strategy", width: 15 },
+            { header: this.translations.t('domains.order_assignment.export_min_amount'), key: "minAmount", width: 15 },
+            { header: this.translations.t('domains.order_assignment.export_max_amount'), key: "maxAmount", width: 15 },
+            { header: this.translations.t('domains.order_assignment.export_payment_status'), key: "paymentStatus", width: 15 },
+            { header: this.translations.t('domains.order_assignment.export_target_employees'), key: "employees", width: 30 },
+            { header: this.translations.t('domains.order_assignment.export_products'), key: "products", width: 30 },
+            { header: this.translations.t('domains.order_assignment.export_cities'), key: "cities", width: 30 },
+            { header: this.translations.t('domains.order_assignment.export_stores'), key: "stores", width: 30 },
         ];
 
         const rows = records.map(rule => ({
             name: rule.name,
             ruleType: rule.ruleType,
-            status: rule.isActive ? "Active" : "Inactive",
+            status: rule.isActive ?  this.translations.t('domains.order_assignment.status_active') : this.translations.t('domains.order_assignment.status_inactive'),
             paymentStatus: rule.paymentStatus,
             minAmount: rule.minAmount,
             maxAmount: rule.maxAmount,
@@ -1485,7 +1519,7 @@ export class OrderAssignmentService {
 
     async processAutoAssignment(adminId: any, orderIds: string[]) {
 
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         return this.dataSource.transaction(async (manager) => {
             // 1. Get active rules ordered by priority
@@ -1495,7 +1529,7 @@ export class OrderAssignmentService {
                 order: { priority: "ASC", createdAt: "ASC" },
             });
 
-            if (!rules.length) return { message: "No active rules found", noActiveRules: true, assignedCount: 0 };
+            if (!rules.length) return { message: this.translations.t('domains.order_assignment.no_active_rules'), noActiveRules: true, assignedCount: 0 };
 
             // 2. Fetch orders with necessary details
             const orders = await manager.find(OrderEntity, {
@@ -1503,9 +1537,9 @@ export class OrderAssignmentService {
                 relations: ["items", "items.variant", "items.variant.product", "cityDetails", "status"],
             });
 
-            const settings = await this.ordersService.getCachedSettings(adminId);
+            const settings = await this.clientSettingsService.getCachedSettings(adminId);
             if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
-                return { message: "Auto-assignment is disabled", assignedCount: 0 };
+                return { message: this.translations.t('domains.order_assignment.auto_assignment_disabled'), assignedCount: 0 };
             }
             const maxRetries = settings?.maxRetries || 3;
 
@@ -1542,8 +1576,12 @@ export class OrderAssignmentService {
                         await this.notificationService.create({
                             userId: adminId,
                             type: NotificationType.ORDER_ASSIGNED,
-                            title: "Order Assigned",
-                            message: `Order #${order.orderNumber} has been assigned to employee ${employee.name} with rule ${rule.name}.`,
+                            title: await this.requestTranslations.tAsync('domains.order_assignment.order_assigned_title', adminId),
+                            message: await this.requestTranslations.tAsync('domains.order_assignment.order_assigned_message', adminId, { 
+                                args: { 
+                                    orderNumber: order.orderNumber, employeeName: employee.name, ruleName: rule.name 
+                                } 
+                            }),
                             relatedEntityType: "order",
                             relatedEntityId: String(order.id),
                         });
@@ -1562,7 +1600,7 @@ export class OrderAssignmentService {
 
     async previewAutoAssignment(adminId: string, orders: OrderEntity[]) {
 
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         // 1. Get active rules ordered by priority
         const rules = await this.autoAssignRuleRepo.find({
@@ -1571,11 +1609,11 @@ export class OrderAssignmentService {
             order: { priority: "ASC", createdAt: "ASC" },
         });
 
-        if (!rules.length) return { message: "No active rules found", noActiveRules: true, assignedCount: 0 };
+        if (!rules.length) return { message: this.translations.t('domains.order_assignment.no_active_rules'), noActiveRules: true, assignedCount: 0 };
 
-        const settings = await this.ordersService.getCachedSettings(adminId);
+        const settings = await this.clientSettingsService.getCachedSettings(adminId);
         if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
-            return { message: "Auto-assignment is disabled", assignedCount: 0 };
+            return { message: this.translations.t('domains.order_assignment.auto_assignment_disabled'), assignedCount: 0 };
         }
 
         let assignedCount = 0;

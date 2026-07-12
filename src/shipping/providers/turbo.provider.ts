@@ -11,9 +11,11 @@ import {
 } from './shipping-provider.interface';
 import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
 import { OrderEntity, PaymentMethod } from 'entities/order.entity';
-import { CreateShipmentDto } from '../shipping.dto';
+
 import { firstValueFrom } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
+import { CreateShipmentDto } from 'dto/shipping.dto';
+import { TranslationService } from 'common/translation.service';
 
 export enum TurboOrderType {
   STANDARD = 0,         // استلام طرد مع التحصيل
@@ -38,7 +40,10 @@ export class TurboProvider extends ShippingProvider {
   code: ProviderCode = 'turbo';
   displayName = 'Turbo';
 
-  constructor(private readonly http: HttpService) {
+  constructor(
+    private readonly http: HttpService,
+    private translations: TranslationService,
+  ) {
     super();
   }
 
@@ -129,14 +134,14 @@ export class TurboProvider extends ShippingProvider {
     if (!meta?.cityId) {
       return {
         success: false,
-        error: "City is required for Turbo shipping. Please update the order details.",
+        error: this.translations.t('domains.shipping.turbo_city_required'),
       };
     }
 
     if (!meta?.zoneId) {
       return {
         success: false,
-        error: "Area is required for Turbo shipping. Please update the order details.",
+        error: this.translations.t('domains.shipping.turbo_area_required'),
       };
     }
 
@@ -146,7 +151,7 @@ export class TurboProvider extends ShippingProvider {
     if (!accountId) {
       return {
         success: false,
-        error: "Turbo main_client_code is missing in integration credentials."
+        error: this.translations.t('domains.shipping.turbo_account_id_missing'),
       };
     }
     const isExchange = order.isReplacement;
@@ -165,7 +170,7 @@ export class TurboProvider extends ShippingProvider {
         .map(item => {
           const quantity = item.quantity || 1;
           // الوصول لاسم المنتج بناءً على هيكلة البيانات لديك
-          const productName = item.variant?.product?.name || 'Product';
+          const productName = item.variant?.product?.name || this.translations.t('common.product_fallback');
 
           return `${quantity}x ${productName}`;
         })
@@ -183,7 +188,7 @@ export class TurboProvider extends ShippingProvider {
     if (isExchange) {
       let returnItemsCount = 0;
       let totalReturnAmount = 0; // Fixed: Initialized to 0 to avoid NaN
-      let returnInstructions = "The Package details:\n";
+      let returnInstructions = `${this.translations.t('domains.shipping.package_details_header')}\n`;
 
       if (order?.replacementResult?.items?.length) {
         const itemLines = order.replacementResult.items.map(ri => {
@@ -195,7 +200,7 @@ export class TurboProvider extends ShippingProvider {
             totalReturnAmount += (Number(originalItem.unitPrice) || 0) * qtyToCalc;
           }
 
-          const productName = originalItem?.variant?.product?.name || "Product";
+          const productName = originalItem?.variant?.product?.name || this.translations.t('common.product_fallback');
           const sku = originalItem?.variant?.sku;
 
           return `- ${ri.quantityToReplace}x ${productName} (SKU: ${sku})`.trim();
@@ -204,7 +209,7 @@ export class TurboProvider extends ShippingProvider {
         returnInstructions += itemLines.join("\n");
       } else {
         returnItemsCount = itemsCount;
-        returnInstructions += `- ${returnItemsCount} item(s)`;
+        returnInstructions += `- ${this.translations.t('domains.shipping.return_items_count_summary', { args: { count: returnItemsCount } })}`;
       }
 
       payload.is_order = TurboOrderType.EXCHANGE;
@@ -228,7 +233,7 @@ export class TurboProvider extends ShippingProvider {
       );
 
       if (!data.success || !data.result || data.result.length === 0) {
-        throw new Error('Shipment not found in Turbo');
+        throw new Error(this.translations.t('domains.shipping.turbo_shipment_not_found'));
       }
 
       const shipment = data.result[0];
@@ -266,7 +271,7 @@ export class TurboProvider extends ShippingProvider {
 
       if (!data?.result?.bar_code && !data?.result?.code) {
         throw new BadRequestException(
-          `Turbo Error: ${data?.error_msg || data?.message || 'Failed to create shipment'}`
+          this.translations.t('domains.shipping.turbo_creation_error', { args: { errorMsg: data?.error_msg || data?.message || this.translations.t('domains.shipping.turbo_failed_creation_fallback') } })
         );
       }
 
@@ -340,8 +345,8 @@ export class TurboProvider extends ShippingProvider {
 
   async verifyCredentials(apiKey: string, accountId?: string): Promise<{ valid: boolean, message: string }> {
     const url = `${this.mainBaseUrl}/external-api/search-order`;
-    if (!apiKey) throw new BadRequestException('Missing apiKey');
-    if (!accountId) throw new BadRequestException('Missing accountId');
+    if (!apiKey) throw new BadRequestException(this.translations.t('domains.shipping.missing_api_key'));
+    if (!accountId) throw new BadRequestException(this.translations.t('domains.shipping.missing_account_id'));
 
     try {
       const { data } = await firstValueFrom(
@@ -352,13 +357,13 @@ export class TurboProvider extends ShippingProvider {
         })
       );
 
-      return { valid: data?.success === true, message: 'Credentials verified successfully' };
+      return { valid: data?.success === true, message: this.translations.t('domains.shipping.credentials_verified') };
 
     } catch (error: any) {
-      if(error.status !== 404) {
+      if (error.status !== 404) {
         return { valid: false, message: this.getErrorMessage(error) };
       }
-      return { valid: true,  message: 'Credentials verified successfully' };
+      return { valid: true, message: this.translations.t('domains.shipping.credentials_verified') };
       // في حال كان الخطأ 401 (Unauthorized)
 
     }

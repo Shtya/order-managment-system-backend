@@ -10,6 +10,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Permission, Role, SystemRole, User } from 'entities/user.entity';
 import { CreateRoleDto, UpdateRoleDto } from 'dto/role.dto';
 import { tenantId } from 'src/category/category.service';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class RolesService implements OnModuleInit {
@@ -17,6 +18,7 @@ export class RolesService implements OnModuleInit {
 		@InjectRepository(Role) private rolesRepo: Repository<Role>,
 		@InjectRepository(Permission) private permsRepo: Repository<Permission>,
 		@InjectRepository(User) private usersRepo: Repository<User>,
+		private translations: TranslationService,
 		private dataSource: DataSource,
 	) { }
 
@@ -74,7 +76,7 @@ export class RolesService implements OnModuleInit {
 				{
 					name: 'call center',
 					description: 'Can confirm orders',
-					permissionNames: ["orders.confirm-incoming",  "orders.update", "orders.readSettings", "products.getonly"],
+					permissionNames: ["orders.confirm-incoming", "orders.update", "orders.readSettings", "products.getonly"],
 				}
 			];
 		for (const r of predefined) {
@@ -132,23 +134,31 @@ export class RolesService implements OnModuleInit {
 
 	async get(me: User, id: string) {
 		const role = await this.rolesRepo.findOne({ where: { id } });
-		if (!role) throw new NotFoundException('Role not found');
+
+		if (!role) {
+			throw new NotFoundException(
+				this.translations.t("domains.roles.role_not_found")
+			);
+		}
 
 		// Super admin: only roles with adminId null
 		if (this.isSuperAdmin(me)) {
 			if (role.adminId === null) return role;
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
 		}
 
 		// block viewing super_admin/admin roles for everyone else
 		if ([SystemRole.SUPER_ADMIN, SystemRole.ADMIN].includes(role.name as any)) {
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
 		}
 
 		// Admin: global or owned by him
 		if (me.role?.name === SystemRole.ADMIN) {
 			if (role.adminId === null || role.adminId === me.id) return role;
-			throw new ForbiddenException('Not your role');
+
+			throw new ForbiddenException(
+				this.translations.t("domains.roles.not_your_role")
+			);
 		}
 
 		// Other roles: global or owned by his owner adminId
@@ -156,7 +166,152 @@ export class RolesService implements OnModuleInit {
 
 		if (me.adminId && role.adminId === me.adminId) return role;
 
-		throw new ForbiddenException('Not allowed');
+		throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
+	}
+
+	// ✅ Create Role
+	async create(me: User, dto: CreateRoleDto) {
+		const adminId = tenantId(me);
+
+		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
+			throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
+		}
+
+		const exists = await this.rolesRepo.findOne({
+			where: { name: dto.name },
+		});
+
+		if (exists) {
+			throw new BadRequestException(
+				this.translations.t("domains.roles.role_name_already_exists")
+			);
+		}
+
+		const role = this.rolesRepo.create({
+			name: dto.name,
+			description: dto.description,
+			permissionNames: dto.permissionNames || [],
+			adminId: !this.isSuperAdmin(me) ? adminId : null,
+			isGlobal: !!this.isSuperAdmin(me),
+		});
+
+		return this.rolesRepo.save(role);
+	}
+
+	// ✅ Update Role
+	async update(me: User, id: string, dto: UpdateRoleDto) {
+		const role = await this.get(me, id);
+
+		// Can't edit global roles unless super admin
+		if (role.isGlobal && !this.isSuperAdmin(me)) {
+			throw new ForbiddenException(
+				this.translations.t("domains.roles.cannot_edit_global_roles")
+			);
+		}
+
+		// Admin can only edit his own roles
+		if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
+			throw new ForbiddenException(
+				this.translations.t("domains.roles.not_your_role")
+			);
+		}
+
+		if (dto.name && dto.name !== role.name) {
+			const exists = await this.rolesRepo.findOne({
+				where: { name: dto.name },
+			});
+
+			if (exists) {
+				throw new BadRequestException(
+					this.translations.t("domains.roles.role_name_already_exists")
+				);
+			}
+
+			role.name = dto.name;
+		}
+
+		if (dto.description !== undefined) role.description = dto.description;
+		if (dto.permissionNames) role.permissionNames = dto.permissionNames;
+
+		return this.rolesRepo.save(role);
+	}
+
+	// ✅ Delete Role
+	async remove(me: User, id: string) {
+		const role = await this.get(me, id);
+
+		// Admin can only delete his own roles
+		if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
+			throw new ForbiddenException(
+				this.translations.t("domains.roles.not_your_role")
+			);
+		}
+
+		return this.dataSource.transaction(async (manager) => {
+			const rolesRepo = manager.getRepository(Role);
+			const usersRepo = manager.getRepository(User);
+
+			if (
+				role.name === SystemRole.SUPER_ADMIN ||
+				role.name === SystemRole.ADMIN ||
+				role.name === SystemRole.USER
+			) {
+				throw new ForbiddenException(
+					this.translations.t("domains.roles.cannot_delete_global_roles")
+				);
+			}
+
+			if (role.isGlobal && !this.isSuperAdmin(me)) {
+				throw new ForbiddenException(
+					this.translations.t("domains.roles.cannot_delete_global_roles")
+				);
+			}
+
+			const users = await usersRepo.find({
+				where: { roleId: role.id },
+				select: ["id", "roleId"],
+			});
+
+			if (users.length > 0) {
+				const defaultName = `default_${role.adminId}`;
+
+				let defaultRole = await rolesRepo.findOne({
+					where: {
+						name: defaultName,
+						adminId: role.adminId,
+					},
+				});
+
+				if (!defaultRole) {
+					defaultRole = await rolesRepo.save(
+						rolesRepo.create({
+							name: defaultName,
+							description: this.translations.t(
+								"domains.roles.default_role_description"
+							),
+							permissionNames: [],
+							adminId: role.adminId,
+						}),
+					);
+				}
+
+				await usersRepo
+					.createQueryBuilder()
+					.update(User)
+					.set({ roleId: defaultRole.id })
+					.where("roleId = :oldRoleId", {
+						oldRoleId: role.id,
+					})
+					.execute();
+			}
+
+			await rolesRepo.delete(role.id);
+
+			return {
+				message: this.translations.t("domains.roles.role_deleted"),
+				reassignedUsers: users.length,
+			};
+		});
 	}
 
 
@@ -188,116 +343,6 @@ export class RolesService implements OnModuleInit {
 		return qb.getMany();
 	}
 
-
-	// ✅ Create Role
-	async create(me: User, dto: CreateRoleDto) {
-		const adminId = tenantId(me);
-		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
-			throw new ForbiddenException('Not allowed');
-		}
-
-		const exists = await this.rolesRepo.findOne({ where: { name: dto.name } });
-		if (exists) throw new BadRequestException('Role name already exists');
-
-		const role = this.rolesRepo.create({
-			name: dto.name,
-			description: dto.description,
-			permissionNames: dto.permissionNames || [],
-			adminId: !this.isSuperAdmin(me) ? adminId : null,
-			isGlobal: !!this.isSuperAdmin(me),
-		});
-
-		return this.rolesRepo.save(role);
-	}
-
-	// ✅ Update Role
-	async update(me: User, id: string, dto: UpdateRoleDto) {
-		const role = await this.get(me, id);
-		
-		// Can't edit global roles unless super admin
-		if (role.isGlobal && !this.isSuperAdmin(me)) {
-			throw new ForbiddenException('Cannot edit global roles');
-		}
-
-		// Admin can only edit his own roles
-		if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
-			throw new ForbiddenException('Not your role');
-		}
-
-		if (dto.name && dto.name !== role.name) {
-			const exists = await this.rolesRepo.findOne({ where: { name: dto.name } });
-			if (exists) throw new BadRequestException('Role name already exists');
-			role.name = dto.name;
-		}
-
-		if (dto.description !== undefined) role.description = dto.description;
-		if (dto.permissionNames) role.permissionNames = dto.permissionNames;
-
-		return this.rolesRepo.save(role);
-	}
-
-	// ✅ Delete Role
-	async remove(me: User, id: string) {
-		const role = await this.get(me, id);
-
-
-		// ✅ Admin يقدر يحذف بس roles بتاعته
-		if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
-			throw new ForbiddenException('Not your role');
-		}
-
-		return this.dataSource.transaction(async (manager) => {
-			const rolesRepo = manager.getRepository(Role);
-			const usersRepo = manager.getRepository(User);
-			if(role.name === SystemRole.SUPER_ADMIN || role.name === SystemRole.ADMIN || role.name === SystemRole.USER) 
-				throw new ForbiddenException('Cannot delete global roles');
-
-			if(role.isGlobal && !this.isSuperAdmin(me)) throw new ForbiddenException('Cannot delete global roles');
-			// ✅ هات كل المستخدمين اللي على roleId = role.id
-			const users = await usersRepo.find({
-				where: { roleId: role.id },
-				select: ['id', 'roleId'],
-			});
-
-			if (users.length > 0) {
-				// ✅ اعمل/هات default role (بدون permissions) لنفس adminId بتاع الدور المحذوف
-				const defaultName = `default_${role.adminId}`; // unique per admin
-
-				let defaultRole = await rolesRepo.findOne({
-					where: { name: defaultName, adminId: role.adminId },
-				});
-
-				if (!defaultRole) {
-					defaultRole = await rolesRepo.save(
-						rolesRepo.create({
-							name: defaultName,
-							description: 'Default role (auto-created)',
-							permissionNames: [],
-							adminId: role.adminId,
-							// لو عندك isGlobal خليه false
-							// isGlobal: false,
-						}),
-					);
-				}
-
-				// ✅ انقل كل المستخدمين للـ defaultRole
-				await usersRepo
-					.createQueryBuilder()
-					.update(User)
-					.set({ roleId: defaultRole.id })
-					.where('roleId = :oldRoleId', { oldRoleId: role.id })
-					.execute();
-			}
-
-			// ✅ احذف الدور القديم
-			await rolesRepo.delete(role.id);
-
-			return {
-				message: 'Role deleted',
-				reassignedUsers: users.length,
-			};
-		});
-	}
 
 
 	// ✅ Get All Permissions (for dropdown)

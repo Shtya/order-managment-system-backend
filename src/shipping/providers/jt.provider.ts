@@ -10,7 +10,8 @@ import {
 } from './shipping-provider.interface';
 import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
 import { OrderEntity } from 'entities/order.entity';
-import { CreateShipmentDto } from '../shipping.dto';
+import { CreateShipmentDto } from 'dto/shipping.dto';
+
 
 @Injectable()
 export class JtProvider extends ShippingProvider {

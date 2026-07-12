@@ -14,6 +14,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import * as fs from "fs";
 import * as path from "path";
 import * as ExcelJS from "exceljs";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 function calcLine(cost: number, qty: number, taxRate: number, taxInclusive: boolean) {
   const lineSubtotal = cost * qty;
@@ -32,6 +33,8 @@ export class PurchaseReturnsService {
     @InjectRepository(SupplierEntity) private supplierRepo: Repository<SupplierEntity>,
     @InjectRepository(ProductVariantEntity) private pvRepo: Repository<ProductVariantEntity>,
     @InjectRepository(Account) private accountRepo: Repository<Account>,
+    private translations: TranslationService,
+    private requestTranslations: RequestTranslationService,
     private safesService: SafesService,
   ) { }
 
@@ -168,7 +171,7 @@ export class PurchaseReturnsService {
 
   async stats(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const acceptedCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.ACCEPTED } as any });
     const pendingCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.PENDING } as any });
@@ -192,7 +195,7 @@ export class PurchaseReturnsService {
 
   async list(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -218,27 +221,27 @@ export class PurchaseReturnsService {
         "items.unitCost",
         "items.taxRate",
         "items.taxInclusive",
-				"items.lineSubtotal",
-				"items.returnedQuantity",
-				"items.lineTotal"
-			])
-			.leftJoin("items.variant", "variant")
-			.addSelect([
-				"variant.id",
-				"variant.productId",
-				"variant.stockOnHand",
-				"variant.sku",
-				"variant.price",
-				"variant.unitCost"
-			])
-			.leftJoin("variant.product", "product")
-			.addSelect([
-				"product.id",
-				"product.name",
-				"product.wholesalePrice",
-				"product.salePrice",
-				"product.sku"
-			]);
+        "items.lineSubtotal",
+        "items.returnedQuantity",
+        "items.lineTotal"
+      ])
+      .leftJoin("items.variant", "variant")
+      .addSelect([
+        "variant.id",
+        "variant.productId",
+        "variant.stockOnHand",
+        "variant.sku",
+        "variant.price",
+        "variant.unitCost"
+      ])
+      .leftJoin("variant.product", "product")
+      .addSelect([
+        "product.id",
+        "product.name",
+        "product.wholesalePrice",
+        "product.salePrice",
+        "product.sku"
+      ]);
 
     if (supplierId && supplierId != 'none')
       qb.andWhere("inv.supplierId = :supplierId", { supplierId });
@@ -254,11 +257,11 @@ export class PurchaseReturnsService {
     DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
 
     if (search) {
-			qb.andWhere(
-				"(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR supplier.name ILIKE :s OR variant.sku ILIKE :s OR product.name ILIKE :s)",
-				{ s: `%${search}%` }
-			);
-		}
+      qb.andWhere(
+        "(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR supplier.name ILIKE :s OR variant.sku ILIKE :s OR product.name ILIKE :s)",
+        { s: `%${search}%` }
+      );
+    }
 
 
     if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: q?.closingId });
@@ -290,7 +293,7 @@ export class PurchaseReturnsService {
 
   async get(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const inv = await this.invRepo.findOne({
       where: { id, adminId } as any,
@@ -301,14 +304,14 @@ export class PurchaseReturnsService {
       where: { id: inv.supplierId }
     });
 
-    if (!inv) throw new BadRequestException("purchase invoice not found");
+    if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.not_found"));
     return { ...inv, supplier };
   }
 
 
   async getAuditLogs(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     // ensure invoice exists and belongs to tenant
     await this.get(me, id);
@@ -321,13 +324,13 @@ export class PurchaseReturnsService {
 
   async acceptPreview(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const inv = await this.invRepo.findOne({
       where: { id, adminId } as any,
       relations: ["items", "items.variant", "items.variant.product"],
     });
-    if (!inv) throw new BadRequestException("purchase return invoice not found");
+    if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.not_found"));
 
     const oldStatus = inv.status;
     const willApply = oldStatus !== ApprovalStatus.ACCEPTED;
@@ -337,7 +340,7 @@ export class PurchaseReturnsService {
       if (!v) {
         return {
           variantId: it.variantId,
-          error: "Variant not found",
+          error: this.translations.t("common.variant_not_found"),
         };
       }
 
@@ -372,15 +375,15 @@ export class PurchaseReturnsService {
 
   async updatePaidAmount(me: any, id: string, dto: UpdatePaidAmountDto, ipAddress?: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     return await this.dataSource.transaction(async (manager) => {
       const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
         where: { id, adminId } as any,
       });
-      if (!inv) throw new BadRequestException("purchase return invoice not found");
+      if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.not_found"));
       if (inv.closingId) {
-        throw new BadRequestException("Cannot update a purchase return that has been closed.");
+        throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_update_closed"));
       }
 
       const oldStatus = inv.status;
@@ -403,7 +406,7 @@ export class PurchaseReturnsService {
               referenceMeta: {
                 purchaseReturnNumber: inv.returnNumber || null,
               },
-              notes: `Purchase return invoice #${inv.returnNumber} refunded amount adjustment (+${delta}).`,
+              notes: await this.requestTranslations.tAsync("domains.purchase_return.refunded_amount_adjustment_positive_notes", adminId, { args: { returnNumber: inv.returnNumber, delta }}),
             },
             manager,
           );
@@ -417,7 +420,7 @@ export class PurchaseReturnsService {
               referenceMeta: {
                 purchaseReturnNumber: inv.returnNumber || null,
               },
-              notes: `Purchase return invoice #${inv.returnNumber} refunded amount adjustment (${delta}).`,
+              notes: await this.requestTranslations.tAsync("domains.purchase_return.refunded_amount_adjustment_notes", adminId, { args: { returnNumber: inv.returnNumber, delta }}),
             },
             manager,
           );
@@ -445,7 +448,7 @@ export class PurchaseReturnsService {
         invoiceId: saved.id,
         userId: me?.id ?? null,
         action: PurchaseReturnAuditAction.PAID_AMOUNT_UPDATED,
-        description: `Refunded amount updated to ${dto.paidAmount}`,
+        description: await this.requestTranslations.tAsync("domains.purchase_return.refunded_amount_updated", adminId, { args: { refundedAmount: newPaidAmount }}),
         ipAddress,
         manager,
       });
@@ -456,8 +459,8 @@ export class PurchaseReturnsService {
 
   async create(me: any, dto: CreatePurchaseReturnDto, ipAddress?: string, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
-    if (!dto.items?.length) throw new BadRequestException("Items are required");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!dto.items?.length) throw new BadRequestException(this.translations.t("domains.purchase_return.at_least_one_item_required"));
 
     const runWithManager = async (manager: EntityManager) => {
       const invRepo = manager.getRepository(PurchaseReturnInvoiceEntity);
@@ -466,17 +469,17 @@ export class PurchaseReturnsService {
       const accountRepo = manager.getRepository(Account);
 
       const exists = await invRepo.findOne({ where: { adminId, returnNumber: dto.returnNumber } as any });
-      if (exists) throw new BadRequestException("returnNumber already exists");
+      if (exists) throw new BadRequestException(this.translations.t("domains.purchase_return.return_number_already_exists"));
 
       if (dto.supplierId) {
         const supplier = await supplierRepo.findOne({ where: { id: dto.supplierId } as any });
-        if (!supplier) throw new BadRequestException("supplier not found");
+        if (!supplier) throw new BadRequestException(this.translations.t("domains.purchase_invoice.supplier_not_found"));
       }
 
       if (dto.safeId) {
         const safe = await accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
-        if (!safe) throw new BadRequestException("Safe/Account not found");
-        if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+        if (!safe) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_found"));
+        if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_active"));
       }
 
       const items = dto.items.map((it) => {
@@ -529,7 +532,7 @@ export class PurchaseReturnsService {
         invoiceId: saved.id,
         userId: me?.id ?? null,
         action: PurchaseReturnAuditAction.CREATED,
-        description: `Purchase return invoice created`,
+        description: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_created", adminId, {}),
         ipAddress,
         manager,
       });
@@ -546,11 +549,11 @@ export class PurchaseReturnsService {
 
   async update(me: any, id: string, dto: UpdatePurchaseReturnDto, ipAddress?: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const inv = await this.get(me, id);
     if (inv.closingId) {
-      throw new BadRequestException("Cannot update a purchase return that has been closed.");
+      throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_update_closed"));
     }
     const oldStatus = inv.status;
     const oldSupplierId = inv.supplierId;
@@ -625,7 +628,7 @@ export class PurchaseReturnsService {
       invoiceId: saved.id,
       userId: me?.id ?? null,
       action: PurchaseReturnAuditAction.UPDATED,
-      description: `Purchase return invoice updated`,
+      description: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_updated", adminId, {}),
       ipAddress,
     });
 
@@ -634,16 +637,16 @@ export class PurchaseReturnsService {
 
   async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const runWithManager = async (manager: EntityManager) => {
       const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
         where: { id, adminId } as any,
         relations: ["items", "items.variant"],
       });
-      if (!inv) throw new BadRequestException("purchase return invoice not found");
+      if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.purchase_return_not_found"));
       if (inv.closingId) {
-        throw new BadRequestException("Cannot update a purchase return that has been closed.");
+        throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_update_closed"));
       }
 
       const oldStatus = inv.status;
@@ -665,7 +668,7 @@ export class PurchaseReturnsService {
         }
 
         const variantIds = [...byVariant.keys()];
-        if (!variantIds.length) throw new BadRequestException("No items to return");
+        if (!variantIds.length) throw new BadRequestException(this.translations.t("domains.purchase_return.no_items_to_return"));
 
         const variants = await manager.find(ProductVariantEntity, {
           where: { adminId, id: In(variantIds) } as any,
@@ -679,7 +682,7 @@ export class PurchaseReturnsService {
 
         for (const variantId of variantIds) {
           const v = byId.get(variantId);
-          if (!v) throw new BadRequestException(`Variant not found: ${variantId}`);
+          if (!v) throw new BadRequestException(this.translations.t("domains.purchase_return.variant_not_found", { args: { variantId } }));
 
           const removeQty = byVariant.get(variantId)!;
           const oldStock = Number(v.stockOnHand) || 0;
@@ -687,7 +690,9 @@ export class PurchaseReturnsService {
 
           if (nextStock < 0) {
             throw new BadRequestException(
-              `Insufficient stock for variant ${v.sku || variantId}. Required: ${removeQty}, Available: ${oldStock}`
+              this.translations.t("domains.purchase_return.insufficient_stock", {
+                args: { variant: v.sku || variantId, required: removeQty, available: oldStock }
+              })
             );
           }
 
@@ -704,7 +709,7 @@ export class PurchaseReturnsService {
           userId: me?.id ?? null,
           action: PurchaseReturnAuditAction.STOCK_REMOVED,
           changes: stockChanges,
-          description: `Stock deducted (status -> ACCEPTED)`,
+          description: await this.requestTranslations.tAsync("domains.purchase_return.stock_deducted_description", adminId, {}),
           ipAddress,
           manager,
         });
@@ -719,7 +724,7 @@ export class PurchaseReturnsService {
             referenceMeta: {
               purchaseReturnNumber: inv.returnNumber || null,
             },
-            notes: `Purchase return invoice #${inv.returnNumber} accepted.`,
+            notes: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_accepted_notes", adminId, { args: { returnNumber: inv.returnNumber }}),
           }, manager);
         }
       }
@@ -752,7 +757,7 @@ export class PurchaseReturnsService {
 
           for (const variantId of variantIds) {
             const v = byId.get(variantId);
-            if (!v) throw new BadRequestException(`Variant not found: ${variantId}`);
+            if (!v) throw new BadRequestException(this.translations.t("domains.purchase_return.variant_not_found", { args: { variantId } }));
 
             const addQty = byVariant.get(variantId)!;
             const oldStock = Number(v.stockOnHand) || 0;
@@ -771,7 +776,7 @@ export class PurchaseReturnsService {
             userId: me?.id ?? null,
             action: PurchaseReturnAuditAction.STOCK_APPLIED,
             changes: stockChanges,
-            description: `Stock restored (status left ACCEPTED)`,
+            description: await this.requestTranslations.tAsync("domains.purchase_return.stock_restored_description", adminId, {}),
             ipAddress,
             manager,
           });
@@ -787,7 +792,7 @@ export class PurchaseReturnsService {
             referenceMeta: {
               purchaseReturnNumber: inv.returnNumber || null,
             },
-            notes: `Purchase return invoice #${inv.returnNumber} rolled back.`,
+            notes: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_rolled_back_notes", adminId, { args: { returnNumber: inv.returnNumber }}),
           }, manager);
         }
       }
@@ -815,7 +820,7 @@ export class PurchaseReturnsService {
         action: PurchaseReturnAuditAction.STATUS_CHANGED,
         oldData: { status: oldStatus },
         newData: { status },
-        description: `Status changed from ${oldStatus} to ${status}`,
+        description: await this.requestTranslations.tAsync("domains.purchase_return.status_changed_description", adminId, { args: { oldStatus, status }}),
         ipAddress,
         manager,
       });
@@ -832,17 +837,17 @@ export class PurchaseReturnsService {
 
   async remove(me: any, id: string, ipAddress?: string, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const runWithManager = async (manager: EntityManager) => {
       const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
         where: { id, adminId } as any,
         relations: ["items", "items.variant"],
       });
-      if (!inv) throw new BadRequestException("purchase return invoice not found");
+      if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.purchase_return_not_found"));
 
       if (inv.closingId) {
-        throw new BadRequestException("Cannot delete a purchase return that has been closed.");
+        throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_delete_closed"));
       }
 
       // Rollback supplier financials if invoice was ACCEPTED before deletion
@@ -867,7 +872,7 @@ export class PurchaseReturnsService {
             referenceMeta: {
               purchaseReturnNumber: inv.returnNumber || null,
             },
-            notes: `Purchase return invoice #${inv.returnNumber} deleted. Withdrawn from safe.`,
+            notes: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_deleted_withdrawn_notes", adminId, { args: { returnNumber: inv.returnNumber }}),
           }, manager);
         }
       }
@@ -879,7 +884,7 @@ export class PurchaseReturnsService {
         invoiceId: id,
         userId: me?.id ?? null,
         action: PurchaseReturnAuditAction.DELETED,
-        description: `Purchase return invoice deleted`,
+        description: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_deleted", adminId, {}),
         ipAddress,
         manager,
       });
@@ -896,7 +901,7 @@ export class PurchaseReturnsService {
 
   async exportPurchaseReturns(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const search = String(q?.search ?? "").trim();
     const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
@@ -937,20 +942,20 @@ export class PurchaseReturnsService {
     const records = await qb.getMany();
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Purchase Returns");
+    const worksheet = workbook.addWorksheet(this.translations.t("domains.purchase_return.sheet_name"));
 
     worksheet.columns = [
-      { header: "ID", key: "id", width: 10 },
-      { header: "Return #", key: "returnNumber", width: 20 },
-      { header: "Invoice #", key: "invoiceNumber", width: 20 },
-      { header: "Supplier", key: "supplier", width: 25 },
-      { header: "Status", key: "status", width: 15 },
-      { header: "Return Type", key: "returnType", width: 15 },
-      { header: "Subtotal", key: "subtotal", width: 15 },
-      { header: "Tax Total", key: "taxTotal", width: 15 },
-      { header: "Total Return", key: "totalReturn", width: 15 },
-      { header: "Refunded", key: "paidAmount", width: 15 },
-      { header: "Created At", key: "created_at", width: 18 },
+      { header: this.translations.t("common.id"), key: "id", width: 10 },
+      { header: this.translations.t("domains.purchase_return.return_number"), key: "returnNumber", width: 20 },
+      { header: this.translations.t("domains.purchase_return.invoice_number"), key: "invoiceNumber", width: 20 },
+      { header: this.translations.t("common.supplier"), key: "supplier", width: 25 },
+      { header: this.translations.t("common.status"), key: "status", width: 15 },
+      { header: this.translations.t("domains.purchase_return.return_type"), key: "returnType", width: 15 },
+      { header: this.translations.t("common.subtotal"), key: "subtotal", width: 15 },
+      { header: this.translations.t("domains.purchase_return.tax_total"), key: "taxTotal", width: 15 },
+      { header: this.translations.t("domains.purchase_return.total_return"), key: "totalReturn", width: 15 },
+      { header: this.translations.t("domains.purchase_return.refunded"), key: "paidAmount", width: 15 },
+      { header: this.translations.t("common.created_at"), key: "created_at", width: 18 },
     ];
 
     worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };

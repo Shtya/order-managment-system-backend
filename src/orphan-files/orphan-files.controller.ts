@@ -16,6 +16,7 @@ import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { tenantId } from "src/category/category.service";
 import { OrphanFilesService } from "./orphan-files.service";
+import { TranslationService } from "common/translation.service";
 
 const orphanStorage = diskStorage({
   destination: "./uploads/products",
@@ -59,15 +60,18 @@ const anyFileMulterOptions = {
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("orphan-files")
 export class OrphanFilesController {
-  constructor(private readonly orphanFiles: OrphanFilesService) { }
+  constructor(
+    private readonly orphanFiles: OrphanFilesService,
+    private readonly translations: TranslationService
+  ) { }
 
   @Post()
   @UseInterceptors(FileInterceptor("file", multerOptions))
   async upload(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException("No file provided");
+    if (!file) throw new BadRequestException(this.translations.t("common.no_file_provided"));
 
     const adminId = tenantId(req.user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const url = `/uploads/products/${file.filename}`;
     const row = await this.orphanFiles.create(String(adminId), url);
@@ -81,10 +85,10 @@ export class OrphanFilesController {
   @Post("any")
   @UseInterceptors(FileInterceptor("file", anyFileMulterOptions))
   async uploadAny(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException("No file provided");
+    if (!file) throw new BadRequestException(this.translations.t("common.no_file_provided"));
 
     const adminId = tenantId(req.user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));  
 
     const url = `/uploads/files/${file.filename}`;
     const row = await this.orphanFiles.create(String(adminId), url);
@@ -100,7 +104,7 @@ export class OrphanFilesController {
   @Delete(":id")
   async delete(@Req() req: any, @Param("id") id: string) {
     const adminId = tenantId(req.user);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     return this.orphanFiles.deleteOne(
       String(adminId),

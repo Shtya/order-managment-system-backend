@@ -8,16 +8,9 @@ import {
 } from 'typeorm';
 
 import { forwardRef, Inject, Injectable } from '@nestjs/common';
-import { OrderEntity, OrderFlowPath, OrderRetrySettingsEntity, OrderStatus, PaymentStatus, StockDeductionStrategy } from 'entities/order.entity';
-import { Repository } from 'typeorm';
-import { StoresService } from 'src/stores/stores.service';
-import { ShippingService } from 'src/shipping/shipping.service';
-import { OrdersService } from 'src/orders/services/orders.service';
-import { NotificationService } from 'src/notifications/notification.service';
-import { NotificationType } from 'entities/notifications.entity';
+import { OrderEntity } from 'entities/order.entity';
 import { TriggerDispatcherService } from 'src/automation/engine/triggerDispatcher.service';
 import { TriggerEntityType, TriggerType } from 'entities/automation.entity';
-import { RedisService } from 'common/redis/RedisService';
 
 @EventSubscriber()
 @Injectable()
@@ -101,40 +94,6 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
             // Clear the tasks to prevent memory leaks or duplicate executions
             event.queryRunner.data.postCommitTasks = [];
             // console.log(`[OrderSubscriber] All post-commit tasks executed and cleared`);
-        }
-    }
-}
-
-@EventSubscriber()
-@Injectable()
-export class OrderSettingsSubscriber implements EntitySubscriberInterface<OrderRetrySettingsEntity> {
-    constructor(
-        private dataSource: DataSource,
-        private readonly redisService: RedisService,
-    ) {
-        this.dataSource.subscribers.push(this);
-    }
-
-    listenTo() {
-        return OrderRetrySettingsEntity;
-    }
-
-    async afterInsert(event: InsertEvent<OrderRetrySettingsEntity>) {
-        await this.syncToRedis(event.entity);
-    }
-
-    async afterUpdate(event: UpdateEvent<OrderRetrySettingsEntity>) {
-        // combine updated entity with original database entity to get full picture if needed
-        const fullSettings = { ...event.databaseEntity, ...event.entity };
-        await this.syncToRedis(fullSettings as OrderRetrySettingsEntity);
-    }
-
-    private async syncToRedis(settings: OrderRetrySettingsEntity) {
-        if (settings && settings.adminId) {
-            const cacheKey = `admin_settings:${settings.adminId}`;
-            await this.redisService.set(cacheKey, settings, 3600 * 24); // Cache for 24 hours
-            // Also update local memory cache in OrdersService
-            OrdersService.updateLocalCache(settings.adminId, settings);
         }
     }
 }

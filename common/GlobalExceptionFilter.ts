@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import { SystemErorrsService } from 'src/system-erorrs/system-erorrs.service';
 import { tenantId } from 'src/purchases/purchases.service';
 import { Observable } from 'rxjs';
+import { TranslationService } from './translation.service';
 
 
 function logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string, systemErorrsService: SystemErorrsService) {
@@ -109,7 +110,7 @@ function logSystemError(exception: any, req: any, res: any, code: string | undef
 
     systemErorrsService.logError(errorData);
   } catch (e) {
-    // Silently fail to avoid infinite loops
+    // Silently fail to avoid infinite loops  
     console.error('Failed to log system error:', e);
   }
 }
@@ -117,7 +118,10 @@ function logSystemError(exception: any, req: any, res: any, code: string | undef
 
 @Catch(QueryFailedError)
 export class QueryExceptionFilter implements ExceptionFilter {
-  constructor(private readonly systemErorrsService: SystemErorrsService) { }
+  constructor(
+    private readonly systemErorrsService: SystemErorrsService,
+    private readonly translations: TranslationService
+  ) { }
 
   catch(exception: any, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -132,47 +136,48 @@ export class QueryExceptionFilter implements ExceptionFilter {
 
 
     // Map of common Postgres error codes → friendly messages
+   // Map of common Postgres error codes → friendly localized messages
     const pgMap: Record<string, { status: number; message: string; error: string }> = {
       // Foreign key violation
       '23503': {
         status: HttpStatus.BAD_REQUEST,
-        message: 'Cannot delete or update because related records exist.',
+        message: this.translations.t('common.errors.db_foreign_key'),
         error: 'Foreign Key Constraint Violation',
       },
       // Unique constraint violation
       '23505': {
         status: HttpStatus.CONFLICT,
-        message: 'Duplicate value violates unique constraint.',
+        message: this.translations.t('common.errors.db_unique_violation'),
         error: 'Unique Constraint Violation',
       },
       // Not-null constraint violation
       '23502': {
         status: HttpStatus.BAD_REQUEST,
-        message: 'A required field is missing a value.',
+        message: this.translations.t('common.errors.db_not_null'),
         error: 'Not Null Violation',
       },
       // Check constraint violation
       '23514': {
         status: HttpStatus.BAD_REQUEST,
-        message: 'Value fails a check constraint.',
+        message: this.translations.t('common.errors.db_check_constraint'),
         error: 'Check Constraint Violation',
       },
       // Invalid text representation (e.g., UUID parse error)
       '22P02': {
         status: HttpStatus.BAD_REQUEST,
-        message: 'Invalid input format.',
+        message: this.translations.t('common.errors.db_invalid_format'),
         error: 'Invalid Text Representation',
       },
       // Undefined table
       '42P01': {
         status: HttpStatus.BAD_REQUEST,
-        message: 'Referenced table does not exist or is not available.',
+        message: this.translations.t('common.errors.db_missing_table'),
         error: 'Missing FROM Clause Entry',
       },
       // Undefined column
       '42703': {
         status: HttpStatus.BAD_REQUEST,
-        message: 'Referenced column does not exist.',
+        message: this.translations.t('common.errors.db_missing_column'),
         error: 'Undefined Column',
       },
     };
@@ -191,7 +196,7 @@ export class QueryExceptionFilter implements ExceptionFilter {
     // Fallback for any other DB error
     return response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
-      message: 'Unexpected database error.',
+     message: this.translations.t('common.errors.db_unexpected'),
       error: 'Database Error',
       code,
       details: detail,

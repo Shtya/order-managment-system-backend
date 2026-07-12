@@ -1,116 +1,118 @@
 import { Transform } from 'class-transformer';
 import { IsEnum, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
 import { AccountType, TransactionDirection, TransactionReferenceType } from 'entities/safe.entity';
+import { i18nValidationMessage } from "nestjs-i18n";
+
 
 export class CreateAccountDto {
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     name: string;
 
-    @IsEnum(AccountType)
+    @IsEnum(AccountType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(AccountType).join(', ')], }); }})
     type: AccountType;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     currency?: string = 'EGP';
 
-    @IsNumber()
-    @Min(0)
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+    @Min(0, {message: i18nValidationMessage('validation.min')})
     @IsOptional()
     initialBalance?: number = 0;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     bankName?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     accountOwnerName?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     accountNumber?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     iban?: string;
 
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     @IsOptional()
     commissionRate?: number;
 
-    @IsUUID()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     @IsOptional()
     managedById?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     notes?: string;
 }
 
 export class UpdateAccountDto {
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     name?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     currency?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     bankName?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     accountOwnerName?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     accountNumber?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     iban?: string;
 
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     @IsOptional()
     commissionRate?: number;
 
-    @IsUUID()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     @IsOptional()
     managedById?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     notes?: string;
 }
 
 export class CreateTransactionDto {
-    @IsUUID()
-    @IsNotEmpty()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     accountId: string;
 
-    @IsNumber()
-    @Min(0.01)
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+    @Min(0.01, {message: i18nValidationMessage('validation.min')})
     amount: number;
 
-    @IsEnum(TransactionReferenceType)
+    @IsEnum(TransactionReferenceType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TransactionReferenceType).join(', ')], }); }})
     referenceType: TransactionReferenceType;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     referenceId?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     counterparty?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     notes?: string;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     attachmentUrl?: string;
 
@@ -122,58 +124,58 @@ export class CreateTransactionDto {
 }
 
 export class CreateTransferDto {
-    @IsUUID()
-    @IsNotEmpty()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     fromAccountId: string;
 
-    @IsUUID()
-    @IsNotEmpty()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     toAccountId: string;
 
-    @IsNumber()
-    @Min(0.01)
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+    @Min(0.01, {message: i18nValidationMessage('validation.min')})
     amount: number;
 
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     @IsOptional()
     notes?: string;
 }
 
 export class AccountFilterDto {
     @IsOptional()
-    @IsEnum(AccountType)
+    @IsEnum(AccountType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(AccountType).join(', ')], }); }})
     type?: AccountType;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     search?: string;
 
     @IsOptional()
     @Transform(({ value }) => (value !== undefined ? Number(value) : value))
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     page?: number;
 
     @IsOptional()
     @Transform(({ value }) => (value !== undefined ? Number(value) : value))
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     limit?: number;
 }
 
 export class TransactionFilterDto {
     @IsOptional()
-    @IsUUID()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     accountId?: string;
 
     @IsOptional()
-    @IsEnum(TransactionDirection)
+    @IsEnum(TransactionDirection,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TransactionDirection).join(', ')], }); }})
     direction?: TransactionDirection;
 
     @IsOptional()
-    @IsEnum(TransactionReferenceType)
+    @IsEnum(TransactionReferenceType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TransactionReferenceType).join(', ')], }); }})
     referenceType?: TransactionReferenceType;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     search?: string;
 
     @IsOptional()
@@ -184,26 +186,26 @@ export class TransactionFilterDto {
 
     @IsOptional()
     @Transform(({ value }) => (value !== undefined ? Number(value) : value))
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     page?: number;
 
     @IsOptional()
     @Transform(({ value }) => (value !== undefined ? Number(value) : value))
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     limit?: number;
 }
 
 export class TransferFilterDto {
     @IsOptional()
-    @IsUUID()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     fromAccountId?: string;
 
     @IsOptional()
-    @IsUUID()
+    @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     toAccountId?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     search?: string;
 
     @IsOptional()
@@ -214,11 +216,11 @@ export class TransferFilterDto {
 
     @IsOptional()
     @Transform(({ value }) => (value !== undefined ? Number(value) : value))
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     page?: number;
 
     @IsOptional()
     @Transform(({ value }) => (value !== undefined ? Number(value) : value))
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     limit?: number;
 }

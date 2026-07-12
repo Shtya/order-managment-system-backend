@@ -11,11 +11,13 @@ import { DateFilterUtil } from 'common/date-filter.util';
 import { generateRandomAlphanumeric, imageSrc } from 'common/healpers';
 import { TransactionEntity, TransactionStatus } from 'entities/payments.entity';
 import * as ExcelJS from "exceljs";
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class TransactionsService {
 	constructor(
 		@InjectRepository(TransactionEntity) private transactionsRepo: Repository<TransactionEntity>,
+		private translations: TranslationService,
 	) { }
 
 	// ✅ Check if user is super admin
@@ -49,7 +51,7 @@ export class TransactionsService {
 			}
 		}
 
-		throw new Error("Failed to generate a unique transaction number after 10 attempts");
+		throw new Error(this.translations.t("domains.transactions.failed_to_generate_unique_transaction_number", { args: { attempts: 10 } }));
 	}
 
 	async list(me: User, q?: any) {
@@ -128,7 +130,7 @@ export class TransactionsService {
 			relations: ['user', 'subscription', 'subscription.plan'],
 		});
 
-		if (!transaction) throw new NotFoundException('Transaction not found');
+		if (!transaction) throw new NotFoundException(this.translations.t('common.transaction_not_found'));
 
 		// Super admin: can see all
 		if (this.isSuperAdmin(me)) {
@@ -139,7 +141,7 @@ export class TransactionsService {
 		// Regular user: only their own transactions
 		if (transaction.userId === me.id) return transaction;
 
-		throw new ForbiddenException('Not allowed');
+		throw new ForbiddenException(this.translations.t('common.not_allowed'));
 	}
 
 	// ✅ Get Transaction Statistics (for admin)
@@ -147,7 +149,7 @@ export class TransactionsService {
 	async getStatistics(me: User) {
 		// 1. Authorization Check
 		if (!this.isSuperAdmin(me) && !this.isAdmin(me)) {
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t('common.not_allowed'));
 		}
 
 		const qb = this.transactionsRepo.createQueryBuilder('t');
@@ -196,10 +198,16 @@ export class TransactionsService {
 		// Can only cancel if processing
 		if (transaction.status !== TransactionStatus.PENDING) {
 			throw new BadRequestException(
-				`Cannot cancel transaction with status: ${transaction.status}. Only pending transactions can be cancelled.`
+				this.translations.t(
+					"domains.transactions.cannot_cancel_transaction_status",
+					{
+						args: {
+							status: transaction.status,
+						},
+					},
+				),
 			);
 		}
-
 		transaction.status = TransactionStatus.CANCELLED;
 
 		return this.transactionsRepo.save(transaction);
@@ -243,23 +251,76 @@ export class TransactionsService {
 		const transactions = await qb.orderBy(`t.${sortBy}`, sortDir).getMany();
 
 		const workbook = new ExcelJS.Workbook();
-		const worksheet = workbook.addWorksheet("Transactions");
-
+		const worksheet = workbook.addWorksheet(
+			this.translations.t("domains.transactions.transactions_sheet")
+		);
 		// 1. تحديد الأعمدة بنفس ترتيب الـ Front-end
 		worksheet.columns = [
-			{ header: "Transaction ID", key: "number", width: 20 },
-			{ header: "User Name", key: "userName", width: 25 },
-			{ header: "User Email", key: "userEmail", width: 25 },
-			{ header: "Purpose", key: "purpose", width: 20 },      // عمود جديد
-			{ header: "Subscription", key: "planName", width: 20 },
-			{ header: "Feature", key: "featureName", width: 25 },  // عمود جديد
-			{ header: "Amount", key: "amount", width: 15 },
-			{ header: "amountInDollars", key: "amountInDollars", width: 15 },
-			{ header: "Status", key: "status", width: 15 },
-			{ header: "Payment Method", key: "paymentMethod", width: 20 },
-			{ header: "Payment Proof (URL)", key: "paymentProof", width: 40 },
-			{ header: "Created At", key: "createdAt", width: 20 },
-			{ header: "Last Update", key: "updatedAt", width: 20 },
+			{
+				header: this.translations.t("domains.transactions.transaction_id"),
+				key: "number",
+				width: 20,
+			},
+			{
+				header: this.translations.t("common.user_name"),
+				key: "userName",
+				width: 25,
+			},
+			{
+				header: this.translations.t("common.user_email"),
+				key: "userEmail",
+				width: 25,
+			},
+			{
+				header: this.translations.t("domains.transactions.purpose"),
+				key: "purpose",
+				width: 20,
+			},
+			{
+				header: this.translations.t("domains.transactions.subscription"),
+				key: "planName",
+				width: 20,
+			},
+			{
+				header: this.translations.t("domains.transactions.feature"),
+				key: "featureName",
+				width: 25,
+			},
+			{
+				header: this.translations.t("common.amount"),
+				key: "amount",
+				width: 15,
+			},
+			{
+				header: this.translations.t("domains.transactions.amount_in_dollars"),
+				key: "amountInDollars",
+				width: 15,
+			},
+			{
+				header: this.translations.t("common.status"),
+				key: "status",
+				width: 15,
+			},
+			{
+				header: this.translations.t("domains.transactions.payment_method"),
+				key: "paymentMethod",
+				width: 20,
+			},
+			{
+				header: this.translations.t("domains.transactions.payment_proof_url"),
+				key: "paymentProof",
+				width: 40,
+			},
+			{
+				header: this.translations.t("common.created_at"),
+				key: "createdAt",
+				width: 20,
+			},
+			{
+				header: this.translations.t("domains.transactions.last_update"),
+				key: "updatedAt",
+				width: 20,
+			},
 		];
 
 		// 2. تحويل البيانات وتجهيزها (Transform)

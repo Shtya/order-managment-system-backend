@@ -10,6 +10,7 @@ import { TriggerDispatcherService } from './engine/triggerDispatcher.service';
 import { AutomationQueueService } from 'src/queue/queues/automations.queue';
 import { isSuperAdmin, deletePhysicalFiles } from 'common/healpers';
 import { OrphanFilesService } from 'src/orphan-files/orphan-files.service';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class AutomationService {
@@ -25,6 +26,7 @@ export class AutomationService {
         @Inject(forwardRef(() => AutomationQueueService))
         private readonly automationQueueService: AutomationQueueService,
         private readonly orphanFilesService: OrphanFilesService,
+        private readonly translations: TranslationService,
     ) { }
 
     async getFlowsStats(me: any) {
@@ -127,7 +129,7 @@ export class AutomationService {
         const isSuperAdminFlag = isSuperAdmin(me);
 
         if (!isSuperAdminFlag && !adminId) {
-            throw new BadRequestException('AdminId not found');
+            throw new BadRequestException(this.translations.t('common.admin_id_not_found'));
         }
 
         return await this.dataSource.transaction(async (manager) => {
@@ -139,7 +141,7 @@ export class AutomationService {
             });
 
             if (existing) {
-                throw new BadRequestException('Automation name already exists');
+                throw new BadRequestException(this.translations.t('domains.automation.name_already_exists'));
             }
 
             const automation = automationRepo.create({
@@ -192,7 +194,7 @@ export class AutomationService {
         const isSuperAdminFlag = isSuperAdmin(me);
 
         if (!isSuperAdminFlag && !adminId) {
-            throw new BadRequestException('AdminId not found');
+            throw new BadRequestException(this.translations.t('common.admin_id_not_found'));
         }
 
         const result = await this.dataSource.transaction(async (manager) => {
@@ -205,7 +207,7 @@ export class AutomationService {
             });
 
             if (!automation) {
-                throw new BadRequestException('Automation not found');
+                throw new BadRequestException(this.translations.t('domains.automation.not_found'));
             }
 
             if (dto.flow) {
@@ -218,7 +220,7 @@ export class AutomationService {
                     triggerNode.data?.type !== automation.triggerType
                 ) {
                     throw new BadRequestException(
-                        'Trigger type in flow nodes must match automation trigger type',
+                        this.translations.t('domains.automation.trigger_type_mismatch'),
                     );
                 }
             }
@@ -271,7 +273,7 @@ export class AutomationService {
                     return {
                         ...automation,
                         skipped: true,
-                        message: 'Flow is identical to the base version, update skipped'
+                        message: this.translations.t('domains.automation.flow_identical_skipped')
                     };
                 }
 
@@ -359,11 +361,11 @@ export class AutomationService {
         });
 
         if (!run) {
-            throw new NotFoundException('Automation run not found');
+            throw new NotFoundException(this.translations.t('domains.automation.run_not_found'));
         }
 
         if (run.status !== RunStatus.FAILED) {
-            throw new BadRequestException('Only failed runs can be retried');
+            throw new BadRequestException(this.translations.t('domains.automation.only_failed_runs_retriable'));
         }
 
         if(useLatestVersion) {
@@ -400,7 +402,7 @@ export class AutomationService {
         );
 
         return {
-            message: 'Run has been queued for retry',
+            message: this.translations.t('domains.automation.run_queued_retry'),
             run,
         };
     }
@@ -409,7 +411,7 @@ export class AutomationService {
         const adminId = tenantId(me);
         const isSuperAdminFlag = isSuperAdmin(me);
 
-        if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
+        if (!isSuperAdminFlag && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -478,7 +480,7 @@ export class AutomationService {
     async findOne(me: any, id: string, version?: string) {
         const adminId = tenantId(me);
         const isSuperAdminFlag = isSuperAdmin(me);
-        if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
+        if (!isSuperAdminFlag && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const query = this.automationRepo.createQueryBuilder('automation')
             .withDeleted()
@@ -499,18 +501,20 @@ export class AutomationService {
         const automation = await query.getOne();
 
         if (!automation) {
-            throw new BadRequestException("Automation not found");
+            throw new BadRequestException(this.translations.t('domains.automation.not_found'));
         }
 
         // 2. التحقق من وجود الإصدار (سواء كان المحدد أو الأحدث) وإطلاق الخطأ بدقة
         if (version) {
             if (!automation.versions || automation.versions.length === 0) {
-                throw new BadRequestException(`Automation found, but the specified version (${version}) does not exist`);
+                throw new BadRequestException(
+                    this.translations.t('domains.automation.version_not_found', { args: { version } }),
+                );
             }
         } else {
             // في حالة عدم تمرير إصدار، نتحقق من حقل الـ latestVersion المباشر
             if (!automation.latestVersion) {
-                throw new BadRequestException("Automation found, but it does not have an active published version");
+                throw new BadRequestException(this.translations.t('domains.automation.no_active_version'));
             }
             automation.versions = [automation.latestVersion];
         }
@@ -580,7 +584,7 @@ export class AutomationService {
             .getOne();
 
         if (!latestPatch) {
-            throw new NotFoundException("Base version line not found");
+            throw new NotFoundException(this.translations.t('domains.automation.base_version_not_found'));
         }
 
         // 3. استخراج الـ Minor الحالي وزيادته بمقدار 1
@@ -602,7 +606,7 @@ export class AutomationService {
             });
 
             if (!automation) {
-                throw new NotFoundException('Automation not found');
+                throw new NotFoundException(this.translations.t('domains.automation.not_found'));
             }
 
             automation.status = AutomationStatus.ARCHIVED;
@@ -611,7 +615,7 @@ export class AutomationService {
             await transactionalManager.softDelete(AutomationFlowEntity, id);
 
             return {
-                message: 'Automation deleted successfully',
+                message: this.translations.t('domains.automation.deleted_successfully'),
             };
         });
     }
@@ -620,7 +624,7 @@ export class AutomationService {
         const automation = await this.findOne(me, id);
 
         if (!automation) {
-            throw new Error('Automation not found');
+            throw new NotFoundException(this.translations.t('domains.automation.not_found'));
         }
 
         let nextStatus: AutomationStatus = status;
@@ -645,7 +649,7 @@ export class AutomationService {
     async findAllRuns(me: any, q?: any) {
         const adminId = tenantId(me);
         const isSuperAdminFlag = isSuperAdmin(me);
-        if (!isSuperAdminFlag && !adminId) throw new BadRequestException("Missing adminId");
+        if (!isSuperAdminFlag && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -731,7 +735,7 @@ export class AutomationService {
         });
 
         if (!run) {
-            throw new NotFoundException("Automation run not found");
+            throw new NotFoundException(this.translations.t('domains.automation.run_not_found'));
         }
 
         // Security check: ensure the run belongs to an automation flow owned by the admin
@@ -740,7 +744,7 @@ export class AutomationService {
         });
 
         if (!flow) {
-            throw new BadRequestException("Access denied or automation flow not found");
+            throw new BadRequestException(this.translations.t('domains.automation.access_denied_or_not_found'));
         }
 
         return run;
@@ -748,14 +752,16 @@ export class AutomationService {
 
     async export(me: any, q: any) {
         const { records } = await this.findAll(me, { ...q, limit: 1000, page: 1 });
+        const adminId = tenantId(me);
+
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Automations");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.automation.export_sheet'));
 
         worksheet.columns = [
-            { header: "Name", key: "name", width: 25 },
-            { header: "Trigger Type", key: "triggerType", width: 25 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Created At", key: "createdAt", width: 25 },
+            { header: this.translations.t('domains.automation.export_name'), key: "name", width: 25 },
+            { header: this.translations.t('domains.automation.export_trigger_type'), key: "triggerType", width: 25 },
+            { header: this.translations.t('domains.automation.export_status'), key: "status", width: 15 },
+            { header: this.translations.t('domains.automation.export_created_at'), key: "createdAt", width: 25 },
         ];
         worksheet.getRow(1).font = { bold: true };
         worksheet.getRow(1).fill = {
@@ -776,19 +782,21 @@ export class AutomationService {
 
     async exportRuns(me: any, q: any) {
         const { records } = await this.findAllRuns(me, { ...q, limit: 1000, page: 1 });
+        const adminId = tenantId(me);
+
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Automation Runs");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.automation.export_runs_sheet'));
 
         worksheet.columns = [
-            { header: "Automation", key: "automationName", width: 25 },
-            { header: "Trigger Type", key: "triggerType", width: 25 },
+            { header: this.translations.t('domains.automation.export_automation'), key: "automationName", width: 25 },
+            { header: this.translations.t('domains.automation.export_trigger_type'), key: "triggerType", width: 25 },
             // { header: "Entity Type", key: "entityType", width: 25 },
-            { header: "Version", key: "version", width: 10 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Steps Completed", key: "steps", width: 15 },
-            { header: "Started At", key: "startedAt", width: 25 },
-            { header: "Completed At", key: "completedAt", width: 25 },
-            { header: "Error", key: "error", width: 40 },
+            { header: this.translations.t('domains.automation.export_version'), key: "version", width: 10 },
+            { header: this.translations.t('domains.automation.export_status'), key: "status", width: 15 },
+            { header: this.translations.t('domains.automation.export_steps_completed'), key: "steps", width: 15 },
+            { header: this.translations.t('domains.automation.export_started_at'), key: "startedAt", width: 25 },
+            { header: this.translations.t('domains.automation.export_completed_at'), key: "completedAt", width: 25 },
+            { header: this.translations.t('domains.automation.export_error'), key: "error", width: 40 },
         ];
         worksheet.getRow(1).font = { bold: true };
         worksheet.getRow(1).fill = {

@@ -2,12 +2,14 @@ import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { AutoAssignmentJobs, QueueNames } from "../common/queue.constants";
 import { Job, JobsOptions, MetricsTime, Queue } from "bullmq";
-import { AssignmentMode, TimeUnit } from "entities/order.entity";
+import { AssignmentMode } from "entities/clientSettings.entity";
+import { TimeUnit } from "entities/clientSettings.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 import { v4 as uuidv4 } from 'uuid';
 import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
 import { createHash } from 'crypto';
 import { QueueDelayConfig, QueueDelayService } from "../common/queue-delay.service";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
 
 
 @Injectable()
@@ -17,6 +19,7 @@ export class AutoAssignmentQueueService {
         private readonly autoAssignmentQueue: Queue,
         @Inject(forwardRef(() => OrdersService))
         protected readonly ordersService: OrdersService,
+        private readonly clientSettingsService: ClientSettingsService,
     ) { }
 
     async addAutoAssignmentJob(
@@ -26,7 +29,7 @@ export class AutoAssignmentQueueService {
         if (!data?.adminId || !data?.orderIds?.length) return;
 
         // ⚙️ Load settings (move this outside if you want pure queue layer separation)
-        const settings = await this.ordersService.getCachedSettings(data.adminId); // or inject OrdersService
+        const settings = await this.clientSettingsService.getCachedSettings(data.adminId); // or inject OrdersService
         const assignmentMode = settings.assignmentMode;
 
         if (assignmentMode === AssignmentMode.DISABLED) {

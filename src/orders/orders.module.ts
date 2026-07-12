@@ -9,7 +9,6 @@ import {
   OrderStatusHistoryEntity,
   OrderMessageEntity,
   OrderStatusEntity,
-  OrderRetrySettingsEntity,
   OrderReplacementEntity,
   OrderScanLogEntity,
   ShipmentManifestEntity,
@@ -18,7 +17,7 @@ import {
 } from "entities/order.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
-import { OrderSubscriber, OrderSettingsSubscriber } from "./order-subscriber";
+import { OrderSubscriber } from "./order-subscriber";
 import { User } from "entities/user.entity";
 import { AuthModule } from "src/auth/auth.module";
 
@@ -38,6 +37,7 @@ import { WalletModule } from "src/wallet/wallet.module";
 import { OrderAssignmentModule } from "src/order-assignment/order-assignment.module";
 import { BulkUploadUsage } from "entities/plans.entity";
 import { AutomationModule } from "src/automation/automation.module";
+import { ClientSettingsEntity } from "entities/clientSettings.entity";
 
 @Module({
   imports: [
@@ -56,7 +56,7 @@ import { AutomationModule } from "src/automation/automation.module";
       OrderMessageEntity,
       ProductVariantEntity,
       ShippingCompanyEntity,
-      OrderRetrySettingsEntity,
+      ClientSettingsEntity,
       User,
       BulkUploadUsage,
       Notification,
@@ -73,7 +73,6 @@ import { AutomationModule } from "src/automation/automation.module";
   providers: [
     OrdersService,
     OrderSubscriber,
-    OrderSettingsSubscriber,
     ShippingSeedService,
     OrderReplacementService,
     OrderReturnService,

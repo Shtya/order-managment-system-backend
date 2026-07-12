@@ -15,6 +15,7 @@ import { UsersService } from 'src/users/users.service';
 
 import { Account, AccountStatus, TransactionReferenceType } from 'entities/safe.entity';
 import { SafesService } from 'src/safes/safes.service';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class CollectionService {
@@ -32,13 +33,15 @@ export class CollectionService {
         private readonly notificationService: NotificationService,
         private readonly usersService: UsersService,
         private readonly safesService: SafesService,
+        private readonly translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
     ) { }
 
     // collection.service.ts
 
     async getCollectionStatistics(me: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException();
 //collectedOrdersCount
         // 1. Run general stats and shipping breakdown in parallel
         const [generalStats, shippingBreakdownRaw] = await Promise.all([
@@ -95,7 +98,7 @@ export class CollectionService {
 
     async addCollection(me: any, dto: CreateOrderCollectionDto) {
         const adminId = tenantId(me)
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         return await this.dataSource.transaction(async (manager) => {
             // 1. Lock and find the order
@@ -104,16 +107,15 @@ export class CollectionService {
             });
 
             if (!order) {
-                throw new NotFoundException(`Order #${dto.orderId} not found`);
+                throw new NotFoundException(this.translations.t('domains.collections.order_not_found', { args: { orderId: dto.orderId } }));
             }
 
             // 2. Validate safe/account
             const safe = await manager.findOne(Account, {
                 where: { id: dto.safeId, adminId } as any
             });
-            if (!safe) throw new BadRequestException("Safe/Account not found or not active");
-
-            if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException("Safe/Account is not active");
+            if (!safe) throw new BadRequestException(this.translations.t('domains.collections.safe_not_found', { args: { safeId: dto.safeId } }));
+            if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException(this.translations.t('domains.collections.safe_not_active', { args: { safeId: dto.safeId } }));
 
             // 3. Validate shipping company if provided
             let shippingIntegration: ShippingIntegrationEntity | null = null;
@@ -124,7 +126,7 @@ export class CollectionService {
                 });
 
                 if (!shippingIntegration) {
-                    throw new NotFoundException(`You must integrate with the shipping company before assigning it to collections`);
+                    throw new NotFoundException(this.translations.t('domains.collections.shipping_integration_required', { args: { shippingCompanyId: dto.shippingCompanyId } }));
                 }
             }
 
@@ -160,15 +162,15 @@ export class CollectionService {
                     trackingNumber: order.trackingNumber || null,
                     orderNumber: order.orderNumber || null,
                 },
-                notes: `Collection for order #${order.orderNumber}. ${dto.notes || ""}`.trim(),
+                notes: await this.requestTranslations.tAsync('domains.collections.collection_deposit_notes', adminId, { args: { orderNumber: order.orderNumber } }),
             }, manager);
 
             // 7. Create notification
             await this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.COLLECTION_CREATED,
-                title: "New Collection Added",
-                message: `A collection of ${dto.amount} ${collection.currency} has been added to order #${order.orderNumber}.`,
+                title: await this.requestTranslations.tAsync('domains.collections.collection_created_title', adminId),
+                message: await this.requestTranslations.tAsync('domains.collections.collection_created_message', adminId, { args: { amount: dto.amount, currency: collection.currency, orderNumber: order.orderNumber } }),
                 relatedEntityType: "order",
                 relatedEntityId: String(order.id),
             });
@@ -179,7 +181,7 @@ export class CollectionService {
 
     async listCollections(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -291,7 +293,7 @@ export class CollectionService {
 
     async exportCollections(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const search = String(q?.search ?? "").trim();
         const statusFilter = q?.collectionStatus;
@@ -334,33 +336,33 @@ export class CollectionService {
         if (isFullyCollected) {
             // أعمدة الـ collectedColumns
             columns = [
-                { header: "Order Number", key: "orderNumber", width: 15 },
-                { header: "Shipping Company", key: "shippingCompany", width: 20 },
-                { header: "Last Collection Date", key: "lastCollectionDate", width: 20 },
-                { header: "Shipping Cost", key: "shippingCost", width: 15 },
-                { header: "Total Amount", key: "finalTotal", width: 15 },
-                { header: "Collectible Amount", key: "collectibleAmount", width: 15 },
-                { header: "Collected Amount", key: "collectedAmount", width: 15 },
-                { header: "Remaining Balance", key: "remainingBalance", width: 15 },
-                { header: "Status", key: "collectionStatus", width: 15 },
+                { header: this.translations.t('domains.collections.export_order_number'), key: "orderNumber", width: 15 },
+                { header: this.translations.t('domains.collections.export_shipping_company'), key: "shippingCompany", width: 20 },
+                { header: this.translations.t('domains.collections.export_last_collection_date'), key: "lastCollectionDate", width: 20 },
+                { header: this.translations.t('domains.collections.export_shipping_cost'), key: "shippingCost", width: 15 },
+                { header: this.translations.t('domains.collections.export_total_amount'), key: "finalTotal", width: 15 },
+                { header: this.translations.t('domains.collections.export_collectible_amount'), key: "collectibleAmount", width: 15 },
+                { header: this.translations.t('domains.collections.export_collected_amount'), key: "collectedAmount", width: 15 },
+                { header: this.translations.t('domains.collections.export_remaining_balance'), key: "remainingBalance", width: 15 },
+                { header: this.translations.t('common.export_status'), key: "collectionStatus", width: 15 },
             ];
         } else {
             // أعمدة الـ notCollectedColumns (تستخدم للـ partial, pending, not_collected)
             columns = [
-                { header: "Order Number", key: "orderNumber", width: 15 },
-                { header: "Shipping Company", key: "shippingCompany", width: 20 },
-                { header: "Collected Amount", key: "collectedAmount", width: 15 },
-                { header: "Remaining Balance", key: "remainingBalance", width: 15 },
-                { header: "Shipping Cost", key: "shippingCost", width: 15 },
-                { header: "Collection Method", key: "collectionMethod", width: 25 },
-                { header: "Delivered At", key: "deliveredAt", width: 18 },
-                { header: "Status", key: "collectionStatus", width: 15 },
-                { header: "Delay Days", key: "delayDays", width: 12 },
+                { header: this.translations.t('domains.collections.export_order_number'), key: "orderNumber", width: 15 },
+                { header: this.translations.t('domains.collections.export_shipping_company'), key: "shippingCompany", width: 20 },
+                { header: this.translations.t('domains.collections.export_collected_amount'), key: "collectedAmount", width: 15 },
+                { header: this.translations.t('domains.collections.export_remaining_balance'), key: "remainingBalance", width: 15 },
+                { header: this.translations.t('domains.collections.export_shipping_cost'), key: "shippingCost", width: 15 },
+                { header: this.translations.t('domains.collections.export_collection_method'), key: "collectionMethod", width: 25 },
+                { header: this.translations.t('domains.collections.export_delivered_at'), key: "deliveredAt", width: 18 },
+                { header: this.translations.t('common.export_status'), key: "collectionStatus", width: 15 },
+                { header: this.translations.t('domains.collections.export_delay_days'), key: "delayDays", width: 12 },
             ];
         }
 
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Collections");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.collections.export_collections_sheet'));
         worksheet.columns = columns;
 
         // 3. تحويل البيانات (Transform)
@@ -395,7 +397,7 @@ export class CollectionService {
                 collectionMethod: methods,
                 deliveredAt: order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString() : "—",
                 lastCollectionDate: lastCol,
-                collectionStatus: remaining > 0 ? collected > 0 ? "Partial" : "Pending" : "Fully Collected",
+                collectionStatus: remaining > 0 ? collected > 0 ? this.translations.t('domains.collections.status_partial') : this.translations.t('domains.collections.status_pending') : this.translations.t('domains.collections.status_fully_collected'),
                 delayDays: Math.max(0, delay)
             };
         });

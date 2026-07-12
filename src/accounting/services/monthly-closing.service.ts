@@ -10,6 +10,7 @@ import { SupplierEntity } from 'entities/supplier.entity';
 import { ApprovalStatus } from 'common/enums';
 import { tenantId } from 'src/category/category.service';
 import * as ExcelJS from 'exceljs';
+import { TranslationService } from 'common/translation.service';
 function getMonthRange(year: number, month: number) {
   const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
   const end = new Date(Date.UTC(year, month, 0, 23, 59, 59));
@@ -36,6 +37,7 @@ export class MonthlyClosingService {
     private purchaseRepo: Repository<PurchaseInvoiceEntity>,
     @InjectRepository(PurchaseReturnInvoiceEntity)
     private purchaseReturnRepo: Repository<PurchaseReturnInvoiceEntity>,
+    private translations: TranslationService,
   ) { }
 
   async listClosings(me: any, q?: any) {
@@ -90,7 +92,7 @@ export class MonthlyClosingService {
 
   async exportClosings(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // 1. Build the Query
     const qb = this.monthlyRepo.createQueryBuilder("closing")
@@ -133,17 +135,17 @@ export class MonthlyClosingService {
 
     // 3. Create Workbook
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Monthly Profit Report");
+    const worksheet = workbook.addWorksheet(this.translations.t('domains.closings.report_title_monthly_profit'));
 
     // 4. Define Columns
     worksheet.columns = [
-      { header: "Period (M/Y)", key: "period", width: 15 },
-      { header: "Total Revenue", key: "revenue", width: 18 },
-      { header: "Product Cost", key: "productCost", width: 18 },
-      { header: "Operational Expenses", key: "operationalExpenses", width: 22 },
-      { header: "Returns Cost", key: "returnsCost", width: 18 },
-      { header: "Net Profit", key: "netProfit", width: 18 },
-      { header: "Closing Date", key: "closingDate", width: 15 },
+      { header: this.translations.t('domains.closings.excel_period'), key: "period", width: 15 },
+      { header: this.translations.t('domains.closings.excel_total_revenue'), key: "revenue", width: 18 },
+      { header: this.translations.t('domains.closings.excel_product_cost'), key: "productCost", width: 18 },
+      { header: this.translations.t('domains.closings.excel_operational_expenses'), key: "operationalExpenses", width: 22 },
+      { header: this.translations.t('domains.closings.excel_returns_cost'), key: "returnsCost", width: 18 },
+      { header: this.translations.t('domains.closings.excel_net_profit'), key: "netProfit", width: 18 },
+      { header: this.translations.t('domains.closings.excel_closing_date'), key: "closingDate", width: 15 },
     ];
 
     // Style header row
@@ -167,7 +169,7 @@ export class MonthlyClosingService {
   async getClosing(me: any, id: string) {
     const adminId = tenantId(me);
     const rec = await this.monthlyRepo.findOne({ where: { id, adminId } });
-    if (!rec) throw new BadRequestException('Closing not found');
+    if (!rec) throw new BadRequestException(this.translations.t('domains.closings.closing_not_found'));
     return rec;
   }
 
@@ -180,14 +182,14 @@ export class MonthlyClosingService {
     const month = Number(payload.month);
 
     if (!year || !month || month < 1 || month > 12) {
-      throw new BadRequestException('Invalid year/month');
+      throw new BadRequestException(this.translations.t('domains.closings.invalid_year_month'));
     }
 
     const { start, end } = getMonthRange(year, month);
 
     const now = new Date();
     if (end > now) {
-      throw new BadRequestException('Cannot close a month that has not ended yet.');
+      throw new BadRequestException(this.translations.t('domains.closings.cannot_close_future'));
     }
 
     const existing = await this.monthlyRepo.findOne({
@@ -195,7 +197,7 @@ export class MonthlyClosingService {
     });
 
     if (existing) {
-      throw new BadRequestException('This month is already closed');
+      throw new BadRequestException(this.translations.t('domains.closings.month_already_closed'));
     }
 
     return await this.dataSource.transaction(async (manager) => {
@@ -219,9 +221,7 @@ export class MonthlyClosingService {
 
       const savedClosing = await manager.getRepository(MonthlyClosingEntity).save(closing);
 
-      // ✅ مهم: نفس الفترة + نفس الشروط
       await Promise.all([
-
         manager.getRepository(OrderEntity)
           .createQueryBuilder()
           .update()
@@ -240,8 +240,7 @@ export class MonthlyClosingService {
           .andWhere('collectionDate BETWEEN :start AND :end', { start, end })
           .execute(),
 
-        await manager
-          .getRepository(ReturnRequestEntity)
+        manager.getRepository(ReturnRequestEntity)
           .createQueryBuilder()
           .update()
           .set({ monthlyClosingId: savedClosing.id })
@@ -258,7 +257,8 @@ export class MonthlyClosingService {
       WHERE o."deliveredAt" IS NOT NULL
     )
   `)
-          .execute(),]);
+          .execute(),
+      ]);
 
       return savedClosing;
     });
@@ -282,7 +282,7 @@ export class MonthlyClosingService {
     });
 
     if (!deliveredStatus) {
-      throw new BadRequestException('Delivered status not found');
+      throw new BadRequestException(this.translations.t('domains.closings.delivered_status_not_found'));
     }
 
     const existingClosing = await monthlyRepo.findOne({
@@ -313,8 +313,6 @@ export class MonthlyClosingService {
       operationalRow,
       ReturnsRow,
     ] = await Promise.all([
-
-      // ✅ Revenue
       ordersRepo.createQueryBuilder('o')
         .select('COALESCE(SUM(o.finalTotal - COALESCE(o.shippingCost, 0)), 0)', 'sum')
         .where('o.adminId = :adminId', { adminId })
@@ -322,7 +320,6 @@ export class MonthlyClosingService {
         .andWhere('o.deliveredAt BETWEEN :start AND :end', { start, end })
         .getRawOne(),
 
-      // ✅ COGS = تكلفة المنتجات اللي اتباعت (من order items)
       orderItemsRepo.createQueryBuilder('oi')
         .innerJoin('oi.order', 'o')
         .select('COALESCE(SUM(oi.unitCost * oi.quantity), 0)', 'sum')
@@ -331,7 +328,6 @@ export class MonthlyClosingService {
         .andWhere('o.deliveredAt BETWEEN :start AND :end', { start, end })
         .getRawOne(),
 
-      // ✅ Expenses
       manualExpenseRepo.createQueryBuilder('e')
         .select('COALESCE(SUM(e.amount), 0)', 'sum')
         .where('e.adminId = :adminId', { adminId })
@@ -339,8 +335,6 @@ export class MonthlyClosingService {
         .andWhere('e.collectionDate BETWEEN :start AND :end', { start, end })
         .getRawOne(),
 
-
-      // ✅ Returns 
       this.dataSource.getRepository(ReturnRequestItemEntity).createQueryBuilder('ri')
         .innerJoin('ri.returnRequest', 'rr')
         .innerJoin('ri.originalItem', 'oi')
@@ -359,9 +353,7 @@ export class MonthlyClosingService {
     const operationalExpenses = Number(operationalRow?.sum || 0);
     const returnsCost = Number(ReturnsRow?.sum || 0);
 
-    // ✅ COGS النهائي
     const finalCOGS = cogs + returnsCost;
-
     const grossProfit = revenue - finalCOGS;
     const netProfit = grossProfit - operationalExpenses;
 
@@ -386,15 +378,12 @@ export class MonthlyClosingService {
     const { start, end } = getMonthRange(year, month);
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
 
-    // 1. Get Summary Data (Preview)
     const preview = await this.getMonthPreview(me, { year, month });
 
-    // 2. Fetch Detailed Records
     const existingClosing = await this.monthlyRepo.findOne({ where: { adminId, year, month } });
     const closingId = existingClosing?.id;
 
     const [revenueOrders, expenses, returnOrders] = await Promise.all([
-      // Revenue Orders
       this.ordersRepo.createQueryBuilder('o')
         .leftJoinAndSelect('o.admin', 'admin')
         .select([
@@ -408,7 +397,6 @@ export class MonthlyClosingService {
         .andWhere('o."deliveredAt" BETWEEN :start AND :end', { start, end })
         .getRawMany(),
 
-      // Expenses
       this.manualExpenseRepo.createQueryBuilder('e')
         .leftJoinAndSelect('e.category', 'cat')
         .where('e."adminId" = :adminId', { adminId })
@@ -416,7 +404,6 @@ export class MonthlyClosingService {
         .andWhere('e."collectionDate" BETWEEN :start AND :end', { start, end })
         .getMany(),
 
-      // Return Orders
       this.dataSource.getRepository(ReturnRequestItemEntity).createQueryBuilder('ri')
         .innerJoinAndSelect('ri.returnRequest', 'rr')
         .innerJoinAndSelect('rr.order', 'o')
@@ -436,44 +423,38 @@ export class MonthlyClosingService {
     workbook.created = new Date();
 
     // --- SHEET 1: Summary ---
-    const summarySheet = workbook.addWorksheet('Summary', {
+    const summarySheet = workbook.addWorksheet(this.translations.t('domains.closings.excel_sheet_summary'), {
       views: [{ state: 'frozen', ySplit: 2 }]
     });
 
-    const summaryColumns = [
-      { header: 'Metric', key: 'metric', width: 30 },
-      { header: 'Value', key: 'value', width: 25 },
+    summarySheet.columns = [
+      { header: this.translations.t('domains.closings.excel_metric'), key: 'metric', width: 30 },
+      { header: this.translations.t('domains.closings.excel_value'), key: 'value', width: 25 },
     ];
-    summarySheet.columns = summaryColumns;
-
-    // this.applyNoteRow(summarySheet, `Financial Summary Report for Period: ${month} / ${year}`, 2);
-    // this.applyHeaderStyle(summarySheet, 2);
 
     summarySheet.addRows([
-      { metric: 'Status', value: preview.isClosed ? 'Closed (Finalized)' : 'Pending (Live Preview)' },
-      { metric: 'Total Revenue', value: preview.revenue },
-      { metric: 'Product Cost (COGS)', value: preview.cogs },
-      { metric: 'Operational Expenses', value: preview.operationalExpenses },
-      { metric: 'Returns Cost', value: preview.returnsCost },
-      { metric: 'Net Profit', value: preview.netProfit },
+      { metric: this.translations.t('common.status'), value: preview.isClosed ? this.translations.t('domains.closings.status_closed') : this.translations.t('domains.closings.status_pending') },
+      { metric: this.translations.t('domains.closings.excel_total_revenue'), value: preview.revenue },
+      { metric: this.translations.t('domains.closings.product_cost_cogs'), value: preview.cogs },
+      { metric: this.translations.t('domains.closings.excel_operational_expenses'), value: preview.operationalExpenses },
+      { metric: this.translations.t('domains.closings.excel_returns_cost'), value: preview.returnsCost },
+      { metric: this.translations.t('domains.closings.excel_net_profit'), value: preview.netProfit },
     ]);
 
     // --- SHEET 2: Revenue Orders ---
-    const revSheet = workbook.addWorksheet('Revenue Orders', {
+    const revSheet = workbook.addWorksheet(this.translations.t('domains.closings.excel_sheet_revenue_orders'), {
       views: [{ state: 'frozen', ySplit: 2 }]
     });
     const revColumns = [
-      { header: 'Order #', key: 'orderNumber', width: 18 },
-      { header: 'Customer', key: 'customerName', width: 25 },
-      { header: 'Revenue (Net)', key: 'revenue', width: 18 },
-      { header: 'Items Count', key: 'itemCount', width: 12 },
-      { header: 'Items Cost', key: 'itemsCost', width: 15 },
-      { header: 'Delivered At', key: 'deliveredAt', width: 22 },
-      { header: 'System Link', key: 'link', width: 20 },
+      { header: this.translations.t('domains.closings.excel_order_number'), key: 'orderNumber', width: 18 },
+      { header: this.translations.t('domains.closings.excel_customer'), key: 'customerName', width: 25 },
+      { header: this.translations.t('domains.closings.excel_revenue_net'), key: 'revenue', width: 18 },
+      { header: this.translations.t('domains.closings.excel_items_count'), key: 'itemCount', width: 12 },
+      { header: this.translations.t('domains.closings.excel_items_cost'), key: 'itemsCost', width: 15 },
+      { header: this.translations.t('domains.closings.excel_delivered_at'), key: 'deliveredAt', width: 22 },
+      { header: this.translations.t('domains.closings.excel_system_link'), key: 'link', width: 20 },
     ];
     revSheet.columns = revColumns;
-    // this.applyNoteRow(revSheet, "List of all delivered orders contributing to this month's revenue (Total minus Shipping).", revColumns.length);
-    // this.applyHeaderStyle(revSheet, 2);
 
     revenueOrders.forEach(o => {
       const row = revSheet.addRow({
@@ -485,7 +466,7 @@ export class MonthlyClosingService {
         deliveredAt: o.deliveredAt ? new Date(o.deliveredAt).toLocaleString() : '-',
       });
       row.getCell('link').value = {
-        text: 'View Order',
+        text: this.translations.t('domains.closings.excel_view_order'),
         hyperlink: `${frontendUrl}/orders/details/${o.o_id}`,
         tooltip: `${frontendUrl}/orders/details/${o.o_id}`,
       };
@@ -494,7 +475,7 @@ export class MonthlyClosingService {
 
     if (revenueOrders.length > 0) {
       const revTotalRow = revSheet.addRow({
-        orderNumber: 'TOTALS',
+        orderNumber: this.translations.t('common.totals'),
         revenue: { formula: `SUM(C2:C${revenueOrders.length + 1})` },
         itemsCost: { formula: `SUM(E2:E${revenueOrders.length + 1})` },
       });
@@ -503,18 +484,16 @@ export class MonthlyClosingService {
     }
 
     // --- SHEET 3: Operational Expenses ---
-    const expSheet = workbook.addWorksheet('Expenses', {
+    const expSheet = workbook.addWorksheet(this.translations.t('domains.closings.excel_sheet_expenses'), {
       views: [{ state: 'frozen', ySplit: 2 }]
     });
     const expColumns = [
-      { header: 'Date', key: 'date', width: 18 },
-      { header: 'Category', key: 'category', width: 22 },
-      { header: 'Description', key: 'description', width: 45 },
-      { header: 'Amount', key: 'amount', width: 18 },
+      { header: this.translations.t('common.date'), key: 'date', width: 18 },
+      { header: this.translations.t('common.category'), key: 'category', width: 22 },
+      { header: this.translations.t('common.description'), key: 'description', width: 45 },
+      { header: this.translations.t('common.amount'), key: 'amount', width: 18 },
     ];
     expSheet.columns = expColumns;
-    // this.applyNoteRow(expSheet, "Detailed breakdown of manual/operational expenses recorded during this period.", expColumns.length);
-    // this.applyHeaderStyle(expSheet, 2);
 
     expenses.forEach(e => {
       expSheet.addRow({
@@ -527,7 +506,7 @@ export class MonthlyClosingService {
 
     if (expenses.length > 0) {
       const expTotalRow = expSheet.addRow({
-        description: 'TOTAL',
+        description: this.translations.t('common.total'),
         amount: { formula: `SUM(D2:D${expenses.length + 1})` },
       });
       expTotalRow.font = { bold: true };
@@ -535,20 +514,18 @@ export class MonthlyClosingService {
     }
 
     // --- SHEET 4: Returns ---
-    const retSheet = workbook.addWorksheet('Returns', {
+    const retSheet = workbook.addWorksheet(this.translations.t('domains.closings.excel_sheet_returns'), {
       views: [{ state: 'frozen', ySplit: 2 }]
     });
     const retColumns = [
-      { header: 'Order #', key: 'orderNumber', width: 18 },
-      { header: 'Customer', key: 'customerName', width: 25 },
-      { header: 'Delivered At', key: 'deliveredAt', width: 22 },
-      { header: 'Returned At', key: 'returnedAt', width: 22 },
-      { header: 'Return Cost', key: 'itemsCost', width: 18 },
-      { header: 'System Link', key: 'link', width: 20 },
+      { header: this.translations.t('domains.closings.excel_order_number'), key: 'orderNumber', width: 18 },
+      { header: this.translations.t('domains.closings.excel_customer'), key: 'customerName', width: 25 },
+      { header: this.translations.t('domains.closings.excel_delivered_at'), key: 'deliveredAt', width: 22 },
+      { header: this.translations.t('domains.closings.excel_returned_at'), key: 'returnedAt', width: 22 },
+      { header: this.translations.t('domains.closings.excel_return_cost'), key: 'itemsCost', width: 18 },
+      { header: this.translations.t('domains.closings.excel_system_link'), key: 'link', width: 20 },
     ];
     retSheet.columns = retColumns;
-    // this.applyNoteRow(retSheet, "List of returned orders and their product cost impact (COGS reversal).", retColumns.length);
-    // this.applyHeaderStyle(retSheet, 2);
 
     returnOrders.forEach(item => {
       const row = retSheet.addRow({
@@ -559,7 +536,7 @@ export class MonthlyClosingService {
         itemsCost: Number(item.originalItem?.unitCost || 0) * item.quantity,
       });
       row.getCell('link').value = {
-        text: 'View Order',
+        text: this.translations.t('domains.closings.excel_view_order'),
         hyperlink: `${frontendUrl}/orders/details/${item.returnRequest?.order?.id}`,
         tooltip: `${frontendUrl}/orders/details/${item.returnRequest?.order?.id}`,
       };
@@ -568,7 +545,7 @@ export class MonthlyClosingService {
 
     if (returnOrders.length > 0) {
       const retTotalRow = retSheet.addRow({
-        orderNumber: 'TOTAL',
+        orderNumber: this.translations.t('common.total'),
         itemsCost: { formula: `SUM(E2:E${returnOrders.length + 1})` },
       });
       retTotalRow.font = { bold: true };

@@ -17,6 +17,7 @@ import { WhatsappAccountEntity } from 'entities/whatsapp.entity';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class UpsellsService {
@@ -38,6 +39,7 @@ export class UpsellsService {
         @Inject(forwardRef(() => OrdersService))
         private readonly ordersService: OrdersService,
         private readonly notificationService: NotificationService,
+        private readonly translations: TranslationService,
     ) { }
 
     async create(me: any, dto: CreateUpsellDto) {
@@ -45,13 +47,13 @@ export class UpsellsService {
 
         // 1. Verify products exist and belong to the same admin (if applicable)
         const triggerProduct = await this.productRepo.findOne({ where: { id: dto.triggerProductId } });
-        if (!triggerProduct) throw new BadRequestException('Trigger product not found');
+        if (!triggerProduct) throw new BadRequestException(this.translations.t('domains.upsells.trigger_product_not_found'));
 
         const upsellProduct = await this.productRepo.findOne({ where: { id: dto.upsellProductId }, relations: ['variants'] });
-        if (!upsellProduct) throw new BadRequestException('Upsell product not found');
+        if (!upsellProduct) throw new BadRequestException(this.translations.t('domains.upsells.upsell_product_not_found'));
 
         const sku = await this.skuRepo.findOne({ where: { id: dto.upsellSkuId, productId: dto.upsellProductId } });
-        if (!sku) throw new BadRequestException('SKU not found or does not belong to the upsell product');
+        if (!sku) throw new BadRequestException(this.translations.t('domains.upsells.sku_not_found_or_not_belong'));
 
         // 2. Check if upsell is linked to trigger (business logic check)
         // const upsellingProducts = triggerProduct.upsellingProducts || [];
@@ -61,7 +63,7 @@ export class UpsellsService {
         // }
 
         if (sku.productId !== dto.upsellProductId) {
-            throw new BadRequestException('SKU does not belong to the upsell product');
+            throw new BadRequestException(this.translations.t('domains.upsells.sku_not_belong_to_upsell_product'));
         }
 
         // 2.5 Check for uniqueness (triggerProductId, upsellProductId, upsellSkuId, adminId, upsellPrice)
@@ -75,7 +77,7 @@ export class UpsellsService {
             }
         });
         if (existing) {
-            throw new BadRequestException(`An upsell already exists for the same trigger product, upsell product, SKU, and price (${dto.upsellPrice})`);
+            throw new BadRequestException(this.translations.t('domains.upsells.upsell_already_exists'));
         }
 
         // 3. Handle media handle if applicable
@@ -112,13 +114,13 @@ export class UpsellsService {
             const price = dto.upsellPrice !== undefined ? dto.upsellPrice : upsell.upsellPrice;
 
             const triggerProduct = await this.productRepo.findOne({ where: { id: triggerId } });
-            if (!triggerProduct) throw new BadRequestException('Trigger product not found');
+            if (!triggerProduct) throw new BadRequestException(this.translations.t('domains.upsells.trigger_product_not_found'));
 
             const upsellProduct = await this.productRepo.findOne({ where: { id: upsellId } });
-            if (!upsellProduct) throw new BadRequestException('Upsell product not found');
+            if (!upsellProduct) throw new BadRequestException(this.translations.t('domains.upsells.upsell_product_not_found'));
 
             const sku = await this.skuRepo.findOne({ where: { id: skuId, productId: upsellId } });
-            if (!sku) throw new BadRequestException('SKU not found or does not belong to the upsell product');
+            if (!sku) throw new BadRequestException(this.translations.t('domains.upsells.sku_not_found_or_not_belong'));
 
             upsell.triggerProduct = triggerProduct;
             upsell.triggerProductId = triggerProduct.id;
@@ -147,7 +149,7 @@ export class UpsellsService {
                 }
             });
             if (existing) {
-                throw new BadRequestException(`An upsell already exists for the same trigger product, upsell product, SKU, and price (${price})`);
+                throw new BadRequestException(this.translations.t('domains.upsells.upsell_already_exists'));
             }
         }
 
@@ -236,7 +238,7 @@ export class UpsellsService {
             where: { id, adminId },
             relations: ['triggerProduct', 'upsellProduct', 'upsellSku']
         });
-        if (!upsell) throw new NotFoundException('Upsell not found');
+        if (!upsell) throw new NotFoundException(this.translations.t('domains.upsells.upsell_not_found'));
         return upsell;
     }
 
@@ -350,7 +352,7 @@ export class UpsellsService {
     async sendUpsell(upsell: Upsell, order: OrderEntity, run?: AutomationRunEntity) {
         const adminId = order.adminId;
 
-    
+
         const config = upsell.messageConfig;
         if (!config) return null;
 
@@ -428,22 +430,36 @@ export class UpsellsService {
 
     async applyUpsellByMessageId(me: any, messageId: string) {
         const adminId = tenantId(me);
+
         const history = await this.upsellHistoryRepo.findOne({
             where: { messageId, adminId },
-            order: { createdAt: 'DESC' },
+            order: { createdAt: "DESC" },
         });
-        
+
         if (!history) {
-            return { success: false, code: 'HISTORY_NOT_FOUND', message: 'No upsell history found for this message' };
+            return {
+                success: false,
+                code: "HISTORY_NOT_FOUND",
+                message: this.translations.t("domains.upsells.history_not_found_for_message"),
+            };
         }
 
-        const result = await this.applyUpsellToOrder(me, history.orderId, history.upsellId);
+        const result = await this.applyUpsellToOrder(
+            me,
+            history.orderId,
+            history.upsellId
+        );
 
-        if(result.success || result.code === 'INVALID_ORDER_STATUS' || result.code === 'ORDER_DELIVERED' || result.code === 'UPSELL_EXPIRED') {
+        if (
+            result.success ||
+            result.code === "INVALID_ORDER_STATUS" ||
+            result.code === "ORDER_DELIVERED" ||
+            result.code === "UPSELL_EXPIRED"
+        ) {
             await this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.UPSELL_UPDATED,
-                title: "Upsell Updated",
+                title: this.translations.t("domains.upsells.updated_title"),
                 message: result.message,
                 relatedEntityType: "order",
                 relatedEntityId: String(history.orderId),
@@ -453,39 +469,65 @@ export class UpsellsService {
         return result;
     }
 
+
     async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
         const adminId = tenantId(me);
 
-        // 1. Fetch Order (with status)
         let order: OrderEntity;
+
         try {
             order = await this.ordersService.get(me, orderId);
         } catch (err) {
-            return { success: false, code: 'ORDER_NOT_FOUND', message: "can't apply upsell to order, order not found" };
+            return {
+                success: false,
+                code: "ORDER_NOT_FOUND",
+                message: this.translations.t("domains.upsells.order_not_found"),
+            };
         }
 
         if (!order) {
-            return { success: false, code: 'ORDER_NOT_FOUND', message: "can't apply upsell to order, order not found" };
+            return {
+                success: false,
+                code: "ORDER_NOT_FOUND",
+                message: this.translations.t("domains.upsells.order_not_found"),
+            };
         }
 
-        // 2. Fetch Upsell
+
         const upsell = await this.upsellRepo.findOne({
             where: { id: upsellId, adminId },
-            relations: ['upsellSku']
+            relations: ["upsellSku"],
         });
+
         if (!upsell) {
-            return { success: false, code: 'UPSELL_NOT_FOUND', message: `can't apply upsell to order ${order?.orderNumber}, upsell not found` };
+            return {
+                success: false,
+                code: "UPSELL_NOT_FOUND",
+                message: this.translations.t(
+                    "domains.upsells.can_apply_upsell_to_order",
+                    {
+                        args: {
+                            orderNumber: order.orderNumber,
+                        },
+                    }
+                ),
+            };
         }
 
-        // 3. Check Order Status
+
         const orderStatusCode = order.status?.code;
 
-        // Handle Ineligibility (Warehouse or Delivered)
-        if (orderStatusCode === OrderStatus.DELIVERED || (orderStatusCode && this.ordersService.isWarehouseStatus(orderStatusCode))) {
+
+        if (
+            orderStatusCode === OrderStatus.DELIVERED ||
+            (orderStatusCode &&
+                this.ordersService.isWarehouseStatus(orderStatusCode))
+        ) {
             const history = await this.upsellHistoryRepo.findOne({
                 where: { orderId, upsellId, adminId },
-                order: { createdAt: 'DESC' }
+                order: { createdAt: "DESC" },
             });
+
             if (history && history.status === UpsellStatus.PENDING) {
                 history.status = UpsellStatus.ACCEPTED_NON_ELIGIBLE;
                 history.respondedAt = new Date();
@@ -493,123 +535,215 @@ export class UpsellsService {
             }
 
             if (orderStatusCode === OrderStatus.DELIVERED) {
-                return { success: false, code: 'ORDER_DELIVERED', message: `Order ${order?.orderNumber} has been delivered and cannot be edited` };
+                return {
+                    success: false,
+                    code: "ORDER_DELIVERED",
+                    message: this.translations.t(
+                        "domains.upsells.order_delivered",
+                        {
+                            args: {
+                                orderNumber: order.orderNumber,
+                            },
+                        }
+                    ),
+                };
             }
+
             return {
                 success: false,
-                code: 'INVALID_ORDER_STATUS',
-                message: `Order ${order?.orderNumber} has already entered the warehouse (Status: '${orderStatusCode}'), cannot add upsells`,
-                status: orderStatusCode
+                code: "INVALID_ORDER_STATUS",
+                message: this.translations.t(
+                    "domains.upsells.invalid_order_status",
+                    {
+                        args: {
+                            orderNumber: order.orderNumber,
+                            status: orderStatusCode,
+                        },
+                    }
+                ),
+                status: orderStatusCode,
             };
         }
 
-        // 4. Check Upsell History & Expiration
+
         const history = await this.upsellHistoryRepo.findOne({
             where: { orderId, upsellId, adminId },
-            order: { createdAt: 'DESC' }
+            order: { createdAt: "DESC" },
         });
 
+
         if (!history) {
-            return { success: false, code: 'HISTORY_NOT_FOUND', message: `No upsell history found for order ${order?.orderNumber}` };
+            return {
+                success: false,
+                code: "HISTORY_NOT_FOUND",
+                message: this.translations.t(
+                    "domains.upsells.history_not_found"
+                ),
+            };
         }
+
 
         if (history.status === UpsellStatus.ACCEPTED) {
-            return { success: false, code: 'ALREADY_ACCEPTED', message: `Upsell for ${upsell?.upsellSku.sku} has already been accepted and applied to order ${order?.orderNumber}` };
+            return {
+                success: false,
+                code: "ALREADY_ACCEPTED",
+                message: this.translations.t(
+                    "domains.upsells.already_accepted",
+                    {
+                        args: {
+                            sku: upsell.upsellSku.sku,
+                            orderNumber: order.orderNumber,
+                        },
+                    }
+                ),
+            };
         }
 
-        if (history.status === UpsellStatus.EXPIRED || (history.expiresAt && history.expiresAt < new Date())) {
+
+        if (
+            history.status === UpsellStatus.EXPIRED ||
+            (history.expiresAt && history.expiresAt < new Date())
+        ) {
             if (history.status !== UpsellStatus.EXPIRED) {
                 history.status = UpsellStatus.EXPIRED;
-                 history.respondedAt = new Date();
+                history.respondedAt = new Date();
                 await this.upsellHistoryRepo.save(history);
             }
-            return { success: false, code: 'UPSELL_EXPIRED', message: `Upsell link for order ${order?.orderNumber} has expired` };
+
+            return {
+                success: false,
+                code: "UPSELL_EXPIRED",
+                message: this.translations.t(
+                    "domains.upsells.expired",
+                    {
+                        args: {
+                            orderNumber: order.orderNumber,
+                        },
+                    }
+                ),
+            };
         }
 
-        // 5. Apply to Order
-        try {
-            // We use the ordersService.update to add the item
-            // update() handles existing items, stock reservation, etc.
-            await this.ordersService.update(me, orderId, {
-                items: [
-                    {
-                        variantId: upsell.upsellSkuId,
-                        quantity: 1,
-                        unitPrice: Number(upsell.upsellPrice),
-                        isAdditional: true,
-                        addQuantity: true
-                    }
-                ]
-            } as any, null, {
-                skipStockValidation: true
-            });
 
-            // 6. Update History
+        try {
+            await this.ordersService.update(
+                me,
+                orderId,
+                {
+                    items: [
+                        {
+                            variantId: upsell.upsellSkuId,
+                            quantity: 1,
+                            unitPrice: Number(upsell.upsellPrice),
+                            isAdditional: true,
+                            addQuantity: true,
+                        },
+                    ],
+                } as any,
+                null,
+                {
+                    skipStockValidation: true,
+                }
+            );
+
+
             history.status = UpsellStatus.ACCEPTED;
             history.respondedAt = new Date();
+
             await this.upsellHistoryRepo.save(history);
 
-            return { success: true, code: 'SUCCESS', message: `Upsell for ${upsell?.upsellSku.sku} has been applied successfully at order ${order?.orderNumber}` };
-        } catch (err) {
-            console.error('Failed to apply upsell:', err);
 
-            // Update History to FAILED_TO_ADD
-            if (history && history.status === UpsellStatus.PENDING) {
+            return {
+                success: true,
+                code: "SUCCESS",
+                message: this.translations.t(
+                    "domains.upsells.applied_successfully",
+                    {
+                        args: {
+                            sku: upsell.upsellSku.sku,
+                            orderNumber: order.orderNumber,
+                        },
+                    }
+                ),
+            };
+
+        } catch (err) {
+
+            if (history.status === UpsellStatus.PENDING) {
                 history.status = UpsellStatus.FAILED_TO_ADD;
                 history.respondedAt = new Date();
                 await this.upsellHistoryRepo.save(history);
             }
 
-            // Send notification to admin
+
             await this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.UPSELL_APPLICATION_FAILED,
-                title: 'Upsell Application Failed',
-                message: `Failed to apply upsell for order ${order.orderNumber}: ${err.message}`,
-                relatedEntityType: 'order',
+                title: this.translations.t(
+                    "domains.upsells.application_failed_title"
+                ),
+                message: this.translations.t(
+                    "domains.upsells.application_failed_message",
+                    {
+                        args: {
+                            orderNumber: order.orderNumber,
+                            error: err.message,
+                        },
+                    }
+                ),
+                relatedEntityType: "order",
                 relatedEntityId: order.id,
             });
 
-            return { success: false, code: 'APPLY_FAILED', message: err.message };
+
+            return {
+                success: false,
+                code: "APPLY_FAILED",
+                message: err.message,
+            };
         }
     }
 
     async export(me: any, q: any) {
         const { records } = await this.list(me, { ...q, limit: 1000, page: 1 });
+
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet('Upsells');
+        const worksheet = workbook.addWorksheet(this.translations.t("domains.upsells.title"));
 
         worksheet.columns = [
-            { header: 'Trigger Product', key: 'triggerProduct', width: 25 },
-            { header: 'Upsell Product', key: 'upsellProduct', width: 25 },
-            { header: 'Upsell SKU', key: 'upsellSku', width: 20 },
-            { header: 'Time (minute)', key: 'expireTimeM', width: 20 },
-            { header: 'Price', key: 'price', width: 15 },
-            { header: 'Status', key: 'status', width: 15 },
-            { header: 'Created At', key: 'createdAt', width: 25 },
+            { header: this.translations.t("common.trigger_product"), key: "triggerProduct", width: 25 },
+            { header: this.translations.t("common.upsell_product"), key: "upsellProduct", width: 25 },
+            { header: this.translations.t("common.upsell_sku"), key: "upsellSku", width: 20 },
+            { header: this.translations.t("common.expire_time_minutes"), key: "expireTimeM", width: 20 },
+            { header: this.translations.t("common.price"), key: "price", width: 15 },
+            { header: this.translations.t("common.status"), key: "status", width: 15 },
+            { header: this.translations.t("common.created_at"), key: "createdAt", width: 25 },
         ];
 
         worksheet.getRow(1).font = { bold: true };
         worksheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' },
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFE0E0E0" },
         };
 
         records.forEach(u => {
             worksheet.addRow({
-                triggerProduct: u.triggerProduct?.name || 'N/A',
-                upsellProduct: u.upsellProduct?.name || 'N/A',
-                upsellSku: u.upsellSku?.sku || 'N/A',
-                expireTimeM: u.expireTimeM || "-",
-                price: u.upsellPrice,
-                status: u.isActive ? 'Active' : 'Inactive',
+                triggerProduct: u.triggerProduct?.name || this.translations.t("common.not_available_symbol"),
+                upsellProduct: u.upsellProduct?.name || this.translations.t("common.not_available_symbol"),
+                upsellSku: u.upsellSku?.sku || this.translations.t("common.not_available_symbol"),
+                expireTimeM: u.expireTimeM || this.translations.t("common.not_available_symbol"),
+                price: Number(u.upsellPrice || 0),
+                status: u.isActive
+                    ? this.translations.t("common.active")
+                    : this.translations.t("common.inactive"),
                 createdAt: u.createdAt,
             });
         });
 
         return await workbook.xlsx.writeBuffer();
     }
+
 
     async listHistory(me: any, q?: any) {
         const adminId = me.tenantId || me.id; // Replace with your tenantId(me) helper
@@ -655,9 +789,9 @@ export class UpsellsService {
         if (search) {
             qb.andWhere(new Brackets(sq => {
                 sq.where('tp.name ILIKE :s', { s: `%${search}%` })
-                  .orWhere('up.name ILIKE :s', { s: `%${search}%` })
-                  .orWhere('us.sku ILIKE :s', { s: `%${search}%` })
-                  .orWhere('uh.messageId ILIKE :s', { s: `%${search}%` });
+                    .orWhere('up.name ILIKE :s', { s: `%${search}%` })
+                    .orWhere('us.sku ILIKE :s', { s: `%${search}%` })
+                    .orWhere('uh.messageId ILIKE :s', { s: `%${search}%` });
             }));
         }
 
@@ -671,42 +805,66 @@ export class UpsellsService {
         return { total_records: total, current_page: page, per_page: limit, records };
     }
 
+
     async exportHistory(me: any, q: any) {
-        // Fetch all matching records without pagination restrictions
-        const { records } = await this.listHistory(me, { ...q, limit: 10000, page: 1 });
-        
+        const { records } = await this.listHistory(me, {
+            ...q,
+            limit: 10000,
+            page: 1,
+        });
+
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet('Upsell History');
+        const worksheet = workbook.addWorksheet(this.translations.t("domains.upsells.history"));
 
         worksheet.columns = [
-            { header: 'Trigger Product', key: 'triggerProduct', width: 25 },
-            { header: 'Upsell Product', key: 'upsellProduct', width: 25 },
-            { header: 'Offered SKU', key: 'upsellSku', width: 20 },
-            { header: 'Sent Price', key: 'sentPrice', width: 15 },
-            { header: 'Status', key: 'status', width: 15 },
-            { header: 'Sent At', key: 'createdAt', width: 22 },
-            { header: 'Responded At', key: 'respondedAt', width: 22 },
-            { header: 'Expires At', key: 'expiresAt', width: 22 },
+            { header: this.translations.t("common.trigger_product"), key: "triggerProduct", width: 25 },
+            { header: this.translations.t("common.upsell_product"), key: "upsellProduct", width: 25 },
+            { header: this.translations.t("common.upsell_sku"), key: "upsellSku", width: 20 },
+            { header: this.translations.t("common.sent_price"), key: "sentPrice", width: 15 },
+            { header: this.translations.t("common.status"), key: "status", width: 15 },
+            { header: this.translations.t("common.sent_at"), key: "createdAt", width: 22 },
+            { header: this.translations.t("common.responded_at"), key: "respondedAt", width: 22 },
+            { header: this.translations.t("common.expires_at"), key: "expiresAt", width: 22 },
         ];
 
-        // Style the Header Row
         worksheet.getRow(1).font = { bold: true };
         worksheet.getRow(1).fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: 'FFE0E0E0' },
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFE0E0E0" },
         };
 
         records.forEach(uh => {
             worksheet.addRow({
-                triggerProduct: uh.triggerProduct?.name || 'N/A',
-                upsellProduct: uh.upsellProduct?.name || 'N/A',
-                upsellSku: uh.upsellSku?.sku || 'N/A',
-                sentPrice: Number(uh.sentPrice) || 0,
-                status: uh.status || 'PENDING',
-                createdAt: uh.createdAt ? new Date(uh.createdAt).toLocaleString() : '-',
-                respondedAt: uh.respondedAt ? new Date(uh.respondedAt).toLocaleString() : '-',
-                expiresAt: uh.expiresAt ? new Date(uh.expiresAt).toLocaleString() : '-',
+                triggerProduct:
+                    uh.triggerProduct?.name ||
+                    this.translations.t("common.not_available_symbol"),
+
+                upsellProduct:
+                    uh.upsellProduct?.name ||
+                    this.translations.t("common.not_available_symbol"),
+
+                upsellSku:
+                    uh.upsellSku?.sku ||
+                    this.translations.t("common.not_available_symbol"),
+
+                sentPrice: Number(uh.sentPrice || 0),
+
+                status:
+                    uh.status ||
+                    this.translations.t("common.not_available_symbol"),
+
+                createdAt: uh.createdAt
+                    ? new Date(uh.createdAt).toLocaleString()
+                    : this.translations.t("common.not_available_symbol"),
+
+                respondedAt: uh.respondedAt
+                    ? new Date(uh.respondedAt).toLocaleString()
+                    : this.translations.t("common.not_available_symbol"),
+
+                expiresAt: uh.expiresAt
+                    ? new Date(uh.expiresAt).toLocaleString()
+                    : this.translations.t("common.not_available_symbol"),
             });
         });
 

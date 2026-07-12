@@ -23,6 +23,8 @@ import { tenantId } from 'src/category/category.service';
 import { OrderEntity } from 'entities/order.entity';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
+import { ClientSettingsService } from 'src/client-settings/client-settings.service';
+import { RequestTranslationService, TranslationService } from 'common/translation.service';
 
 
 @Injectable()
@@ -60,13 +62,16 @@ export class WhatsappService {
         @InjectRepository(AutomationRunEntity)
         private readonly runRepo: Repository<AutomationRunEntity>,
         private readonly notificationService: NotificationService,
+        private readonly clientSettingsService: ClientSettingsService,
+        private readonly translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
     ) {
 
     }
 
     async getMessagesByTypeStats(me: any, filters: any = {}) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
 
@@ -87,7 +92,7 @@ export class WhatsappService {
 
     async getTopClickedButtons(me: any, limit = 5, filters: any = {}) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
 
@@ -123,7 +128,7 @@ export class WhatsappService {
 
     async getTopAutomations(me: any, limit = 5, filters: any = {}) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
 
@@ -177,7 +182,7 @@ export class WhatsappService {
 
     async getTopTemplates(me: any, limit = 5, filters: any = {}) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
         const accountFilter = filters.accountId ? `AND "accountId" = '${filters.accountId}'` : '';
@@ -254,7 +259,7 @@ export class WhatsappService {
 
     public async getActivityHeatmap(me: any, filters: any = {}) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         // 1. Calculate a strict 7-day window (today + 6 previous days)
         const finalEndDate = new Date(); // Current date and time
@@ -300,7 +305,7 @@ export class WhatsappService {
         },
     ) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const points = filters.points || 12;
         const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
@@ -372,7 +377,7 @@ export class WhatsappService {
 
     async getDashboardStats(me: any, filters: any = {}) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
 
@@ -474,7 +479,7 @@ export class WhatsappService {
 
     async getDefaultAccountId(adminId: string, accountId?: string): Promise<string> {
         if (!accountId) {
-            const settings = await this.orderService.getCachedSettings(adminId);
+            const settings = await this.clientSettingsService.getCachedSettings(adminId);
             accountId = settings?.defaultWhatsAppAccountId;
             // this.logger.debug(`Default accountId for adminId ${adminId} is ${accountId}`);
             if (!accountId) {
@@ -496,10 +501,10 @@ export class WhatsappService {
 
     async uploadMedia(me: any, payload: WhatsappUploadMediaPayload, accountId?: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
         const url = imageSrc(payload.url);
         if (!payload.file && !url) {
-            throw new BadRequestException("Either file or url is required");
+            throw new BadRequestException(this.translations.t("domains.whatsapp.either_file_or_url_required"));
         }
 
         const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
@@ -547,7 +552,7 @@ export class WhatsappService {
                 payload.mimeType = contentType;
             } catch (error) {
                 this.logger.error(`Failed to download media from URL: ${payload.url}`, error.stack);
-                throw new BadRequestException(`Failed to download media from URL: ${getErrorMessage(error)}`);
+                throw new BadRequestException(this.translations.t("domains.whatsapp.failed_to_download_media_from_url", { args: { error: getErrorMessage(error) } }));
             }
         }
 
@@ -564,9 +569,9 @@ export class WhatsappService {
 
     async downloadMedia(me: any, mediaId: string, accountId?: string, headers?: Record<string, string>) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
         if (!mediaId) {
-            throw new BadRequestException('Media ID is required');
+            throw new BadRequestException(this.translations.t("domains.whatsapp.media_Id_is_required"));
         }
 
         const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
@@ -575,7 +580,7 @@ export class WhatsappService {
         const mediaInfo = await this.whatsappApi.getMediaUrl(resolvedAccountId, mediaId);
 
         if (!mediaInfo.url) {
-            throw new BadRequestException('Media URL not found');
+            throw new BadRequestException(this.translations.t("domains.whatsapp.media_url_is_required"));
         }
         // STEP 2: download stream directly (NOT Graph API)
         return this.whatsappApi.streamMedia(resolvedAccountId, mediaInfo.url, headers);
@@ -583,9 +588,9 @@ export class WhatsappService {
 
     async streamMedia(me: any, mediaUrl: string, accountId?: string, headers?: Record<string, string>) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
         if (!mediaUrl) {
-            throw new BadRequestException('Media URL is required');
+            throw new BadRequestException(this.translations.t("domains.whatsapp.media_url_is_required"));
         }
 
         const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
@@ -595,7 +600,7 @@ export class WhatsappService {
 
     async sendMessage(me: any, payload: WhatsappSendMessagePayload & { metadata?: Record<string, any>; }, accountId?: string, localId?: string, actionIntent?: MessageActionIntent, orderId?: string,) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
 
@@ -644,14 +649,14 @@ export class WhatsappService {
         metadata?: Record<string, any>
     ) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const template = await this.templateRepo.findOne({
             where: { id: input.templateId, adminId }
         });
 
         if (!template) {
-            throw new NotFoundException(`Template ${input.templateId} not found`);
+            throw new NotFoundException(this.translations.t("domains.whatsapp.template_not_found"));
         }
 
         const components: any[] = [];
@@ -681,7 +686,7 @@ export class WhatsappService {
 
                     const media = await this.uploadMedia(me, { url: mediaUrl }, template.accountId);
                     if (!media?.id) {
-                        throw new BadRequestException('Media upload failed');
+                        throw new BadRequestException(this.translations.t("domains.whatsapp.media_upload_failed"));
                     }
                     parameters.push({
                         type: hType.toLowerCase(),
@@ -954,8 +959,19 @@ export class WhatsappService {
                 await this.notificationService.create({
                     userId: adminId,
                     type: NotificationType.ORDER_LOCATION_UPDATED,
-                    title: "Order Location Updated",
-                    message: `Order #${parentMessage.order.orderNumber} location has been updated from whatsapp.`,
+                    title: await this.requestTranslations.tAsync(
+                        "domains.whatsapp.order_location_updated",
+                        adminId
+                    ),
+                    message: await this.requestTranslations.tAsync(
+                        "domains.whatsapp.order_location_updated_message",
+                        adminId,
+                        {
+                            args: {
+                                orderNumber: parentMessage.order.orderNumber,
+                            },
+                        },
+                    ),
                     relatedEntityType: "order",
                     relatedEntityId: String(parentMessage.orderId),
                 });
@@ -973,7 +989,7 @@ export class WhatsappService {
 
     async markAsRead(me: any, payload: { messageId?: string, conversationId?: string }) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         if (payload.messageId) {
             const message = await this.messageRepo.findOne({ where: { messageId: payload.messageId, adminId } });
@@ -1625,7 +1641,7 @@ export class WhatsappService {
 
     async findAllMessages(me: any, q?: any) {
         const adminId = tenantId(me); // Basic tenant resolving
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const limit = Number(q?.limit ?? 50);
         const search = String(q?.search ?? "").trim();
@@ -1731,7 +1747,7 @@ export class WhatsappService {
         });
 
         if (!message) {
-            throw new NotFoundException("WhatsApp message not found");
+            throw new NotFoundException(this.translations.t("domains.whatsapp.message_not_found"));
         }
 
         return message;
@@ -1740,7 +1756,7 @@ export class WhatsappService {
     async handleEmbeddedSignup(me: any, payload: EmbeddedSignupDto) {
         this.logger.log(`handleEmbeddedSignup: ${JSON.stringify(payload)}`);
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
         const { code, wabaId, phoneNumberId, businessId } = payload;
 
@@ -1757,7 +1773,7 @@ export class WhatsappService {
             const phoneData = phoneNumbers.data.find(p => p.id === phoneNumberId);
 
             if (!phoneData) {
-                throw new BadRequestException("Phone number ID not found in WABA");
+                throw new BadRequestException(this.translations.t("domains.whatsapp.phone_number_id_not_found"));
             }
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'FETCHING_PHONE_DATA', status: 'completed' });
 
@@ -1769,9 +1785,12 @@ export class WhatsappService {
                 ]
             });
             if (existing) {
-                throw new BadRequestException("WhatsApp account already integrated");
+                throw new BadRequestException(
+                    this.translations.t(
+                        "domains.whatsapp.whatsapp_account_already_integrated",
+                    ),
+                );
             }
-
             // 4. Subscribe App to WABA
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'in_progress' });
             await this.whatsappApi.subscribeAppToWaba(wabaId, accessToken);
@@ -1801,7 +1820,7 @@ export class WhatsappService {
             // Check if it's the first account and set as default
             const accountCount = await this.accountRepo.count({ where: { adminId } });
             if (accountCount === 1) {
-                await this.orderService.upsertSettings(
+                await this.clientSettingsService.upsertSettings(
                     { id: adminId, adminId }, // me object
                     { defaultWhatsAppAccountId: savedAccount.id }
                 );
@@ -1826,7 +1845,9 @@ export class WhatsappService {
                 this.appGateway.emitWhatsappSignupStatus(adminId, {
                     step: 'SYNCING_TEMPLATES',
                     status: 'warning',
-                    message: 'Account integrated but failed to sync templates. You can sync them manually later.',
+                    message: this.translations.t(
+                        "domains.whatsapp.templates_sync_failed_after_integration",
+                    ),
                     error: getErrorMessage(tplError)
                 });
             }
@@ -1856,8 +1877,9 @@ export class WhatsappService {
                 ]
             });
             if (existing) {
-                throw new BadRequestException("WhatsApp account already integrated");
+                throw new BadRequestException(this.translations.t("domains.whatsapp.whatsapp_account_already_integrated"));
             }
+
 
             // test connection to whatsapp api
             const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(wabaId, accessToken);
@@ -1891,7 +1913,7 @@ export class WhatsappService {
             // Check if it's the first account and set as default
             const accountCount = await this.accountRepo.count({ where: { adminId } });
             if (accountCount === 1) {
-                await this.orderService.upsertSettings(
+                await this.clientSettingsService.upsertSettings(
                     { id: adminId, adminId }, // me object
                     { defaultWhatsAppAccountId: savedAccount.id }
                 );
@@ -1928,29 +1950,38 @@ export class WhatsappService {
 
         try {
             const account = await this.accountRepo
-                .createQueryBuilder('account')
-                .addSelect(['account.accessToken', 'account.appSecret'])
-                .where('account.id = :accountId', { accountId })
-                .andWhere('account.adminId = :adminId', { adminId })
+                .createQueryBuilder("account")
+                .addSelect(["account.accessToken", "account.appSecret"])
+                .where("account.id = :accountId", { accountId })
+                .andWhere("account.adminId = :adminId", { adminId })
                 .getOne();
 
             if (!account) {
-                throw new NotFoundException('WhatsApp account not found');
+                throw new NotFoundException(
+                    this.translations.t(
+                        "domains.whatsapp.whatsapp_account_not_found",
+                    ),
+                );
             }
 
             if (!account.isCreatedManual) {
-                throw new BadRequestException('Only manual accounts can be updated');
+                throw new BadRequestException(
+                    this.translations.t(
+                        "domains.whatsapp.only_manual_accounts_can_be_updated",
+                    ),
+                );
             }
 
             const newWabaId = payload.wabaId ?? account.wabaId;
-            const newPhoneNumberId = payload.phoneNumberId ?? account.phoneNumberId;
+            const newPhoneNumberId =
+                payload.phoneNumberId ?? account.phoneNumberId;
 
             const existing = await this.accountRepo
-                .createQueryBuilder('account')
-                .where('account.adminId = :adminId', { adminId })
-                .andWhere('account.id != :accountId', { accountId })
+                .createQueryBuilder("account")
+                .where("account.adminId = :adminId", { adminId })
+                .andWhere("account.id != :accountId", { accountId })
                 .andWhere(
-                    '(account.wabaId = :wabaId OR account.phoneNumberId = :phoneNumberId)',
+                    "(account.wabaId = :wabaId OR account.phoneNumberId = :phoneNumberId)",
                     {
                         wabaId: newWabaId,
                         phoneNumberId: newPhoneNumberId,
@@ -1960,10 +1991,12 @@ export class WhatsappService {
 
             if (existing) {
                 throw new BadRequestException(
-                    'WhatsApp account already integrated',
+                    this.translations.t(
+                        "domains.whatsapp.whatsapp_account_already_integrated",
+                    ),
                 );
             }
-            // Only update fields that were provided
+
             if (payload.name !== undefined) {
                 account.name = payload.name;
             }
@@ -1996,14 +2029,22 @@ export class WhatsappService {
                 account.appSecret = payload.appSecret;
             }
 
-            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(account.wabaId, account.accessToken);
-            const phoneData = phoneNumbers.data.find(p => p.id === account.phoneNumberId);
+            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
+                account.wabaId,
+                account.accessToken,
+            );
+
+            const phoneData = phoneNumbers.data.find(
+                (p) => p.id === account.phoneNumberId,
+            );
+
             if (!phoneData) {
                 throw new BadRequestException(
-                    "Failed to connect to WhatsApp. Please verify your Access Token, WABA ID, and Phone Number ID."
+                    this.translations.t(
+                        "domains.whatsapp.failed_to_connect_whatsapp",
+                    ),
                 );
             }
-
 
             return await this.accountRepo.save(account);
         } catch (e) {
@@ -2017,7 +2058,12 @@ export class WhatsappService {
     }
     async syncTemplates(me: any, accountId: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+
+        if (!adminId) {
+            throw new BadRequestException(
+                this.translations.t("common.missing_admin_id"),
+            );
+        }
 
         const account = await this.accountRepo.findOne({
             where: { id: accountId, adminId },
@@ -2025,39 +2071,59 @@ export class WhatsappService {
                 accessToken: true,
                 id: true,
                 wabaId: true,
-                phoneNumberId: true
-            }
+                phoneNumberId: true,
+            },
         });
 
         if (!account) {
-            throw new NotFoundException("WhatsApp account not found");
+            throw new NotFoundException(
+                this.translations.t(
+                    "domains.whatsapp.whatsapp_account_not_found",
+                ),
+            );
         }
 
         try {
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'in_progress' });
+            this.appGateway.emitWhatsappSignupStatus(adminId, {
+                step: "SYNCING_TEMPLATES",
+                status: "in_progress",
+            });
 
             await this.templateService.syncTemplatesFromMeta(
                 adminId,
                 account.id,
                 account.wabaId,
-                account.accessToken
+                account.accessToken,
             );
 
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'completed' });
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'COMPLETED', status: 'completed' });
+            this.appGateway.emitWhatsappSignupStatus(adminId, {
+                step: "SYNCING_TEMPLATES",
+                status: "completed",
+            });
+
+            this.appGateway.emitWhatsappSignupStatus(adminId, {
+                step: "COMPLETED",
+                status: "completed",
+            });
 
             return { success: true };
         } catch (e) {
-            this.logger.error(`Failed to sync templates for account ${accountId}: ${e.message}`, e.stack);
-            this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: 'SYNCING_TEMPLATES',
-                status: 'failed',
+            this.logger.error(
+                `Failed to sync templates for account ${accountId}: ${e.message}`,
+                e.stack,
+            );
+
+            this.appGateway.emitWhatsappSignupStatus(adminId, { 
+                step: "SYNCING_TEMPLATES", 
+                status: "failed", 
             });
+
             this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: 'FAILED',
-                status: 'failed',
-                error: getErrorMessage(e)
+                step: "FAILED",
+                status: "failed",
+                error: getErrorMessage(e),
             });
+
             throw new BadRequestException(getErrorMessage(e));
         }
     }

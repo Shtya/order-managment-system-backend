@@ -12,6 +12,8 @@ import { Notification, NotificationType } from 'entities/notifications.entity';
 import { SystemRole, User } from 'entities/user.entity';
 import { tenantId } from 'src/category/category.service';
 import { CurrencyConverterService } from 'common/crrency-converter-service';
+import { I18nKey, RequestTranslationService, TranslationService } from 'common/translation.service';
+import { I18nTranslations } from 'messages.generated';
 
 @Injectable()
 export class PaymentsService {
@@ -27,6 +29,8 @@ export class PaymentsService {
         private readonly dataSource: DataSource, // For transaction manager
         private readonly kashierProvider: KashierProvider,
         private readonly transactionsService: TransactionsService,
+        private readonly translations: TranslationService,
+        private requestTranslations: RequestTranslationService,
     ) { }
 
 
@@ -41,7 +45,7 @@ export class PaymentsService {
     // Helper to get the correct provider instance
     private getProvider(name: PaymentProviderEnum): PaymentProvider {
         if (name === PaymentProviderEnum.KASHIER) return this.kashierProvider;
-        throw new Error(`Provider ${name} not supported`);
+        throw new Error(this.translations.t('domains.payments.provider_not_supported', { args: { name } }));
     }
 
     async processWebhook(providerName: PaymentProviderEnum, headers: any, body: any) {
@@ -49,7 +53,7 @@ export class PaymentsService {
 
         // 1. Generic Signature Validation
         if (!provider.verifyWebhookSignature(headers, body)) {
-            throw new Error(`Invalid signature for ${providerName}`);
+            throw new Error(this.translations.t('domains.payments.invalid_signature_for_provider', { args: { providerName } }));
         }
 
         const webhookData = provider.parseWebhookPayload(body);
@@ -119,34 +123,44 @@ export class PaymentsService {
         transaction: TransactionEntity,
         manager: EntityManager
     ) {
-        let itemName = 'Payment';
+        let itemNameKey = 'domains.payments.payment';
         let relatedEntityType = 'transactions';
         let relatedEntityId = String(transaction.id);
 
         switch (session.purpose) {
             case PaymentPurposeEnum.SUBSCRIPTION_PAYMENT:
-                itemName = 'Subscription';
+                itemNameKey = 'domains.payments.subscription';
                 relatedEntityType = 'subscription';
                 relatedEntityId = String(session.subscriptionId);
                 break;
             case PaymentPurposeEnum.FEATURE_PURCHASE:
-                itemName = 'Add-on Feature';
+                itemNameKey = 'domains.payments.add_on_feature';
                 relatedEntityType = 'userFeatures';
                 relatedEntityId = String(session.userFeatureId);
                 break;
             case PaymentPurposeEnum.WALLET_TOP_UP:
-                itemName = 'Wallet Top-up';
+                itemNameKey = 'domains.payments.wallet_top_up';
                 relatedEntityType = 'wallet';
                 relatedEntityId = String(session.userId);
                 break;
         }
 
-        // 3. Send Notification in English
+        const itemName = await this.requestTranslations.tAsync(itemNameKey as I18nKey, session.userId);
+        const title = await this.requestTranslations.tAsync('domains.payments.payment_failed_title', session.userId);
+        const message = await this.requestTranslations.tAsync('domains.payments.payment_failed_message', session.userId, { 
+            args: { 
+                amount: session.amount, 
+                currency: session.currency, 
+                itemName 
+            } 
+        });
+
+        // 3. Send Notification
         await manager.save(Notification, {
             userId: session.userId,
             type: NotificationType.PAYMENT_FAILED,
-            title: 'Payment Failed',
-            message: `Sorry, the payment of ${session.amount} ${session.currency} for ${itemName} was not successful. Please try again.`,
+            title,
+            message,
             relatedEntityType: relatedEntityType,
             relatedEntityId: relatedEntityId,
         });
@@ -171,12 +185,23 @@ export class PaymentsService {
             transaction.notes = reason;
             await manager.save(transaction);
 
+            const title = await this.requestTranslations.tAsync('domains.payments.payment_credited_to_wallet_title', session.userId);
+            const message = await this.requestTranslations.tAsync('domains.payments.payment_credited_to_wallet_message', 
+                session.userId,
+                { 
+                args: { 
+                    paidAmount, 
+                    dollorAmount, 
+                    reason 
+                } 
+            });
+
             notificationPromises.push(
                 manager.save(Notification, {
                     userId: session.userId,
                     type: NotificationType.WALLET_CREDIT,
-                    title: 'Payment Credited to Wallet',
-                    message: `Your payment of ${paidAmount} EGP (${dollorAmount} USD) was added to your wallet balance. Reason: ${reason}`,
+                    title,
+                    message,
                     relatedEntityType: 'wallet',
                     relatedEntityId: String(session.userId),
                 })
@@ -186,7 +211,8 @@ export class PaymentsService {
         switch (session.purpose) {
             case PaymentPurposeEnum.SUBSCRIPTION_PAYMENT:
                 if (paidAmount < requiredAmount) {
-                    await redirectToWallet('Insufficient amount for subscription.');
+                    const reason = await this.requestTranslations.tAsync('domains.payments.insufficient_amount_for_subscription', session.userId);
+                    await redirectToWallet(reason);
                     break;
                 }
 
@@ -207,25 +233,37 @@ export class PaymentsService {
                         sub.endDate = SubscriptionUtils.calculateEndDate(now, sub.plan.duration, sub.plan.durationIndays);
                         await manager.save(sub);
                         const expiryText = sub.endDate ? ` until ${sub.endDate.toLocaleDateString()}` : '';
+                        const title = await this.requestTranslations.tAsync('domains.payments.subscription_active_title', session.userId, { 
+                            args: { planName: sub.plan.name }
+                        });
+                        const message = await this.requestTranslations.tAsync('domains.payments.subscription_active_message', session.userId, { 
+                            args: { 
+                                planName: sub.plan.name, 
+                                planType: sub.planType,
+                                expiryText 
+                            } 
+                        });
                         notificationPromises.push(
                             manager.save(Notification, {
                                 userId: session.userId,
                                 type: NotificationType.SUBSCRIPTION_ACTIVATED,
-                                title: `Subscription Active: ${sub.plan.name}`,
-                                message: `Your ${sub.plan.name} (${sub.planType}) plan is now active${expiryText}.`,
+                                title,
+                                message,
                                 relatedEntityType: 'subscription',
                                 relatedEntityId: String(sub.id),
                             })
                         );
-                    } else {
-                        await redirectToWallet('You already has active subscription.');
+                        } else {
+                        const reason = await this.requestTranslations.tAsync('domains.payments.you_already_has_active_subscription', session.userId);
+                        await redirectToWallet(reason);
                     }
                 }
                 break;
 
             case PaymentPurposeEnum.FEATURE_PURCHASE:
                 if (paidAmount < requiredAmount) {
-                    await redirectToWallet('Insufficient amount for feature purchase.');
+                    const reason = await this.requestTranslations.tAsync('domains.payments.insufficient_amount_for_feature_purchase', session.userId);
+                    await redirectToWallet(reason);
                     break;
                 }
 
@@ -239,30 +277,41 @@ export class PaymentsService {
                     userFeat.startDate = new Date();
                     // Features follow a standard 30-day month logic
                     await manager.save(userFeat);
+                    const title = await this.requestTranslations.tAsync('domains.payments.add_on_ready_title', session.userId, { 
+                        args: { featureName: userFeat.feature.name }
+                    });
+                    const message = await this.requestTranslations.tAsync('domains.payments.add_on_ready_message', session.userId, { 
+                        args: { featureName: userFeat.feature.name }
+                    });
                     notificationPromises.push(
                         manager.save(Notification, {
                             userId: session.userId,
                             type: NotificationType.FEATURE_ACTIVATED,
-                            title: `Add-on Ready: ${userFeat.feature.name}`,
-                            message: `The ${userFeat.feature.name} feature has been successfully activated.`,
+                            title,
+                            message,
                             relatedEntityType: 'UserFeature',
                             relatedEntityId: String(userFeat.id),
                         })
                     );
                 } else {
-                    await redirectToWallet('This feature is already active or the purchase session has expired.');
+                    const reason = await this.requestTranslations.tAsync('domains.payments.this_feature_is_already_active_or_the_purchase_session_has_expired', session.userId);
+                    await redirectToWallet(reason);
                 }
                 break;
 
             case PaymentPurposeEnum.WALLET_TOP_UP:
                 await this.applyWalletTopUp(manager, session.userId, dollorAmount);
 
+                const title = await this.requestTranslations.tAsync('domains.payments.wallet_balance_updated_title', session.userId);
+                const message = await this.requestTranslations.tAsync('domains.payments.wallet_balance_updated_message', session.userId, { 
+                    args: { paidAmount, dollorAmount }
+                });
                 notificationPromises.push(
                     manager.save(Notification, {
                         userId: session.userId,
                         type: NotificationType.WALLET_TOP_UP,
-                        title: 'Wallet Balance Updated',
-                        message: `Successfully added ${paidAmount} EGP (${dollorAmount} USD) to your wallet. Your new balance is ready to use.`,
+                        title,
+                        message,
                         relatedEntityType: 'wallet',
                         relatedEntityId: String(session.userId),
                     })
@@ -329,11 +378,11 @@ export class PaymentsService {
             .getOne();
 
         if (!session) {
-            throw new NotFoundException(`Payment session with ID ${id} not found`);
+            throw new NotFoundException(this.translations.t('domains.payments.payment_session_not_found', { args: { id } }));
         }
         const isOwner = session.userId === me.id;
         if (!this.isSuperAdmin(me) && !isOwner) {
-            throw new ForbiddenException('You do not have permission');
+            throw new ForbiddenException(this.translations.t('common.permission_denied'));
         }
 
         return session; 

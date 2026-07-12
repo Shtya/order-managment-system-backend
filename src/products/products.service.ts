@@ -37,6 +37,7 @@ import { ProductSyncStateEntity, ProductSyncStatus } from "entities/product_sync
 import { RemoteImageHelper } from "common/emote-image.helper";
 import { StoresService } from "src/stores/stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 
 @Injectable()
@@ -81,6 +82,8 @@ export class ProductsService {
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
     @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    private readonly translations: TranslationService,
+    private requestTranslations: RequestTranslationService,
   ) { }
 
 
@@ -140,7 +143,7 @@ export class ProductsService {
   ) {
     if (id == null) return null;
     const e = await repo.findOne({ where: { id } as any });
-    if (!e) throw new BadRequestException(`${label} not found`);
+    if (!e) throw new BadRequestException(this.translations.t("domains.products.entity_not_found", { args: { label } }));
     return e;
   }
 
@@ -585,26 +588,27 @@ export class ProductsService {
     // 📦 Excel Generation
     // =============================
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Products");
+    const worksheet = workbook.addWorksheet(this.translations.t("domains.products.products_sheet"));
+    const naText = this.translations.t("domains.product_sync.n_a");
 
     worksheet.columns = [
-      { header: "ID", key: "id", width: 10 },
-      { header: "Slug", key: "slug", width: 25 },
-      { header: "Name", key: "name", width: 30 },
-      { header: "Type", key: "type", width: 14 },
-      { header: "SKU", key: "sku", width: 20 },
-      { header: "SKUs Count", key: "skuCount", width: 12 },
-      { header: "Category", key: "category", width: 20 },
-      { header: "Store", key: "store", width: 20 },
-      { header: "Warehouse", key: "warehouse", width: 20 },
-      { header: "Storage Rack", key: "storageRack", width: 18 },
-      { header: "Wholesale Price", key: "wholesalePrice", width: 16 },
-      { header: "Sale Price", key: "salePrice", width: 16 },
-      { header: "Lowest Price", key: "lowestPrice", width: 16 },
-      { header: "Total Stock", key: "totalStock", width: 14 },
-      { header: "Total Reserved", key: "totalReserved", width: 14 },
-      { header: "Total Available", key: "totalAvailable", width: 14 },
-      { header: "Created At", key: "created_at", width: 18 },
+      { header: this.translations.t("domains.product_sync.id"), key: "id", width: 10 },
+      { header: this.translations.t("domains.products.slug_header"), key: "slug", width: 25 },
+      { header: this.translations.t("domains.products.name_header"), key: "name", width: 30 },
+      { header: this.translations.t("domains.products.type_header"), key: "type", width: 14 },
+      { header: this.translations.t("domains.products.sku_header"), key: "sku", width: 20 },
+      { header: this.translations.t("domains.products.skus_count_header"), key: "skuCount", width: 12 },
+      { header: this.translations.t("domains.products.category_header"), key: "category", width: 20 },
+      { header: this.translations.t("domains.product_sync.store"), key: "store", width: 20 },
+      { header: this.translations.t("domains.products.warehouse_header"), key: "warehouse", width: 20 },
+      { header: this.translations.t("domains.products.storage_rack_header"), key: "storageRack", width: 18 },
+      { header: this.translations.t("domains.products.wholesale_price_header"), key: "wholesalePrice", width: 16 },
+      { header: this.translations.t("domains.products.sale_price_header"), key: "salePrice", width: 16 },
+      { header: this.translations.t("domains.products.lowest_price_header"), key: "lowestPrice", width: 16 },
+      { header: this.translations.t("domains.products.total_stock_header"), key: "totalStock", width: 14 },
+      { header: this.translations.t("domains.products.total_reserved_header"), key: "totalReserved", width: 14 },
+      { header: this.translations.t("domains.products.total_available_header"), key: "totalAvailable", width: 14 },
+      { header: this.translations.t("domains.product_sync.created_at"), key: "created_at", width: 18 },
     ];
 
     // 🎨 Header Styling (same style you use)
@@ -872,7 +876,7 @@ export class ProductsService {
     const row = await this.pvRepo.findOne({
       where: { adminId, sku } as any,
     });
-    if (!row) throw new BadRequestException("SKU not found");
+    if (!row) throw new BadRequestException(this.translations.t("domains.products.sku_not_found"));
 
     const product = await this.get(me, row.productId);
 
@@ -906,7 +910,7 @@ export class ProductsService {
     const product = await this.get(me, productId, manager);
 
     const items = Array.isArray(body?.items) ? body.items : [];
-    if (!items.length) throw new BadRequestException("items is required");
+    if (!items.length) throw new BadRequestException(this.translations.t("domains.products.items_required"));
 
     const pvRepo = manager
       ? manager.getRepository(ProductVariantEntity)
@@ -927,7 +931,7 @@ export class ProductsService {
     for (const it of items as any[]) {
       const attrs = it.attributes ?? {};
       if (!Object.keys(attrs).length) {
-        throw new BadRequestException("Each item must have attributes");
+        throw new BadRequestException(this.translations.t("domains.products.each_item_must_have_attributes"));
       }
 
       const key = this.canonicalKey(attrs);
@@ -989,14 +993,14 @@ export class ProductsService {
     // ==========================
     for (const r of toSave) {
       if (r.stockOnHand < 0)
-        throw new BadRequestException("stockOnHand cannot be negative");
+        throw new BadRequestException(this.translations.t("domains.products.stock_on_hand_cannot_be_negative"));
 
       if (r.reserved < 0)
-        throw new BadRequestException("reserved cannot be negative");
+        throw new BadRequestException(this.translations.t("domains.products.reserved_cannot_be_negative"));
 
       if (r.reserved > r.stockOnHand)
         throw new BadRequestException(
-          "reserved cannot exceed stockOnHand"
+          this.translations.t("domains.products.reserved_cannot_exceed_stock_on_hand")
         );
     }
 
@@ -1013,15 +1017,15 @@ export class ProductsService {
     await this.get(me, productId);
 
     const delta = Number(body?.delta);
-    if (!Number.isFinite(delta)) throw new BadRequestException("delta must be a number");
+    if (!Number.isFinite(delta)) throw new BadRequestException(this.translations.t("domains.products.delta_must_be_a_number"));
 
     const row = await this.pvRepo.findOne({
       where: { id: variantId, adminId, productId } as any,
     });
-    if (!row) throw new BadRequestException("variant sku row not found");
+    if (!row) throw new BadRequestException(this.translations.t("domains.products.variant_sku_row_not_found"));
 
     const next = row.stockOnHand + delta;
-    if (next < 0) throw new BadRequestException("stock cannot go below zero");
+    if (next < 0) throw new BadRequestException(this.translations.t("domains.products.stock_cannot_go_below_zero"));
 
     row.stockOnHand = next;
     await this.pvRepo.save(row);
@@ -1036,7 +1040,7 @@ export class ProductsService {
 
   async create(me: any, dto: CreateProductDto, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const work = async (mgr: EntityManager) => {
       const prodRepo = mgr.getRepository(ProductEntity);
@@ -1104,7 +1108,7 @@ export class ProductsService {
 
       if (existingSlug) {
         throw new BadRequestException(
-          `This slug "${dto.slug}" is already in use by another product.`
+          this.translations.t("domains.products.slug_already_in_use", { args: { slug: dto.slug } })
         );
 
       }
@@ -1131,7 +1135,7 @@ export class ProductsService {
           if (slugResult.status === 'fulfilled') {
             const remoteSlug = slugResult.value;
             if (remoteSlug?.id) {
-              throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+              throw new BadRequestException(this.translations.t("domains.products.slug_already_in_use_by_store", { args: { slug: dto.slug, storeName: store?.name } }));
             }
           } else if (slugResult.status === 'rejected') {
             throw slugResult.reason;
@@ -1144,7 +1148,7 @@ export class ProductsService {
               const remoteSku = skuResult.value;
               if (remoteSku?.id) {
                 throw new BadRequestException(
-                  `This SKU "${dto.sku}" is already in use by "${store.name}" store.`
+                  this.translations.t("domains.products.sku_already_in_use_by_store", { args: { sku: dto.sku, storeName: store?.name } })
                 );
               }
             } else if (skuResult.status === 'rejected') {
@@ -1158,7 +1162,7 @@ export class ProductsService {
           }
           const errorMsg = getErrorMessage(e);
           throw new BadRequestException(
-            `Failed to verify product sku or slug uniqueness in "${store.name}" store. ${errorMsg}`
+            this.translations.t("domains.products.failed_to_verify_uniqueness", { args: { storeName: store?.name, errorMsg } })
           );
         }
 
@@ -1176,7 +1180,7 @@ export class ProductsService {
 
       if (existingSKU) {
         throw new BadRequestException(
-          `This SKU "${dto.sku}" is already in use by another product.`
+          this.translations.t("domains.products.sku_already_in_use", { args: { sku: dto.sku } })
         );
       }
 
@@ -1222,13 +1226,13 @@ export class ProductsService {
           });
 
           if (!mainRow) {
-            throw new BadRequestException("mainImageOrphanId not found");
+            throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_not_found"));
           }
 
           p.mainImage = mainRow.url;
         } else {
           throw new BadRequestException(
-            "Either mainImage or mainImageOrphanId is required"
+            this.translations.t("domains.products.main_image_or_orphan_required")
           );
         }
       }
@@ -1248,7 +1252,7 @@ export class ProductsService {
 
       const finalImages = [...imagesMeta, ...orphanImages];
       if (finalImages.length > 20) {
-        throw new BadRequestException("Total images cannot exceed 20");
+        throw new BadRequestException(this.translations.t("domains.products.total_images_cannot_exceed_20"));
       }
       p.images = finalImages;
 
@@ -1292,7 +1296,7 @@ export class ProductsService {
         if (existingVariants.length > 0) {
           const duplicateSkus = existingVariants.map(v => v.sku);
           throw new BadRequestException(
-            `The following SKUs already exist in your account: ${duplicateSkus.join(', ')}. Please choose another one.`
+            this.translations.t("domains.products.duplicate_skus_exist", { args: { duplicateSkus: duplicateSkus.join(', ') } })
           );
         }
       }
@@ -1332,7 +1336,7 @@ export class ProductsService {
           if (existingVariants.length > 0) {
             const duplicateSkus = existingVariants.map(v => v.sku);
             throw new BadRequestException(
-              `The following SKUs already exist in your account: ${duplicateSkus.join(', ')}. Please choose another one.`
+              this.translations.t("domains.products.duplicate_skus_exist", { args: { duplicateSkus: duplicateSkus.join(', ') } })
             );
           }
         }
@@ -1341,13 +1345,13 @@ export class ProductsService {
           const attrs = c.attributes ?? {};
 
           if (!Object.keys(attrs).length) {
-            throw new BadRequestException("Each combination must have attributes");
+            throw new BadRequestException(this.translations.t("domains.products.each_combination_must_have_attributes"));
           }
 
           const key = this.canonicalKey(attrs); // ✅ Always generated
           const sku = c.sku;
 
-          if (!key) throw new BadRequestException("Each combination must have key or attributes");
+          if (!key) throw new BadRequestException(this.translations.t("domains.products.each_combination_must_have_key_or_attributes"));
 
           return {
             adminId,
@@ -1368,11 +1372,11 @@ export class ProductsService {
           const skusInRequest = new Set<string>();
           for (const r of rows) {
             const k = `${adminId}::${savedProduct.id}::${r.key}`;
-            if (seen.has(k)) throw new BadRequestException(`Found duplicate attributes in request: ${r.key}`);
+            if (seen.has(k)) throw new BadRequestException(this.translations.t("domains.products.duplicate_attributes_in_request", { args: { key: r.key } }));
             seen.add(k);
 
             if (r.sku) {
-              if (skusInRequest.has(r.sku)) throw new BadRequestException(`Duplicate SKU in request: ${r.sku}`);
+              if (skusInRequest.has(r.sku)) throw new BadRequestException(this.translations.t("domains.products.duplicate_sku_in_request", { args: { sku: r.sku } }));
               skusInRequest.add(r.sku);
             }
           }
@@ -1391,7 +1395,7 @@ export class ProductsService {
               .join(", ")
 
             throw new BadRequestException(
-              `A variant with these attributes already exists for this product: (${attrDetails}). Please modify the combination.`
+              this.translations.t("domains.products.variant_attributes_already_exists", { args: { attrDetails } })
             );
           }
         }
@@ -1426,8 +1430,8 @@ export class ProductsService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.PRODUCT_CREATED,
-        title: "New Product Created",
-        message: `Product "${savedProduct.name}" has been created successfully.`,
+        title: await this.requestTranslations.tAsync("domains.products.product_created_title", adminId),
+        message: await this.requestTranslations.tAsync("domains.products.product_created_message", adminId, { args: { name: savedProduct.name } }),
         relatedEntityType: "product",
         relatedEntityId: String(savedProduct.id),
       }, mgr);
@@ -1441,7 +1445,7 @@ export class ProductsService {
 
   async update(me: any, id: string, dto: UpdateProductDto, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     const work = async (mgr: EntityManager) => {
       const prodRepo = mgr.getRepository(ProductEntity);
@@ -1457,7 +1461,7 @@ export class ProductsService {
         relations: ["category", "store", "warehouse"]
       });
 
-      if (!p) throw new BadRequestException("product not found");
+      if (!p) throw new BadRequestException(this.translations.t("domains.products.product_not_found"));
 
       if (dto.slug) {
         const cleanSlug = dto.slug;
@@ -1472,7 +1476,7 @@ export class ProductsService {
         });
 
         if (existingSlug) {
-          throw new BadRequestException(`The slug "${cleanSlug}" is already in use by another product.`);
+          throw new BadRequestException(this.translations.t("domains.products.slug_already_in_use", { args: { slug: cleanSlug } }));
         }
 
         p.slug = cleanSlug;
@@ -1526,7 +1530,7 @@ export class ProductsService {
           });
           let externalId = productSyncState?.remoteProductId;
           if (remoteSlug && remoteSlug?.id?.toString() !== externalId?.toString()) {
-            throw new BadRequestException(`This slug "${dto.slug}" is already in use by "${store?.name}" store.`);
+            throw new BadRequestException(this.translations.t("domains.products.slug_already_in_use_by_store", { args: { slug: dto.slug, storeName: store?.name } }));
           }
         } catch (e) {
           if (e instanceof BadRequestException) {
@@ -1534,7 +1538,7 @@ export class ProductsService {
           }
           const errorMsg = getErrorMessage(e);
           throw new BadRequestException(
-            `Failed to verify product slug uniqueness in "${store.name}" store. ${errorMsg}`
+            this.translations.t("domains.products.failed_to_verify_slug_uniqueness", { args: { storeName: store?.name, errorMsg } })
           );
         }
 
@@ -1561,7 +1565,7 @@ export class ProductsService {
 
       // images replacement (existing + library) from frontend
       const imagesCount = dto.imagesOrphanIds?.length + p.images.length;
-      if (imagesCount > 20) throw new BadRequestException("Total images cannot exceed 20");
+      if (imagesCount > 20) throw new BadRequestException(this.translations.t("domains.products.total_images_cannot_exceed_20"));
 
       const imagesMeta = (dto as any).imagesMeta;
       delete (dto as any).imagesMeta;
@@ -1570,12 +1574,12 @@ export class ProductsService {
       const mainOrphanId = (dto as any).mainImageOrphanId;
       if (mainOrphanId !== undefined && mainOrphanId !== null && mainOrphanId !== "") {
         const oid = mainOrphanId;
-        if (!oid) throw new BadRequestException("mainImageOrphanId is invalid");
+        if (!oid) throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_id_invalid"));
         const row = await orphanRepo.findOne({
           where: { adminId: String(adminId), id: oid } as any,
           select: ["id", "url"],
         });
-        if (!row) throw new BadRequestException("mainImageOrphanId not found");
+        if (!row) throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_id_not_found"));
         if ((p as any).mainImage) {
           deletePhysicalFiles([p.mainImage])
         }
@@ -1588,14 +1592,14 @@ export class ProductsService {
       const orphanIds = (dto as any).imagesOrphanIds;
 
       if (orphanIds !== undefined) {
-        if (!Array.isArray(orphanIds)) throw new BadRequestException("imagesOrphanIds must be an array");
+        if (!Array.isArray(orphanIds)) throw new BadRequestException(this.translations.t("domains.products.images_orphan_ids_must_be_array"));
         const rows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
 
         const current = Array.isArray((p as any).images) ? (p as any).images : [];
         const toAppend = rows.map((r) => ({ url: r.url }));
 
         if (current.length + toAppend.length > 20) {
-          throw new BadRequestException("Total images cannot exceed 20");
+          throw new BadRequestException(this.translations.t("domains.products.total_images_cannot_exceed_20"));
         }
 
         (p as any).images = [...current, ...toAppend];
@@ -1635,7 +1639,7 @@ export class ProductsService {
         });
 
         if (!mainVariant) {
-          throw new BadRequestException("Main SKU row not found for single product");
+          throw new BadRequestException(this.translations.t("domains.products.main_sku_row_not_found"));
         }
 
         if (mainVariant) {
@@ -1656,14 +1660,14 @@ export class ProductsService {
           const key = Object.keys(attrs).length > 0 ? this.canonicalKey(attrs) : (c.key === 'default' ? 'default' : null);
 
           if (!key) {
-            throw new BadRequestException("Each combination must have attributes or be a default variant");
+            throw new BadRequestException(this.translations.t("domains.products.each_combination_must_have_attributes_or_default"));
           }
 
-          if (keysInRequest.has(key)) throw new BadRequestException(`Found duplicate attributes in request: ${key}`);
+          if (keysInRequest.has(key)) throw new BadRequestException(this.translations.t("domains.products.duplicate_attributes_in_request", { args: { key } }));
           keysInRequest.add(key);
 
           if (c.sku) {
-            if (skusInRequest.has(c.sku)) throw new BadRequestException(`Duplicate SKU in request: ${c.sku}`);
+            if (skusInRequest.has(c.sku)) throw new BadRequestException(this.translations.t("domains.products.duplicate_sku_in_request", { args: { sku: c.sku } }));
             skusInRequest.add(c.sku);
           }
         }
@@ -1684,7 +1688,8 @@ export class ProductsService {
           if (conflictingVariants.length > 0) {
             const duplicateSkus = conflictingVariants.map(v => v.sku);
             throw new BadRequestException(
-              `The following SKUs already exist in your account: ${duplicateSkus.join(', ')}. Please choose another one.`
+              this.translations.t("domains.products.duplicate_skus_exist", { args: { duplicateSkus: duplicateSkus.join(', ') }}
+              )
             );
           }
         }
@@ -1761,7 +1766,7 @@ export class ProductsService {
 
   async restore(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     return await this.dataSource.transaction(async (manager) => {
       const productRepo = manager.getRepository(ProductEntity);
@@ -1773,7 +1778,7 @@ export class ProductsService {
       });
 
       if (!product) {
-        throw new NotFoundException("Product not found");
+        throw new NotFoundException(this.translations.t("domains.products.product_not_found"));
       }
 
       await productRepo.update(
@@ -1819,7 +1824,7 @@ export class ProductsService {
   async checkSlug(me: any, slug, productId) {
     const adminId = tenantId(me);
     const formatedSlug = slug.trim().toLowerCase();
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     if (productId) {
       const entity = await CRUD.findOne(this.prodRepo, "products", productId);
@@ -1843,7 +1848,7 @@ export class ProductsService {
 
   async checkSku(me: any, sku, productId) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     if (productId) {
       const entity = await CRUD.findOne(this.prodRepo, "products", productId);

@@ -14,6 +14,7 @@ import { UpsellsService } from 'src/upsells/upsells.service';
 import { WhatsappService } from 'src/whatsapp/whatsapp.service';
 import { OrderEntity } from 'entities/order.entity';
 import { getErrorMessage } from 'common/healpers';
+import { RequestTranslationService } from 'common/translation.service';
 
 @Injectable()
 export class EngineRunnerService {
@@ -38,6 +39,7 @@ export class EngineRunnerService {
         private readonly upsellsService: UpsellsService,
         @Inject(forwardRef(() => WhatsappService))
         private readonly whatsappService: WhatsappService,
+        private requestTranslations: RequestTranslationService,
     ) { }
 
     /**
@@ -79,12 +81,6 @@ export class EngineRunnerService {
                     run.status === RunStatus.PENDING
                         ? NotificationType.AUTOMATION_RUN_STARTED
                         : NotificationType.AUTOMATION_RUN_RESUMED,
-                    run.status === RunStatus.PENDING
-                        ? 'Automation Run Started'
-                        : 'Automation Run Restarted',
-                    run.status === RunStatus.PENDING
-                        ? 'A new automation execution has started.'
-                        : 'An automation execution is being restarted.',
                 );
             }
 
@@ -291,8 +287,6 @@ export class EngineRunnerService {
         await this.sendAutomationNotification(
             run,
             NotificationType.AUTOMATION_RUN_RESUMED,
-            'Automation Run Resumed',
-            'A paused automation execution has been resumed.',
         );
         // 5. إيقاظ الأتمتة وتوجيهها للمسار الصحيح
         await this.resumeExecution(run.id, step.nodeId, chosenBranch.id);
@@ -454,22 +448,44 @@ export class EngineRunnerService {
         await this.sendAutomationNotification(
             run,
             NotificationType.AUTOMATION_RUN_COMPLETED,
-            'Automation Run Completed',
-            'Automation execution finished successfully.',
         );
     }
 
 
-    private async sendAutomationNotification(run: AutomationRunEntity, type: NotificationType, title: string, message: string) {
+    private async sendAutomationNotification(run: AutomationRunEntity, type: NotificationType, errorMessage?: string) {
         try {
             const automation = await this.automationRepo.findOne({ where: { id: run.automationFlowId } });
             if (!automation) return;
+
+            let titleKey, messageKey;
+            const args: Record<string, any> = {
+                automationName: automation.name,
+                versionString: run.version?.versionString || ''
+            };
+
+            if (type === NotificationType.AUTOMATION_RUN_STARTED) {
+                titleKey = 'domains.automation.run_started_title';
+                messageKey = 'domains.automation.run_started_message';
+            } else if (type === NotificationType.AUTOMATION_RUN_RESUMED) {
+                titleKey = 'domains.automation.run_resumed_title';
+                messageKey = 'domains.automation.run_resumed_message';
+            } else if (type === NotificationType.AUTOMATION_RUN_FAILED) {
+                titleKey = 'domains.automation.run_failed_title';
+                messageKey = 'domains.automation.run_failed_message';
+                args.errorMessage = errorMessage || '';
+            } else {
+                titleKey = 'domains.automation.run_completed_title';
+                messageKey = 'domains.automation.run_completed_message';
+            }
+
+            const title = await this.requestTranslations.tAsync(titleKey, automation.adminId);
+            const message = await this.requestTranslations.tAsync(messageKey, automation.adminId, { args });
 
             await this.notificationService.create({
                 userId: automation.adminId,
                 type,
                 title,
-                message: `${message} (Automation: ${automation.name}, Version: v${run.version?.versionString || ''})`,
+                message,
                 relatedEntityType: 'automation_run',
                 relatedEntityId: run.id,
             });
@@ -546,8 +562,7 @@ export class EngineRunnerService {
         await this.sendAutomationNotification(
             run,
             NotificationType.AUTOMATION_RUN_FAILED,
-            'Automation Run Failed',
-            `Automation execution failed: ${errorMessage}`,
+            errorMessage,
         );
     }
 }

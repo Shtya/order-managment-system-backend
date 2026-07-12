@@ -1,6 +1,7 @@
 import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Validate, ValidateNested, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, NodeConfig, SendWhatsappTemplateConfig, TriggerType } from 'entities/automation.entity';
+import { i18nValidationMessage } from 'nestjs-i18n';
 
 
 @ValidatorConstraint({ name: 'UniqueNodeIds', async: false })
@@ -10,7 +11,9 @@ export class UniqueNodeIdsConstraint implements ValidatorConstraintInterface {
         const ids = nodes.map((n) => n.id).filter(Boolean);
         return ids.length === new Set(ids).size;
     }
-    defaultMessage() { return 'Duplicate node IDs found'; }
+    defaultMessage(args: ValidationArguments) { 
+        return i18nValidationMessage('validation.unique_node_ids')(args); 
+    }
 }
 
 @ValidatorConstraint({ name: 'UniqueEdgeIds', async: false })
@@ -20,12 +23,15 @@ export class UniqueEdgeIdsConstraint implements ValidatorConstraintInterface {
         const ids = edges.map((e) => e.id).filter(Boolean);
         return ids.length === new Set(ids).size;
     }
-    defaultMessage() { return 'Duplicate edge IDs found'; }
+    defaultMessage(args: ValidationArguments) { 
+        return i18nValidationMessage('validation.unique_edge_ids')(args); 
+    }
 }
 
 @ValidatorConstraint({ name: 'ValidFlowGraph', async: false })
 export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
-    private errorMessage = 'Invalid flow graph';
+    private errorKey = 'validation.invalid_flow_graph';
+    private errorArgs: Record<string, any> = {};
 
     validate(_: any, args: ValidationArguments) {
         const flow = args.object as FlowDefinitionDto;
@@ -35,7 +41,8 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
         // 1. Exactly one trigger node
         const triggerNodes = nodes.filter(n => n.type === FlowNodeType.TRIGGER);
         if (triggerNodes.length !== 1) {
-            this.errorMessage = `Flow must have exactly one trigger node. Found ${triggerNodes.length}.`;
+            this.errorKey = 'validation.exactly_one_trigger_node';
+            this.errorArgs = { count: triggerNodes.length };
             return false;
         }
         const trigger = triggerNodes[0];
@@ -50,24 +57,28 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
 
         for (const edge of edges) {
             if (!nodeIds.has(edge.source)) {
-                this.errorMessage = `Edge source "${edge.source}" does not exist.`;
+                this.errorKey = 'validation.edge_source_not_exist';
+                this.errorArgs = { source: edge.source };
                 return false;
             }
             if (!nodeIds.has(edge.target)) {
-                this.errorMessage = `Edge target "${edge.target}" does not exist.`;
+                this.errorKey = 'validation.edge_target_not_exist';
+                this.errorArgs = { target: edge.target };
                 return false;
             }
 
             // Trigger has no incoming edges
             if (edge.target === trigger.id) {
-                this.errorMessage = `Trigger node cannot have incoming edges.`;
+                this.errorKey = 'validation.trigger_cannot_have_incoming_edges';
+                this.errorArgs = {};
                 return false;
             }
 
             // Unique source + sourceHandle + target
             const connKey = `${edge.source}|${edge.sourceHandle || ''}|${edge.target}`;
             if (connections.has(connKey)) {
-                this.errorMessage = `Duplicate connection found: ${edge.source} -> ${edge.target} via ${edge.sourceHandle || 'default'}`;
+                this.errorKey = 'validation.duplicate_connection';
+                this.errorArgs = { source: edge.source, target: edge.target, sourceHandle: edge.sourceHandle || 'default' };
                 return false;
             }
             connections.add(connKey);
@@ -83,10 +94,8 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
                 const branchIds = branches.map((b) => b.id);
 
                 if (!branchIds.includes(edge.sourceHandle)) {
-                    this.errorMessage =
-                        `Invalid sourceHandle "${edge.sourceHandle}" for node "${edge.source}". ` +
-                        `Expected one of: ${branchIds.join(', ')}`;
-
+                    this.errorKey = 'validation.invalid_source_handle';
+                    this.errorArgs = { sourceHandle: edge.sourceHandle, source: edge.source, expectedBranches: branchIds.join(', ') };
                     return false;
                 }
             }
@@ -95,7 +104,8 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
         // 5. All nodes except trigger must have at least one incoming edge
         for (const [id, count] of incomingEdgesCount.entries()) {
             if (id !== trigger.id && count === 0) {
-                this.errorMessage = `Node "${id}" is unreachable (no incoming edges).`;
+                this.errorKey = 'validation.node_unreachable';
+                this.errorArgs = { id };
                 return false;
             }
         }
@@ -131,7 +141,8 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
         }
 
         if (reached.size !== nodes.length) {
-            this.errorMessage = 'Flow graph is not fully connected from the trigger node.';
+            this.errorKey = 'validation.flow_not_fully_connected';
+            this.errorArgs = {};
             return false;
         }
 
@@ -153,15 +164,16 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
         const visited = new Set<string>();
         const recStackSet = new Set<string>();
         if (hasCycle(trigger.id, visited, recStackSet)) {
-            this.errorMessage = 'Flow graph contains a circular reference (cycle).';
+            this.errorKey = 'validation.flow_circular_reference';
+            this.errorArgs = {};
             return false;
         }
 
         return true;
     }
 
-    defaultMessage() {
-        return this.errorMessage;
+    defaultMessage(args: ValidationArguments) {
+        return i18nValidationMessage(this.errorKey)({ ...(args as any), ...this.errorArgs });
     }
 }
 @ValidatorConstraint({ name: 'NodeDataMatchesNodeType', async: false })
@@ -186,25 +198,29 @@ export class NodeDataMatchesNodeTypeConstraint
     defaultMessage(args: ValidationArguments) {
         const node = args.object as FlowNodeDto;
         const data = args.value as FlowNodeDataDto;
-        return `Invalid data.type "${data?.type}" for node.type "${node?.type}"`;
+        return i18nValidationMessage('validation.invalid_data_type_for_node_type')({ 
+            ...(args as any), 
+            dataType: data?.type, 
+            nodeType: node?.type 
+        });
     }
 }
 
 
 class FlowNodePositionDto {
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     x: number;
 
-    @IsNumber()
+    @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
     y: number;
 }
 
 class FlowNodeDataDto {
-    @IsNotEmpty()
-    @IsString()
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     label: string;
 
-    @IsNotEmpty()
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     @IsEnum(
         {
             ...TriggerType,
@@ -217,18 +233,18 @@ class FlowNodeDataDto {
     )
     type: FlowNodeDataType;
 
-    @IsNotEmpty()
-    @IsObject()
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
+    @IsObject({message: i18nValidationMessage('validation.is_object')})
     config: NodeConfig;
 }
 
 
 class FlowNodeDto {
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     id: string;
 
-    @IsEnum(FlowNodeType)
+    @IsEnum(FlowNodeType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(FlowNodeType).join(', ')], }); }})
     type: FlowNodeType;
 
     @ValidateNested()
@@ -236,7 +252,7 @@ class FlowNodeDto {
     position: FlowNodePositionDto;
 
     @IsOptional()
-    @IsObject()
+    @IsObject({message: i18nValidationMessage('validation.is_object')})
     measured?: { width: number; height: number };
 
     @ValidateNested()
@@ -246,24 +262,24 @@ class FlowNodeDto {
 }
 
 class FlowEdgeDto {
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     id: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     source: string;
 
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     target: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     sourceHandle?: string;
 
     @IsOptional()
-    @IsString()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
     targetHandle?: string;
 }
 
@@ -284,10 +300,10 @@ class FlowDefinitionDto {
     @ValidateNested({ each: true })
     @Validate(UniqueNodeIdsConstraint)
     @ArrayMinSize(2, {
-        message: 'Flow must contain at least 2 nodes',
+        message: i18nValidationMessage('validation.array_min_size'),
     })
     @ArrayMaxSize(100, {
-        message: 'Flow must contain at most 100 nodes',
+        message: i18nValidationMessage('validation.array_max_size'),
     })
     @Type(() => FlowNodeDto)
     nodes: FlowNodeDto[];
@@ -300,11 +316,11 @@ class FlowDefinitionDto {
 }
 
 export class CreateAutomationDto {
-    @IsString()
-    @IsNotEmpty()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
     name: string;
 
-    @IsEnum(TriggerType)
+    @IsEnum(TriggerType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(TriggerType).join(', ')], }); }})
     triggerType: TriggerType;
 
     @ValidateNested()
@@ -313,7 +329,7 @@ export class CreateAutomationDto {
 
     
     @IsOptional()
-    @IsBoolean()
+    @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
     publish?: boolean;
 
     @IsOptional()
@@ -329,7 +345,7 @@ export class UpdateAutomationDto {
     flow: FlowDefinitionDto;
 
     // @IsOptional()
-    // @IsString()
+    // @IsString({message: i18nValidationMessage('validation.is_string')})
     // version?: string;
 
     @IsOptional()

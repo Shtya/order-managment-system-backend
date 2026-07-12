@@ -9,6 +9,7 @@ import { SystemRole, User } from 'entities/user.entity';
 import { Between, Repository } from 'typeorm';
 import { CreatePlanDto, UpdatePlanDto } from 'dto/plans.dto';
 import { Plan, PlanType, Subscription, SubscriptionStatus } from 'entities/plans.entity';
+import { TranslationService } from 'common/translation.service';
 
 @Injectable()
 export class PlansService {
@@ -16,6 +17,7 @@ export class PlansService {
 		@InjectRepository(Plan) private plansRepo: Repository<Plan>,
 		@InjectRepository(Subscription) private subscriptionRepo: Repository<Subscription>,
 		@InjectRepository(User) private usersRepo: Repository<User>,
+		private readonly translations: TranslationService
 	) { }
 
 	// ✅ Check if user is super admin
@@ -56,36 +58,36 @@ export class PlansService {
 	// ✅ Get Single Plan
 	async get(me: User, id: string) {
 		const plan = await this.plansRepo.findOne({ where: { id } });
-		if (!plan) throw new NotFoundException('Plan not found');
+		if (!plan) throw new NotFoundException(this.translations.t('domains.plans.not_found'));
 
 		// Super admin: only plans with adminId null
 		if (this.isSuperAdmin(me)) {
 			if (plan.adminId === null) return plan;
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t('domains.plans.not_allowed'));
 		}
 
 		// Admin: global or owned by him
 		if (this.isAdmin(me)) {
 			if (plan.adminId === null || plan.adminId === me.id) return plan;
-			throw new ForbiddenException('Not your plan');
+			throw new ForbiddenException(this.translations.t('domains.plans.not_your_plan'));
 		}
 
 		// Regular user: only global active plans
 		if (plan.adminId === null && plan.isActive) return plan;
 
-		throw new ForbiddenException('Not allowed');
+		throw new ForbiddenException(this.translations.t('domains.plans.not_allowed'));
 	}
 
 	// ✅ Create Plan
 	async create(me: User, dto: CreatePlanDto) {
 		// 1. Authorization Check
 		if (!this.isSuperAdmin(me)) {
-			throw new ForbiddenException('Only Super Admins can create global plans');
+			throw new ForbiddenException(this.translations.t('domains.plans.only_super_admins_can_create_global_plans'));
 		}
 
 		// 2. Conflict Check
 		const exists = await this.plansRepo.findOne({ where: { name: dto.name } });
-		if (exists) throw new BadRequestException('Plan name already exists');
+		if (exists) throw new BadRequestException(this.translations.t('domains.plans.plan_name_already_exists'));
 
 		// 3. Entity Creation
 		const plan = this.plansRepo.create({
@@ -123,7 +125,7 @@ export class PlansService {
 
 		// 1. Authorization: Only Super Admin or the Plan Owner can update
 		if (!this.isSuperAdmin(me) && plan.adminId !== me.id) {
-			throw new ForbiddenException('Not your plan');
+			throw new ForbiddenException(this.translations.t('domains.plans.not_your_plan'));
 		}
 
 		// 2. Uniqueness Check if name is changing
@@ -131,7 +133,7 @@ export class PlansService {
 			const exists = await this.plansRepo.findOne({
 				where: { name: dto.name.trim() }
 			});
-			if (exists) throw new BadRequestException('Plan name already exists');
+			if (exists) throw new BadRequestException(this.translations.t('domains.plans.plan_name_already_exists'));
 		}
 
 		// 3. Manual Property Mapping (Explicit assignment)
@@ -170,7 +172,7 @@ export class PlansService {
 
 		// 1. Authorization Check: Only owner or super admin
 		if (!this.isSuperAdmin(me) && plan.adminId !== me.id) {
-			throw new ForbiddenException('Not your plan');
+			throw new ForbiddenException(this.translations.t('domains.plans.not_your_plan'));
 		}
 
 		const activeSubscriptionCount = await this.subscriptionRepo.count({
@@ -182,13 +184,13 @@ export class PlansService {
 
 		if (activeSubscriptionCount > 0) {
 			throw new BadRequestException(
-				`Cannot delete plan. There are ${activeSubscriptionCount} users currently using this plan. Please deactivate it instead so new users cannot join.`
+				this.translations.t('domains.plans.cannot_delete_plan', { args: { count: activeSubscriptionCount } })
 			);
 		}
 
 		await this.plansRepo.delete(id);
 
-		return { message: 'Plan deleted successfully' };
+		return { message: this.translations.t('domains.plans.plan_deleted_successfully') };
 	}
 
 	// ✅ Get Available Plans (for users)
@@ -205,7 +207,7 @@ export class PlansService {
 	// ✅ Get Plan Statistics (for admin)
 	async getStatistics(me: User) {
 		if (!(this.isSuperAdmin(me) || this.isAdmin(me))) {
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t('domains.plans.not_allowed'));
 		}
 
 		const qb = this.plansRepo.createQueryBuilder('p');

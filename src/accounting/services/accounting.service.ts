@@ -15,6 +15,7 @@ import { SupplierEntity } from 'entities/supplier.entity';
 import { tenantId } from 'src/category/category.service';
 import { Between, DataSource, EntityManager, In, IsNull, LessThanOrEqual, MoreThanOrEqual, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
+import { TranslationService } from 'common/translation.service';
 @Injectable()
 export class AccountingService {
     constructor(
@@ -33,6 +34,7 @@ export class AccountingService {
         private supplierClosingRepo: Repository<SupplierClosingEntity>,
         @InjectRepository(SupplierEntity)
         private supplierRepo: Repository<SupplierEntity>,
+        private readonly translations: TranslationService,
     ) { }
 
     async getStats(me: any, filters: AccountingStatsDto) {
@@ -318,7 +320,7 @@ export class AccountingService {
 
             return {
                 supplierId: row.supplierId,
-                supplierName: row.supplierName || 'غير معروف',
+                supplierName: row.supplierName || "None",
                 supplierPhone: row.supplierPhone,
                 supplierEmail: row.supplierEmail,
                 netBalance: balance, // الرقم الفعلي (موجب أو سالب)
@@ -461,7 +463,7 @@ export class AccountingService {
             const failed = parseInt(row.failedShipments);
 
             return {
-                city: row.city || 'غير محدد',
+                city: row.city || 'None',
                 totalShipments: total,
                 actualDeliveries: delivered,
                 failedShipments: failed,
@@ -481,7 +483,7 @@ export class AccountingService {
 
     async exportShipmentsCityReport(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         // 1. Build the Query (Matching your report logic)
         const qb = this.shipmentRepo.createQueryBuilder('shipment')
@@ -544,17 +546,17 @@ export class AccountingService {
 
         // 4. Create Workbook
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Shipments City Report");
+        const worksheet = workbook.addWorksheet(this.translations.t('domains.accounting.shipments_city_report'));
 
         // 5. Define English Columns
-        worksheet.columns = [
-            { header: "City", key: "city", width: 25 },
-            { header: "Total Shipments", key: "totalShipments", width: 15 },
-            { header: "Actual Deliveries", key: "actualDeliveries", width: 15 },
-            { header: "Failed/Cancelled", key: "failedShipments", width: 15 },
-            { header: "Success Rate", key: "successRate", width: 15 },
-            { header: "Failure Rate", key: "failureRate", width: 15 },
-        ];
+       worksheet.columns = [
+    { header: this.translations.t('domains.accounting.city'), key: "city", width: 25 },
+    { header: this.translations.t('domains.accounting.total_shipments'), key: "totalShipments", width: 15 },
+    { header: this.translations.t('domains.accounting.actual_deliveries'), key: "actualDeliveries", width: 15 },
+    { header: this.translations.t('domains.accounting.failed_cancelled'), key: "failedShipments", width: 15 },
+    { header: this.translations.t('domains.accounting.success_rate'), key: "successRate", width: 15 },
+    { header: this.translations.t('domains.accounting.failure_rate'), key: "failureRate", width: 15 },
+];
 
         // Style header row (matching your pattern)
         worksheet.getRow(1).font = { bold: true };
@@ -648,8 +650,8 @@ export class AccountingService {
             const supplier = await manager.findOne(SupplierEntity, {
                 where: { id: supplierId, adminId }
             });
-
-            if (!supplier) throw new NotFoundException('Supplier not found');
+            
+            if (!supplier) throw new NotFoundException(this.translations.t('domains.accounting.supplier_not_found'));
 
             if (supplier.lastClosingEndDate) {
                 const lastEnd = new Date(supplier.lastClosingEndDate);
@@ -657,18 +659,18 @@ export class AccountingService {
                 if (newStartDate <= lastEnd) {
                     const formattedDate = lastEnd.toISOString().split('T')[0];
                     throw new BadRequestException(
-                        `The new closing period must start after the last closing date (${formattedDate}).`
+                        this.translations.t('domains.accounting.closing_period_start_after_last', { args: {formattedDate} })
                     );
                 }
             }
 
             if (newEndDate <= newStartDate) {
-                throw new BadRequestException('The end date must be later than the start date.');
-            }
+                throw new BadRequestException(this.translations.t('domains.accounting.end_date_must_be_later'));
+            }   
 
             const { finalBalance, totalReturns, totalTaken, rCount, pCount, totalPaid, totalPurchases } = await this.getSupplierPeriodPreview(me, supplierId, startDate, endDate, manager);
             if (pCount === 0 && rCount === 0) {
-                throw new BadRequestException('No unclosed accepted invoices found.');
+                throw new BadRequestException(this.translations.t('domains.accounting.no_unclosed_invoices'));
             }
 
             const closing = manager.create(SupplierClosingEntity, {
@@ -736,7 +738,7 @@ export class AccountingService {
             where: { id, adminId },
             relations: ['supplier']
         });
-        if (!closing) throw new NotFoundException('Supplier closing not found');
+        if (!closing) throw new NotFoundException(this.translations.t('domains.accounting.closing_not_found'));
         return closing;
     }
 

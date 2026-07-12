@@ -13,7 +13,9 @@ import {
 } from './shipping-provider.interface';
 import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
 import { OrderEntity, PaymentMethod } from 'entities/order.entity';
-import { CreateShipmentDto } from '../shipping.dto';
+import { CreateShipmentDto } from 'dto/shipping.dto';
+import { TranslationService } from 'common/translation.service';
+
 
 type BostaEnv = 'stg' | 'prod';
 
@@ -38,7 +40,10 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
 
   private baseUrl: string;
   private EGYPT_ID: string;
-  constructor(private http: HttpService) {
+  constructor(
+    private readonly http: HttpService,
+    private translations: TranslationService,
+  ) {
     super();
     const env = (process.env.BOSTA_ENV as BostaEnv) || 'prod';
     this.baseUrl = getBostaBaseUrl(env);
@@ -206,17 +211,17 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     };
     const meta = order.shippingMetadata;
 
-    if (!meta?.cityId) {
+ if (!meta?.cityId) {
       return {
         success: false,
-        error: "City is required for Bosta shipping. Please update the order details.",
+        error: this.translations.t('domains.shipping.bosta_city_required'),
       };
     }
 
     if (!meta?.districtId) {
       return {
         success: false,
-        error: "District is required for Bosta shipping. Please update the order details.",
+        error: this.translations.t('domains.shipping.bosta_district_required'),
       };
     }
 
@@ -226,7 +231,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
       notes: order.customerNotes,
-      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.deposit ) || 0 : 0,
+      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.deposit) || 0 : 0,
       specs: {
         packageType: "Parcel",
         size: order.shippingMetadata?.orderSize || "MEDIUM",
@@ -384,7 +389,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
   }
 
   async verifyCredentials(apiKey: string, accountId?: string): Promise<{ valid: boolean, message: string }> {
-    if (!apiKey) throw new BadRequestException('Missing apiKey');
+    if (!apiKey) throw new BadRequestException(this.translations.t('domains.shipping.missing_api_key'));
 
     try {
       // We call a profile endpoint to check if the key is authorized.
@@ -397,7 +402,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
           },
         }),
       );
-      return { valid: true, message: 'Credentials verified successfully' };
+      return { valid: true, message: this.translations.t('domains.shipping.credentials_verified') };
     } catch (error) {
       const errorMessage = this.getErrorMessage(error);
       // If the status is 401 (Unauthorized), the key is definitely wrong
@@ -416,7 +421,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       );
 
       if (!data.success || !data.data) {
-        throw new Error('Shipment not found in Bosta');
+        throw new Error(this.translations.t('domains.shipping.bosta_shipment_not_found'));
       }
 
       const shipment = data.data;
@@ -449,7 +454,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         return { success: true, data: data.data };
       }
 
-      return { success: false, error: data.message || 'Failed to print waybill' };
+      return { success: false, error: data.message || this.translations.t('domains.shipping.bosta_failed_waybill_fallback') };
     } catch (error: any) {
       return { success: false, error: error.response?.data?.message || error.message };
     }

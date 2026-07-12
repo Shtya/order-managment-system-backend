@@ -1,5 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
+import { TranslationService } from './translation.service';
+import { ClientSettingsService } from 'src/client-settings/client-settings.service';
+
 
 @Injectable()
 export class MailService {
@@ -10,24 +13,85 @@ export class MailService {
       pass: process.env.EMAIL_PASS,
     },
   });
+  constructor(
+    private readonly clientSettingsService: ClientSettingsService,
+    private readonly translations: TranslationService,
+  ) { }
+
+  /**
+   * Helper to generate unified email HTML with RTL support and consistent styling
+   */
+  private buildEmailHtml(lang: string, bodyContent: string): string {
+    const isAr = lang !== 'en';
+    return `
+<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+    
+    body, table, td {
+      font-family: 'Inter', ui-sans-serif, -apple-system, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif !important;
+    }
+    
+    /* RTL Support */
+    .rtl {
+      direction: rtl !important;
+      text-align: right !important;
+    }
+    
+    .ltr {
+      direction: ltr !important;
+      text-align: left !important;
+    }
+    
+    /* Override for elements that should stay LTR even in RTL (like OTP) */
+    .otp-code {
+      direction: ltr !important;
+      text-align: center !important;
+      unicode-bidi: bidi-override !important;
+    }
+  </style>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f6f8;">
+  <div style="padding:30px;">
+    <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:30px;box-shadow:0 4px 12px rgba(0,0,0,0.08);" 
+         class="${isAr ? 'rtl' : 'ltr'}">
+      ${bodyContent}
+    </div>
+  </div>
+</body>
+</html>
+`;
+  }
+
+  /**
+   * Helper to get language from user settings (defaults to 'en')
+   */
+  private async getLang(userId?: string): Promise<string> {
+    if (!userId) return 'en';
+    const settings = await this.clientSettingsService.getCachedSettings(userId);
+    return settings?.defaultLang || 'en';
+  }
 
   async sendOtpEmail(
     userEmail: string,
-    data: { otp: string; userName: string }
+    data: { otp: string; userName: string },
+    userId?: string,
   ) {
-    const subject = 'Your Password Reset Code';
+    const lang = await this.getLang(userId);
+    const userNameFallback = data.userName || this.translations.t('common.there', { lang });
+    const currentYear = new Date().getFullYear().toString();
 
-    const htmlContent = `
-  <div style="background-color:#f4f6f8;padding:30px;font-family:Arial,Helvetica,sans-serif;">
-    <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:30px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-
+    const bodyContent = `
       <h2 style="margin-top:0;color:#1f2937;">
-        Hello ${data.userName || 'there'},
+        ${this.translations.t('emails.password_reset.hello', { args: { userName: userNameFallback }, lang })}
       </h2>
 
-      <p style="color:#4b5563;font-size:15px;">
-        We received a request to reset your password.  
-        Please use the verification code below to continue:
+      <p style="color:#4b5563;font-size:15px;line-height:1.5;">
+        ${this.translations.t('emails.password_reset.message', { lang })}
       </p>
 
       <div style="text-align:center;margin:30px 0;">
@@ -40,110 +104,53 @@ export class MailService {
           letter-spacing:6px;
           padding:16px 28px;
           border-radius:6px;
+          direction:ltr !important;
+          unicode-bidi:bidi-override !important;
         ">
           ${data.otp}
         </div>
       </div>
 
-      <p style="color:#4b5563;font-size:14px;">
-        This code will expire in <strong>10 minutes</strong>.
+      <p style="color:#4b5563;font-size:14px;line-height:1.5;">
+        ${this.translations.t('emails.password_reset.expiry', { lang })}
       </p>
 
-      <p style="color:#6b7280;font-size:13px;margin-top:24px;">
-        If you did not request a password reset, you can safely ignore this email.
+      <p style="color:#6b7280;font-size:13px;margin-top:24px;line-height:1.5;">
+        ${this.translations.t('emails.password_reset.ignore', { lang })}
       </p>
 
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
 
       <p style="color:#9ca3af;font-size:12px;text-align:center;">
-        © ${new Date().getFullYear()} Your Company. All rights reserved.
+        ${this.translations.t('emails.password_reset.footer', { args: { year: currentYear }, lang })}
       </p>
-    </div>
-  </div>
-  `;
+    `;
+
+    const htmlContent = this.buildEmailHtml(lang, bodyContent);
 
     await this.transporter.sendMail({
       to: userEmail,
-      subject,
+      subject: this.translations.t('emails.password_reset.subject', { lang }),
       html: htmlContent,
     });
   }
 
   async sendRegistrationOtpEmail(
     userEmail: string,
-    data: { otp: string; userName: string }
+    data: { otp: string; userName: string },
+    userId?: string,
   ) {
-    const subject = 'Verify Your TalabatiTech Account';
+    const lang = await this.getLang(userId);
+    const userNameFallback = data.userName || this.translations.t('common.there', { lang });
+    const currentYear = new Date().getFullYear().toString();
 
-    const htmlContent = `
-<div style="background-color:#f4f6f8;padding:30px;font-family:Arial,Helvetica,sans-serif;">
-  <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:30px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-
-    <h2 style="margin-top:0;color:#1f2937;">
-      Welcome to TalabatiTech, ${data.userName || 'there'}!
-    </h2>
-
-    <p style="color:#4b5563;font-size:15px;line-height:1.5;">
-      Thank you for signing up. To complete your registration and secure your account, 
-      please use the verification code below:
-    </p>
-
-    <div style="text-align:center;margin:30px 0;">
-      <div style="
-        display:inline-block;
-        background:#f0f4ff;
-        color:#1d4ed8;
-        font-size:32px;
-        font-weight:700;
-        letter-spacing:6px;
-        padding:16px 28px;
-        border-radius:6px;
-      ">
-        ${data.otp}
-      </div>
-    </div>
-
-    <p style="color:#4b5563;font-size:14px;">
-      This verification code will expire in <strong>10 minutes</strong>.
-    </p>
-
-    <p style="color:#6b7280;font-size:13px;margin-top:24px;">
-      If you did not create an account with us, you can safely ignore this email.
-    </p>
-
-    <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
-
-    <p style="color:#9ca3af;font-size:12px;text-align:center;">
-      © ${new Date().getFullYear()} TalabatiTech. All rights reserved.
-    </p>
-  </div>
-</div>
-`;
-
-    await this.transporter.sendMail({
-      to: userEmail,
-      subject,
-      html: htmlContent,
-    });
-  }
-
-  async sendEmailChangeOtpEmail(
-    userEmail: string,
-    data: { otp: string; userName: string }
-  ) {
-    const subject = 'Verify your new email address - TalabatiTech';
-
-    const htmlContent = `
-  <div style="background-color:#f4f6f8;padding:30px;font-family:Arial,Helvetica,sans-serif;">
-    <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:30px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-
+    const bodyContent = `
       <h2 style="margin-top:0;color:#1f2937;">
-        Hello ${data.userName || 'there'},
+        ${this.translations.t('emails.registration.hello', { args: { userName: userNameFallback }, lang })}
       </h2>
 
       <p style="color:#4b5563;font-size:15px;line-height:1.5;">
-        You have requested to change the email address associated with your TalabatiTech account. 
-        Please use the verification code below to confirm this new email address:
+        ${this.translations.t('emails.registration.message', { lang })}
       </p>
 
       <div style="text-align:center;margin:30px 0;">
@@ -156,71 +163,132 @@ export class MailService {
           letter-spacing:6px;
           padding:16px 28px;
           border-radius:6px;
+          direction:ltr !important;
+          unicode-bidi:bidi-override !important;
         ">
           ${data.otp}
         </div>
       </div>
 
-      <p style="color:#4b5563;font-size:14px;">
-        This verification code will expire in <strong>10 minutes</strong>.
+      <p style="color:#4b5563;font-size:14px;line-height:1.5;">
+        ${this.translations.t('emails.registration.expiry', { lang })}
       </p>
 
-      <p style="color:#6b7280;font-size:13px;margin-top:24px;">
-        If you did not request to change your email address, please ignore this email and make sure your account is secure.
+      <p style="color:#6b7280;font-size:13px;margin-top:24px;line-height:1.5;">
+        ${this.translations.t('emails.registration.ignore', { lang })}
       </p>
 
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
 
       <p style="color:#9ca3af;font-size:12px;text-align:center;">
-        © ${new Date().getFullYear()} TalabatiTech. All rights reserved.
+        ${this.translations.t('emails.registration.footer', { args: { year: currentYear }, lang })}
       </p>
-    </div>
-  </div>
-  `;
+    `;
+
+    const htmlContent = this.buildEmailHtml(lang, bodyContent);
 
     await this.transporter.sendMail({
       to: userEmail,
-      subject,
+      subject: this.translations.t('emails.registration.subject', { lang }),
+      html: htmlContent,
+    });
+  }
+
+  async sendEmailChangeOtpEmail(
+    userEmail: string,
+    data: { otp: string; userName: string },
+    userId?: string,
+  ) {
+    const lang = await this.getLang(userId);
+    const userNameFallback = data.userName || this.translations.t('common.there', { lang });
+    const currentYear = new Date().getFullYear().toString();
+
+    const bodyContent = `
+      <h2 style="margin-top:0;color:#1f2937;">
+        ${this.translations.t('emails.email_change.hello', { args: { userName: userNameFallback }, lang })}
+      </h2>
+
+      <p style="color:#4b5563;font-size:15px;line-height:1.5;">
+        ${this.translations.t('emails.email_change.message', { lang })}
+      </p>
+
+      <div style="text-align:center;margin:30px 0;">
+        <div style="
+          display:inline-block;
+          background:#f0f4ff;
+          color:#1d4ed8;
+          font-size:32px;
+          font-weight:700;
+          letter-spacing:6px;
+          padding:16px 28px;
+          border-radius:6px;
+          direction:ltr !important;
+          unicode-bidi:bidi-override !important;
+        ">
+          ${data.otp}
+        </div>
+      </div>
+
+      <p style="color:#4b5563;font-size:14px;line-height:1.5;">
+        ${this.translations.t('emails.email_change.expiry', { lang })}
+      </p>
+
+      <p style="color:#6b7280;font-size:13px;margin-top:24px;line-height:1.5;">
+        ${this.translations.t('emails.email_change.ignore', { lang })}
+      </p>
+
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+
+      <p style="color:#9ca3af;font-size:12px;text-align:center;">
+        ${this.translations.t('emails.email_change.footer', { args: { year: currentYear }, lang })}
+      </p>
+    `;
+
+    const htmlContent = this.buildEmailHtml(lang, bodyContent);
+
+    await this.transporter.sendMail({
+      to: userEmail,
+      subject: this.translations.t('emails.email_change.subject', { lang }),
       html: htmlContent,
     });
   }
 
   async sendPasswordChangeNotificationEmail(
     userEmail: string,
-    data: { userName: string }
+    data: { userName: string },
+    userId?: string,
   ) {
-    const subject = 'Your Password Was Changed - TalabatiTech';
+    const lang = await this.getLang(userId);
+    const userNameFallback = data.userName || this.translations.t('common.there', { lang });
+    const currentYear = new Date().getFullYear().toString();
 
-    const htmlContent = `
-  <div style="background-color:#f4f6f8;padding:30px;font-family:Arial,Helvetica,sans-serif;">
-    <div style="max-width:520px;margin:0 auto;background:#ffffff;border-radius:8px;padding:30px;box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-
+    const bodyContent = `
       <h2 style="margin-top:0;color:#1f2937;">
-        Hello ${data.userName || 'there'},
+        ${this.translations.t('emails.password_change.hello', { args: { userName: userNameFallback }, lang })}
       </h2>
 
       <p style="color:#4b5563;font-size:15px;line-height:1.5;">
-        This is a quick notification to confirm that the password for your TalabatiTech account was successfully changed.
+        ${this.translations.t('emails.password_change.message', { lang })}
       </p>
 
       <div style="background-color:#fef2f2; border-left: 4px solid #ef4444; padding: 15px; margin: 25px 0; border-radius: 4px;">
         <p style="color:#991b1b;font-size:14px; margin: 0;">
-          <strong>Security Notice:</strong> If you did not make this change, please reset your password immediately or contact our support team to secure your account.
+          <strong>${this.translations.t('emails.password_change.security_notice_title', { lang })}</strong> ${this.translations.t('emails.password_change.security_notice_text', { lang })}
         </p>
       </div>
 
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
 
       <p style="color:#9ca3af;font-size:12px;text-align:center;">
-        © ${new Date().getFullYear()} TalabatiTech. All rights reserved.
+        ${this.translations.t('emails.password_change.footer', { args: { year: currentYear }, lang })}
       </p>
-    </div>
-  </div>
-  `;
+    `;
+
+    const htmlContent = this.buildEmailHtml(lang, bodyContent);
 
     await this.transporter.sendMail({
       to: userEmail,
-      subject,
+      subject: this.translations.t('emails.password_change.subject', { lang }),
       html: htmlContent,
     });
   }

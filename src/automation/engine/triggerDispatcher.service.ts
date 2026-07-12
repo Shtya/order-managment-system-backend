@@ -2,10 +2,12 @@ import { Inject, Injectable, forwardRef } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { AutomationFlowEntity, AutomationFlowVersionEntity, AutomationRunEntity, AutomationStatus, FlowNodeType, RunStatus, TriggerEntityType, TriggerType } from 'entities/automation.entity';
 import { Repository, DataSource, In } from 'typeorm';
-import { OrderEntity, AutomationMigrationStrategy } from 'entities/order.entity';
+import { OrderEntity } from 'entities/order.entity';
 import { TriggerMatchersRegistry } from './triggerMatchers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { AutomationQueueService } from 'src/queue/queues/automations.queue';
+import { AutomationMigrationStrategy } from 'entities/clientSettings.entity';
+import { ClientSettingsService } from 'src/client-settings/client-settings.service';
 
 @Injectable()
 export class TriggerDispatcherService {
@@ -29,6 +31,7 @@ export class TriggerDispatcherService {
 
         @Inject(forwardRef(() => OrdersService))
         private readonly ordersService: OrdersService,
+        private readonly clientSettingsService: ClientSettingsService,
     ) { }
 
     /**
@@ -98,7 +101,7 @@ export class TriggerDispatcherService {
      * Automatic migration logic for failed runs when a flow is updated
      */
     async autoRetryFailedRuns(adminId: string, automationFlowId: string) {
-        const settings = await this.ordersService.getCachedSettings(adminId);
+        const settings = await this.clientSettingsService.getCachedSettings(adminId);
         const strategy = settings?.automationMigrationStrategy || AutomationMigrationStrategy.LATEST_MAJOR;
 
         if (strategy === AutomationMigrationStrategy.MANUAL) {

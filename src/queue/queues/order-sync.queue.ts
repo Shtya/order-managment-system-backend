@@ -7,8 +7,9 @@ import { StoresService } from "src/stores/stores.service";
 import { QueueDelayConfig, QueueDelayService } from "../common/queue-delay.service";
 import { StoreProvider } from "entities/stores.entity";
 import { ProviderCode } from "src/shipping/providers/shipping-provider.interface";
-import { BulkAssignOrderDto } from "src/shipping/shipping.dto";
+
 import { createHash } from 'crypto';
+import { BulkAssignOrderDto } from "dto/shipping.dto";
 
 @Injectable()
 export class OrderSyncQueueService {

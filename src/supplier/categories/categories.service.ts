@@ -5,11 +5,13 @@ import { CreateSupplierCategoryDto, UpdateSupplierCategoryDto } from "dto/suppli
 import { SupplierCategoryEntity } from "../../../entities/supplier.entity";
 import { CRUD } from "../../../common/crud.service";
 import { tenantId } from "../../category/category.service";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class SupplierCategoriesService {
   constructor(
     @InjectRepository(SupplierCategoryEntity) private categoryRepo: Repository<SupplierCategoryEntity>,
+    private translations: TranslationService,
   ) { }
 
   async list(me: any, q?: any) {
@@ -41,7 +43,7 @@ export class SupplierCategoriesService {
 
   async create(me: any, dto: CreateSupplierCategoryDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
 
     // Check if name already exists for this admin
     const existing = await this.categoryRepo.findOne({
@@ -49,7 +51,7 @@ export class SupplierCategoriesService {
     });
 
     if (existing) {
-      throw new BadRequestException("Category name already exists");
+      throw new BadRequestException(this.translations.t("common.category_name_already_exists"));
     }
 
     const category = this.categoryRepo.create({
@@ -72,7 +74,7 @@ export class SupplierCategoriesService {
       });
 
       if (existing) {
-        throw new BadRequestException("Category name already exists");
+        throw new BadRequestException(this.translations.t("common.category_name_already_exists"));
       }
       category.name = dto.name;
     }

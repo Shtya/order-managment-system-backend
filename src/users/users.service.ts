@@ -11,6 +11,7 @@ import { unlink } from 'fs/promises';
 import { join } from 'path';
 import { tenantId } from 'src/category/category.service';
 import { SeedService } from './initial-seed.service';
+import { TranslationService } from 'common/translation.service';
 
 
 @Injectable()
@@ -25,6 +26,7 @@ export class UsersService {
 		@Inject(forwardRef(() => SubscriptionsService))
 		private readonly subscriptionsService: SubscriptionsService,
 		private readonly seedService: SeedService,
+		private readonly translations: TranslationService,
 
 	) { }
 
@@ -61,7 +63,7 @@ export class UsersService {
 		const user = await q.getOne();
 
 		if (!user) {
-			throw new NotFoundException(`User with ID ${userId} not found`);
+			throw new NotFoundException(this.translations.t("common.user_not_found"));
 		}
 
 		const isAdmin = user.role?.name === SystemRole.ADMIN;
@@ -107,7 +109,7 @@ export class UsersService {
 		const user = await q.getOne();
 
 		if (!user) {
-			throw new NotFoundException(`User with email ${email} not found`);
+			throw new NotFoundException(this.translations.t("common.user_not_found"));
 		}
 
 		const isAdmin = user.role?.name === SystemRole.ADMIN;
@@ -136,7 +138,7 @@ export class UsersService {
 	) {
 		// ✅ enforce SUPER_ADMIN only
 		if (!this.isSuperAdmin(me)) {
-			throw new ForbiddenException('Super admin only');
+			throw new ForbiddenException(this.translations.t("common.permission_denied"));
 		}
 
 		const page = Math.max(1, Number(opts.page || 1));
@@ -250,7 +252,7 @@ export class UsersService {
 		me: User,
 		opts: { tab: string; search: string; role: string; active: string; adminId: string }
 	) {
-		if (!this.isSuperAdmin(me)) throw new ForbiddenException('Super admin only');
+		if (!this.isSuperAdmin(me)) throw new ForbiddenException(this.translations.t("common.permission_denied"));
 
 		const tab = (opts.tab || 'all').toLowerCase();
 		const search = (opts.search || '').trim();
@@ -330,11 +332,11 @@ export class UsersService {
 		if (me.id === target.id) return;
 
 		if (me.role?.name === SystemRole.ADMIN) {
-			if (target.adminId !== me.id) throw new ForbiddenException('Not your user');
+			if (target.adminId !== me.id) throw new ForbiddenException(this.translations.t("common.permission_denied"));
 			return;
 		}
 
-		throw new ForbiddenException('Not allowed');
+		throw new ForbiddenException(this.translations.t("common.permission_denied"));
 	}
 	async getEmployeeTypesStats(me: User) {
 		// Super admin يشوف كل الأنواع
@@ -372,14 +374,14 @@ export class UsersService {
 		};
 	}
 	async updateMyAvatar(me: User, avatar?: Express.Multer.File) {
-		if (!avatar) throw new BadRequestException('Avatar file is required');
+		if (!avatar) throw new BadRequestException(this.translations.t("domains.users.avatar_file_required"));
 
 		const user = await this.usersRepo.findOne({
 			where: { id: me.id }, relations: {
 				role: true
 			}
 		});
-		if (!user) throw new BadRequestException('User not found');
+		if (!user) throw new BadRequestException(this.translations.t("common.user_not_found"));
 
 		const old = user.avatarUrl;
 
@@ -432,8 +434,8 @@ export class UsersService {
 			qb.andWhere("user.id = :id", { id: me.id });
 		}
 
-		if(active) qb.andWhere('user.isActive = :active', { active: active === 'true' });
-		if(search) qb.andWhere('user.name LIKE :search OR user.email LIKE :search OR user.phone LIKE :search', { search: `%${search}%` });
+		if (active) qb.andWhere('user.isActive = :active', { active: active === 'true' });
+		if (search) qb.andWhere('user.name LIKE :search OR user.email LIKE :search OR user.phone LIKE :search', { search: `%${search}%` });
 
 		const rawUsers = await qb.getMany();
 
@@ -673,7 +675,9 @@ export class UsersService {
 
 		// امنع حذف سوبر ادمن
 		if (!this.isSuperAdmin(me) && user.role?.name === SystemRole.SUPER_ADMIN) {
-			throw new ForbiddenException('Cannot delete super admin');
+			throw new ForbiddenException(
+				this.translations.t("domains.users.cannot_delete_super_admin")
+			);
 		}
 
 		await this.usersRepo.delete({ id: user.id });
@@ -685,7 +689,7 @@ export class UsersService {
 	async get(me: User, id: string, addPass: boolean = false) {
 		const user = await this.getFullUser(id, addPass)
 
-		if (!user) throw new NotFoundException('User not found');
+		if (!user) throw new NotFoundException(this.translations.t("common.user_not_found"));
 
 		if (!this.isSuperAdmin(me) && me.role?.name === SystemRole.ADMIN) {
 			this.ensureAdminOwnership(me, user);
@@ -693,7 +697,7 @@ export class UsersService {
 		}
 
 		if (me.role?.name === SystemRole.USER && me.id !== id) {
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t("common.permission_denied"));
 		}
 
 		return user;
@@ -701,7 +705,7 @@ export class UsersService {
 	async getMe(id: string) {
 		const user = await this.getFullUser(id, true)
 
-		if (!user) throw new NotFoundException('User not found');
+		if (!user) throw new NotFoundException(this.translations.t("common.user_not_found"));
 
 		const { passwordHash, ...finalUser } = user;
 		return { ...finalUser, hasPassword: passwordHash != null, };
@@ -714,17 +718,30 @@ export class UsersService {
 	// ✅ UPDATED: Handle planId
 	async adminCreate(me: User, dto: AdminCreateDto) {
 		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t("common.permission_denied"));
 		}
 
 		const exists = await this.usersRepo.findOne({ where: { email: dto.email } });
-		if (exists) throw new BadRequestException('Email already used');
+		if (exists) {
+			throw new BadRequestException(
+				this.translations.t("domains.users.email_already_used")
+			);
+		}
 
-		const role = await this.rolesRepo.findOne({ where: { id: dto.roleId } });
-		if (!role) throw new BadRequestException('Role not found');
+		const role = await this.rolesRepo.findOne({
+			where: { id: dto.roleId },
+		});
+
+		if (!role) {
+			throw new BadRequestException(
+				this.translations.t("domains.users.role_not_found")
+			);
+		}
 
 		if (!this.isSuperAdmin(me) && role.name === SystemRole.SUPER_ADMIN) {
-			throw new ForbiddenException('Admin cannot create super admin');
+			throw new ForbiddenException(
+				this.translations.t("domains.users.admin_cannot_create_super_admin")
+			);
 		}
 
 		// ✅ NEW: Validate plan if provided
@@ -736,7 +753,7 @@ export class UsersService {
 		if (this.isSuperAdmin(me) && !["admin", "super_admin"].includes(role?.name)) {
 			// If super admin, use dto.adminId if provided, else null
 			adminIdToUse = dto.adminId || null;
-		} 
+		}
 		const user = this.usersRepo.create({
 			name: dto.name,
 			email: dto.email,
@@ -772,7 +789,9 @@ export class UsersService {
 		});
 
 		if (subscription?.usersLimit != null && currentCount >= subscription?.usersLimit) {
-			throw new BadRequestException('Users limit reached');
+			throw new BadRequestException(
+				this.translations.t("domains.users.users_limit_reached")
+			);
 		}
 	}
 
@@ -789,24 +808,36 @@ export class UsersService {
 		avatar?: Express.Multer.File, // ✅ NEW
 	) {
 		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
-			throw new ForbiddenException('Not allowed');
+			throw new ForbiddenException(this.translations.t("common.permission_denied"));
 		}
 
 		await this.ensureUsersLimit(me);
 
 		const exists = await this.usersRepo.findOne({ where: { email } });
-		if (exists) throw new BadRequestException('Email already used');
+		if (exists) {
+			throw new BadRequestException(
+				this.translations.t("domains.users.email_already_used")
+			);
+		}
 
 		const role = await this.rolesRepo.findOne({ where: { id: roleId } });
-		if (!role) throw new BadRequestException('Role not found');
+		if (!role) {
+			throw new BadRequestException(
+				this.translations.t("domains.users.role_not_found")
+			);
+		}
 
 		if (!this.isSuperAdmin(me) && role.name === SystemRole.SUPER_ADMIN) {
-			throw new ForbiddenException('Admin cannot create super admin');
+			throw new ForbiddenException(
+				this.translations.t("domains.users.admin_cannot_create_super_admin")
+			);
 		}
 
 		if (!this.isSuperAdmin(me) && role.name === SystemRole.ADMIN) {
 			// If the logged-in user is only ADMIN, they cannot create another ADMIN
-			throw new ForbiddenException('Admin cannot create admin');
+			throw new ForbiddenException(
+				this.translations.t("common.permission_denied")
+			);
 		}
 
 
@@ -851,20 +882,32 @@ export class UsersService {
 
 		// 1. Guard Clauses (Authorization & Business Logic)
 		if (!this.isSuperAdmin(me) && user.role?.name === SystemRole.SUPER_ADMIN) {
-			throw new ForbiddenException('Cannot edit super admin');
+			throw new ForbiddenException(
+				this.translations.t("common.permission_denied")
+			);
 		}
 
 		if (patch.email && patch.email !== user.email) {
 			const exists = await this.usersRepo.findOne({ where: { email: patch.email } });
-			if (exists) throw new BadRequestException('Email already used');
+			if (exists) {
+				throw new BadRequestException(
+					this.translations.t("domains.users.email_already_used")
+				);
+			}
 		}
 
 		if (patch.roleId) {
 			const role = await this.rolesRepo.findOne({ where: { id: patch.roleId } });
-			if (!role) throw new BadRequestException('Role not found');
+			if (!role) {
+				throw new BadRequestException(
+					this.translations.t("domains.users.role_not_found")
+				);
+			}
 
 			if (!this.isSuperAdmin(me) && role.name === SystemRole.SUPER_ADMIN) {
-				throw new ForbiddenException('Admin cannot assign super admin');
+				throw new ForbiddenException(
+					this.translations.t("domains.users.admin_cannot_create_super_admin")
+				);
 			}
 		}
 
@@ -932,7 +975,9 @@ export class UsersService {
 
 	async processNextOnboardingStep(me: User, userId: string, wantedStep: OnboardingStep) {
 		if (me.role?.name !== 'admin') {
-			throw new ForbiddenException('Only admins can complete onboarding');
+			throw new ForbiddenException(
+				this.translations.t("domains.users.only_admins_can_complete_onboarding")
+			);
 		}
 
 		const user = await this.usersRepo.createQueryBuilder('user')
@@ -958,7 +1003,9 @@ export class UsersService {
 		if (!user) throw new NotFoundException('User not found');
 
 		if (user.role.name !== 'admin') {
-			throw new ForbiddenException('Only admins can complete onboarding');
+			throw new ForbiddenException(
+				this.translations.t("domains.users.only_admins_can_complete_onboarding")
+			);
 		}
 
 		// if currentStep already proccessed retrun next directly
@@ -992,7 +1039,9 @@ export class UsersService {
 		if (wantedStepIndex > 0 && !user.activeSubscription) {
 			const freePlan = await this.plansRepo.findOne({ where: { type: PlanType.TRIAL } });
 			if (!freePlan) {
-				throw new BadRequestException('No free plan available, please contact support.');
+				throw new BadRequestException(
+					this.translations.t("domains.users.no_free_plan_available")
+				);
 			}
 			this.subscriptionsService.subscribe(me, freePlan?.id);
 		}
@@ -1010,7 +1059,9 @@ export class UsersService {
 			case OnboardingStep.COMPANY:
 				// Requirement: Must have company details saved
 				if (!user.company) {
-					throw new BadRequestException('Please complete your company profile.');
+					throw new BadRequestException(
+						this.translations.t("domains.users.complete_company_profile")
+					);
 				}
 				nextStep = OnboardingStep.STORE;
 				break;
@@ -1027,7 +1078,7 @@ export class UsersService {
 				break;
 
 			default:
-				return { message: 'Onboarding already completed', step: user.currentOnboardingStep };
+				return { message: this.translations.t("domains.users.onboarding_already_completed_status"), step: user.currentOnboardingStep };
 		}
 
 		user.currentOnboardingStep = nextStep;
@@ -1039,7 +1090,9 @@ export class UsersService {
 	// users.service.ts
 	async upsertCompany(me: User, dto: UpsertCompanyDto) {
 		if (me.role?.name !== 'admin') {
-			throw new ForbiddenException('Only admins can update company informations');
+			throw new ForbiddenException(
+				this.translations.t("common.permission_denied")
+			);
 		}
 
 		return await this.dataSource.transaction(async (manager) => {
@@ -1049,7 +1102,7 @@ export class UsersService {
 				relations: ['company'],
 			});
 
-			if (!user) throw new NotFoundException('User not found');
+			if (!user) throw new NotFoundException(this.translations.t("common.user_not_found"));
 
 			let company = user.company;
 
@@ -1077,7 +1130,7 @@ export class UsersService {
 			relations: ['company'],
 		});
 
-		if (!user) throw new NotFoundException('User not found');
+		if (!user) throw new NotFoundException(this.translations.t("common.user_not_found"));
 
 		return user.company || null;
 	}

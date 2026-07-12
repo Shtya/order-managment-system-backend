@@ -2,7 +2,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req,Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ShippingService } from './shipping.service';
-import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto, SetActiveDto, SetProviderCredentialsDto } from './shipping.dto';
+import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto, SetActiveDto, SetProviderCredentialsDto } from 'dto/shipping.dto';
 import { tenantId } from 'src/category/category.service';
 import { ProviderCode } from './providers/shipping-provider.interface';
 import { Response } from 'express';

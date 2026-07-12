@@ -31,7 +31,6 @@ import {
   OrderStatusEntity,
   OrderStatus,
   slugify,
-  OrderRetrySettingsEntity,
   OrderReplacementEntity,
   OrderReplacementItemEntity,
   PaymentMethod,
@@ -44,7 +43,6 @@ import {
   OrderActionResult,
   ShipmentManifestType,
   ReturnRequestEntity,
-  StockDeductionStrategy,
   ReturnRequestStatus,
 } from "entities/order.entity";
 import { OrderAssignmentEntity } from "entities/assignment.entity";
@@ -58,8 +56,6 @@ import {
   MarkMessagesReadDto,
   UpdateStatusDto,
   CreateStatusDto,
-  UpsertOrderRetrySettingsDto,
-  CreateReplacementDto,
   CreateManifestDto,
   BulkUpdateShippingFieldsDto,
   OrderItemDto,
@@ -68,8 +64,8 @@ import {
 } from "dto/order.dto";
 import { User } from "entities/user.entity";
 
-import { Notification, NotificationType } from "entities/notifications.entity";
-import { OrderFailStatus, StoreEntity } from "entities/stores.entity";
+import { NotificationType } from "entities/notifications.entity";
+import { StoreEntity } from "entities/stores.entity";
 import {
   ShipmentEntity,
   ShipmentStatus,
@@ -95,6 +91,9 @@ import { CityEntity } from "entities/cities.entity";
 import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
 import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
 import { TriggerEntityType, TriggerType } from "entities/automation.entity";
+import { ClientSettingsEntity, StockDeductionStrategy } from "entities/clientSettings.entity";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -121,8 +120,10 @@ export class OrdersService {
     @InjectRepository(BulkUploadUsage)
     private usageRepo: Repository<BulkUploadUsage>,
 
-    @InjectRepository(OrderRetrySettingsEntity)
-    private retryRepo: Repository<OrderRetrySettingsEntity>,
+    @InjectRepository(ClientSettingsEntity)
+    private clientSettingsRepo: Repository<ClientSettingsEntity>,
+
+    private clientSettingsService: ClientSettingsService,
 
     @InjectRepository(ShippingCompanyEntity)
     private shippingRepo: Repository<ShippingCompanyEntity>,
@@ -170,6 +171,8 @@ export class OrdersService {
     private autoAssignmentQueueService: AutoAssignmentQueueService,
     @Inject(forwardRef(() => TriggerDispatcherService))
     private readonly triggerDispatcher: TriggerDispatcherService,
+    private readonly translations: TranslationService,
+    private requestTranslations: RequestTranslationService,
   ) { }
 
   //private function to lock order if he delivered and has monthly closign id
@@ -180,11 +183,11 @@ export class OrdersService {
       },
     });
     if (!deliveryStatus) {
-      throw new NotFoundException("Delivery status not found. Please contact support.");
+      throw new NotFoundException(this.translations.t('domains.orders.delivery_status_not_found'));
     }
 
     if (order.statusId === deliveryStatus.id && order.monthlyClosingId) {
-      throw new BadRequestException(message || "Cannot update or delete a order that has been closed.");
+      throw new BadRequestException(message || this.translations.t('domains.orders.cannot_update_or_delete_closed'));
     }
 
   }
@@ -230,7 +233,7 @@ export class OrdersService {
       }
     }
 
-    throw new Error("Failed to generate unique order number");
+    throw new Error(this.translations.t('domains.orders.failed_generate_order_number'));
   }
 
   // ✅ Calculate totals
@@ -406,7 +409,7 @@ export class OrdersService {
       adminId = q.adminId;
     }
 
-    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const qb = this.statusRepo.createQueryBuilder("status");
     // use relation path only (no join condition)
@@ -476,7 +479,7 @@ export class OrdersService {
       adminId = q.adminId;
     }
 
-    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const statuses = await this.statusRepo
       .createQueryBuilder("status")
@@ -517,10 +520,10 @@ export class OrdersService {
   async getStatus(me: any, id: string) {
     const adminId = tenantId(me);
     const superAdmin = isSuperAdmin(me);
-    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const status = await this.findStatusById(id, adminId)
-    if (!status) throw new NotFoundException("Status not found");
+    if (!status) throw new NotFoundException(this.translations.t('domains.orders.status_not_found'));
 
     return status;
   }
@@ -549,7 +552,7 @@ export class OrdersService {
       adminId = q.adminId;
     }
 
-    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -836,7 +839,7 @@ export class OrdersService {
       adminId = q.adminId;
     }
 
-    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // Fetch shipping companies and order stats in parallel using Promise.all
     const [shippingResponse, rows] = await Promise.all([
@@ -944,7 +947,7 @@ export class OrdersService {
       adminId = q.adminId;
     }
 
-    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // Fetch shipping companies and order stats in parallel using Promise.all
     const [shippingResponse, rows] = await Promise.all([
@@ -1025,7 +1028,7 @@ export class OrdersService {
   async getOrderHistory(orderId: string, me: any) {
     const adminId = tenantId(me);
     const superAdmin = isSuperAdmin(me);
-    if (!adminId && !superAdmin) throw new BadRequestException("Missing adminId");
+    if (!adminId && !superAdmin) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return await this.historyRepo.find({
       where: {
@@ -1135,7 +1138,7 @@ export class OrdersService {
       });
 
       if (!manifest) {
-        throw new NotFoundException(`Manifest with ID ${id} not found.`);
+        throw new NotFoundException(this.translations.t('domains.orders.manifest_with_id_not_found', { args: { id } }));
       }
       const orderIds = manifest.orders.map((o) => o.id);
       const isReturn = manifest.type === ShipmentManifestType.RETURN;
@@ -1151,7 +1154,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.MANIFEST_PRINTED,
           result: OrderActionResult.SUCCESS,
-          details: `Initial ${manifestLabel} printed. Manifest: ${manifestNumber}`, // ✅ Dynamic
+          details:  await this.requestTranslations.tAsync('domains.orders.log_initial_manifest_printed',adminId, { args: { manifestLabel, manifestNumber } }), // ✅ Dynamic
         });
       } else {
         // 3. Logic for re-printing (already printed)
@@ -1162,7 +1165,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.MANIFEST_REPRINTED,
           result: OrderActionResult.SUCCESS,
-          details: `${manifestLabel} re-printed.`, // ✅ Dynamic
+          details:  await this.requestTranslations.tAsync('domains.orders.log_manifest_reprinted',adminId, { args: { manifestLabel } }), // ✅ Dynamic
         });
       }
 
@@ -1181,7 +1184,7 @@ export class OrdersService {
 
   async listLogs(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -1263,7 +1266,7 @@ export class OrdersService {
 
   async exportLogs(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const search = String(q?.search ?? "").trim();
 
@@ -1315,23 +1318,23 @@ export class OrdersService {
     qb.orderBy("log.createdAt", "DESC");
     const logs = await qb.getMany();
 
-    const actionTypeTranslations: Record<string, string> = {
-      CONFIRMED: "تأكيد الطلب",
-      COURIER_ASSIGNED: "إسناد لشركة الشحن",
-      WAYBILL_PRINTED: "طباعة البوليصة",
-      WAYBILL_REPRINTED: "إعادة طباعة البوليصة",
-      PREPARATION_STARTED: "إتمام التجهيز والجمع",
-      OUTGOING_DISPATCHED: "تسليم للشحن (بيان تحميل)",
-      REJECTED: "رفض الطلب",
-      RETURN_RECEIVED: "استلام مرتجع",
-      RETRY_ATTEMPT: "إعادة المحاولة",
+    const actionTypeKeys: Record<string, any> = {
+      CONFIRMED: 'domains.orders.actions.confirmed',
+      COURIER_ASSIGNED: 'domains.orders.actions.courier_assigned',
+      WAYBILL_PRINTED: 'domains.orders.actions.waybill_printed',
+      WAYBILL_REPRINTED: 'domains.orders.actions.waybill_reprinted',
+      PREPARATION_STARTED: 'domains.orders.actions.preparation_started',
+      OUTGOING_DISPATCHED: 'domains.orders.actions.outgoing_dispatched',
+      REJECTED: 'domains.orders.actions.rejected',
+      RETURN_RECEIVED: 'domains.orders.actions.return_received',
+      RETRY_ATTEMPT: 'domains.orders.actions.retry_attempt',
     };
 
-    const resultTranslations: Record<string, string> = {
-      SUCCESS: "تم بنجاح",
-      FAILED: "فشل / خطأ",
-      WARNING: "تنبيه / تكرار",
-      PENDING: "قيد الانتظار",
+    const resultKeys: Record<string, any> = {
+      SUCCESS: 'domains.orders.results.success',
+      FAILED: 'domains.orders.results.failed',
+      WARNING: 'domains.orders.results.warning',
+      PENDING: 'domains.orders.results.pending',
     };
 
     // 5. Prepare Data
@@ -1340,10 +1343,10 @@ export class OrdersService {
         operationNumber: log.operationNumber || "N/A",
         orderNumber: log.order?.orderNumber || "N/A",
         actionType: log.actionType
-          ? actionTypeTranslations[log.actionType] || log.actionType
+          ? this.translations.t(actionTypeKeys[log.actionType]) || log.actionType
           : "N/A",
         result: log.result
-          ? resultTranslations[log.result] || log.result
+          ? this.translations.t(resultKeys[log.result])  || log.result
           : "N/A",
         employee: log.user
           ? `${log.user.name || "N/A"} (ID: ${log.user.id})`
@@ -1360,18 +1363,18 @@ export class OrdersService {
 
     // 6. Create Workbook (Following your exact working structure)
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Operational Logs");
+    const worksheet = workbook.addWorksheet(this.translations.t('domains.orders.export_operational_logs_sheet'));
 
     const columns = [
-      { header: "Operation ID", key: "operationNumber", width: 25 },
-      { header: "Order Number", key: "orderNumber", width: 18 },
-      { header: "Action", key: "actionType", width: 25 },
-      { header: "Result", key: "result", width: 15 },
-      { header: "Performed By", key: "employee", width: 25 },
-      { header: "Shipping Company", key: "shippingCompany", width: 20 },
-      { header: "Status", key: "currentOrderStatus", width: 15 },
-      { header: "Details", key: "details", width: 45 },
-      { header: "Created At", key: "createdAt", width: 20 },
+      { header: this.translations.t('domains.orders.export_operation_id'), key: "operationNumber", width: 25 },
+      { header: this.translations.t('domains.orders.export_order_number'), key: "orderNumber", width: 18 },
+      { header: this.translations.t('domains.orders.export_action'), key: "actionType", width: 25 },
+      { header: this.translations.t('domains.orders.export_result'), key: "result", width: 15 },
+      { header: this.translations.t('domains.orders.export_performed_by'), key: "employee", width: 25 },
+      { header: this.translations.t('domains.orders.export_shipping_company'), key: "shippingCompany", width: 20 },
+      { header: this.translations.t('domains.orders.export_order_status'), key: "currentOrderStatus", width: 15 },
+      { header: this.translations.t('domains.orders.export_details'), key: "details", width: 45 },
+      { header: this.translations.t('domains.orders.export_created_at'), key: "createdAt", width: 20 },
     ];
 
     worksheet.columns = columns;
@@ -1413,7 +1416,7 @@ export class OrdersService {
       });
 
       if (orders.length !== dto.orderIds.length) {
-        throw new BadRequestException("Some orders were not found.");
+        throw new BadRequestException(this.translations.t('domains.orders.some_orders_not_found'));
       }
 
       // Map to aggregate quantities per variant across all orders
@@ -1423,13 +1426,13 @@ export class OrdersService {
       for (const order of orders) {
         if (order.status.code !== OrderStatus.READY) {
           throw new BadRequestException(
-            `Order ${order.orderNumber} cannot be shipped. Current status: ${order.status.name}. It must be PACKED first.`,
+            this.translations.t('domains.orders.order_cannot_ship_not_packed', { args: { orderNumber: order.orderNumber, statusName: order.status.name } }),
           );
         }
 
         if (order.shippingCompanyId !== dto.shippingCompanyId) {
           throw new BadRequestException(
-            `Order ${order.orderNumber} belongs to a different courier.`,
+            this.translations.t('domains.orders.order_different_courier', { args: { orderNumber: order.orderNumber } }),
           );
         }
 
@@ -1459,7 +1462,7 @@ export class OrdersService {
 
         await this.validateStockAvailability(adminId, stockCheckItems, {
           isDeduction: true,
-          errorMessagePrefix: "Cannot create manifest due to insufficient stock",
+          errorMessagePrefix: this.translations.t('domains.orders.manifest_insufficient_stock_prefix'),
         });
       }
 
@@ -1563,7 +1566,7 @@ export class OrdersService {
         actionType: OrderActionType.OUTGOING_DISPATCHED,
         result: OrderActionResult.SUCCESS,
         shippingCompanyId: dto.shippingCompanyId,
-        details: `Order dispatched. Manifest: ${manifestNumber}. Driver: ${dto.driverName || "N/A"}`,
+        details:  await this.requestTranslations.tAsync('domains.orders.log_order_dispatched',adminId, { args: { manifestNumber, driverName: dto.driverName || "N/A" } }),
       });
 
       return savedManifest;
@@ -1593,11 +1596,11 @@ export class OrdersService {
         .filter(Boolean);
 
       if (returns.length !== dto.orderIds.length) {
-        throw new BadRequestException("Not all orders have return requests.");
+        throw new BadRequestException(this.translations.t('domains.orders.not_all_orders_have_return_requests'));
       }
 
       if (returns.length === 0) {
-        throw new BadRequestException("No valid return requests selected.");
+        throw new BadRequestException(this.translations.t('domains.orders.no_valid_return_requests'));
       }
 
       const invalidOrders = orders.filter(
@@ -1607,7 +1610,7 @@ export class OrdersService {
       if (invalidOrders.length > 0) {
         // ✅ 3. LOG ACTION FAIL for every invalid order
         await Promise.all(
-          invalidOrders.map((o) =>
+          invalidOrders.map(async (o) =>
             this.logOrderAction({
               manager,
               adminId,
@@ -1615,14 +1618,14 @@ export class OrdersService {
               orderId: o.id,
               actionType: OrderActionType.MANIFEST_PRINTED, // Tracking manifest attempt
               result: OrderActionResult.FAILED,
-              details: `Failed to add to manifest. Reason: Order is in ${o.status.code} but must be RETURN_PREPARING.`,
+              details:  await this.requestTranslations.tAsync('domains.orders.log_failed_add_to_manifest',adminId, { args: { statusCode: o.status.code } }),
             }),
           ),
         );
 
         const nums = invalidOrders.map((o) => o.orderNumber).join(", ");
         throw new BadRequestException(
-          `The following orders are not in 'Return Preparing' status: ${nums}`,
+          this.translations.t('domains.orders.orders_not_return_preparing', { args: { orderNumbers: nums } }),
         );
       }
 
@@ -1632,7 +1635,7 @@ export class OrdersService {
         // التحقق من شركة الشحن
         if (order.shippingCompanyId !== dto.shippingCompanyId) {
           throw new BadRequestException(
-            `Order ${order.orderNumber} belongs to a different courier.`
+            this.translations.t('domains.orders.order_different_courier', { args: { orderNumber: order.orderNumber } })
           );
         }
       }
@@ -1729,7 +1732,7 @@ export class OrdersService {
           adminId,
           manager,
           userId,
-          notes: `Added to Return Manifest: ${manifestNumber}`,
+          notes: this.translations.t('domains.orders.log_added_to_return_manifest', { args: { manifestNumber } }),
           orderStatusChanges: orderIds.map(orderId => ({
             orderId,
             fromStatusId: preparingStatus.id,
@@ -1745,7 +1748,7 @@ export class OrdersService {
         orderIds,
         actionType: OrderActionType.MANIFEST_PRINTED,
         result: OrderActionResult.SUCCESS,
-        details: `Order included in Return Manifest: ${manifestNumber}`,
+        details:  await this.requestTranslations.tAsync('domains.orders.log_order_in_return_manifest',adminId, { args: { manifestNumber } }),
       });
 
       return {
@@ -1776,13 +1779,13 @@ export class OrdersService {
       ],
     });
 
-    if (!manifest) throw new NotFoundException("Manifest not found");
+    if (!manifest) throw new NotFoundException(this.translations.t('domains.orders.manifest_not_found'));
     return manifest;
   }
 
   async getReturnsSummaryStats(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     // 1. Setup Date Boundaries
     const now = new Date();
@@ -1906,7 +1909,7 @@ export class OrdersService {
 
   async getRejectedOrdersStats(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     //
     const rejectedStatus = await this.findStatusByCode(
@@ -1965,7 +1968,7 @@ export class OrdersService {
     q?: { startDate?: string; endDate?: string },
   ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const qb = this.dataSource
       .getRepository(OrderActionLogEntity)
@@ -2014,7 +2017,7 @@ export class OrdersService {
       });
 
       if (orders.length === 0)
-        return { success: false, message: "No orders found" };
+        return { success: false, message: this.translations.t('domains.orders.no_orders_found') };
 
       const orderIds = orders.map((o) => o.id);
 
@@ -2024,7 +2027,7 @@ export class OrdersService {
         adminId,
         manager,
       );
-      if (!printedStatus) throw new Error("PRINTED status not configured");
+      if (!printedStatus) throw new Error(this.translations.t('domains.orders.printed_status_not_configured'));
 
       const newPrintOrders = [];
       const reprintOrders = [];
@@ -2093,7 +2096,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.WAYBILL_PRINTED,
           result: OrderActionResult.SUCCESS,
-          details: "Initial waybill printed.",
+          details: await this.requestTranslations.tAsync('domains.orders.log_initial_waybill_printed',adminId),
         });
       }
 
@@ -2106,7 +2109,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.WAYBILL_REPRINTED,
           result: OrderActionResult.SUCCESS,
-          details: "Waybill re-printed.",
+          details:  await this.requestTranslations.tAsync('domains.orders.log_waybill_reprinted',adminId),
         });
       }
       // 5. ✅ Log the Status Change Timeline (Bulk)
@@ -2177,7 +2180,7 @@ export class OrdersService {
         select: ["id", "statusId", "adminId"],
       });
 
-      if (!order) throw new NotFoundException("Order not found");
+      if (!order) throw new NotFoundException(this.translations.t('domains.orders.order_not_found'));
       const oldStatusId = order.statusId;
       const allowedStatuses = [OrderStatus.PRINTED, OrderStatus.PREPARING];
 
@@ -2197,7 +2200,7 @@ export class OrdersService {
         return {
           success: false,
           isOrderComplete: true,
-          message: `Order is currently [${currentStatusText}] and is not in a status that allows scanning. It must be Printed or Preparing.`,
+          message: this.translations.t('domains.orders.scan_invalid_status', { args: { currentStatus: currentStatusText } }),
         };
       }
 
@@ -2235,7 +2238,7 @@ export class OrdersService {
           ScanReason.SKU_NOT_IN_ORDER,
           ScanLogType.PREPARATION,
         );
-        return { success: false, code: ScanReason.SKU_NOT_IN_ORDER, message: `SKU ${sku} not in order` };
+        return { success: false, code: ScanReason.SKU_NOT_IN_ORDER, message: this.translations.t('domains.orders.sku_not_in_order', { args: { sku } }) };
       }
 
       let newScannedQuantity = 0;
@@ -2270,7 +2273,7 @@ export class OrdersService {
             ScanReason.ALREADY_FULLY_SCANNED,
             ScanLogType.PREPARATION,
           );
-          return { success: false, code: ScanReason.ALREADY_FULLY_SCANNED, message: "Item already fully scanned", scanned: item.scannedQuantity };
+          return { success: false, code: ScanReason.ALREADY_FULLY_SCANNED, message: this.translations.t('domains.orders.item_already_fully_scanned'), scanned: item.scannedQuantity };
         }
         newScannedQuantity = result.raw[0].scannedQuantity;
       }
@@ -2317,7 +2320,7 @@ export class OrdersService {
           fromStatusId: order.statusId, // Current status is now Preparing
           toStatusId: readyStatus.id,
           userId,
-          notes: "Automatic: All items scanned successfully",
+          notes: this.translations.t('domains.orders.log_all_items_scanned'),
 
           manager,
         });
@@ -2328,7 +2331,7 @@ export class OrdersService {
           orderId: order.id,
           actionType: OrderActionType.PREPARATION_STARTED,
           result: OrderActionResult.SUCCESS,
-          details: "Preparation phase completed successfully.",
+          details:  await this.requestTranslations.tAsync('domains.orders.log_preparation_completed',adminId),
         });
       }
 
@@ -2352,7 +2355,7 @@ export class OrdersService {
         select: ["id", "statusId", "adminId"],
       });
 
-      if (!order) throw new NotFoundException("Order not found");
+      if (!order) throw new NotFoundException(this.translations.t('domains.orders.order_not_found'));
       const oldStatusId = order.statusId;
       if (order.status.code !== OrderStatus.READY) {
         // await this.logFailedScan(
@@ -2367,7 +2370,7 @@ export class OrdersService {
         // );
         return {
           success: false,
-          message: "Order must be in READY status for shipping scan",
+          message: this.translations.t('domains.orders.order_must_be_ready_for_shipping_scan'),
         };
       }
 
@@ -2385,7 +2388,7 @@ export class OrdersService {
           ScanReason.SKU_NOT_IN_ORDER,
           ScanLogType.SHIPPING,
         );
-        return { success: false, message: `SKU ${sku} not in order` };
+        return { success: false, message: this.translations.t('domains.orders.sku_not_in_order', { args: { sku } }) };
       }
 
       if (item.shippingScannedQuantity >= item.quantity) {
@@ -2400,7 +2403,7 @@ export class OrdersService {
         );
         return {
           success: false,
-          message: "Item already fully scanned for shipping",
+          message: this.translations.t('domains.orders.item_already_fully_scanned_shipping'),
         };
       }
 
@@ -2421,7 +2424,7 @@ export class OrdersService {
           manager, orderId, sku, userId, adminId, ScanReason.ALREADY_FULLY_SCANNED,
           ScanLogType.SHIPPING,
         );
-        return { success: false, message: "Item already fully scanned for shipping" };
+        return { success: false, message: this.translations.t('domains.orders.item_already_fully_scanned_shipping') };
       }
 
 
@@ -2565,7 +2568,7 @@ export class OrdersService {
     const superAdmin = isSuperAdmin(me);
 
     const repo = manager ? manager.getRepository(OrderEntity) : this.orderRepo;
-    if (!superAdmin && !adminId) throw new BadRequestException("Missing adminId");
+    if (!superAdmin && !adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 
@@ -2618,7 +2621,7 @@ export class OrdersService {
       }))
       .getOne();
 
-    if (!order) throw new BadRequestException("Order not found");
+    if (!order) throw new BadRequestException(this.translations.t('domains.orders.order_not_found'));
 
     return order;
   }
@@ -2633,7 +2636,7 @@ export class OrdersService {
     const adminId = tenantId(me);
     const repo = manager ? manager.getRepository(OrderEntity) : this.orderRepo;
 
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const order = await repo
       .createQueryBuilder("order")
@@ -2664,7 +2667,7 @@ export class OrdersService {
       .andWhere("order.adminId = :adminId", { adminId })
       .getOne();
 
-    if (!order) throw new BadRequestException("Order not found");
+    if (!order) throw new BadRequestException(this.translations.t('domains.orders.order_not_found'));
 
     return order;
   }
@@ -2674,7 +2677,7 @@ export class OrdersService {
   // ========================================
   async create(me: any, dto: CreateOrderDto, ipAddress?: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return this.dataSource.transaction(async (manager) => {
       return this.createWithManager(manager, adminId, me, dto, ipAddress);
@@ -2745,7 +2748,7 @@ export class OrdersService {
     const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(dto.phoneNumber);
 
     // Get settings for duplicate window and auto-cancel
-    const settings = await this.getCachedSettings(adminId);
+    const settings = await this.clientSettingsService.getCachedSettings(adminId);
     const windowHours = settings?.duplicateWindowHours ?? 24;
     const autoCancel = settings?.autoCancelDuplicates ?? false;
 
@@ -2787,7 +2790,7 @@ export class OrdersService {
         where: { id: companyId },
       });
       if (!company) {
-        throw new BadRequestException("Invalid shipping company selected.");
+        throw new BadRequestException(this.translations.t('domains.orders.invalid_shipping_company'));
       }
 
       const integration = await this.shippingIntegrationRepo.findOne({
@@ -2799,7 +2802,7 @@ export class OrdersService {
 
       if (!integration || !integration.isActive) {
         throw new BadRequestException(
-          `${company.name} is not currently active.`,
+          this.translations.t('domains.orders.shipping_company_not_active', { args: { companyName: company.name } }),
         );
       }
     }
@@ -2811,7 +2814,7 @@ export class OrdersService {
 
       if (!store) {
         throw new BadRequestException(
-          "The selected store is invalid or does not belong to your account.",
+          this.translations.t('domains.orders.invalid_store'),
         );
       }
     }
@@ -2889,7 +2892,7 @@ export class OrdersService {
   // ========================================
   async update(me: any, id: string, dto: UpdateOrderDto, ipAddress?: string, options?: { skipStockValidation?: boolean }) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return this.dataSource.transaction(async (manager) => {
       const order = await manager
@@ -2907,7 +2910,7 @@ export class OrdersService {
         .andWhere("order.adminId = :adminId", { adminId })
         .getOne();
 
-      await this.throwIfDelivered(order, "Cannot update a order that has been closed.");
+      await this.throwIfDelivered(order, this.translations.t('domains.orders.cannot_update_closed'));
       const shippingRepo = manager.getRepository(ShippingCompanyEntity);
       const storeRepo = manager.getRepository(StoreEntity);
       const integrationRepo = manager.getRepository(ShippingIntegrationEntity);
@@ -2918,7 +2921,7 @@ export class OrdersService {
           order.status.code === OrderStatus.DELIVERED)
       ) {
         throw new BadRequestException(
-          "Cannot update shipped or delivered orders",
+          this.translations.t('domains.orders.cannot_update_shipped_delivered'),
         );
       }
       if (dto.shippingCompanyId == "none") {
@@ -2929,7 +2932,7 @@ export class OrdersService {
           where: { id: companyId },
         });
         if (!company) {
-          throw new BadRequestException("Invalid shipping company selected.");
+          throw new BadRequestException(this.translations.t('domains.orders.invalid_shipping_company'));
         }
 
         const integration = await integrationRepo.findOne({
@@ -2941,7 +2944,7 @@ export class OrdersService {
 
         if (!integration || !integration.isActive) {
           throw new BadRequestException(
-            `${company.name} is not currently active.`,
+            this.translations.t('domains.orders.shipping_company_not_active', { args: { companyName: company.name } }),
           );
         }
         order.shippingCompanyId = companyId;
@@ -2954,7 +2957,7 @@ export class OrdersService {
 
         if (!store) {
           throw new BadRequestException(
-            "The selected store is invalid or does not belong to your account.",
+            this.translations.t('domains.orders.invalid_store'),
           );
         }
       }
@@ -3032,7 +3035,7 @@ export class OrdersService {
           const variant = variantMap.get(dtoItem.variantId);
           if (!variant)
             throw new BadRequestException(
-              `Variant ID ${dtoItem.variantId} not found`,
+              this.translations.t('domains.orders.variant_id_not_found', { args: { variantId: dtoItem.variantId } }),
             );
 
           const existingItemIndex = currentOrderItems.findIndex(
@@ -3052,7 +3055,7 @@ export class OrdersService {
             await this.validateStockAvailability(
               adminId,
               [{ variantId: dtoItem.variantId, quantity: qtyDiff, variant }],
-              { errorMessagePrefix: "Insufficient stock" }
+              { errorMessagePrefix: this.translations.t('domains.orders.insufficient_stock_prefix') }
             );
           }
 
@@ -3165,8 +3168,9 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_UPDATED,
-        title: "Order Updated",
-        message: `Order #${order.orderNumber} has been updated.`,
+        title: await this.requestTranslations.tAsync('domains.orders.order_updated_title',adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_updated_message',adminId, { args: { orderNumber: order.orderNumber } }),
+
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
       });
@@ -3182,10 +3186,10 @@ export class OrdersService {
     ipAddress?: string,
   ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     if (!dto.items?.length) {
-      throw new BadRequestException("No orders provided");
+      throw new BadRequestException(this.translations.t('domains.orders.no_orders_provided'));
     }
 
     return this.dataSource.transaction(async (manager) => {
@@ -3205,7 +3209,7 @@ export class OrdersService {
         });
 
         if (!integration) {
-          throw new BadRequestException(`Active integration for ${dto.code} not found.`);
+          throw new BadRequestException(this.translations.t('domains.orders.active_integration_not_found', { args: { code: dto.code } }));
         }
       }
 
@@ -3243,7 +3247,7 @@ export class OrdersService {
         if (!order) {
           invalidResults.push({
             id: item.id,
-            reason: "Order not found or does not belong to your account.",
+            reason: this.translations.t('domains.orders.bulk_update_order_not_found'),
           });
           continue;
         }
@@ -3255,7 +3259,7 @@ export class OrdersService {
         ) {
           invalidResults.push({
             id: order.id,
-            reason: "Cannot update shipped or delivered orders.",
+            reason: this.translations.t('domains.orders.bulk_update_cannot_update_shipped'),
           });
           continue;
         }
@@ -3277,7 +3281,7 @@ export class OrdersService {
 
           const city = cityMap.get(item.cityId);
           if (!city) {
-            invalidResults.push({ id: item.id, reason: `City ID ${item.cityId} not found.` });
+            invalidResults.push({ id: item.id, reason: this.translations.t('domains.orders.bulk_update_city_not_found', { args: { cityId: item.cityId } }) });
             continue;
           }
 
@@ -3290,7 +3294,7 @@ export class OrdersService {
             if (!providerLocation) {
               invalidResults.push({
                 id: item.id,
-                reason: `City ${city.nameEn} is not supported by provider ${dto.code}.`
+                reason: this.translations.t('domains.orders.bulk_update_city_not_supported', { args: { cityName: city.nameEn, providerCode: dto.code } })
               });
               continue;
             }
@@ -3332,7 +3336,7 @@ export class OrdersService {
       // ❌ If ANY invalid → stop everything
       if (invalidResults.length > 0) {
         throw new BadRequestException({
-          message: "Some orders are invalid and cannot be updated.",
+          message: this.translations.t('domains.orders.bulk_update_some_invalid'),
           errors: invalidResults,
         });
       }
@@ -3359,7 +3363,7 @@ export class OrdersService {
     ipAddress?: string,
   ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 
     return this.dataSource.transaction(async (manager) => {
@@ -3368,8 +3372,8 @@ export class OrdersService {
         relations: ["items", "items.variant", "status"],
       });
 
-      if (!order) throw new BadRequestException("Order not found");
-      await this.throwIfDelivered(order, "Cannot update a order that has been closed.");
+      if (!order) throw new BadRequestException(this.translations.t('domains.orders.order_not_found'));
+      await this.throwIfDelivered(order, this.translations.t('domains.orders.cannot_update_closed'));
 
       const newStatus = await this.findStatusById(dto.statusId, order.adminId);
 
@@ -3453,8 +3457,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_STATUS_UPDATE,
-        title: "Order Status Updated",
-        message: `Order #${order.orderNumber} status changed to ${newStatus.name}.`,
+        title: await this.requestTranslations.tAsync('domains.orders.order_status_updated_title',adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_status_updated_message',adminId, { args: { orderNumber: order.orderNumber, statusName: newStatus.name }}),
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
       });
@@ -3477,7 +3481,7 @@ export class OrdersService {
   ) {
     const adminId = tenantId(me);
     const userId = me?.id;
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return this.dataSource.transaction(async (manager) => {
       // 1. Fetch Order and Rejected Status
@@ -3489,10 +3493,10 @@ export class OrdersService {
         this.findStatusByCode(OrderStatus.REJECTED, adminId, manager),
       ]);
 
-      if (!order) throw new NotFoundException("Order not found");
-      await this.throwIfDelivered(order, "Cannot reject a order that has been closed.");
+      if (!order) throw new NotFoundException(this.translations.t('domains.orders.order_not_found'));
+      await this.throwIfDelivered(order, this.translations.t('domains.orders.cannot_reject_closed'));
       if (!rejectedStatus)
-        throw new BadRequestException("Rejected status not found");
+        throw new BadRequestException(this.translations.t('domains.orders.rejected_status_not_found'));
 
       const oldStatusId = order.statusId;
 
@@ -3507,6 +3511,7 @@ export class OrdersService {
 
       // 3. ✅ LOG OPERATIONAL ACTION (The Movement)
       // We mark this as FAILED because the order is being pulled out of the flow
+      const reason = dto.notes || this.translations.t('domains.orders.log_no_reason_provided');
       await this.logOrderAction({
         manager,
         adminId,
@@ -3514,7 +3519,7 @@ export class OrdersService {
         orderId: order.id,
         actionType: OrderActionType.REJECTED,
         result: OrderActionResult.FAILED,
-        details: `Order Rejected. Reason: ${dto.notes || "No reason provided"}`,
+        details:  await this.requestTranslations.tAsync('domains.orders.log_order_rejected',adminId, { args: { reason } }),
       });
 
       // 4. ✅ LOG STATUS CHANGE (The Timeline)
@@ -3532,8 +3537,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_REJECTED,
-        title: "Order Rejected",
-        message: `Order #${order.orderNumber} has been rejected. Reason: ${dto.notes || "No reason provided"}`,
+        title: await this.requestTranslations.tAsync('domains.orders.order_rejected_title',adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_rejected_message',adminId, { args: { orderNumber: order.orderNumber, reason } }),
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
       });
@@ -3545,7 +3550,7 @@ export class OrdersService {
   async reConfirmOrder(me: any, id: string, ipAddress?: string) {
     const adminId = tenantId(me);
     const userId = me?.id;
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     return this.dataSource.transaction(async (manager) => {
       // 1. Fetch Order and Confirmed Status
@@ -3557,10 +3562,10 @@ export class OrdersService {
         this.findStatusByCode(OrderStatus.CONFIRMED, adminId, manager),
       ]);
 
-      await this.throwIfDelivered(order, "Cannot re-confirm a order that has been closed.");
-      if (!order) throw new NotFoundException("Order not found");
+      await this.throwIfDelivered(order, this.translations.t('domains.orders.cannot_reconfirm_closed'));
+      if (!order) throw new NotFoundException(this.translations.t('domains.orders.order_not_found'));
       if (!confirmedStatus)
-        throw new BadRequestException("Confirmed status not found");
+        throw new BadRequestException(this.translations.t('domains.orders.confirmed_status_not_found'));
 
       const oldStatusId = order.statusId;
 
@@ -3582,7 +3587,7 @@ export class OrdersService {
         orderId: order.id,
         actionType: OrderActionType.CONFIRMED,
         result: OrderActionResult.SUCCESS,
-        details: `Order re-confirmed and returned to workflow.`,
+        details:  await this.requestTranslations.tAsync('domains.orders.log_order_reconfirmed',adminId),
       });
 
       // 4. ✅ LOG STATUS CHANGE (The Timeline)
@@ -3592,7 +3597,7 @@ export class OrdersService {
         fromStatusId: oldStatusId,
         toStatusId: confirmedStatus.id,
         userId,
-        notes: "Re-confirmed after rejection",
+        notes: await this.requestTranslations.tAsync('domains.orders.log_reconfirmed_after_rejection',adminId),
         ipAddress,
         manager,
       });
@@ -3600,8 +3605,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_RECONFIRMED,
-        title: "Order Re-confirmed",
-        message: `Order #${order.orderNumber} has been re-confirmed.`,
+        title: await this.requestTranslations.tAsync('domains.orders.order_reconfirmed_title',adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_reconfirmed_message',adminId, { args: { orderNumber: order.orderNumber } }),
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
       });
@@ -3620,7 +3625,7 @@ export class OrdersService {
     ipAddress?: string,
   ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
     const employeeId = me?.id;
     const notificationPromises = [];
     return this.dataSource.transaction(async (manager) => {
@@ -3630,7 +3635,7 @@ export class OrdersService {
         relations: ["status", "items", "items.variant", "assignments"],
       });
 
-      if (!order) throw new BadRequestException("Order not found");
+      if (!order) throw new BadRequestException(this.translations.t('domains.orders.order_not_found'));
 
       const oldStatus = order?.status;
 
@@ -3649,7 +3654,7 @@ export class OrdersService {
         }
         return {
           success: false,
-          message: oldStatus.code === OrderStatus.DELIVERED ? "Order has been delivered and cannot be edited." : "Order cannot be edited because it has already entered the warehouse."
+          message: oldStatus.code === OrderStatus.DELIVERED ? this.translations.t('domains.orders.order_delivered_cannot_edit') : this.translations.t('domains.orders.order_in_warehouse_cannot_edit')
         };
       }
 
@@ -3659,7 +3664,7 @@ export class OrdersService {
       );
       if (!activeAssignment) {
         throw new BadRequestException(
-          "You do not have an active assignment for this order.",
+          this.translations.t('domains.orders.no_active_assignment'),
         );
       }
 
@@ -3669,7 +3674,7 @@ export class OrdersService {
 
       if (oldStatusId === newStatus.id) return order;
 
-      const settings = await this.getCachedSettings(adminId);
+      const settings = await this.clientSettingsService.getCachedSettings(adminId);
       const allowed = settings.confirmationStatuses;
 
       if (
@@ -3677,7 +3682,7 @@ export class OrdersService {
         !allowed.includes(newStatus.code as OrderStatus)
       ) {
         throw new BadRequestException(
-          `Confirmation team is not allowed to set status to ${newStatus.code}`,
+          this.translations.t('domains.orders.confirmation_status_not_allowed', { args: { statusCode: newStatus.code } }),
         );
       }
 
@@ -3705,7 +3710,7 @@ export class OrdersService {
 
           if (!newStatus)
             throw new BadRequestException(
-              "Auto-move status is not configured correctly.",
+              this.translations.t('domains.orders.auto_move_status_not_configured'),
             );
 
           activeAssignment.isAssignmentActive = false;
@@ -3718,8 +3723,8 @@ export class OrdersService {
               this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.ORDER_STATUS_UPDATE,
-                title: `Order #${order.orderNumber} Updated`,
-                message: `Order #${order.orderNumber} has not been confirmed yet — please follow up with the customer.`,
+                title: await this.requestTranslations.tAsync('domains.orders.order_follow_up_title',adminId, { args: { orderNumber: order.orderNumber } }),
+                message: await this.requestTranslations.tAsync('domains.orders.order_follow_up_message',adminId, { args: { orderNumber: order.orderNumber } }),
                 relatedEntityType: "order",
                 relatedEntityId: String(order.id),
               }),
@@ -3742,8 +3747,8 @@ export class OrdersService {
           this.notificationService.create({
             userId: adminId,
             type: NotificationType.ORDER_STATUS_UPDATE,
-            title: `Order #${order.orderNumber} Updated`,
-            message: `Status changed to "${newStatus.name}" by ${me.name || "Staff"}.`,
+            title: await this.requestTranslations.tAsync('domains.orders.order_status_changed_by_staff_title',adminId, { args: { orderNumber: order.orderNumber } }),
+            message: await this.requestTranslations.tAsync('domains.orders.order_status_changed_by_staff_message',adminId, { args: { orderNumber: order.orderNumber, statusName: newStatus.name, staffName: me.name || "Staff" } }),
             relatedEntityType: "order",
             relatedEntityId: String(order.id),
           }),
@@ -3794,7 +3799,7 @@ export class OrdersService {
         shippingCompanyId: order?.shippingCompanyId,
         actionType: OrderActionType.CONFIRMED,
         result: actionResult,
-        details: `Confirmation process: Moved from ${oldStatus?.name} to ${newStatus.name}. Retries: ${activeAssignment.retriesUsed} of ${activeAssignment.maxRetriesAtAssignment}`,
+        details:  await this.requestTranslations.tAsync('domains.orders.log_confirmation_process',adminId, { args: { oldStatusName: oldStatus?.name, newStatusName: newStatus.name, retriesUsed: activeAssignment.retriesUsed, maxRetries: activeAssignment.maxRetriesAtAssignment } }),
       });
 
       // Log History
@@ -3815,8 +3820,8 @@ export class OrdersService {
         this.notificationService.create({
           userId: activeAssignment.employeeId,
           type: NotificationType.ORDER_STATUS_UPDATE,
-          title: `Assignment Updated`,
-          message: `Your assigned order #${savedOrder.orderNumber} is now "${newStatus.name}".`,
+          title: await this.requestTranslations.tAsync('domains.orders.assignment_updated_title',adminId),
+          message: await this.requestTranslations.tAsync('domains.orders.assignment_updated_message',adminId, { args: { orderNumber: savedOrder.orderNumber, statusName: newStatus.name } }),
           relatedEntityType: "order",
           relatedEntityId: String(savedOrder.id),
         }),
@@ -3837,7 +3842,7 @@ export class OrdersService {
   // ========================================
   async updatePaymentStatus(me: any, id: string, dto: UpdatePaymentStatusDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const order = await this.get(me, id);
     await this.throwIfDelivered(order, "Cannot update a order that has been closed.");
@@ -3852,7 +3857,7 @@ export class OrdersService {
   // ========================================
   async getMessages(me: any, orderId: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     await this.get(me, orderId); // validate access
 
@@ -3864,7 +3869,7 @@ export class OrdersService {
 
   async addMessage(me: any, orderId: string, dto: AddOrderMessageDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     await this.get(me, orderId); // validate access
 
@@ -3882,7 +3887,7 @@ export class OrdersService {
 
   async markMessagesRead(me: any, orderId: string, dto: MarkMessagesReadDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     await this.get(me, orderId); // validate access
 
@@ -3899,7 +3904,7 @@ export class OrdersService {
   // ========================================
   async remove(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const order = await this.get(me, id);
 
@@ -3923,7 +3928,7 @@ export class OrdersService {
 
     if (!isDeletableStatus && !isNonSystemStatus) {
       throw new BadRequestException(
-        "This order status cannot be deleted"
+        this.translations.t('domains.orders.order_status_cannot_delete'),
       );
     }
     // Release reserved stock
@@ -3943,8 +3948,8 @@ export class OrdersService {
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_DELETED,
-      title: "Order Deleted",
-      message: `Order #${order.orderNumber} has been deleted.`,
+      title: await this.requestTranslations.tAsync('domains.orders.order_deleted_title',adminId),
+      message: await this.requestTranslations.tAsync('domains.orders.order_deleted_message',adminId, { args: { orderNumber: order.orderNumber } }),
     });
 
     return { ok: true };
@@ -3981,7 +3986,7 @@ export class OrdersService {
 
     if (!status) {
       throw new NotFoundException(
-        `Status "${trimmedCode}" not found for this account.`,
+        this.translations.t('domains.orders.status_code_not_found', { args: { code: trimmedCode } }),
       );
     }
 
@@ -4004,7 +4009,7 @@ export class OrdersService {
     });
 
     if (!status) {
-      throw new NotFoundException(`Status "${id}" not found for this account.`);
+      throw new NotFoundException(this.translations.t('domains.orders.status_id_not_found', { args: { id } }));
     }
 
     return status;
@@ -4020,7 +4025,7 @@ export class OrdersService {
     });
 
     if (!status) {
-      throw new Error("Critical: No order statuses found in system.");
+      throw new Error(this.translations.t('domains.orders.critical_no_order_statuses'));
     }
 
     return status;
@@ -4056,8 +4061,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_STATUS_CREATED,
-        title: "Status Reactivated",
-        message: `Status "${saved.name}" has been reactivated and updated.`,
+        title: await this.requestTranslations.tAsync('domains.orders.status_reactivated_title',adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.status_reactivated_message',adminId, { args: { name: saved.name } }),
       });
 
       return saved;
@@ -4081,8 +4086,8 @@ export class OrdersService {
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_STATUS_CREATED,
-      title: "New Status Created",
-      message: `A new order status "${saved.name}" has been created.`,
+      title: await this.requestTranslations.tAsync('domains.orders.status_created_title',adminId),
+      message: await this.requestTranslations.tAsync('domains.orders.status_created_message',adminId, { args: { name: saved.name } }),
     });
 
     return saved;
@@ -4094,12 +4099,12 @@ export class OrdersService {
 
     if (!status)
       throw new NotFoundException(
-        "Status not found or is a protected System Status.",
+        this.translations.t('domains.orders.status_not_found_or_protected'),
       );
 
     // Extra safety: even if adminId matches, block if system is true
     if (status.system)
-      throw new ForbiddenException("Cannot edit system statuses.");
+      throw new ForbiddenException(this.translations.t('domains.orders.cannot_edit_system_statuses'));
     const newName = dto.name?.trim() ?? status.name;
 
     const code = slugify(newName);
@@ -4118,8 +4123,8 @@ export class OrdersService {
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_STATUS_SETTINGS_UPDATED,
-      title: "Status Updated",
-      message: `The status "${saved.name}" has been updated.`,
+      title: await this.requestTranslations.tAsync('domains.orders.status_updated_title',adminId),
+      message: await this.requestTranslations.tAsync('domains.orders.status_updated_message',adminId, { args: { statusName: saved.name } }),
     });
 
     return saved;
@@ -4159,7 +4164,7 @@ export class OrdersService {
     if (existing) {
       const conflictType = existing.code === code ? "code" : "name";
       throw new BadRequestException(
-        `Status ${conflictType} already exists. Please choose another name.`,
+        this.translations.t('domains.orders.status_conflict_exists', { args: { conflictType } }),
       );
     }
   }
@@ -4168,9 +4173,9 @@ export class OrdersService {
     const adminId = tenantId(me);
     const status = await this.statusRepo.findOneBy({ id, adminId: adminId });
 
-    if (!status) throw new NotFoundException("Status not found.");
+    if (!status) throw new NotFoundException(this.translations.t('domains.orders.status_not_found_dot'));
     if (status.system)
-      throw new ForbiddenException("System statuses cannot be deleted.");
+      throw new ForbiddenException(this.translations.t('domains.orders.system_status_cannot_delete'));
 
 
 
@@ -4203,6 +4208,10 @@ export class OrdersService {
   // ========================================
   async exportOrders(me: any, q?: any) {
     const isShippedExport = String(q?.status ?? "").trim() === OrderStatus.SHIPPED;
+    const na = this.translations.t('common.not_applicable');
+    const unassigned = this.translations.t('common.unassigned');
+    const t = (key: Parameters<TranslationService['t']>[0], options?: Parameters<TranslationService['t']>[1]) =>
+      this.translations.t(key, options);
 
     // Use list method to get all orders (no pagination)
     const { records: orders } = await this.list(me, { ...q, limit: 10000 });
@@ -4213,9 +4222,9 @@ export class OrdersService {
           order.items
             ?.map(
               (item) =>
-                `${item.variant?.product?.name || "N/A"} - ${item.variant?.sku || "N/A"} (x${item.quantity})`,
+                `${item.variant?.product?.name || na} - ${item.variant?.sku || na} (x${item.quantity})`,
             )
-            .join("; ") || "N/A";
+            .join("; ") || na;
         const shipment = order.shipments?.[0];
         const assignment = order.assignments?.[0];
         const shippingDays = this.calcShippingDaysElapsed(order.shippedAt);
@@ -4223,45 +4232,45 @@ export class OrdersService {
         return {
           orderNumber: order.orderNumber,
           customerName: order.customerName,
-          phoneNumber: order.phoneNumber || "N/A",
-          city: order.city || "N/A",
-          address: order.address || "N/A",
+          phoneNumber: order.phoneNumber || na,
+          city: order.city || na,
+          address: order.address || na,
           finalTotal: order.finalTotal || 0,
           shippingCost: order.shippingCost || 0,
           products: productsList,
           status: order.status?.system
             ? order.status.code
-            : order.status?.name || "N/A",
-          shippingDays: shippingDays ?? "N/A",
-          trackingNumber: shipment?.trackingNumber || order.trackingNumber || "N/A",
-          shipmentStatus: shipment?.status || "N/A",
+            : order.status?.name || na,
+          shippingDays: shippingDays ?? na,
+          trackingNumber: shipment?.trackingNumber || order.trackingNumber || na,
+          shipmentStatus: shipment?.status || na,
           shipmentDate: shipment?.created_at || order.shippedAt
             ? new Date(shipment?.created_at || order.shippedAt).toLocaleDateString()
-            : "N/A",
-          shippingCompany: order.shippingCompany?.name || "N/A",
-          assignedEmployee: assignment?.employee?.name || "N/A",
+            : na,
+          shippingCompany: order.shippingCompany?.name || na,
+          assignedEmployee: assignment?.employee?.name || na,
         };
       });
 
       const workbook = new ExcelJS.Workbook();
-      const worksheet = workbook.addWorksheet("Shipped Orders");
+      const worksheet = workbook.addWorksheet(t('domains.orders.export_shipped_orders_sheet'));
 
       worksheet.columns = [
-        { header: "Order Number", key: "orderNumber", width: 18 },
-        { header: "Customer Name", key: "customerName", width: 25 },
-        { header: "Phone Number", key: "phoneNumber", width: 18 },
-        { header: "City", key: "city", width: 15 },
-        { header: "Address", key: "address", width: 35 },
-        { header: "Final Total", key: "finalTotal", width: 15 },
-        { header: "Shipping Cost", key: "shippingCost", width: 15 },
-        { header: "Products", key: "products", width: 40 },
-        { header: "Order Status", key: "status", width: 20 },
-        { header: "Shipping Days", key: "shippingDays", width: 15 },
-        { header: "Tracking Number", key: "trackingNumber", width: 22 },
-        { header: "Shipment Status", key: "shipmentStatus", width: 20 },
-        { header: "Shipment Date", key: "shipmentDate", width: 18 },
-        { header: "Shipping Company", key: "shippingCompany", width: 20 },
-        { header: "Assigned Employee", key: "assignedEmployee", width: 22 },
+        { header: t('common.export_order_number'), key: "orderNumber", width: 18 },
+        { header: t('domains.orders.export_customer_name'), key: "customerName", width: 25 },
+        { header: t('domains.orders.export_phone_number'), key: "phoneNumber", width: 18 },
+        { header: t('domains.orders.export_city'), key: "city", width: 15 },
+        { header: t('domains.orders.export_address'), key: "address", width: 35 },
+        { header: t('domains.orders.export_final_total'), key: "finalTotal", width: 15 },
+        { header: t('domains.orders.export_shipping_cost'), key: "shippingCost", width: 15 },
+        { header: t('domains.orders.export_products'), key: "products", width: 40 },
+        { header: t('domains.orders.export_order_status'), key: "status", width: 20 },
+        { header: t('domains.orders.export_shipping_days'), key: "shippingDays", width: 15 },
+        { header: t('domains.orders.export_tracking_number'), key: "trackingNumber", width: 22 },
+        { header: t('domains.orders.export_shipment_status'), key: "shipmentStatus", width: 20 },
+        { header: t('domains.orders.export_shipment_date'), key: "shipmentDate", width: 18 },
+        { header: t('common.export_shipping_company'), key: "shippingCompany", width: 20 },
+        { header: t('domains.orders.export_assigned_employee'), key: "assignedEmployee", width: 22 },
       ];
 
       worksheet.getRow(1).font = { bold: true };
@@ -4284,32 +4293,32 @@ export class OrdersService {
         order.items
           ?.map(
             (item) =>
-              `${item.variant?.product?.name || "N/A"} (x${item.quantity})`,
+              `${item.variant?.product?.name || na} (x${item.quantity})`,
           )
-          .join("; ") || "N/A";
+          .join("; ") || na;
       const activeAssignment = order.assignments?.find(
         (a) => a.isAssignmentActive,
       );
       const assignedTo = activeAssignment?.employee
-        ? `${activeAssignment.employee.name || "N/A"} (ID: ${activeAssignment.employee.id || "N/A"})`
-        : "Unassigned";
+        ? `${activeAssignment.employee.name || na} (ID: ${activeAssignment.employee.id || na})`
+        : unassigned;
       return {
         orderNumber: order.orderNumber,
         customerName: order.customerName,
         assignedTo: assignedTo,
-        phoneNumber: order.phoneNumber || "N/A",
-        email: order.email || "N/A",
-        address: order.address || "N/A",
-        city: order.city || "N/A",
-        area: order.area || "N/A",
-        landmark: order.landmark || "N/A",
+        phoneNumber: order.phoneNumber || na,
+        email: order.email || na,
+        address: order.address || na,
+        city: order.city || na,
+        area: order.area || na,
+        landmark: order.landmark || na,
         products: productsList,
         status: order.status?.system
           ? order.status.code
-          : order.status?.name || "N/A",
-        paymentMethod: order.paymentMethod || "N/A",
-        paymentStatus: order.paymentStatus || "N/A",
-        shippingCompany: order.shippingCompany?.name || "N/A",
+          : order.status?.name || na,
+        paymentMethod: order.paymentMethod || na,
+        paymentStatus: order.paymentStatus || na,
+        shippingCompany: order.shippingCompany?.name || na,
         shippingCost: order.shippingCost || 0,
         discount: order.discount || 0,
         deposit: order.deposit || 0,
@@ -4320,46 +4329,45 @@ export class OrdersService {
           ) || 0) +
           (order.shippingCost || 0) -
           (order.discount || 0),
-        notes: order.notes || "N/A",
-        customerNotes: order.customerNotes || "N/A",
+        notes: order.notes || na,
+        customerNotes: order.customerNotes || na,
         createdAt: order.created_at
           ? new Date(order.created_at).toLocaleDateString()
-          : "N/A",
+          : na,
         updatedAt: order.updated_at
           ? new Date(order.updated_at).toLocaleDateString()
-          : "N/A",
+          : na,
       };
     });
 
     // Create workbook and worksheet
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet("Orders");
+    const worksheet = workbook.addWorksheet(t('domains.orders.export_orders_sheet'));
 
     // Define columns
     const columns = [
-      { header: "Order Number", key: "orderNumber", width: 18 },
-      { header: "Customer Name", key: "customerName", width: 25 },
-      { header: "Assigned To", key: "assignedTo", width: 25 },
-      { header: "Phone Number", key: "phoneNumber", width: 18 },
-      // { header: "Alternative Phone", key: "alternativePhone", width: 18 },
-      { header: "Email", key: "email", width: 30 },
-      { header: "Address", key: "address", width: 35 },
-      { header: "City", key: "city", width: 15 },
-      { header: "Area", key: "area", width: 15 },
-      { header: "Landmark", key: "landmark", width: 20 },
-      { header: "Products", key: "products", width: 40 },
-      { header: "Status", key: "status", width: 20 },
-      { header: "Payment Method", key: "paymentMethod", width: 18 },
-      { header: "Payment Status", key: "paymentStatus", width: 18 },
-      { header: "Shipping Company", key: "shippingCompany", width: 20 },
-      { header: "Shipping Cost", key: "shippingCost", width: 15 },
-      { header: "Discount", key: "discount", width: 15 },
-      { header: "Deposit", key: "deposit", width: 15 },
-      { header: "Final Total", key: "finalTotal", width: 15 },
-      { header: "Notes", key: "notes", width: 30 },
-      { header: "Customer Notes", key: "customerNotes", width: 30 },
-      { header: "Created At", key: "createdAt", width: 15 },
-      { header: "Updated At", key: "updatedAt", width: 15 },
+      { header: t('common.export_order_number'), key: "orderNumber", width: 18 },
+      { header: t('domains.orders.export_customer_name'), key: "customerName", width: 25 },
+      { header: t('domains.orders.export_assigned_to'), key: "assignedTo", width: 25 },
+      { header: t('domains.orders.export_phone_number'), key: "phoneNumber", width: 18 },
+      { header: t('domains.orders.export_email'), key: "email", width: 30 },
+      { header: t('domains.orders.export_address'), key: "address", width: 35 },
+      { header: t('domains.orders.export_city'), key: "city", width: 15 },
+      { header: t('domains.orders.export_area'), key: "area", width: 15 },
+      { header: t('domains.orders.export_landmark'), key: "landmark", width: 20 },
+      { header: t('domains.orders.export_products'), key: "products", width: 40 },
+      { header: t('common.export_status'), key: "status", width: 20 },
+      { header: t('domains.orders.export_payment_method'), key: "paymentMethod", width: 18 },
+      { header: t('domains.orders.export_payment_status'), key: "paymentStatus", width: 18 },
+      { header: t('common.export_shipping_company'), key: "shippingCompany", width: 20 },
+      { header: t('domains.orders.export_shipping_cost'), key: "shippingCost", width: 15 },
+      { header: t('domains.orders.export_discount'), key: "discount", width: 15 },
+      { header: t('domains.orders.export_deposit'), key: "deposit", width: 15 },
+      { header: t('domains.orders.export_final_total'), key: "finalTotal", width: 15 },
+      { header: t('domains.orders.export_notes'), key: "notes", width: 30 },
+      { header: t('domains.orders.export_customer_notes'), key: "customerNotes", width: 30 },
+      { header: t('domains.orders.export_created_at'), key: "createdAt", width: 15 },
+      { header: t('domains.orders.export_updated_at'), key: "updatedAt", width: 15 },
     ];
 
     worksheet.columns = columns;
@@ -4397,7 +4405,7 @@ export class OrdersService {
       this.productRepo
         .createQueryBuilder('product')
         .leftJoinAndSelect('product.variants', 'variant')
-        .leftJoin(OrderRetrySettingsEntity, 'settings', 'settings.adminId = product.adminId')
+        .leftJoin(ClientSettingsEntity, 'settings', 'settings.adminId = product.adminId')
         .where('product.adminId = :adminId', { adminId: adminId.trim() })
         .andWhere('product.isActive = :isActive', { isActive: true })
         .andWhere('variant.isActive = :vActive', { vActive: true })
@@ -4431,30 +4439,30 @@ export class OrdersService {
     workbook.creator = "Madar";
     workbook.created = new Date();
 
-    const sheet = workbook.addWorksheet("Orders", {
+    const sheet = workbook.addWorksheet(this.translations.t('domains.orders.export_orders_sheet'), {
       views: [{ state: "frozen", ySplit: 2 }],
     });
 
     const columns = [
-      { header: "customerName", key: "customerName", width: 22 },
-      { header: "phoneNumber", key: "phoneNumber", width: 16 },
-      { header: "secondPhoneNumber (default empty)", key: "secondPhoneNumber", width: 40 },
-      { header: "email (default empty)", key: "email", width: 28 },
-      { header: "address", key: "address", width: 32 },
-      { header: "landmark (default empty)", key: "landmark", width: 30 },
-      { header: "city", key: "city", width: 14 },
-      { header: "area", key: "area", width: 14 },
-      { header: "paymentMethod (default cod)", key: "paymentMethod", width: 40 },
-      { header: "paymentStatus (default pending)", key: "paymentStatus", width: 40 },
-      { header: "shippingCompany (default empty)", key: "shippingCompany", width: 45 },
-      { header: "allowOpenPackage (default false)", key: "allowOpenPackage", width: 45 },
-      { header: "store (default empty)", key: "store", width: 30 },
-      { header: "shippingCost (default 0)", key: "shippingCost", width: 30 },
-      { header: "deposit (default 0)", key: "deposit", width: 30 },
-      { header: "discount (default 0)", key: "discount", width: 30 },
-      { header: "notes (default empty)", key: "notes", width: 24 },
-      { header: "customerNotes (default empty)", key: "customerNotes", width: 40 },
-      { header: "items (SKU|Quantity|UnitPrice)", key: "items", width: 50 },
+      { header: this.translations.t('domains.orders.export_customer_name'), key: "customerName", width: 22 },
+      { header: this.translations.t('domains.orders.export_phone_number'), key: "phoneNumber", width: 16 },
+      { header: this.translations.t('domains.orders.export_second_phone_number'), key: "secondPhoneNumber", width: 40 },
+      { header: this.translations.t('domains.orders.export_email'), key: "email", width: 28 },
+      { header: this.translations.t('domains.orders.export_address'), key: "address", width: 32 },
+      { header: this.translations.t('domains.orders.export_landmark'), key: "landmark", width: 30 },
+      { header: this.translations.t('domains.orders.export_city'), key: "city", width: 14 },
+      { header: this.translations.t('domains.orders.export_area'), key: "area", width: 14 },
+      { header: this.translations.t('domains.orders.export_payment_method'), key: "paymentMethod", width: 40 },
+      { header: this.translations.t('domains.orders.export_payment_status'), key: "paymentStatus", width: 40 },
+      { header: this.translations.t('domains.orders.export_shipping_company'), key: "shippingCompany", width: 45 },
+      { header: this.translations.t('domains.orders.export_allow_open_package'), key: "allowOpenPackage", width: 45 },
+      { header: this.translations.t('domains.orders.export_store'), key: "store", width: 30 },
+      { header: this.translations.t('domains.orders.export_shipping_cost'), key: "shippingCost", width: 30 },
+      { header: this.translations.t('domains.orders.export_deposit'), key: "deposit", width: 30 },
+      { header: this.translations.t('domains.orders.export_discount'), key: "discount", width: 30 },
+      { header: this.translations.t('domains.orders.export_notes'), key: "notes", width: 24 },
+      { header: this.translations.t('domains.orders.export_customer_notes'), key: "customerNotes", width: 40 },
+      { header: this.translations.t('domains.orders.export_items'), key: "items", width: 50 },
     ];
     sheet.columns = columns;
 
@@ -4485,7 +4493,7 @@ export class OrdersService {
     // Note Row (Row 1)
     this.applyNoteRow(
       sheet,
-      "Format: SKU|Quantity|UnitPrice (comma separated for multiple). Leave optional fields (email, landmark, notes, etc.) empty to use defaults.",
+      this.translations.t('domains.orders.export_format'),
       columns.length,
     );
 
@@ -4504,18 +4512,18 @@ export class OrdersService {
     const pmValues = Object.values(PaymentMethod || {});
     const psValues = Object.values(PaymentStatus || {});
 
-    const pmSheet = workbook.addWorksheet("Payment Methods");
-    this.applyNoteRow(pmSheet, "Select a payment method from this list for the payment method column.", 10);
+    const pmSheet = workbook.addWorksheet(this.translations.t('domains.orders.export_payment_methods_sheet'));
+    this.applyNoteRow(pmSheet, this.translations.t('domains.orders.export_payment_method_note'), 10);
     paymentMethodValues.forEach((val, i) => { pmSheet.getCell(`A${i + 2}`).value = val; });
 
     // PaymentStatus Sheet
-    const psSheet = workbook.addWorksheet("Payment Statuses");
-    this.applyNoteRow(psSheet, "Select a payment status from this list for the payment status column.", 10);
+    const psSheet = workbook.addWorksheet(this.translations.t('domains.orders.export_payment_statuses_sheet'));
+    this.applyNoteRow(psSheet, this.translations.t('domains.orders.export_payment_status_note'), 10);
     paymentStatusValues.forEach((val, i) => { psSheet.getCell(`A${i + 2}`).value = val; });
 
     // Booleans Sheet
-    const boolSheet = workbook.addWorksheet("Booleans");
-    this.applyNoteRow(boolSheet, "Use 'true' or 'false' for boolean fields like allowOpenPackage.", 10);
+    const boolSheet = workbook.addWorksheet(this.translations.t('domains.orders.export_booleans_sheet'));
+    this.applyNoteRow(boolSheet, this.translations.t('domains.orders.export_boolean_note'), 10);
     booleanValues.forEach((val, i) => { boolSheet.getCell(`A${i + 2}`).value = val; });
 
     // --- 4. Apply Data Validations to Main Sheet ---
@@ -4543,14 +4551,14 @@ export class OrdersService {
 
     // Dynamic Validation Sheets
     if (storeProviders.length > 0) {
-      const storesSheet = workbook.addWorksheet("Stores");
-      this.applyNoteRow(storesSheet, "Select a store provider from this list for the store column.", 10);
+      const storesSheet = workbook.addWorksheet(this.translations.t('domains.orders.export_stores_sheet'));
+      this.applyNoteRow(storesSheet, this.translations.t('domains.orders.export_store_note'), 10);
       storeProviders.forEach((v, i) => storesSheet.getCell(`A${i + 2}`).value = v);
     }
 
     if (shippingProviders.length > 0) {
-      const shipSheet = workbook.addWorksheet("Shipping");
-      this.applyNoteRow(shipSheet, "Select a shipping company from this list for the shipping company column.", 10);
+      const shipSheet = workbook.addWorksheet(this.translations.t('domains.orders.export_shipping_sheet'));
+      this.applyNoteRow(shipSheet, this.translations.t('domains.orders.export_shipping_note'), 10);
       shippingProviders.forEach((v, i) => shipSheet.getCell(`A${i + 2}`).value = v);
     }
 
@@ -4576,17 +4584,17 @@ export class OrdersService {
     // ==========================================
     // We do NOT hide this sheet so users can browse it and copy the Variant IDs.
 
-    const refSheet = workbook.addWorksheet("Products Reference");
+    const refSheet = workbook.addWorksheet(this.translations.t('domains.orders.export_products_reference_sheet'));
     refSheet.columns = [
-      { header: "Product / Variant Name", key: "name", width: 45 },
-      { header: "SKU", key: "sku", width: 50 },
-      { header: "Available Stock", key: "stock", width: 18 },
-      { header: "Price", key: "price", width: 18 },
+      { header: this.translations.t('domains.orders.export_product_variant_name'), key: "name", width: 45 },
+      { header: this.translations.t('domains.orders.export_sku'), key: "sku", width: 50 },
+      { header: this.translations.t('domains.orders.export_available_stock'), key: "stock", width: 18 },
+      { header: this.translations.t('domains.orders.export_price'), key: "price", width: 18 },
     ];
 
     this.applyNoteRow(
       refSheet,
-      "This sheet lists all active products and their variants with available stock > 0. Use the SKU to reference variants in the 'items' column of the Orders sheet.",
+      this.translations.t('domains.orders.export_products_reference_note'),
       4,
     );
     // Style the reference headers (Row 2 due to note row at Row 1)
@@ -4725,7 +4733,7 @@ export class OrdersService {
     addError(
       rowNumber,
       cellNumber,
-      `Invalid ${fieldName}: expected string/number but got ${typeOf} or link`,
+      this.translations.t('domains.orders.bulk_invalid_cell_value', { args: { fieldName, typeOf } }),
     );
 
     return "";
@@ -4744,8 +4752,8 @@ export class OrdersService {
     skuErrors: { sku: string; totalQty: number; available: number }[];
   }> {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
-    if (!file?.buffer) throw new BadRequestException("No file uploaded");
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!file?.buffer) throw new BadRequestException(this.translations.t('common.no_file_uploaded'));
 
     const [storesData, shippingData, admin, storeProviders, shippingProviders] =
       await Promise.all([
@@ -4771,7 +4779,7 @@ export class OrdersService {
 
     const sheet = workbook.getWorksheet("Orders");
     if (!sheet) {
-      throw new BadRequestException("Excel file must have an 'Orders' sheet");
+      throw new BadRequestException(this.translations.t('domains.orders.excel_orders_sheet_required'));
     }
 
     const rowCount = sheet.rowCount - 2;
@@ -4784,7 +4792,7 @@ export class OrdersService {
 
     if (usage.count + rowCount > limit) {
       throw new BadRequestException(
-        `Bulk upload limit exceeded. You can upload up to ${remaining} more row(s), but you tried to upload ${rowCount}.`,
+        this.translations.t('domains.orders.bulk_upload_limit_exceeded', { args: { remaining, rowCount } }),
       );
     }
 
@@ -4994,53 +5002,63 @@ export class OrdersService {
       const rowErrors: string[] = [];
 
       if (!row.customerName || row.customerName.length > 200) {
-        rowErrors.push("Invalid customerName (Required, max 200)");
-        addCellError(row.rowNumber, 1, "Invalid customerName (Required, max 200)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_customer_name');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 1, msg);
       }
 
       if (!row.phoneNumber || row.phoneNumber.length > 50) {
-        rowErrors.push("Invalid phoneNumber (Required, max 50)");
-        addCellError(row.rowNumber, 2, "Invalid phoneNumber (Required, max 50)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_phone_number');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 2, msg);
       }
 
       if (row.secondPhoneNumber && row.secondPhoneNumber.length > 50) {
-        rowErrors.push("Invalid secondPhoneNumber (max 50)");
-        addCellError(row.rowNumber, 3, "Invalid secondPhoneNumber (max 50)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_second_phone');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 3, msg);
       }
 
 
       if (row.email && !isEmail(row.email)) {
-        rowErrors.push("Invalid email format");
-        addCellError(row.rowNumber, 4, "Invalid email format");
+        const msg = this.translations.t('domains.orders.bulk_invalid_email');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 4, msg);
       }
       if (!row.address || row.address.length > 1000) {
-        rowErrors.push("Invalid address (Required, max 1000)");
-        addCellError(row.rowNumber, 5, "Invalid address (Required, max 1000)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_address');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 5, msg);
       }
 
       if (row.landmark && row.landmark.length > 300) {
-        rowErrors.push("Invalid landmark (max 300)");
-        addCellError(row.rowNumber, 6, "Invalid landmark (max 300)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_landmark');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 6, msg);
       }
 
       if (!row.city || row.city.length > 100) {
-        rowErrors.push("Invalid city (Required, max 100)");
-        addCellError(row.rowNumber, 7, "Invalid city (Required, max 100)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_city');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 7, msg);
       }
 
       if (row.area && row.area.length > 100) {
-        rowErrors.push("Invalid area (max 100)");
-        addCellError(row.rowNumber, 8, "Invalid area (max 100)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_area');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 8, msg);
       }
 
       if (row.notes && row.notes.length > 4000) {
-        rowErrors.push("Invalid notes (max 4000)");
-        addCellError(row.rowNumber, 17, "Invalid notes (max 4000)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_notes');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 17, msg);
       }
 
       if (row.customerNotes && row.customerNotes.length > 4000) {
-        rowErrors.push("Invalid customerNotes (max 4000)");
-        addCellError(row.rowNumber, 18, "Invalid customerNotes (max 4000)");
+        const msg = this.translations.t('domains.orders.bulk_invalid_customer_notes');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 18, msg);
       }
 
       let storeId: string | null = null;
@@ -5048,12 +5066,14 @@ export class OrdersService {
         if (storeProvidersSet.has(row.store)) {
           storeId = storeMap.get(row.store) ?? null;
           if (!storeId) {
-            rowErrors.push(`Store provider "${row.store}" not found`);
-            addCellError(row.rowNumber, 13, `Store provider "${row.store}" not found`);
+            const msg = this.translations.t('domains.orders.bulk_store_provider_not_found', { args: { provider: row.store } });
+            rowErrors.push(msg);
+            addCellError(row.rowNumber, 13, msg);
           }
         } else {
-          rowErrors.push(`Invalid store provider "${row.store}"`);
-          addCellError(row.rowNumber, 13, `Invalid store provider "${row.store}"`);
+          const msg = this.translations.t('domains.orders.bulk_invalid_store_provider', { args: { provider: row.store } });
+          rowErrors.push(msg);
+          addCellError(row.rowNumber, 13, msg);
         }
       }
 
@@ -5062,27 +5082,27 @@ export class OrdersService {
         if (shippingProvidersSet.has(row.shippingCompany)) {
           shippingCompanyId = shippingMap.get(row.shippingCompany) ?? null;
           if (!shippingCompanyId) {
-            rowErrors.push(`Shipping provider "${row.shippingCompany}" not found`);
-            addCellError(
-              row.rowNumber,
-              11,
-              `Shipping provider "${row.shippingCompany}" not found`,
-            );
+            const msg = this.translations.t('domains.orders.bulk_shipping_provider_not_found', { args: { provider: row.shippingCompany } });
+            rowErrors.push(msg);
+            addCellError(row.rowNumber, 11, msg);
           }
         } else {
-          rowErrors.push(`Invalid shipping provider "${row.shippingCompany}"`);
-          addCellError(row.rowNumber, 11, `Invalid shipping provider "${row.shippingCompany}"`);
+          const msg = this.translations.t('domains.orders.bulk_invalid_shipping_provider', { args: { provider: row.shippingCompany } });
+          rowErrors.push(msg);
+          addCellError(row.rowNumber, 11, msg);
         }
       }
 
       if (!paymentMethodValues.includes(row.paymentMethod as any)) {
-        rowErrors.push(`Invalid paymentMethod: ${row.paymentMethod}`);
-        addCellError(row.rowNumber, 9, `Invalid paymentMethod: ${row.paymentMethod}`);
+        const msg = this.translations.t('domains.orders.bulk_invalid_payment_method', { args: { paymentMethod: row.paymentMethod } });
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 9, msg);
       }
 
       if (!paymentStatusValues.includes(row.paymentStatus as any)) {
-        rowErrors.push(`Invalid paymentStatus: ${row.paymentStatus}`);
-        addCellError(row.rowNumber, 10, `Invalid paymentStatus: ${row.paymentStatus}`);
+        const msg = this.translations.t('domains.orders.bulk_invalid_payment_status', { args: { paymentStatus: row.paymentStatus } });
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 10, msg);
       }
 
       const deposit = Number(row.deposit) || 0;
@@ -5090,18 +5110,21 @@ export class OrdersService {
       const discount = Number(row.discount) || 0;
 
       if (isNaN(deposit) || deposit < 0) {
-        rowErrors.push("Deposit must be a positive number");
-        addCellError(row.rowNumber, 15, "Deposit must be a positive number");
+        const msg = this.translations.t('domains.orders.bulk_deposit_must_be_positive');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 15, msg);
       }
 
       if (isNaN(shippingCost) || shippingCost < 0) {
-        rowErrors.push("Shipping cost must be a positive number");
-        addCellError(row.rowNumber, 14, "Shipping cost must be a positive number");
+        const msg = this.translations.t('domains.orders.bulk_shipping_cost_must_be_positive');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 14, msg);
       }
 
       if (isNaN(discount) || discount < 0) {
-        rowErrors.push("Discount must be a positive number");
-        addCellError(row.rowNumber, 16, "Discount must be a positive number");
+        const msg = this.translations.t('domains.orders.bulk_discount_must_be_positive');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 16, msg);
       }
 
       const items: OrderItemDto[] = [];
@@ -5114,8 +5137,9 @@ export class OrdersService {
         const variant = variantMap.get(sku);
 
         if (!variant) {
-          rowErrors.push(`SKU [${skuRaw}] not found`);
-          addCellError(row.rowNumber, 19, `SKU [${skuRaw}] not found`);
+          const msg = this.translations.t('domains.orders.bulk_sku_not_found', { args: { sku: skuRaw } });
+          rowErrors.push(msg);
+          addCellError(row.rowNumber, 19, msg);
           continue;
         }
 
@@ -5123,14 +5147,16 @@ export class OrdersService {
         const unitPrice = parseFloat(price);
 
         if (isNaN(quantity) || quantity < 1) {
-          rowErrors.push(`Quantity for ${skuRaw} must be at least 1`);
-          addCellError(row.rowNumber, 19, `Quantity for ${skuRaw} must be at least 1`);
+          const msg = this.translations.t('domains.orders.bulk_quantity_min_one', { args: { sku: skuRaw } });
+          rowErrors.push(msg);
+          addCellError(row.rowNumber, 19, msg);
           continue;
         }
 
         if (isNaN(unitPrice) || unitPrice < 0) {
-          rowErrors.push(`Price for ${skuRaw} must be positive`);
-          addCellError(row.rowNumber, 19, `Price for ${skuRaw} must be positive`);
+          const msg = this.translations.t('domains.orders.bulk_price_must_be_positive', { args: { sku: skuRaw } });
+          rowErrors.push(msg);
+          addCellError(row.rowNumber, 19, msg);
           continue;
         }
 
@@ -5152,8 +5178,9 @@ export class OrdersService {
       }
 
       if (items.length === 0) {
-        rowErrors.push("Order must have at least one valid item");
-        addCellError(row.rowNumber, 19, "Order must have at least one valid item");
+        const msg = this.translations.t('domains.orders.bulk_order_must_have_item');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 19, msg);
       }
 
       if (rowErrors.length === 0) {
@@ -5200,7 +5227,7 @@ export class OrdersService {
           addCellError(
             rowNumber,
             19,
-            `SKU [${sku}] exceeds stock. Requested total: ${usageItem.totalQty}, available: ${available}`,
+            this.translations.t('domains.orders.bulk_sku_exceeds_stock', { args: { sku, totalQty: usageItem.totalQty, available } }),
           );
         }
       }
@@ -5223,7 +5250,7 @@ export class OrdersService {
         })),
       );
       return {
-        message: `Validation failed for ${cellErrors.size} row(s) and ${skuErrors.length} SKU(s). Please review the error report.`,
+        message: this.translations.t('domains.orders.bulk_validation_failed', { args: { rowCount: cellErrors.size, skuCount: skuErrors.length } }),
         failed: rows.length,
         errorFileBuffer,
         skuErrors,
@@ -5235,7 +5262,9 @@ export class OrdersService {
     }
 
     return {
-      message: validOrderPayloads.length > 0 ? `Successfully queued ${validOrderPayloads.length} orders for creation.` : "No valid orders to create.",
+      message: validOrderPayloads.length > 0
+        ? this.translations.t('domains.orders.bulk_orders_queued', { args: { count: validOrderPayloads.length } })
+        : this.translations.t('domains.orders.bulk_no_valid_orders'),
       failed: rows.length - validOrderPayloads.length,
       errorFileBuffer,
       skuErrors,
@@ -5254,36 +5283,36 @@ export class OrdersService {
     // -------------------------
     // Sheet 1: Orders
     // -------------------------
-    const sheet = workbook.addWorksheet("Orders", {
+    const sheet = workbook.addWorksheet(this.translations.t('domains.orders.export_orders_sheet'), {
       views: [{ state: "frozen", ySplit: 2 }],
     });
 
     const columns = [
-      { header: "customerName", key: "customerName", width: 22 },
-      { header: "phoneNumber", key: "phoneNumber", width: 16 },
-      { header: "secondPhoneNumber (default empty)", key: "secondPhoneNumber", width: 40 },
-      { header: "email (default empty)", key: "email", width: 28 },
-      { header: "address", key: "address", width: 32 },
-      { header: "landmark (default empty)", key: "landmark", width: 30 },
-      { header: "city", key: "city", width: 14 },
-      { header: "area", key: "area", width: 14 },
-      { header: "paymentMethod (default cod)", key: "paymentMethod", width: 40 },
-      { header: "paymentStatus (default pending)", key: "paymentStatus", width: 40 },
-      { header: "shippingCompany (default empty)", key: "shippingCompany", width: 45 },
-      { header: "allowOpenPackage (default false)", key: "allowOpenPackage", width: 45 },
-      { header: "store (default empty)", key: "store", width: 30 },
-      { header: "shippingCost (default 0)", key: "shippingCost", width: 30 },
-      { header: "deposit (default 0)", key: "deposit", width: 30 },
-      { header: "discount (default 0)", key: "discount", width: 30 },
-      { header: "notes (default empty)", key: "notes", width: 24 },
-      { header: "customerNotes (default empty)", key: "customerNotes", width: 40 },
-      { header: "items (SKU|Quantity|UnitPrice)", key: "items", width: 50 },
+      { header: this.translations.t('domains.orders.export_customer_name'), key: "customerName", width: 22 },
+      { header: this.translations.t('domains.orders.export_phone_number'), key: "phoneNumber", width: 16 },
+      { header: this.translations.t('domains.orders.export_second_phone_number'), key: "secondPhoneNumber", width: 40 },
+      { header: this.translations.t('domains.orders.export_email'), key: "email", width: 28 },
+      { header: this.translations.t('domains.orders.export_address'), key: "address", width: 32 },
+      { header: this.translations.t('domains.orders.export_landmark'), key: "landmark", width: 30 },
+      { header: this.translations.t('domains.orders.export_city'), key: "city", width: 14 },
+      { header: this.translations.t('domains.orders.export_area'), key: "area", width: 14 },
+      { header: this.translations.t('domains.orders.export_payment_method'), key: "paymentMethod", width: 40 },
+      { header: this.translations.t('domains.orders.export_payment_status'), key: "paymentStatus", width: 40 },
+      { header: this.translations.t('domains.orders.export_shipping_company'), key: "shippingCompany", width: 45 },
+      { header: this.translations.t('domains.orders.export_allow_open_package'), key: "allowOpenPackage", width: 45 },
+      { header: this.translations.t('domains.orders.export_store'), key: "store", width: 30 },
+      { header: this.translations.t('domains.orders.export_shipping_cost'), key: "shippingCost", width: 30 },
+      { header: this.translations.t('domains.orders.export_deposit'), key: "deposit", width: 30 },
+      { header: this.translations.t('domains.orders.export_discount'), key: "discount", width: 30 },
+      { header: this.translations.t('domains.orders.export_notes'), key: "notes", width: 24 },
+      { header: this.translations.t('domains.orders.export_customer_notes'), key: "customerNotes", width: 40 },
+      { header: this.translations.t('domains.orders.export_items'), key: "items", width: 50 },
     ];
 
     sheet.columns = columns;
 
     sheet.insertRow(1, [
-      "Format: SKU|Quantity|UnitPrice (comma separated for multiple). Leave optional fields empty to use defaults.",
+      this.translations.t('domains.orders.export_format'),
     ]);
     sheet.mergeCells(1, 1, 1, columns.length);
 
@@ -5344,13 +5373,13 @@ export class OrdersService {
     // -------------------------
     // Sheet 2: SKU Errors
     // -------------------------
-    const skuSheet = workbook.addWorksheet("SKU Errors");
+    const skuSheet = workbook.addWorksheet(this.translations.t('domains.orders.export_sku_errors_sheet'));
     skuSheet.columns = [
-      { header: "sku", key: "sku", width: 24 },
-      { header: "totalQty", key: "totalQty", width: 12 },
-      { header: "available", key: "available", width: 12 },
-      { header: "rows", key: "rows", width: 20 },
-      { header: "message", key: "message", width: 60 },
+      { header: this.translations.t('domains.orders.export_sku_header'), key: "sku", width: 24 },
+      { header: this.translations.t('domains.orders.export_total_qty_header'), key: "totalQty", width: 12 },
+      { header: this.translations.t('domains.orders.export_available_header'), key: "available", width: 12 },
+      { header: this.translations.t('domains.orders.export_rows_header'), key: "rows", width: 20 },
+      { header: this.translations.t('domains.orders.export_message_header'), key: "message", width: 60 },
     ];
 
     const skuHeader = skuSheet.getRow(1);
@@ -5363,7 +5392,7 @@ export class OrdersService {
         totalQty: skuError.totalQty,
         available: skuError.available,
         rows: skuError.rows.join(", "),
-        message: `Requested ${skuError.totalQty}, available ${skuError.available}`,
+        message: this.translations.t('domains.orders.bulk_sku_requested_available', { args: { totalQty: skuError.totalQty, available: skuError.available } }),
       });
     }
 
@@ -5397,13 +5426,12 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.BULK_ORDERS_FAILED,
-        title: "Bulk Order Creation Failed",
-        message:
-          `No orders were created from the uploaded Excel file.  ${error.message}`,
+        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_title',adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_message_with_error',adminId, { args: { errorMessage: error.message } }),
       });
 
       throw new BadRequestException(
-        `Failed to create orders: ${error.message}`,
+        this.translations.t('domains.orders.failed_create_orders', { args: { errorMessage: error.message } }),
       );
     }
 
@@ -5419,18 +5447,17 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.BULK_ORDERS_CREATED,
-        title: "Bulk Orders Created",
+        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_created_title',adminId),
         message:
-          `${created} orders have been successfully created from Excel.` +
-          (preview ? `\nPreview: ${preview}` : ""),
+          this.translations.t('domains.orders.bulk_orders_created_message', { args: { count: created } }) +
+          (preview ? `\n${this.translations.t('domains.orders.bulk_orders_created_preview', { args: { preview } })}` : ""),
       });
     } else {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.BULK_ORDERS_FAILED,
-        title: "Bulk Order Creation Failed",
-        message:
-          "No orders were created from the uploaded Excel file. Please check the errors and try again.",
+        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_title',adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_message',adminId),
       });
     }
 
@@ -5443,7 +5470,7 @@ export class OrdersService {
     adminId: string,
     options: { skipValidation?: boolean } = {}
   ) {
-    const settings = await this.getCachedSettings(adminId);
+    const settings = await this.clientSettingsService.getCachedSettings(adminId);
 
     // 1. جلب الطلب مع التحقق من الـ adminId للأمان
     const order = await manager.getRepository(OrderEntity).findOne({
@@ -5451,7 +5478,7 @@ export class OrdersService {
       relations: ['status', 'items', 'items.variant'],
     });
 
-    if (!order) throw new NotFoundException("Order not found");
+    if (!order) throw new NotFoundException(this.translations.t('domains.orders.order_not_found'));
 
     // 2. التحقق من استراتيجية خصم المخزون
     const shouldDedicate = (
@@ -5530,7 +5557,7 @@ export class OrdersService {
     adminId: string,
     options: { skipValidation?: boolean } = {}
   ) {
-    const settings = await this.getCachedSettings(adminId);
+    const settings = await this.clientSettingsService.getCachedSettings(adminId);
 
     // Map لتخزين إجمالي الكمية المراد خصمها لكل Variant
     // Key: variantId, Value: totalQty
@@ -5616,71 +5643,10 @@ export class OrdersService {
   }
 
 
-  async getSettings(me: any, manager?: EntityManager): Promise<OrderRetrySettingsEntity> {
-    const adminId = tenantId(me);
-    const repo = manager ? manager.getRepository(OrderRetrySettingsEntity) : this.retryRepo;
-    let settings = await repo.findOneBy({ adminId: adminId });
 
-    if (!settings) {
-      settings = await this.retryRepo.save({
-        adminId,
-        confirmationStatuses: [
-          OrderStatus.CANCELLED,
-          OrderStatus.CONFIRMED,
-          OrderStatus.NO_ANSWER,
-          OrderStatus.OUT_OF_DELIVERY_AREA,
-          OrderStatus.POSTPONED,
-          OrderStatus.WRONG_NUMBER,
-          OrderStatus.UNDER_REVIEW,
-        ],
-        autoMoveStatus: OrderStatus.CANCELLED,
-        retryStatuses: [
-          OrderStatus.WRONG_NUMBER,
-          OrderStatus.UNDER_REVIEW,
-        ],
-        reservedEnabled: false, // by default false
-      });
-    }
-    await this.redisService.set(`admin_settings:${adminId}`, settings, 3600 * 24);
-    // Return existing or a default object to keep frontend stable
-    return settings;
-  }
-
-  // Local memory cache for settings to optimize loops (TTL: 5 seconds)
-  private static localSettingsCache = new Map<string, OrderRetrySettingsEntity>();
-
-  static updateLocalCache(adminId: string, settings: OrderRetrySettingsEntity) {
-    this.localSettingsCache.set(adminId, settings);
-
-    // Directly remove after 5 seconds to free memory and ensure freshness
-    setTimeout(() => {
-      this.localSettingsCache.delete(adminId);
-    }, 5000);
-  }
-
-  async getCachedSettings(adminId: string): Promise<OrderRetrySettingsEntity> {
-    const local = OrdersService.localSettingsCache.get(adminId);
-
-    if (local) {
-      return local;
-    }
-
-    const cacheKey = `admin_settings:${adminId}`;
-    let settings = await this.redisService.get<OrderRetrySettingsEntity>(cacheKey);
-
-    if (!settings || typeof settings === 'string') {
-      // Use getSettings logic which also handles creation of default settings
-      settings = await this.getSettings({ id: adminId, role: { name: 'admin' } });
-    }
-
-    // Update local cache
-    OrdersService.updateLocalCache(adminId, settings);
-
-    return settings;
-  }
 
   async calculateAvailableStock(stockOnHand: number, reserved: number, adminId: string): Promise<number> {
-    const settings = await this.getCachedSettings(adminId);
+    const settings = await this.clientSettingsService.getCachedSettings(adminId);
     const reservedEnabled = settings?.reservedEnabled ?? false;
 
     if (reservedEnabled) {
@@ -5711,7 +5677,7 @@ export class OrdersService {
     for (const item of items) {
       const variant = item.variant || variantMap?.get(item.variantId);
       if (!variant) {
-        throw new BadRequestException(`Variant ${item.variantId} not found`);
+        throw new BadRequestException(this.translations.t('domains.orders.variant_not_found', { args: { variantId: item.variantId } }));
       }
 
       let available: number;
@@ -5733,58 +5699,20 @@ export class OrdersService {
         const sku = variant.sku || item.sku || item.variantId;
 
         const message = isDeduction
-          ? `${prefix}Cannot deduct stock for "${sku}". Insufficient stock on hand (${available} available, ${item.quantity} requested).`
-          : `${prefix}The requested quantity for "${sku}" exceeds available stock. You can order up to ${available} item(s).`;
+          ? this.translations.t('domains.orders.insufficient_stock_deduct', { args: { prefix, sku, available, quantity: item.quantity } })
+          : this.translations.t('domains.orders.insufficient_stock_order', { args: { prefix, sku, available } });
 
         throw new BadRequestException(message);
       }
     }
   }
 
-  async upsertSettings(
-    me: any,
-    dto: UpsertOrderRetrySettingsDto,
-  ): Promise<OrderRetrySettingsEntity> {
-    const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException("Missing adminId");
-
-    let settings = await this.retryRepo.findOneBy({ adminId });
-
-    if (settings) {
-      // Update existing record
-      settings = this.retryRepo.merge(settings, {
-        ...dto,
-        defaultWhatsAppAccountId: dto.defaultWhatsAppAccountId || settings.defaultWhatsAppAccountId || null,
-        notificationSettings: {
-          ...(settings.notificationSettings ?? {}),
-          ...(dto.notificationSettings ?? {}),
-        },
-      });
-    } else {
-      // Create new record for this admin
-      settings = this.retryRepo.create({
-        ...dto,
-        adminId,
-        notificationSettings: {
-          ...(dto.notificationSettings ?? {}),
-        },
-      });
-    }
-
-    const saved = await this.retryRepo.save(settings);
-
-    // Invalidate cache
-    const cacheKey = `admin_notification_settings:${adminId}`;
-    await this.redisService.del(cacheKey);
-
-    return saved;
-  }
 
   async getAllowedConfirmationStatuses(me: any): Promise<OrderStatusEntity[]> {
     const adminId = tenantId(me);
 
     // 1. Get the codes from settings
-    const settings = await this.getSettings(me);
+    const settings = await this.clientSettingsService.getSettings(me);
     const codes = settings.confirmationStatuses || [];
 
     if (codes.length === 0) return [];

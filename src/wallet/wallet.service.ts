@@ -21,6 +21,8 @@ import { PaymentFactoryService } from "src/payments/providers/PaymentFactoryServ
 import { SubscriptionsService } from "src/subscription/subscription.service";
 import { TransactionsService } from "src/transactions/transactions.service";
 import { DataSource, EntityManager, Repository } from "typeorm";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
+import { tenantId } from "src/category/category.service";
 
 @Injectable()
 export class WalletService {
@@ -35,6 +37,8 @@ export class WalletService {
     private subscriptionsService: SubscriptionsService,
     private dataSource: DataSource,
     private notificationService: NotificationService,
+    private translations: TranslationService,
+    private requestTranslations: RequestTranslationService,
   ) { }
 
   private isSuperAdmin(me: User) {
@@ -65,7 +69,7 @@ export class WalletService {
   // 1️⃣ Get or Create Wallet (For Specific User ID)
   async getOrCreateWalletSuper(me: any, userId: string) {
     if (!this.isSuperAdmin(me)) {
-      throw new ForbiddenException("You do not have permission");
+      throw new ForbiddenException(this.translations.t("common.permission_denied"));
     }
 
     const wallet = await this.getOrCreateWallet(userId);
@@ -107,7 +111,7 @@ export class WalletService {
   ) {
     if (superAdmin.role?.name !== SystemRole.SUPER_ADMIN) {
       throw new ForbiddenException(
-        "Only Super Admins can adjust balances manually",
+        this.translations.t("common.permission_denied"),
       );
     }
 
@@ -117,7 +121,7 @@ export class WalletService {
       // Update logic
       const newBalance = Number(wallet.currentBalance) + amount;
       if (newBalance < 0)
-        throw new BadRequestException("Resulting balance cannot be negative");
+        throw new BadRequestException(this.translations.t("common.resulting_balance_cannot_be_negative"));
 
       wallet.currentBalance = newBalance;
       if (amount > 0)
@@ -155,16 +159,23 @@ export class WalletService {
     orderNumber?: string,
     orderId?: string,
   ) {
+    const adminId = tenantId(me);
     const work = async (m: EntityManager) => {
       try {
-        const activeSubscription = await this.subscriptionsService.getMyActiveSubscription(me, m);
+        const activeSubscription =
+          await this.subscriptionsService.getMyActiveSubscription(me, m);
+
         const wallet = await this.getOrCreateWallet(me.id, m);
 
         if (!activeSubscription) {
-          throw new BadRequestException("No active subscription found");
+          throw new BadRequestException(
+            this.translations.t(
+              "domains.subscriptions.no_active_subscription_found",
+            ),
+          );
         }
 
-        const limit = activeSubscription.includedOrders; // قد يكون رقم أو null
+        const limit = activeSubscription.includedOrders;
         const currentUsed = Number(activeSubscription.usedOrders || 0);
         const newTotalUsed = currentUsed + numberOfOrders;
 
@@ -176,7 +187,10 @@ export class WalletService {
           let extraOrders = 0;
 
           if (newTotalUsed > allowedLimit) {
-            const alreadyExceededBefore = Math.max(0, currentUsed - allowedLimit);
+            const alreadyExceededBefore = Math.max(
+              0,
+              currentUsed - allowedLimit,
+            );
             const totalExceededNow = newTotalUsed - allowedLimit;
             extraOrders = totalExceededNow - alreadyExceededBefore;
           }
@@ -187,25 +201,34 @@ export class WalletService {
               activeSubscription.extraOrderFee === undefined
             ) {
               throw new BadRequestException(
-                "You have reached your plan limit, and additional orders are not enabled.",
+                this.translations.t(
+                  "domains.subscriptions.additional_orders_not_enabled",
+                ),
               );
             }
 
-            const cost = extraOrders * Number(activeSubscription.extraOrderFee);
+            const cost =
+              extraOrders * Number(activeSubscription.extraOrderFee);
             const currentBalance = Number(wallet.currentBalance);
 
             if (currentBalance < cost) {
               throw new BadRequestException(
-                "Insufficient wallet balance to cover extra orders cost.",
+                this.translations.t(
+                  "domains.subscriptions.insufficient_wallet_balance_for_extra_orders",
+                ),
               );
             }
 
             wallet.currentBalance = currentBalance - cost;
-            wallet.totalWithdrawn = Number(wallet.totalWithdrawn) + cost;
+            wallet.totalWithdrawn =
+              Number(wallet.totalWithdrawn) + cost;
 
-            // Record transaction for wallet deduction
-            const number = await this.transactionsService.generateTransactionNumber(wallet.userId?.toString());
-
+            const number =
+              await this.transactionsService.generateTransactionNumber(
+                wallet.userId?.toString(),
+              );
+              
+        
             transaction = m.create(TransactionEntity, {
               userId: me.id,
               amount: cost,
@@ -213,12 +236,21 @@ export class WalletService {
               amountInDollars: cost,
               purpose: PaymentPurposeEnum.WALLET_WITHDRAWAL,
               status: TransactionStatus.SUCCESS,
-              paymentMethod: TransactionPaymentMethod.OTHER, // Using OTHER for internal wallet deduction
-              number: number,
+              paymentMethod: TransactionPaymentMethod.OTHER,
+              number,
               orderId,
-              // add order number
-              notes: `Auto-deduction for ${extraOrders} extra orders exceeding plan limit. Order Number: ${orderNumber || "—"}`,
+              notes: await this.requestTranslations.tAsync(
+                "domains.subscriptions.auto_deduction_for_extra_orders",
+                adminId,
+                {
+                  args: {
+                    extraOrders,
+                    orderNumber: orderNumber || "—",
+                  },
+                },
+              ),
             });
+
             await m.save(transaction);
           }
         }
@@ -237,9 +269,21 @@ export class WalletService {
         await this.notificationService.create({
           userId: me.id,
           type: NotificationType.ORDER_USAGE_FAILED,
-          title: "Order Usage Failed",
-          message: `Failed to process order usage: ${error.message}`,
+          title: await this.requestTranslations.tAsync(
+            "domains.subscriptions.order_usage_failed",
+            adminId,
+          ),
+          message: await this.requestTranslations.tAsync(
+            "domains.subscriptions.failed_to_process_order_usage",
+            adminId,
+            {
+              args: {
+                error: error.message,
+              },
+            },
+          ),
         });
+
         throw error;
       }
     };

@@ -1,7 +1,7 @@
 // --- File: backend/src/shipping/providers/shipping-provider.interface.ts ---
 import { OrderEntity } from 'entities/order.entity';
 import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
-import { CreateShipmentDto } from '../shipping.dto';
+import { CreateShipmentDto } from 'dto/shipping.dto';
 
 export type ProviderCode = 'bosta' | 'jt' | 'turbo' | 'aramex' | 'dhl' | 'SMSA';
 
