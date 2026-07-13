@@ -298,15 +298,6 @@ export class AuthService {
 	// ✅ UPDATED: Include plan relation on login
 	async login(email: string, password: string) {
 		const user = await this.usersService.getFullUserByEmail(email, true);
-		await this.notificationService.create({
-			userId: user.id,
-			type: NotificationType.ORDER_UPDATED,
-			title: await this.requestTranslations.tAsync('domains.orders.order_updated_title', user.id),
-			message: await this.requestTranslations.tAsync('domains.orders.order_updated_message', user.id,{args: { orderNumber: user.name } }),
-			relatedEntityType: "user",
-			relatedEntityId: String(user.id),
-		});
-		return;
 
 		if (!user || !user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_credentials'));
 
