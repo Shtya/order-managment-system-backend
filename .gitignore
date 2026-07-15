@@ -41,7 +41,7 @@ my-things/
 .env.test.local
 .env.production
 .env.local
-
+uploads/
 # temp directory
 .temp
 .tmp
