@@ -230,7 +230,7 @@ export class Subscription {
 }
 
 export enum FeatureType {
-	WHATSAPP_CONFIRMATION = 'whatsapp_confirmation',
+	WHATSAPP_INTEGRATION = 'whatsapp_integration',
 	AI_ANALYTICS = 'ai_analytics',
 	FRAUD_DETECTION = 'fraud_detection',
 }

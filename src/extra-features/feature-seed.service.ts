@@ -6,8 +6,8 @@ import { Repository } from "typeorm";
 
 export const DEFAULT_FEATURES = [
     {
-        type: FeatureType.WHATSAPP_CONFIRMATION,
-        name: "WhatsApp Confirmation",
+        type: FeatureType.WHATSAPP_INTEGRATION,
+        name: "WhatsApp Integration",
         price: 50.00,
         isActive: true,
     },
