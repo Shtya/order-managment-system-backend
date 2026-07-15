@@ -4,7 +4,9 @@ import { DataSource } from 'typeorm';
 // This is the magic line that fixes the "Cannot find module" errors
 import 'tsconfig-paths/register';
 
-config();
+config({
+    path: ['.env', `.env.${process.env.NODE_ENV || 'production'}`],
+});
 
 export default new DataSource({
     type: 'postgres',
