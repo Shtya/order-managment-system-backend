@@ -41,8 +41,13 @@ my-things/
 .env.test.local
 .env.production
 .env.local
-uploads/
+# Ignore everything inside uploads
+uploads/*
+
+# But allow Git to enter the seed folder
 !uploads/seed/
+
+# And track everything inside it
 !uploads/seed/**
 # temp directory
 .temp
