@@ -42,6 +42,8 @@ my-things/
 .env.production
 .env.local
 uploads/
+!uploads/seed/
+!uploads/seed/**
 # temp directory
 .temp
 .tmp
