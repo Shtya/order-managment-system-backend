@@ -31,10 +31,8 @@ export class WalletController {
   // Initiate Top-up
   @Permissions("wallet.update")
   @Post('top-up')
-  @SkipThrottle({ default: true })
   @Throttle({ 
-    paymentPerMinute: { limit: 3, ttl: minutes(1) }, 
-    paymentPerHour: { limit: 20, ttl: hours(1) } 
+    default: { limit: 60, ttl: minutes(1) }, 
   })
   async topUp(@Req() req: any, @Body('amount') amount: number) {
     if (amount <= 0) throw new BadRequestException('Amount must be positive');

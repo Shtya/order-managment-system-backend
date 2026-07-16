@@ -93,10 +93,8 @@ export class SubscriptionsController {
   
   @Permissions("subscriptions.create")
   @Post("subscribe")
-  @SkipThrottle({ default: true })  
   @Throttle({ 
-      paymentPerMinute: { limit: 3, ttl: minutes(1) }, 
-      paymentPerHour: { limit: 20, ttl: hours(1) } 
+      default: { limit: 60, ttl: minutes(1) }, 
     })
   subscribe(@Req() req: any, @Body() dto: { planId }) {
     return this.subscriptions.subscribe(req.user, dto.planId);

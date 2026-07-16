@@ -35,10 +35,8 @@ export class ExtraFeaturesController {
 
   @Permissions("extra-features.create")
   @Post('purchase-addon')
-  @SkipThrottle({ default: true })
   @Throttle({ 
-      paymentPerMinute: { limit: 3, ttl: minutes(1) }, 
-      paymentPerHour: { limit: 20, ttl: hours(1) } 
+      default: { limit: 60, ttl: minutes(1) }, 
     })
   async purchaseAddon(
     @Req() req: any,

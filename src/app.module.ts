@@ -71,18 +71,6 @@ import { ClientSettingsModule } from './client-settings/client-settings.module';
 					name: 'default',
 					ttl: minutes(1),
 					limit: 200
-				},
-				// Define custom throttlers so NestJS recognizes the names,
-				// but set limits absurdly high so they don't block normal endpoints.
-				{
-					name: 'paymentPerMinute',
-					ttl: minutes(1),
-					limit: 999999
-				},
-				{
-					name: 'paymentPerHour',
-					ttl: hours(1),
-					limit: 999999
 				}
 			],
 			errorMessage: "Too many attempts. Please wait before trying again.",
