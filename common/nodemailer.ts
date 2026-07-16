@@ -4,20 +4,32 @@ import { TranslationService } from './translation.service';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
 
 
+
 @Injectable()
 export class MailService {
-  public transporter = nodemailer.createTransport({
-    service: 'gmail',
+  private transporter = nodemailer.createTransport({
+    host: process.env.Email_HOST, // اسم الخادم الصادر
+    port: process.env.Email_PORT,             // المنفذ
+    secure: false,         // false for STARTTLS (TLS)
+    requireTLS: true,      // force TLS
     auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
+      user: process.env.EMAIL_USER, // بريدك الإلكتروني Zoho
+      pass: process.env.EMAIL_PASS, // كلمة مرور التطبيق App Password
     },
+    logging: true, // Enable logging for debugging
+    debugger: true, // Enable debugger for detailed logs
   });
+
   constructor(
     private readonly clientSettingsService: ClientSettingsService,
     private readonly translations: TranslationService,
   ) { }
 
+  private buildFrom(): string {
+    const siteName = process.env.PROJECT_NAME ?? 'No-Reply';
+
+    return `${siteName} <${process.env.EMAIL_USER}>`;
+  }
   /**
    * Helper to generate unified email HTML with RTL support and consistent styling
    */
@@ -129,6 +141,7 @@ export class MailService {
     const htmlContent = this.buildEmailHtml(lang, bodyContent);
 
     await this.transporter.sendMail({
+      from: this.buildFrom(),
       to: userEmail,
       subject: this.translations.t('emails.password_reset.subject', { lang }),
       html: htmlContent,
@@ -188,6 +201,7 @@ export class MailService {
     const htmlContent = this.buildEmailHtml(lang, bodyContent);
 
     await this.transporter.sendMail({
+      from: this.buildFrom(),
       to: userEmail,
       subject: this.translations.t('emails.registration.subject', { lang }),
       html: htmlContent,
@@ -247,6 +261,7 @@ export class MailService {
     const htmlContent = this.buildEmailHtml(lang, bodyContent);
 
     await this.transporter.sendMail({
+      from: this.buildFrom(),
       to: userEmail,
       subject: this.translations.t('emails.email_change.subject', { lang }),
       html: htmlContent,
@@ -287,6 +302,7 @@ export class MailService {
     const htmlContent = this.buildEmailHtml(lang, bodyContent);
 
     await this.transporter.sendMail({
+      from: this.buildFrom(),
       to: userEmail,
       subject: this.translations.t('emails.password_change.subject', { lang }),
       html: htmlContent,

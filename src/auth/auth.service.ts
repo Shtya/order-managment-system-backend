@@ -300,7 +300,7 @@ export class AuthService {
 		const user = await this.usersService.getFullUserByEmail(email, true);
 
 		if (!user || !user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_credentials'));
-
+		await this.mail.sendPasswordChangeNotificationEmail(user.email, { userName: user.name || 'there' }, user.id);
 		const ok = await bcrypt.compare(password, user.passwordHash || '');
 		if (!ok) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_credentials'));
 
