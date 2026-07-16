@@ -41,7 +41,6 @@ export class WarehouseEntity {
 	@Column({ type: "varchar", length: 30, nullable: true })
 	phone?: string;
 
-
 	@Column({ type: "boolean", default: true })
 	isActive!: boolean;
 
