@@ -1,4 +1,5 @@
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, ParseIntPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { hours, minutes, SkipThrottle, Throttle } from '@nestjs/throttler';
 import { WalletService } from './wallet.service';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { SystemRole } from 'entities/user.entity';
@@ -30,6 +31,11 @@ export class WalletController {
   // Initiate Top-up
   @Permissions("wallet.update")
   @Post('top-up')
+  @SkipThrottle({ default: true })
+  @Throttle({ 
+    paymentPerMinute: { limit: 3, ttl: minutes(1) }, 
+    paymentPerHour: { limit: 20, ttl: hours(1) } 
+  })
   async topUp(@Req() req: any, @Body('amount') amount: number) {
     if (amount <= 0) throw new BadRequestException('Amount must be positive');
     return this.walletService.topUp(req.user, amount);

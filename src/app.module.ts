@@ -39,7 +39,7 @@ import { AdminSettingsModule } from './admin-settings/admin-settings.module';
 import { AccountingModule } from './accounting/accounting.module';
 import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
 import { ProductSyncStateModule } from './product-sync-state/product-sync-state.module';
-import { days, minutes, seconds, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { days, hours, minutes, seconds, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { SafesModule } from './safes/safes.module';
 import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
@@ -68,8 +68,21 @@ import { ClientSettingsModule } from './client-settings/client-settings.module';
 		ThrottlerModule.forRoot({
 			throttlers: [
 				{
+					name: 'default',
 					ttl: minutes(1),
 					limit: 200
+				},
+				// Define custom throttlers so NestJS recognizes the names,
+				// but set limits absurdly high so they don't block normal endpoints.
+				{
+					name: 'paymentPerMinute',
+					ttl: minutes(1),
+					limit: 999999
+				},
+				{
+					name: 'paymentPerHour',
+					ttl: hours(1),
+					limit: 999999
 				}
 			],
 			errorMessage: "Too many attempts. Please wait before trying again.",

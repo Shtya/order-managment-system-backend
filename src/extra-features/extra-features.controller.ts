@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { hours, minutes, SkipThrottle, Throttle } from '@nestjs/throttler';
 import { ExtraFeaturesService } from './extra-features.service';
 import { PermissionsGuard } from 'common/permissions.guard';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
@@ -34,6 +35,11 @@ export class ExtraFeaturesController {
 
   @Permissions("extra-features.create")
   @Post('purchase-addon')
+  @SkipThrottle({ default: true })
+  @Throttle({ 
+      paymentPerMinute: { limit: 3, ttl: minutes(1) }, 
+      paymentPerHour: { limit: 20, ttl: hours(1) } 
+    })
   async purchaseAddon(
     @Req() req: any,
     @Body('featureId') featureId: string

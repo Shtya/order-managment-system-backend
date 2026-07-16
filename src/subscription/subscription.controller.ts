@@ -12,6 +12,7 @@ import {
   Put,
   Res,
 } from "@nestjs/common";
+import { hours, minutes, SkipThrottle, Throttle } from "@nestjs/throttler";
 import { PermissionsGuard } from "common/permissions.guard";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 import { SubscriptionsService } from "./subscription.service";
@@ -92,6 +93,11 @@ export class SubscriptionsController {
   
   @Permissions("subscriptions.create")
   @Post("subscribe")
+  @SkipThrottle({ default: true })  
+  @Throttle({ 
+      paymentPerMinute: { limit: 3, ttl: minutes(1) }, 
+      paymentPerHour: { limit: 20, ttl: hours(1) } 
+    })
   subscribe(@Req() req: any, @Body() dto: { planId }) {
     return this.subscriptions.subscribe(req.user, dto.planId);
   }

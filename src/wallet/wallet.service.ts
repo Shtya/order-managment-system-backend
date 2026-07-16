@@ -79,6 +79,14 @@ export class WalletService {
 
   // 2️⃣ Top Up Wallet (Generates Payment Session)
   async topUp(user: User, amount: number) {
+    // Check minimum amount
+    if (amount < 50) {
+      throw new BadRequestException(this.translations.t("domains.payments.min_amount_required", {args: {amount:50} }));
+    }
+    // Check whole number
+    if (!Number.isInteger(Number(amount))) {
+      throw new BadRequestException(this.translations.t("domains.payments.whole_number_required"));
+    }
     const provider = this.paymentFactory.getProviderByCurrency(defaultCurrency);
     return await this.dataSource.transaction(async (manager) => {
       return await provider.checkout({

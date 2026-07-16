@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, InternalServerErrorException, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import axios from 'axios';
@@ -119,7 +119,7 @@ export class KashierProvider extends PaymentProvider {
             this.logger.error(`[KashierCheckout] Error calling Kashier API: ${error.message}`, error.stack);
             this.logger.error(`[KashierCheckout] Error details: ${JSON.stringify(error.response?.data || error)}`);
             // Throw user-friendly error
-            throw new Error(this.translations.t('domains.payments.initial_payment_session_failed'));
+            throw new InternalServerErrorException(this.translations.t('domains.payments.initial_payment_session_failed'));
         }
 
     }

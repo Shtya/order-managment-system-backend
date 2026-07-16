@@ -395,6 +395,8 @@ export type I18nTranslations = {
             "wallet_balance_updated_title": string;
             "wallet_balance_updated_message": string;
             "initial_payment_session_failed": string;
+            "min_amount_required": string;
+            "whole_number_required": string;
         };
         "permissions": {
             "already_exists": string;
