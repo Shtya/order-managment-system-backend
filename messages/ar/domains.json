@@ -259,7 +259,8 @@
     "add_on_ready_message": "تم تفعيل ميزة {featureName} بنجاح.",
     "this_feature_is_already_active_or_the_purchase_session_has_expired": "هذه الميزة نشطة بالفعل أو انتهت صلاحية جلسة الشراء.",
     "wallet_balance_updated_title": "تم تحديث رصيد المحفظة",
-    "wallet_balance_updated_message": "تمت إضافة {paidAmount} جنيه مصري ({dollorAmount} دولار) إلى محفظتك بنجاح. رصيدك الجديد جاهز للاستخدام."
+    "wallet_balance_updated_message": "تمت إضافة {paidAmount} جنيه مصري ({dollorAmount} دولار) إلى محفظتك بنجاح. رصيدك الجديد جاهز للاستخدام.",
+    "initial_payment_session_failed": "فشل إنشاء جلسة الدفع الأولية. يرجى المحاولة مرة أخرى."
   },
   "permissions": {
     "already_exists": "الصلاحية موجودة بالفعل",

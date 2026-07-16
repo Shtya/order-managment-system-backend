@@ -49,25 +49,36 @@ export class PaymentsService {
     }
 
     async processWebhook(providerName: PaymentProviderEnum, headers: any, body: any) {
+        this.logger.log(`[Webhook] Starting processing for provider: ${providerName}`);
+        this.logger.debug(`[Webhook] Headers: ${JSON.stringify(headers)}`);
+        this.logger.debug(`[Webhook] Body: ${JSON.stringify(body)}`);
+
         const provider = this.getProvider(providerName);
 
         // 1. Generic Signature Validation
+        this.logger.log(`[Webhook] Verifying signature for provider: ${providerName}`);
         if (!provider.verifyWebhookSignature(headers, body)) {
-            throw new Error(this.translations.t('domains.payments.invalid_signature_for_provider', { args: { providerName } }));
+            const errorMsg = this.translations.t('domains.payments.invalid_signature_for_provider', { args: { providerName } });
+            this.logger.error(`[Webhook] Invalid signature: ${errorMsg}`);
+            throw new Error(errorMsg);
         }
+        this.logger.log(`[Webhook] Signature verified successfully for provider: ${providerName}`);
 
         const webhookData = provider.parseWebhookPayload(body);
+        this.logger.log(`[Webhook] Parsed webhook data: ${JSON.stringify(webhookData)}`);
 
         // 2. Idempotency Check
+        this.logger.log(`[Webhook] Checking idempotency for externalTransactionId: ${webhookData.externalTransactionId}`);
         const alreadyProcessed = await this.webhookEventRepo.findOne({
             where: { provider: providerName, externalTransactionId: webhookData.externalTransactionId, status: PaymentSessionStatusEnum.SUCCESS }
         });
         if (alreadyProcessed) {
-            this.logger.log(`Webhook already processed for session: ${alreadyProcessed.id}`);
+            this.logger.log(`[Webhook] Already processed for externalTransactionId: ${webhookData.externalTransactionId}, webhookEventId: ${alreadyProcessed.id}`);
             return;
         }
 
         // 3. Log Webhook
+        this.logger.log(`[Webhook] Saving webhook event to DB`);
         await this.webhookEventRepo.save({
             provider: providerName,
             externalTransactionId: webhookData.externalTransactionId,
@@ -76,37 +87,52 @@ export class PaymentsService {
         });
 
         // 4. Update Session and Business Logic
+        this.logger.log(`[Webhook] Finding payment session for internalSessionId: ${webhookData.internalSessionId}`);
         const session = await this.sessionRepo.findOne({ where: { id: webhookData.internalSessionId }, relations: ['user'] });
-        if (!session) return;
+        if (!session) {
+            this.logger.warn(`[Webhook] Payment session not found for internalSessionId: ${webhookData.internalSessionId}`);
+            return;
+        }
+        this.logger.log(`[Webhook] Found payment session: ${session.id}, current status: ${session.status}, user: ${session.userId}`);
 
-        await this.dataSource.transaction(async (manager) => {
-            session.status = webhookData.status;
-            session.externalSessionId = webhookData.externalTransactionId;
-            await manager.save(session);
-            
-            const number = await this.transactionsService.generateTransactionNumber(session.userId?.toString())
-            const amountInDollars = await this.currencyConverterService.convertEgpToUsd(Number(session.amount));
-            const transaction = manager.create(TransactionEntity, {
-                number, // Provider's external ID
-                userId: session.userId,
-                sessionId: session.id,
-                purpose: session.purpose,
-                subscriptionId: session.subscriptionId ? session.subscriptionId : null,
-                userFeatureId: session.userFeatureId ? session.userFeatureId : null,
-                amount: session.amount,
-                amountInDollars: amountInDollars,
-                status: this.mapToTransactionStatus(webhookData.status),
-                paymentMethod: webhookData.paymentMethod,
+        try {
+            await this.dataSource.transaction(async (manager) => {
+                this.logger.log(`[Webhook] Updating session ${session.id} to status: ${webhookData.status}`);
+                session.status = webhookData.status;
+                session.externalSessionId = webhookData.externalTransactionId;
+                await manager.save(session);
+                
+                const number = await this.transactionsService.generateTransactionNumber(session.userId?.toString())
+                const amountInDollars = await this.currencyConverterService.convertEgpToUsd(Number(session.amount));
+                this.logger.log(`[Webhook] Creating transaction for session ${session.id}, amount: ${session.amount} ${session.currency}, amountInDollars: ${amountInDollars}`);
+                const transaction = manager.create(TransactionEntity, {
+                    number, // Provider's external ID
+                    userId: session.userId,
+                    sessionId: session.id,
+                    purpose: session.purpose,
+                    subscriptionId: session.subscriptionId ? session.subscriptionId : null,
+                    userFeatureId: session.userFeatureId ? session.userFeatureId : null,
+                    amount: session.amount,
+                    amountInDollars: amountInDollars,
+                    status: this.mapToTransactionStatus(webhookData.status),
+                    paymentMethod: webhookData.paymentMethod,
+                });
+                const savedTransaction = await manager.save(transaction);
+                this.logger.log(`[Webhook] Transaction created: ${savedTransaction.id}, status: ${savedTransaction.status}`);
+
+                if (webhookData.status === PaymentSessionStatusEnum.SUCCESS) {
+                    this.logger.log(`[Webhook] Handling payment success for session ${session.id}`);
+                    await this.handlePaymentSuccessLogic(session, transaction, manager);
+                } else {
+                    this.logger.warn(`[Webhook] Handling payment failure for session ${session.id}, status: ${webhookData.status}`);
+                    await this.handlePaymentFailLogic(session, transaction, manager);
+                }
             });
-            await manager.save(transaction);
-
-            if (webhookData.status === PaymentSessionStatusEnum.SUCCESS) {
-                await this.handlePaymentSuccessLogic(session, transaction, manager);
-            } else {
-                await this.handlePaymentFailLogic(session, transaction, manager);
-
-            }
-        });
+            this.logger.log(`[Webhook] Processing completed successfully for session ${session.id}`);
+        } catch (error) {
+            this.logger.error(`[Webhook] Error processing webhook for session ${session.id}:`, error.stack);
+            throw error;
+        }
     }
 
     private mapToTransactionStatus(status: PaymentSessionStatusEnum): TransactionStatus {

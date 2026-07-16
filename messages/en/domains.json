@@ -259,7 +259,8 @@
     "add_on_ready_message": "The {featureName} feature has been successfully activated.",
     "this_feature_is_already_active_or_the_purchase_session_has_expired": "This feature is already active or the purchase session has expired.",
     "wallet_balance_updated_title": "Wallet Balance Updated",
-    "wallet_balance_updated_message": "Successfully added {paidAmount} EGP ({dollorAmount} USD) to your wallet. Your new balance is ready to use."
+    "wallet_balance_updated_message": "Successfully added {paidAmount} EGP ({dollorAmount} USD) to your wallet. Your new balance is ready to use.",
+    "initial_payment_session_failed": "Initial payment session failed. Please try again."
   },
   "permissions": {
     "already_exists": "Permission already exists",

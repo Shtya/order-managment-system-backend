@@ -394,6 +394,7 @@ export type I18nTranslations = {
             "this_feature_is_already_active_or_the_purchase_session_has_expired": string;
             "wallet_balance_updated_title": string;
             "wallet_balance_updated_message": string;
+            "initial_payment_session_failed": string;
         };
         "permissions": {
             "already_exists": string;

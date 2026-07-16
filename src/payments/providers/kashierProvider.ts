@@ -39,12 +39,15 @@ export class KashierProvider extends PaymentProvider {
     }
 
     async checkout(options: CheckoutOptions): Promise<CheckoutResponse> {
+        this.logger.log(`[KashierCheckout] Starting checkout for userId: ${options.userId}, purpose: ${options.purpose}, amount: ${options.amount} ${options.currency}`);
 
         const manager = options.manager;
         const user = await manager.findOneBy(User, { id: options.userId });
         if (!user) {
+            this.logger.error(`[KashierCheckout] User not found: ${options.userId}`);
             throw new NotFoundException(this.translations.t('common.user_not_found'));
         }
+        this.logger.log(`[KashierCheckout] Found user: ${user.id} (${user.email})`);
 
         const expireMinutes = Number(process.env.PAYMENT_EXPIRE_MINUTES) || 30;
         const maxAttempts = Number(process.env.PAYMENT_MAX_FAILURE_ATTEMPTS) || 3;
@@ -52,6 +55,7 @@ export class KashierProvider extends PaymentProvider {
         // Create Date object for DB
         const expireAtDate = new Date(Date.now() + expireMinutes * 60 * 1000);
 
+        this.logger.log(`[KashierCheckout] Creating payment session with expireAt: ${expireAtDate.toISOString()}`);
         const session = manager.create(PaymentSessionEntity, {
             provider: PaymentProviderEnum.KASHIER,
             userId: user.id,
@@ -64,6 +68,8 @@ export class KashierProvider extends PaymentProvider {
         });
 
         const savedSession = await manager.save(session);
+        this.logger.log(`[KashierCheckout] Payment session created: ${savedSession.id}`);
+
         const backendDomain = process.env.BACKEND_URL?.trim();
         const payload = {
             expireAt: savedSession.expireAt.toISOString(),
@@ -82,7 +88,8 @@ export class KashierProvider extends PaymentProvider {
                 reference: user.id?.toString(),
             }
 
-        }
+        };
+        this.logger.debug(`[KashierCheckout] Calling Kashier API with payload: ${JSON.stringify(payload)}`);
         try {
             // 3. Call Kashier API
             const { data } = await axios.post(`${this.baseUrl}`, payload, {
@@ -92,26 +99,27 @@ export class KashierProvider extends PaymentProvider {
                     'Content-Type': 'application/json'
                 },
             });
+            this.logger.debug(`[KashierCheckout] Kashier API response: ${JSON.stringify(data)}`);
 
             // 4. Update session with URL if provided by Kashier
             const sessionId = data?._id || ''; // This is the external session ID
             const checkoutUrl = data?.sessionUrl || '';
             if (checkoutUrl) {
+                this.logger.log(`[KashierCheckout] Updating session ${savedSession.id} with checkoutUrl: ${checkoutUrl} and externalSessionId: ${sessionId}`);
                 await manager.update(PaymentSessionEntity, savedSession.id, {
                     checkoutUrl,
                     externalSessionId: sessionId
                 });
             }
 
+            this.logger.log(`[KashierCheckout] Checkout successful, returning checkoutUrl: ${checkoutUrl}`);
             return { checkoutUrl, sessionId };
 
         } catch (error: any) {
-            // Log error and update session status to failed
-            await this.sessionRepo.update(savedSession.id, {
-                metadata: { error: error.response?.data || error.message },
-                status: PaymentSessionStatusEnum.FAILED
-            });
-            throw error;
+            this.logger.error(`[KashierCheckout] Error calling Kashier API: ${error.message}`, error.stack);
+            this.logger.error(`[KashierCheckout] Error details: ${JSON.stringify(error.response?.data || error)}`);
+            // Throw user-friendly error
+            throw new Error(this.translations.t('domains.payments.initial_payment_session_failed'));
         }
 
     }

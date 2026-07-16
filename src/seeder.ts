@@ -180,7 +180,7 @@ async function seedAreasFromCsv(areaRepo: Repository<AreaEntity>, cityMap: Map<s
 }
 
 async function seedSuperAdminUser(roleRepo: Repository<Role>, userRepo: Repository<User>) {
-	const email = 'superAdmin@gmail.com';
+	const email = 'superadmin@gmail.com';
 	const normalizedEmail = email.trim().toLowerCase();
 	const name = 'super admin';
 	// const password = generateSecurePassword();
