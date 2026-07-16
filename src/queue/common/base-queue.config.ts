@@ -9,12 +9,15 @@ export const bullQueueConfig: SharedBullAsyncConfiguration = {
     const useTls =
       configService.get<string>('REDIS_USE_TLS') === 'true' ||
       (configService.get<boolean>('REDIS_USE_TLS') as any) === true;
+    const username = (configService.get<string>('REDIS_USERNAME') || '').trim() || undefined;
+    const password = (configService.get<string>('REDIS_PASSWORD') || '').trim() || undefined;
 
     return {
       connection: {
         host: configService.get<string>('REDIS_HOST'),
-        port: Number(configService.get<number>('REDIS_PORT')),
-        password: configService.get<string>('REDIS_PASSWORD') || undefined,
+        port: Number(configService.get<number>('REDIS_PORT') || 6379),
+        username,
+        password,
         db: Number(configService.get<number>('REDIS_DB') || 0),
         ...(useTls && { tls: {} }),
       },

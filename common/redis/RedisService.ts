@@ -6,7 +6,6 @@ import {
     Logger,
 } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
-import RedisClass from "ioredis";
 import * as Redis from 'ioredis';
 import redisConfig from './redis.config';
 
@@ -23,60 +22,66 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
         private readonly redisConfiguration: ConfigType<typeof redisConfig>,
     ) { }
 
-    onModuleInit() {
-        // This is where we build the configuration object for Redis
-        const config = {
-            host: this.redisConfiguration.host,
-            port: this.redisConfiguration.port,
-            // username: this.redisConfiguration.username,
-            // password: this.redisConfiguration.password,
-            // url: this.redisConfiguration.url,
-            retryDelayOnFailover: 100, // Retry delay when failover happens
-            enableReadyCheck: true,    // Ensures Redis is ready before proceeding
-            maxRetriesPerRequest: 3,   // Limits retry attempts to avoid hanging,
-            retryStrategy: (times) => {
-                // Delay starts at 50ms, then 100ms, 200ms... up to 3000ms (3 seconds)
-                const delay = Math.min(times * 50, 3000);
+    private buildRedisConfig() {
+        const useTls = this.redisConfiguration?.useTls || ['true', '1', 'yes', 'y', 'on'].includes(String(process.env.REDIS_USE_TLS || '').trim().toLowerCase());
 
-                // Only log a warning on the first attempt or every 20th attempt to reduce noise
+        const config: Redis.RedisOptions = {
+            host: this.redisConfiguration?.host || process.env.REDIS_HOST || '127.0.0.1',
+            port: Number(this.redisConfiguration?.port || process.env.REDIS_PORT || 6379),
+            db: Number(this.redisConfiguration?.db ?? process.env.REDIS_DB ?? 0),
+            username: this.redisConfiguration?.username || process.env.REDIS_USERNAME || undefined,
+            password: this.redisConfiguration?.password || process.env.REDIS_PASSWORD || undefined,
+            enableReadyCheck: true,
+            maxRetriesPerRequest: 3,
+            retryStrategy: (times) => {
+                const delay = Math.min(times * 50, 3000);
                 if (times === 1 || times % 20 === 0) {
                     this.logger.warn(`Redis disconnected. Retrying attempt #${times} in ${delay}ms...`);
                 }
-
                 return delay;
             },
         };
 
-        this.logger.log('Connecting to Redis...', config);
+        if (useTls) {
+            config.tls = {};
+        }
 
-        // Initialize the Redis client
+        return config;
+    }
+
+    onModuleInit() {
+        const config = this.buildRedisConfig();
+        this.logger.log(`Connecting to Redis at ${config.host}:${config.port} (db=${config.db})`);
+
         this.redisClient = new Redis.Redis(config);
 
-        // Log when connected
         this.redisClient.on('connect', () => {
             this.logger.log('Redis client connected successfully');
         });
 
-        // Log errors during connection or operation
+        this.redisClient.on('ready', () => {
+            this.logger.log('Redis client ready');
+        });
+
         this.redisClient.on('error', (error: any) => {
-            // These errors are common during disconnection/reconnection cycles.
-            // We ignore them because 'retryStrategy' is already handling the situation.
             const isConnectionNoise =
                 error.code === 'ECONNRESET' ||
                 error.code === 'ECONNREFUSED' ||
                 (error.message && error.message.includes('AggregateError'));
 
-            if (!isConnectionNoise) {
-                // Only log genuine, unexpected application errors
+            if (error?.message?.includes('NOAUTH') || error?.message?.includes('Authentication')) {
+                this.logger.error('Redis authentication failed. Check REDIS_PASSWORD/REDIS_USERNAME and the Redis server ACL settings.', error);
+            } else if (!isConnectionNoise) {
                 this.logger.error('Redis client error:', error);
             }
         });
     }
 
     onModuleDestroy() {
-        // Properly close the Redis connection when the app shuts down
-        this.redisClient.quit();
-        this.logger.log('Redis connection closed');
+        if (this.redisClient) {
+            void this.redisClient.quit();
+            this.logger.log('Redis connection closed');
+        }
     }
 
     /**
