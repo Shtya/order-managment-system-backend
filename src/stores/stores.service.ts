@@ -1256,16 +1256,16 @@ export class StoresService {
       );
 
       // 🔥 notify admin
-      await this.notificationService.create({
-        userId: adminId,
-        type: NotificationType.SYSTEM_ERROR,
-        title: await this.requestTranslations.tAsync('domains.stores.webhook_order_update_failed_title', adminId),
-        message: await this.requestTranslations.tAsync('domains.stores.webhook_order_update_failed_message', adminId, {
-          args: { error: message }
-        }),
-        relatedEntityType: "webhook",
-        relatedEntityId: provider,
-      });
+      // await this.notificationService.create({
+      //   userId: adminId,
+      //   type: NotificationType.SYSTEM_ERROR,
+      //   title: await this.requestTranslations.tAsync('domains.stores.webhook_order_update_failed_title', adminId),
+      //   message: await this.requestTranslations.tAsync('domains.stores.webhook_order_update_failed_message', adminId, {
+      //     args: { error: message }
+      //   }),
+      //   relatedEntityType: "webhook",
+      //   relatedEntityId: provider,
+      // });
 
       return; // ✅ prevent crash / webhook retry storm
     }
