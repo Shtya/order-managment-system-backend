@@ -23,6 +23,7 @@ import { RequestTranslationService, TranslationService } from 'common/translatio
 
 @Injectable()
 export class OrderAssignmentService {
+    private readonly logger = new Logger(OrderAssignmentService.name);  
     constructor(
         @InjectRepository(OrderAssignmentEntity)
         private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
@@ -1536,7 +1537,7 @@ export class OrderAssignmentService {
                 where: { id: In(orderIds), adminId },
                 relations: ["items", "items.variant", "items.variant.product", "cityDetails", "status"],
             });
-
+            this.logger.debug(`Fetched ${orders.map(o => o.orderNumber).join(', ')} orders for auto-assignment.`);
             const settings = await this.clientSettingsService.getCachedSettings(adminId);
             if (settings && settings.assignmentMode === AssignmentMode.DISABLED) {
                 return { message: this.translations.t('domains.order_assignment.auto_assignment_disabled'), assignedCount: 0 };
@@ -1551,9 +1552,11 @@ export class OrderAssignmentService {
                 const existingAssignment = await manager.findOne(OrderAssignmentEntity, {
                     where: { orderId: order.id, isAssignmentActive: true }
                 });
+                this.logger.debug(`Checking assignment for Order: ${order.orderNumber} | Existing Assignment: ${!!existingAssignment}`);
                 if (existingAssignment) continue;
 
                 // Check if status allowed
+                this.logger.debug(`Checking status for Order: ${order.orderNumber} | Status: ${order.status?.code}`);
                 if (order.status && !this.ordersService.ALLOWED_STATUS_CODES_FOR_ASSIGNMENT.has(order.status.code as OrderStatus)) {
                     continue;
                 }

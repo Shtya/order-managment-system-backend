@@ -14,6 +14,7 @@ import { ClientSettingsService } from "src/client-settings/client-settings.servi
 
 @Injectable()
 export class AutoAssignmentQueueService {
+    private readonly log = new Logger(AutoAssignmentQueueService.name);
     constructor(
         @InjectQueue(QueueNames.AUTO_ASSIGNMENT)
         private readonly autoAssignmentQueue: Queue,
@@ -26,12 +27,14 @@ export class AutoAssignmentQueueService {
         data: { adminId: string; orderIds: string[] },
         opts?: JobsOptions,
     ) {
+        this.log.debug(`Adding Auto Assignment Job for Admin: ${data.adminId} | Orders: ${data.orderIds?.length} ${data.orderIds?.join(', ')}`);
         if (!data?.adminId || !data?.orderIds?.length) return;
 
         // ⚙️ Load settings (move this outside if you want pure queue layer separation)
         const settings = await this.clientSettingsService.getCachedSettings(data.adminId); // or inject OrdersService
-        const assignmentMode = settings.assignmentMode;
 
+        const assignmentMode = settings.assignmentMode;
+        this.log.debug(`Auto Assignment Mode for Admin ${data.adminId}: ${assignmentMode}`);
         if (assignmentMode === AssignmentMode.DISABLED) {
             return;
         }
