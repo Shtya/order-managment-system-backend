@@ -1,4 +1,4 @@
-import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { AutoAssignDto, AutoPreviewDto, CreateAutoAssignRuleDto, GetFreeOrdersDto, ManualAssignManyDto, UpdateAutoAssignRuleDto } from 'dto/order-assignment.dto';
