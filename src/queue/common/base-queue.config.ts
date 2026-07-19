@@ -21,7 +21,9 @@ export const bullQueueConfig: SharedBullAsyncConfiguration = {
         db: Number(configService.get<number>('REDIS_DB') || 0),
         ...(useTls && { tls: {} }),
       },
+      skipVersionCheck: true,
       defaultJobOptions: {
+        
         attempts: Number(configService.get<number>('QUEUE_DEFAULT_ATTEMPTS') || 1),
         backoff: { type: 'exponential', delay: 3000 },
         // removeOnComplete: true,

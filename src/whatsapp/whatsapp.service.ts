@@ -1380,6 +1380,7 @@ export class WhatsappService {
             } catch (error) {
                 this.logger.error(`Error processing message: ${getErrorMessage(error)}`, error);
             }
+
         }
     }
 
