@@ -1365,12 +1365,21 @@ export class WhatsappService {
 
 
     private async handleMessages(value: any, account: WhatsappAccountEntity) {
+        this.logger.log(`Handling messages for account ${account.id} - WABA ID: ${account.wabaId}`);
         const messages = value?.messages || [];
         const statuses = value?.statuses || [];
         if (messages.length === 0 && statuses.length === 0) return;
-        await this.handleStatuses(value, account)
+        try {
+            await this.handleStatuses(value, account)
+        } catch (e) {
+            this.logger.error(`Error handling statuses for account ${account.id}: ${e.message}`, e.stack);
+        }
         for (const metaMsg of messages) {
-            await this.receivedMessage(metaMsg, account);
+            try {
+                await this.receivedMessage(metaMsg, account);
+            } catch (e) {
+                this.logger.error(`Error handling message for account ${account.id}: ${e.message}`, e.stack);
+            }
         }
     }
 
@@ -1380,6 +1389,7 @@ export class WhatsappService {
         const type = metaMsg.type as WhatsappMessageType;
 
         const existing = await this.messageRepo.findOne({ where: { messageId } });
+        this.logger.log(`Received message with ID: ${messageId} from ${from} of type ${type}. Existing message found: ${!!existing}`);
         if (existing) return;
 
         // Manage customer and conversation
@@ -1423,8 +1433,8 @@ export class WhatsappService {
             replyToId,
         });
 
-        const savedMsg = await this.messageRepo.save(message);
-
+         const savedMsg = await this.messageRepo.save(message);
+        this.logger.log(`Saved new message with ID: ${savedMsg.id} for conversation ${conversation.id} and customer ${customer.id}`);
         // Fetch with relations to emit to frontend
         const finalMsg = await this.messageRepo.findOne({
             where: { id: savedMsg.id },
@@ -1447,9 +1457,10 @@ export class WhatsappService {
         customer.lastMessageAt = new Date();
         await this.customerRepo.save(customer);
 
+        this.logger.log(`Updated conversation ${conversation.id} and customer ${customer.id} after receiving message ${savedMsg.id}`);
         // Emit notifications
         this.appGateway.emitNewMessage(account.adminId, finalMsg);
-
+        this.logger.log(`Emitted new message event for admin ${account.adminId} and message ${finalMsg.id}`);
         const replyData = this.extractReplyData(metaMsg);
         if (replyData) {
             const originalMessageId = metaMsg.context?.id;
@@ -1494,7 +1505,7 @@ export class WhatsappService {
 
     private async handleStatuses(value: any, account: WhatsappAccountEntity) {
         const statuses = value?.statuses || [];
-
+        this.logger.log(`Handling ${statuses.length} status updates for account ${account.id} - WABA ID: ${account.wabaId}`);
         for (const statusUpdate of statuses) {
             const messageId = statusUpdate.id;
             const status = statusUpdate.status as MessageStatus;
@@ -1502,6 +1513,7 @@ export class WhatsappService {
             const date = new Date(parseInt(timestamp) * 1000);
 
             const message = await this.messageRepo.findOne({ where: { messageId } });
+            this.logger.log(`Processing status update for message ID: ${messageId} - Status: ${status} - Timestamp: ${timestamp}`);
             if (!message) {
                 this.logger.warn(`Received status update for unknown message: ${messageId}`);
                 continue;
@@ -1543,11 +1555,13 @@ export class WhatsappService {
             // Sync all previous messages as read if READ
             if (status === MessageStatus.READ) {
                 await this.syncMessageReadStatus(message, date);
+                this.logger.log(`Synced read status for message ${messageId} and all previous messages in the conversation.`);
             }
 
             await this.messageRepo.save(message);
 
             // Emit notification for message status update
+            this.logger.log(`Emitting update message event for admin ${account.adminId} and message ${message.id}`);
             this.appGateway.emitUpdateMessage(account.adminId, message);
         }
     }
