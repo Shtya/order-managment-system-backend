@@ -79,7 +79,7 @@
     "export_main_variant_sku": "SKU المتغير الرئيسي",
     "export_main_variant_name": "اسم المتغير الرئيسي",
     "export_store_name": "اسم المتجر",
-    "export_items_count": "عدد العناصر",
+    "export_items_count": "عدد المنتجات",
     "export_description": "الوصف",
     "export_created_at": "تاريخ الإنشاء"
   },
@@ -500,7 +500,7 @@
     "export_second_phone_number": "رقم الهاتف الثاني",
     "export_allow_open_package": "سمح بفتح الحزمة",
     "export_store": "المتجر",
-    "export_items": "العناصر",
+    "export_items": "المنتجات",
     "export_format": "الصيغة: SKU|الكمية|سعر الوحدة (مفصولة بفاصلة للعديد من العناصر). اترك الحقول الاختيارية فارغة لاستخدام القيم الافتراضية.",
     "export_city": "المدينة",
     "export_address": "العنوان",

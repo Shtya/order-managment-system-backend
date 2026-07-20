@@ -1775,13 +1775,14 @@ export class WhatsappService {
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'EXCHANGING_TOKEN', status: 'in_progress' });
             const tokenResponse = await this.whatsappApi.exchangeCodeForToken(code);
             const accessToken = tokenResponse.access_token;
+            this.logger.log(`handleEmbeddedSignup: Exchanged code for access token: ${accessToken}`);
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'EXCHANGING_TOKEN', status: 'completed' });
 
             // 2. Fetch Phone Number details
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'FETCHING_PHONE_DATA', status: 'in_progress' });
             const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(wabaId, accessToken);
             const phoneData = phoneNumbers.data.find(p => p.id === phoneNumberId);
-
+            this.logger.log(`handleEmbeddedSignup: Fetched phone data: ${JSON.stringify(phoneData)}`);
             if (!phoneData) {
                 throw new BadRequestException(this.translations.t("domains.whatsapp.phone_number_id_not_found"));
             }
@@ -1803,13 +1804,22 @@ export class WhatsappService {
             }
             // 4. Subscribe App to WABA
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'in_progress' });
+            try {
             await this.whatsappApi.subscribeAppToWaba(wabaId, accessToken);
+            } catch (subError) {
+                this.logger.error(`Failed to subscribe app to WABA: ${subError.message}`, subError.stack);
+            }
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'completed' });
 
             // 5. Register Phone Number
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'REGISTERING_PHONE', status: 'in_progress' });
             const pin = Math.floor(100000 + Math.random() * 900000).toString();
-            await this.whatsappApi.registerPhoneNumber(phoneNumberId, accessToken, pin);
+            try {
+                await this.whatsappApi.registerPhoneNumber(phoneNumberId, accessToken, pin);
+            } catch (regError) {
+                this.logger.error(`Failed to register phone number: ${regError.message}`, regError.stack);
+            }
+            this.logger.log(`handleEmbeddedSignup: Registered phone number: ${phoneNumberId}`);
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'REGISTERING_PHONE', status: 'completed' });
 
             // 6. Create Account Record (Outside step 7 manager)

@@ -4476,6 +4476,7 @@ export class OrdersService {
     });
 
     const columns = [
+      { header: this.translations.t('domains.orders.export_items'), key: "items", width: 50 },
       { header: this.translations.t('domains.orders.export_customer_name'), key: "customerName", width: 22 },
       { header: this.translations.t('domains.orders.export_phone_number'), key: "phoneNumber", width: 16 },
       { header: this.translations.t('domains.orders.export_second_phone_number'), key: "secondPhoneNumber", width: 40 },
@@ -4494,7 +4495,6 @@ export class OrdersService {
       { header: this.translations.t('domains.orders.export_discount'), key: "discount", width: 30 },
       { header: this.translations.t('domains.orders.export_notes'), key: "notes", width: 24 },
       { header: this.translations.t('domains.orders.export_customer_notes'), key: "customerNotes", width: 40 },
-      { header: this.translations.t('domains.orders.export_items'), key: "items", width: 50 },
     ];
     sheet.columns = columns;
 
@@ -5320,6 +5320,7 @@ export class OrdersService {
     });
 
     const columns = [
+      { header: this.translations.t('domains.orders.export_items'), key: "items", width: 50 },
       { header: this.translations.t('domains.orders.export_customer_name'), key: "customerName", width: 22 },
       { header: this.translations.t('domains.orders.export_phone_number'), key: "phoneNumber", width: 16 },
       { header: this.translations.t('domains.orders.export_second_phone_number'), key: "secondPhoneNumber", width: 40 },
@@ -5338,7 +5339,6 @@ export class OrdersService {
       { header: this.translations.t('domains.orders.export_discount'), key: "discount", width: 30 },
       { header: this.translations.t('domains.orders.export_notes'), key: "notes", width: 24 },
       { header: this.translations.t('domains.orders.export_customer_notes'), key: "customerNotes", width: 40 },
-      { header: this.translations.t('domains.orders.export_items'), key: "items", width: 50 },
     ];
 
     sheet.columns = columns;
