@@ -746,6 +746,28 @@ export type I18nTranslations = {
                 "return_request_created_title": string;
                 "return_request_created_message": string;
             };
+            "replacement": {
+                "already_has_replacement": string;
+                "original_order_not_found": string;
+                "duplicate_products": string;
+                "invalid_products": string;
+                "notification_title": string;
+                "notification_message": string;
+                "replacement_created_log": string;
+                "failed_to_replace": string;
+                "export": {
+                    "worksheet_name": string;
+                    "replacement_order": string;
+                    "original_order": string;
+                    "customer": string;
+                    "phone": string;
+                    "original_items": string;
+                    "replacement_items": string;
+                    "cost_diff": string;
+                    "status": string;
+                    "date": string;
+                };
+            };
         };
         "accounting": {
             "closing_period_start_after_last": string;

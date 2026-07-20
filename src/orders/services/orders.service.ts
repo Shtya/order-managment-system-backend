@@ -571,6 +571,15 @@ export class OrdersService {
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("variant.product", "product")
 
+      .leftJoinAndSelect("order.replacementResult", "replacementResult")
+      .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
+      .leftJoinAndSelect("replacementResult.items", "bridgeItems")
+      .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem")
+      .leftJoinAndSelect("origItem.variant", "bridgeVar")
+      .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
+
+      .leftJoinAndSelect("order.replacementRequest", "replacementRequest")
+      .leftJoinAndSelect("replacementRequest.replacementOrder", "replacementOrder")
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shipping")
       .leftJoinAndSelect("order.store", "store")
@@ -789,7 +798,6 @@ export class OrdersService {
     }
 
     if (q?.hasReplacement !== undefined) {
-      qb.leftJoin("order.replacementRequest", "replacementRequest");
 
       if (q.hasReplacement === "false" || q.hasReplacement === false) {
         qb.andWhere("replacementRequest.id IS NULL");
@@ -1154,7 +1162,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.MANIFEST_PRINTED,
           result: OrderActionResult.SUCCESS,
-          details:  await this.requestTranslations.tAsync('domains.orders.log_initial_manifest_printed',adminId, { args: { manifestLabel, manifestNumber } }), // ✅ Dynamic
+          details: await this.requestTranslations.tAsync('domains.orders.log_initial_manifest_printed', adminId, { args: { manifestLabel, manifestNumber } }), // ✅ Dynamic
         });
       } else {
         // 3. Logic for re-printing (already printed)
@@ -1165,7 +1173,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.MANIFEST_REPRINTED,
           result: OrderActionResult.SUCCESS,
-          details:  await this.requestTranslations.tAsync('domains.orders.log_manifest_reprinted',adminId, { args: { manifestLabel } }), // ✅ Dynamic
+          details: await this.requestTranslations.tAsync('domains.orders.log_manifest_reprinted', adminId, { args: { manifestLabel } }), // ✅ Dynamic
         });
       }
 
@@ -1346,7 +1354,7 @@ export class OrdersService {
           ? this.translations.t(actionTypeKeys[log.actionType]) || log.actionType
           : "N/A",
         result: log.result
-          ? this.translations.t(resultKeys[log.result])  || log.result
+          ? this.translations.t(resultKeys[log.result]) || log.result
           : "N/A",
         employee: log.user
           ? `${log.user.name || "N/A"} (ID: ${log.user.id})`
@@ -1566,7 +1574,7 @@ export class OrdersService {
         actionType: OrderActionType.OUTGOING_DISPATCHED,
         result: OrderActionResult.SUCCESS,
         shippingCompanyId: dto.shippingCompanyId,
-        details:  await this.requestTranslations.tAsync('domains.orders.log_order_dispatched',adminId, { args: { manifestNumber, driverName: dto.driverName || "N/A" } }),
+        details: await this.requestTranslations.tAsync('domains.orders.log_order_dispatched', adminId, { args: { manifestNumber, driverName: dto.driverName || "N/A" } }),
       });
 
       return savedManifest;
@@ -1618,7 +1626,7 @@ export class OrdersService {
               orderId: o.id,
               actionType: OrderActionType.MANIFEST_PRINTED, // Tracking manifest attempt
               result: OrderActionResult.FAILED,
-              details:  await this.requestTranslations.tAsync('domains.orders.log_failed_add_to_manifest',adminId, { args: { statusCode: o.status.code } }),
+              details: await this.requestTranslations.tAsync('domains.orders.log_failed_add_to_manifest', adminId, { args: { statusCode: o.status.code } }),
             }),
           ),
         );
@@ -1748,7 +1756,7 @@ export class OrdersService {
         orderIds,
         actionType: OrderActionType.MANIFEST_PRINTED,
         result: OrderActionResult.SUCCESS,
-        details:  await this.requestTranslations.tAsync('domains.orders.log_order_in_return_manifest',adminId, { args: { manifestNumber } }),
+        details: await this.requestTranslations.tAsync('domains.orders.log_order_in_return_manifest', adminId, { args: { manifestNumber } }),
       });
 
       return {
@@ -2096,7 +2104,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.WAYBILL_PRINTED,
           result: OrderActionResult.SUCCESS,
-          details: await this.requestTranslations.tAsync('domains.orders.log_initial_waybill_printed',adminId),
+          details: await this.requestTranslations.tAsync('domains.orders.log_initial_waybill_printed', adminId),
         });
       }
 
@@ -2109,7 +2117,7 @@ export class OrdersService {
           orderIds,
           actionType: OrderActionType.WAYBILL_REPRINTED,
           result: OrderActionResult.SUCCESS,
-          details:  await this.requestTranslations.tAsync('domains.orders.log_waybill_reprinted',adminId),
+          details: await this.requestTranslations.tAsync('domains.orders.log_waybill_reprinted', adminId),
         });
       }
       // 5. ✅ Log the Status Change Timeline (Bulk)
@@ -2331,7 +2339,7 @@ export class OrdersService {
           orderId: order.id,
           actionType: OrderActionType.PREPARATION_STARTED,
           result: OrderActionResult.SUCCESS,
-          details:  await this.requestTranslations.tAsync('domains.orders.log_preparation_completed',adminId),
+          details: await this.requestTranslations.tAsync('domains.orders.log_preparation_completed', adminId),
         });
       }
 
@@ -2583,6 +2591,14 @@ export class OrdersService {
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
       .leftJoinAndSelect("order.store", "store")
+      .leftJoinAndSelect("order.replacementResult", "replacementResult")
+      .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
+      .leftJoinAndSelect("replacementResult.items", "bridgeItems")
+      .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem")
+      .leftJoinAndSelect("origItem.variant", "bridgeVar")
+      .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
+      .leftJoinAndSelect("bridgeItems.newVariant", "newBridgeVar")
+      .leftJoinAndSelect("newBridgeVar.product", "newBridgeProd")
       // Filter assignments to only include the active one
       .leftJoinAndSelect(
         "order.assignments",
@@ -2662,6 +2678,8 @@ export class OrdersService {
       .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem")
       .leftJoinAndSelect("origItem.variant", "bridgeVar")
       .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
+      .leftJoinAndSelect("bridgeItems.newVariant", "newBridgeVar")
+      .leftJoinAndSelect("newBridgeVar.product", "newBridgeProd")
       // 🔥 Search by orderNumber instead of ID
       .where("order.orderNumber = :orderNumber", { orderNumber })
       .andWhere("order.adminId = :adminId", { adminId })
@@ -2881,8 +2899,22 @@ export class OrdersService {
       manager,
     });
 
-    // 🔥 Trigger Auto-Assignment Queue
-    await this.autoAssignmentQueueService.addAutoAssignmentJob({ adminId, orderIds: [saved.id] });
+    // 🔥 Trigger Auto-Assignment Queue (after commit)
+    const queryRunner = manager.queryRunner;
+    if (queryRunner) {
+      if (!queryRunner.data.postCommitTasks) {
+        queryRunner.data.postCommitTasks = [];
+      }
+      queryRunner.data.postCommitTasks.push(async () => {
+        try {
+          await this.autoAssignmentQueueService.addAutoAssignmentJob({ adminId, orderIds: [saved.id] });
+        } catch (error) {
+          console.error("Error triggering auto-assignment after commit:", error);
+        }
+      });
+    } else {
+      await this.autoAssignmentQueueService.addAutoAssignmentJob({ adminId, orderIds: [saved.id] });
+    }
 
     return saved;
   }
@@ -3168,8 +3200,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_UPDATED,
-        title: await this.requestTranslations.tAsync('domains.orders.order_updated_title',adminId),
-        message: await this.requestTranslations.tAsync('domains.orders.order_updated_message',adminId, { args: { orderNumber: order.orderNumber } }),
+        title: await this.requestTranslations.tAsync('domains.orders.order_updated_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_updated_message', adminId, { args: { orderNumber: order.orderNumber } }),
 
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
@@ -3457,8 +3489,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_STATUS_UPDATE,
-        title: await this.requestTranslations.tAsync('domains.orders.order_status_updated_title',adminId),
-        message: await this.requestTranslations.tAsync('domains.orders.order_status_updated_message',adminId, { args: { orderNumber: order.orderNumber, statusName: newStatus.name }}),
+        title: await this.requestTranslations.tAsync('domains.orders.order_status_updated_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_status_updated_message', adminId, { args: { orderNumber: order.orderNumber, statusName: newStatus.name } }),
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
       });
@@ -3519,7 +3551,7 @@ export class OrdersService {
         orderId: order.id,
         actionType: OrderActionType.REJECTED,
         result: OrderActionResult.FAILED,
-        details:  await this.requestTranslations.tAsync('domains.orders.log_order_rejected',adminId, { args: { reason } }),
+        details: await this.requestTranslations.tAsync('domains.orders.log_order_rejected', adminId, { args: { reason } }),
       });
 
       // 4. ✅ LOG STATUS CHANGE (The Timeline)
@@ -3537,8 +3569,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_REJECTED,
-        title: await this.requestTranslations.tAsync('domains.orders.order_rejected_title',adminId),
-        message: await this.requestTranslations.tAsync('domains.orders.order_rejected_message',adminId, { args: { orderNumber: order.orderNumber, reason } }),
+        title: await this.requestTranslations.tAsync('domains.orders.order_rejected_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_rejected_message', adminId, { args: { orderNumber: order.orderNumber, reason } }),
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
       });
@@ -3587,7 +3619,7 @@ export class OrdersService {
         orderId: order.id,
         actionType: OrderActionType.CONFIRMED,
         result: OrderActionResult.SUCCESS,
-        details:  await this.requestTranslations.tAsync('domains.orders.log_order_reconfirmed',adminId),
+        details: await this.requestTranslations.tAsync('domains.orders.log_order_reconfirmed', adminId),
       });
 
       // 4. ✅ LOG STATUS CHANGE (The Timeline)
@@ -3597,7 +3629,7 @@ export class OrdersService {
         fromStatusId: oldStatusId,
         toStatusId: confirmedStatus.id,
         userId,
-        notes: await this.requestTranslations.tAsync('domains.orders.log_reconfirmed_after_rejection',adminId),
+        notes: await this.requestTranslations.tAsync('domains.orders.log_reconfirmed_after_rejection', adminId),
         ipAddress,
         manager,
       });
@@ -3605,8 +3637,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_RECONFIRMED,
-        title: await this.requestTranslations.tAsync('domains.orders.order_reconfirmed_title',adminId),
-        message: await this.requestTranslations.tAsync('domains.orders.order_reconfirmed_message',adminId, { args: { orderNumber: order.orderNumber } }),
+        title: await this.requestTranslations.tAsync('domains.orders.order_reconfirmed_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.order_reconfirmed_message', adminId, { args: { orderNumber: order.orderNumber } }),
         relatedEntityType: "order",
         relatedEntityId: String(order.id),
       });
@@ -3723,8 +3755,8 @@ export class OrdersService {
               this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.ORDER_STATUS_UPDATE,
-                title: await this.requestTranslations.tAsync('domains.orders.order_follow_up_title',adminId, { args: { orderNumber: order.orderNumber } }),
-                message: await this.requestTranslations.tAsync('domains.orders.order_follow_up_message',adminId, { args: { orderNumber: order.orderNumber } }),
+                title: await this.requestTranslations.tAsync('domains.orders.order_follow_up_title', adminId, { args: { orderNumber: order.orderNumber } }),
+                message: await this.requestTranslations.tAsync('domains.orders.order_follow_up_message', adminId, { args: { orderNumber: order.orderNumber } }),
                 relatedEntityType: "order",
                 relatedEntityId: String(order.id),
               }),
@@ -3747,8 +3779,8 @@ export class OrdersService {
           this.notificationService.create({
             userId: adminId,
             type: NotificationType.ORDER_STATUS_UPDATE,
-            title: await this.requestTranslations.tAsync('domains.orders.order_status_changed_by_staff_title',adminId, { args: { orderNumber: order.orderNumber } }),
-            message: await this.requestTranslations.tAsync('domains.orders.order_status_changed_by_staff_message',adminId, { args: { orderNumber: order.orderNumber, statusName: newStatus.name, staffName: me.name || "Staff" } }),
+            title: await this.requestTranslations.tAsync('domains.orders.order_status_changed_by_staff_title', adminId, { args: { orderNumber: order.orderNumber } }),
+            message: await this.requestTranslations.tAsync('domains.orders.order_status_changed_by_staff_message', adminId, { args: { orderNumber: order.orderNumber, statusName: newStatus.name, staffName: me.name || "Staff" } }),
             relatedEntityType: "order",
             relatedEntityId: String(order.id),
           }),
@@ -3799,7 +3831,7 @@ export class OrdersService {
         shippingCompanyId: order?.shippingCompanyId,
         actionType: OrderActionType.CONFIRMED,
         result: actionResult,
-        details:  await this.requestTranslations.tAsync('domains.orders.log_confirmation_process',adminId, { args: { oldStatusName: oldStatus?.name, newStatusName: newStatus.name, retriesUsed: activeAssignment.retriesUsed, maxRetries: activeAssignment.maxRetriesAtAssignment } }),
+        details: await this.requestTranslations.tAsync('domains.orders.log_confirmation_process', adminId, { args: { oldStatusName: oldStatus?.name, newStatusName: newStatus.name, retriesUsed: activeAssignment.retriesUsed, maxRetries: activeAssignment.maxRetriesAtAssignment } }),
       });
 
       // Log History
@@ -3820,8 +3852,8 @@ export class OrdersService {
         this.notificationService.create({
           userId: activeAssignment.employeeId,
           type: NotificationType.ORDER_STATUS_UPDATE,
-          title: await this.requestTranslations.tAsync('domains.orders.assignment_updated_title',adminId),
-          message: await this.requestTranslations.tAsync('domains.orders.assignment_updated_message',adminId, { args: { orderNumber: savedOrder.orderNumber, statusName: newStatus.name } }),
+          title: await this.requestTranslations.tAsync('domains.orders.assignment_updated_title', adminId),
+          message: await this.requestTranslations.tAsync('domains.orders.assignment_updated_message', adminId, { args: { orderNumber: savedOrder.orderNumber, statusName: newStatus.name } }),
           relatedEntityType: "order",
           relatedEntityId: String(savedOrder.id),
         }),
@@ -3948,8 +3980,8 @@ export class OrdersService {
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_DELETED,
-      title: await this.requestTranslations.tAsync('domains.orders.order_deleted_title',adminId),
-      message: await this.requestTranslations.tAsync('domains.orders.order_deleted_message',adminId, { args: { orderNumber: order.orderNumber } }),
+      title: await this.requestTranslations.tAsync('domains.orders.order_deleted_title', adminId),
+      message: await this.requestTranslations.tAsync('domains.orders.order_deleted_message', adminId, { args: { orderNumber: order.orderNumber } }),
     });
 
     return { ok: true };
@@ -4061,8 +4093,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.ORDER_STATUS_CREATED,
-        title: await this.requestTranslations.tAsync('domains.orders.status_reactivated_title',adminId),
-        message: await this.requestTranslations.tAsync('domains.orders.status_reactivated_message',adminId, { args: { name: saved.name } }),
+        title: await this.requestTranslations.tAsync('domains.orders.status_reactivated_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.status_reactivated_message', adminId, { args: { name: saved.name } }),
       });
 
       return saved;
@@ -4086,8 +4118,8 @@ export class OrdersService {
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_STATUS_CREATED,
-      title: await this.requestTranslations.tAsync('domains.orders.status_created_title',adminId),
-      message: await this.requestTranslations.tAsync('domains.orders.status_created_message',adminId, { args: { name: saved.name } }),
+      title: await this.requestTranslations.tAsync('domains.orders.status_created_title', adminId),
+      message: await this.requestTranslations.tAsync('domains.orders.status_created_message', adminId, { args: { name: saved.name } }),
     });
 
     return saved;
@@ -4123,8 +4155,8 @@ export class OrdersService {
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_STATUS_SETTINGS_UPDATED,
-      title: await this.requestTranslations.tAsync('domains.orders.status_updated_title',adminId),
-      message: await this.requestTranslations.tAsync('domains.orders.status_updated_message',adminId, { args: { statusName: saved.name } }),
+      title: await this.requestTranslations.tAsync('domains.orders.status_updated_title', adminId),
+      message: await this.requestTranslations.tAsync('domains.orders.status_updated_message', adminId, { args: { statusName: saved.name } }),
     });
 
     return saved;
@@ -4439,7 +4471,7 @@ export class OrdersService {
     workbook.creator = "Madar";
     workbook.created = new Date();
 
-    const sheet = workbook.addWorksheet(this.translations.t('domains.orders.export_orders_sheet'), {
+    const sheet = workbook.addWorksheet("Orders", {
       views: [{ state: "frozen", ySplit: 2 }],
     });
 
@@ -4760,7 +4792,7 @@ export class OrdersService {
         this.storesService.list(me),
         this.shippingService.activeIntegrations(me),
         this.userRepo.findOne({
-          where: { id: adminId, adminId },
+          where: { id: adminId },
           relations: ["subscriptions", "subscriptions.plan"],
         }),
         this.storesService.listProviders(),
@@ -5426,8 +5458,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.BULK_ORDERS_FAILED,
-        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_title',adminId),
-        message: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_message_with_error',adminId, { args: { errorMessage: error.message } }),
+        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_message_with_error', adminId, { args: { errorMessage: error.message } }),
       });
 
       throw new BadRequestException(
@@ -5447,7 +5479,7 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.BULK_ORDERS_CREATED,
-        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_created_title',adminId),
+        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_created_title', adminId),
         message:
           this.translations.t('domains.orders.bulk_orders_created_message', { args: { count: created } }) +
           (preview ? `\n${this.translations.t('domains.orders.bulk_orders_created_preview', { args: { preview } })}` : ""),
@@ -5456,8 +5488,8 @@ export class OrdersService {
       await this.notificationService.create({
         userId: adminId,
         type: NotificationType.BULK_ORDERS_FAILED,
-        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_title',adminId),
-        message: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_message',adminId),
+        title: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_title', adminId),
+        message: await this.requestTranslations.tAsync('domains.orders.bulk_orders_failed_message', adminId),
       });
     }
 

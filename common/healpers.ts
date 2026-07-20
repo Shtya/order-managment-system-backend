@@ -166,8 +166,7 @@ export function parseNumber(val: any): number | null | undefined {
     return Number.isFinite(n) ? n : null;
 }
 
-export
-    function parseJsonField<T>(val: any, fallback: T): T {
+export function parseJsonField<T>(val: any, fallback: T): T {
     if (val === undefined || val === null || val === "") return fallback;
     if (typeof val !== "string") return val as T;
     try {

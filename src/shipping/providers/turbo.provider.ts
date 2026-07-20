@@ -175,7 +175,7 @@ export class TurboProvider extends ShippingProvider {
           return `${quantity}x ${productName}`;
         })
         .join(", ") || "",
-      amount_to_be_collected: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal) || 0 : 0,
+      amount_to_be_collected: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? Math.max(0, (order.finalTotal - order.deposit) || 0) : 0,
       return_amount: 0, // يمكن تخصيصه في حالة المرتجعات
       is_order: TurboOrderType.STANDARD, // القيمة الافتراضية
       weight: dto.weightKg || 1,
@@ -187,33 +187,33 @@ export class TurboProvider extends ShippingProvider {
 
     if (isExchange) {
       let returnItemsCount = 0;
-      let totalReturnAmount = 0; // Fixed: Initialized to 0 to avoid NaN
-      let returnInstructions = `${this.translations.t('domains.shipping.package_details_header')}\n`;
+      let returnInstructions = "The Package details:\n";
 
       if (order?.replacementResult?.items?.length) {
         const itemLines = order.replacementResult.items.map(ri => {
-          returnItemsCount += ri.quantityToReplace;
-          const originalItem = ri?.originalOrderItem;
+          returnItemsCount += ri.returnQuantity;
 
-          if (originalItem) {
-            const qtyToCalc = Math.min(ri.quantityToReplace, originalItem.quantity);
-            totalReturnAmount += (Number(originalItem.unitPrice) || 0) * qtyToCalc;
-          }
-
-          const productName = originalItem?.variant?.product?.name || this.translations.t('common.product_fallback');
+          const originalItem = ri.originalOrderItem;
+          const productName = originalItem?.variant?.product?.name || "Product";
           const sku = originalItem?.variant?.sku;
 
-          return `- ${ri.quantityToReplace}x ${productName} (SKU: ${sku})`.trim();
+          return `${ri.returnQuantity}x ${productName} (SKU: ${sku})`.trim();
         });
 
-        returnInstructions += itemLines.join("\n");
+        returnInstructions += itemLines.join("\n - ");
       } else {
         returnItemsCount = itemsCount;
-        returnInstructions += `- ${this.translations.t('domains.shipping.return_items_count_summary', { args: { count: returnItemsCount } })}`;
       }
 
+      const codAmount =
+        order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY
+          ? (order.finalTotal - order.deposit)
+          : 0;
+
       payload.is_order = TurboOrderType.EXCHANGE;
-      payload.return_amount = totalReturnAmount;
+
+      // Send only the amount to be returned (negative COD), otherwise 0.
+      payload.return_amount = codAmount < 0 ? Math.abs(codAmount) : 0;
       payload.return_summary = returnInstructions;
     }
 

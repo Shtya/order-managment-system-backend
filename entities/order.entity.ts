@@ -42,14 +42,14 @@ export enum OrderStatus {
   CANCELLED = "cancelled", //
   CANCELLED_FOLLOW_UP = "cancelled_follow_up", //
   FAILED_DELIVERY = "failed_delivery", //
-  
+
   DISTRIBUTED = "distributed",
   PRINTED = "printed",
   PREPARING = "preparing",
   READY = "ready",
   PACKED = "packed",
   SHIPPED = "shipped",
-  
+
   DELIVERED = "delivered",//
   RETURN_PREPARING = "return_preparing", //
   RETURNED = "returned",  // 
@@ -251,7 +251,7 @@ export class OrderEntity {
   @ManyToOne(() => OrderStatusEntity, { eager: true })
   @JoinColumn({ name: "statusId" })
   status: OrderStatusEntity;
-  
+
   @Column({ type: 'uuid' })
   statusId: string;
 
@@ -260,10 +260,10 @@ export class OrderEntity {
 
   @UpdateDateColumn({ type: "timestamptz", nullable: true })
   confirmedAt?: Date;
-  
+
   @Column({ type: 'uuid', nullable: true })
   oldStatusId: string;
-  
+
   @ManyToOne(() => OrderStatusEntity, { nullable: true })
   @JoinColumn({ name: "oldStatusId" })
   oldStatus: OrderStatusEntity;
@@ -315,7 +315,7 @@ export class OrderEntity {
 
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0, nullable: false })
   deposit: number;
-  
+
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   productsTotal!: number; // Sum of all items
 
@@ -419,10 +419,11 @@ export class OrderEntity {
   @Column({ type: 'text', nullable: true })
   locationAddress?: string;
 
-  @OneToOne("OrderReplacementEntity", "originalOrder", { nullable: true })
+  // @OneToOne("OrderReplacementEntity", "originalOrder", { nullable: true })
+  @OneToOne(() => OrderReplacementEntity, (replacement) => replacement.originalOrder)
   replacementRequest: Relation<OrderReplacementEntity>;
-
-  @OneToOne("OrderReplacementEntity", "replacementOrder", { nullable: true })
+  
+  @OneToOne(() => OrderReplacementEntity, (replacement) => replacement.replacementOrder)
   replacementResult: Relation<OrderReplacementEntity>;
 
   @OneToMany(() => OrderCollectionEntity, (collection) => collection.order)
@@ -450,7 +451,7 @@ export class OrderEntity {
   @ManyToOne(() => MonthlyClosingEntity)
   @JoinColumn({ name: 'monthlyClosingId' })
   monthlyClosing: Relation<MonthlyClosingEntity>;
-  
+
 
   @DeleteDateColumn({ name: "deleted_at", nullable: true, type: "timestamptz" })
   deleted_at?: Date;
@@ -707,19 +708,24 @@ export class OrderReplacementEntity {
   @Column({ type: "jsonb", nullable: true })
   returnImages: string[]; // Array of URLs showing the products to return
 
-  @OneToOne(() => OrderEntity)
+  @OneToOne(
+    () => OrderEntity,
+    order => order.replacementRequest,
+  )
   @JoinColumn({ name: "originalOrderId" })
   originalOrder: OrderEntity;
 
-  @Column({ type: 'uuid', })
+  @Column({ type: "uuid" })
   originalOrderId: string;
 
-  // Replacement order
-  @OneToOne(() => OrderEntity)
+  @OneToOne(
+    () => OrderEntity,
+    order => order.replacementResult,
+  )
   @JoinColumn({ name: "replacementOrderId" })
   replacementOrder: OrderEntity;
 
-  @Column({ type: 'uuid', })
+  @Column({ type: "uuid" })
   replacementOrderId: string;
 
   @ManyToOne(() => ShippingCompanyEntity, { nullable: true })
@@ -760,6 +766,9 @@ export class OrderReplacementItemEntity {
 
   @Column({ type: "int" })
   quantityToReplace: number;
+
+  @Column({ type: "int", default: 1 })
+  returnQuantity: number;
 
   // Connection to the new Product Variant being sent instead
   @ManyToOne(() => ProductVariantEntity)
@@ -937,7 +946,7 @@ export class ReturnRequestEntity {
 
   @Column({ nullable: true })
   reason: string;
-  
+
   @OneToMany(() => ReturnRequestItemEntity, (item) => item.returnRequest, {
     cascade: true,
   })

@@ -1,4 +1,4 @@
-import { OrderEntity, OrderReplacementEntity, OrderReplacementItemEntity } from "entities/order.entity";
+import { OrderEntity, OrderReplacementEntity, OrderReplacementItemEntity, OrderStatus } from "entities/order.entity";
 import { OrdersService, tenantId } from "./orders.service";
 import { Brackets, DataSource, Repository } from "typeorm";
 import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/common";
@@ -8,6 +8,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { InjectRepository } from "@nestjs/typeorm";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 
 @Injectable()
 export class OrderReplacementService {
@@ -15,8 +16,12 @@ export class OrderReplacementService {
         private dataSource: DataSource,
         @InjectRepository(OrderReplacementEntity)
         private readonly replacementRepo: Repository<OrderReplacementEntity>,
+        @InjectRepository(OrderEntity)
+        private readonly orderRepo: Repository<OrderEntity>,
         private readonly ordersService: OrdersService, // Inject the main service
         private readonly notificationService: NotificationService,
+        private readonly translations: TranslationService,
+        private readonly requestTranslations: RequestTranslationService,
     ) { }
 
     // ========================================
@@ -24,7 +29,7 @@ export class OrderReplacementService {
     // ========================================
     async listReplacements(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const page = Number(q?.page ?? 1);
         const limit = Number(q?.limit ?? 10);
@@ -141,7 +146,7 @@ export class OrderReplacementService {
 
     async exportReplacements(me: any, q?: any) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         const search = String(q?.search ?? "").trim();
 
@@ -173,7 +178,10 @@ export class OrderReplacementService {
         const exportData = replacements.map((rep) => {
             // Extract Original Data from the replacement items link
             const originalProductNames = rep.items
-                ?.map(i => `${i.originalOrderItem?.variant?.product?.name || "N/A"} (${i.originalOrderItem?.variant?.sku || ""})`)
+                ?.map(i => {
+                    const qty = i.originalOrderItem?.quantity ?? 0;
+                    return `${i.originalOrderItem?.variant?.product?.name || "N/A"} (${i.originalOrderItem?.variant?.sku || ""}) x ${qty}`;
+                })
                 .join(" | ");
 
             const originalSKUs = rep.items
@@ -182,7 +190,10 @@ export class OrderReplacementService {
 
             // Extract New Data from the replacement items link
             const newProductNames = rep.items
-                ?.map(i => `${i.newVariant?.product?.name || "N/A"} (${i.newVariant?.sku || ""})`)
+                ?.map(i => {
+                    const qty = i.quantityToReplace ?? 0;
+                    return `${i.newVariant?.product?.name || "N/A"} (${i.newVariant?.sku || ""}) x ${qty}`;
+                })
                 .join(" | ");
 
             const newSKUs = rep.items
@@ -211,19 +222,20 @@ export class OrderReplacementService {
         // =============================
         // 📊 Excel Generation
         // =============================
+
         const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet("Replacements");
+        const worksheet = workbook.addWorksheet(this.translations.t("domains.orders.replacement.export.worksheet_name"));
 
         worksheet.columns = [
-            { header: "Replacement #", key: "replacementOrderNumber", width: 15 },
-            { header: "Original #", key: "originalOrderNumber", width: 15 },
-            { header: "Customer", key: "customerName", width: 20 },
-            { header: "Phone", key: "phoneNumber", width: 15 },
-            { header: "Original Items", key: "originalProducts", width: 35 },
-            { header: "Replacement Items", key: "newProducts", width: 35 },
-            { header: "Cost Diff", key: "costDiff", width: 12 },
-            { header: "Status", key: "status", width: 15 },
-            { header: "Date", key: "createdAt", width: 20 },
+            { header: this.translations.t("domains.orders.replacement.export.replacement_order"), key: "replacementOrderNumber", width: 15 },
+            { header: this.translations.t("domains.orders.replacement.export.original_order"), key: "originalOrderNumber", width: 15 },
+            { header: this.translations.t("domains.orders.replacement.export.customer"), key: "customerName", width: 20 },
+            { header: this.translations.t("domains.orders.replacement.export.phone"), key: "phoneNumber", width: 15 },
+            { header: this.translations.t("domains.orders.replacement.export.original_items"), key: "originalProducts", width: 35 },
+            { header: this.translations.t("domains.orders.replacement.export.replacement_items"), key: "newProducts", width: 35 },
+            { header: this.translations.t("domains.orders.replacement.export.cost_diff"), key: "costDiff", width: 12 },
+            { header: this.translations.t("domains.orders.replacement.export.status"), key: "status", width: 15 },
+            { header: this.translations.t("domains.orders.replacement.export.date"), key: "createdAt", width: 20 },
         ];
 
         // Header Styling
@@ -242,7 +254,7 @@ export class OrderReplacementService {
 
     async replaceOrder(me: any, dto: CreateReplacementDto, ipAddress?: string) {
         const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException("Missing adminId");
+        if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
         return this.dataSource.transaction(async (manager) => {
             // 1️⃣ Get original order
@@ -252,10 +264,10 @@ export class OrderReplacementService {
             });
 
             if (originalOrder.replacementRequest) {
-                throw new BadRequestException(`This order already has a replacement and cannot be replaced again`);
+                throw new BadRequestException(this.translations.t('domains.orders.replacement.already_has_replacement'));
             }
 
-            if (!originalOrder) throw new BadRequestException('Original order not found');
+            if (!originalOrder) throw new BadRequestException(this.translations.t('domains.orders.replacement.original_order_not_found'));
 
             // 2️⃣ Validation: ensure all originalOrderItemIds exist and are unique
             const originalItemIds = originalOrder.items.map(i => i.id);
@@ -264,32 +276,17 @@ export class OrderReplacementService {
             // Check duplicates in request
             const duplicates = requestedItemIds.filter((id, idx) => requestedItemIds.indexOf(id) !== idx);
             if (duplicates.length > 0) {
-                throw new BadRequestException(`Duplicate products in replace request`);
+                throw new BadRequestException(this.translations.t('domains.orders.replacement.duplicate_products'));
             }
 
             // Check all exist in original order
             const invalidIds = requestedItemIds.filter(id => !originalItemIds.includes(id));
             if (invalidIds.length > 0) {
-                throw new BadRequestException(`Some products doesn't included at original order`);
+                throw new BadRequestException(this.translations.t('domains.orders.replacement.invalid_products'));
             }
 
-            // Calculate deposit from ORIGINAL items being replaced
-            let deposit = 0;
-
-            for (const item of dto.items) {
-                const originalItem = originalOrder.items.find(
-                    (oi) => oi.id === item.originalOrderItemId,
-                )!;
-
-                // if want to prevent repalce to has aditional items
-                if (item.quantityToReplace > originalItem.quantity) {
-                    deposit += originalItem.unitPrice * originalItem.quantity;
-                } else {
-
-                    deposit += originalItem.unitPrice * item.quantityToReplace;
-                }
-
-            }
+            // Use deposit from frontend (refund amount when old items cost more than new items)
+            const deposit = dto.deposit ?? 0;
 
             // 2️⃣ Create new order based on items in dto
             const createOrderDto: CreateOrderDto = {
@@ -332,6 +329,7 @@ export class OrderReplacementService {
                     originalOrderItemId: it.originalOrderItemId,
                     newVariantId: it.newVariantId,
                     quantityToReplace: it.quantityToReplace,
+                    returnQuantity: it.returnQuantity,
                 })),
             });
 
@@ -342,8 +340,8 @@ export class OrderReplacementService {
             await this.notificationService.create({
                 userId: adminId,
                 type: NotificationType.REPLACEMENT_CREATED,
-                title: "Order Replacement Created",
-                message: `A replacement order #${newOrder.orderNumber} has been created for original order #${originalOrder.orderNumber}.`,
+                title: await this.requestTranslations.tAsync('domains.orders.replacement.notification_title', adminId),
+                message: await this.requestTranslations.tAsync('domains.orders.replacement.notification_message', adminId, { args: { replacementOrderNumber: newOrder.orderNumber, originalOrderNumber: originalOrder.orderNumber } }),
                 relatedEntityType: "order",
                 relatedEntityId: String(newOrder.id),
             });
@@ -353,5 +351,41 @@ export class OrderReplacementService {
                 newOrder,
             };
         });
+    }
+
+    // ========================================
+    // ✅ STATS
+    // ========================================
+    async getStats(me: any) {
+        const adminId = tenantId(me);
+        if (!adminId) {
+            throw new BadRequestException(
+                this.translations.t('common.missing_admin_id'),
+            );
+        }
+
+        const result = await this.orderRepo
+            .createQueryBuilder('order')
+            .leftJoin('order.status', 'status')
+            .leftJoin('order.replacementRequest', 'replacement')
+            .select('COUNT(order.id)', 'totalDelivered')
+            .addSelect(
+                'COUNT(replacement.id)',
+                'replaced',
+            )
+            .where('order.adminId = :adminId', { adminId })
+            .andWhere('status.code = :status', {
+                status: OrderStatus.DELIVERED,
+            })
+            .getRawOne();
+
+        const totalDelivered = Number(result?.totalDelivered ?? 0);
+        const replaced = Number(result?.replaced ?? 0);
+
+        return {
+            totalDelivered,
+            replaced,
+            notReplaced: totalDelivered - replaced,
+        };
     }
 }

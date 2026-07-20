@@ -272,9 +272,9 @@ export class BulkUpdateShippingFieldItemDto {
 
   @IsOptional()
   @IsString({message: i18nValidationMessage('validation.is_string')})
-  @MinLength(5, {
-    message: i18nValidationMessage('validation.min_length'),
-  })
+  // @MinLength(5, {
+  //   message: i18nValidationMessage('validation.min_length'),
+  // })
   address?: string;
 
   @IsOptional()
@@ -357,6 +357,12 @@ export class ReplacementItemDto {
   @Type(() => Number)
   quantityToReplace: number;
 
+  @IsOptional()
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Type(() => Number)
+  @Min(0, {message: i18nValidationMessage('validation.min')})
+  returnQuantity?: number;
+
   @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsString({message: i18nValidationMessage('validation.is_string')})
   newVariantId: string;
@@ -376,7 +382,6 @@ export class CreateReplacementDto {
   anotherReason?: string;
 
   @IsString({message: i18nValidationMessage('validation.is_string')})
-  @IsString({message: i18nValidationMessage('validation.is_string')})
   originalOrderId: string;
 
   @IsOptional()
@@ -393,7 +398,6 @@ export class CreateReplacementDto {
 
   @IsOptional()
   @IsString({message: i18nValidationMessage('validation.is_string')})
-  @IsString({message: i18nValidationMessage('validation.is_string')})
   shippingCompanyId?: string;
 
   @IsOptional()
@@ -401,6 +405,12 @@ export class CreateReplacementDto {
   @Type(() => Number)
   @Min(0, {message: i18nValidationMessage('validation.min')})
   discount?: number;
+
+  @IsOptional()
+  @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})
+  @Type(() => Number)
+  @Min(0, {message: i18nValidationMessage('validation.min')})
+  deposit?: number;
 
   // Payment
   @IsEnum(PaymentMethod,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PaymentMethod).join(', ')], }); }})

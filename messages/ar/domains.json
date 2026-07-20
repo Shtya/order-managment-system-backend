@@ -611,6 +611,28 @@
       "return_request_created_log": "الطلب {orderNumberOrId} تم تجهيزه للإرجاع لـ {itemsCount} عنصر.",
       "return_request_created_title": "تم إنشاء طلب إرجاع",
       "return_request_created_message": "تم إنشاء طلب إرجاع للطلب #{orderNumber}."
+    },
+    "replacement": {
+      "already_has_replacement": "هذا الطلب يحتوي على طلب استبدال بالفعل ولا يمكن استبداله مرة أخرى.",
+      "original_order_not_found": "الطلب الأصلي غير موجود.",
+      "duplicate_products": "منتجات مكررة في طلب الاستبدال.",
+      "invalid_products": "بعض المنتجات غير موجودة في الطلب الأصلي.",
+      "notification_title": "تم إنشاء طلب استبدال",
+      "notification_message": "تم إنشاء طلب استبدال #{replacementOrderNumber} للطلب الأصلي #{originalOrderNumber}.",
+      "replacement_created_log": "تم إنشاء طلب الاستبدال #{replacementOrderNumber} للطلب الأصلي #{originalOrderNumber}. تم استبدال {itemsCount} عنصر(عناصر).",
+      "failed_to_replace": "فشل في إنشاء طلب الاستبدال.",
+      "export": {
+        "worksheet_name": "طلبات الاستبدال",
+        "replacement_order": "رقم الاستبدال",
+        "original_order": "رقم الأصلي",
+        "customer": "العميل",
+        "phone": "الهاتف",
+        "original_items": "المنتجات الأصلية",
+        "replacement_items": "المنتجات البديلة",
+        "cost_diff": "فرق التكلفة",
+        "status": "الحالة",
+        "date": "التاريخ"
+      }
     }
   },
   "accounting": {

@@ -211,7 +211,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     };
     const meta = order.shippingMetadata;
 
- if (!meta?.cityId) {
+    if (!meta?.cityId) {
       return {
         success: false,
         error: this.translations.t('domains.shipping.bosta_city_required'),
@@ -230,8 +230,12 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       type: isExchange ? BostaDeliveryType.Exchange : BostaDeliveryType.Deliver,
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
-      notes: order.customerNotes,
-      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (order.finalTotal - order.deposit) || 0 : 0,
+      notes: order.customerNotes || "",
+      cod:order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (
+        isExchange
+          ? (order.finalTotal - order.deposit)
+          : Math.max(0, order.finalTotal - order.deposit)
+      ) : 0,
       specs: {
         packageType: "Parcel",
         size: order.shippingMetadata?.orderSize || "MEDIUM",
@@ -269,33 +273,27 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
 
     if (isExchange) {
       let returnItemsCount = 0;
-      let totalReturnAmount = 0;
       let returnInstructions = "The Package details:\n";
 
       if (order?.replacementResult?.items?.length) {
         const itemLines = order?.replacementResult?.items.map(ri => {
-          returnItemsCount += ri.quantityToReplace;//Error
+          returnItemsCount += ri.returnQuantity;//Error
           const originalItem = ri?.originalOrderItem;
 
-          if (originalItem) {
-            const qtyToCalc = Math.min(ri.quantityToReplace, originalItem.quantity);
-            totalReturnAmount += (Number(originalItem.unitPrice) || 0) * qtyToCalc;
-          }
-          const productName = ri.originalOrderItem?.variant?.product?.name || "Product";
-          const sku = ri.originalOrderItem?.variant?.sku;
+          const productName = originalItem?.variant?.product?.name || "Product";
+          const sku = originalItem?.variant?.sku;
 
-          return `- ${ri.quantityToReplace}x ${productName} (SKU: ${sku})`.trim();
+          return `${ri.returnQuantity}x ${productName} (SKU: ${sku})`.trim();
         });
 
-        returnInstructions += itemLines.join("\n");
+        returnInstructions += itemLines.join("\n - ");
       } else {
         returnItemsCount = itemsCount;
-        returnInstructions += `- ${returnItemsCount} item(s)`;
       }
 
       (payload as any).returnSpecs = {
         packageType: "Parcel",
-        size: dto.size || "SMALL",
+        size: dto.size || "MEDIUM",
         packageDetails: {
           itemsCount: returnItemsCount,
           description: returnInstructions

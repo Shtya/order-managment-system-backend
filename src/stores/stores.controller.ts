@@ -31,7 +31,7 @@ export class StoresController {
   }
 
   @Permissions("stores.update")
-  @Throttle({ default: { limit: 5, ttl: minutes(1) } }) 
+  @Throttle({ default: { limit: 20, ttl: minutes(1) } }) 
   @Post(":id/sync-products")
   async syncSpecificProducts(
     @Req() req: any,

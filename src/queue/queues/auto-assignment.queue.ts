@@ -66,10 +66,10 @@ export class AutoAssignmentQueueService {
                 orderIds: data.orderIds,
             },
             {
-                // jobId,
                 ...opts,
+                jobId,
                 delay: delayMs,
-                jobId: undefined,
+                // jobId: undefined,
             },
         );
     }

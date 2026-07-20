@@ -1575,7 +1575,7 @@ export class OrderAssignmentService {
                         }));
                         assignedCount++;
                         //send notification to admin about thi assignment
-
+                        this.logger.debug(`Sending notification for Order: ${order.orderNumber} | Employee: ${employee.name}`);
                         await this.notificationService.create({
                             userId: adminId,
                             type: NotificationType.ORDER_ASSIGNED,

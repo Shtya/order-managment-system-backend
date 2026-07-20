@@ -38,6 +38,7 @@ import { OrderAssignmentModule } from "src/order-assignment/order-assignment.mod
 import { BulkUploadUsage } from "entities/plans.entity";
 import { AutomationModule } from "src/automation/automation.module";
 import { ClientSettingsEntity } from "entities/clientSettings.entity";
+import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
 
 @Module({
   imports: [
@@ -79,7 +80,7 @@ import { ClientSettingsEntity } from "entities/clientSettings.entity";
   ],
   controllers: [
     OrdersController,
-    // OrderReplacemetsController,
+    OrderReplacemetsController,
     OrderReturnsController,
   ],
   exports: [OrdersService],

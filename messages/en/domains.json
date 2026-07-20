@@ -611,6 +611,28 @@
       "return_request_created_log": "Order {orderNumberOrId} has been prepared for returned for {itemsCount} items.",
       "return_request_created_title": "Return Request Created",
       "return_request_created_message": "A return request has been created for order #{orderNumber}."
+    },
+    "replacement": {
+      "already_has_replacement": "This order already has a replacement and cannot be replaced again.",
+      "original_order_not_found": "Original order not found.",
+      "duplicate_products": "Duplicate products in replacement request.",
+      "invalid_products": "Some products are not included in the original order.",
+      "notification_title": "Order Replacement Created",
+      "notification_message": "A replacement order #{replacementOrderNumber} has been created for original order #{originalOrderNumber}.",
+      "replacement_created_log": "Replacement order #{replacementOrderNumber} created for original order #{originalOrderNumber}. {itemsCount} item(s) replaced.",
+      "failed_to_replace": "Failed to create replacement order.",
+      "export": {
+        "worksheet_name": "Replacements",
+        "replacement_order": "Replacement #",
+        "original_order": "Original #",
+        "customer": "Customer",
+        "phone": "Phone",
+        "original_items": "Original Items",
+        "replacement_items": "Replacement Items",
+        "cost_diff": "Cost Diff",
+        "status": "Status",
+        "date": "Date"
+      }
     }
   },
   "accounting": {

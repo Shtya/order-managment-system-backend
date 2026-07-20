@@ -10,6 +10,7 @@ import { diskStorage } from "multer";
 import { extname } from "path";
 import { CreateReplacementDto } from "dto/order.dto";
 import { Response } from "express";
+import { parseJsonField, parseNumber } from "common/healpers";
 
 
 
@@ -31,6 +32,12 @@ export class OrderReplacemetsController {
     @Get("list")
     listReplacements(@Req() req: any, @Query() q: any) {
         return this.svc.listReplacements(req.user, q);
+    }
+
+    @Permissions("orders.readReplace")
+    @Get("stats")
+    getStats(@Req() req: any) {
+        return this.svc.getStats(req.user);
     }
 
     // ✅ Export orders to Excel
@@ -58,16 +65,30 @@ export class OrderReplacemetsController {
     async replace(@Req() req: any, @UploadedFiles()
     files: {
         images?: Express.Multer.File[];
-    }, @Body() dto: CreateReplacementDto) {
+    }, @Body() body: any) {
         const imgs = files?.images ?? [];
 
+        const dto: CreateReplacementDto = {
+            reason: body.reason,
+            anotherReason: body.anotherReason || undefined,
+            originalOrderId: body.originalOrderId,
+            internalNotes: body.internalNotes || undefined,
+            customerNotes: body.customerNotes || undefined,
+            shippingCompanyId: body.shippingCompanyId || undefined,
+            discount: body.discount != null ? Number(parseNumber(body.discount)) : undefined,
+            deposit: body.deposit != null ? Number(parseNumber(body.deposit)) : undefined,
+            paymentMethod: body.paymentMethod,
+            shippingCost: body.shippingCost != null ? Number(parseNumber(body.shippingCost)) : undefined,
+            items: parseJsonField(body.items, []),
+        } as any;
 
         if (imgs.length) {
             const uploaded = imgs.map((f) => `/uploads/replacement/${f.filename}`);
             dto.returnImages = [...(dto.returnImages ?? []), ...uploaded];
-        } else {
-            throw new BadRequestException("At least one image is required");
-        }
+        } 
+        // else {
+        //     throw new BadRequestException("At least one image is required");
+        // }
 
         return this.svc.replaceOrder(req.user, dto, req.ip);
     }

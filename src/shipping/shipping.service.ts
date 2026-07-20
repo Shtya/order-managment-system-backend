@@ -773,7 +773,7 @@ export class ShippingService {
 
 		} catch (error: any) {
 			// Single error handling
-			const errorMessage = error?.response?.message || error?.response?.data?.message || error.message || 'Shipment creation failed';
+			const errorMessage = error.response?.data?.error_msg || error?.response?.message || error?.response?.data?.message || error.message || 'Shipment creation failed';
 
 			if (options.emitSocket !== false) {
 				this.appGateway.emitShipmentStatus(adminId, {
