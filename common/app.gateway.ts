@@ -7,6 +7,8 @@ import { User } from '../entities/user.entity';
 import { Notification } from 'entities/notifications.entity';
 import { ConversationEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
 import { CustomerEntity } from 'entities/customers.entity';
+import { createClient, RedisClientOptions } from 'redis';
+import { ConfigService } from '@nestjs/config';
 
 
 @WebSocketGateway({
@@ -14,21 +16,43 @@ import { CustomerEntity } from 'entities/customers.entity';
         origin: process.env.FRONTEND_URL || 'http://localhost:3000',
         credentials: true,
     },
-    namespace: '/', // explicit namespace is good practice
+    namespace: '/',
 })
 export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     @WebSocketServer()
     server: Server;
 
-    private onlineUsers = new Set<string>();
+    private redisClient;
 
     constructor(
         private jwtService: JwtService,
+        private configService: ConfigService, // 1. Inject ConfigService
         @InjectRepository(User)
         private userRepository: Repository<User>,
-    ) { }
+    ) {
+        // 2. Reuse the exact same config logic as RedisIoAdapter
+        const redisConfig = this.configService.get('redis');
+        const redisUrl = `redis${redisConfig.useTls ? 's' : ''}://${redisConfig.host}:${redisConfig.port}`;
 
-    // --- 1. Connection Handling & Online Status ---
+        const clientOptions: RedisClientOptions = {
+            url: redisUrl,
+            username: redisConfig.username,
+            password: redisConfig.password,
+            database: redisConfig.db,
+            socket: redisConfig.tls ? { tls: true } : undefined,
+        };
+
+        this.redisClient = createClient(clientOptions);
+        this.redisClient.connect();
+    }
+
+    async isUserOnline(userId: string): Promise<boolean> {
+        const normalizedUserId = String(userId);
+        const isOnline = await this.redisClient.sIsMember('online_users', normalizedUserId);
+        return Boolean(isOnline);
+    }
+
+    // --- 1. Connection Handling ---
     async handleConnection(socket: Socket) {
         try {
             const token = this.extractToken(socket);
@@ -41,45 +65,61 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             const user = await this.userRepository.findOne({ where: { id: decoded.sub } });
             if (!user) return socket.disconnect();
 
-            // Store user data on the socket instance for O(1) access later
-            socket.data.user = { id: user.id, name: user.name };
+            const userId = String(user.id);
+            socket.data.user = { id: userId, name: user.name };
 
-            // Join personal room (key for 1-on-1 messaging)
-            await socket.join(`user_${user.id}`);
+            // Join personal room for direct 1-on-1 emits across cluster
+            await socket.join(`user_${userId}`);
 
-            this.onlineUsers.add(String(user.id));
+            // FIX 1: Track connection count across ALL PM2 workers
+            const activeConnections = await this.redisClient.incr(`user_sockets:${userId}`);
+            await this.redisClient.sAdd('online_users', userId);
 
-            console.log(`User ${user.name} (${user.id}) connected.`);
+            console.log(`User ${user.name} connected on PID ${process.pid}. Total tabs open: ${activeConnections}`);
 
-            // ==> REQUIREMENT 2: Broadcast "Green Ball" (Online Status)
-            this.broadcastStatus(String(user.id), 'online');
+            // Only broadcast "online" on the user's FIRST tab/device connection
+            if (activeConnections === 1) {
+                this.broadcastStatus(userId, 'online');
+            }
 
-            socket.emit("users:active", { users: Array.from(this.onlineUsers), timestamp: new Date(), });
+            // FIX 2: Fetch global online users list from Redis
+            const allOnlineUsers = await this.redisClient.sMembers('online_users');
+
+            socket.emit('users:active', {
+                users: allOnlineUsers,
+                timestamp: new Date(),
+            });
         } catch (error: any) {
             console.error('Socket Auth Error:', error.message);
             socket.disconnect();
         }
     }
 
-    // --- 2. Disconnection Handling & Offline Status ---
-    handleDisconnect(socket: Socket) {
+    // --- 2. Disconnection Handling ---
+    async handleDisconnect(socket: Socket) {
         const user = socket.data.user;
 
         if (user) {
+            const userId = String(user.id);
 
-            this.onlineUsers.delete(user.id);
+            // FIX 3: Decrement total connection count across cluster
+            const remainingConnections = await this.redisClient.decr(`user_sockets:${userId}`);
 
-            console.log(`User ${user.name} disconnected.`);
+            console.log(`User ${user.name} disconnected from PID ${process.pid}. Remaining tabs: ${remainingConnections}`);
 
-            // ==> REQUIREMENT 2: Broadcast "Red/Grey Ball" (Offline Status)
-            this.broadcastStatus(user.id, 'offline');
+            // Only broadcast "offline" when ALL tabs/devices are closed
+            if (remainingConnections <= 0) {
+                await this.redisClient.del(`user_sockets:${userId}`);
+                await this.redisClient.sRem('online_users', userId);
+
+                this.broadcastStatus(userId, 'offline');
+            }
         }
     }
 
 
     emitStoreSyncStatus(userId: string, payload: { storeId: string; provider: string; status: string, type: "local" | "remote" }) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting store:sync-status to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+
         this.server.to(`user_${userId}`).emit("store:sync-status", {
             ...payload,
             type: payload.type || "remote",
@@ -97,8 +137,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             attempts?: number
         }
     ) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting webhook:retry-status to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("webhook:retry-status", {
             ...payload,
             timestamp: new Date(),
@@ -106,8 +144,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     emitNewNotification(userId: string, notification: Notification) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting new_notification to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("new_notification", notification);
     }
 
@@ -119,8 +155,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         message?: string;
         trackingNumber?: string;
     }) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting shipment:status to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("shipment:status", {
             ...payload,
             timestamp: new Date(),
@@ -136,8 +170,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         errorMessage?: string;
         executionState?: any;
     }) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting automation:run-status to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("automation:run-status", {
             ...payload,
             timestamp: new Date(),
@@ -151,8 +183,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         error?: string;
         accountId?: string;
     }) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting whatsapp:signup-status to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("whatsapp:signup-status", {
             ...payload,
             timestamp: new Date(),
@@ -161,18 +191,19 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // --- WhatsApp & Conversation Notifications ---
 
-    emitNewMessage(userId: string, message: WhatsappMessageEntity) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting whatsapp:message-new to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+    async emitNewMessage(userId: string, message: WhatsappMessageEntity) {
+        const isOnline = await this.isUserOnline(userId);
+        console.log(`[PID ${process.pid}] Emitting whatsapp:message-new to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("whatsapp:message-new", {
             message,
             timestamp: new Date(),
         });
     }
 
-    emitUpdateMessage(userId: string, message: WhatsappMessageEntity) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting whatsapp:message-updated to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+    async emitUpdateMessage(userId: string, message: WhatsappMessageEntity) {
+        const isOnline = await this.isUserOnline(userId);
+
+        console.log(`[PID ${process.pid}] Emitting whatsapp:message-updated to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("whatsapp:message-updated", {
             message,
             timestamp: new Date(),
@@ -180,8 +211,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     emitNewConversation(userId: string, conversation: ConversationEntity) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting whatsapp:conversation-new to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("whatsapp:conversation-new", {
             conversation,
             timestamp: new Date(),
@@ -190,8 +219,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
 
     emitNewCustomer(userId: string, customer: CustomerEntity) {
-        const isOnline = this.onlineUsers.has(userId);
-        console.log(`Emitting whatsapp:customer-new to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
         this.server.to(`user_${userId}`).emit("whatsapp:customer-new", {
             customer,
             timestamp: new Date(),

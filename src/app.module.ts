@@ -30,6 +30,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { SubscriptionsModule } from "./subscription/subscription.module";
 import { PaymentsModule } from './payments/payments.module';
 import kashierConfig from "./payments/configs/kashier.config";
+import redisConfig from "common/redis/redis.config";
 import { ScheduleModule } from "@nestjs/schedule";
 import { WalletModule } from './wallet/wallet.module';
 import { CronModule } from './cron/cron.module';
@@ -63,7 +64,7 @@ import { ClientSettingsModule } from './client-settings/client-settings.module';
 		ConfigModule.forRoot({
 			isGlobal: true,
 			envFilePath: ['.env', `.env.${process.env.NODE_ENV || 'production'}`],
-			load: [kashierConfig],
+			load: [kashierConfig, redisConfig],
 		}),
 		ThrottlerModule.forRoot({
 			throttlers: [

@@ -8,6 +8,8 @@ import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { I18nValidationExceptionFilter, I18nValidationPipe } from 'nestjs-i18n';
 import { ValidationError } from 'class-validator';
+import { RedisIoAdapter } from 'common/redisIo-adapter';
+import { ConfigService } from '@nestjs/config';
 
 
 async function bootstrap() {
@@ -62,7 +64,7 @@ async function bootstrap() {
 		errors: ValidationError[],
 	): Record<string, string[]> {
 		const result: Record<string, string[]> = {};
-		
+
 		const visit = (errs: ValidationError[], path = '') => {
 			for (const err of errs) {
 				const key = path ? `${path}.${err.property}` : err.property;
@@ -123,7 +125,10 @@ async function bootstrap() {
 			},
 		}),
 	);
-
+	const configService = app.get(ConfigService);
+	const redisIoAdapter = new RedisIoAdapter(app, configService);
+	await redisIoAdapter.connectToRedis();
+	app.useWebSocketAdapter(redisIoAdapter);
 	// VPS / PM2: we ALWAYS listen here
 	await app.listen(port as number, '0.0.0.0');
 	Logger.log(`🚀 Server is running on http://localhost:${port}`, 'Bootstrap');
