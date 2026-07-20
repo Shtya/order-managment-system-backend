@@ -93,14 +93,6 @@ export class NotificationService {
     );
   }
 
-  async sendTestNotification(userId: string, title: string) {
-    return this.notificationRepo.save({
-      userId,
-      type: NotificationType.RETURN_REQUEST_CREATED,
-      title: title,
-      message: "This is a test notification.",
-    });
-  }
 
   async getUnreadCount(userId: string) {
     // Fetch the user directly to get the cached count

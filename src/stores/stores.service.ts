@@ -2306,8 +2306,8 @@ export class StoresService {
 
         case ProductSyncJobs.SYNC_BUNDLE:
           const bundle = await this.bundleRepo.createQueryBuilder('bundle')
-            .leftJoinAndSelect('bundle.variant', 'variant')
-            .leftJoinAndSelect('variant.product', 'product')
+            // .leftJoinAndSelect('bundle.variant', 'variant')
+            // .leftJoinAndSelect('variant.product', 'product')
             .leftJoinAndSelect(
               'bundle.items',
               'items',
@@ -2327,14 +2327,14 @@ export class StoresService {
           if (!bundle) return;
 
           const { oldMainVaraintId, oldStoreId, oldStoreType, adminId: storeAdmin } = oldBundleData ?? {};
-          if (oldMainVaraintId && oldStoreId && (bundle?.variantId !== oldMainVaraintId || bundle?.storeId !== oldStoreId)) {
+          if (oldMainVaraintId && oldStoreId && (bundle?.storeId !== oldStoreId)) {
             const deleteService = this.getService(oldStoreType);
             if ('deleteBundle' in deleteService)
               await (deleteService as unknown as IBundleSyncProvider).deleteBundle(oldMainVaraintId, oldStoreId, storeAdmin);
             this.logger.log(`[Delete Bundle] Provider: ${oldStoreType} | Job: ${type} | Successfully delete bundle of old varaint: ${oldMainVaraintId}`);
           }
 
-          if (!bundle?.variant?.isActive) return;
+          // if (!bundle?.variant?.isActive) return;
           if ('syncBundle' in service) {
             await (service as unknown as IBundleSyncProvider).syncBundle(bundle);
             this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);

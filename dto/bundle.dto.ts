@@ -39,10 +39,6 @@ export class CreateBundleDto {
   price!: number;
 
   @IsString({message: i18nValidationMessage('validation.is_string')})
-  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
-  variantId!: string;
-
-  @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   storeId?: string;
 

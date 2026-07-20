@@ -1109,13 +1109,13 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
 
             // 2. Resolve the main product variant
             const mainVariant = await this.pvRepo.findOne({
-                where: { id: bundle.variantId },
+                // where: { id: bundle.variantId },
                 relations: ['product', 'product.store', 'product.category']
             });
 
-            if (!mainVariant || !mainVariant.product) {
-                throw new Error(`Bundle main variant ${bundle.variantId} or its product not found`);
-            }
+            // if (!mainVariant || !mainVariant.product) {
+            //     throw new Error(`Bundle main variant ${bundle.variantId} or its product not found`);
+            // }
 
             // 3. Sync the main product as a bundle
             let wooCategory = null;

@@ -70,8 +70,9 @@ export class BundlesService {
 
 		// 1. Joins & Selective Loading
 		// We use a condition in the join to filter out inactive bundle items
-		qb.leftJoinAndSelect("bundle.variant", "variant")
-			.leftJoinAndSelect("variant.product", "product")
+		qb
+		// .leftJoinAndSelect("bundle.variant", "variant")
+		// 	.leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
 			.leftJoinAndSelect(
 				"bundle.items",
@@ -148,8 +149,8 @@ export class BundlesService {
 			: "items.isActive = false AND items.deletdWithParent = true";
 
 		return this.bundleRepo.createQueryBuilder("bundle")
-			.leftJoinAndSelect("bundle.variant", "variant")
-			.leftJoinAndSelect("variant.product", "product")
+			// .leftJoinAndSelect("bundle.variant", "variant")
+			// .leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
 			.leftJoinAndSelect("bundle.items", "items", itemCondition)
 			.leftJoinAndSelect("items.variant", "itemVariant")
@@ -160,8 +161,8 @@ export class BundlesService {
 	async getBySku(me: any, sku: string) {
 		const adminId = tenantId(me);
 		const bundle = await this.bundleRepo.createQueryBuilder("bundle")
-			.leftJoinAndSelect("bundle.variant", "variant")
-			.leftJoinAndSelect("variant.product", "product")
+			// .leftJoinAndSelect("bundle.variant", "variant")
+			// .leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
 			.leftJoinAndSelect("bundle.items", "items", "items.isActive = :isActive", { isActive: true })
 			.leftJoinAndSelect("items.variant", "itemVariant")
@@ -178,11 +179,6 @@ export class BundlesService {
 
 		const items = Array.isArray(dto.items) ? dto.items : [];
 		if (!items.length) throw new BadRequestException(this.translations.t('domains.bundles.items_required'));
-
-		// ensure main variant is not in items
-		if (items.some(it => it.variantId === dto.variantId)) {
-			throw new BadRequestException(this.translations.t('domains.bundles.main_variant_in_items'));
-		}
 
 		// ensure items are unique
 		const itemIds = items.map(it => it.variantId);
@@ -228,7 +224,6 @@ export class BundlesService {
 			sku: dto.sku,
 			price: dto.price,
 			description: dto.description,
-			variantId: dto.variantId,
 			storeId: dto.storeId,
 			items: items.map((it) =>
 				this.itemRepo.create({
@@ -252,8 +247,9 @@ export class BundlesService {
 			: "items.isActive = :itemActive AND items.deletdWithParent = true";
 
 		// 1. Joins & Selective Loading (Filtering inactive bundle items)
-		qb.leftJoinAndSelect("bundle.variant", "variant")
-			.leftJoinAndSelect("variant.product", "product")
+		qb
+		// .leftJoinAndSelect("bundle.variant", "variant")
+		// 	.leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
 			.leftJoinAndSelect(
 				"bundle.items",
@@ -307,8 +303,6 @@ export class BundlesService {
 			name: b.name ?? "",
 			sku: b.sku ?? "",
 			price: b.price ?? 0,
-			variantSku: b.variant?.sku ?? "",
-			variantName: b.variant?.product?.name ?? "",
 			storeName: b.store?.name ?? "",
 			itemsCount: b.items?.length ?? 0, // Only active items are counted here now
 			description: b.description ?? "",
@@ -326,8 +320,6 @@ export class BundlesService {
 			{ header: this.translations.t('domains.bundles.export_name'), key: "name", width: 30 },
 			{ header: this.translations.t('domains.bundles.export_sku'), key: "sku", width: 25 },
 			{ header: this.translations.t('domains.bundles.export_price'), key: "price", width: 15 },
-			{ header: this.translations.t('domains.bundles.export_main_variant_sku'), key: "variantSku", width: 25 },
-			{ header: this.translations.t('domains.bundles.export_main_variant_name'), key: "variantName", width: 30 },
 			{ header: this.translations.t('domains.bundles.export_store_name'), key: "storeName", width: 25 },
 			{ header: this.translations.t('domains.bundles.export_items_count'), key: "itemsCount", width: 15 },
 			{ header: this.translations.t('domains.bundles.export_description'), key: "description", width: 40 },
@@ -364,16 +356,8 @@ export class BundlesService {
 		// if (dto.sku !== undefined) b.sku = dto.sku;
 		if (dto.price !== undefined) b.price = dto.price;
 		if (dto.description !== undefined) b.description = dto.description;
-		if (dto.variantId !== undefined) b.variantId = dto.variantId;
 
-		const finalVariantId = dto.variantId !== undefined ? dto.variantId : b.variantId;
 		const finalItems = dto.items !== undefined ? dto.items : b.items;
-
-		// ensure main variant is not in items
-		if (finalItems.some((it: any) => it.variantId === finalVariantId)) {
-			throw new BadRequestException(this.translations.t('domains.bundles.main_variant_in_items'));
-		}
-
 		// ensure items are unique
 		if (dto.items !== undefined) {
 			const itemIds = dto.items.map((it) => it.variantId);

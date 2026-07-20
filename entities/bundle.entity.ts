@@ -40,14 +40,6 @@ export class BundleEntity extends ActivatableEntity {
 
 	@Column({ type: 'uuid', nullable: true })
 	@Index()
-	variantId!: string;
-
-	@ManyToOne(() => ProductVariantEntity, { nullable: true })
-	@JoinColumn({ name: "variantId" })
-	variant!: ProductVariantEntity;
-
-	@Column({ type: 'uuid', nullable: true })
-	@Index()
 	storeId?: string | null;
 
 	@ManyToOne(() => StoreEntity, { nullable: true, onDelete: "SET NULL" })

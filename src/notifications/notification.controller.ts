@@ -38,11 +38,6 @@ export class NotificationController {
     return this.svc.markAllAsRead(req.user?.id);
   }
 
-  @Post("send-test")
-  async sendTestNotification(@Req() req: any, @Body() body: { title: string }) {
-    return this.svc.sendTestNotification(req.user?.id, body.title);
-  }
-
   @Get("unread-count")
   async getUnreadCount(@Req() req: any) {
     return this.svc.getUnreadCount(req.user?.id);

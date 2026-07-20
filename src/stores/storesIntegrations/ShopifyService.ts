@@ -2349,12 +2349,12 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         // Sync main product variant
         const syncedProductsMap = new Map<string, any>();
 
-        if (bundle.variant && bundle.variant.product) {
-            const newProduct = await this.syncProduct({
-                productId: bundle.variant.productId,
-            });
-            syncedProductsMap.set(String(bundle.variant.productId), newProduct);
-        }
+        // if (bundle.variant && bundle.variant.product) {
+        //     const newProduct = await this.syncProduct({
+        //         productId: bundle.variant.productId,
+        //     });
+        //     syncedProductsMap.set(String(bundle.variant.productId), newProduct);
+        // }
 
 
         const activeItems = bundle.items;
@@ -2373,8 +2373,8 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             //refetch bundle data
             bundle = await this.bundleRepo.createQueryBuilder('bundle')
 
-                .leftJoinAndSelect('bundle.variant', 'variant')
-                .leftJoinAndSelect('variant.product', 'product')
+                // .leftJoinAndSelect('bundle.variant', 'variant')
+                // .leftJoinAndSelect('variant.product', 'product')
 
                 .leftJoinAndSelect(
                     'bundle.items',
@@ -2393,22 +2393,23 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 .where('bundle.id = :bundleId', { bundleId: bundle.id })
                 .getOne();
 
-            const mainRemoteProduct = syncedProductsMap.get(bundle.variant?.productId);
+            // const mainRemoteProduct = syncedProductsMap.get(bundle.variant?.productId);
 
-            const remoteBundleVariant = mainRemoteProduct?.variants?.nodes?.find(
-                rv => String(rv?.id) === String(bundle?.variant?.externalId)
-            );
+            // const remoteBundleVariant = mainRemoteProduct?.variants?.nodes?.find(
+            //     rv => String(rv?.id) === String(bundle?.variant?.externalId)
+            // );
 
-            const bundleVariantNode = await this.getBundleVariantWithComponents(
-                activeStore,
-                remoteBundleVariant.id,
-            );
+            // const bundleVariantNode = await this.getBundleVariantWithComponents(
+            //     activeStore,
+            //     remoteBundleVariant.id,
+            // );
 
-            if (!bundleVariantNode) {
-                throw new Error(`Could not load productVariant ${remoteBundleVariant.id} with components for bundle ${bundle.id}`);
-            }
+            // if (!bundleVariantNode) {
+            //     throw new Error(`Could not load productVariant ${remoteBundleVariant.id} with components for bundle ${bundle.id}`);
+            // }
 
-            const remoteComponents = bundleVariantNode.productVariantComponents?.nodes ?? [];
+            // const remoteComponents = bundleVariantNode.productVariantComponents?.nodes ?? [];
+            const remoteComponents = [];
 
             // 3. Determine components to create, update, or remove
             const localItems = activeItems;
@@ -2491,11 +2492,11 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 productVariantRelationshipsToUpdate.length > 0 ||
                 productVariantRelationshipsToRemove.length > 0
             ) {
-                await this.setVariantRequiresComponents(
-                    activeStore,
-                    remoteBundleVariant?.product?.id, // however you store this
-                    remoteBundleVariant?.id,
-                );
+                // await this.setVariantRequiresComponents(
+                //     activeStore,
+                //     remoteBundleVariant?.product?.id, // however you store this
+                //     remoteBundleVariant?.id,
+                // );
 
 
                 const updateMutation = `
@@ -2524,7 +2525,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             `;
 
                 const inputItem: any = {
-                    parentProductVariantId: remoteBundleVariant.id,
+                    // parentProductVariantId: remoteBundleVariant.id,
                 };
 
                 if (productVariantRelationshipsToCreate.length > 0) {
