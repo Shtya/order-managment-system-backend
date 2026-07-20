@@ -106,7 +106,6 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             const remainingConnections = await this.redisClient.decr(`user_sockets:${userId}`);
 
             console.log(`User ${user.name} disconnected from PID ${process.pid}. Remaining tabs: ${remainingConnections}`);
-
             // Only broadcast "offline" when ALL tabs/devices are closed
             if (remainingConnections <= 0) {
                 await this.redisClient.del(`user_sockets:${userId}`);
@@ -191,19 +190,14 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // --- WhatsApp & Conversation Notifications ---
 
-    async emitNewMessage(userId: string, message: WhatsappMessageEntity) {
-        const isOnline = await this.isUserOnline(userId);
-        console.log(`[PID ${process.pid}] Emitting whatsapp:message-new to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+    emitNewMessage(userId: string, message: WhatsappMessageEntity) {
         this.server.to(`user_${userId}`).emit("whatsapp:message-new", {
             message,
             timestamp: new Date(),
         });
     }
 
-    async emitUpdateMessage(userId: string, message: WhatsappMessageEntity) {
-        const isOnline = await this.isUserOnline(userId);
-
-        console.log(`[PID ${process.pid}] Emitting whatsapp:message-updated to user ${userId} - ${isOnline ? 'ONLINE' : 'OFFLINE'}`);
+    emitUpdateMessage(userId: string, message: WhatsappMessageEntity) {
         this.server.to(`user_${userId}`).emit("whatsapp:message-updated", {
             message,
             timestamp: new Date(),
