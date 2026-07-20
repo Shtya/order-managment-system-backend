@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
@@ -26,14 +27,20 @@ export class NotificationController {
     return this.svc.list(req.user, q);
   }
 
+
   @Patch(":id/read")
   async markAsRead(@Req() req: any, @Param("id") id: string) {
     return this.svc.markAsRead(req.user?.id, id);
   }
 
   @Post("read-all")
-  async markAllRead(@Req() req: any) {
+  async markAllRead(@Req() req: any,) {
     return this.svc.markAllAsRead(req.user?.id);
+  }
+
+  @Post("send-test")
+  async sendTestNotification(@Req() req: any, @Body() body: { title: string }) {
+    return this.svc.sendTestNotification(req.user?.id, body.title);
   }
 
   @Get("unread-count")
