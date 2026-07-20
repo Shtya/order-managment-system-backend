@@ -5315,7 +5315,7 @@ export class OrdersService {
     // -------------------------
     // Sheet 1: Orders
     // -------------------------
-    const sheet = workbook.addWorksheet(this.translations.t('domains.orders.export_orders_sheet'), {
+    const sheet = workbook.addWorksheet("Orders", {
       views: [{ state: "frozen", ySplit: 2 }],
     });
 

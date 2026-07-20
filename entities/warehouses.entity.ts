@@ -9,7 +9,6 @@ import {
 	ManyToOne,
 	JoinColumn,
 } from "typeorm";
-import { ProductEntity } from "./sku.entity";
 import { User } from "./user.entity";
 
 export type WarehouseStatus = "active" | "inactive";
