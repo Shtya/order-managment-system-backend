@@ -215,6 +215,7 @@ export enum ConversationStatus {
     ARCHIVED = 'archived',
 }
 
+@Index(['adminId', 'customerId'], { unique: true })
 @Entity('whatsapp_conversations')
 export class ConversationEntity {
     @PrimaryGeneratedColumn('uuid')

@@ -70,7 +70,8 @@ export class UsersController {
 		@Query('limit') limit?: string,
 		@Query('tab') tab?: string,        // all | active | inactive
 		@Query('search') search?: string,  // name/email
-		@Query('role') role?: string,      // contains
+		@Query('role') role?: string,      // contains (legacy)
+		@Query('roleId') roleId?: string,  // exact match by role.id
 		@Query('active') active?: string,  // all | true | false
 		@Query('adminId') adminId?: string // filter by owner
 	) {
@@ -80,6 +81,7 @@ export class UsersController {
 			tab: tab ?? 'all',
 			search: search ?? '',
 			role: role ?? '',
+			roleId: roleId ?? '',
 			active: active ?? 'all',
 			adminId: adminId ?? '',
 		});
@@ -94,6 +96,7 @@ export class UsersController {
 		@Query('tab') tab?: string,
 		@Query('search') search?: string,
 		@Query('role') role?: string,
+		@Query('roleId') roleId?: string,
 		@Query('active') active?: string,
 		@Query('adminId') adminId?: string,
 	) {
@@ -101,6 +104,7 @@ export class UsersController {
 			tab: tab ?? 'all',
 			search: search ?? '',
 			role: role ?? '',
+			roleId: roleId ?? '',
 			active: active ?? 'all',
 			adminId: adminId ?? '',
 		});

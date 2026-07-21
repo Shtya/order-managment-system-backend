@@ -132,6 +132,7 @@ export class UsersService {
 			tab: string;
 			search: string;
 			role: string;
+			roleId: string;
 			active: string;
 			adminId: string;
 		}
@@ -148,6 +149,7 @@ export class UsersService {
 		const tab = (opts.tab || 'all').toLowerCase();
 		const search = (opts.search || '').trim();
 		const roleContains = (opts.role || '').trim();
+		const roleId = (opts.roleId || '').trim();
 		const active = (opts.active || 'all').toLowerCase();
 		const adminId = (opts.adminId || '').trim();
 
@@ -183,8 +185,10 @@ export class UsersService {
 			qb.andWhere('(u.name LIKE :q OR u.email LIKE :q)', { q: `%${search}%` });
 		}
 
-		// role contains
-		if (roleContains) {
+		// role exact match (preferred) or contains (legacy)
+		if (roleId) {
+			qb.andWhere('role.id = :roleId', { roleId });
+		} else if (roleContains) {
 			qb.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
 		}
 
@@ -233,7 +237,11 @@ export class UsersService {
 		if (active === 'false') qbStats.andWhere('u.isActive = false');
 		if (adminId) qbStats.andWhere('u.adminId = :adminId', { adminId: adminId });
 		if (search) qbStats.andWhere('(u.name LIKE :q OR u.email LIKE :q)', { q: `%${search}%` });
-		if (roleContains) qbStats.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
+		if (roleId) {
+			qbStats.andWhere('role.id = :roleId', { roleId });
+		} else if (roleContains) {
+			qbStats.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
+		}
 
 		const total = await qbStats.getCount();
 		const activeCount = await qbStats.clone().andWhere('u.isActive = true').getCount();
@@ -250,13 +258,14 @@ export class UsersService {
 
 	async superAdminExportCsv(
 		me: User,
-		opts: { tab: string; search: string; role: string; active: string; adminId: string }
+		opts: { tab: string; search: string; role: string; roleId: string; active: string; adminId: string }
 	) {
 		if (!this.isSuperAdmin(me)) throw new ForbiddenException(this.translations.t("common.permission_denied"));
 
 		const tab = (opts.tab || 'all').toLowerCase();
 		const search = (opts.search || '').trim();
 		const roleContains = (opts.role || '').trim();
+		const roleId = (opts.roleId || '').trim();
 		const active = (opts.active || 'all').toLowerCase();
 		const adminId = (opts.adminId || '').trim();
 
@@ -283,7 +292,11 @@ export class UsersService {
 		if (adminId) qb.andWhere('u.adminId = :adminId', { adminId: adminId });
 
 		if (search) qb.andWhere('(u.name LIKE :q OR u.email LIKE :q)', { q: `%${search}%` });
-		if (roleContains) qb.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
+		if (roleId) {
+			qb.andWhere('role.id = :roleId', { roleId });
+		} else if (roleContains) {
+			qb.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
+		}
 
 		const rows = await qb.getRawAndEntities();
 
