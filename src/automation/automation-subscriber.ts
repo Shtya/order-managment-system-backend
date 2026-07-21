@@ -46,10 +46,10 @@ export class AutomationSubscriber implements EntitySubscriberInterface<Automatio
         };
 
         if (event.queryRunner) {
-            if (!event.queryRunner.data.postCommitTasks) {
-                event.queryRunner.data.postCommitTasks = [];
+            if (!event.queryRunner.data.postAutomationTasks) {
+                event.queryRunner.data.postAutomationTasks = [];
             }
-            event.queryRunner.data.postCommitTasks.push(runAfterCommit);
+            event.queryRunner.data.postAutomationTasks.push(runAfterCommit);
         } else {
             await runAfterCommit();
         }
@@ -57,7 +57,7 @@ export class AutomationSubscriber implements EntitySubscriberInterface<Automatio
 
     // TypeORM hook that automatically runs after a transaction successfully commits
     async afterTransactionCommit(event: TransactionCommitEvent) {
-        const tasks = event.queryRunner.data?.postCommitTasks;
+        const tasks = event.queryRunner.data?.postAutomationTasks;
 
         if (tasks && tasks.length > 0) {
             for (let i = 0; i < tasks.length; i++) {
@@ -69,7 +69,7 @@ export class AutomationSubscriber implements EntitySubscriberInterface<Automatio
                 }
             }
             // Clear the tasks to prevent memory leaks or duplicate executions
-            event.queryRunner.data.postCommitTasks = [];
+            event.queryRunner.data.postAutomationTasks = [];
         }
     }
 }

@@ -50,8 +50,6 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
         // console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
 
         const runAfterCommit = async () => {
-            // console.log(`[OrderSubscriber] Post-commit task running for ORDER_CREATED on order ${fullOrder.id}`);
-            // 🚀 Dispatch automation trigger
             await this.triggerDispatcher.dispatch({
                 type: TriggerType.ORDER_CREATED,
                 entityType: TriggerEntityType.ORDER,
@@ -59,41 +57,35 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
                 adminId: fullOrder.adminId,
                 payload: fullOrder,
             });
-            // console.log(`[OrderSubscriber] ORDER_CREATED trigger dispatched for order ${fullOrder.id}`);
         };
 
         if (event.queryRunner) {
-            if (!event.queryRunner.data.postCommitTasks) {
-                event.queryRunner.data.postCommitTasks = [];
+            // 🚀 USE A UNIQUE NAMESPACE HERE
+            if (!event.queryRunner.data.orderSubscriberTasks) {
+                event.queryRunner.data.orderSubscriberTasks = [];
             }
-            // console.log(`[OrderSubscriber] Adding post-commit task for order ${fullOrder.id}`);
-            event.queryRunner.data.postCommitTasks.push(runAfterCommit);
+            event.queryRunner.data.orderSubscriberTasks.push(runAfterCommit);
         } else {
-            // console.log(`[OrderSubscriber] No active transaction, running immediately for order ${fullOrder.id}`);
-            // No active transaction, run immediately
             await runAfterCommit();
         }
     }
 
     // TypeORM hook that automatically runs after a transaction successfully commits
     async afterTransactionCommit(event: TransactionCommitEvent) {
-        const tasks = event.queryRunner.data?.postCommitTasks;
+        // 🚀 ONLY PULL FROM YOUR UNIQUE NAMESPACE
+        const tasks = event.queryRunner.data.orderSubscriberTasks;
 
         if (tasks && tasks.length > 0) {
-            for (let i = 0; i < tasks.length; i++) {
-                const task = tasks[i];
+            for (const task of tasks) {
                 try {
-                    // console.log(`[OrderSubscriber] Executing post-commit task ${i + 1} of ${tasks.length}`);
                     await task();
                 } catch (error) {
-                    // Catch errors here so one failing background dispatch 
-                    // doesn't crash the loop or throw unhandled exceptions
-                    console.error(`[OrderSubscriber] Error executing post-commit task ${i + 1}:`, error);
+                    console.error("[OrderSubscriber] Post-commit task failed:", error);
                 }
             }
-            // Clear the tasks to prevent memory leaks or duplicate executions
-            event.queryRunner.data.postCommitTasks = [];
-            // console.log(`[OrderSubscriber] All post-commit tasks executed and cleared`);
+            // Clear the queue to prevent memory leaks
+            event.queryRunner.data.orderSubscriberTasks = [];
         }
     }
+
 }
