@@ -1509,7 +1509,6 @@ export class OrdersService {
           const latestShipments = await manager
             .getRepository(ShipmentEntity)
             .createQueryBuilder('shipment')
-            .select('shipment.id')
             .innerJoin('orders', 'order', 'order.id = shipment.orderId AND order.trackingNumber = shipment.trackingNumber')
             .where('shipment.orderId IN (:...orderIds)', { orderIds })
             // Distinguish latest per order using database DISTINCT ON (Postgres) 
@@ -1525,13 +1524,8 @@ export class OrdersService {
 
           // 2. Perform one batch update
           if (uniqueShipmentIds.length > 0) {
-            await manager
-              .getRepository(ShipmentEntity)
-              .createQueryBuilder()
-              .update()
-              .set({ status: ShipmentStatus.OUT_FOR_DELIVERY })
-              .whereInIds(uniqueShipmentIds)
-              .execute();
+            latestShipments.forEach(s => s.status = ShipmentStatus.OUT_FOR_DELIVERY);
+            await manager.save(latestShipments);
           }
         }
 
@@ -1693,8 +1687,6 @@ export class OrdersService {
           // 1. Fetch the latest matching shipment ID for each order
           const latestShipments = await shipmentRepo
             .createQueryBuilder('shipment')
-            .select('shipment.id')
-            .addSelect('shipment.orderId')
             .innerJoin(
               'orders',
               'order',
@@ -1712,12 +1704,8 @@ export class OrdersService {
 
           // 2. Perform one batch update
           if (uniqueShipmentIds.length > 0) {
-            await shipmentRepo
-              .createQueryBuilder()
-              .update()
-              .set({ status: ShipmentStatus.RETURNED_TO_WAREHOUSE })
-              .whereInIds(uniqueShipmentIds)
-              .execute();
+            latestShipments.forEach(s => s.status = ShipmentStatus.RETURNED_TO_WAREHOUSE);
+            await manager.save(latestShipments);
           }
         }
 
@@ -2066,8 +2054,6 @@ export class OrdersService {
         // 1. Fetch the latest matching shipment ID for each order
         const latestShipments = await shipmentRepo
           .createQueryBuilder('shipment')
-          .select('shipment.id')
-          .addSelect('shipment.orderId')
           .innerJoin(
             'orders',
             'order',
@@ -2085,12 +2071,8 @@ export class OrdersService {
 
         // 2. Perform one batch update
         if (uniqueShipmentIds.length > 0) {
-          await shipmentRepo
-            .createQueryBuilder()
-            .update()
-            .set({ status: ShipmentStatus.PREPARING })
-            .whereInIds(uniqueShipmentIds)
-            .execute();
+          latestShipments.forEach(s => s.status = ShipmentStatus.PREPARING);
+          await manager.save(latestShipments);
         }
       }
 
@@ -2319,7 +2301,9 @@ export class OrdersService {
           .getOne();
 
         if (shipment) {
-          await shipmentRepo.update(shipment.id, { status: ShipmentStatus.READY_TO_SHIP });
+          // If you already have the shipment object in memory:
+          shipment.status = ShipmentStatus.READY_TO_SHIP;
+          await shipmentRepo.save(shipment);
         }
 
         await this.logStatusChange({

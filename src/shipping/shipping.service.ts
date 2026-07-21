@@ -1511,41 +1511,7 @@ export class ShippingService {
 				manager,
 			});
 		}
-
-		// Check if shipment status changed and dispatch trigger
-		if (oldShipmentStatus !== shipment.status) {
-			const dispatchShipmentUpdated = async () => {
-				try {
-					const fullOrder = await manager.findOne(OrderEntity, {
-						where: { id: shipment.orderId },
-						relations: ['status', 'items', 'items.variant', "items.variant.product"],
-					});
-
-					if (fullOrder) {
-						await this.triggerDispatcher.dispatch({
-							type: TriggerType.SHIPMENT_UPDATED,
-							entityType: TriggerEntityType.ORDER,
-							entityId: fullOrder.id,
-							adminId: fullOrder.adminId,
-							payload: fullOrder,
-						});
-					}
-				} catch (error) {
-					console.error("Error dispatching SHIPMENT_UPDATED trigger:", error);
-				}
-			};
-
-			const queryRunner = manager.queryRunner;
-			if (queryRunner) {
-				if (!queryRunner.data.postCommitTasks) {
-					queryRunner.data.postCommitTasks = [];
-				}
-				queryRunner.data.postCommitTasks.push(dispatchShipmentUpdated);
-			} else {
-				await dispatchShipmentUpdated();
-			}
-		}
-
+		
 		await manager.save(shipment);
 		await manager.save(
 			manager.create(ShipmentEventEntity, {

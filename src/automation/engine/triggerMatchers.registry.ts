@@ -43,11 +43,23 @@ export class ShipmentCreatedTriggerMatcher implements TriggerMatcher {
 @Injectable()
 export class ShipmentUpdatedTriggerMatcher implements TriggerMatcher {
     shouldRun(config: ShipmentUpdatedConfig, payload: OrderEntity): boolean {
-        // Status filter
-        if (!config.shipmentStatus) {
+        if (!config.shipmentStatus || !payload) {
             return false;
         }
-        return true;
+
+        // Active assignment is already present on the payload!
+        const activeShipment = payload.shipments?.[0];
+        if (!activeShipment) {
+            return false;
+        }
+
+        const currentStatus = activeShipment.status;
+
+        if (Array.isArray(config.shipmentStatus)) {
+            return config.shipmentStatus.includes(currentStatus);
+        }
+
+        return currentStatus === config.shipmentStatus;
     }
 }
 

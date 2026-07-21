@@ -18,6 +18,7 @@ import { OrderEntity } from 'entities/order.entity';
 import { OrdersModule } from 'src/orders/orders.module';
 import { WebSocketModule } from '../../common/websocket.module';
 import { AutomationModule } from 'src/automation/automation.module';
+import { ShipmentSubscriber } from './shipping.subscriptor';
 
 @Module({
   imports: [
@@ -29,7 +30,7 @@ import { AutomationModule } from 'src/automation/automation.module';
     TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity, ExternalShipmentLogEntity]),
   ],
   controllers: [ShippingController, ShippingWebhookController],
-  providers: [ShippingService, BostaProvider, JtProvider, TurboProvider],
+  providers: [ShippingService, BostaProvider, JtProvider, TurboProvider, ShipmentSubscriber],
   exports: [ShippingService],
 })
 export class ShippingModule { }
