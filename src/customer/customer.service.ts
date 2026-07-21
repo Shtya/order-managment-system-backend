@@ -54,19 +54,22 @@ export class CustomerService {
     return saved;
   }
 
-  async getOrCreateCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {
+  async getOrCreateCustomer(
+    me: any,
+    payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string },
+    manager?: EntityManager
+  ) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
     const repo = manager ? manager.getRepository(CustomerEntity) : this.customerRepo;
     const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.phoneNumber);
 
-    let customer = await repo.findOne({
-      where: { phoneNumber: normalizedPhoneNumber, adminId },
-    });
-
-    if (!customer) {
-      customer = repo.create({
+    // Attempt atomic insert ignoring conflict on unique keys (adminId, phoneNumber)
+    const insertResult = await repo.createQueryBuilder()
+      .insert()
+      .into(CustomerEntity)
+      .values({
         adminId,
         waId: normalizedPhoneNumber,
         phoneNumber: normalizedPhoneNumber,
@@ -74,14 +77,22 @@ export class CustomerService {
         email: payload.email,
         profilePicture: payload.profilePicture,
         notes: payload.notes,
-      });
-      customer = await repo.save(customer);
+      })
+      .orIgnore() // Generates "ON CONFLICT DO NOTHING" in Postgres or "INSERT IGNORE" in MySQL
+      .returning('*') // Postgres specific: returns inserted raw values
+      .execute();
 
-      // Emit new customer notification
-      this.appGateway.emitNewCustomer(adminId, customer);
+    // If a row was inserted by this query
+    if (insertResult.raw?.length > 0) {
+      const newCustomer = repo.create(insertResult.raw[0] as CustomerEntity);
+      this.appGateway.emitNewCustomer(adminId, newCustomer);
+      return newCustomer;
     }
 
-    return customer;
+    // If it wasn't inserted (already exists), fetch the customer
+    return await repo.findOne({
+      where: { phoneNumber: normalizedPhoneNumber, adminId },
+    });
   }
 
   async createCustomer(me: any, payload: { phoneNumber: string, name?: string, email?: string, profilePicture?: string, notes?: string }, manager?: EntityManager) {

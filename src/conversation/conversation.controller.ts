@@ -48,4 +48,5 @@ export class ConversationController {
   findOne(@Req() req: any, @Param('id') id: string) {
     return this.conversationService.findOne(req.user, id);
   }
+  
 }

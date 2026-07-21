@@ -23,34 +23,57 @@ export class ConversationService {
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    }
 
     return this.dataSource.transaction(async (manager) => {
-      const customer = await this.customerService.getOrCreateCustomer(me, payload, manager);
+      const customer = await this.customerService.getOrCreateCustomer(
+        me,
+        payload,
+        manager,
+      );
 
       const repo = manager.getRepository(ConversationEntity);
 
-      let conversation = await repo.findOne({
-        where: { customerId: customer.id, adminId },
-      });
-
-      if (!conversation) {
-        conversation = repo.create({
+      // Try atomic insert (requires unique constraint on adminId + customerId)
+      const insertResult = await repo
+        .createQueryBuilder()
+        .insert()
+        .into(ConversationEntity)
+        .values({
           adminId,
           customerId: customer.id,
           status: ConversationStatus.OPEN,
-        });
-        conversation = await repo.save(conversation);
+        })
+        .orIgnore()
+        .returning('*')
+        .execute();
+
+      // This transaction created the conversation
+      if (insertResult.raw?.length > 0) {
+        const conversation = repo.create(
+          insertResult.raw[0] as ConversationEntity,
+        );
 
         const finalConversation = await repo.findOne({
-          where: { customerId: customer.id, adminId },
+          where: { id: conversation.id },
           relations: ['customer', 'lastMessage'],
         });
-        // Emit new conversation notification
+
         this.appGateway.emitNewConversation(adminId, finalConversation);
+
+        return finalConversation;
       }
 
-      return conversation;
+      // Already existed
+      return await repo.findOne({
+        where: {
+          adminId,
+          customerId: customer.id,
+        },
+        relations: ['customer', 'lastMessage'],
+      });
     });
   }
 
