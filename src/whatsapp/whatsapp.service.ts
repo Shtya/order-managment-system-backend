@@ -933,7 +933,7 @@ export class WhatsappService {
             if (!parentMessage || !parentMessage.orderId) {
                 return; // Parent message doesn't require an action or isn't linked to an order
             }
-
+            this.logger.debug("Handle pending action for message:", parentMessage.id, "with intent:", parentMessage.actionIntent, "payload: ", JSON.stringify(payload));
             // 3. Handle REQUEST_LOCATION
             if (
                 parentMessage.actionIntent === MessageActionIntent.LOCATION_REQUEST &&
