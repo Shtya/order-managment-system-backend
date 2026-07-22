@@ -215,7 +215,7 @@
     "collection_deposit_notes": "تحصيل للطلب #{orderNumber}. {notes}",
     "collection_created_title": "تمت إضافة تحصيل جديد",
     "collection_created_message": "تمت إضافة تحصيل بقيمة {amount} {currency} للطلب #{orderNumber}.",
-    "direct_other": "مباشر/أخرى",
+    "direct_other": "طلبات بدون شركة شحن",
     "export_collections_sheet": "التحصيلات",
     "export_order_number": "رقم الطلب",
     "export_shipping_company": "شركة الشحن",

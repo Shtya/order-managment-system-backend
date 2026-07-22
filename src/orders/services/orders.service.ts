@@ -3396,20 +3396,20 @@ export class OrdersService {
       if (oldStatusId === dto.statusId) return order;
 
       // Handle stock changes
-      if (
-        newStatusCode === OrderStatus.CANCELLED ||
-        newStatusCode === OrderStatus.RETURNED
-      ) {
-        // Release reserved stock
-        for (const item of order.items) {
-          const variant = item.variant;
-          variant.reserved = Math.max(
-            0,
-            (variant.reserved || 0) - item.quantity,
-          );
-          await manager.save(ProductVariantEntity, variant);
-        }
-      }
+      // if (
+      //   newStatusCode === OrderStatus.CANCELLED ||
+      //   newStatusCode === OrderStatus.RETURNED
+      // ) {
+      //   // Release reserved stock
+      //   for (const item of order.items) {
+      //     const variant = item.variant;
+      //     variant.reserved = Math.max(
+      //       0,
+      //       (variant.reserved || 0) - item.quantity,
+      //     );
+      //     await manager.save(ProductVariantEntity, variant);
+      //   }
+      // }
 
       if (newStatusCode === OrderStatus.SHIPPED && !order.shippedAt) {
         order.shippedAt = new Date();
@@ -3430,24 +3430,9 @@ export class OrdersService {
 
       //only decrease stock when order hasn't shipping
       if (
-        newStatusCode === OrderStatus.DELIVERED &&
-        !order.deliveredAt &&
-        !order.shippingCompanyId
+        newStatusCode === OrderStatus.DELIVERED
       ) {
         order.deliveredAt = new Date();
-        // Deduct from stock & release reserved
-        for (const item of order.items) {
-          const variant = item.variant;
-          variant.stockOnHand = Math.max(
-            0,
-            (variant.stockOnHand || 0) - item.quantity,
-          );
-          variant.reserved = Math.max(
-            0,
-            (variant.reserved || 0) - item.quantity,
-          );
-          await manager.save(ProductVariantEntity, variant);
-        }
       }
 
       order.status = newStatus;
@@ -3770,26 +3755,26 @@ export class OrdersService {
       activeAssignment.lastStatusId = newStatus.id;
 
       // 4. Update Order (Stock logic included for terminal states)
-      if (
-        newStatus.code === OrderStatus.CANCELLED ||
-        newStatus.code === OrderStatus.RETURNED
-      ) {
-        for (const item of order.items) {
-          if (item.stockDeducted) {
-            // If it was already deducted from stock, add it back
-            item.variant.stockOnHand = (item.variant.stockOnHand || 0) + item.quantity;
-            item.stockDeducted = false;
-          } else {
-            // Otherwise just release the reservation
-            item.variant.reserved = Math.max(
-              0,
-              (item.variant.reserved || 0) - item.quantity,
-            );
-          }
-          await manager.save(ProductVariantEntity, item.variant);
-          await manager.save(OrderItemEntity, item);
-        }
-      }
+      // if (
+      //   newStatus.code === OrderStatus.CANCELLED ||
+      //   newStatus.code === OrderStatus.RETURNED
+      // ) {
+      //   for (const item of order.items) {
+      //     if (item.stockDeducted) {
+      //       // If it was already deducted from stock, add it back
+      //       item.variant.stockOnHand = (item.variant.stockOnHand || 0) + item.quantity;
+      //       item.stockDeducted = false;
+      //     } else {
+      //       // Otherwise just release the reservation
+      //       item.variant.reserved = Math.max(
+      //         0,
+      //         (item.variant.reserved || 0) - item.quantity,
+      //       );
+      //     }
+      //     await manager.save(ProductVariantEntity, item.variant);
+      //     await manager.save(OrderItemEntity, item);
+      //   }
+      // }
       order.status = newStatus;
       order.updatedByUserId = employeeId;
 

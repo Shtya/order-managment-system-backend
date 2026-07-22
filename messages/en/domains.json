@@ -215,7 +215,7 @@
     "collection_deposit_notes": "Collection for order #{orderNumber}. {notes}",
     "collection_created_title": "New Collection Added",
     "collection_created_message": "A collection of {amount} {currency} has been added to order #{orderNumber}.",
-    "direct_other": "Direct/Other",
+    "direct_other": "Orders without a shipping company",
     "export_collections_sheet": "Collections",
     "export_order_number": "Order Number",
     "export_shipping_company": "Shipping Company",

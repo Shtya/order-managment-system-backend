@@ -370,7 +370,7 @@ export class ShippingService {
 
 	async setCredentials(adminId: string, provider: string, credentials: any) {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
-		console.log(credentials);
+		
 		const integ = await this.getOrCreateIntegration(adminId, company.id);
 
 		const next = {
