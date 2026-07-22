@@ -295,13 +295,6 @@ async function runGlobalSeed() {
 			name: 'Ready', code: OrderStatus.READY, isDefault: false, order: 17, color: '#009688', // Matches stats.postponed/teal (Teal/Ready)
 		},
 		{
-			name: 'Packed',
-			code: OrderStatus.PACKED,
-			isDefault: false,
-			order: 18,
-			color: '#795548' // Brown (Boxed and ready for pickup)
-		},
-		{
 			name: 'Shipped', code: OrderStatus.SHIPPED, isDefault: false, order: 19, color: '#03A9F4', // Matches stats.inShipping (Light Blue)
 		},
 		{

@@ -1116,7 +1116,7 @@ export class ShippingService {
 			.addSelect('COUNT(order.id)', 'count')
 			.where('order.adminId = :adminId', { adminId })
 			.andWhere('status.code IN (:...included)', {
-				included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
+				included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY]
 			})
 			.andWhere("shipment.status IN (:...status)", {
 				status: [ShipmentStatus.PENDING_ACTION, ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
@@ -1192,7 +1192,7 @@ export class ShippingService {
 				)
 				.where('order.adminId = :adminId', { adminId })
 				.andWhere('status.code IN (:...included)', {
-					included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY, OrderStatus.PACKED]
+					included: [OrderStatus.DISTRIBUTED, OrderStatus.PRINTED, OrderStatus.PREPARING, OrderStatus.READY]
 				})
 				.andWhere("shipment.status IN (:...status)", {
 					status: [ShipmentStatus.PENDING_ACTION, ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],

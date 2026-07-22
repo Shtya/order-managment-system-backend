@@ -1378,7 +1378,7 @@ export class DashboardService {
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "statusDeliveredOrders"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CANCELLED_FOLLOW_UP}' THEN o.id END) AS "canceledAndUnderReview"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.NO_ANSWER_FOLLOW_UP}' THEN o.id END) AS "noAnswerFollowUp"`,
-        `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.PACKED}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`
+        `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`
       ]);
 
       // QUERY 2: Pending/Failed Webhook Orders

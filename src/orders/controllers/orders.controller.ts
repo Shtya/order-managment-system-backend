@@ -114,15 +114,15 @@ export class OrdersController {
     return await this.svc.logError(orderId, body.sku, req.user, body.reasonCode, ScanLogType.PREPARATION, '');
   }
 
-  @Post(':id/scan-shipping/:sku')
-  @Permissions("warehouses.scan-shipping")
-  async scanShipping(
-    @Param("id") id: string,
-    @Param('sku') sku: string,
-    @Req() req: any,
-  ) {
-    return await this.svc.scanForShipping(id, sku, req.user);
-  }
+  // @Post(':id/scan-shipping/:sku')
+  // @Permissions("warehouses.scan-shipping")
+  // async scanShipping(
+  //   @Param("id") id: string,
+  //   @Param('sku') sku: string,
+  //   @Req() req: any,
+  // ) {
+  //   return await this.svc.scanForShipping(id, sku, req.user);
+  // }
 
   @Permissions("warehouses.scan-preparation")
   @Get(':id/scan-logs/:phase')

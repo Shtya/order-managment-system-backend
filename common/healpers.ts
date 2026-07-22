@@ -269,12 +269,6 @@ export const STATUS_TRANSITIONS = {
     ],
 
     [OrderStatus.READY]: [
-        OrderStatus.PACKED,
-        OrderStatus.CANCELLED,
-    ],
-
-    [OrderStatus.PACKED]: [
-        OrderStatus.SHIPPED,
         OrderStatus.CANCELLED,
     ],
 

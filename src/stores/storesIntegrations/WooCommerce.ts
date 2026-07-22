@@ -1526,7 +1526,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             [OrderStatus.PRINTED]: "processing",
             [OrderStatus.DISTRIBUTED]: "processing",
             [OrderStatus.READY]: "processing",
-            [OrderStatus.PACKED]: "processing",
+            
             [OrderStatus.SHIPPED]: "processing",
 
 

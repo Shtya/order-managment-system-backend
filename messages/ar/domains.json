@@ -377,7 +377,7 @@
     "status_not_found": "الحالة غير موجودة",
     "manifest_with_id_not_found": "بيان التحميل برقم {id} غير موجود.",
     "some_orders_not_found": "لم يتم العثور على بعض الطلبات.",
-    "order_cannot_ship_not_packed": "لا يمكن شحن الطلب {orderNumber}. الحالة الحالية: {statusName}. يجب أن يكون في حالة التعبئة أولاً.",
+    "order_cannot_ship_not_packed": "لا يمكن شحن الطلب {orderNumber}. الحالة الحالية: {statusName}. يجب أن يكون في حالة READY أولاً.",
     "order_different_courier": "الطلب {orderNumber} تابع لشركة شحن مختلفة.",
     "not_all_orders_have_return_requests": "ليست جميع الطلبات لديها طلبات إرجاع.",
     "no_valid_return_requests": "لم يتم تحديد طلبات إرجاع صالحة.",

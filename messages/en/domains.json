@@ -377,7 +377,7 @@
     "status_not_found": "Status not found",
     "manifest_with_id_not_found": "Manifest with ID {id} not found.",
     "some_orders_not_found": "Some orders were not found.",
-    "order_cannot_ship_not_packed": "Order {orderNumber} cannot be shipped. Current status: {statusName}. It must be PACKED first.",
+    "order_cannot_ship_not_packed": "Order {orderNumber} cannot be shipped. Current status: {statusName}. It must be READY first.",
     "order_different_courier": "Order {orderNumber} belongs to a different courier.",
     "not_all_orders_have_return_requests": "Not all orders have return requests.",
     "no_valid_return_requests": "No valid return requests selected.",

@@ -47,7 +47,6 @@ export enum OrderStatus {
   PRINTED = "printed",
   PREPARING = "preparing",
   READY = "ready",
-  PACKED = "packed",
   SHIPPED = "shipped",
 
   DELIVERED = "delivered",//

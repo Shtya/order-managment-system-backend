@@ -1318,7 +1318,7 @@ export class EasyOrderService extends BaseStoreProvider {
             [OrderStatus.PRINTED]: "processing",
             [OrderStatus.DISTRIBUTED]: "processing",
             [OrderStatus.READY]: "waiting_for_pickup",
-            [OrderStatus.PACKED]: "processing",
+            
             [OrderStatus.SHIPPED]: "in_delivery",
             [OrderStatus.DELIVERED]: "delivered",
 

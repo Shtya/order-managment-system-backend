@@ -203,7 +203,6 @@ export class OrdersService {
       OrderStatus.PRINTED,
       OrderStatus.PREPARING,
       OrderStatus.READY,
-      OrderStatus.PACKED,
       OrderStatus.SHIPPED,
       OrderStatus.RETURN_PREPARING,
     ];
@@ -1413,7 +1412,6 @@ export class OrdersService {
 
     return await this.dataSource.transaction(async (manager) => {
       // const [packedStatus, shippedStatus] = await Promise.all([
-      //   manager.findOneBy(OrderStatusEntity, { code: OrderStatus.PACKED }),
       //   manager.findOneBy(OrderStatusEntity, { code: OrderStatus.SHIPPED }),
       // ]);
       const orderRepo = manager.getRepository(OrderEntity);
@@ -1841,7 +1839,6 @@ export class OrdersService {
     //
     const [readyStatus, shippedStatus] = await Promise.all([
       this.findStatusByCode(OrderStatus.READY, adminId),
-      this.findStatusByCode(OrderStatus.PACKED, adminId),
       this.findStatusByCode(OrderStatus.SHIPPED, adminId),
     ]);
 
@@ -2336,131 +2333,131 @@ export class OrdersService {
     });
   }
 
-  async scanForShipping(orderId: string, sku: string, me: any) {
-    const userId = me?.id;
-    const adminId = tenantId(me);
+  // async scanForShipping(orderId: string, sku: string, me: any) {
+  //   const userId = me?.id;
+  //   const adminId = tenantId(me);
 
-    return await this.dataSource.transaction(async (manager) => {
-      const order = await manager.findOne(OrderEntity, {
-        where: { id: orderId, adminId },
-        relations: ["items", "items.variant", "status"],
-        select: ["id", "statusId", "adminId"],
-      });
+  //   return await this.dataSource.transaction(async (manager) => {
+  //     const order = await manager.findOne(OrderEntity, {
+  //       where: { id: orderId, adminId },
+  //       relations: ["items", "items.variant", "status"],
+  //       select: ["id", "statusId", "adminId"],
+  //     });
 
-      if (!order) throw new NotFoundException(this.translations.t('domains.orders.order_not_found'));
-      const oldStatusId = order.statusId;
-      if (order.status.code !== OrderStatus.READY) {
-        // await this.logFailedScan(
-        //   manager,
-        //   orderId,
-        //   sku,
-        //   userId,
-        //   adminId,
-        //   ScanReason.INVALID_STATUS,
-        //   ScanLogType.SHIPPING,
-        //   `Current: ${order.status.code}`,
-        // );
-        return {
-          success: false,
-          message: this.translations.t('domains.orders.order_must_be_ready_for_shipping_scan'),
-        };
-      }
+  //     if (!order) throw new NotFoundException(this.translations.t('domains.orders.order_not_found'));
+  //     const oldStatusId = order.statusId;
+  //     if (order.status.code !== OrderStatus.READY) {
+  //       // await this.logFailedScan(
+  //       //   manager,
+  //       //   orderId,
+  //       //   sku,
+  //       //   userId,
+  //       //   adminId,
+  //       //   ScanReason.INVALID_STATUS,
+  //       //   ScanLogType.SHIPPING,
+  //       //   `Current: ${order.status.code}`,
+  //       // );
+  //       return {
+  //         success: false,
+  //         message: this.translations.t('domains.orders.order_must_be_ready_for_shipping_scan'),
+  //       };
+  //     }
 
-      const item = order.items.find(
-        (i) => i.variant?.sku?.trim() === sku.trim(),
-      );
+  //     const item = order.items.find(
+  //       (i) => i.variant?.sku?.trim() === sku.trim(),
+  //     );
 
-      if (!item) {
-        await this.logFailedScan(
-          manager,
-          orderId,
-          sku,
-          userId,
-          adminId,
-          ScanReason.SKU_NOT_IN_ORDER,
-          ScanLogType.SHIPPING,
-        );
-        return { success: false, message: this.translations.t('domains.orders.sku_not_in_order', { args: { sku } }) };
-      }
+  //     if (!item) {
+  //       await this.logFailedScan(
+  //         manager,
+  //         orderId,
+  //         sku,
+  //         userId,
+  //         adminId,
+  //         ScanReason.SKU_NOT_IN_ORDER,
+  //         ScanLogType.SHIPPING,
+  //       );
+  //       return { success: false, message: this.translations.t('domains.orders.sku_not_in_order', { args: { sku } }) };
+  //     }
 
-      if (item.shippingScannedQuantity >= item.quantity) {
-        await this.logFailedScan(
-          manager,
-          orderId,
-          sku,
-          userId,
-          adminId,
-          ScanReason.ALREADY_FULLY_SCANNED,
-          ScanLogType.SHIPPING,
-        );
-        return {
-          success: false,
-          message: this.translations.t('domains.orders.item_already_fully_scanned_shipping'),
-        };
-      }
+  //     if (item.shippingScannedQuantity >= item.quantity) {
+  //       await this.logFailedScan(
+  //         manager,
+  //         orderId,
+  //         sku,
+  //         userId,
+  //         adminId,
+  //         ScanReason.ALREADY_FULLY_SCANNED,
+  //         ScanLogType.SHIPPING,
+  //       );
+  //       return {
+  //         success: false,
+  //         message: this.translations.t('domains.orders.item_already_fully_scanned_shipping'),
+  //       };
+  //     }
 
-      const result = await manager
-        .createQueryBuilder()
-        .update(OrderItemEntity)
-        .set({
-          shippingScannedQuantity: () => "COALESCE(shippingScannedQuantity, 0) + 1",
-        })
-        .where("orderId = :orderId", { orderId })
-        .andWhere(`"variantId" IN (SELECT v.id FROM product_variants v WHERE v.sku = :sku)`, { sku: sku.trim() })
-        .andWhere("COALESCE(shippingScannedQuantity, 0) < quantity")
-        .returning(["id", "shippingScannedQuantity", "quantity"])
-        .execute();
+  //     const result = await manager
+  //       .createQueryBuilder()
+  //       .update(OrderItemEntity)
+  //       .set({
+  //         shippingScannedQuantity: () => "COALESCE(shippingScannedQuantity, 0) + 1",
+  //       })
+  //       .where("orderId = :orderId", { orderId })
+  //       .andWhere(`"variantId" IN (SELECT v.id FROM product_variants v WHERE v.sku = :sku)`, { sku: sku.trim() })
+  //       .andWhere("COALESCE(shippingScannedQuantity, 0) < quantity")
+  //       .returning(["id", "shippingScannedQuantity", "quantity"])
+  //       .execute();
 
-      if (result.affected === 0) {
-        await this.logFailedScan(
-          manager, orderId, sku, userId, adminId, ScanReason.ALREADY_FULLY_SCANNED,
-          ScanLogType.SHIPPING,
-        );
-        return { success: false, message: this.translations.t('domains.orders.item_already_fully_scanned_shipping') };
-      }
+  //     if (result.affected === 0) {
+  //       await this.logFailedScan(
+  //         manager, orderId, sku, userId, adminId, ScanReason.ALREADY_FULLY_SCANNED,
+  //         ScanLogType.SHIPPING,
+  //       );
+  //       return { success: false, message: this.translations.t('domains.orders.item_already_fully_scanned_shipping') };
+  //     }
 
 
-      const remainingCount = await manager
-        .createQueryBuilder()
-        .select("COUNT(1)", "count")
-        .from(OrderItemEntity, "oi")
-        .where("oi.orderId = :orderId", { orderId })
-        .andWhere("COALESCE(oi.shippingScannedQuantity, 0) < oi.quantity")
-        .getRawOne();
-      const newShippingScannedQuantity = result.raw[0].shippingScannedQuantity;
-      const isShippingReady = Number(remainingCount.count) === 0;
+  //     const remainingCount = await manager
+  //       .createQueryBuilder()
+  //       .select("COUNT(1)", "count")
+  //       .from(OrderItemEntity, "oi")
+  //       .where("oi.orderId = :orderId", { orderId })
+  //       .andWhere("COALESCE(oi.shippingScannedQuantity, 0) < oi.quantity")
+  //       .getRawOne();
+  //     const newShippingScannedQuantity = result.raw[0].shippingScannedQuantity;
+  //     const isShippingReady = Number(remainingCount.count) === 0;
 
-      if (isShippingReady) {
-        const packedStatus = await manager.findOneBy(OrderStatusEntity, {
-          code: OrderStatus.PACKED,
-        });
+  //     if (isShippingReady) {
+  //       const packedStatus = await manager.findOneBy(OrderStatusEntity, {
+  //         code: OrderStatus.PACKED,
+  //       });
 
-        const shippedStatus = await manager.findOneBy(OrderStatusEntity, {
-          code: OrderStatus.PACKED,
-        });
-        await manager.update(OrderEntity, order.id, {
-          statusId: shippedStatus.id,
-        });
-        // ✅ Log the transition: READY -> PACKED
-        await this.logStatusChange({
-          adminId,
-          orderId: order.id,
-          fromStatusId: oldStatusId,
-          toStatusId: packedStatus.id,
-          userId,
-          notes: "Automatic: Shipping scan completed (All items packed)",
-          manager,
-        });
-      }
+  //       const shippedStatus = await manager.findOneBy(OrderStatusEntity, {
+  //         code: OrderStatus.PACKED,
+  //       });
+  //       await manager.update(OrderEntity, order.id, {
+  //         statusId: shippedStatus.id,
+  //       });
+  //       // ✅ Log the transition: READY -> PACKED
+  //       await this.logStatusChange({
+  //         adminId,
+  //         orderId: order.id,
+  //         fromStatusId: oldStatusId,
+  //         toStatusId: packedStatus.id,
+  //         userId,
+  //         notes: "Automatic: Shipping scan completed (All items packed)",
+  //         manager,
+  //       });
+  //     }
 
-      return {
-        success: true,
-        scanned: newShippingScannedQuantity,
-        total: item.quantity,
-        isShippingReady,
-      };
-    });
-  }
+  //     return {
+  //       success: true,
+  //       scanned: newShippingScannedQuantity,
+  //       total: item.quantity,
+  //       isShippingReady,
+  //     };
+  //   });
+  // }
 
   private async logFailedScan(
     manager: EntityManager,
