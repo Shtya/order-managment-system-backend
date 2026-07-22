@@ -42,6 +42,7 @@ export class CollectionService {
     async getCollectionStatistics(me: any) {
         const adminId = tenantId(me);
         if (!adminId) throw new BadRequestException();
+        const otherLocalization = await this.translations.t('domains.collections.direct_other');
 //collectedOrdersCount
         // 1. Run general stats and shipping breakdown in parallel
         const [generalStats, shippingBreakdownRaw] = await Promise.all([
@@ -50,11 +51,11 @@ export class CollectionService {
                 .leftJoin('o.status', 'st')
                 .select(`
                     SUM(CASE WHEN COALESCE(o.collectedAmount,0) = 0 THEN 1 ELSE 0 END) AS "notCollectedCount",
-                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) > 0 AND COALESCE(o.collectedAmount,0) < (o.finalTotal - o.shippingCost) THEN 1 ELSE 0 END) AS "partialCollectedCount",
-                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) >= (o.finalTotal - o.shippingCost) THEN 1 ELSE 0 END) AS "fullyCollectedCount",
+                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) > 0 AND COALESCE(o.collectedAmount,0) < (o.finalTotal) THEN 1 ELSE 0 END) AS "partialCollectedCount",
+                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) >= (o.finalTotal) THEN 1 ELSE 0 END) AS "fullyCollectedCount",
                     SUM(COALESCE(o.collectedAmount,0)) AS "totalCollectedMoney",
-                    SUM(CASE WHEN (o.finalTotal - o.shippingCost) > COALESCE(o.collectedAmount,0) THEN (o.finalTotal - o.shippingCost) - COALESCE(o.collectedAmount,0) ELSE 0 END) AS "totalNonCollectedMoney",
-                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) > 0 AND COALESCE(o.collectedAmount,0) < (o.finalTotal - o.shippingCost) THEN COALESCE(o.collectedAmount,0) ELSE 0 END) AS "totalPartialCollectedMoney"
+                    SUM(CASE WHEN (o.finalTotal) > COALESCE(o.collectedAmount,0) THEN (o.finalTotal) - COALESCE(o.collectedAmount,0) ELSE 0 END) AS "totalNonCollectedMoney",
+                    SUM(CASE WHEN COALESCE(o.collectedAmount,0) > 0 AND COALESCE(o.collectedAmount,0) < (o.finalTotal) THEN COALESCE(o.collectedAmount,0) ELSE 0 END) AS "totalPartialCollectedMoney"
                 `)
                 .where('o.adminId = :adminId', { adminId })
                 .andWhere(`st.code = '${OrderStatus.DELIVERED}'`)
@@ -64,13 +65,14 @@ export class CollectionService {
                 .createQueryBuilder('o')
                 .leftJoin('o.shippingCompany', 'ship')
                 .leftJoin('o.status', 'st')
-                .select('COALESCE(ship.name, \'Direct/Other\')', 'shippingName')
+                .select('COALESCE(ship.name, :otherLocalization)', 'shippingName')
                 .addSelect('SUM(CASE WHEN COALESCE(o.collectedAmount,0) = 0 THEN 1 ELSE 0 END)', 'nonCollectedOrdersCount')
-                .addSelect('SUM(CASE WHEN COALESCE(o.collectedAmount,0) >= (o.finalTotal - o.shippingCost) THEN 1 ELSE 0 END)', 'collectedOrdersCount')
-                .addSelect('SUM(CASE WHEN (o.finalTotal - o.shippingCost) > COALESCE(o.collectedAmount,0) THEN (o.finalTotal - o.shippingCost) - COALESCE(o.collectedAmount,0) ELSE 0 END)', 'totalNonCollectedMoney')
+                .addSelect('SUM(CASE WHEN COALESCE(o.collectedAmount,0) >= (o.finalTotal) THEN 1 ELSE 0 END)', 'collectedOrdersCount')
+                .addSelect('SUM(CASE WHEN (o.finalTotal) > COALESCE(o.collectedAmount,0) THEN (o.finalTotal) - COALESCE(o.collectedAmount,0) ELSE 0 END)', 'totalNonCollectedMoney')
                 .addSelect('SUM(COALESCE(o.collectedAmount,0))', 'totalCollectedMoney')
                 .where('o.adminId = :adminId', { adminId })
                 .andWhere(`st.code = '${OrderStatus.DELIVERED}'`)
+                .setParameter('otherLocalization', otherLocalization)
                 .groupBy('ship.id')
                 .addGroupBy('ship.name')
                 .getRawMany()
@@ -85,7 +87,7 @@ export class CollectionService {
             totalCollectedMoney: parseFloat(generalStats?.totalCollectedMoney) || 0,
             totalNonCollectedMoney: parseFloat(generalStats?.totalNonCollectedMoney) || 0,
             shippingBreakdown: shippingBreakdownRaw.map(s => ({
-                name: s.shippingName || 'Direct/Other',
+                name: s.shippingName || otherLocalization,
                 nonCollectedOrdersCount: Number(s.nonCollectedOrdersCount) || 0,
                 collectedOrdersCount: Number(s.collectedOrdersCount) || 0,
                 totalNonCollectedMoney: parseFloat(s.totalNonCollectedMoney) || 0,
@@ -207,7 +209,7 @@ export class CollectionService {
         // --- 2. Collection Status Logic ---
         if (q?.collectionStatus) {
             const amt = "COALESCE(order.collectedAmount, 0)";
-            const collectible = "(order.finalTotal - order.shippingCost)";
+            const collectible = "(order.finalTotal)";
             const deliveredCondition = `st.code = '${OrderStatus.DELIVERED}'`;
 
             if (q.collectionStatus === 'not_collected') {
@@ -250,7 +252,7 @@ export class CollectionService {
 
         // --- 5. Data Mapping & Delay Calculation ---
         const records = orders.map(order => {
-            const collectibleAmount = order.finalTotal - (order.shippingCost || 0);
+            const collectibleAmount = order.finalTotal;
             const isFullyCollected = (order.collectedAmount || 0) >= collectibleAmount;
 
             // Calculate Delay Days: Difference between Delivery Date and Last Collection Date
@@ -319,7 +321,7 @@ export class CollectionService {
         // منطق فلترة الحالة (نفس الـ listCollections)
         if (statusFilter) {
             const amt = "COALESCE(order.collectedAmount, 0)";
-            const collectible = "(order.finalTotal - order.shippingCost)";
+            const collectible = "(order.finalTotal)";
             const deliveredCondition = `st.code = '${OrderStatus.DELIVERED}'`;
             if (statusFilter === 'not_collected') qb.andWhere(`${amt} = 0`).andWhere(deliveredCondition);
             else if (statusFilter === 'partial') qb.andWhere(`${amt} > 0 AND ${amt} < ${collectible}`).andWhere(deliveredCondition);
@@ -367,7 +369,7 @@ export class CollectionService {
 
         // 3. تحويل البيانات (Transform)
         const rows = orders.map(order => {
-            const collectibleAmount = Number(order.finalTotal || 0) - Number(order.shippingCost || 0);
+            const collectibleAmount = Number(order.finalTotal || 0);
             const collected = Number(order.collectedAmount || 0);
             const remaining = Math.max(0, collectibleAmount - collected);
 

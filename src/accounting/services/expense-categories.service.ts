@@ -41,10 +41,20 @@ export class ExpenseCategoriesService {
 
         qb.loadRelationCountAndMap('category.expensesCount', 'category.expenses');
 
+        qb.addSelect(
+            `COALESCE((SELECT SUM(e.amount) FROM manual_expenses e WHERE e."categoryId" = category.id), 0)`,
+            'category_totalCost'
+        );
+
         // 3. Optional: Order by name
         qb.orderBy('category.name', 'ASC');
 
-        return await qb.getMany();
+        const categories = await qb.getRawAndEntities();
+
+        return categories.entities.map((cat, idx) => ({
+            ...cat,
+            totalCost: Number(categories.raw[idx]?.category_totalCost ?? 0),
+        }));
     }
 
     async updateCategory(me: any, id: string, dto: UpdateManualExpenseCategoryDto) {
