@@ -3161,20 +3161,20 @@ export class OrdersService {
       });
 
       // Recalculate if needed
-      if (dto.shippingCost !== undefined || dto.discount !== undefined) {
-        const { productsTotal, finalTotal, profit } = this.calculateTotals(
-          order.items.map((it: any) => ({
-            unitPrice: it.unitPrice,
-            unitCost: it.unitCost,
-            quantity: it.quantity,
-          })),
-          order.shippingCost,
-          order.discount,
-        );
-        order.productsTotal = productsTotal;
-        order.finalTotal = finalTotal;
-        order.profit = profit;
-      }
+
+      const { productsTotal, finalTotal, profit } = this.calculateTotals(
+        order.items.map((it: any) => ({
+          unitPrice: it.unitPrice,
+          unitCost: it.unitCost,
+          quantity: it.quantity,
+        })),
+        order.shippingCost,
+        order.discount,
+      );
+      order.productsTotal = productsTotal;
+      order.finalTotal = finalTotal;
+      order.profit = profit;
+
 
       const updatedOrder = await manager.save(OrderEntity, order);
 
@@ -4189,15 +4189,15 @@ export class OrdersService {
     });
   }
 
-  private calcShippingDaysElapsed(shippedAt?: Date | null): number | null {
+  private calcShippingDaysElapsed(shippedAt?: Date | null, referenceDate?: Date | null): number | null {
     if (!shippedAt) return null;
 
     const shipped = new Date(shippedAt);
     const shippedDay = new Date(shipped.getFullYear(), shipped.getMonth(), shipped.getDate());
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const ref = referenceDate ? new Date(referenceDate) : new Date();
+    ref.setHours(0, 0, 0, 0);
 
-    const diffDays = Math.floor((today.getTime() - shippedDay.getTime()) / (24 * 60 * 60 * 1000));
+    const diffDays = Math.floor((ref.getTime() - shippedDay.getTime()) / (24 * 60 * 60 * 1000));
     return diffDays + 1;
   }
 
@@ -4225,7 +4225,10 @@ export class OrdersService {
             .join("; ") || na;
         const shipment = order.shipments?.[0];
         const assignment = order.assignments?.[0];
-        const shippingDays = this.calcShippingDaysElapsed(order.shippedAt);
+        const shippingDays = this.calcShippingDaysElapsed(
+          order.shippedAt,
+          order.status?.code === OrderStatus.DELIVERED ? order.deliveredAt : null,
+        );
 
         return {
           orderNumber: order.orderNumber,
