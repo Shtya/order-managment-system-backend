@@ -50,6 +50,7 @@ export type I18nTranslations = {
         "created_at": string;
         "supplier": string;
         "subtotal": string;
+        "slug_already_in_use": string;
         "errors": {
             "db_foreign_key": string;
             "db_unique_violation": string;
@@ -205,6 +206,9 @@ export type I18nTranslations = {
             "variant_id_not_found": string;
             "variant_not_found": string;
             "insufficient_stock": string;
+            "sku_already_in_use": string;
+            "slug_already_in_use": string;
+            "images_orphan_ids_must_be_array": string;
             "export_sheet": string;
             "export_id": string;
             "export_name": string;

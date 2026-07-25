@@ -31,23 +31,39 @@ export interface ProductSyncStatusDto {
 
 }
 
+export enum SyncEntityType {
+	PRODUCT = "product",
+	BUNDLE = "bundle",
+	PULL = "pull",
+}
+
 @Entity('product_sync_state')
-@Index(['adminId', 'productId', 'storeId', 'externalStoreId'], { unique: true })
+@Index(['adminId', 'productId', 'storeId', 'externalStoreId'], { unique: true, where: '"productId" IS NOT NULL' })
+@Index(['adminId', 'bundleId', 'storeId', 'externalStoreId'], { unique: true, where: '"bundleId" IS NOT NULL' })
 @Index(['adminId', 'storeId', 'externalStoreId', 'remoteProductId'])
 export class ProductSyncStateEntity {
 	@PrimaryGeneratedColumn('uuid')
 	id: string;
 
-	// 🔗 Local references
-	@Column('uuid')
-	productId: string;
+	@Column({ type: 'text', default: SyncEntityType.PRODUCT })
+	entityType: SyncEntityType;
 
+	// 🔗 Local references
+	@Column('uuid', { nullable: true })
+	productId: string;
 
 	@ManyToOne(() => ProductEntity, (product) => product.syncStates, {
 		onDelete: 'SET NULL',
 	})
 	@JoinColumn({ name: 'productId' })
 	product: Relation<ProductEntity>;
+
+	@Column('uuid', { nullable: true })
+	bundleId: string;
+
+	@ManyToOne(() => BundleEntity, { onDelete: 'SET NULL' })
+	@JoinColumn({ name: 'bundleId' })
+	bundle: Relation<BundleEntity>;
 
 	@Column('uuid', { nullable: true })
 	storeId: string;
@@ -102,11 +118,7 @@ export enum ProductSyncAction {
 	BUNDLE_SYNC = 'bundle_sync',
 }
 
-export enum SyncEntityType {
-	PRODUCT = "product",
-	BUNDLE = "bundle",
-	PULL = "pull",
-}
+
 
 @Entity("product_sync_error_logs")
 @Index(["adminId", "productId", "storeId"])

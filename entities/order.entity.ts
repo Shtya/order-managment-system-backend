@@ -756,11 +756,11 @@ export class OrderReplacementItemEntity {
   replacementId: string;
 
   // Connection to the specific item being replaced from the original order
-  @ManyToOne(() => OrderItemEntity)
+  @ManyToOne(() => OrderItemEntity, { nullable: true })
   @JoinColumn({ name: "originalOrderItemId" })
   originalOrderItem: OrderItemEntity;
 
-  @Column({ type: 'uuid', })
+  @Column({ type: 'uuid', nullable: true })
   originalOrderItemId: string;
 
   @Column({ type: "int" })
@@ -973,13 +973,13 @@ export class ReturnRequestItemEntity {
   @ManyToOne(() => ReturnRequestEntity, (req) => req.items)
   returnRequest: ReturnRequestEntity;
 
-  @Column({ type: 'uuid', })
+  @Column({ type: 'uuid', nullable: true })
   originalOrderItemId: string;
 
-  @ManyToOne(() => OrderItemEntity)
+  @ManyToOne(() => OrderItemEntity, { nullable: true }  )
   @JoinColumn({ name: "originalOrderItemId" })
   originalItem: OrderItemEntity;
-
+  
   @Column({ type: 'uuid', })
   returnedVariantId: string; // The actual variant received
 

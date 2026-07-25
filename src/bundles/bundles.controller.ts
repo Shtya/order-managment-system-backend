@@ -27,7 +27,7 @@ import { RequireSubscription } from "common/require-subscription.decorator";
 export class BundlesController {
   constructor(private bundles: BundlesService) { }
 
-  @Permissions("products.read")
+  @Permissions("products.read", "products.getonly")
   @Get()
   list(@Req() req: any, @Query() q: any) {
     return this.bundles.list(req.user, q);
@@ -67,12 +67,22 @@ export class BundlesController {
   }
 
   @Permissions("products.read")
+  @Get("check-slug")
+  async checkSlug(
+    @Req() req: any,
+    @Query("slug") slug: string,
+    @Query("bundleId") bundleId?: string,
+  ) {
+    return this.bundles.checkSlug(req.user, slug, bundleId);
+  }
+
+  @Permissions("products.read")
   @Get("by-sku/:sku")
   getBySku(@Req() req: any, @Param("sku") sku: string) {
     return this.bundles.getBySku(req.user, sku);
   }
 
-  @Permissions("products.read")
+  @Permissions("products.read", "products.getonly")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
     return this.bundles.get(req.user, id);

@@ -1,17 +1,22 @@
 // --- File: src/bundles/bundles.service.ts ---
 import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, In, Like, Repository } from "typeorm";
+import { DataSource, In, Like, Not, Repository } from "typeorm";
 import { tenantId } from "../category/category.service";
 
 import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
 import { ProductVariantEntity } from "entities/sku.entity";
+import { CategoryEntity } from "entities/categories.entity";
 import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
 import { CRUD } from "../../common/crud.service";
 import * as ExcelJS from "exceljs";
 import { StoresService } from "src/stores/stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
 import { TranslationService } from "common/translation.service";
+import { OrphanFileEntity } from "entities/files.entity";
+import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
+import { deletePhysicalFiles, generateSlug, getErrorMessage } from "common/healpers";
+import { StoreEntity } from "entities/stores.entity";
 
 @Injectable()
 export class BundlesService {
@@ -25,15 +30,33 @@ export class BundlesService {
 		@InjectRepository(ProductVariantEntity)
 		private pvRepo: Repository<ProductVariantEntity>,
 
+		@InjectRepository(CategoryEntity)
+		private catRepo: Repository<CategoryEntity>,
+
+		@InjectRepository(OrphanFileEntity)
+		private orphanRepo: Repository<OrphanFileEntity>,
+
 		@Inject(forwardRef(() => StoresService))
 		private storesService: StoresService,
 
 		private readonly ordersService: OrdersService,
+		private readonly orphanFilesService: OrphanFilesService,
 
 		private readonly dataSource: DataSource,
 		private readonly translations: TranslationService,
 	) { }
 
+	private async assertOwnedOrNull(
+		repo: Repository<any>,
+		adminId: string,
+		id?: string | null,
+		label = "entity"
+	) {
+		if (id == null) return null;
+		const e = await repo.findOne({ where: { id } as any });
+		if (!e) throw new BadRequestException(this.translations.t("domains.bundles.not_found"));
+		return e;
+	}
 
 	async checkSku(me: any, sku: string, bundleId?: string) {
 		const adminId = tenantId(me);
@@ -48,6 +71,28 @@ export class BundlesService {
 			where: {
 				adminId,
 				sku: sku.trim(),
+				isActive: true
+			},
+			select: ["id"]
+		});
+
+		return { isUnique: !exists };
+	}
+
+	async checkSlug(me: any, slug: string, bundleId?: string) {
+		const adminId = tenantId(me);
+		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+		const formattedSlug = slug.trim().toLowerCase();
+
+		if (bundleId) {
+			const entity = await this.bundleRepo.findOne({ where: { id: bundleId, adminId } as any });
+			if (entity && formattedSlug === entity.slug) return { isUnique: true };
+		}
+
+		const exists = await this.bundleRepo.findOne({
+			where: {
+				adminId,
+				slug: formattedSlug,
 				isActive: true
 			},
 			select: ["id"]
@@ -71,9 +116,10 @@ export class BundlesService {
 		// 1. Joins & Selective Loading
 		// We use a condition in the join to filter out inactive bundle items
 		qb
-		// .leftJoinAndSelect("bundle.variant", "variant")
-		// 	.leftJoinAndSelect("variant.product", "product")
+			// .leftJoinAndSelect("bundle.variant", "variant")
+			// 	.leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
+			.leftJoinAndSelect("bundle.category", "category")
 			.leftJoinAndSelect(
 				"bundle.items",
 				"items",
@@ -152,6 +198,7 @@ export class BundlesService {
 			// .leftJoinAndSelect("bundle.variant", "variant")
 			// .leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
+			.leftJoinAndSelect("bundle.category", "category")
 			.leftJoinAndSelect("bundle.items", "items", itemCondition)
 			.leftJoinAndSelect("items.variant", "itemVariant")
 			.where("bundle.id = :id AND bundle.adminId = :adminId", { id, adminId })
@@ -164,6 +211,7 @@ export class BundlesService {
 			// .leftJoinAndSelect("bundle.variant", "variant")
 			// .leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
+			.leftJoinAndSelect("bundle.category", "category")
 			.leftJoinAndSelect("bundle.items", "items", "items.isActive = :isActive", { isActive: true })
 			.leftJoinAndSelect("items.variant", "itemVariant")
 			.where("bundle.sku = :sku AND bundle.adminId = :adminId", { sku, adminId })
@@ -187,19 +235,10 @@ export class BundlesService {
 		}
 
 		// Validate Store if storeId is provided
+		let store: StoreEntity | null = null;
 		if (dto.storeId) {
-			const store = await this.storesService.getStoreById(me, dto.storeId);
+			store = await this.storesService.getStoreById(me, dto.storeId);
 			if (!store) throw new BadRequestException(this.translations.t('common.store_not_found'));
-
-			// // Get provider from StoresService to check bundle support and max items
-			// const provider = this.storesService.getProvider(store.provider);
-			// if (!provider.supportBundle) {
-			// 	throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
-			// }
-
-			// if (provider.maxBundleItems !== undefined && items.length > provider.maxBundleItems) {
-			// 	throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
-			// }
 		}
 
 		for (const it of items) {
@@ -218,13 +257,134 @@ export class BundlesService {
 			}
 		}
 
+		// slug: use provided or generate from name
+		let slug = dto.slug?.trim() || null;
+		if (slug) {
+			const existingSlug = await this.bundleRepo.findOne({
+				where: { adminId, slug, isActive: true } as any,
+			});
+			if (existingSlug) {
+				throw new BadRequestException(this.translations.t('common.slug_already_in_use', { args: { slug } }));
+			}
+		} else {
+			slug = generateSlug(dto.name) || `bundle-${Date.now()}`;
+		}
+
+		const existingSKU = await this.bundleRepo.findOne({
+			where: {
+				sku: dto.sku.trim(),
+				adminId,
+				isActive: true,
+			}
+		});
+
+		if (existingSKU) {
+			throw new BadRequestException(
+				this.translations.t("domains.bundles.sku_already_in_use", { args: { sku: dto.sku } })
+			);
+		}
+
+		if (store) {
+			try {
+				const provider = this.storesService.getProvider(store?.provider);
+
+				const promises: Promise<any>[] = [];
+				promises.push(provider?.getProductBySlug(store, dto.slug.trim(), false));
+
+				if (dto.sku && this.storesService.isSkuFetchProvider(provider)) {
+					promises.push(provider.getProductBySku(
+						store,
+						dto.sku.trim(),
+						false
+					));
+				}
+
+				const results = await Promise.allSettled(promises);
+
+				// Check slug result
+				const slugResult = results[0];
+				if (slugResult.status === 'fulfilled') {
+					const remoteSlug = slugResult.value;
+					if (remoteSlug?.id) {
+						throw new BadRequestException(this.translations.t("domains.products.slug_already_in_use_by_store", { args: { slug: dto.slug, storeName: store?.name } }));
+					}
+				} else if (slugResult.status === 'rejected') {
+					throw slugResult.reason;
+				}
+
+				// Check sku result if we had it
+				if (results.length > 1) {
+					const skuResult = results[1];
+					if (skuResult.status === 'fulfilled') {
+						const remoteSku = skuResult.value;
+						if (remoteSku?.id) {
+							throw new BadRequestException(
+								this.translations.t("domains.products.sku_already_in_use_by_store", { args: { sku: dto.sku, storeName: store?.name } })
+							);
+						}
+					} else if (skuResult.status === 'rejected') {
+						throw skuResult.reason;
+					}
+				}
+
+			} catch (e) {
+				if (e instanceof BadRequestException) {
+					throw e;
+				}
+				const errorMsg = getErrorMessage(e);
+				throw new BadRequestException(
+					this.translations.t("domains.products.failed_to_verify_uniqueness", { args: { storeName: store?.name, errorMsg } })
+				);
+			}
+
+		}
+
+		// mainImage: from URL or orphan
+		let mainImage: string | null = null;
+		const mainOrphanId = (dto as any).mainImageOrphanId;
+		if (dto.mainImage && dto.mainImage.trim() !== "") {
+			mainImage = dto.mainImage;
+		} else if (mainOrphanId) {
+			const mainRow = await this.orphanFilesService.resolveOrphanUrlsOrThrow(
+				this.dataSource.manager,
+				String(adminId),
+				[mainOrphanId],
+			);
+			mainImage = mainRow[0]?.url ?? null;
+		}
+
+		// images: from URL array + orphan IDs
+		const imagesMeta = (dto.images ?? [])
+			.filter((img) => typeof img.url === "string" && img.url.trim() !== "")
+			.map((img) => ({ url: img.url }));
+
+		const orphanIds = Array.isArray(dto.imagesOrphanIds) ? dto.imagesOrphanIds : [];
+		const orphanRows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(
+			this.dataSource.manager,
+			String(adminId),
+			orphanIds,
+		);
+		const orphanImages = orphanRows.map((r) => ({ url: r.url }));
+
+		const finalImages = [...imagesMeta, ...orphanImages];
+
+		// categoryId validation
+		let category: CategoryEntity | null = null;
+		if (dto.categoryId && dto.categoryId !== "none") {
+			category = await this.assertOwnedOrNull(this.catRepo, adminId, dto.categoryId, "category");
+		}
+
 		const b = this.bundleRepo.create({
 			adminId,
 			name: dto.name,
+			slug,
 			sku: dto.sku,
 			price: dto.price,
 			description: dto.description,
 			storeId: dto.storeId,
+			categoryId: category ? category.id : null,
+			mainImage: mainImage as any,
+			images: finalImages as any,
 			items: items.map((it) =>
 				this.itemRepo.create({
 					adminId,
@@ -235,6 +395,13 @@ export class BundlesService {
 		});
 
 		const saved = await this.bundleRepo.save(b);
+
+		// delete used orphans AFTER save
+		const toDelete = [mainOrphanId, ...orphanRows.map((r) => r.id)].filter(Boolean) as string[];
+		if (toDelete.length) {
+			await this.orphanFilesService.deleteOrphansByIds(this.dataSource.manager, String(adminId), toDelete);
+		}
+
 		return this.get(me, saved.id);
 	}
 
@@ -248,9 +415,10 @@ export class BundlesService {
 
 		// 1. Joins & Selective Loading (Filtering inactive bundle items)
 		qb
-		// .leftJoinAndSelect("bundle.variant", "variant")
-		// 	.leftJoinAndSelect("variant.product", "product")
+			// .leftJoinAndSelect("bundle.variant", "variant")
+			// 	.leftJoinAndSelect("variant.product", "product")
 			.leftJoinAndSelect("bundle.store", "store")
+			.leftJoinAndSelect("bundle.category", "category")
 			.leftJoinAndSelect(
 				"bundle.items",
 				"items",
@@ -353,9 +521,64 @@ export class BundlesService {
 		if (!b) throw new BadRequestException(this.translations.t('domains.bundles.not_found'));
 
 		if (dto.name !== undefined) b.name = dto.name;
-		// if (dto.sku !== undefined) b.sku = dto.sku;
 		if (dto.price !== undefined) b.price = dto.price;
 		if (dto.description !== undefined) b.description = dto.description;
+
+		// slug update with uniqueness check
+		if (dto.slug !== undefined) {
+			const cleanSlug = dto.slug.trim();
+			if (cleanSlug !== b.slug) {
+				const existingSlug = await this.bundleRepo.findOne({
+					where: { adminId, slug: cleanSlug, isActive: true, id: Not(id) } as any,
+				});
+				if (existingSlug) {
+					throw new BadRequestException(this.translations.t('domains.bundles.slug_already_in_use', { args: { slug: cleanSlug } }));
+				}
+			}
+			b.slug = cleanSlug;
+		}
+
+		// ── removeImgs ──
+		const removeImgs = (dto as any).removeImgs as string[] | undefined;
+		if (removeImgs?.length) {
+			deletePhysicalFiles(removeImgs);
+			b.images = ((b as any).images ?? []).filter(
+				(img: any) => img?.url && !removeImgs.includes(img.url)
+			);
+		}
+		delete (dto as any).removeImgs;
+
+		// ── mainImage via orphan ──
+		const mainOrphanId = (dto as any).mainImageOrphanId;
+		if (mainOrphanId !== undefined && mainOrphanId !== null && mainOrphanId !== "") {
+			const mainRow = await this.orphanFilesService.resolveOrphanUrlsOrThrow(
+				this.dataSource.manager,
+				String(adminId),
+				[mainOrphanId],
+			);
+			if (b.mainImage) {
+				deletePhysicalFiles([b.mainImage]);
+			}
+			(b as any).mainImage = mainRow[0]?.url ?? null;
+			await this.orphanFilesService.deleteOrphansByIds(this.dataSource.manager, String(adminId), [mainOrphanId]);
+		}
+		delete (dto as any).mainImageOrphanId;
+
+		// ── gallery images via orphan ids ──
+		const orphanIds = (dto as any).imagesOrphanIds;
+		if (orphanIds !== undefined) {
+			if (!Array.isArray(orphanIds)) throw new BadRequestException(this.translations.t('domains.bundles.images_orphan_ids_must_be_array'));
+			const rows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(
+				this.dataSource.manager,
+				String(adminId),
+				orphanIds,
+			);
+			const current = Array.isArray((b as any).images) ? (b as any).images : [];
+			const toAppend = rows.map((r) => ({ url: r.url }));
+			(b as any).images = [...current, ...toAppend];
+			await this.orphanFilesService.deleteOrphansByIds(this.dataSource.manager, String(adminId), rows.map((r) => r.id));
+		}
+		delete (dto as any).imagesOrphanIds;
 
 		const finalItems = dto.items !== undefined ? dto.items : b.items;
 		// ensure items are unique
@@ -373,28 +596,17 @@ export class BundlesService {
 			} else {
 				const store = await this.storesService.getStoreById(me, dto.storeId);
 				if (!store) throw new BadRequestException(this.translations.t('common.store_not_found'));
-
-				// const provider = this.storesService.getProvider(store.provider);
-				// if (!provider.supportBundle) {
-				// 	throw new BadRequestException(`Store "${store.name}" does not support bundles.`);
-				// }
-
-				// // Check items count for the store
-				// const itemsToValidate = dto.items !== undefined ? dto.items : b.items;
-				// if (provider.maxBundleItems !== undefined && itemsToValidate.length > provider.maxBundleItems) {
-				// 	throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
-				// }
 				b.storeId = dto.storeId;
 			}
-		} 
-		// else if (dto.items !== undefined && b.storeId) {
-		// 	// storeId didn't change but items did, re-validate max items
-		// 	const store = await this.storesService.getStoreById(me, b.storeId);
-		// 	const provider = this.storesService.getProvider(store.provider);
-		// 	if (provider.maxBundleItems !== undefined && dto.items.length > provider.maxBundleItems) {
-		// 		throw new BadRequestException(`Bundle exceeds maximum allowed items (${provider.maxBundleItems}) for store "${store.name}".`);
-		// 	}
-		// }
+		}
+
+		// Validate Category if categoryId is provided/changed
+		if (dto.categoryId !== undefined && dto.categoryId !== 'none') {
+			const category = await this.assertOwnedOrNull(this.catRepo, adminId, dto.categoryId ?? null, "category");
+			b.categoryId = dto.categoryId ?? null;
+		} else if (dto.categoryId === 'none') {
+			b.categoryId = null;
+		}
 
 		if (dto.items !== undefined) {
 			const items = Array.isArray(dto.items) ? dto.items : [];

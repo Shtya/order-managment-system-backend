@@ -43,6 +43,7 @@
     "created_at": "Created At",
     "supplier": "Supplier",
     "subtotal": "Subtotal",
+    "slug_already_in_use": "This slug \"{slug}\" is already in use by another product.",
     "errors": {
         "db_foreign_key": "Cannot delete or update because related records exist.",
         "db_unique_violation": "Duplicate value violates unique constraint.",
