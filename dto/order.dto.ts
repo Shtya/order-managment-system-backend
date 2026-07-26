@@ -175,6 +175,7 @@ export class CreateOrderDto {
   @IsOptional()
   @IsString({message: i18nValidationMessage('validation.is_string')})
   shippingCompanyId: string;
+  
   @IsOptional()
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   allowOpenPackage?: boolean;

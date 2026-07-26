@@ -515,19 +515,17 @@ export class ProductsService {
     // =====================================
     // 🟣 PRODUCT_IDLE LOGIC
     // =====================================
-    if (type === "PRODUCT_IDLE" && idleDate) {
-      qb.andWhere(
-        `
-      NOT EXISTS (
+   if (type === "PRODUCT_IDLE" && idleDate) {
+      qb.andWhere(`
+      product."created_at" <= :idleDate
+      AND NOT EXISTS (
         SELECT 1
         FROM order_items oi
         INNER JOIN product_variants pv ON pv.id = oi."variantId"
         WHERE pv."productId" = product.id
         AND oi."created_at" > :idleDate
       )
-      `,
-        { idleDate }
-      );
+    `, { idleDate });
     }
 
     qb.orderBy(
