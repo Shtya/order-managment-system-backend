@@ -174,11 +174,11 @@ export class ShippingController {
 	}
 
 
-	@Permissions("shipping-companies.update")
-	@Patch('shipments/:id/status')
-	updateShipmentStatus(@Req() req: any, @Param('id') id: string, @Body() dto: ManualUpdateShipmentStatusDto) {
-		return this.shipping.updateShipmentStatusManually(req.user, id, dto);
-	}
+	// @Permissions("shipping-companies.update")
+	// @Patch('shipments/:id/status')
+	// updateShipmentStatus(@Req() req: any, @Param('id') id: string, @Body() dto: ManualUpdateShipmentStatusDto) {
+	// 	return this.shipping.updateShipmentStatusManually(req.user, id, dto);
+	// }
 
 	@Permissions("shipping-companies.read")
 	@Get('shipments/:trackingNumber/track')
