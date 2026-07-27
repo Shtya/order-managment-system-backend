@@ -4,7 +4,7 @@ import { ProductSyncJobs, QueueNames } from "../common/queue.constants";
 import { Job, JobsOptions, MetricsTime, Queue } from "bullmq";
 import { CategoryEntity } from "entities/categories.entity";
 import { StoreEntity, StoreProvider } from "entities/stores.entity";
-import { oldBundleDataDto } from "src/stores/storesIntegrations/BaseStoreProvider";
+import { FullStoreSyncType, oldBundleDataDto } from "src/stores/storesIntegrations/BaseStoreProvider";
 import { StoresService } from "src/stores/stores.service";
 import { QueueDelayConfig, QueueDelayService } from "../common/queue-delay.service";
 
@@ -114,11 +114,12 @@ export class ProductSyncQueueService {
         this.bundleSyncTimeouts.set(jobId, timeout);
     }
 
-    async enqueueFullStoreSync(store: StoreEntity, productIds?: string[]) {
+    async enqueueFullStoreSync(store: StoreEntity, ids?: string[], type: FullStoreSyncType = FullStoreSyncType.PRODUCT) {
         const jobId = `fullSync:${store.provider}:${store.id}`;
         await this.addJob(store.adminId, ProductSyncJobs.FULL_SYNC, store.provider, {
             storeId: store.id,
-            productIds,
+            ids,
+            fullStoreSyncType: type,
         }, { jobId, priority: 4 });
     }
 

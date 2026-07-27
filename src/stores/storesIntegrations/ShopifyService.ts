@@ -3,7 +3,7 @@
  */
 
 import { forwardRef, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider, MappedProductDto, ShopifyAction } from "./BaseStoreProvider";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, MappedProductDto, ShopifyAction, FullStoreSyncType } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
@@ -65,7 +65,7 @@ const ShopifyTopicToGraphQL: Record<ShopifyTopic, string> = {
     [ShopifyTopic.ORDERS_PAID]: "ORDERS_PAID",
     [ShopifyTopic.ORDERS_DELETE]: "ORDERS_DELETE",
     [ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED]: "ORDERS_RISK_ASSESSMENT_CHANGED",
-    
+
     // [ShopifyTopic.ORDERS_FULFILLED]: "ORDERS_FULFILLED",
     // [ShopifyTopic.REFUNDS_CREATE]: "REFUNDS_CREATE",
 
@@ -91,7 +91,7 @@ const ShopifyTopicToGraphQL: Record<ShopifyTopic, string> = {
 
 
 @Injectable()
-export class ShopifyService extends BaseStoreProvider implements IBundleSyncProvider {
+export class ShopifyService extends BaseStoreProvider {
 
     maxBundleItems?: number = 30;
     supportBundle: boolean = true;
@@ -120,7 +120,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
         @Inject(forwardRef(() => ProductSyncQueueService))
         protected readonly productSyncQueueService: ProductSyncQueueService,
     ) {
-        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.SHOPIFY)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, ordersService, notificationService, 400, StoreProvider.SHOPIFY)
 
     }
 
@@ -215,21 +215,21 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         try {
 
-        const oldIsIntegrated = store.isIntegrated;
-        if (!oldIsIntegrated) {
-            await this.subscribeAllWebhooks(store);
-        }
+            const oldIsIntegrated = store.isIntegrated;
+            if (!oldIsIntegrated) {
+                await this.subscribeAllWebhooks(store);
+            }
 
-        store.isActive = true;
-        store.isIntegrated = true;
-        store.externalStoreId = rawShop;
+            store.isActive = true;
+            store.isIntegrated = true;
+            store.externalStoreId = rawShop;
 
-        await this.storesRepo.save(store);
-        const redirectUrl = `${frontendBaseUrl}/store-integration`;
-        if (!oldIsIntegrated && store.syncRemoteProducts) {
-            this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
-        }
-        return { url: redirectUrl };
+            await this.storesRepo.save(store);
+            const redirectUrl = `${frontendBaseUrl}/store-integration`;
+            if (!oldIsIntegrated && store.syncRemoteProducts) {
+                this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
+            }
+            return { url: redirectUrl };
         } catch (error) {
             this.logger.error(`[Shopify] Error in Init: ${error.message}`, store);
             const errorMessage = this.getErrorMessage(error);
@@ -766,13 +766,13 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         return response?.webhookSubscriptionDelete?.deletedWebhookSubscriptionId;
     }
-//
+    //
     public async subscribeAllWebhooks(store: StoreEntity) {
         const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
         const topics: { topic: ShopifyTopic, url?: string }[] = [
-            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, 
-            { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE }, 
-            { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID },  { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
+            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl },
+            { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE },
+            { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
             // { topic: ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED },
             // { topic: ShopifyTopic.FULFILLMENT_ORDERS_RESCHEDULED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_PROGRESS_REPORTED }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_SPLIT }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_MERGED },
             // { topic: ShopifyTopic.FULFILLMENTS_CREATE }, { topic: ShopifyTopic.FULFILLMENTS_UPDATE }, { topic: ShopifyTopic.ORDERS_FULFILLED },  { topic: ShopifyTopic.FULFILLMENT_ORDERS_ORDER_ROUTING_COMPLETE },
@@ -798,9 +798,9 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     public async unsubscribeAllWebhooks(store: StoreEntity) {
         const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
         const topics: { topic: ShopifyTopic, url?: string }[] = [
-            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl }, 
-            { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE }, 
-            { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID },  { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
+            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl },
+            { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE },
+            { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
         ];
 
         const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
@@ -913,7 +913,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
                 return null;
         }
 
-        if(mappedStatus === OrderStatus.CANCELLED && [OrderStatus.CANCELLED,OrderStatus.REJECTED,OrderStatus.FAILED_DELIVERY,OrderStatus.OUT_OF_DELIVERY_AREA].includes(localOrderStatus)) {
+        if (mappedStatus === OrderStatus.CANCELLED && [OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.FAILED_DELIVERY, OrderStatus.OUT_OF_DELIVERY_AREA].includes(localOrderStatus)) {
             mappedStatus = null;
         }
         return {
@@ -2047,6 +2047,253 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             errors: totalErrors
         };
     }
+
+    private async syncBundleCursor(
+        store: StoreEntity,
+        categoryMap: Map<string, string>,
+        bundleIds?: string[]
+    ): Promise<{ processed: number; created: number; updated: number; errors: number }> {
+        let lastId = "";
+        let hasMore = true;
+        let totalProcessed = 0;
+        let totalCreated = 0;
+        let totalUpdated = 0;
+        let totalErrors = 0;
+
+        while (hasMore) {
+            const qb = this.storesRepo.manager
+                .createQueryBuilder(BundleEntity, "bundle")
+                .leftJoinAndSelect("bundle.items", "items")
+                .leftJoinAndSelect("items.variant", "variant")
+                .leftJoinAndSelect("variant.product", "product")
+                .leftJoinAndSelect("bundle.category", "category")
+                .leftJoinAndMapOne(
+                    "bundle.syncState",
+                    ProductSyncStateEntity,
+                    "syncState",
+                    "syncState.bundleId = bundle.id " +
+                    "AND syncState.storeId = :storeId " +
+                    "AND syncState.adminId = :adminId " +
+                    "AND syncState.externalStoreId = :externalStoreId",
+                    {
+                        storeId: store.id,
+                        adminId: store.adminId,
+                        externalStoreId: store.externalStoreId,
+                    },
+                )
+            if (!bundleIds || bundleIds.length === 0) {
+                qb.where("bundle.storeId = :storeId", { storeId: store.id })
+            }
+            qb.andWhere("bundle.adminId = :adminId", { adminId: store.adminId })
+                .andWhere("bundle.isActive = :isActive", { isActive: true })
+                .orderBy("bundle.id", "ASC")
+                .take(20);
+
+            if (bundleIds && bundleIds.length > 0) {
+                qb.andWhere("bundle.id IN (:...bundleIds)", { bundleIds });
+            }
+
+            if (lastId) {
+                qb.andWhere("bundle.id > :lastId", { lastId });
+            }
+
+            const localBatch = (await qb.getMany()) as any[];
+
+            if (localBatch.length === 0) {
+                hasMore = false;
+                break;
+            }
+
+            const remoteIds = localBatch
+                .map((b) => b.syncState?.remoteProductId as string | undefined)
+                .filter((id): id is string => !!id);
+
+            const remoteItems =
+                remoteIds.length > 0 ? await this.getProductsByIds(store, remoteIds) : [];
+            const remoteMap = new Map<string, any>(
+                remoteItems.map((r: any) => [String(r.id), r]),
+            );
+
+            for (const bundle of localBatch) {
+                const bundleId = String(bundle.id);
+                const syncState = bundle.syncState;
+                let externalId: string | null = syncState?.remoteProductId || null;
+                const action = externalId
+                    ? ProductSyncAction.UPDATE
+                    : ProductSyncAction.CREATE;
+
+                try {
+                    let externalCategory: { id: string } | null = null;
+
+                    if (bundle.categoryId) {
+                        const extCatId = categoryMap.get(String(bundle.categoryId));
+                        if (extCatId) {
+                            externalCategory = { id: extCatId };
+                        }
+                    }
+
+                    if (!externalCategory && bundle.category) {
+                        const remoteCategory = await this.syncCategory({
+                            category: bundle.category,
+                            slug: bundle.category.slug,
+                            relatedAdminId: bundle.adminId,
+                        });
+                        if (remoteCategory?.id) {
+                            externalCategory = { id: remoteCategory.id };
+                            categoryMap.set(String(bundle.category.id), remoteCategory.id);
+                        }
+                    }
+
+                    const remote = externalId ? remoteMap.get(String(externalId)) : null;
+
+                    let syncedBundle: any;
+                    if (remote) {
+                        syncedBundle = await this.updateBundleWithProductSet(
+                            store,
+                            bundle,
+                            remote,
+                        );
+                    } else {
+                        syncedBundle = await this.updateBundleWithProductSet(
+                            store,
+                            bundle,
+                        );
+                    }
+
+                    externalId = syncedBundle?.id;
+                    if (externalId) {
+                        await this.publishProductToOnlineStore(store, syncedBundle.id);
+
+                        const collectionsConnection = syncedBundle.collections;
+                        const collectionNodes = collectionsConnection?.nodes || [];
+
+                        const previousCategoryCollection = collectionNodes.find(
+                            (c: any) => c.id !== externalCategory?.id,
+                        );
+                        const previousCategoryCollectionId =
+                            previousCategoryCollection?.id ?? null;
+
+                        if (
+                            previousCategoryCollectionId &&
+                            previousCategoryCollectionId !== externalCategory?.id
+                        ) {
+                            await this.removeProductFromCategoryCollection(
+                                store,
+                                previousCategoryCollectionId,
+                                syncedBundle.id,
+                            );
+                        }
+
+                        if (externalCategory?.id) {
+                            const alreadyAdded = collectionNodes.find(
+                                (c: any) => c.id === externalCategory.id,
+                            );
+                            if (!alreadyAdded) {
+                                await this.setProductCategoryCollection(
+                                    store,
+                                    externalCategory.id,
+                                    syncedBundle.id,
+                                );
+                            }
+                        }
+                    }
+
+                    await this.sendSyncSuccessNotification({
+                        adminId: bundle.adminId,
+                        entityId: bundle.id,
+                        entityName: bundle.name,
+                        storeName: store.name,
+                        isProduct: false,
+                        action: remote ? "UPDATE" : "CREATE"
+                    });
+
+                    await this.productSyncStateService.upsertSyncState(
+                        {
+                            adminId: store.adminId,
+                            bundleId: bundleId,
+                            storeId: store.id,
+                            externalStoreId: store.externalStoreId,
+                            entityType: SyncEntityType.BUNDLE,
+                        },
+                        {
+                            remoteProductId: externalId ?? externalId ?? null,
+                            status: ProductSyncStatus.SYNCED,
+                            lastError: null,
+                            lastSynced_at: new Date(),
+                        },
+                    );
+
+                    if (action === ProductSyncAction.UPDATE) {
+                        totalUpdated++;
+                    } else {
+                        totalCreated++;
+                    }
+
+                    totalProcessed++;
+                } catch (error: any) {
+                    const errorMessage = this.getErrorMessage(error);
+                    const remoteId = externalId;
+
+                    await this.productSyncStateService.upsertSyncState(
+                        {
+                            adminId: store.adminId,
+                            bundleId: bundleId,
+                            storeId: store.id,
+                            externalStoreId: store.externalStoreId,
+                            entityType: SyncEntityType.BUNDLE,
+                        },
+                        {
+                            remoteProductId: externalId || null,
+                            status: ProductSyncStatus.FAILED,
+                            lastError: errorMessage,
+                            lastSynced_at: new Date(),
+                        },
+                    );
+
+                    await this.productSyncStateService.upsertSyncErrorLog(
+                        {
+                            adminId: store.adminId,
+                            bundleId: bundleId,
+                            storeId: store.id,
+                            entityType: SyncEntityType.BUNDLE,
+                        },
+                        {
+                            remoteProductId: externalId || null,
+                            action,
+                            errorMessage,
+                            userMessage: `Failed to sync bundle "${bundle.name}" to ${store.name}: ${errorMessage}`,
+                            responseStatus: error?.response?.status,
+                            requestPayload: error?.config?.data
+                                ? JSON.parse(error.config.data)
+                                : null,
+                        },
+                    );
+
+                    this.logCtxError(
+                        `[Sync] Error processing bundle ${bundle.name} (ID: ${bundle.id}): ${errorMessage}`,
+                        store,
+                    );
+
+                    totalErrors++;
+                }
+            }
+
+            lastId = localBatch[localBatch.length - 1].id;
+        }
+
+        this.logCtx(
+            `[Sync] ✓ Bundle sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`,
+            store,
+        );
+
+        return {
+            processed: totalProcessed,
+            created: totalCreated,
+            updated: totalUpdated,
+            errors: totalErrors
+        };
+    }
+
     // ===========================================================================
     // MAIN ENTRY POINTS FOR SYNC
     // ===========================================================================
@@ -2338,280 +2585,20 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
 
 
-    public async syncBundle(bundle: BundleEntity) {
-        // 1. Validate Store
-        const activeStore = await this.getStoreForSync(bundle.adminId);
-        if (!activeStore) {
-            throw new Error("Store not found or inactive")
-        }
 
-        // 1. Sync products (main product variant and items product variants)
-        // Sync main product variant
-        const syncedProductsMap = new Map<string, any>();
-
-        // if (bundle.variant && bundle.variant.product) {
-        //     const newProduct = await this.syncProduct({
-        //         productId: bundle.variant.productId,
-        //     });
-        //     syncedProductsMap.set(String(bundle.variant.productId), newProduct);
-        // }
-
-
-        const activeItems = bundle.items;
-
-        // Sync item product variants
-        for (const item of activeItems) {
-            if (item.variant && item.variant.product) {
-                const newProduct = await this.syncProduct({
-                    productId: item.variant.productId,
-                });
-                syncedProductsMap.set(String(item.variant.productId), newProduct);
-            }
-        }
-        try {
-
-            //refetch bundle data
-            bundle = await this.bundleRepo.createQueryBuilder('bundle')
-
-                // .leftJoinAndSelect('bundle.variant', 'variant')
-                // .leftJoinAndSelect('variant.product', 'product')
-
-                .leftJoinAndSelect(
-                    'bundle.items',
-                    'items',
-                    'items.isActive = :itemActive',
-                    { itemActive: true }
-                )
-                .innerJoinAndSelect(
-                    'items.variant',
-                    'itemVariant',
-                    'itemVariant.isActive = :active',
-                    { active: true }
-                )
-                .leftJoinAndSelect('itemVariant.product', 'itemProduct')
-
-                .where('bundle.id = :bundleId', { bundleId: bundle.id })
-                .getOne();
-
-            // const mainRemoteProduct = syncedProductsMap.get(bundle.variant?.productId);
-
-            // const remoteBundleVariant = mainRemoteProduct?.variants?.nodes?.find(
-            //     rv => String(rv?.id) === String(bundle?.variant?.externalId)
-            // );
-
-            // const bundleVariantNode = await this.getBundleVariantWithComponents(
-            //     activeStore,
-            //     remoteBundleVariant.id,
-            // );
-
-            // if (!bundleVariantNode) {
-            //     throw new Error(`Could not load productVariant ${remoteBundleVariant.id} with components for bundle ${bundle.id}`);
-            // }
-
-            // const remoteComponents = bundleVariantNode.productVariantComponents?.nodes ?? [];
-            const remoteComponents = [];
-
-            // 3. Determine components to create, update, or remove
-            const localItems = activeItems;
-            const productVariantRelationshipsToCreate: Array<{
-                id: string;
-                quantity: number;
-            }> = [];
-            const productVariantRelationshipsToUpdate: Array<{
-                id: string;
-                quantity: number;
-            }> = [];
-            const productVariantRelationshipsToRemove: string[] = [];
-
-            // Map existing remote components by SKU
-            const remoteComponentsMap = new Map<string, any>();
-            for (const comp of remoteComponents) {
-                remoteComponentsMap.set(comp.productVariant.sku, comp);
-            }
-
-            // Compare local items vs existing remote components
-            for (const localItem of localItems) {
-                const sku = localItem.variant.sku;
-                const remoteComp = remoteComponentsMap.get(sku);
-
-                if (remoteComp) {
-                    // Component exists remotely, check if quantity changed
-                    if (remoteComp.quantity !== localItem.qty) {
-                        productVariantRelationshipsToUpdate.push({
-                            id: remoteComp.productVariant.id,
-                            quantity: localItem.qty,
-                        });
-                    }
-                    // Remove from map so we know what's left to delete later
-                    remoteComponentsMap.delete(sku);
-                } else {
-                    const localProductId = localItem.variant.productId;
-                    if (!localProductId) {
-                        this.logger.warn(
-                            `Skipping component with SKU ${sku} because local productId is missing.`,
-                        );
-                        continue;
-                    }
-
-                    const remoteProduct = syncedProductsMap.get(localProductId);
-                    if (!remoteProduct) {
-                        throw new Error(`Can't find remote product for local product ${localItem?.variant?.product?.name || localItem?.variant?.productId}`)
-                    }
-
-                    const remoteProductGid = remoteProduct?.id;
-                    if (!remoteProductGid) {
-                        const msg = `No remote product found in sync state for component productId ${localProductId}, SKU ${sku}`;
-                        this.logger.warn(msg);
-                        throw new Error(msg);
-                    }
-
-                    const remoteVariant = remoteProduct?.variants?.nodes?.find(
-                        rv => String(rv?.id) === String(localItem?.variant?.externalId)
-                    )
-                    if (remoteVariant) {
-                        productVariantRelationshipsToCreate.push({
-                            id: remoteVariant.id,
-                            quantity: localItem.qty,
-                        });
-                    } else {
-                        const msg = `No remote variant found on Shopify for component SKU ${sku} under product ${remoteProductGid}`;
-                        this.logger.warn(msg);
-                        throw new Error(msg);
-                    }
-                }
-            }
-
-            // Remaining remote components are not in local bundle anymore => remove them
-            for (const remoteComp of remoteComponentsMap.values()) {
-                productVariantRelationshipsToRemove.push(remoteComp.productVariant.id);
-            }
-
-            // 4. Apply changes via productVariantRelationshipBulkUpdate
-            if (
-                productVariantRelationshipsToCreate.length > 0 ||
-                productVariantRelationshipsToUpdate.length > 0 ||
-                productVariantRelationshipsToRemove.length > 0
-            ) {
-                // await this.setVariantRequiresComponents(
-                //     activeStore,
-                //     remoteBundleVariant?.product?.id, // however you store this
-                //     remoteBundleVariant?.id,
-                // );
-
-
-                const updateMutation = `
-                mutation UpdateBundleComponents($input: [ProductVariantRelationshipUpdateInput!]!) {
-                productVariantRelationshipBulkUpdate(input: $input) {
-                    parentProductVariants {
-                    id
-                    productVariantComponents(first: 10) {
-                        nodes {
-                        id
-                        quantity
-                        productVariant {
-                            id
-                            displayName
-                        }
-                        }
-                    }
-                    }
-                    userErrors {
-                    code
-                    field
-                    message
-                    }
-                }
-                }
-            `;
-
-                const inputItem: any = {
-                    // parentProductVariantId: remoteBundleVariant.id,
-                };
-
-                if (productVariantRelationshipsToCreate.length > 0) {
-                    inputItem.productVariantRelationshipsToCreate =
-                        productVariantRelationshipsToCreate;
-                }
-
-                if (productVariantRelationshipsToUpdate.length > 0) {
-                    inputItem.productVariantRelationshipsToUpdate =
-                        productVariantRelationshipsToUpdate;
-                }
-
-                if (productVariantRelationshipsToRemove.length > 0) {
-                    inputItem.productVariantRelationshipsToRemove =
-                        productVariantRelationshipsToRemove;
-                }
-
-                const variables = {
-                    input: [inputItem],
-                };
-
-                const mutationResult = await this.runGraphQL(
-                    activeStore,
-                    true,
-                    updateMutation,
-                    variables,
-                );
-
-                // Normalize response shape: { productVariantRelationshipBulkUpdate } vs { data: { ... } }
-                const bulkPayload =
-                    mutationResult?.productVariantRelationshipBulkUpdate ??
-                    mutationResult?.data?.productVariantRelationshipBulkUpdate ??
-                    null;
-
-                if (!bulkPayload) {
-                    throw new Error(
-                        `productVariantRelationshipBulkUpdate returned empty payload for bundle ${bundle.id}`,
-                    );
-                }
-
-                const errors = bulkPayload.userErrors;
-                if (errors && errors.length > 0) {
-                    throw new Error(
-                        `Shopify mutation errors: ${JSON.stringify(errors)}`,
-                    );
-                }
-
-                await this.sendSyncSuccessNotification({
-                    adminId: bundle.adminId,
-                    entityId: bundle.id,
-                    entityName: bundle.name,
-                    storeName: activeStore.name,
-                    isProduct: false,
-                    action: "SYNC"
-                });
-            }
-        } catch (error: any) {
-            const message = this.getErrorMessage(error);
-            await this.productSyncStateService.upsertSyncErrorLog(
-                { adminId: activeStore.adminId, bundleId: bundle?.id, storeId: activeStore.id, entityType: SyncEntityType?.BUNDLE },
-                {
-                    remoteProductId: null,
-                    action: ProductSyncAction?.BUNDLE_SYNC,
-
-                    errorMessage: message,
-                    userMessage: `Failed to sync bundle "${bundle.name}" to ${activeStore.name}: ${message}`,
-                    responseStatus: error?.response?.status,
-                    requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
-                }
-            );
-            throw error;
-        }
-    }
 
     public async syncProduct({ productId }: { productId: string }) {
         const product = await this.productsRepo.findOne({
             where: { id: productId },
             relations: ['category']
         });
+        if (!product) {
+            throw new Error(`Product with ID ${productId} not found`);
+        }
 
         const activeStore = await this.getStoreForSync(product.adminId);
         if (!activeStore) {
             throw new Error("Store not found or inactive")
-        }
-        if (!product) {
-            throw new Error(`Product with ID ${productId} not found`);
         }
 
         // 2️⃣ جلب الـ Variants الخاصة بالمنتج
@@ -4477,17 +4464,18 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
     }
 
 
-    public async syncFullStore(store: StoreEntity, productIds?: string[]): Promise<{ categoryReport: any; productReport: any }> {
+    public async syncFullStore(store: StoreEntity, ids?: string[], type: FullStoreSyncType = FullStoreSyncType.PRODUCT): Promise<{ categoryReport: any; productReport: any; bundleReport: any }> {
         if (!store || !store.isActive) {
             throw new Error(`Store is inactive or null`);
         }
-        const hasProductIds = productIds?.length > 0;
+        const hasIds = ids?.length > 0;
         if (store.localSyncStatus === SyncStatus.SYNCING) {
             throw new Error(`Store is already syncing. Skipping.`);
         }
 
         let categoryReport = { processed: 0, created: 0, updated: 0, errors: 0 };
         let productReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+        let bundleReport = { processed: 0, created: 0, updated: 0, errors: 0 };
 
         try {
             await this.storesRepo.update(store.id, {
@@ -4496,13 +4484,20 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             });
 
             let categoryMap = new Map<string, string>();
-            if (!hasProductIds) {
+            if (!hasIds) {
                 const { categoryMap: map, report } = await this.syncCategoriesCursor(store);
                 categoryMap = map;
                 categoryReport = report;
             }
 
-            productReport = await this.syncProductsCursor(store, categoryMap, productIds);
+            if (type === "product" || type === "all") {
+                productReport = await this.syncProductsCursor(store, categoryMap, ids);
+            }
+
+            if (type === "bundle" || type === "all") {
+                bundleReport = await this.syncBundleCursor(store, categoryMap, ids);
+            }
+
 
             await this.storesRepo.update(store.id, {
                 localSyncStatus: SyncStatus.SYNCED,
@@ -4535,7 +4530,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             throw error;
         }
 
-        return { categoryReport, productReport };
+        return { categoryReport, productReport, bundleReport };
     }
 
     // ===========================================================================
@@ -5249,7 +5244,7 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
             [ShopifyTopic.ORDERS_PAID]: (body) => Promise.resolve(body?.id),
             [ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED]: (body) => Promise.resolve(body?.order_id)
 
-            
+
             // [ShopifyTopic.ORDERS_FULFILLED]: (body) => Promise.resolve(body?.id),
             // [ShopifyTopic.REFUNDS_CREATE]: (body) => Promise.resolve(body?.order_id),
 
@@ -5287,4 +5282,278 @@ export class ShopifyService extends BaseStoreProvider implements IBundleSyncProv
 
         return externalOrderId;
     }
+
+    private async buildBundleSetInput(
+        bundle: BundleEntity,
+        locationId: string,
+        store: StoreEntity,
+    ) {
+        const productOptions = [
+            {
+                name: "Title",
+                values: [{ name: "Default Title" }],
+            },
+        ];
+
+        const media: any[] = [];
+        if (bundle.mainImage) {
+            const src = this.getImageUrl(bundle.mainImage.trim());
+            if (src) {
+                media.push({
+                    originalSource: src,
+                    alt: bundle.name.trim(),
+                    contentType: "IMAGE",
+                });
+            }
+        }
+        if (bundle.images?.length) {
+            for (const img of bundle.images) {
+                const src = this.getImageUrl(img.url?.trim() || "");
+                if (!src) continue;
+                media.push({
+                    originalSource: src,
+                    alt: bundle.name.trim(),
+                    contentType: "IMAGE",
+                });
+            }
+        }
+
+        const bundleInventory = await this.calculateBundleInventory(
+            bundle
+        );
+
+        const variantsInput = [
+            {
+                price: (Number(bundle.price) || 0).toString(),
+                inventoryPolicy: "DENY",
+                optionValues: [{ optionName: "Title", name: "Default Title" }],
+                inventoryItem: {
+                    tracked: true,
+                    sku: bundle.sku,
+                    cost: Number(bundleInventory.expense) || 0,
+                },
+                inventoryQuantities: bundleInventory.quantity
+                    ? [
+                        {
+                            quantity: bundleInventory.quantity,
+                            locationId,
+                            name: "available",
+                        },
+                    ]
+                    : undefined,
+            },
+        ];
+
+        const input: any = {
+            title: bundle.name.trim(),
+            handle: (bundle.slug || bundle.id).trim(),
+            descriptionHtml: (bundle.description || "").trim(),
+            vendor: "Generic",
+            productType: bundle.category?.name || "General",
+            status: "ACTIVE",
+            productOptions,
+            files: media,
+            variants: variantsInput,
+            metafields: [],
+        };
+
+        return input;
+    }
+
+    private async updateBundleWithProductSet(
+        store: StoreEntity,
+        bundle: BundleEntity,
+        remoteProduct?: any,
+    ): Promise<any> {
+        const mode = remoteProduct?.id ? "update" : "create";
+        const identifier =
+            remoteProduct?.id
+                ? { id: remoteProduct?.id }
+                : undefined;
+        const mutation = `
+    mutation SetProduct(
+      $identifier: ProductSetIdentifiers,
+      $input: ProductSetInput!,
+      $synchronous: Boolean!
+    ) {
+      productSet(identifier: $identifier, input: $input, synchronous: $synchronous) {
+        product {
+          id
+          handle
+          title
+          options {
+            name
+            values
+          }
+          variants(first: 50) {
+            nodes {
+              id
+              title
+              price
+              selectedOptions {
+                name
+                value
+              }
+                 product {
+                    id
+                }
+            }
+          }
+             collections(first: 50) {
+                nodes {
+                id
+                title
+                }
+            }
+        }
+        productSetOperation {
+          id
+          status
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
+        const locationId = await this.getFirstLocationId(store);
+
+        const input = await this.buildBundleSetInput(
+            bundle,
+            locationId,
+            store,
+        );
+        let variables: any = {
+            input,
+            synchronous: true,
+        };
+        if (identifier) {
+            variables.identifier = identifier;
+        }
+
+        const response = await this.runGraphQL(store, true, mutation, variables);
+        const payload = response?.productSet;
+
+        const userErrors = payload?.userErrors;
+        if (userErrors && userErrors.length > 0) {
+            throw new Error(`Shopify bundle productSet Error: ${userErrors[0].message}`);
+        }
+
+        const updatedProduct = payload?.product;
+        return updatedProduct;
+    }
+
+    public async syncBundle(bundle: BundleEntity): Promise<any> {
+        const loadedBundle = await this.bundleRepo.findOne({
+            where: { id: bundle.id },
+            relations: ['category', 'store', 'items', 'items.variant', 'items.variant.product']
+        });
+
+        if (!loadedBundle) {
+            throw new Error(`Bundle with ID ${bundle.id} not found`);
+        }
+
+        const activeStore = await this.getStoreForSync(loadedBundle.adminId);
+        if (!activeStore) {
+            throw new Error("Store not found or inactive")
+        }
+
+        const productSyncState = await this.productSyncStateRepo.findOne({
+            where: {
+                bundleId: loadedBundle.id,
+                storeId: activeStore.id,
+                adminId: loadedBundle.adminId,
+                externalStoreId: activeStore?.externalStoreId
+            }
+        });
+        let externalId = productSyncState?.remoteProductId;
+        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
+
+        try {
+            let externalCategory = null;
+            if (loadedBundle.category) {
+                externalCategory = await this.syncCategory({ category: loadedBundle.category, slug: loadedBundle.category.slug, relatedAdminId: loadedBundle.adminId });
+            }
+
+            let syncedProduct;
+            if (externalId) {
+                const remoteProduct = await this.getProduct(activeStore, externalId);
+                if (remoteProduct) {
+                    syncedProduct = await this.updateBundleWithProductSet(activeStore, loadedBundle, remoteProduct);
+                } else {
+                    syncedProduct = await this.updateBundleWithProductSet(activeStore, loadedBundle);
+                }
+            } else {
+                syncedProduct = await this.updateBundleWithProductSet(activeStore, loadedBundle);
+            }
+
+            externalId = syncedProduct?.id;
+
+            if (externalId) {
+                const isPublished = await this.publishProductToOnlineStore(activeStore, syncedProduct.id);
+
+                const collections = syncedProduct.collections;
+                const collectionNodes = collections?.nodes || [];
+
+                const previousCategoryCollection = collectionNodes.find(
+                    (c) => c.id !== externalCategory?.id,
+                );
+                const previousCategoryCollectionId = previousCategoryCollection?.id ?? null;
+                if (previousCategoryCollectionId && previousCategoryCollectionId != externalCategory?.id)
+                    await this.removeProductFromCategoryCollection(activeStore, previousCategoryCollectionId, syncedProduct.id)
+
+
+                const alreadyAdded = collectionNodes.find(
+                    (c) => c.id === externalCategory?.id,
+                );
+                if (!alreadyAdded)
+                    await this.setProductCategoryCollection(
+                        activeStore,
+                        externalCategory?.id,
+                        externalId,
+                    );
+            }
+
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId,
+                    status: ProductSyncStatus.SYNCED,
+                    lastError: null,
+                    lastSynced_at: new Date(),
+                },
+            );
+            return syncedProduct;
+        } catch (error: any) {
+            const errorMessage = this.getErrorMessage(error);
+
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId || null,
+                    status: ProductSyncStatus.FAILED,
+                    lastError: errorMessage,
+                    lastSynced_at: new Date(),
+                },
+            );
+
+            await this.productSyncStateService.upsertSyncErrorLog(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId || null,
+                    action: action,
+                    errorMessage,
+                    userMessage: `Failed to sync bundle "${loadedBundle.name}" to ${activeStore.name}: ${errorMessage}`,
+                    responseStatus: error?.response?.status,
+                    requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+                }
+            );
+
+
+            throw error;
+        }
+    }
+
 }

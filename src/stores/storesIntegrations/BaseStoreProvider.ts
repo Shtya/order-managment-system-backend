@@ -13,11 +13,12 @@ import { BundleEntity } from "entities/bundle.entity";
 import { ProductEntity, ProductType } from "entities/sku.entity";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
+import { OrdersService } from "src/orders/services/orders.service";
 
-export interface IBundleSyncProvider {
-    syncBundle(bundle: BundleEntity): Promise<void>;
-    deleteBundle(mainVaraintId: string, storeId: string, adminId: string): Promise<void>;
-}
+// export interface IBundleSyncProvider {
+//     syncBundle(bundle: BundleEntity): Promise<void>;
+//     // deleteBundle(mainVaraintId: string, storeId: string, adminId: string): Promise<void>;
+// }
 
 export interface ISkuFetch {
     getProductBySku(store: StoreEntity, sku: string, retry?: boolean): Promise<{ id }>
@@ -137,10 +138,14 @@ export interface UnifiedProductDto {
 }
 
 export interface oldBundleDataDto {
-    oldMainVaraintId: string,
     oldStoreId: string,
-    oldStoreType: StoreProvider,
     adminId: string
+}
+
+export enum FullStoreSyncType {
+  PRODUCT = "product",
+  BUNDLE = "bundle",
+  ALL = "all",
 }
 
 @Injectable()
@@ -166,6 +171,8 @@ export abstract class BaseStoreProvider implements OnModuleInit {
         protected readonly encryptionService: EncryptionService,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
+        @Inject(forwardRef(() => OrdersService))
+        protected readonly ordersService: OrdersService,
         protected readonly notificationService: NotificationService,
         limit,
         storeProvider
@@ -439,12 +446,49 @@ export abstract class BaseStoreProvider implements OnModuleInit {
         });
     }
 
+    protected async calculateBundleInventory(
+        bundle: BundleEntity
+    ): Promise<{ quantity: number; expense: number }> {
+        if (!bundle.items?.length) return { quantity: 0, expense: 0 };
+
+        const items = bundle.items.filter((item) => item.variant && item.isActive);
+        if (items.length === 0) return { quantity: 0, expense: 0 };
+
+        const results = await Promise.all(
+            items.map(async (item) => {
+                const available = await this.ordersService.calculateAvailableStock(
+                    item.variant.stockOnHand,
+                    item.variant.reserved,
+                    item.variant.adminId || bundle.adminId,
+                );
+                const possibleBundles = Math.floor(available / item.qty);
+                const unitExpense =
+                    Number(item.variant.unitCost) ??
+                    Number((item.variant as any).product?.wholesalePrice) ??
+                    0;
+                const itemExpense = Number(unitExpense) * Number(item.qty);
+                return { possibleBundles, itemExpense };
+            }),
+        );
+
+        const minQuantity = results.reduce(
+            (min, r) => (r.possibleBundles < min ? r.possibleBundles : min),
+            Infinity,
+        );
+        const totalExpense = results.reduce((sum, r) => sum + r.itemExpense, 0);
+
+        return {
+            quantity: minQuantity === Infinity ? 0 : Math.max(0, minQuantity),
+            expense: Math.max(0, Number(totalExpense) || 0),
+        };
+    }
+
     // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
     // usage of the `@shopify/shopify-api` client and provider-specific behavior.
     public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
     public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
-    public abstract syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string)
-    public abstract syncFullStore(store: StoreEntity, productIds?: string[])
+    public abstract syncOrderStatus(order: OrderEntity, newStatusId: string, oldStatusId?: string)
+    public abstract syncFullStore(store: StoreEntity, productIds?: string[], type?: FullStoreSyncType)
     public abstract getProductBySlug(store: StoreEntity, slug: string, retry?: boolean): Promise<{ id }>
     public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
     public abstract getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]>;
@@ -454,6 +498,7 @@ export abstract class BaseStoreProvider implements OnModuleInit {
     public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
     public abstract processExternalOrderId(body: any, headers: Record<string, any>): Promise<string | null>;
     public abstract cancelIntegration(adminId: string): Promise<boolean>
+    public abstract syncBundle(bundle: BundleEntity): Promise<void>;
     public normalizeOrderId(externalOrderId: string): string {
         return externalOrderId;
     }

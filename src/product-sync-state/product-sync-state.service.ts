@@ -428,13 +428,21 @@ export class ProductSyncStateService {
     }
 
     async upsertSyncState(
-        { adminId, productId, storeId, externalStoreId }: { adminId: string, productId: string, storeId: string, externalStoreId?: string },
+        { adminId, productId, bundleId, storeId, externalStoreId, entityType = SyncEntityType.PRODUCT }: { adminId: string, productId?: string, bundleId?: string, storeId: string, externalStoreId?: string, entityType?: SyncEntityType },
         data: Partial<ProductSyncStatusDto>,
         manager?: EntityManager
     ): Promise<ProductSyncStateEntity> {
 
-        if (!adminId || !productId || !storeId) {
-            throw new Error(this.translations.t('domains.product_sync.admin_id_product_id_store_id_required'));
+        if (!adminId || !storeId) {
+            throw new Error(this.translations.t('domains.product_sync.admin_id_and_store_id_required'));
+        }
+
+        if (entityType === SyncEntityType.PRODUCT && !productId) {
+            throw new Error(this.translations.t('domains.product_sync.product_id_required_for_product_entity'));
+        }
+
+        if (entityType === SyncEntityType.BUNDLE && !bundleId) {
+            throw new Error(this.translations.t('domains.product_sync.bundle_id_required_for_bundle_entity'));
         }
 
 
@@ -442,22 +450,30 @@ export class ProductSyncStateService {
             ? manager.getRepository(ProductSyncStateEntity)
             : this.syncStateRepo;
 
+        const whereClause: any = {
+            adminId,
+            storeId,
+            externalStoreId,
+        };
+        if (entityType === SyncEntityType.PRODUCT) {
+            whereClause.productId = productId;
+        } else if (entityType === SyncEntityType.BUNDLE) {
+            whereClause.bundleId = bundleId;
+        }
+
         let state = await repo.findOne({
-            where: {
-                adminId,
-                productId,
-                storeId,
-                externalStoreId,
-            },
+            where: whereClause,
         });
 
         if (!state) {
             state = repo.create({
                 ...data,
                 adminId,
-                productId,
+                productId: productId || null,
+                bundleId: bundleId || null,
                 storeId,
                 externalStoreId,
+                entityType,
             });
         } else {
             Object.assign(state, data);

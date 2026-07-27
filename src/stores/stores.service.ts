@@ -12,7 +12,7 @@ import { RedisService } from "common/redis/RedisService";
 
 import { OrderSyncQueueService } from "src/queue/queues/order-sync.queue";
 
-import { BaseStoreProvider, IBundleSyncProvider, ISkuFetch, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
+import { BaseStoreProvider, FullStoreSyncType, ISkuFetch, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import WooCommerceService from "./storesIntegrations/WooCommerce";
@@ -32,7 +32,7 @@ import * as ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
-import { generateRandomAlphanumeric, generateSlug, getErrorMessage, normalizeSku } from "common/healpers";
+import { allocateBundlePrices, expandBundleToOrderLineItems, generateRandomAlphanumeric, generateSlug, getErrorMessage, normalizeSku } from "common/healpers";
 import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntityType } from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
 import { ProductSyncJobs, OrderSyncJobs } from "src/queue/common/queue.constants";
@@ -638,9 +638,7 @@ export class StoresService {
     );
   }
 
-  async syncBundleToStore(bundle: BundleEntity,
-    oldBundleData: oldBundleDataDto
-  ) {
+  async syncBundleToStore(bundle: BundleEntity, oldBundleData: oldBundleDataDto, auto?: boolean) {
     const { storeId, adminId, name, id } = bundle;
     if (!storeId) return;
 
@@ -651,6 +649,11 @@ export class StoresService {
 
     if (!store) {
       this.logger.warn(`[Bundle Sync] No active store found (ID: ${storeId}) for Bundle: "${name}". Skipping.`);
+      return;
+    }
+
+    if (!store.syncNewProducts && auto) {
+      this.logger.warn(`[Bundle Sync] Store ${storeId} is not set to sync new products. Skipping.`);
       return;
     }
 
@@ -786,15 +789,15 @@ export class StoresService {
     };
   }
 
-  async manualSyncSpecificProducts(me: any, id: string, productIds: string[]) {
+  async manualSyncSpecificProducts(me: any, id: string, ids: string[], type?: FullStoreSyncType) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
-    if (!productIds || productIds.length === 0) {
+    if (!ids || ids.length === 0) {
       throw new BadRequestException(this.translations.t('domains.stores.no_products_provided'));
     }
 
-    if (productIds.length > 50) {
+    if (ids.length > 50) {
       throw new BadRequestException(this.translations.t('domains.stores.max_products_exceeded'));
     }
 
@@ -821,15 +824,22 @@ export class StoresService {
       throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_already_syncing'));
     }
 
-    await this.productSyncQueueService.enqueueFullStoreSync(store, productIds);
+    await this.productSyncQueueService.enqueueFullStoreSync(store, ids, type);
+
+    const isBundle = type === FullStoreSyncType.BUNDLE;
+    const entityLabel = isBundle ? 'bundles' : 'products';
 
     this.logger.log(
-      `[Manual Partial Sync] Dispatched sync for ${productIds.length} products in Store: "${store.name}" (ID: ${id}) ` +
+      `[Manual Partial Sync] Dispatched sync for ${ids.length} ${entityLabel} in Store: "${store.name}" (ID: ${id}) ` +
       `initiated by Admin: ${adminId}.`
     );
 
+    const localizationKey = isBundle
+      ? 'domains.stores.partial_sync_bundle_job_queued'
+      : 'domains.stores.partial_sync_job_queued';
+
     return {
-      message: this.translations.t('domains.stores.partial_sync_job_queued', { args: { count: productIds.length, storeName: store.name } }),
+      message: this.translations.t(localizationKey, { args: { count: ids.length, storeName: store.name } }),
       storeId: id
     };
   }
@@ -968,6 +978,48 @@ export class StoresService {
     };
   }
 
+  private expandBundleCartItemToLines(
+    bundle: BundleEntity & {
+      items?: {
+        id?: string;
+        variantId: string;
+        qty: number;
+        variant?: ProductVariantEntity & { product?: { wholesalePrice?: number } } | null;
+      }[];
+    },
+    item: WebhookOrderPayload['cartItems'][number],
+  ): { variantId: string; quantity: number; unitPrice: number; unitCost: number, bundleId: string }[] {
+    const bundleName = bundle?.name || item.name;
+
+    if (!bundle?.items || bundle.items.length === 0) {
+      throw new BadRequestException(
+        this.translations.t('domains.stores.bundle_no_items', { args: { itemName: bundleName } }) ||
+        `Bundle "${bundleName}" has no items configured.`,
+      );
+    }
+
+    for (const bi of bundle.items) {
+      if (!bi?.variant) {
+        throw new BadRequestException(
+          this.translations.t('domains.stores.bundle_item_variant_not_found', {
+            args: { itemName: bundleName, variantId: bi.variantId },
+          }) || `Bundle "${bundleName}" item has missing variant data.`,
+        );
+      }
+      if (!bi.variant.isActive) {
+        throw new BadRequestException(
+          this.translations.t('domains.stores.bundle_item_variant_not_active', {
+            args: { itemName: bundleName, variantId: bi.variantId },
+          }) || `Bundle "${bundleName}" contains inactive variant.`,
+        );
+      }
+    }
+
+    const bundleQty = Math.max(1, Number(item.quantity) || 1);
+
+    return expandBundleToOrderLineItems(bundle, bundleQty);
+  }
+
   private async processMappedWebhookOrder(
     adminId: string,
     store: StoreEntity,
@@ -999,8 +1051,12 @@ export class StoresService {
         const syncStates = await manager
           .getRepository(ProductSyncStateEntity)
           .createQueryBuilder('state')
-          .innerJoinAndSelect('state.product', 'product', 'product.isActive = true')
+          .leftJoinAndSelect('state.product', 'product', 'product.isActive = true')
           .leftJoinAndSelect('product.variants', 'variants')
+          .leftJoinAndSelect('state.bundle', 'bundle', 'bundle.isActive = true')
+          .leftJoinAndSelect('bundle.items', 'bundleItems')
+          .leftJoinAndSelect('bundleItems.variant', 'bundleVariant')
+          .leftJoinAndSelect('bundleVariant.product', 'bundleVariantProduct')
           .where('state.adminId = :adminId', { adminId })
           .andWhere('state.storeId = :storeId', { storeId: store.id })
           .andWhere('state.externalStoreId = :externalStoreId', {
@@ -1010,7 +1066,13 @@ export class StoresService {
           .getMany();
 
         const productMap = new Map(
-          syncStates?.filter(s => s.remoteProductId).map(s => [s?.remoteProductId, s?.product])
+          syncStates?.filter(s => s.remoteProductId && s.entityType === SyncEntityType.PRODUCT && s.product)
+            .map(s => [s.remoteProductId, s.product])
+        );
+
+        const bundleMap = new Map(
+          syncStates?.filter(s => s.remoteProductId && s.entityType === SyncEntityType.BUNDLE && s.bundle)
+            .map(s => [s.remoteProductId, s.bundle])
         );
 
         const settings = await this.clientSettingsService.getCachedSettings(
@@ -1020,14 +1082,41 @@ export class StoresService {
 
         const items = [];
         for (const item of payload.cartItems) {
-          const line = await this.resolveWebhookCartLineItem(
-            manager,
-            adminId,
-            item,
-            productMap,
-            skuFallbackEnabled,
-          );
-          items.push(line);
+          const sku = item.variant?.sku?.trim();
+          let matchedBundle = bundleMap.get(item.remoteProductId);
+
+          // ── Rule 2: bundle SKU fallback (search bundles by sku first, before product flow) ──
+          if (!matchedBundle && sku && skuFallbackEnabled) {
+            const bundleBySku = await manager
+              .getRepository(BundleEntity)
+              .createQueryBuilder('b')
+              .leftJoinAndSelect('b.items', 'bi')
+              .leftJoinAndSelect('bi.variant', 'v')
+              .leftJoinAndSelect('v.product', 'vp')
+              .where('b.sku = :sku', { sku })
+              .andWhere('b.adminId = :adminId', { adminId })
+              .andWhere('b.isActive = true')
+              .getOne();
+            if (bundleBySku) matchedBundle = bundleBySku;
+          }
+
+          // ── Only run bundle flow on ACTIVE bundle; Rule 1: inactive / missing bundle → fall through to product flow ──
+          if (matchedBundle && matchedBundle.isActive) {
+            const bundleLines = this.expandBundleCartItemToLines(
+              matchedBundle,
+              item,
+            );
+            items.push(...bundleLines);
+          } else {
+            const line = await this.resolveWebhookCartLineItem(
+              manager,
+              adminId,
+              item,
+              productMap,
+              skuFallbackEnabled,
+            );
+            items.push(line);
+          }
         }
 
         //  Create Order
@@ -1352,26 +1441,166 @@ export class StoresService {
     const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
 
 
+    const finalCardItems: any[] = [];
+
     if (payload && payload.cartItems) {
       const remoteIds = payload.cartItems.map(item => String(item.remoteProductId));
+      const safeRemoteIds = remoteIds.length > 0 ? remoteIds : [null];
       //
       const syncStates = await this.productSyncStateRepo
         .createQueryBuilder('state')
-        .innerJoinAndSelect('state.product', 'product', 'product.isActive = true')
+        .leftJoinAndSelect('state.product', 'product', 'product.isActive = true')
         .leftJoinAndSelect('product.variants', 'variants')
+        .leftJoinAndSelect('state.bundle', 'bundle', 'bundle.isActive = true')
+        .leftJoinAndSelect('bundle.items', 'bundleItems')
+        .leftJoinAndSelect('bundleItems.variant', 'bundleVariant')
+        .leftJoinAndSelect('bundleVariant.product', 'bundleVariantProduct')
         .where('state.adminId = :adminId', { adminId })
         .andWhere('state.storeId = :storeId', { storeId: storeId })
         .andWhere('state.externalStoreId = :externalStoreId', {
           externalStoreId: failure?.store.externalStoreId,
         })
-        .andWhere('state.remoteProductId IN (:...remoteIds)', { remoteIds })
+        .andWhere('state.remoteProductId IN (:...safeRemoteIds)', { safeRemoteIds })
         .getMany();
 
-      const productMap = new Map(syncStates.map(s => [s.remoteProductId, s.product]));
+      const productMap = new Map(
+        syncStates.filter(s => s.remoteProductId && s.entityType === SyncEntityType.PRODUCT && s.product)
+          .map(s => [s.remoteProductId, s.product])
+      );
+
+      const bundleMap = new Map(
+        syncStates.filter(s => s.remoteProductId && s.entityType === SyncEntityType.BUNDLE && s.bundle)
+          .map(s => [s.remoteProductId, s.bundle])
+      );
 
       for (const item of payload.cartItems) {
         const sku = item.variant?.sku?.trim();
+        let matchedBundle = bundleMap.get(item.remoteProductId);
 
+        // ── Rule 2: bundle SKU fallback (search bundles by sku first, before product flow) ──
+        if (!matchedBundle && sku && skuFallbackEnabled) {
+          const bundleBySku = await this.bundleRepo
+            .createQueryBuilder('b')
+            .leftJoinAndSelect('b.items', 'bi')
+            .leftJoinAndSelect('bi.variant', 'v')
+            .leftJoinAndSelect('v.product', 'vp')
+            .where('b.sku = :sku', { sku })
+            .andWhere('b.adminId = :adminId', { adminId })
+            .andWhere('b.isActive = true')
+            .getOne();
+          if (bundleBySku) matchedBundle = bundleBySku;
+        }
+
+        if (matchedBundle && matchedBundle.isActive) {
+          const bundleName = matchedBundle?.name || item.name;
+
+          // ── 2. enrich cart item with local bundle id ──────────────────
+          if (!item.variant) item.variant = {};
+          (item.variant as any).localBundleId = matchedBundle.id;
+          (item.variant as any).isBundle = true;
+          (item.variant as any).matchedBundleBySku =
+            !bundleMap.get(item.remoteProductId) && !!sku;
+
+          // ── 3. validate each bundle item variant ─────────────────────
+          const bundleQty = Math.max(1, Number(item.quantity) || 1);
+          let bundleHasFatalProblems = false;
+
+          const allocations = expandBundleToOrderLineItems(matchedBundle, bundleQty);
+          const allocationMap = new Map(allocations.map(a => [a.variantId, a]));
+
+          for (const bi of matchedBundle.items) {
+            const totalQty = (Number(bi.qty ?? 1)) * bundleQty;
+            const variant = bi?.variant;
+            const alloc = allocationMap.get(variant?.id);
+            finalCardItems.push({
+              name: `${variant?.product?.name || variant?.sku || `#${variant?.id ||  "Unknown"}`}`,
+              productSlug: variant?.product?.slug,
+              bundleId: matchedBundle.id,
+              bundleName,
+              quantity: totalQty,
+              // remoteProductId: item.remoteProductId,
+              price: alloc?.unitPrice ?? variant?.price ?? 0,
+              variant: {
+                key: variant?.key,
+                sku: variant?.sku,
+                localProductId: variant?.productId,
+              },
+            });
+
+            if (!variant) {
+              bundleHasFatalProblems = true;
+              problems.push({
+                // remoteId: item.remoteProductId,
+                key: variant?.key,  
+                bundleId: matchedBundle.id,
+                productId: bi.variantId,
+                slug: variant?.product?.slug,
+                name: variant.product.name,
+                code: WebhookOrderProblem.SKU_NOT_FOUND,
+                problem: this.translations.t('domains.stores.bundle_item_variant_not_found', {
+                  args: { itemName: bundleName, variantId: bi.variantId },
+                }),
+                details: this.translations.t('domains.stores.bundle_item_variant_not_found_details', {
+                  args: { itemName: bundleName },
+                }),
+              });
+              continue;
+            }
+
+            if (!variant.isActive) {
+              bundleHasFatalProblems = true;
+              problems.push({
+                // remoteId: item.remoteProductId,
+                key: variant?.key,
+                bundleId: matchedBundle.id,
+                productId: variant.productId,
+                slug: variant?.product?.slug,
+                name: variant.product.name,
+                sku: variant.sku,
+                code: WebhookOrderProblem.SKU_INACTIVE,
+                problem: this.translations.t('domains.stores.bundle_item_variant_not_active', {
+                  args: { itemName: bundleName, variantId: bi.variantId },
+                }),
+                details: this.translations.t('domains.stores.bundle_item_variant_not_active_details', {
+                  args: { itemName: bundleName, sku: variant.sku || String(bi.variantId) },
+                }),
+              });
+              continue;
+            }
+
+            const availableStock = await this.ordersService.calculateAvailableStock(
+              variant.stockOnHand,
+              variant.reserved,
+              variant.adminId,
+            );
+            if (availableStock < totalQty) {
+              problems.push({
+                // remoteId: item.remoteProductId,
+                productId: variant.productId,
+                key: variant.key,
+                bundleId: matchedBundle.id,
+                slug: variant?.product?.slug,
+                name: variant.product.name,
+                sku: variant.sku,
+                code: WebhookOrderProblem.INSUFFICIENT_STOCK,
+                problem: this.translations.t('domains.stores.problem_insufficient_stock', {
+                  args: { key: variant.key, slug: variant?.product?.slug },
+                }),
+                details: this.translations.t('domains.stores.problem_insufficient_stock_details', {
+                  args: { quantity: totalQty, available: availableStock },
+                }),
+              });
+              continue;
+            }
+          }
+
+          continue;
+        }
+
+        // ──────────────────────────────────────────────────────────────
+        // Rule 1: bundle not exist OR inactive → fall through to product flow (no continue / no problem)
+        // Single product branch (existing logic preserved — sku already extracted at top of loop)
+        // ──────────────────────────────────────────────────────────────
         let localProduct = productMap.get(item.remoteProductId);
         let matchedVariant = null;
         let matchedBySku = false;
@@ -1382,6 +1611,10 @@ export class StoresService {
               v => v.key === item.variant.key,
             ) || null;
         }
+
+        finalCardItems.push({
+          ...item,
+        });
 
         if (!matchedVariant && sku && skuFallbackEnabled) {
           matchedVariant = await this.pvRepo
@@ -1454,7 +1687,7 @@ export class StoresService {
             productId: localProduct.id,
             slug: item.productSlug,
             name: item.name,
-            code: WebhookOrderProblem.SKU_NOT_FOUND,
+            code: WebhookOrderProblem.SKU_INACTIVE,
             problem: this.translations.t('domains.stores.problem_variant_inactive', { args: { name: item.name } }),
             details: this.translations.t('domains.stores.problem_variant_inactive_details', { args: { name: item.name } }),
           });
@@ -1484,7 +1717,8 @@ export class StoresService {
 
     return {
       failureLog: failure,
-      problems
+      problems,
+      cartItems: finalCardItems,
     };
   }
 
@@ -2003,20 +2237,26 @@ export class StoresService {
           const remoteId = String(remoteProduct.id);
 
           // 1. Check if linked via ProductSyncState
-          const syncState = await this.productSyncStateRepo.findOne({
-            where: {
-              adminId,
-              storeId: store.id,
+          const syncState = await this.productSyncStateRepo
+            .createQueryBuilder('sync')
+            .leftJoinAndSelect('sync.product', 'product')
+            .leftJoinAndSelect('sync.bundle', 'bundle')
+            .where('sync.adminId = :adminId', { adminId })
+            .andWhere('sync.storeId = :storeId', { storeId: store.id })
+            .andWhere('sync.remoteProductId = :remoteProductId', {
               remoteProductId: remoteId,
+            })
+            .andWhere('sync.externalStoreId = :externalStoreId', {
               externalStoreId: store.externalStoreId,
-              product: {
-                isActive: true,
-              },
-            },
-            relations: {
-              product: true,
-            },
-          });
+            })
+            .andWhere(`
+            (
+              (sync.productId IS NOT NULL AND product.isActive = true)
+              OR
+              (sync.bundleId IS NOT NULL AND bundle.isActive = true)
+            )
+          `)
+            .getOne();
           isNew = !syncState;
           if (isNew) newTotal++;
 
@@ -2269,7 +2509,8 @@ export class StoresService {
       oldBundleData,
       category,
       slug,
-      productIds,
+      ids,
+      fullStoreSyncType,
       adminId,
     } = data;
 
@@ -2326,25 +2567,24 @@ export class StoresService {
 
           if (!bundle) return;
 
-          const { oldMainVaraintId, oldStoreId, oldStoreType, adminId: storeAdmin } = oldBundleData ?? {};
-          if (oldMainVaraintId && oldStoreId && (bundle?.storeId !== oldStoreId)) {
-            const deleteService = this.getService(oldStoreType);
-            if ('deleteBundle' in deleteService)
-              await (deleteService as unknown as IBundleSyncProvider).deleteBundle(oldMainVaraintId, oldStoreId, storeAdmin);
-            this.logger.log(`[Delete Bundle] Provider: ${oldStoreType} | Job: ${type} | Successfully delete bundle of old varaint: ${oldMainVaraintId}`);
-          }
+          // const { oldStoreId, adminId: storeAdmin } = oldBundleData ?? {};
+
+          // if (oldStoreId && (bundle?.storeId !== oldStoreId)) {
+          //   const deleteService = this.getService(oldStoreType);
+          //   if ('deleteBundle' in deleteService)
+          //     await (deleteService as unknown as IBundleSyncProvider).deleteBundle(oldStoreId, storeAdmin);
+          //   this.logger.log(`[Delete Bundle] Provider: ${oldStoreType} | Job: ${type} | Successfully delete bundle of old varaint: ${oldMainVaraintId}`);
+          // }
 
           // if (!bundle?.variant?.isActive) return;
-          if ('syncBundle' in service) {
-            await (service as unknown as IBundleSyncProvider).syncBundle(bundle);
-            this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);
-          }
+          await service.syncBundle(bundle);
+          this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);
           break;
 
         case ProductSyncJobs.FULL_SYNC:
           const store = await this.storesRepo.findOneBy({ id: storeId });
           if (store) {
-            const fullSyncResult = await service?.syncFullStore(store, productIds);
+            const fullSyncResult = await service?.syncFullStore(store, ids, fullStoreSyncType);
             this.logger.log(`[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`);
             return fullSyncResult;
           }

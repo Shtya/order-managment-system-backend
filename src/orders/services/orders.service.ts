@@ -568,6 +568,7 @@ export class OrdersService {
     qb.leftJoinAndSelect("order.rejectedBy", "rejectedBy")
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("items.bundle", "bundle")
       .leftJoinAndSelect("variant.product", "product")
 
       .leftJoinAndSelect("order.replacementResult", "replacementResult")
@@ -2156,7 +2157,7 @@ export class OrdersService {
     );
   }
 
-  async scanItem(orderId: string, sku: string, me: any) {
+  async scanItem(orderId: string, sku: string, me: any, itemId: string) {
     const userId = me?.id;
     const adminId = tenantId(me);
 
@@ -2211,9 +2212,16 @@ export class OrdersService {
         order.statusId = preparingStatus.id;
       }
 
-      const item = order.items.find(
+      const skuItems = order.items.filter(
         (i) => i.variant?.sku?.trim() === sku.trim(),
       );
+
+      let item = skuItems[0];
+
+      if (itemId && skuItems.length > 1) {
+        item = skuItems.find((i) => i.id === itemId) ?? item;
+      }
+
 
       if (!item) {
         await this.logFailedScan(
@@ -2240,12 +2248,7 @@ export class OrdersService {
             scannedQuantity: () => "COALESCE(scannedQuantity, 0) + 1",
           })
           .where("orderId = :orderId", { orderId })
-          .andWhere(
-            `"variantId" IN (
-          SELECT v.id FROM product_variants v WHERE v.sku = :sku
-          )`,
-            { sku: sku.trim() }
-          )
+          .where("id = :id", { id: item.id })
           .andWhere("COALESCE(scannedQuantity, 0) < quantity")
           .returning(["id", "scannedQuantity", "quantity"])
           .execute();
@@ -2565,6 +2568,7 @@ export class OrdersService {
       .createQueryBuilder("order")
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("items.bundle", "bundle")
       .leftJoinAndSelect("variant.product", "product")
       .leftJoinAndSelect("order.statusHistory", "statusHistory")
       .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
@@ -2639,6 +2643,7 @@ export class OrdersService {
       .createQueryBuilder("order")
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("items.bundle", "bundle")
       .leftJoinAndSelect("variant.product", "product")
       .leftJoinAndSelect("order.statusHistory", "statusHistory")
       .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
@@ -2727,6 +2732,7 @@ export class OrdersService {
         quantity: it.quantity,
         isAdditional: it.isAdditional !== undefined ? false : it.isAdditional,
         unitPrice,
+        bundleId: it.bundleId ? it.bundleId : null,
         unitCost,
         lineTotal,
         lineProfit,
@@ -2912,6 +2918,7 @@ export class OrdersService {
         .createQueryBuilder(OrderEntity, "order")
         .leftJoinAndSelect("order.items", "items")
         .leftJoinAndSelect("items.variant", "variant")
+        .leftJoinAndSelect("items.bundle", "bundle")
         .leftJoinAndSelect("variant.product", "product")
         // .leftJoinAndSelect("order.statusHistory", "statusHistory")
         // .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
@@ -2979,33 +2986,63 @@ export class OrdersService {
       if (dto.removedItems && dto.removedItems.length > 0) {
         const removedVariantIds = dto.removedItems.map((i) => i.variantId);
 
-        // Find the entities that belong to this order to remove them
+        // Helper to build a stable composite key that differentiates
+        // standalone variant rows from bundle-variant rows.
+        const key = (variantId: string, bundleId?: string) =>
+          bundleId ? `${variantId}::${bundleId}` : `${variantId}::null`;
 
-        const updateIds = new Set(dto.items.map((i) => i.variantId));
+        // 1-a. Keep bundle-aware: an item is "actually removed" only if there
+        // is no item in dto.items with the same (variantId, bundleId) pair.
+        const dtoItemKeys = new Set(
+          dto.items.map((i) => key(i.variantId, i.bundleId)),
+        );
         const itemsToRemove = dto.removedItems.filter(
-          (i) => !updateIds.has(i.variantId),
+          (i) => !dtoItemKeys.has(key(i.variantId, i.bundleId)),
         );
 
         if (itemsToRemove.length > 0) {
-          // 2. Fetch the Variants to update their reserved stock
-          const RemovedOrderItems = await manager.find(OrderItemEntity, {
-            where: {
-              adminId,
+          // 2. Fetch the exact OrderItem rows that match the removed items
+          // split into bundle-aware queries so we never strip a variant from
+          // the wrong bundle (or from a standalone order item).
+          const standaloneVariantIds = itemsToRemove
+            .filter((i) => !i.bundleId)
+            .map((i) => i.variantId);
+          const bundleItems = itemsToRemove.filter((i) => !!i.bundleId);
 
-              variantId: In(itemsToRemove.map((i) => i.variantId)),
-            } as any,
+          const findConditions: any[] = [];
+          if (standaloneVariantIds.length > 0) {
+            findConditions.push({
+              adminId,
+              orderId: order.id,
+              variantId: In(standaloneVariantIds),
+              bundleId: IsNull(),
+            });
+          }
+          for (const b of bundleItems) {
+            findConditions.push({
+              adminId,
+              orderId: order.id,
+              variantId: b.variantId,
+              bundleId: b.bundleId,
+            });
+          }
+
+          const RemovedOrderItems = await manager.find(OrderItemEntity, {
+            where: findConditions.length ? findConditions : undefined,
             relations: {
               variant: true,
             },
           });
 
           const RemovedItemsMap = new Map(
-            RemovedOrderItems.map((v) => [v.variantId, v]),
+            RemovedOrderItems.map((v) => [key(v.variantId, v.bundleId), v]),
           );
           const variantsToUpdate = new Map<string, ProductVariantEntity>();
           // 3. Release reserved stock based on the OrderItem's quantity
           for (const item of itemsToRemove) {
-            const removedItem = RemovedItemsMap.get(item.variantId);
+            const removedItem = RemovedItemsMap.get(
+              key(item.variantId, item.bundleId),
+            );
             if (removedItem) {
               // Use item.quantity (from the DB) to decrease the reservation
               const qtyToRelease = removedItem.quantity || 0;
@@ -3024,11 +3061,14 @@ export class OrdersService {
               Array.from(variantsToUpdate.values()),
             );
           }
-          await manager.remove(OrderItemEntity, RemovedOrderItems);
+          const removedEntityIds = new Set(RemovedOrderItems.map((r) => r.id));
+          if (RemovedOrderItems.length > 0) {
+            await manager.remove(OrderItemEntity, RemovedOrderItems);
+          }
 
           // Update the local array for subsequent total calculations
           currentOrderItems = currentOrderItems.filter(
-            (i) => !removedVariantIds.includes(i.variantId),
+            (i) => !removedEntityIds.has(i.id),
           );
         }
       }
@@ -3044,6 +3084,15 @@ export class OrdersService {
         const itemsToSave = [];
         const modifiedVariants = new Set<ProductVariantEntity>(); // Use a Set to avoid duplicate saves
 
+        // Reuse the composite-key helper we declared above (re-declare in case this
+        // ever moves outside the lexical scope, but currently inside same if-block
+        // — just compute a local copy for cleanliness.)
+        const dtoKey = (variantId: string, bundleId?: string) =>
+          bundleId ? `${variantId}::${bundleId}` : `${variantId}::null`;
+        const existingItemByKey = new Map(
+          currentOrderItems.map((oi) => [dtoKey(oi.variantId, oi.bundleId), oi]),
+        );
+
         for (const dtoItem of dto.items) {
           const variant = variantMap.get(dtoItem.variantId);
           if (!variant)
@@ -3051,13 +3100,8 @@ export class OrdersService {
               this.translations.t('domains.orders.variant_id_not_found', { args: { variantId: dtoItem.variantId } }),
             );
 
-          const existingItemIndex = currentOrderItems.findIndex(
-            (i) => i.variantId === dtoItem.variantId,
-          );
-          const existingItem =
-            existingItemIndex > -1
-              ? currentOrderItems[existingItemIndex]
-              : null;
+          const k = dtoKey(dtoItem.variantId, dtoItem.bundleId);
+          const existingItem = existingItemByKey.get(k) ?? null;
 
           const oldQty = existingItem ? existingItem.quantity : 0;
           const newQty = dtoItem.addQuantity ? oldQty + dtoItem.quantity : dtoItem.quantity;
@@ -3080,18 +3124,20 @@ export class OrdersService {
 
           // 3. Prepare OrderItemEntity
           if (existingItem) {
-            // Update existing
+            // Update existing — keep it matched by the exact composite key,
+            // so updating bundle A's variant row never hits bundle B's row.
             existingItem.quantity = newQty;
             existingItem.unitPrice = dtoItem.unitPrice;
             if (dtoItem.isAdditional !== undefined)
               existingItem.isAdditional = dtoItem.isAdditional;
 
-
+            existingItem.bundleId = dtoItem.bundleId ? dtoItem.bundleId : null;
             existingItem.lineTotal = newQty * dtoItem.unitPrice;
             existingItem.lineProfit =
               (dtoItem.unitPrice - existingItem.unitCost) * newQty;
 
-            currentOrderItems[existingItemIndex] = existingItem;
+            const idx = currentOrderItems.indexOf(existingItem);
+            if (idx > -1) currentOrderItems[idx] = existingItem;
             itemsToSave.push(existingItem);
           } else {
             // Create new
@@ -3103,6 +3149,7 @@ export class OrdersService {
               quantity: newQty,
               unitPrice: dtoItem.unitPrice,
               unitCost: unitCost,
+              bundleId: dtoItem.bundleId ? dtoItem.bundleId : null,
               isAdditional: dtoItem.isAdditional ?? false,
               lineTotal: newQty * dtoItem.unitPrice,
               lineProfit: (dtoItem.unitPrice - unitCost) * newQty,
@@ -3111,6 +3158,7 @@ export class OrdersService {
             newItem.variant = variant; // Attach for signature generation
             currentOrderItems.push(newItem);
             itemsToSave.push(newItem);
+            existingItemByKey.set(k, newItem); // keep map coherent if same key re-occurs
           }
         }
 

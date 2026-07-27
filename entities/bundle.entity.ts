@@ -14,6 +14,7 @@ import { StoreEntity } from "./stores.entity";
 import { CategoryEntity } from "./categories.entity";
 import { User } from "./user.entity";
 import { ActivatableEntity } from "./base.entity";
+import { ProductSyncStateEntity } from "./product_sync_error.entity";
 
 @Entity({ name: "bundles" })
 @Index(["adminId", "sku"], { unique: true, where: '"isActive" = true' })
@@ -61,6 +62,9 @@ export class BundleEntity extends ActivatableEntity {
 	@ManyToOne(() => CategoryEntity, { nullable: true, onDelete: "SET NULL" })
 	@JoinColumn({ name: "categoryId" })
 	category?: CategoryEntity | null;
+
+	@OneToMany(() => ProductSyncStateEntity, (sync) => sync.bundle)
+	syncStates: ProductSyncStateEntity[];
 
 	@CreateDateColumn({ type: "timestamptz" })
 	created_at!: Date;

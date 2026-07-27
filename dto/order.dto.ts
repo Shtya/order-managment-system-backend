@@ -57,6 +57,10 @@ export class OrderItemDto {
   @IsString({message: i18nValidationMessage('validation.is_string')})
   variantId: string;
 
+  @IsOptional()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  bundleId?: string;
+  
   @IsInt({message: i18nValidationMessage('validation.is_int')})
   @Min(1, {message: i18nValidationMessage('validation.min')})
   quantity: number;
@@ -84,6 +88,10 @@ export class OrderItemDto {
 export class RemovedOrderItemDto {
   @IsString({message: i18nValidationMessage('validation.is_string')})
   variantId: string;
+
+  @IsOptional()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  bundleId?: string;
 }
 
 export class ShippingMetadataDto {

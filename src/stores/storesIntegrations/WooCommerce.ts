@@ -1,10 +1,10 @@
 import { forwardRef, Inject, Injectable, InternalServerErrorException } from "@nestjs/common";
-import { BaseStoreProvider, ISkuFetch, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, IBundleSyncProvider, MappedProductDto } from "./BaseStoreProvider";
+import { BaseStoreProvider, ISkuFetch, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto,  MappedProductDto, FullStoreSyncType } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity, BundleItemEntity } from "entities/bundle.entity";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
-import { ProductSyncAction, ProductSyncStateEntity, ProductSyncStatus } from "entities/product_sync_error.entity";
+import { ProductSyncAction, ProductSyncStateEntity, ProductSyncStatus, SyncEntityType } from "entities/product_sync_error.entity";
 import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
 import { StoresService } from "../stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -36,6 +36,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
+        @InjectRepository(BundleEntity) protected readonly bundleRepo: Repository<BundleEntity>,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
         @Inject(forwardRef(() => OrdersService))
@@ -50,7 +51,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         private readonly appGateway: AppGateway,
         protected readonly notificationService: NotificationService,
     ) {
-        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 400, StoreProvider.WOOCOMMERCE)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, ordersService,notificationService, 400, StoreProvider.WOOCOMMERCE)
 
     }
 
@@ -745,10 +746,8 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         externalCategoryId?: string,
         attrMap?: Map<string, string>,
         store?: StoreEntity,
-        bundledItemsData?: any[]
     ) {
         const isVariable = variants.length > 1;
-        const isBundle = bundledItemsData && bundledItemsData.length > 0;
 
         // 1. Map WooCommerce Attributes Definition
         // We use the attrMap provided by ensureAttributesForVariants
@@ -781,15 +780,15 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         return {
             name: product.name.trim(),
             slug: product.slug?.trim(),
-            type: isBundle ? "bundle" : (isVariable ? "variable" : "simple"), //
+            type: isVariable ? "variable" : "simple", //
             description: product.description || "",
             short_description: product.description || "",
             sku: product?.sku || "",
 
             // STOCK LOGIC: 
-            // If variable or bundle, we don't manage stock at parent level (variants handle it)
-            manage_stock: !isVariable && !isBundle,
-            stock_quantity: (!isVariable && !isBundle)
+            // If variable, we don't manage stock at parent level (variants handle it)
+            manage_stock: !isVariable,
+            stock_quantity: !isVariable
                 ? await this.ordersService.calculateAvailableStock(
                     variants[0]?.stockOnHand || 0,
                     variants[0]?.reserved || 0,
@@ -801,7 +800,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             categories: externalCategoryId ? [{ id: externalCategoryId }] : [],
             attributes: attributes,
             upsell_ids: upsellIds,
-            bundled_items: isBundle ? bundledItemsData : undefined,
+            bundled_items: undefined,
             images: [
                 ...(product.mainImage ? [{ src: this.getImageUrl(product.mainImage) }] : []),
                 ...(product.images?.map(img => ({ src: this.getImageUrl(img.url) })) || [])
@@ -931,10 +930,11 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             where: { id: productId },
             relations: ['category']
         });
-        const activeStore = await this.getStoreForSync(product.adminId);
         if (!product) {
             throw new Error(`Product with ID ${productId} not found`);
         }
+
+        const activeStore = await this.getStoreForSync(product.adminId);
 
         // 2️⃣ جلب الـ Variants الخاصة بالمنتج
         const variants = await this.pvRepo.find({
@@ -1048,124 +1048,6 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         }
     }
 
-    public async syncBundle(bundle: BundleEntity) {
-        this.logCtx(`[Sync] Starting bundle sync | Bundle: ${bundle.name} | SKU: ${bundle.sku}`, null, bundle.adminId);
-
-        const activeStore = await this.getStoreForSync(bundle.adminId);
-        if (!activeStore) {
-            this.logCtxWarn(`[Sync] Skipping bundle sync: No active WooCommerce store enabled`, null, bundle.adminId);
-            throw new Error("Store not found or inactive")
-        }
-
-        try {
-            // 1. Ensure all items are synced first
-            const bundledItemsData = [];
-            const activeItems = bundle.items.filter(v => v.isActive);
-            for (const item of activeItems) {
-                const itemVariant = await this.pvRepo.findOne({
-                    where: { id: item.variantId },
-                    relations: ['product', 'product.store']
-                });
-
-                if (!itemVariant || !itemVariant.product) {
-                    this.logCtxWarn(`[Sync] Skipping item variant ${item.variantId}: Not found or no product associated`, activeStore);
-                    continue;
-                }
-
-                // Sync the item product first to ensure it exists on WooCommerce
-                const remoteItemProduct = await this.syncProduct({
-                    productId: itemVariant.productId
-                });
-
-                // Get remote details for this item
-
-                const bundledItem: any = {
-                    product_id: remoteItemProduct.id,
-                    quantity_min: item.qty,
-                    quantity_max: item.qty,
-                    priced_individually: false,
-                    shipped_individually: false,
-                    optional: false
-                };
-
-                // If it's a variation, WooCommerce Product Bundles might need the variation_id
-                // Note: remoteItemProduct.variations contains variation IDs
-                if (remoteItemProduct.type === 'variable' || remoteItemProduct.variations?.length > 0) {
-                    // Find the remote variation ID matching our local variant
-                    const remoteVariation = remoteItemProduct.variations?.find(v => v.sku === itemVariant.sku);
-                    if (remoteVariation) {
-                        bundledItem.variation_id = remoteVariation.id;
-                    } else {
-                        // If not found in variations nodes, we might need to fetch them
-                        // But syncProduct already sets externalId
-                        if (itemVariant.externalId) {
-                            bundledItem.variation_id = itemVariant.externalId;
-                        }
-                    }
-                }
-
-                bundledItemsData.push(bundledItem);
-            }
-
-            // 2. Resolve the main product variant
-            const mainVariant = await this.pvRepo.findOne({
-                // where: { id: bundle.variantId },
-                relations: ['product', 'product.store', 'product.category']
-            });
-
-            // if (!mainVariant || !mainVariant.product) {
-            //     throw new Error(`Bundle main variant ${bundle.variantId} or its product not found`);
-            // }
-
-            // 3. Sync the main product as a bundle
-            let wooCategory = null;
-            if (mainVariant.product.category) {
-                wooCategory = await this.syncCategory({
-                    category: mainVariant.product.category,
-                    slug: mainVariant.product.category.slug,
-                    relatedAdminId: mainVariant.product.adminId
-                });
-            }
-
-            // [2025-12-24] Ensure unique slug for bundles to avoid collision with individual products
-            const bundleSlug = `${mainVariant.product.slug}-bundle`;
-
-            const remoteProduct = await this.getProductBySlug(activeStore, bundleSlug);
-
-            const attrMap = await this.ensureAttributesForVariants(activeStore, [mainVariant]);
-            const payload = await this.mapWooProductPayload(
-                { ...mainVariant.product, slug: bundleSlug } as ProductEntity,
-                [mainVariant],
-                wooCategory?.id,
-                attrMap,
-                activeStore,
-                bundledItemsData
-            );
-
-            if (remoteProduct) {
-                this.logCtx(`[Sync] Updating bundle product (ID: ${remoteProduct.id})`, activeStore);
-                await this.sendRequest(activeStore, {
-                    method: 'PUT',
-                    url: `/products/${remoteProduct.id}`,
-                    data: payload
-                });
-            } else {
-                this.logCtx(`[Sync] Creating new bundle product`, activeStore);
-                await this.sendRequest(activeStore, {
-                    method: 'POST',
-                    url: '/products',
-                    data: payload
-                });
-            }
-
-            this.logCtx(`[Sync] ✓ Bundle sync completed successfully`, activeStore);
-
-        } catch (error) {
-            const message = this.getErrorMessage(error);
-            this.logCtxError(`[Sync] ✗ Bundle sync failed: ${message}`, activeStore, bundle.adminId);
-            throw error;
-        }
-    }
 
     public async syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string) {
 
@@ -1392,17 +1274,154 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
         };
     }
 
-    public async syncFullStore(store: StoreEntity, productIds?: string[]): Promise<{ categoryReport: any; productReport: any }> {
+    private async syncBundleCursor(store: StoreEntity, categoryMap: Map<string, string>, bundleIds?: string[]): Promise<{ processed: number; created: number; updated: number; errors: number }> {
+        this.logCtx(`[Sync] Starting bundle synchronization (Individual API calls)`, store);
+
+        let lastId = "";
+        let hasMore = true;
+        let totalProcessed = 0;
+        let totalCreated = 0;
+        let totalUpdated = 0;
+        let totalErrors = 0;
+
+        while (hasMore) {
+            const qb = this.storesRepo.manager.createQueryBuilder(BundleEntity, "bundle")
+                .leftJoinAndSelect("bundle.items", "items")
+                .leftJoinAndSelect("items.variant", "variant")
+                .leftJoinAndSelect("variant.product", "product")
+                .leftJoinAndSelect("bundle.category", "category")
+                .leftJoinAndMapOne(
+                    "bundle.syncState",
+                    ProductSyncStateEntity,
+                    "syncState",
+                    "syncState.bundleId = bundle.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
+                    { storeId: store.id, adminId: store.adminId, externalStoreId: store.externalStoreId }
+                )
+            if (!bundleIds || bundleIds.length === 0) {
+                qb.where("bundle.storeId = :storeId", { storeId: store.id })
+            }
+            qb.andWhere("bundle.adminId = :adminId", { adminId: store.adminId })
+                .andWhere("bundle.isActive = :isActive", { isActive: true })
+                .orderBy("bundle.id", "ASC")
+                .take(20);
+
+            if (bundleIds && bundleIds.length > 0) {
+                qb.andWhere("bundle.id IN (:...bundleIds)", { bundleIds });
+            }
+
+            if (lastId) {
+                qb.andWhere("bundle.id > :lastId", { lastId });
+            }
+            const localBatch = await qb.getMany() as any[];
+
+            if (localBatch.length === 0) {
+                hasMore = false;
+                break;
+            }
+            const ids = localBatch.map(b => b.syncState?.remoteProductId).filter(Boolean);
+            const remoteItems = ids ? await this.fetchRemoteProducts(store, ids) : [];
+            const remoteMap = new Map<string, any>(remoteItems.map((r: any) => [String(r.id), r]));
+
+            for (const bundle of localBatch) {
+                try {
+                    const remoteId = bundle?.syncState?.remoteProductId;
+                    const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
+
+                    let extCatId = bundle.categoryId ? categoryMap.get(bundle.categoryId) : null;
+
+                    if (!extCatId && bundle.category) {
+                        const remoteCategory = await this.syncCategory({ relatedAdminId: bundle.adminId, category: bundle.category });
+                        extCatId = remoteCategory?.id;
+                    }
+                    let syncedBundle;
+                    if (remote) {
+                        syncedBundle = await this.updateBundle(
+                            bundle,
+                            store,
+                            remote.id,
+                            extCatId
+                        );
+                        totalUpdated++;
+                    } else {
+                        syncedBundle = await this.createBundle(
+                            bundle,
+                            store,
+                            extCatId
+                        );
+
+                        totalCreated++;
+                    }
+
+                    await this.productSyncStateService.upsertSyncState(
+                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, externalStoreId: store.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                        {
+                            remoteProductId: syncedBundle?.id ?? remoteId ?? null,
+                            status: ProductSyncStatus.SYNCED,
+                            lastError: null,
+                            lastSynced_at: new Date(),
+                        },
+                    );
+                    totalProcessed++;
+                } catch (error: any) {
+                    const errorMessage = this.getErrorMessage(error);
+                    const remoteId = bundle?.syncState?.remoteProductId;
+                    const action = remoteId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
+
+                    await this.productSyncStateService.upsertSyncState(
+                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, externalStoreId: store.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                        {
+                            remoteProductId: remoteId || null,
+                            status: ProductSyncStatus.FAILED,
+                            lastError: errorMessage,
+                            lastSynced_at: new Date(),
+                        },
+                    );
+
+                    await this.productSyncStateService.upsertSyncErrorLog(
+                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, entityType: SyncEntityType.BUNDLE },
+                        {
+                            remoteProductId: remoteId || null,
+                            action: action,
+                            errorMessage,
+                            userMessage: `Failed to sync bundle "${bundle.name}" to ${store.name}: ${errorMessage}`,
+                            responseStatus: error?.response?.status,
+                            requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+                        }
+                    );
+
+                    this.logCtxError(`[Sync] Error processing bundle ${bundle.name} (ID: ${bundle.id}): ${errorMessage}`, store);
+                    totalErrors++;
+                }
+            }
+
+            lastId = localBatch[localBatch.length - 1].id;
+        }
+
+        this.logCtx(`[Sync] ✓ Bundle sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
+        return {
+            processed: totalProcessed,
+            created: totalCreated,
+            updated: totalUpdated,
+            errors: totalErrors
+        };
+    }
+
+    public async syncFullStore(store: StoreEntity, ids?: string[], type: FullStoreSyncType = FullStoreSyncType.PRODUCT): Promise<{ categoryReport: any; productReport: any; bundleReport: any }> {
         if (!store || !store.isActive) {
             throw new Error("Store not found or inactive")
         }
-        const hasProductIds = productIds?.length > 0;
+        const hasIds = ids?.length > 0;
         if (store.localSyncStatus === SyncStatus.SYNCING) {
-            return { categoryReport: { processed: 0, created: 0, updated: 0, errors: 0 }, productReport: { processed: 0, created: 0, updated: 0, errors: 0 } };
+            return {
+                categoryReport: { processed: 0, created: 0, updated: 0, errors: 0 },
+                productReport: { processed: 0, created: 0, updated: 0, errors: 0 },
+                bundleReport: { processed: 0, created: 0, updated: 0, errors: 0 },
+            };
         }
 
         let categoryReport = { processed: 0, created: 0, updated: 0, errors: 0 };
         let productReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+        let bundleReport = { processed: 0, created: 0, updated: 0, errors: 0 };
 
         try {
             const syncStartTime = Date.now();
@@ -1413,13 +1432,19 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             });
 
             let categoryMap = new Map<string, string>();
-            if (!hasProductIds) {
+            if (!hasIds) {
                 const { categoryMap: map, report } = await this.syncCategoriesCursor(store);
                 categoryMap = map;
                 categoryReport = report;
             }
 
-            productReport = await this.syncProductsCursor(store, categoryMap, productIds);
+            if (type === "product" || type === "all") {
+                productReport = await this.syncProductsCursor(store, categoryMap, ids);
+            }
+
+            if (type === "bundle" || type === "all") {
+                bundleReport = await this.syncBundleCursor(store, categoryMap, ids);
+            }
 
 
             await this.storesRepo.update(store.id, {
@@ -1453,7 +1478,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             throw error;
         }
 
-        return { categoryReport, productReport };
+        return { categoryReport, productReport, bundleReport };
     }
 
     private mapExternalStatusToInternal(body, localStatus: OrderStatus) {
@@ -1711,6 +1736,181 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
     public async getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]> {
         return [];
     }
+    
+    
 
+    private async mapBundlePayload(bundle: BundleEntity, externalCategoryId?: string) {
+        const bundleInventory = await this.calculateBundleInventory(bundle);
+        return {
+            name: bundle.name.trim(),
+            slug: bundle.slug?.trim(),
+            type: "simple",
+            description: bundle.description || "",
+            short_description: bundle.description || "",
+            sku: bundle?.sku || "",
+            manage_stock: true,
+            stock_quantity: bundleInventory.quantity,
+            regular_price: String(bundle.price || 0),
+            categories: externalCategoryId ? [{ id: externalCategoryId }] : [],
+            attributes: [],
+            upsell_ids: [],
+            images: [
+                ...(bundle.mainImage ? [{ src: this.getImageUrl(bundle.mainImage) }] : []),
+                ...(bundle.images?.map(img => ({ src: this.getImageUrl(img.url) })) || [])
+            ]
+        };
+    }
+
+    private async createBundle(bundle: BundleEntity, store: StoreEntity, externalCategoryId: string) {
+        const payload = await this.mapBundlePayload(bundle, externalCategoryId);
+
+        const response = await this.sendRequest(store, {
+            method: 'POST',
+            url: '/products',
+            data: payload
+        });
+
+        const created = response?.data ?? response;
+
+        await this.sendSyncSuccessNotification({
+            adminId: bundle.adminId,
+            entityId: bundle.id,
+            entityName: bundle.name,
+            storeName: store.name,
+            isProduct: false,
+            action: "CREATE"
+        });
+
+        return created;
+    }
+
+    private async updateBundle(bundle: BundleEntity, store: StoreEntity, externalId: string, externalCategoryId: string) {
+        if (!externalId)
+            throw new Error(`No externalId provided for bundle ${bundle?.name}`);
+
+        const payload = await this.mapBundlePayload(bundle, externalCategoryId);
+
+        const response = await this.sendRequest(store, {
+            method: 'PUT',
+            url: `/products/${externalId}`,
+            data: payload
+        });
+
+        await this.sendSyncSuccessNotification({
+            adminId: bundle.adminId,
+            entityId: bundle.id,
+            entityName: bundle.name,
+            storeName: store.name,
+            isProduct: false,
+            action: "UPDATE"
+        });
+
+        return response?.data ?? response;
+    }
+
+    public async syncBundle(bundle: BundleEntity): Promise<any> {
+        const loadedBundle = await this.bundleRepo.findOne({
+            where: { id: bundle.id },
+            relations: ['category', 'store', 'items', 'items.variant', 'items.variant.product']
+        });
+
+        if (!loadedBundle) {
+            throw new Error(`Bundle with ID ${bundle.id} not found`);
+        }
+
+        const activeStore = await this.getStoreForSync(loadedBundle.adminId);
+
+        if (!activeStore) {
+            throw new Error("Store not found or inactive");
+        }
+
+        const productSyncState = await this.productSyncStateRepo.findOne({
+            where: {
+                bundleId: loadedBundle.id,
+                storeId: activeStore.id,
+                adminId: loadedBundle.adminId,
+                externalStoreId: activeStore?.externalStoreId
+            }
+        });
+
+        let externalId = productSyncState?.remoteProductId;
+        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
+
+        try {
+            let wooCategory = null;
+            if (loadedBundle.category) {
+                wooCategory = await this.syncCategory({
+                    category: loadedBundle.category,
+                    slug: loadedBundle.category.slug,
+                    relatedAdminId: loadedBundle.adminId
+                });
+            }
+
+            let result;
+            if (externalId) {
+                const remoteProduct = await this.getProduct(activeStore, externalId);
+                if (remoteProduct) {
+                    result = await this.updateBundle(
+                        loadedBundle,
+                        activeStore,
+                        externalId,
+                        wooCategory?.id
+                    );
+                } else {
+                    result = await this.createBundle(
+                        loadedBundle,
+                        activeStore,
+                        wooCategory?.id
+                    );
+                }
+            } else {
+                result = await this.createBundle(
+                    loadedBundle,
+                    activeStore,
+                    wooCategory?.id
+                );
+            }
+            externalId = result?.id;
+
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId,
+                    status: ProductSyncStatus.SYNCED,
+                    lastError: null,
+                    lastSynced_at: new Date(),
+                },
+            );
+
+            return result.response || result;
+
+        } catch (error: any) {
+            const errorMessage = this.getErrorMessage(error);
+
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId || null,
+                    status: ProductSyncStatus.FAILED,
+                    lastError: errorMessage,
+                    lastSynced_at: new Date(),
+                },
+            );
+
+            await this.productSyncStateService.upsertSyncErrorLog(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId || null,
+                    action: action,
+                    errorMessage,
+                    userMessage: `Failed to sync bundle "${loadedBundle.name}" to ${activeStore.name}: ${errorMessage}`,
+                    responseStatus: error?.response?.status,
+                    requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+                }
+            );
+
+            throw error;
+        }
+    }
     
 }

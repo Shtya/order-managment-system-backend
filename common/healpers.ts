@@ -348,3 +348,104 @@ export function normalizeEnglish(text?: string): string {
         .replace(/-/g, ' ')         // Replace dashes with spaces (e.g., El-Cairo -> el cairo)
         .replace(/\s+/g, ' ');      // Remove double spaces
 }
+
+export interface BundleAllocationItem {
+    variantId: string;
+    productId?: string;
+    qty: number;
+    variantPrice: number;
+    unitCost: number;
+    wholesalePrice: number;
+}
+
+export interface BundlePriceAllocation {
+    variantId: string;
+    quantity: number;
+    unitPrice: number;
+    unitCost: number;
+    allocatedTotal: number;
+    originalPrice: number;
+}
+
+export function allocateBundlePrices(
+    bundlePrice: number,
+    items: BundleAllocationItem[],
+    bundleQty = 1,
+): BundlePriceAllocation[] {
+    const bundlePriceNum = Number(bundlePrice ?? 0);
+    const multiplier = Math.max(1, Number(bundleQty) || 1);
+
+    const totalRegularValue = items.reduce(
+        (sum, item) => sum + Number(item.variantPrice ?? 0) * Number(item.qty ?? 1),
+        0,
+    );
+
+    return items.map((item) => {
+        const qty = Number(item.qty ?? 1);
+        const totalQty = qty * multiplier;
+        const variantPrice = Number(item.variantPrice ?? 0);
+        const unitCost = Number(item.unitCost ?? 0);
+        const share = variantPrice * qty;
+
+        const allocatedTotal =
+            totalRegularValue > 0
+                ? bundlePriceNum * (share / totalRegularValue) * multiplier
+                : 0;
+
+        const allocatedUnitPrice =
+            qty > 0 && totalRegularValue > 0
+                ? bundlePriceNum * (share / totalRegularValue) / qty
+                : 0;
+
+        const roundedUnitPrice = Math.round(allocatedUnitPrice * 100) / 100;
+        const roundedTotal = Math.round(allocatedTotal * 100) / 100;
+
+        return {
+            variantId: item.variantId,
+            quantity: totalQty || 1,
+            unitPrice: roundedUnitPrice,
+            unitCost: unitCost,
+            allocatedTotal: roundedTotal,
+            originalPrice: variantPrice,
+        };
+    });
+}
+
+export function expandBundleToOrderLineItems(
+    bundle: {
+        id: string;
+        name?: string;
+        price: number;
+        items: {
+            id?: string;
+            variantId: string;
+            qty: number;
+            variant?: {
+                id: string;
+                productId?: string;
+                price: number;
+                unitCost?: number;
+                product?: { wholesalePrice?: number };
+            } | null;
+        }[];
+    },
+    bundleQty = 1,
+): { variantId: string; quantity: number; unitPrice: number; unitCost: number, bundleId: string }[] {
+    const allocationItems: BundleAllocationItem[] = bundle.items.map((bi) => ({
+        variantId: bi.variantId,
+        qty: bi.qty,
+        variantPrice: Number(bi.variant?.price ?? 0),
+        unitCost: Number(bi.variant?.unitCost ?? 0),
+        wholesalePrice: Number(bi.variant?.product?.wholesalePrice ?? 0),
+    }));
+
+    const allocations = allocateBundlePrices(bundle.price, allocationItems, bundleQty);
+
+    return allocations.map((a) => ({
+        variantId: a.variantId,
+        quantity: a.quantity,
+        bundleId: bundle.id,
+        unitPrice: a.unitPrice,
+        unitCost: a.unitCost,
+    }));
+}

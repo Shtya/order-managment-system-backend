@@ -17,6 +17,7 @@ import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 import { deletePhysicalFiles, generateSlug, getErrorMessage } from "common/healpers";
 import { StoreEntity } from "entities/stores.entity";
+import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 
 @Injectable()
 export class BundlesService {
@@ -106,6 +107,7 @@ export class BundlesService {
 		const limit = Number(q?.limit) || 10;
 		const skip = (page - 1) * limit;
 		const adminId = tenantId(me);
+		const ids = q?.ids?.split(',') || [];
 
 		const qb = this.bundleRepo.createQueryBuilder("bundle");
 		const isActiveFilter = q?.isActive !== 'false';
@@ -128,6 +130,18 @@ export class BundlesService {
 					itemActive: isActiveFilter
 				}
 			)
+			.leftJoinAndMapMany(
+				"bundle.syncStates",
+				ProductSyncStateEntity,
+				"syncState",
+				`
+				"syncState"."bundleId" = bundle.id
+				AND "syncState"."adminId" = bundle."adminId"
+				AND "syncState"."storeId" = bundle."storeId"
+				AND "syncState"."externalStoreId" = "store"."externalStoreId"
+			  `
+			)
+
 			.leftJoinAndSelect("items.variant", "itemVariant");
 
 		// 2. Base Filters (Tenant & Status)
@@ -150,6 +164,9 @@ export class BundlesService {
 		if (q?.["wholesalePrice.lte"]) {
 			qb.andWhere("bundle.price <= :maxPrice", { maxPrice: Number(q["wholesalePrice.lte"]) });
 		}
+
+		if (!!ids && ids?.length > 0)
+			qb.andWhere("bundle.id IN (:...ids)", { ids: ids });
 
 		// 5. Search (Name or SKU)
 		if (q?.search) {

@@ -25,6 +25,7 @@ import { ActivatableEntity } from "./base.entity";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { CityEntity } from "./cities.entity";
 import { OrderAssignmentEntity } from "./assignment.entity";
+import { BundleEntity } from "./bundle.entity";
 
 
 // ✅ Order Status Enum
@@ -513,6 +514,13 @@ export class OrderItemEntity {
 
   @Column({ type: "boolean", default: false })
   stockDeducted: boolean;
+
+  @Column({ type: 'uuid', nullable: true })
+  bundleId?: string;
+
+  @ManyToOne(() => BundleEntity, { nullable: true })
+  @JoinColumn({ name: "bundleId" })
+  bundle?: BundleEntity;
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;

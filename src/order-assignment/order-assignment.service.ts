@@ -1011,6 +1011,7 @@ export class OrderAssignmentService {
             .where("order.adminId = :adminId", { adminId })
             .leftJoinAndSelect("order.items", "items")
             .leftJoinAndSelect("items.variant", "variant")
+            .leftJoinAndSelect("items.bundle", "bundle")
             .leftJoinAndSelect("variant.product", "product")
             .leftJoinAndSelect("order.statusHistory", "statusHistory")
             .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")

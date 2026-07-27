@@ -96,9 +96,10 @@ export class OrdersController {
   async scanPreparation(
     @Param("id") id: string,
     @Param('sku') sku: string,
+    @Body('itemId') itemId: string,
     @Req() req: any,
   ) {
-    return await this.svc.scanItem(id, sku, req.user);
+    return await this.svc.scanItem(id, sku, req.user, itemId);
   }
 
 

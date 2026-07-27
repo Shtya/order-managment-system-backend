@@ -1,16 +1,17 @@
 import { Injectable, InternalServerErrorException, forwardRef, Inject, NotFoundException, UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
-import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction } from "entities/product_sync_error.entity";
+import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntityType } from "entities/product_sync_error.entity";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 
 import axios, { AxiosRequestConfig } from "axios";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, MappedProductDto } from "./BaseStoreProvider";
+import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, MappedProductDto, FullStoreSyncType } from "./BaseStoreProvider";
 import { CategoryEntity } from "entities/categories.entity";
 import { InjectRepository } from "@nestjs/typeorm";
 import { StoresService } from "../stores.service";
 import { EncryptionService } from "common/encryption.service";
 import { EntityManager, MoreThan, Repository } from "typeorm";
 import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
+import { BundleEntity } from "entities/bundle.entity";
 import { v4 as uuidv4 } from 'uuid'; // You might need to install uuid: npm i uuid @types/uuid
 import { OrderEntity, OrderStatus, OrderStatusEntity, PaymentMethod, PaymentStatus } from "entities/order.entity";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -20,12 +21,12 @@ import { CategoriesService } from "src/category/category.service";
 import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
-import { NotificationType } from "entities/notifications.entity";
 import { imageSrc } from "common/healpers";
 
 
 @Injectable()
 export class EasyOrderService extends BaseStoreProvider {
+
     maxBundleItems?: number;
 
     supportBundle: boolean = false;
@@ -40,6 +41,7 @@ export class EasyOrderService extends BaseStoreProvider {
         @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
         @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
         @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+        @InjectRepository(BundleEntity) protected readonly bundlesRepo: Repository<BundleEntity>,
         protected readonly notificationService: NotificationService,
         @Inject(forwardRef(() => StoresService))
         protected readonly mainStoresService: StoresService,
@@ -54,7 +56,7 @@ export class EasyOrderService extends BaseStoreProvider {
         protected readonly encryptionService: EncryptionService,
         private readonly appGateway: AppGateway,
     ) {
-        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, notificationService, 40, StoreProvider.EASYORDER)
+        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, ordersService, notificationService, 40, StoreProvider.EASYORDER)
     }
 
 
@@ -342,14 +344,14 @@ export class EasyOrderService extends BaseStoreProvider {
         }
 
         this.logCtx(`[Sync] ✓ Category sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated}`, store);
-        return { 
-            categoryMap, 
-            report: { 
-                processed: totalProcessed, 
-                created: totalCreated, 
-                updated: totalUpdated, 
-                errors: totalErrors 
-            } 
+        return {
+            categoryMap,
+            report: {
+                processed: totalProcessed,
+                created: totalCreated,
+                updated: totalUpdated,
+                errors: totalErrors
+            }
         };
     }
 
@@ -456,6 +458,36 @@ export class EasyOrderService extends BaseStoreProvider {
             // drop_shipping_provider: "MyStore",
             variations: isSingle ? [] : attrebutes,
             variants: isSingle ? [] : variantsPayload
+        };
+    }
+
+    private async mapBundleToPayload(bundle: BundleEntity, store: StoreEntity, externalCategoryId: string) {
+        let categoryPayload = [];
+        if (externalCategoryId) {
+            categoryPayload.push({ id: String(externalCategoryId)?.trim() })
+        }
+
+        const bundleInventory = await this.calculateBundleInventory(
+            bundle
+        );
+
+        return {
+            name: bundle.name?.trim(),
+            price: Number(bundle.price) || 0,
+            expense: bundleInventory.expense,
+            description: bundle.description || "",
+            slug: (bundle.slug || bundle.id).replace(/_/g, '-'),
+            sku: bundle.sku,
+            thumb: this.getImageUrl(bundle.mainImage?.trim() || ""),
+            images: bundle.images?.map(img => this.getImageUrl(img.url?.trim())) || [],
+            categories: categoryPayload,
+            quantity: bundleInventory.quantity,
+            track_stock: true,
+            disable_orders_for_no_stock: true,
+            is_reviews_enabled: true,
+            taager_code: String(bundle.id),
+            variations: [],
+            variants: []
         };
     }
 
@@ -566,6 +598,51 @@ export class EasyOrderService extends BaseStoreProvider {
             entityName: product.name,
             storeName: store.name,
             isProduct: true,
+            action: 'UPDATE'
+        });
+
+        return { response, externalId, payload };
+    }
+
+    private async createBundle(bundle: BundleEntity, store: StoreEntity, externalCategoryId: string) {
+
+        const payload = await this.mapBundleToPayload(bundle, store, externalCategoryId);
+
+        const response = await this.sendRequest(store, {
+            method: 'POST',
+            url: '/products',
+            data: payload
+        });
+        const externalId = response.data?.id;
+
+        await this.sendSyncSuccessNotification({
+            adminId: bundle.adminId,
+            entityId: bundle.id,
+            entityName: bundle.name,
+            storeName: store.name,
+            isProduct: false,
+            action: 'CREATE'
+        });
+
+        return { response, externalId, payload };
+    }
+
+    private async updateBundle(bundle: BundleEntity, store: StoreEntity, externalId: string, externalCategoryId: string) {
+
+        const payload = await this.mapBundleToPayload(bundle, store, externalCategoryId);
+
+        const response = await this.sendRequest(store, {
+            method: 'PATCH',
+            url: `/products/${externalId}`,
+            data: payload
+        });
+
+        await this.sendSyncSuccessNotification({
+            adminId: bundle.adminId,
+            entityId: bundle.id,
+            entityName: bundle.name,
+            storeName: store.name,
+            isProduct: false,
             action: 'UPDATE'
         });
 
@@ -756,11 +833,135 @@ export class EasyOrderService extends BaseStoreProvider {
         }
 
         this.logCtx(`[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
-        return { 
-            processed: totalProcessed, 
-            created: totalCreated, 
-            updated: totalUpdated, 
-            errors: totalErrors 
+        return {
+            processed: totalProcessed,
+            created: totalCreated,
+            updated: totalUpdated,
+            errors: totalErrors
+        };
+    }
+
+    private async syncBundleCursor(store: StoreEntity, categoryMap: Map<string, string>, bundleIds?: string[]): Promise<{ processed: number; created: number; updated: number; errors: number }> {
+        let lastId = "";
+        let hasMore = true;
+        let totalProcessed = 0;
+        let totalCreated = 0;
+        let totalUpdated = 0;
+        let totalErrors = 0;
+
+        while (hasMore) {
+            const qb = this.storesRepo.manager.createQueryBuilder(BundleEntity, "bundle")
+                .leftJoinAndSelect("bundle.items", "items")
+                .leftJoinAndSelect("items.variant", "variant")
+                .leftJoinAndSelect("variant.product", "product")
+                .leftJoinAndSelect("bundle.category", "category")
+                .leftJoinAndMapOne(
+                    "bundle.syncState",
+                    ProductSyncStateEntity,
+                    "syncState",
+                    "syncState.bundleId = bundle.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
+                    { storeId: store.id, adminId: store.adminId, externalStoreId: store.externalStoreId }
+                )
+            if (!bundleIds || bundleIds.length === 0) {
+                qb.where("bundle.storeId = :storeId", { storeId: store.id })
+            }
+            qb.andWhere("bundle.adminId = :adminId", { adminId: store.adminId })
+                .andWhere("bundle.isActive = :isActive", { isActive: true })
+                .orderBy("bundle.id", "ASC")
+                .take(20);
+
+            if (bundleIds && bundleIds.length > 0) {
+                qb.andWhere("bundle.id IN (:...bundleIds)", { bundleIds });
+            }
+
+            if (lastId) {
+                qb.andWhere("bundle.id > :lastId", { lastId });
+            }
+
+            const localBatch = await qb.getMany() as any[];
+
+            if (localBatch.length === 0) {
+                hasMore = false;
+                break;
+            }
+
+            const ids = localBatch.map(b => b.syncState?.remoteProductId).filter(Boolean).join(',');
+            const remoteResponse = ids ? await this.getAllProducts(store, [`id||$in||${ids}`]) : { data: [] };
+            const remoteItems = Array.isArray(remoteResponse) ? remoteResponse || [] : remoteResponse?.data || [];
+            const remoteMap = new Map<string, any>(remoteItems.map((r: any) => [String(r.id), r]));
+
+            for (const bundle of localBatch) {
+                try {
+
+                    const remoteId = bundle?.syncState?.remoteProductId;
+                    const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
+
+                    let extCatId = bundle.categoryId ? categoryMap.get(bundle.categoryId) : null;
+
+                    if (!extCatId && bundle.category) {
+                        const remoteCategory = await this.syncCategory({ relatedAdminId: bundle.adminId, category: bundle.category });
+                        extCatId = remoteCategory?.id;
+                    }
+                    let syncedBundleResult: any;
+                    if (remote) {
+                        syncedBundleResult = await this.updateBundle(bundle, store, remote.id, extCatId);
+                        totalUpdated++;
+                    } else {
+                        syncedBundleResult = await this.createBundle(bundle, store, extCatId);
+                        totalCreated++;
+                    }
+                    await this.productSyncStateService.upsertSyncState(
+                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, externalStoreId: store.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                        {
+                            remoteProductId: syncedBundleResult?.externalId ?? remoteId ?? null,
+                            status: ProductSyncStatus.SYNCED,
+                            lastError: null,
+                            lastSynced_at: new Date(),
+                        },
+                    );
+                    totalProcessed++;
+                } catch (error: any) {
+                    const errorMessage = this.getErrorMessage(error);
+                    const remoteId = bundle?.syncState?.remoteProductId;
+                    const action = remoteId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
+
+                    await this.productSyncStateService.upsertSyncState(
+                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, externalStoreId: store.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                        {
+                            remoteProductId: remoteId || null,
+                            status: ProductSyncStatus.FAILED,
+                            lastError: errorMessage,
+                            lastSynced_at: new Date(),
+                        },
+                    );
+
+                    await this.productSyncStateService.upsertSyncErrorLog(
+                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, entityType: SyncEntityType.BUNDLE },
+                        {
+                            remoteProductId: remoteId || null,
+                            action: action,
+                            errorMessage,
+                            userMessage: `Failed to sync bundle "${bundle.name}" to ${store.name}: ${errorMessage}`,
+                            responseStatus: error?.response?.status,
+                            requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+                        }
+                    );
+
+                    this.logCtxError(`[Sync] Error processing bundle ${bundle.name} (ID: ${bundle.id}): ${errorMessage}`, store);
+                    totalErrors++;
+                }
+
+            }
+
+            lastId = localBatch[localBatch.length - 1].id;
+        }
+
+        this.logCtx(`[Sync] ✓ Bundle sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
+        return {
+            processed: totalProcessed,
+            created: totalCreated,
+            updated: totalUpdated,
+            errors: totalErrors
         };
     }
 
@@ -1003,11 +1204,12 @@ export class EasyOrderService extends BaseStoreProvider {
             where: { id: productId },
             relations: ['category', 'store']
         });
-        const activeStore = await this.getStoreForSync(product.adminId);
-
         if (!product) {
             throw new Error(`Product with ID ${productId} not found`);
         }
+
+        const activeStore = await this.getStoreForSync(product.adminId);
+
 
         // 2️⃣ جلب الـ Variants الخاصة بالمنتج
         const variants = await this.pvRepo.find({
@@ -1107,7 +1309,7 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
      * Main entry point for syncing order status to all applicable stores
      */
-    public async syncOrderStatus(order: OrderEntity, newStatusId: string,oldStatusId?: string) {
+    public async syncOrderStatus(order: OrderEntity, newStatusId: string, oldStatusId?: string) {
 
 
         const store = await this.getStoreForSync(order.adminId);
@@ -1121,17 +1323,18 @@ export class EasyOrderService extends BaseStoreProvider {
     /**
     * Main entry point for full store synchronization using Cursor Pagination
     */
-    public async syncFullStore(store: StoreEntity, productIds?: string[]): Promise<{ categoryReport: any; productReport: any }> {
+    public async syncFullStore(store: StoreEntity, ids?: string[], type: FullStoreSyncType = FullStoreSyncType.PRODUCT):  Promise<{ categoryReport: any; productReport: any; bundleReport: any }> {
         if (!store || !store.isActive) {
             throw new Error(`Store is inactive or null`);
         }
-        const hasProductIds = productIds?.length > 0;
+        const hasIds = ids?.length > 0;
         if (store.localSyncStatus === SyncStatus.SYNCING) {
             throw new Error(`Store is already syncing. Skipping.`);
         }
-
+        
         let categoryReport = { processed: 0, created: 0, updated: 0, errors: 0 };
         let productReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+        let bundleReport = { processed: 0, created: 0, updated: 0, errors: 0 };
 
         try {
 
@@ -1142,13 +1345,20 @@ export class EasyOrderService extends BaseStoreProvider {
 
             // 1. Sync Categories (Build ID mapping)
             let categoryMap = new Map<string, string>();
-            if (!hasProductIds) {
+            if (!hasIds) {
                 const { categoryMap: map, report } = await this.syncCategoriesCursor(store);
                 categoryMap = map;
                 categoryReport = report;
             }
 
-            productReport = await this.syncProductsCursor(store, categoryMap, productIds);
+            if(type === "product" || type === "all"){
+                productReport = await this.syncProductsCursor(store, categoryMap, ids);
+            }
+
+            if(type === "bundle" || type === "all"){
+                bundleReport = await this.syncBundleCursor(store, categoryMap, ids);
+            }
+
 
             // 2. Sync Products (Cursor based)
 
@@ -1181,7 +1391,7 @@ export class EasyOrderService extends BaseStoreProvider {
             throw error;
         }
 
-        return { categoryReport, productReport };
+        return { categoryReport, productReport, bundleReport };
     }
 
 
@@ -1318,7 +1528,7 @@ export class EasyOrderService extends BaseStoreProvider {
             [OrderStatus.PRINTED]: "processing",
             [OrderStatus.DISTRIBUTED]: "processing",
             [OrderStatus.READY]: "waiting_for_pickup",
-            
+
             [OrderStatus.SHIPPED]: "in_delivery",
             [OrderStatus.DELIVERED]: "delivered",
 
@@ -1520,7 +1730,7 @@ export class EasyOrderService extends BaseStoreProvider {
             const response = await this.sendRequest(store, {
                 method: 'GET',
                 url: `/products/${id}`,
-            }, 0, false);   
+            }, 0, false);
 
             return this.mapRemoteProductToDto(response);
         } catch (error: any) {
@@ -1627,6 +1837,93 @@ export class EasyOrderService extends BaseStoreProvider {
 
     public async processExternalOrderId(body: any, headers: Record<string, any>): Promise<string> {
         return body.id || body?.order_id || "";
+    }
+
+    public async syncBundle(bundle: BundleEntity): Promise<any> {
+        const loadedBundle = await this.bundlesRepo.findOne({
+            where: { id: bundle.id },
+            relations: ['category', 'store', 'items', 'items.variant']
+        });
+
+        if (!loadedBundle) {
+            throw new Error(`Bundle with ID ${bundle.id} not found`);
+        }
+
+        const activeStore = await this.getStoreForSync(loadedBundle.adminId);
+
+        const productSyncState = await this.productSyncStateRepo.findOne({
+            where: {
+                bundleId: loadedBundle.id,
+                storeId: activeStore.id,
+                adminId: loadedBundle.adminId,
+                externalStoreId: activeStore?.externalStoreId
+            }
+        });
+        let externalId = productSyncState?.remoteProductId;
+        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
+
+        if (!activeStore) {
+            throw new Error(`No active store enabled for admin (${loadedBundle.adminId})`);
+        }
+
+        try {
+            let easyOrderCategory = null;
+            if (loadedBundle.category) {
+                easyOrderCategory = await this.syncCategory({ category: loadedBundle.category, slug: loadedBundle.category.slug, relatedAdminId: loadedBundle.adminId });
+            }
+
+            let result;
+            if (externalId) {
+                const remoteProduct = await this.getProduct(activeStore, externalId);
+                if (remoteProduct) {
+                    result = await this.updateBundle(loadedBundle, activeStore, externalId, easyOrderCategory?.id);
+                } else {
+                    result = await this.createBundle(loadedBundle, activeStore, easyOrderCategory?.id);
+                }
+            } else {
+                result = await this.createBundle(loadedBundle, activeStore, easyOrderCategory?.id);
+            }
+            externalId = result?.externalId;
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId,
+                    status: ProductSyncStatus.SYNCED,
+                    lastError: null,
+                    lastSynced_at: new Date(),
+                },
+            );
+
+            return result.response;
+
+        } catch (error: any) {
+            const errorMessage = this.getErrorMessage(error);
+
+            await this.productSyncStateService.upsertSyncState(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId || null,
+                    status: ProductSyncStatus.FAILED,
+                    lastError: errorMessage,
+                    lastSynced_at: new Date(),
+                },
+            );
+
+            await this.productSyncStateService.upsertSyncErrorLog(
+                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, entityType: SyncEntityType.BUNDLE },
+                {
+                    remoteProductId: externalId || null,
+                    action: action,
+                    errorMessage,
+                    userMessage: `Failed to sync bundle "${loadedBundle.name}" to ${activeStore.name}: ${errorMessage}`,
+                    responseStatus: error?.response?.status,
+                    requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
+                }
+            );
+
+
+            throw error;
+        }
     }
 }
 
