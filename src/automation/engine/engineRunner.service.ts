@@ -95,13 +95,13 @@ export class EngineRunnerService {
                 await this.failRun(run, 'This automation version is no longer available. The execution was stopped before starting.');
                 return { success: false, message: 'Version not found', runId, status: RunStatus.FAILED };
             }
-            
+
 
             // Determine where to start!
             let startNodeId: string | null = null;
 
             // If we have a currentNodeId, try starting from there or next node
-            if (run.currentNodeId) {       
+            if (run.currentNodeId) {
                 // Check if current node was already completed
                 const isCurrentNodeCompleted = run.completedNodeIds?.includes(run.currentNodeId);
                 if (isCurrentNodeCompleted) {
@@ -114,7 +114,7 @@ export class EngineRunnerService {
                         !lastStep?.chosenBranch
                     ) {
                         // Need to choose a branch first! Pause the run again.
-                        
+
                         run.status = RunStatus.PAUSED;
                         await this.runRepo.save(run);
                         await this.emitRunUpdate(run);
@@ -137,7 +137,7 @@ export class EngineRunnerService {
                 this.logger.log(`No start node found, starting from trigger`);
                 startNodeId = findNextNodeId(version.flow.edges, run.executionState.trigger.nodeId);
             }
-            
+
 
             if (!startNodeId) {
                 this.logger.log(`No start node, marking run as completed`);
@@ -146,7 +146,7 @@ export class EngineRunnerService {
                 return { success: true, message: 'Run completed (no start node found)', runId, status: RunStatus.COMPLETED };
             }
 
-            
+
             await this.runLoop(run, version.flow, startNodeId);
             result = { success: true, message: 'Execution completed', runId, status: run.status };
         } catch (error) {
@@ -163,8 +163,7 @@ export class EngineRunnerService {
     }
 
     async resumeFromWhatsappInteraction(originalMessageId: string, buttonText: string, buttonId?: string): Promise<{ success: boolean; message: string; runId?: string; status?: RunStatus }> {
-        // 1. البحث السريع عن الخطوة التي أنتجت هذه الرسالة باستخدام JSONB Query (سريع جداً في Postgres)
-        // نبحث في الحقل الأساسي messageId أو داخل مصفوفة sentUpsells في حال وجود عروض متعددة
+
         const step = await this.stepRepo.createQueryBuilder('step')
             .where(`step."outputData"->>'messageId' = :messageId`, { messageId: originalMessageId })
             .orWhere(`EXISTS (
@@ -182,45 +181,46 @@ export class EngineRunnerService {
         let upsellApplyResultCode: string | undefined;
 
         try {
-        // Special logic for Upsell: Apply before choosing branch
-        if (step.dataType === ActionType.SEND_UPSELL && buttonId?.endsWith('_btn_0')) {
-            const adminId = run.executionState.trigger.output.adminId;
-            const me = { adminId };
-            const result = await this.upsellsService.applyUpsellByMessageId(me, originalMessageId);
-            upsellApplyResultCode = result.code;
+            // Special logic for Upsell: Apply before choosing branch
+            if (step.dataType === ActionType.SEND_UPSELL && buttonId?.endsWith('_btn_0')) {
+                const adminId = run.executionState.trigger.output.adminId;
+                const me = { adminId };
+                const result = await this.upsellsService.applyUpsellByMessageId(me, originalMessageId);
+                upsellApplyResultCode = result.code;
 
-            // Send feedback message to customer
-            const orderData = run.executionState.trigger.output as OrderEntity;
-            let feedbackText = '';
-            if (result.success) {
-                feedbackText = '✅ تمت إضافة العرض لطلبك بنجاح!';
-            } else {
-                if (result.code === 'UPSELL_EXPIRED') {
-                    feedbackText = '❌ عذراً، هذا العرض قد انتهت صلاحيته.';
-                } else if (result.code === 'ORDER_DELIVERED') {
-                    feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب تم توصيله.';
-                }
-                else if (result.code === 'INVALID_ORDER_STATUS') {
-                    feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب قيد التجهيز أو الشحن.';
-                } else if (result.code === 'ALREADY_ACCEPTED') {
-                    feedbackText = '❌ عذراً، هذا العرض تم إضافةه بالفعل.';
+                // Send feedback message to customer
+                const orderData = run.executionState.trigger.output as OrderEntity;
+                let feedbackText = '';
+                if (result.success) {
+                    feedbackText = '✅ تمت إضافة العرض لطلبك بنجاح!';
+                } else {
+                    if (result.code === 'UPSELL_EXPIRED') {
+                        feedbackText = '❌ عذراً، هذا العرض قد انتهت صلاحيته.';
+                    } else if (result.code === 'ORDER_DELIVERED') {
+                        feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب تم توصيله.';
+                    }
+                    else if (result.code === 'INVALID_ORDER_STATUS') {
+                        feedbackText = '❌ عذراً، لا يمكن إضافة العرض حالياً لأن الطلب قيد التجهيز أو الشحن.';
+                    } else if (result.code === 'ALREADY_ACCEPTED') {
+                        feedbackText = '❌ عذراً، هذا العرض تم إضافةه بالفعل.';
+                    }
+
+                    else {
+                        feedbackText = '❌ عذراً، فشل إضافة العرض للطلب حالياً.';
+                    }
                 }
 
-                else {
-                    feedbackText = '❌ عذراً، فشل إضافة العرض للطلب حالياً.';
-                }
+                await this.whatsappService.sendMessage(
+                    me,
+                    {
+                        to: orderData.normalizedPhoneNumber,
+                        messaging_product: 'whatsapp',
+                        type: 'text',
+                        text: { body: feedbackText }
+                    },
+                );
             }
-
-            await this.whatsappService.sendMessage(
-                me,
-                {
-                    to: orderData.normalizedPhoneNumber,
-                    messaging_product: 'whatsapp',
-                    type: 'text',
-                    text: { body: feedbackText }
-                },
-            );
-        } } 
+        }
         catch (error) {
             this.logger.error(`=== ERROR in resumeFromWhatsappInteraction(${step.runId}):`, error);
             const message = getErrorMessage(error);
@@ -228,7 +228,7 @@ export class EngineRunnerService {
             return { success: false, message: `Error: ${message}`, runId: step.runId, status: RunStatus.FAILED };
         }
 
-        
+
         if (!run || run.status !== RunStatus.PAUSED) {
             this.logger.warn(`Automation run ${step.runId} is not in PAUSED state. Cannot resume.`);
             return { success: false, message: 'Run is not in PAUSED state', runId: step.runId, status: run?.status };
@@ -253,6 +253,7 @@ export class EngineRunnerService {
         let chosenBranch = branches.find((b: any) =>
             b.sourceButton?.id === buttonId ||
             b.sourceButton?.text === buttonText ||
+            b.id === buttonId ||
             b.label === buttonText
         );
 
@@ -358,7 +359,7 @@ export class EngineRunnerService {
                 return;
             }
             this.logger.log(`Found node: ${node.data.type} (${node.data.label})`);
-            
+
             // infinite loop detection
             if (completedNodeIds.includes(currentNodeId)) {
                 this.logger.error(`Infinite loop detected at ${currentNodeId}`);
@@ -393,8 +394,8 @@ export class EngineRunnerService {
                 // const result = await handler.execute(hydratedConfig, run);
                 const result = await handler.execute(nodeConfig, run);
                 this.logger.log(`Handler result:`, result);
-                if(result?.resumeAfter) {
-                    await new Promise(resolve => setTimeout(resolve, result.resumeAfter)); 
+                if (result?.resumeAfter) {
+                    await new Promise(resolve => setTimeout(resolve, result.resumeAfter));
                 }
                 // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
 

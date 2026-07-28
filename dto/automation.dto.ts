@@ -105,7 +105,6 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
         for (const [id, count] of incomingEdgesCount.entries()) {
             if (id !== trigger.id && count === 0) {
                 this.errorKey = 'validation.node_unreachable';
-                this.errorArgs = { id };
                 return false;
             }
         }

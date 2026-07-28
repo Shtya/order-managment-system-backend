@@ -603,9 +603,10 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
             if (this.whatsappService && finalMessageId) {
                 await checkMessageStatus(finalMessageId, this.messageRepo, this.logger);
             }
-
+            const shouldPause = config.branches?.length > 0;
             return {
                 success: true,
+                shouldPause,
                 output: {
                     messageId: finalMessageId,
                     recipient: to

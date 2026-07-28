@@ -119,7 +119,7 @@
   "trigger_cannot_have_incoming_edges": "لا يمكن أن تحتوي عقدة المحفز على حواف واردة.",
   "duplicate_connection": "تم العثور على اتصال مكرر: {source} -> {target} عبر {sourceHandle}",
   "invalid_source_handle": "مقابض المصدر \"{sourceHandle}\" غير صالح للعقدة \"{source}\". من المتوقع أحد هذه: {expectedBranches}",
-  "node_unreachable": "العقدة \"{id}\" غير قابلة للوصول (لا توجد حواف واردة).",
+  "node_unreachable": "يوجد عقدة غير متصله بأي عقد.",
   "flow_not_fully_connected": "مخطط التدفق غير متصل بالكامل من عقدة المحفز.",
   "flow_circular_reference": "مخطط التدفق يحتوي على مرجع دائري (دورة).",
   "invalid_data_type_for_node_type": "نوع البيانات \"{dataType}\" غير صالح لنوع العقدة \"{nodeType}\"",

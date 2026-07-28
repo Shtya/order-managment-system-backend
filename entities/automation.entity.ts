@@ -242,6 +242,11 @@ export interface SendWhatsappMessageConfig {
     accountId: string,
     actionIntent?: MessageActionIntent,
     accountName?: string,
+    branches?: {
+        id: string,
+        label: string,
+        sourceButton: any,
+    }[]
 }
 export interface QuickOrderStatusConfig {
     status: string;
