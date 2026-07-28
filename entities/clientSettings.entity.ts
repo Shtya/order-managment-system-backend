@@ -204,6 +204,9 @@ export class ClientSettingsEntity {
     warehouseDefaultShippingCompanyId: string | null;
   };
 
+  @Column({ type: "timestamptz", nullable: true })
+  returnNotificationLastSentAt: Date;
+
   @UpdateDateColumn({ type: "timestamptz" })
   updated_at: Date;
 }

@@ -613,6 +613,7 @@
       "moved_to_return_preparing": "Automatic: Moved to Return Preparing via return request",
       "return_request_created_log": "Order {orderNumberOrId} has been prepared for returned for {itemsCount} items.",
       "return_request_created_title": "Return Request Created",
+      "order_status_wrong": "A return request can only be created for orders that are Shipped, Delivered, or Failed Delivery. Order #{{orderNumber}} is not eligible.",
       "return_request_created_message": "A return request has been created for order #{orderNumber}."
     },
     "replacement": {
@@ -1001,6 +1002,8 @@
     "order_distributed_title": "Order Distributed",
     "shipment_failed_title": "Shipment Creation Failed",
     "shipment_failed_message": "Failed to create shipment for order #{orderNumber}. Error: {error}",
+      "shipment_delivary_failed_title": "Shipment Delivery Failed",
+  "shipment_delivary_failed_message": "Delivery of the shipment for Order #{orderNumber} has failed and it is awaiting return to the warehouse.",
     "shipment_not_found": "Shipment not found",
     "shipment_already_cancelled": "Shipment is already cancelled",
     "provider_cancel_failed": "Provider refused to cancel the shipment",
@@ -1039,7 +1042,12 @@
     "bosta_failed_waybill_fallback": "Failed to print waybill",
     "credentials_verified": "Credentials verified successfully",
     "bosta_city_required": "City is required for Bosta shipping. Please update the order details.",
-    "bosta_district_required": "District is required for Bosta shipping. Please update the order details."
+    "bosta_district_required": "District is required for Bosta shipping. Please update the order details.",
+    "returnReminders": {
+      "title": "Return Reminders",
+      "single_message": "You have 1 shipment needs to be returned to the warehouse (Order #{orderNumber}) but not reach warehouse yet.",
+      "multiple_message": "You have {count} shipments need to be returned but not reach warehouse yet."
+    }
   },
   "stores": {
     "not_found": "Store not found",

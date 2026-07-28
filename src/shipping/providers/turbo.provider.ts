@@ -304,12 +304,32 @@ export class TurboProvider extends ShippingProvider {
 
     const trackingNumber = body?.order_number?.toString() || body?.order_number?.toString();
 
+    const returnReasonKeywords = {
+      refused: ["رفض", "Refused", "رفض الاستلام", "Customer Refused"],
+      notAnswer: ["غير متصل", "Not connected", "الهاتف غير متصل", "Mobile Closed", "مغلق", "غير متاح", "Not available"],
+    };
+
+    const returnReason = (body?.return_reason || '').toString();
+    const delayReason = (body?.delay_reason || '').toString();
+
+    let unifiedStatus: UnifiedShippingStatus;
+
+    if ((statusCode === 6 || statusCode === 5) && returnReasonKeywords.refused.some(kw => returnReason.includes(kw))) {
+      unifiedStatus = UnifiedShippingStatus.CUSTOMER_REFUSED;
+    } else if (statusCode === 99) {
+      unifiedStatus = UnifiedShippingStatus.CUSTOMER_DATA_WRONG;
+    } else if (statusCode === 13 && returnReasonKeywords.notAnswer.some(kw => delayReason.includes(kw))) {
+      unifiedStatus = UnifiedShippingStatus.CUSTOMER_NOT_RESPOND;
+    } else {
+      unifiedStatus = statusCode ? this.mapTurboStateToUnified(statusCode) : this.mapTurboTextStateToUnified(body?.status);
+    }
+
     return {
-      unifiedStatus: statusCode ? this.mapTurboStateToUnified(statusCode) : this.mapTurboTextStateToUnified(body?.status),
+      unifiedStatus,
       rawState: statusCode,
       trackingNumber: trackingNumber,
       providerShipmentId: body?.order_number?.toString(),
-      notes: body?.notes || body?.exceptionReason || body?.message || "",
+      notes: body?.return_reason || body?.delay_reason || body?.notes || body?.exceptionReason || body?.message || "",
     };
   }
 
@@ -371,18 +391,29 @@ export class TurboProvider extends ShippingProvider {
   /**
  * خريطة تحويل حالات Turbo Express إلى الحالات الموحدة للنظام
  */
+//   '1' => 'محفوظة قبل الشحن',
+//   '2' => 'مرسلة للشحن',
+//   '3' => 'قيد التنفيذ',
+//   '4' => 'مع الكابتن',
+//   '5' => 'مرتجعة مع الشركة',
+//   '6' => 'مرتجعة',
+//   '7' => 'تم التسليم',
+//   '8' => 'تم التوريد',
+//   '9' => 'محذوفة',
+//   '10' => 'مرتجعة معاد إرسالها',
+//   '13' => 'مؤجلة',
+//   '99' => 'بيانات غير مكتملة',
+
   private mapTurboStateToUnified(state: number): UnifiedShippingStatus {
     if (state == null) return UnifiedShippingStatus.IN_PROGRESS;
 
     // 1. حالات جديدة (New)
-    // 1: قيد الانتظار، 7: غير مكتملة
-    if ([1, 7].includes(state)) {
+    if ([1].includes(state)) {
       return UnifiedShippingStatus.NEW;
     }
 
-    // 2. تحت الإجراء / تم القبول (In Progress)
-    // 2: المقبولة، 25: معاد إرسالها (بانتظار إجراء جديد)
-    if ([2, 25].includes(state)) {
+    // 3. تحت الإجراء / تم القبول (In Progress)
+    if ([2, 3].includes(state)) {
       return UnifiedShippingStatus.IN_PROGRESS;
     }
 
@@ -394,26 +425,21 @@ export class TurboProvider extends ShippingProvider {
 
     // 4. تم التسليم (Delivered)
     // 5: تم التسليم، 20: تم التوريد (تحصيل المبلغ)
-    if ([5, 20].includes(state)) {
+    if ([7].includes(state)) {
       return UnifiedShippingStatus.DELIVERED;
     }
 
-    // 5. مرتجعات (Returned)
-    // 21: مرتجعات وصلت لك، 17: مرتجع إلغاء مع المندوب
-    if ([21, 17].includes(state)) {
+    
+    if ([6].includes(state)) {
       return UnifiedShippingStatus.RETURNED;
     }
 
-    // 6. ملغاة (Cancelled)
-    // 6: ملغاة
-    if (state === 6) {
-      return UnifiedShippingStatus.CANCELLED;
-    }
-
-    // 7. استثناءات ومشاكل (Exception / On Hold)
-    // 9: مؤجلة مع المندوب
-    if (state === 9) {
+    if ([5].includes(state)) {
       return UnifiedShippingStatus.ON_HOLD;
+    }
+  
+    if (state === 9) {
+      return UnifiedShippingStatus.CANCELLED;
     }
 
     // 8. مفقودات وتلفيات (Lost / Damaged)
@@ -428,6 +454,20 @@ export class TurboProvider extends ShippingProvider {
 
     if (state === 3) {
       return UnifiedShippingStatus.IN_PROGRESS;
+    }
+
+    // 9. حالات عدم التسليم (Customer issues)
+    // 99: بيانات العميل خاطئة
+    if (state === 99) {
+      return UnifiedShippingStatus.CUSTOMER_DATA_WRONG;
+    }
+
+    if (state === 99) {
+      return UnifiedShippingStatus.CUSTOMER_DATA_WRONG;
+    }
+
+    if (state === 13) {
+      return UnifiedShippingStatus.ON_HOLD;
     }
 
     // الحالة الافتراضية
@@ -449,6 +489,7 @@ export class TurboProvider extends ShippingProvider {
       case 'معاد ارسالها':
       case 'غير مكتملة':
       case 'قيد الإنتظار':
+      case 'مرسلة للشحن':
         return UnifiedShippingStatus.IN_PROGRESS;
 
       // 3. خرج للتوصيل (In Transit)
@@ -459,12 +500,17 @@ export class TurboProvider extends ShippingProvider {
       // 4. تم التسليم (Delivered)
       case 'تم التسليم':
       case 'تم التوريد':
+      case 'مع الكابتن':
         return UnifiedShippingStatus.DELIVERED;
 
       // 5. مرتجعات (Returned)
       case 'مرتجعات فى الشركة':
       case 'مرتجعات وصلت لك':
+      case 'مرتجعة':
         return UnifiedShippingStatus.RETURNED;
+
+      case 'محذوفة':
+        return UnifiedShippingStatus.CANCELLED;
 
       // 6. استثناءات ومشاكل (Exception / On Hold)
       case 'مؤجلة مع المندوب':
@@ -476,6 +522,17 @@ export class TurboProvider extends ShippingProvider {
 
       case 'مرتجعات معدومة':
         return UnifiedShippingStatus.DAMAGED;
+
+      case 'مرتجعة مع الشركة':
+      case 'مؤجلة':
+        return UnifiedShippingStatus.DAMAGED;
+
+      case 'مرتجعات معدومة':
+        return UnifiedShippingStatus.DAMAGED;
+
+      case 'بيانات غير مكتملة':
+        return UnifiedShippingStatus.CUSTOMER_DATA_WRONG;
+
 
       // الحالة الافتراضية لأي نص غير معروف
       default:

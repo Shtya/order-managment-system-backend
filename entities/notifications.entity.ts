@@ -54,6 +54,7 @@ export enum NotificationType {
     ORDER_ASSIGNED = 'order_assigned',
     UPSELL_UPDATED = 'upsell_updated',
     ORDER_LOCATION_UPDATED = 'order_location_updated',
+    RETURN_SHIPMENT_REMINDER = 'return_shipment_reminder',
 }
 
 @Entity('notifications')

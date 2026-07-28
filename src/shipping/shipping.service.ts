@@ -370,7 +370,7 @@ export class ShippingService {
 
 	async setCredentials(adminId: string, provider: string, credentials: any) {
 		const company = await this.getCompanyByProviderForAdmin(adminId, provider);
-		
+
 		const integ = await this.getOrCreateIntegration(adminId, company.id);
 
 		const next = {
@@ -802,7 +802,7 @@ export class ShippingService {
 				userId: adminId,
 				type: NotificationType.SHIPMENT_CREATED,
 				title: await this.requestTranslations.tAsync("domains.shipping.shipment_creation_failed", adminId),
-				message: await this.requestTranslations.tAsync("domains.shipping.shipment_failed_message", adminId, { args: { orderNumber: order?.orderNumber, errorMessage: errorMessage } }),
+				message: await this.requestTranslations.tAsync("domains.shipping.shipment_failed_message", adminId, { args: { orderNumber: order?.orderNumber, erorr: errorMessage } }),
 				relatedEntityType: "order",
 				relatedEntityId: String(order?.id),
 			});
@@ -971,6 +971,9 @@ export class ShippingService {
 			ShipmentStatus.DELIVERED,
 			ShipmentStatus.RETURNED_TO_WAREHOUSE,
 			ShipmentStatus.FAILED,
+			ShipmentStatus.CUSTOMER_DATA_WRONG,
+			ShipmentStatus.CUSTOMER_NOT_RESPOND,
+			ShipmentStatus.CUSTOMER_REFUSED,
 			ShipmentStatus.CANCELLED,
 		];
 		return { ok: true, statuses: orderedStatuses };
@@ -1414,37 +1417,37 @@ export class ShippingService {
 			}
 		}
 		shipment.rawStatus = mapped.rawState;
-		if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
-			shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
-			shipment.status = ShipmentStatus.CANCELLED;
-			const cancelledStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.CANCELLED } });
-			if (cancelledStatus) {
-				order.statusId = cancelledStatus.id;
-				order.status = cancelledStatus;
-				statusChanged = true;
-			}
-			await manager.save(order);
-			await returnStock();
+		// if (mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED && shipment.unifiedStatus !== UnifiedShippingStatus.CANCELLED) {
+		// 	shipment.unifiedStatus = UnifiedShippingStatus.CANCELLED;
+		// 	shipment.status = ShipmentStatus.CANCELLED;
+		// 	const cancelledStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.CANCELLED } });
+		// 	if (cancelledStatus) {
+		// 		order.statusId = cancelledStatus.id;
+		// 		order.status = cancelledStatus;
+		// 		statusChanged = true;
+		// 	}
+		// 	await manager.save(order);
+		// 	await returnStock();
 
-			await this.notificationService.create({
-				userId: shipment.adminId,
-				type: NotificationType.SHIPMENT_CANCELLED,
-				title: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_title", shipment.adminId),
-				message: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_message", shipment.adminId, {
-					args: {
-						orderNumber: order.orderNumber,
-					},
-				}),
-				relatedEntityType: "order",
-				relatedEntityId: String(order.id),
-			});
-		} else {
-			shipment.unifiedStatus = mapped.unifiedStatus;
-			const newStatus = await this.mapUnifiedToLegacy(mapped.unifiedStatus);
-			if (newStatus) {
-				shipment.status = newStatus;
-			}
+		// 	await this.notificationService.create({
+		// 		userId: shipment.adminId,
+		// 		type: NotificationType.SHIPMENT_CANCELLED,
+		// 		title: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_title", shipment.adminId),
+		// 		message: await this.requestTranslations.tAsync("domains.shipping.shipment_cancelled_message", shipment.adminId, {
+		// 			args: {
+		// 				orderNumber: order.orderNumber,
+		// 			},
+		// 		}),
+		// 		relatedEntityType: "order",
+		// 		relatedEntityId: String(order.id),
+		// 	});
+		// } else {
+		shipment.unifiedStatus = mapped.unifiedStatus;
+		const newStatus = await this.mapUnifiedToLegacy(mapped.unifiedStatus);
+		if (newStatus) {
+			shipment.status = newStatus;
 		}
+		// }
 
 		if (mapped.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
 			const deliveredStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.DELIVERED } });
@@ -1471,7 +1474,11 @@ export class ShippingService {
 			});
 		} else if (
 			mapped.unifiedStatus === UnifiedShippingStatus.EXCEPTION ||
-			mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED
+			mapped.unifiedStatus === UnifiedShippingStatus.TERMINATED ||
+			mapped.unifiedStatus === UnifiedShippingStatus.CUSTOMER_NOT_RESPOND ||
+			mapped.unifiedStatus === UnifiedShippingStatus.CUSTOMER_DATA_WRONG ||
+			mapped.unifiedStatus === UnifiedShippingStatus.CUSTOMER_REFUSED ||
+			mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED
 		) {
 			const failedStatus = await manager.findOne(OrderStatusEntity, { where: { code: OrderStatus.FAILED_DELIVERY } });
 			if (failedStatus) {
@@ -1485,11 +1492,10 @@ export class ShippingService {
 			await this.notificationService.create({
 				userId: shipment.adminId,
 				type: NotificationType.SHIPMENT_FAILED,
-				title: await this.requestTranslations.tAsync("domains.shipping.shipment_failed_title", shipment.adminId),
-				message: await this.requestTranslations.tAsync("domains.shipping.shipment_failed_message", shipment.adminId, {
+				title: await this.requestTranslations.tAsync("domains.shipping.shipment_delivary_failed_title", shipment.adminId),
+				message: await this.requestTranslations.tAsync("domains.shipping.shipment_delivary_failed_message", shipment.adminId, {
 					args: {
 						orderNumber: order.orderNumber,
-						status: mapped.unifiedStatus,
 					},
 				}),
 				relatedEntityType: "order",
@@ -1511,7 +1517,7 @@ export class ShippingService {
 				manager,
 			});
 		}
-		
+
 		await manager.save(shipment);
 		await manager.save(
 			manager.create(ShipmentEventEntity, {
@@ -1530,7 +1536,7 @@ export class ShippingService {
 				adminId: shipment.adminId,
 				notes: mapped.notes,
 				rawState: eventMeta.payload,
-				rawStatus: mapped.rawState,
+				rawStatus: mapped.unifiedStatus,
 				unifiedStatus: mapped.unifiedStatus,
 			})
 		);
@@ -1591,6 +1597,9 @@ export class ShippingService {
 		// if (u === UnifiedShippingStatus.NEW) return ShipmentStatus.CREATED;
 		if (u === UnifiedShippingStatus.DELIVERED) return ShipmentStatus.DELIVERED;
 		if (u === UnifiedShippingStatus.CANCELLED) return ShipmentStatus.CANCELLED;
+		if (u === UnifiedShippingStatus.CUSTOMER_DATA_WRONG) return ShipmentStatus.CUSTOMER_DATA_WRONG;
+		if (u === UnifiedShippingStatus.CUSTOMER_NOT_RESPOND) return ShipmentStatus.CUSTOMER_NOT_RESPOND;
+		if (u === UnifiedShippingStatus.CUSTOMER_REFUSED) return ShipmentStatus.CUSTOMER_REFUSED;
 
 		if ([UnifiedShippingStatus.EXCEPTION, UnifiedShippingStatus.LOST, UnifiedShippingStatus.DAMAGED, UnifiedShippingStatus.TERMINATED].includes(u)) {
 			return ShipmentStatus.FAILED;

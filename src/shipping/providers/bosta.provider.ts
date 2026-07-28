@@ -231,7 +231,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
       notes: order.customerNotes || "",
-      cod:order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (
+      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (
         isExchange
           ? (order.finalTotal - order.deposit)
           : Math.max(0, order.finalTotal - order.deposit)
@@ -310,7 +310,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     const providerShipmentId = body?._id ?? null;
     const trackingNumber = body?.trackingNumber ? String(body.trackingNumber) : null;
     const state = body?.state;
-    const unified = body?.isConfirmedDelivery ? UnifiedShippingStatus?.DELIVERED : this.mapBostaStateToUnified(state);
+    const unified = body?.isConfirmedDelivery ? UnifiedShippingStatus?.DELIVERED : this.mapBostaStateToUnified(state, body?.exceptionCode);
 
     return {
       unifiedStatus: unified,
@@ -458,7 +458,7 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     }
   }
 
-  private mapBostaStateToUnified(state: number): UnifiedShippingStatus {
+  private mapBostaStateToUnified(state: number, exceptionCode?: number): UnifiedShippingStatus {
     if (state == null) return UnifiedShippingStatus.IN_PROGRESS;
 
     if ([10, 11].includes(state)) return UnifiedShippingStatus.NEW;
@@ -469,7 +469,14 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
 
     if (state === 45) return UnifiedShippingStatus.DELIVERED;
     if (state === 46) return UnifiedShippingStatus.RETURNED;
-    if (state === 47) return UnifiedShippingStatus.EXCEPTION;
+
+    if (state === 47) {
+      if (exceptionCode === 8) return UnifiedShippingStatus.CUSTOMER_REFUSED;
+      if ([5, 13, 14].includes(exceptionCode)) return UnifiedShippingStatus.CUSTOMER_DATA_WRONG;
+      if (exceptionCode === 7) return UnifiedShippingStatus.CUSTOMER_NOT_RESPOND;
+      return UnifiedShippingStatus.CANCELLED;
+    }
+
     if (state === 49) return UnifiedShippingStatus.CANCELLED;
     if (state === 48) return UnifiedShippingStatus.TERMINATED;
 

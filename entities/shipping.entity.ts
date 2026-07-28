@@ -61,6 +61,9 @@ export enum ShipmentStatus {
 	 */
 	RETURNED_TO_WAREHOUSE = 'returned_to_warehouse',
 	FAILED = 'failed',
+	CUSTOMER_NOT_RESPOND = 'customer_not_respond',
+	CUSTOMER_DATA_WRONG = 'customer_data_wrong',
+	CUSTOMER_REFUSED = 'customer_refused',
 	CANCELLED = 'cancelled',
 }
 
@@ -79,6 +82,9 @@ export enum UnifiedShippingStatus {
 	ON_HOLD = 'on_hold',
 	ACTION_REQUIRED = 'action_required',
 	ARCHIVED = 'archived',
+	CUSTOMER_NOT_RESPOND = 'customer_not_respond',
+	CUSTOMER_DATA_WRONG = 'customer_data_wrong',
+	CUSTOMER_REFUSED = 'customer_refused',
 }
 
 @Entity({ name: "shipping_companies" })

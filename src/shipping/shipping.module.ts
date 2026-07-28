@@ -19,6 +19,8 @@ import { OrdersModule } from 'src/orders/orders.module';
 import { WebSocketModule } from '../../common/websocket.module';
 import { AutomationModule } from 'src/automation/automation.module';
 import { ShipmentSubscriber } from './shipping.subscriptor';
+import { ReturnShipmentCheckerService } from './return-shipment-checker.service';
+import { ClientSettingsEntity } from 'entities/clientSettings.entity';
 
 @Module({
   imports: [
@@ -27,10 +29,10 @@ import { ShipmentSubscriber } from './shipping.subscriptor';
     forwardRef(() => AuthModule),
     forwardRef(() => OrdersModule),
     WebSocketModule,
-    TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity, ExternalShipmentLogEntity]),
+    TypeOrmModule.forFeature([ShippingCompanyEntity, ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity, OrderEntity, ExternalShipmentLogEntity, ClientSettingsEntity]),
   ],
   controllers: [ShippingController, ShippingWebhookController],
-  providers: [ShippingService, BostaProvider, JtProvider, TurboProvider, ShipmentSubscriber],
+  providers: [ShippingService, BostaProvider, JtProvider, TurboProvider, ShipmentSubscriber, ReturnShipmentCheckerService],
   exports: [ShippingService],
 })
 export class ShippingModule { }

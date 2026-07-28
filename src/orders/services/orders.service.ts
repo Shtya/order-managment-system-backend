@@ -5,6 +5,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { isEmail } from 'class-validator';
@@ -105,6 +106,7 @@ export function tenantId(me: any): any | null {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);  
   constructor(
     private dataSource: DataSource,
     protected readonly orderSyncQueueService: OrderSyncQueueService,
@@ -749,7 +751,7 @@ export class OrdersService {
     // Date range
     DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
 
-    if (q?.status && q?.status === OrderStatus.POSTPONED && (q?.postponedStartDate || q?.postponedEndDate)) {
+    if (q?.postponedStartDate || q?.postponedEndDate) {
       DateFilterUtil.applyToQueryBuilder(qb, "order.postponedDate", q?.postponedStartDate, q?.postponedEndDate);
     }
 
@@ -767,6 +769,12 @@ export class OrdersService {
           statuses: [ShipmentStatus.PENDING_ACTION, ShipmentStatus.PREPARING, ShipmentStatus.READY_TO_SHIP],
         });
       }
+    }
+
+    if (q?.shippingStatus && q.shippingStatus !== "all") {
+      qb.andWhere("shipment.status = :shippingStatus", {
+        shippingStatus: q.shippingStatus,
+      });
     }
 
     DateFilterUtil.applyToQueryBuilder(qb, "order.shippedAt", q?.shippedStartDate, q?.shippedEndDate);
@@ -3846,6 +3854,10 @@ export class OrdersService {
       // Save Entities
       await manager.save(OrderAssignmentEntity, activeAssignment);
       const savedOrder = await manager.save(OrderEntity, order);
+
+      if (this.isWarehouseStatus(newStatus.code)) {
+        this.logger.log(`[changeConfirmationStatus] Order #${order.orderNumber} moved to warehouse status: ${newStatus.code} (old: ${oldStatus?.code})`);
+      }
 
 
       await this.logOrderAction({

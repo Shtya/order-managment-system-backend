@@ -40,41 +40,43 @@ export class OrderReturnService {
             });
 
             if (!order) {
-            throw new NotFoundException(this.translations.t('domains.orders.return.order_not_found', { args: { orderId: dto.orderId } }));
-        }
-
+                throw new NotFoundException(this.translations.t('domains.orders.return.order_not_found', { args: { orderId: dto.orderId } }));
+            }
+            if(![OrderStatus.DELIVERED, OrderStatus.SHIPPED, OrderStatus.FAILED_DELIVERY].includes(order.status.code as OrderStatus)){
+                throw new BadRequestException(this.translations.t('domains.orders.return.order_status_wrong', { args: { orderNumber: order.orderNumber } }))
+            }
             const orderItemsMap = new Map(order.items.map(item => [item.id, item]));
 
             // 2. Validate requested items
             for (const returnItem of dto.items) {
-            const originalOrderItem = orderItemsMap.get(returnItem.originalItemId);
-            let errorDetail;
-            let errorDetail2;
+                const originalOrderItem = orderItemsMap.get(returnItem.originalItemId);
+                let errorDetail;
+                let errorDetail2;
 
-            if (!originalOrderItem) {
-                errorDetail = await this.requestTranslations.tAsync('domains.orders.return.item_not_found', adminId, { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
-            } else if (returnItem.quantity > originalOrderItem.quantity) {
-                errorDetail = await this.requestTranslations.tAsync('domains.orders.return.qty_mismatch', adminId, { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
-            }
-            if (!originalOrderItem) {
-                errorDetail2 = this.translations.t('domains.orders.return.item_not_found', { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
-            } else if (returnItem.quantity > originalOrderItem.quantity) {
-                errorDetail2 = this.translations.t('domains.orders.return.qty_mismatch', { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
-            }
+                if (!originalOrderItem) {
+                    errorDetail = await this.requestTranslations.tAsync('domains.orders.return.item_not_found', adminId, { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
+                } else if (returnItem.quantity > originalOrderItem.quantity) {
+                    errorDetail = await this.requestTranslations.tAsync('domains.orders.return.qty_mismatch', adminId, { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
+                }
+                if (!originalOrderItem) {
+                    errorDetail2 = this.translations.t('domains.orders.return.item_not_found', { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
+                } else if (returnItem.quantity > originalOrderItem.quantity) {
+                    errorDetail2 = this.translations.t('domains.orders.return.qty_mismatch', { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
+                }
 
-            if (errorDetail) {
-                await this.ordersService.logOrderAction({
-                    manager,
-                    adminId,
-                    userId,
-                    orderId: dto.orderId,
-                    actionType: OrderActionType.RETURN,
-                    result: OrderActionResult.FAILED,
-                    details: errorDetail
-                });
-                throw new BadRequestException(errorDetail2);
+                if (errorDetail) {
+                    await this.ordersService.logOrderAction({
+                        manager,
+                        adminId,
+                        userId,
+                        orderId: dto.orderId,
+                        actionType: OrderActionType.RETURN,
+                        result: OrderActionResult.FAILED,
+                        details: errorDetail
+                    });
+                    throw new BadRequestException(errorDetail2);
+                }
             }
-        }
 
             const cleanReason = dto.reason?.trim();
 

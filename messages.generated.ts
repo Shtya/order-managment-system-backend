@@ -748,6 +748,7 @@ export type I18nTranslations = {
                 "moved_to_return_preparing": string;
                 "return_request_created_log": string;
                 "return_request_created_title": string;
+                "order_status_wrong": string;
                 "return_request_created_message": string;
             };
             "replacement": {
@@ -1136,6 +1137,8 @@ export type I18nTranslations = {
             "order_distributed_title": string;
             "shipment_failed_title": string;
             "shipment_failed_message": string;
+            "shipment_delivary_failed_title": string;
+            "shipment_delivary_failed_message": string;
             "shipment_not_found": string;
             "shipment_already_cancelled": string;
             "provider_cancel_failed": string;
@@ -1175,6 +1178,11 @@ export type I18nTranslations = {
             "bosta_shipment_not_found": string;
             "bosta_city_required": string;
             "bosta_district_required": string;
+            "returnReminders": {
+                "title": string;
+                "single_message": string;
+                "multiple_message": string;
+            };
         };
         "stores": {
             "not_found": string;

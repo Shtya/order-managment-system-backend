@@ -613,6 +613,7 @@
       "moved_to_return_preparing": "تلقائي: تم النقل إلى حالة تجهيز الإرجاع عبر طلب إرجاع",
       "return_request_created_log": "الطلب {orderNumberOrId} تم تجهيزه للإرجاع لـ {itemsCount} عنصر.",
       "return_request_created_title": "تم إنشاء طلب إرجاع",
+      "order_status_wrong": "لا يمكن إنشاء طلب إرجاع إلا للطلبات التي حالتها تم الشحن أو تم التسليم أو فشل التسليم. الطلب رقم {orderNumber} غير مؤهل لإنشاء طلب إرجاع.",
       "return_request_created_message": "تم إنشاء طلب إرجاع للطلب #{orderNumber}."
     },
     "replacement": {
@@ -1001,6 +1002,8 @@
     "order_distributed_title": "تم توزيع الطلب",
     "shipment_failed_title": "فشل إنشاء الشحنة",
     "shipment_failed_message": "فشل إنشاء شحنة للطلب #{orderNumber}. الخطأ: {error}",
+    "shipment_delivary_failed_title": "فشل تسليم الشحنة",
+    "shipment_delivary_failed_message": "فشل تسليم شحنة الطلب رقم #{orderNumber}، وهي بانتظار إرجاعها إلى المستودع.",
     "shipment_not_found": "لم يتم العثور على الشحنة",
     "shipment_already_cancelled": "الشحنة ملغاة بالفعل",
     "provider_cancel_failed": "رفض مزود الشحن إلغاء الشحنة",
@@ -1039,7 +1042,12 @@
     "bosta_failed_waybill_fallback": "فشل طباعة بوليصة الشحن",
     "bosta_shipment_not_found": "لم يتم العثور على الشحنة في بوسطة",
     "bosta_city_required": "المدينة مطلوبة لشحن بوسطة. يرجى تحديث تفاصيل الطلب.",
-    "bosta_district_required": "الحي/المنطقة مطلوبة لشحن بوسطة. يرجى تحديث تفاصيل الطلب."
+    "bosta_district_required": "الحي/المنطقة مطلوبة لشحن بوسطة. يرجى تحديث تفاصيل الطلب.",
+    "returnReminders": {
+      "title": "تذكير بالإرجاع",
+      "single_message": "لديك شحنة واحدة تحتاج إلى الإرجاع إلى المستودع (الطلب رقم #{orderNumber}) ولكنها لم تصل إلى المستودع بعد.",
+      "multiple_message": "لديك {count} شحنات تحتاج إلى الإرجاع إلى المستودع ولكنها لم تصل إلى المستودع بعد."
+    }
   },
   "stores": {
     "not_found": "لم يتم العثور على المجر",
