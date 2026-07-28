@@ -72,20 +72,26 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
     // TypeORM hook that automatically runs after a transaction successfully commits
     async afterTransactionCommit(event: TransactionCommitEvent) {
-        // 🚀 ONLY PULL FROM YOUR UNIQUE NAMESPACE
-        const tasks = event.queryRunner.data.orderSubscriberTasks;
+        const orderTasks = event.queryRunner.data.orderSubscriberTasks ?? [];
+        const postCommitTasks = event.queryRunner.data.postCommitTasks ?? [];
 
-        if (tasks && tasks.length > 0) {
-            for (const task of tasks) {
-                try {
-                    await task();
-                } catch (error) {
-                    console.error("[OrderSubscriber] Post-commit task failed:", error);
-                }
-            }
-            // Clear the queue to prevent memory leaks
-            event.queryRunner.data.orderSubscriberTasks = [];
+        const allTasks = [...orderTasks, ...postCommitTasks];
+
+        if (allTasks.length === 0) {
+            return;
         }
+
+        for (const task of allTasks) {
+            try {
+                await task();
+            } catch (error) {
+                console.error("[OrderSubscriber] Post-commit task failed:", error);
+            }
+        }
+
+        // Clear the queues
+        event.queryRunner.data.orderSubscriberTasks = [];
+        event.queryRunner.data.postCommitTasks = [];
     }
 
 }

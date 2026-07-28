@@ -77,7 +77,7 @@ export abstract class FlowNodeHandler {
         }
         const order = await this.orderRepo.findOne({
             where: { id },
-            relations: ['status', 'items', 'items.variant', 'items.variant.product'],
+            relations: ['status', 'items', 'items.variant', 'items.variant.product', 'store', 'shippingCompany'],
         });
         if (!order) {
             throw new NotFoundException(`Order with ID ${id} not found`);
@@ -473,7 +473,27 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                 if (Array.isArray(val)) {
                     textValue = val.map(v => String(v)).join(', ');
                 } else {
-                    textValue = val !== null && val !== undefined ? String(val) : '';
+                    if (val == null || val === undefined) {
+                        textValue = "";
+                    } else if (val instanceof Date) {
+                        textValue = val.toLocaleString("en-GB", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric"
+                        });
+                    } else if (typeof val === "string") {
+                        const date = new Date(val);
+
+                        textValue = !isNaN(date.getTime())
+                            ? date.toLocaleString("en-GB", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                year: "numeric"
+                            })
+                            : val;
+                    } else {
+                        textValue = String(val);
+                    }
                 }
                 if (!textValue) {
                     throw new Error(`Variable "${key}" not found at path "${varDetails.variablePath}" in order data`);
@@ -603,9 +623,36 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
     private deepReplaceVariables(data: any, orderData: any): any {
         if (typeof data === 'string') {
             // Replace {{variablePath}} patterns
-            return data.replace(/\{\{([^}]+)\}\}/g, (match, variablePath) => {
+            return data.replace(/\{\{([^}]+)\}\}/g, (_, variablePath) => {
                 const value = getValueByPath(orderData, variablePath.trim());
-                return value !== null && value !== undefined ? String(value) : match;
+
+                if (value == null || value === undefined) {
+                    return "";
+                }
+
+                // Format Date objects
+                if (value instanceof Date) {
+                    return value.toLocaleString("en-GB", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                    });
+                }
+
+                // Format ISO date strings
+                if (typeof value === "string") {
+                    const date = new Date(value);
+
+                    if (!isNaN(date.getTime())) {
+                        return date.toLocaleString("en-GB", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                        });
+                    }
+                }
+
+                return String(value);
             });
         } else if (Array.isArray(data)) {
             return data.map(item => this.deepReplaceVariables(item, orderData));

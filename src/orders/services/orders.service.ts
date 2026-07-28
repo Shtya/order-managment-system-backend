@@ -315,7 +315,7 @@ export class OrdersService {
           where: { id: params.orderId },
           select: ['id', 'adminId', 'oldStatusId', 'statusId', 'externalId'],
         });
-
+        
         if (!order || (order.oldStatusId === order.statusId)) {
           return;
         }
@@ -340,6 +340,7 @@ export class OrdersService {
 
     // Check if we're in a transaction
     const queryRunner = params.manager.queryRunner;
+    
     if (queryRunner) {
       if (!queryRunner.data.postCommitTasks) {
         queryRunner.data.postCommitTasks = [];
@@ -3427,7 +3428,11 @@ export class OrdersService {
     if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
 
-    return this.dataSource.transaction(async (manager) => {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    const manager = queryRunner.manager;
+    try {
       const order = await manager.findOne(OrderEntity, {
         where: { id, adminId } as any,
         relations: ["items", "items.variant", "status"],
@@ -3513,8 +3518,14 @@ export class OrdersService {
         await this.deductStockForOrder(manager, order?.id, adminId);
       }
 
+      await queryRunner.commitTransaction(); // Manual Commit required here
       return saved;
-    });
+    } catch (err) {
+      await queryRunner.rollbackTransaction(); // Manual Rollback required here
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 
 
