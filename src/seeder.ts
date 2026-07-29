@@ -409,16 +409,14 @@ async function runGlobalSeed() {
 	const warehouses = [
 		{
 			name: 'المخزن الرئيسي',
-			location: null,
-			managerUserId: null,
-			phone: null,
+			address: null,
+			description: null,
 			isActive: true,
 		},
 		{
 			name: 'مخزن الطوارئ',
-			location: null,
-			managerUserId: null,
-			phone: null,
+			address: null,
+			description: null,
 			isActive: true,
 		},
 	];
@@ -436,9 +434,8 @@ async function runGlobalSeed() {
 				warehouseRepo.create({
 					adminId: null,
 					name: w.name,
-					location: w.location ?? null,
-					manager: null,
-					phone: null,
+					address: w.address ?? null,
+					description: w.description ?? null,
 					isActive: true,
 				}),
 			);

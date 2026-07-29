@@ -412,10 +412,9 @@ export class ProductsService {
       filters.productType = q.productType;
     }
 
-    const rackSearch = q?.["storageRack.ilike"];
-    if (rackSearch?.trim()) {
-      filters.storageRack = { ilike: rackSearch };
-    }
+    if (q?.storageLocationId && q?.storageLocationId != "none")
+      filters.storageLocationId = q.storageLocationId;
+
     if (q?.search) {
       filters.search = q.search?.trim();
     }
@@ -455,6 +454,7 @@ export class ProductsService {
       .leftJoinAndSelect("product.category", "category")
       .leftJoinAndSelect("product.store", "store")
       .leftJoinAndSelect("product.warehouse", "warehouse")
+      .leftJoinAndSelect("product.storageLocation", "storageLocation")
       .where("product.adminId = :adminId", { adminId })
       .andWhere("product.isActive = :isActive", { isActive: true });
 
@@ -476,11 +476,11 @@ export class ProductsService {
     if (filters.productType) {
       qb.andWhere("product.type = :productType", { productType: filters.productType });
     }
-
-    if (filters.storageRack?.ilike)
-      qb.andWhere("product.storageRack ILIKE :rack", {
-        rack: `%${filters.storageRack.ilike}%`,
+    if (filters.storageLocationId)
+      qb.andWhere("product.storageLocationId = :storageLocationId", {
+        storageLocationId: filters.storageLocationId,
       });
+      
 
     if (filters.wholesalePrice?.gte)
       qb.andWhere("product.wholesalePrice >= :gte", {
@@ -569,7 +569,7 @@ export class ProductsService {
         category: p.category?.name ?? "",
         store: p.store?.name ?? "",
         warehouse: p.warehouse?.name ?? "",
-        storageRack: p.storageRack ?? "",
+        storageLocation: p.storageLocation?.name ?? "",
         wholesalePrice: p.wholesalePrice ?? "",
         salePrice: p.salePrice ?? "",
         lowestPrice: p.lowestPrice ?? "",
@@ -599,7 +599,7 @@ export class ProductsService {
       { header: this.translations.t("domains.products.category_header"), key: "category", width: 20 },
       { header: this.translations.t("domains.product_sync.store"), key: "store", width: 20 },
       { header: this.translations.t("domains.products.warehouse_header"), key: "warehouse", width: 20 },
-      { header: this.translations.t("domains.products.storage_rack_header"), key: "storageRack", width: 18 },
+      { header: this.translations.t("domains.products.storage_rack_header"), key: "storageLocation", width: 18 },
       { header: this.translations.t("domains.products.wholesale_price_header"), key: "wholesalePrice", width: 16 },
       { header: this.translations.t("domains.products.sale_price_header"), key: "salePrice", width: 16 },
       { header: this.translations.t("domains.products.lowest_price_header"), key: "lowestPrice", width: 16 },
@@ -695,10 +695,10 @@ export class ProductsService {
       filters.productType = q.productType;
     }
 
-    const rackSearch = q?.["storageRack.ilike"];
-    if (rackSearch?.trim()) {
-      filters.storageRack = { ilike: rackSearch };
-    }
+    if (q?.storageLocationId && q?.storageLocationId != "none")
+      filters.storageLocationId = q.storageLocationId;
+    
+    
     if (q?.search) {
       filters.search = q.search?.trim();
     }
@@ -742,6 +742,7 @@ export class ProductsService {
       .leftJoinAndSelect("product.category", "category")
       .leftJoinAndSelect("product.store", "store")
       .leftJoinAndSelect("product.warehouse", "warehouse")
+      .leftJoinAndSelect("product.storageLocation", "storageLocation")
       .leftJoin("product.variants", "variant")
       .leftJoinAndMapMany(
         "product.syncStates",
@@ -773,9 +774,12 @@ export class ProductsService {
       qb.andWhere("product.type = :productType", { productType: filters.productType });
     }
 
-    if (filters.storageRack?.ilike)
-      qb.andWhere("product.storageRack ILIKE :rack", { rack: `%${filters.storageRack.ilike}%` });
+    if (filters.storageLocationId)
+      qb.andWhere("product.storageLocationId = :storageLocationId", {
+        storageLocationId: filters.storageLocationId,
+      });
 
+    
     if (filters.wholesalePrice?.gte)
       qb.andWhere("product.wholesalePrice >= :gte", { gte: filters.wholesalePrice.gte });
 
@@ -863,6 +867,7 @@ export class ProductsService {
       "category",
       "store",
       "warehouse",
+      "storageLocation",
     ]);
 
     return this.attachSkusToProduct(me, p as any, manager);
@@ -1193,7 +1198,7 @@ export class ProductsService {
         wholesalePrice: dto.wholesalePrice ?? null,
         lowestPrice: dto.lowestPrice ?? null,
         salePrice: dto.salePrice ?? null,
-        storageRack: dto.storageRack ?? null,
+        storageLocationId: dto.storageLocationId ?? null,
         categoryId: category ? category.id : null,
         storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? dto.storeId ?? null : null,
         warehouseId: dto.warehouseId !== undefined && dto.warehouseId !== 'none' ? dto.warehouseId ?? null : null,

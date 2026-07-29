@@ -137,11 +137,6 @@ export class CreateProductDto {
   @Min(0, {message: i18nValidationMessage('validation.min')})
   salePrice?: Money;
 
-  @IsOptional()
-  @IsString({message: i18nValidationMessage('validation.is_string')})
-  @MaxLength(200, { message: i18nValidationMessage('validation.max_length') })
-  storageRack?: string | null;
-
   @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   categoryId?: string;
@@ -161,6 +156,10 @@ export class CreateProductDto {
   @IsOptional()
   @IsString({message: i18nValidationMessage('validation.is_string')})
   warehouseId?: string | null;
+
+  @IsOptional()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  storageLocationId?: string | null;
 
   @IsOptional()
   @IsString({message: i18nValidationMessage('validation.is_string')})

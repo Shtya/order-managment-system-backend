@@ -132,6 +132,8 @@ export type I18nTranslations = {
         "not_available": string;
         "store": string;
         "reason": string;
+        "type": string;
+        "parent": string;
     };
     "domains": {
         "assets": {
@@ -1258,6 +1260,26 @@ export type I18nTranslations = {
             "problems_count_suffix": string;
             "retry_job_queued_successfully": string;
             "failed_to_sync_product_to_store": string;
+        };
+        "warehouses": {
+            "title": string;
+            "titleLocations": string;
+            "missing_admin_id": string;
+            "not_allowed": string;
+            "name_already_exists": string;
+            "deleted": string;
+            "location_not_found": string;
+            "parent_location_not_found": string;
+            "invalid_location_type_for_parent": string;
+            "location_name_already_exists": string;
+            "location_has_children": string;
+            "location_deleted": string;
+            "storage_location_types": {
+                "zone": string;
+                "rack": string;
+                "shelf": string;
+                "bin": string;
+            };
         };
     };
     "emails": {

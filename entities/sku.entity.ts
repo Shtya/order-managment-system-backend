@@ -14,7 +14,7 @@ import {
 } from "typeorm";
 
 import { StoreEntity } from "./stores.entity";
-import { WarehouseEntity } from "./warehouses.entity";
+import { StorageLocationEntity, WarehouseEntity } from "./warehouses.entity";
 import { CategoryEntity } from "./categories.entity";
 import { User } from "./user.entity";
 import { ActivatableEntity } from "./base.entity";
@@ -65,9 +65,6 @@ export class ProductEntity extends ActivatableEntity {
   })
   type: ProductType;
 
-  @Column({ type: "text", nullable: true })
-  storageRack?: string;
-
   @Column({ type: 'uuid', nullable: true })
   @Index()
   categoryId?: string | null;
@@ -91,6 +88,20 @@ export class ProductEntity extends ActivatableEntity {
   @ManyToOne(() => WarehouseEntity, { nullable: true, onDelete: "SET NULL" })
   @JoinColumn({ name: "warehouseId" })
   warehouse?: WarehouseEntity | null;
+
+  @Column({ type: "uuid", nullable: true })
+  @Index()
+  storageLocationId?: string | null;
+
+  @ManyToOne(
+    () => StorageLocationEntity,
+    {
+      nullable: true,
+      onDelete: "SET NULL",
+    }
+  )
+  @JoinColumn({ name: "storageLocationId" })
+  storageLocation?: StorageLocationEntity | null;
 
   @Column({ type: "text", nullable: true })
   description?: string;

@@ -436,17 +436,17 @@ export class LookupsService {
 	}
 
 	async warehouses(me: User, params: ActiveLookupParams) {
+		const adminId = tenantId(me);
+	
 		const qb = this.warehousesRepo
 			.createQueryBuilder('w')
-			.leftJoin('w.manager', 'm')
 			.select([
 				'w.id AS id',
 				'w.name AS name',
-				'w.location AS location',
+				'w.address AS address',
 				'w.isActive AS "isActive"',
-				'm.id AS "managerId"',
-				'm.name AS "managerName"',
 			])
+			.where('w."adminId" = :adminId', { adminId })
 			.orderBy('w.id', 'DESC')
 			.limit(params.limit);
 
@@ -459,8 +459,7 @@ export class LookupsService {
 			qb.andWhere(
 				new Brackets((b) => {
 					b.where('LOWER(w.name) LIKE :q', { q })
-						.orWhere('LOWER(w.location) LIKE :q', { q })
-						.orWhere('LOWER(m.name) LIKE :q', { q });
+						.orWhere('LOWER(w.address) LIKE :q', { q });
 				}),
 			);
 		}
@@ -468,12 +467,10 @@ export class LookupsService {
 		const rows = await qb.getRawMany();
 		return rows.map((x) => ({
 			id: x.id,
-			label: x.location ? `${x.name} - ${x.location}` : x.name,
+			label: x.address ? `${x.name} - ${x.address}` : x.name,
 			name: x.name,
-			location: x.location,
+			address: x.address,
 			isActive: x.isActive,
-			managerId: x.managerId ? x.managerId : null,
-			managerName: x.managerName || null,
 		}));
 	}
 

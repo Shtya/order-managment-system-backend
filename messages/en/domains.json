@@ -1002,8 +1002,8 @@
     "order_distributed_title": "Order Distributed",
     "shipment_failed_title": "Shipment Creation Failed",
     "shipment_failed_message": "Failed to create shipment for order #{orderNumber}. Error: {error}",
-      "shipment_delivary_failed_title": "Shipment Delivery Failed",
-  "shipment_delivary_failed_message": "Delivery of the shipment for Order #{orderNumber} has failed and it is awaiting return to the warehouse.",
+    "shipment_delivary_failed_title": "Shipment Delivery Failed",
+    "shipment_delivary_failed_message": "Delivery of the shipment for Order #{orderNumber} has failed and it is awaiting return to the warehouse.",
     "shipment_not_found": "Shipment not found",
     "shipment_already_cancelled": "Shipment is already cancelled",
     "provider_cancel_failed": "Provider refused to cancel the shipment",
@@ -1123,5 +1123,25 @@
     "problems_count_suffix": " +{count}...",
     "retry_job_queued_successfully": "Retry job queued successfully",
     "failed_to_sync_product_to_store": "Failed to sync product \"{productName}\" to {storeName}: {message}"
+  },
+  "warehouses": {
+    "title": "Warehouses",
+    "titleLocations": "Storage locations",
+    "missing_admin_id": "Missing adminId",
+    "not_allowed": "Not allowed",
+    "name_already_exists": "Warehouse name already exists",
+    "deleted": "Warehouse deleted successfully",
+    "location_not_found": "Storage location not found",
+    "parent_location_not_found": "Parent storage location not found",
+    "invalid_location_type_for_parent": "Invalid storage location type for parent",
+    "location_name_already_exists": "A location with this name already exists in the same warehouse and parent",
+    "location_has_children": "Storage location has children",
+    "location_deleted": "Storage location deleted successfully",
+    "storage_location_types": {
+      "zone": "Zone",
+      "rack": "Rack",
+      "shelf": "Shelf",
+      "bin": "Bin"
+    }
   }
 }

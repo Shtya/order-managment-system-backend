@@ -1123,5 +1123,25 @@
     "problems_count_suffix": " +{count} أخرى...",
     "retry_job_queued_successfully": "تم وضع مهمة إعادة المحاولة في قائمة الانتظار بنجاح",
     "failed_to_sync_product_to_store": "فشل في مزامنة المنتج \"{productName}\" إلى المتجر {storeName}: {message}"
+  },
+  "warehouses": {
+    "title": "المستودعات",
+    "titleLocations": "مواقع التخزين",
+    "missing_admin_id": "معرّف المسؤول (adminId) مفقود",
+    "not_allowed": "غير مسموح",
+    "name_already_exists": "اسم المستودع موجود بالفعل",
+    "deleted": "تم حذف المستودع بنجاح",
+    "location_not_found": "لم يتم العثور على مكان التخزين",
+    "parent_location_not_found": "لم يتم العثور على مكان التخزين الأب",
+    "invalid_location_type_for_parent": "نوع مكان التخزين غير صالح بالنسبة للموقع الأب",
+    "location_name_already_exists": "يوجد مكان التخزين بنفس الاسم في نفس المستودع والموقع الأب",
+    "location_has_children": "مكان التخزين يحتوي على عناصر تابعة",
+    "location_deleted": "تم حذف مكان التخزين بنجاح",
+    "storage_location_types": {
+      "zone": "منطقة",
+      "rack": "رف تخزين معدني",
+      "shelf": "مستوى رف",
+      "bin": "خانة تخزين"
+    }
   }
 }

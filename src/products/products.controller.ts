@@ -246,7 +246,7 @@ export class ProductsController {
       wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ? parseNumber(body.wholesalePrice || 0) as any : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
-      storageRack: body.storageRack ?? null,
+      storageLocationId: body.storageLocationId ?? null,
       remoteId: body.remoteId || null,
       categoryId: body.categoryId as any,
       categoryName: body.categoryName as any,
@@ -296,7 +296,7 @@ export class ProductsController {
       wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ? parseNumber(body.wholesalePrice || 0) as any : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
-      storageRack: body.storageRack,
+      storageLocationId: body.storageLocationId ?? null,
 
       categoryId:
         body.categoryId !== undefined
