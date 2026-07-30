@@ -2,7 +2,7 @@
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
-import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
+import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendSmsConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { MessageActionIntent, MessageStatus, TemplateStatus, WhatsappMessageEntity } from "entities/whatsapp.entity";
 
@@ -17,6 +17,7 @@ import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 import { getValueByPath } from "common/whatsapp.helper";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
+import { SmsSendStatus } from "entities/sms.entity";
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -61,6 +62,50 @@ export abstract class FlowNodeHandler {
         protected readonly orderRepo: Repository<OrderEntity>,
     ) { }
     abstract execute(config: any, run: AutomationRunEntity): Promise<NodeHandlerResponse>;
+
+    protected deepReplaceVariables(data: any, orderData: any): any {
+        if (typeof data === 'string') {
+            return data.replace(/\{\{([^}]+)\}\}/g, (_, variablePath) => {
+                const value = getValueByPath(orderData, variablePath.trim());
+
+                if (value == null || value === undefined) {
+                    return "";
+                }
+
+                if (value instanceof Date) {
+                    return value.toLocaleString("en-GB", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                    });
+                }
+
+                if (typeof value === "string") {
+                    const date = new Date(value);
+                    if (!isNaN(date.getTime())) {
+                        return date.toLocaleString("en-GB", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric",
+                        });
+                    }
+                }
+
+                return String(value);
+            });
+        } else if (Array.isArray(data)) {
+            return data.map(item => this.deepReplaceVariables(item, orderData));
+        } else if (data && typeof data === 'object') {
+            const result: any = {};
+            for (const key in data) {
+                if (Object.prototype.hasOwnProperty.call(data, key)) {
+                    result[key] = this.deepReplaceVariables(data[key], orderData);
+                }
+            }
+            return result;
+        }
+        return data;
+    }
 
     async getOrder(orderData: any): Promise<OrderEntity> {
         const id = orderData?.id;
@@ -620,54 +665,6 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
             };
         }
     }
-
-    private deepReplaceVariables(data: any, orderData: any): any {
-        if (typeof data === 'string') {
-            // Replace {{variablePath}} patterns
-            return data.replace(/\{\{([^}]+)\}\}/g, (_, variablePath) => {
-                const value = getValueByPath(orderData, variablePath.trim());
-
-                if (value == null || value === undefined) {
-                    return "";
-                }
-
-                // Format Date objects
-                if (value instanceof Date) {
-                    return value.toLocaleString("en-GB", {
-                        day: "2-digit",
-                        month: "2-digit",
-                        year: "numeric",
-                    });
-                }
-
-                // Format ISO date strings
-                if (typeof value === "string") {
-                    const date = new Date(value);
-
-                    if (!isNaN(date.getTime())) {
-                        return date.toLocaleString("en-GB", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric",
-                        });
-                    }
-                }
-
-                return String(value);
-            });
-        } else if (Array.isArray(data)) {
-            return data.map(item => this.deepReplaceVariables(item, orderData));
-        } else if (data && typeof data === 'object') {
-            const result: any = {};
-            for (const key in data) {
-                if (Object.prototype.hasOwnProperty.call(data, key)) {
-                    result[key] = this.deepReplaceVariables(data[key], orderData);
-                }
-            }
-            return result;
-        }
-        return data;
-    }
 }
 
 
@@ -844,6 +841,79 @@ export class ActionAssignOrderToEmployeeHandler extends FlowNodeHandler {
 
 }
 
+export class ActionSendSmsHandler extends FlowNodeHandler {
+    private readonly logger = new Logger(ActionSendSmsHandler.name);
+
+    constructor(
+        private readonly adapter: AutomationAdapter,
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+    ) {
+        super(orderRepo);
+    }
+    async execute(config: SendSmsConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
+        try {
+            let orderData = await this.getOrder(run.executionState.trigger.output);
+            if (!orderData) {
+                return { success: false, error: 'Order data not found in trigger output' };
+            }
+
+            if (!config?.providerCode) {
+                return { success: false, shouldPause: false, error: 'SMS providerCode is required' };
+            }
+
+            const processedMessage = this.deepReplaceVariables(config.message || "", orderData);
+            const processedToNumber = config.toNumber || "";
+
+            const to = processedToNumber
+                ? normalizeEgyptianPhoneNumber(processedToNumber)
+                : orderData.normalizedPhoneNumber
+                    ? orderData.normalizedPhoneNumber
+                    : normalizeEgyptianPhoneNumber(orderData.phoneNumber);
+
+            if (!to) {
+                return { success: false, shouldPause: false, error: 'Recipient phone number not found' };
+            }
+
+            const sendResult = await this.adapter.sendSms(
+                { id: orderData.adminId, adminId: orderData.adminId } as any,
+                config.providerCode,
+                {
+                    toNumber: to,
+                    message: processedMessage,
+                    senderId: config.senderId || null,
+                } as any,
+            );
+
+            const log = sendResult?.log;
+            const chosenBranch = log?.status === SmsSendStatus.SENT ? 'sent' : 'failed';
+
+            return {
+                success: true,
+                shouldPause: false,
+                chosenBranch,
+                output: {
+                    logId: log?.id,
+                    status: log?.status,
+                    toNumber: log?.toNumber || to,
+                    message: processedMessage,
+                    sender: log.sender?.name,
+                    erorr: log.error,
+                    response: log.providerResponse,
+                    providerCode: log?.providerCode || config.providerCode,
+                }
+            };
+        } catch (error) {
+            this.logger.error(`Failed to send SMS: ${error.message}`, error.stack);
+            return {
+                success: false,
+                shouldPause: false,
+                error: `SMS send failed: ${error.message}`
+            };
+        }
+    }
+}
+
 @Injectable()
 export class NodeHandlersRegistry {
     private readonly handlers = new Map<FlowNodeDataType, FlowNodeHandler>();
@@ -873,6 +943,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.whatsappService));
         this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo));
         this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
+        this.handlers.set(ActionType.SEND_SMS, new ActionSendSmsHandler(this.adapter, this.orderRepo));
     }
 
     /**

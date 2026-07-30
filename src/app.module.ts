@@ -57,6 +57,7 @@ import { UserThrottlerGuard } from "common/userThrottlerGuard";
 import { createHash } from 'crypto';
 import { TranslationModule } from "common/translation.service";
 import { ClientSettingsModule } from './client-settings/client-settings.module';
+import { SmsModule } from './sms/sms.module';
 
 @Module({
 	imports: [
@@ -143,7 +144,8 @@ import { ClientSettingsModule } from './client-settings/client-settings.module';
 		ConversationModule,
 		CustomerModule,
 		OrderAssignmentModule,
-		ClientSettingsModule
+		ClientSettingsModule,
+		SmsModule
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,

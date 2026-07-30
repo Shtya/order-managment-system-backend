@@ -1,10 +1,10 @@
-import { SendWhatsappTemplateConfig, AutomationRunEntity, VariableDetails } from 'entities/automation.entity';
-import { Repository, EntityManager } from 'typeorm';
-import { WhatsappTemplateEntity, WhatsappAccountEntity } from 'entities/whatsapp.entity';
-import { WhatsappInteractiveMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
+import { AutomationRunEntity } from 'entities/automation.entity';
+import {  EntityManager } from 'typeorm';
+import {  WhatsappAccountEntity } from 'entities/whatsapp.entity';
 import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 import { OrderEntity } from 'entities/order.entity';
-import { User } from 'entities/user.entity';
+import { SmsSendLogEntity } from 'entities/sms.entity';
+
 
 /**
  * Execution mode for automation handlers
@@ -64,6 +64,14 @@ export interface AutomationAdapter {
         templateId?: string;
         previewMode?: boolean;
         skippedSideEffect?: boolean;
+    }>;
+
+    sendSms(
+        user: { adminId: string; id: string | null },
+        providerCode: string,
+        dto: { toNumber: string; message: string; senderId?: string | null },
+    ): Promise<{
+        log: SmsSendLogEntity;
     }>;
 
     /**

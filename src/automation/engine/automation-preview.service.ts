@@ -47,6 +47,7 @@ import {
   ActionSendUpsellHandler,
   ActionAssignOrderToEmployeeHandler,
   ActionSendWhatsappMessageHandler,
+  ActionSendSmsHandler,
 } from './nodeHandlers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -565,6 +566,10 @@ class PreviewNodeHandlersRegistry {
     this.handlers.set(
       ActionType.ASSIGN_ORDER_TO_EMPLOYEE,
       new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService),
+    );
+    this.handlers.set(
+      ActionType.SEND_SMS,
+      new ActionSendSmsHandler(this.adapter, this.orderRepo),
     );
   }
 

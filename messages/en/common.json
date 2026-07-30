@@ -126,5 +126,8 @@
   "store": "Store",
   "reason": "Reason",
   "type": "Type",
-  "parent": "Parent site"
+  "parent": "Parent site",
+  "yes": "Yes",
+  "no": "No",
+  "error": "Error"
 }

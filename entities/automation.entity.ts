@@ -109,6 +109,7 @@ export enum ActionType {
     SEND_WHATSAPP_MESSAGE = 'send_whatsapp_message',
     SEND_UPSELL = 'send_upsell',
     ASSIGN_ORDER_TO_EMPLOYEE = 'assign_order_to_employee',
+    SEND_SMS = 'send_sms',
 }
 
 export enum ConditionType {
@@ -152,6 +153,7 @@ export type NodeConfig =
     OrderUpdatedConfig |
     UpdateOrderStatusConfig |
     SendWhatsappTemplateConfig |
+    SendSmsConfig |
     SendUpsellConfig |
     QuickOrderStatusConfig |
     OrderCheckConfig |
@@ -192,6 +194,20 @@ export interface ShipmentCreatedConfig {
 export interface UpdateOrderStatusConfig {
     newStatus: string;
     newStatusId: string;
+}
+
+export interface SendSmsConfig {
+    toNumber?: string;
+    message?: string;
+    senderId?: string;
+    integrationId?: string | null;
+    providerName?: string | null;
+    providerCode?: string | null;
+    branches?: {
+        id: string;
+        label: string;
+        condition: string;
+    }[];
 }
 
 export interface VariableDetails {

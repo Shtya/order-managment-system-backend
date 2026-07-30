@@ -11,6 +11,8 @@ import { OrderEntity } from 'entities/order.entity';
 import { AutomationRunEntity } from 'entities/automation.entity';
 import { UpsellsService } from 'src/upsells/upsells.service';
 import { OrderAssignmentService } from 'src/order-assignment/order-assignment.service';
+import { SmsService } from 'src/sms/sms.service';
+import { isArray } from 'class-validator';
 
 /**
  * Production implementation of AutomationAdapter
@@ -33,6 +35,7 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
         @InjectRepository(WhatsappAccountEntity)
         private readonly accountRepo: Repository<WhatsappAccountEntity>,
         private readonly orderAssignmentService: OrderAssignmentService,
+        private readonly smsService: SmsService,
     ) { }
 
 
@@ -83,6 +86,22 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
             messageId,
             recipient: data.to,
             templateId: data.templateId,
+        };
+    }
+
+    async sendSms(
+        user: { adminId: string; id: string | null },
+        providerCode: string,
+        dto: { toNumber: string; message: string; senderId?: string | null },
+    ) {
+        const result = await this.smsService.sendSms(
+            { id: user.adminId, adminId: user.adminId, role: { name: "admin" } } as any,
+            providerCode,
+            dto as any,
+        );
+
+        return {
+            log: isArray(result) ? result[0] : result,
         };
     }
 

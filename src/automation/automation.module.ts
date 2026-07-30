@@ -23,11 +23,13 @@ import { OrderAssignmentEntity } from 'entities/assignment.entity';
 import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.module';
 import { OrphanFilesModule } from 'src/orphan-files/orphan-files.module';
 import { AutomationSubscriber } from './automation-subscriber';
+import { SmsModule } from 'src/sms/sms.module';
 
 
 @Module({
   imports: [
     forwardRef(() => UpsellsModule),
+    forwardRef(() => SmsModule),
     forwardRef(() => OrphanFilesModule),
     forwardRef(() => OrdersModule),
     forwardRef(() => WhatsappModule),

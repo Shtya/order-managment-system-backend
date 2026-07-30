@@ -13,6 +13,7 @@ import { AutomationRunEntity } from 'entities/automation.entity';
 import { User } from 'entities/user.entity';
 import { OrderAssignmentEntity } from 'entities/assignment.entity';
 import { OrderAssignmentService } from 'src/order-assignment/order-assignment.service';
+import { SmsSendLogEntity, SmsSendStatus } from 'entities/sms.entity';
 
 /**
  * Preview implementation of AutomationAdapter
@@ -86,6 +87,36 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
             templateId: data.templateId,
             previewMode: true,
             skippedSideEffect: true,
+        };
+    }
+
+    async sendSms(
+        user: { adminId: string; id: string | null },
+        providerCode: string,
+        dto: { toNumber: string; message: string; senderId?: string | null },
+    ) {
+        this.logger.log(`[PREVIEW] Skipping actual SMS send to ${dto.toNumber} for provider ${providerCode}`);
+
+        const log: SmsSendLogEntity = {
+            id: `preview-${randomUUID()}`,
+            adminId: user.adminId,
+            integrationId: null,
+            providerCode: providerCode as any,
+            providerId: null,
+            toNumber: dto.toNumber,
+            senderId: (dto.senderId as any) || null,
+            message: dto.message,
+            status: SmsSendStatus.SENT,
+            providerMessageId: null,
+            providerResponse: null,
+            error: null,
+            sent_at: new Date(),
+            created_at: new Date(),
+            updated_at: new Date(),
+        } as any;
+
+        return {
+            log
         };
     }
 

@@ -134,6 +134,9 @@ export type I18nTranslations = {
         "reason": string;
         "type": string;
         "parent": string;
+        "yes": string;
+        "no": string;
+        "error": string;
     };
     "domains": {
         "assets": {
@@ -1260,6 +1263,31 @@ export type I18nTranslations = {
             "problems_count_suffix": string;
             "retry_job_queued_successfully": string;
             "failed_to_sync_product_to_store": string;
+        };
+        "sms_provider_not_supported": string;
+        "sms_provider_not_found": string;
+        "sms_integration_already_exists": string;
+        "sms_integration_not_found": string;
+        "sms_integration_not_found_or_inactive": string;
+        "sms_no_active_integration": string;
+        "sms_sender_name_exists": string;
+        "sms_sender_identifier_exists": string;
+        "sms_sender_not_found": string;
+        "sms_sender_not_found_or_inactive": string;
+        "sms_sender_identifier_not_found": string;
+        "sms_log_not_found": string;
+        "sms_log_already_sent": string;
+        "sms": {
+            "senders": string;
+            "logs": string;
+            "identifier": string;
+            "isDefault": string;
+            "toNumber": string;
+            "message": string;
+            "sender": string;
+            "status": string;
+            "providerMessageId": string;
+            "sender_deleted": string;
         };
         "warehouses": {
             "title": string;

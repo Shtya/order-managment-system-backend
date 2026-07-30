@@ -60,7 +60,13 @@ export class PermissionsService implements OnModuleInit {
 			"conversation.read", "conversation.create", "conversation.update", "conversation.delete",
 			"accounting.read", "accounting.update",
 			"automation.read", "automation.create", "automation.update", "automation.delete",
-			"safes.read", "safes.update"
+			"safes.read", "safes.update",
+
+			"sms.providers.read",
+			"sms.integrations.read", "sms.integrations.create", "sms.integrations.update",
+			"sms.senders.read", "sms.senders.create", "sms.senders.update", "sms.senders.delete",
+			"sms.send",
+			"sms.logs.read", "sms.logs.resend", "sms.logs.export"
 		];
 
 		for (const name of keys) {
