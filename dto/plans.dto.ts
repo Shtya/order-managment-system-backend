@@ -14,6 +14,9 @@ export class CreatePlanDto {
 	@IsString({message: i18nValidationMessage('validation.is_string')})
 	name: string;
 
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	nameEn: string;
+
 	@IsOptional()
 	@IsEnum(PlanType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(PlanType).join(', ')], }); }})
 	type?: PlanType;
@@ -64,10 +67,19 @@ export class CreatePlanDto {
 	@IsString({message: i18nValidationMessage('validation.is_string')})
 	description?: string;
 
+	@IsOptional()
+	@IsString({message: i18nValidationMessage('validation.is_string')})
+	descriptionEn?: string;
+
 	@IsArray({message: i18nValidationMessage('validation.is_array')})
 	@IsString({ each: true })
 	@IsOptional()
 	features?: string[];
+
+	@IsArray({message: i18nValidationMessage('validation.is_array')})
+	@IsString({ each: true })
+	@IsOptional()
+	featuresEn?: string[];
 
 	@IsString({message: i18nValidationMessage('validation.is_string')})
 	@IsOptional()

@@ -92,6 +92,8 @@ export class PlansService {
 		// 3. Entity Creation
 		const plan = this.plansRepo.create({
 			name: dto.name?.trim(),
+			nameEn: dto.nameEn?.trim(),
+			
 			type: dto.type ?? PlanType.STANDARD,
 			duration: dto.duration,
 			//
@@ -109,7 +111,9 @@ export class PlansService {
 			bulkUploadPerMonth: dto.bulkUploadPerMonth ?? 0,
 
 			description: dto.description?.trim(),
+			descriptionEn: dto.descriptionEn?.trim(),
 			features: dto.features || [],
+			featuresEn: dto.featuresEn || [],
 			color: dto.color || 'from-blue-500 to-blue-600',
 			isActive: dto.isActive ?? true,
 			isPopular: dto.isPopular ?? false,
@@ -140,6 +144,8 @@ export class PlansService {
 
 		// Identity & Type
 		if (dto.name !== undefined) plan.name = dto.name.trim();
+		if (dto.nameEn !== undefined) plan.nameEn = dto.nameEn.trim();
+
 		if (dto.type !== undefined) plan.type = dto.type;
 		if (dto.duration !== undefined) plan.duration = dto.duration;
 		if (dto.durationIndays !== undefined) plan.durationIndays = dto.durationIndays;
@@ -157,7 +163,9 @@ export class PlansService {
 
 		// Metadata & UI
 		if (dto.description !== undefined) plan.description = dto.description.trim();
+		if (dto.descriptionEn !== undefined) plan.descriptionEn = dto.descriptionEn.trim();
 		if (dto.features !== undefined) plan.features = dto.features;
+		if (dto.featuresEn !== undefined) plan.featuresEn = dto.featuresEn;
 		if (dto.color !== undefined) plan.color = dto.color;
 		if (dto.isActive !== undefined) plan.isActive = dto.isActive;
 		if (dto.isPopular !== undefined) plan.isPopular = dto.isPopular;

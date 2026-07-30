@@ -53,6 +53,9 @@ export class Plan {
 	@Column()
 	name: string;
 
+	@Column({ nullable: true })
+	nameEn: string;
+
 	@Column({
 		type: 'enum',
 		enum: PlanDuration,
@@ -73,8 +76,14 @@ export class Plan {
 	@Column({ type: 'text', nullable: true })
 	description?: string;
 
+	@Column({ type: 'text', nullable: true })
+	descriptionEn?: string;
+
 	@Column({ type: 'simple-json', default: '[]' })
 	features: string[];
+
+	@Column({ type: 'simple-json', default: '[]' })
+	featuresEn: string[];
 
 	@Column({
 		type: 'varchar',
