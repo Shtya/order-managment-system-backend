@@ -610,11 +610,15 @@
       "order_not_found": "Order with ID {orderId} not found.",
       "item_not_found": "Item ID {itemId} not found in Order {orderId}",
       "qty_mismatch": "Qty mismatch: Requested {requested}, Purchased {purchased}",
+      "restock_qty_mismatch": "Restock qty mismatch: Requested {requested}, Returned {returned}",
+      "restock_qty_exceeds_deducted": "Restock qty exceeds deducted qty: Requested {requested}, Deducted {deducted}",
       "moved_to_return_preparing": "Automatic: Moved to Return Preparing via return request",
+      "moved_to_partially_returned": "Automatic: Moved to Partially Returned via return request",
       "return_request_created_log": "Order {orderNumberOrId} has been prepared for returned for {itemsCount} items.",
       "return_request_created_title": "Return Request Created",
       "order_status_wrong": "A return request can only be created for orders that are Shipped, Delivered, or Failed Delivery. Order #{{orderNumber}} is not eligible.",
-      "return_request_created_message": "A return request has been created for order #{orderNumber}."
+      "return_request_created_message": "A return request has been created for order #{orderNumber}.",
+      "damage_responsibility_required": "Please specify who is responsible for the damaged quantity."
     },
     "replacement": {
       "already_has_replacement": "This order already has a replacement and cannot be replaced again.",

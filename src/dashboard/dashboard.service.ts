@@ -107,6 +107,7 @@ export class DashboardService {
           "COUNT(CASE WHEN s.code = :cancelledStatus THEN 1 END) as cancelledOrders",
           "COUNT(CASE WHEN s.code = :shippedStatus THEN 1 END) as inDelivery",
           "COUNT(CASE WHEN s.code = :returnedStatus THEN 1 END) as returnedOrders",
+          "COUNT(CASE WHEN s.code = :partiallyReturnedStatus THEN 1 END) as partiallyReturnedOrders",
         ])
         .setParameters({
           newStatus: OrderStatus.NEW,
@@ -115,6 +116,7 @@ export class DashboardService {
           cancelledStatus: OrderStatus.CANCELLED,
           shippedStatus: OrderStatus.SHIPPED,
           returnedStatus: OrderStatus.RETURNED,
+          partiallyReturnedStatus: OrderStatus.PARTIALLY_RETURNED,
         })
         .getRawOne();
 
@@ -125,6 +127,7 @@ export class DashboardService {
       const confirmed = Number(rawData.confirmedorders) || 0;
       const cancelled = Number(rawData.cancelledorders) || 0;
       const returned = Number(rawData.returnedorders) || 0;
+      const partiallyReturned = Number(rawData.partiallyReturnedStatus) || 0;
       const totalCollected = Number(rawData.totalcollected) || 0;
 
       return {
@@ -138,7 +141,7 @@ export class DashboardService {
         cancelled: totalOrders > 0 ? (cancelled / totalOrders) * 100 : 0,
         inDelivery: Number(rawData.indelivery) || 0,
         newOrders: Number(rawData.neworders) || 0,
-        returned: totalOrders > 0 ? (returned / totalOrders) * 100 : 0,
+        returned: totalOrders > 0 ? ((returned + partiallyReturned) / totalOrders) * 100 : 0,
         totalCollected,
       };
     };
@@ -1368,7 +1371,7 @@ export class DashboardService {
         `COALESCE(SUM(CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o."finalTotal" ELSE 0 END), 0) AS "deliveredSales"`,
         `COALESCE(SUM(o."collectedAmount"), 0) AS "collectedAmount"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.NEW}' THEN o.id END) AS "newOrders"`,
-        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.RETURNED}' THEN o.id END) AS "returnedOrders"`,
+        `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.RETURNED}', '${OrderStatus.PARTIALLY_RETURNED}') THEN o.id END) AS "returnedOrders"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.POSTPONED}' THEN o.id END) AS "postponedOrders"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.OUT_OF_DELIVERY_AREA}' THEN o.id END) AS "outOfDeliveryOrders"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.WRONG_NUMBER}' THEN o.id END) AS "wrongNumberOrders"`,

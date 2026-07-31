@@ -1,12 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { OrderActionResult, OrderActionType, OrderEntity, OrderStatus, ReturnRequestEntity } from "entities/order.entity";
+import { OrderActionResult, OrderActionType, OrderEntity, OrderItemEntity, OrderStatus, ReturnRequestEntity } from "entities/order.entity";
 import { DataSource, EntityManager, Repository } from "typeorm";
 import { OrdersService, tenantId } from "./orders.service";
 import { CreateReturnDto } from "dto/order.dto";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { RequestTranslationService, TranslationService } from "common/translation.service";
+import { ProductVariantEntity } from "entities/sku.entity";
+import { getEffectiveDeductedQuantity, resolveRestockQuantity } from "../utils/stock-deduction";
 
 @Injectable()
 export class OrderReturnService {
@@ -42,7 +44,7 @@ export class OrderReturnService {
             if (!order) {
                 throw new NotFoundException(this.translations.t('domains.orders.return.order_not_found', { args: { orderId: dto.orderId } }));
             }
-            if(![OrderStatus.DELIVERED, OrderStatus.SHIPPED, OrderStatus.FAILED_DELIVERY].includes(order.status.code as OrderStatus)){
+            if (![OrderStatus.DELIVERED, OrderStatus.SHIPPED, OrderStatus.FAILED_DELIVERY].includes(order.status.code as OrderStatus)) {
                 throw new BadRequestException(this.translations.t('domains.orders.return.order_status_wrong', { args: { orderNumber: order.orderNumber } }))
             }
             const orderItemsMap = new Map(order.items.map(item => [item.id, item]));
@@ -51,17 +53,29 @@ export class OrderReturnService {
             for (const returnItem of dto.items) {
                 const originalOrderItem = orderItemsMap.get(returnItem.originalItemId);
                 let errorDetail;
-                let errorDetail2;
-
                 if (!originalOrderItem) {
                     errorDetail = await this.requestTranslations.tAsync('domains.orders.return.item_not_found', adminId, { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
                 } else if (returnItem.quantity > originalOrderItem.quantity) {
                     errorDetail = await this.requestTranslations.tAsync('domains.orders.return.qty_mismatch', adminId, { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
-                }
-                if (!originalOrderItem) {
-                    errorDetail2 = this.translations.t('domains.orders.return.item_not_found', { args: { itemId: returnItem.originalItemId, orderId: dto.orderId } });
-                } else if (returnItem.quantity > originalOrderItem.quantity) {
-                    errorDetail2 = this.translations.t('domains.orders.return.qty_mismatch', { args: { requested: returnItem.quantity, purchased: originalOrderItem.quantity } });
+                } else {
+                    const restockQty = resolveRestockQuantity(returnItem.quantity, returnItem.restockQuantity);
+                    const damagedQty = returnItem.quantity - restockQty;
+                    const effectiveDeducted = getEffectiveDeductedQuantity(originalOrderItem as any);
+                    if (restockQty < 0 || restockQty > returnItem.quantity) {
+                        errorDetail = await this.requestTranslations.tAsync('domains.orders.return.restock_qty_mismatch', adminId, { args: { requested: restockQty, returned: returnItem.quantity } });
+                    } else if (restockQty > effectiveDeducted) {
+                        errorDetail = await this.requestTranslations.tAsync('domains.orders.return.restock_qty_exceeds_deducted', adminId, { args: { requested: restockQty, deducted: effectiveDeducted } });
+                    }
+
+                    if (
+                        damagedQty > 0 &&
+                        !returnItem.damageResponsibility
+                    ) {
+                        errorDetail = await this.requestTranslations.tAsync(
+                            'domains.orders.return.damage_responsibility_required',
+                            adminId,
+                        );
+                    }
                 }
 
                 if (errorDetail) {
@@ -74,7 +88,7 @@ export class OrderReturnService {
                         result: OrderActionResult.FAILED,
                         details: errorDetail
                     });
-                    throw new BadRequestException(errorDetail2);
+                    throw new BadRequestException(errorDetail);
                 }
             }
 
@@ -88,10 +102,18 @@ export class OrderReturnService {
                 reason: cleanReason,
                 items: dto.items.map(item => {
                     const originalItem = orderItemsMap.get(item.originalItemId);
+                    const restockQty = resolveRestockQuantity(item.quantity, item.restockQuantity);
+                    const damagedQty = item.quantity - restockQty;
                     return {
                         originalOrderItemId: item.originalItemId,
                         returnedVariantId: originalItem?.variantId,
                         quantity: item.quantity,
+                        damagedQuantity: damagedQty,
+                        damageResponsibility:
+                            damagedQty > 0
+                                ? item.damageResponsibility
+                                : null,
+                        restockQuantity: restockQty,
                         condition: item.condition?.trim()
                     };
                 })

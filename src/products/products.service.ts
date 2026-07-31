@@ -159,6 +159,8 @@ export class ProductsService {
       reserved: r.reserved,
       isActive: r.isActive,
       deactivatedAt: r.deactivatedAt,
+      customerDamagedQuantity: r.customerDamagedQuantity,
+      companyDamagedQuantity: r.companyDamagedQuantity,
       available: await this.ordersService.calculateAvailableStock(r.stockOnHand ?? 0, r.reserved ?? 0, r.adminId),
     };
   }
@@ -189,7 +191,7 @@ export class ProductsService {
   private buildEmptyProductStockSummary() {
     return {
       productCount: 1,
-      inventory: { reserved: 0, available: 0, totalOnHand: 0 },
+      inventory: { reserved: 0, available: 0, totalOnHand: 0, customerDamagedQuantity: 0, companyDamagedQuantity: 0 },
       orders: { soldQuantity: 0, inTransitQuantity: 0 },
       purchases: { acceptedQuantity: 0 },
       purchaseReturns: { acceptedReturnedQuantity: 0 },
@@ -209,6 +211,8 @@ export class ProductsService {
         .addSelect('COALESCE(SUM(pv.reserved), 0)', 'reserved')
         .addSelect('COALESCE(SUM(pv.stockOnHand - pv.reserved), 0)', 'available')
         .addSelect('COALESCE(SUM(pv.stockOnHand), 0)', 'totalOnHand')
+        .addSelect('COALESCE(SUM(pv.customerDamagedQuantity), 0)', 'customerDamagedQuantity')
+        .addSelect('COALESCE(SUM(pv.companyDamagedQuantity), 0)', 'companyDamagedQuantity')
         .where('pv.adminId = :adminId', { adminId })
         .andWhere('pv.productId IN (:...ids)', { ids: productIds })
         .groupBy('pv.productId')
@@ -260,6 +264,8 @@ export class ProductsService {
       s.inventory.reserved = Number(row.reserved || 0);
       s.inventory.available = Number(row.available || 0);
       s.inventory.totalOnHand = Number(row.totalOnHand || 0);
+      s.inventory.customerDamagedQuantity = Number(row.customerDamagedQuantity || 0);
+      s.inventory.companyDamagedQuantity = Number(row.companyDamagedQuantity || 0);
     }
     for (const row of ordRows) {
       const pid = pidOf(row);
@@ -329,6 +335,8 @@ export class ProductsService {
         .select('SUM(pv.reserved)', 'totalReserved')
         .addSelect('SUM(pv.stockOnHand - pv.reserved)', 'totalAvailable')
         .addSelect('SUM(pv.stockOnHand)', 'totalStockOnHand')
+        .addSelect('SUM(pv.customerDamagedQuantity)', 'totalCustomerDamaged')
+        .addSelect('SUM(pv.companyDamagedQuantity)', 'totalCompanyDamaged')
         .where('pv.adminId = :adminId', { adminId })
         .getRawOne(),
 
@@ -381,6 +389,10 @@ export class ProductsService {
         reserved: Number(inventoryStats?.totalReserved || 0),
         available: Number(inventoryStats?.totalAvailable || 0),
         totalOnHand: Number(inventoryStats?.totalStockOnHand || 0),
+      },
+      damaged: {
+        customer: Number(inventoryStats?.totalCustomerDamaged || 0),
+        company: Number(inventoryStats?.totalCompanyDamaged || 0),
       },
       orders: {
         soldQuantity: Number(orderStats?.totalDelivered || 0),

@@ -335,6 +335,10 @@ export class WhatsappAccountEntity {
     @Column({ type: 'text', nullable: true, select: false })
     accessToken: string; // التوكن الخاص بـ Meta Graph API
 
+    @Column({ type: 'varchar', length: 100, nullable: true, select: false })
+    pinCode: string; // كود PIN الخاص بـ Meta Graph API
+    
+
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 

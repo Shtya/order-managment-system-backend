@@ -1565,6 +1565,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
 
             [OrderStatus.RETURNED]: "refunded",
             [OrderStatus.RETURN_PREPARING]: "refunded",
+            [OrderStatus.PARTIALLY_RETURNED]: "refunded",
         };
 
         return map[internalStatus] || null;

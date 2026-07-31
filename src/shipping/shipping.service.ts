@@ -36,6 +36,7 @@ import { TriggerEntityType, TriggerType } from 'entities/automation.entity';
 import { OrderFlowPath } from 'entities/clientSettings.entity';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
 import { RequestTranslationService, TranslationService } from 'common/translation.service';
+import { getEffectiveDeductedQuantity } from 'src/orders/utils/stock-deduction';
 
 @Injectable()
 export class ShippingService {
@@ -1392,12 +1393,12 @@ export class ShippingService {
 		let statusChanged = false;
 
 		const returnStock = async () => {
-			const itemsToRestock = (order.items ?? []).filter((item) => item.stockDeducted && item.variantId);
+			const itemsToRestock = (order.items ?? []).filter((item) => item.variantId && getEffectiveDeductedQuantity(item) > 0);
 			if (itemsToRestock.length > 0) {
 				const restockMap = new Map<string, number>();
 				itemsToRestock.forEach((item) => {
 					const current = restockMap.get(item.variantId) || 0;
-					restockMap.set(item.variantId, current + item.quantity);
+					restockMap.set(item.variantId, current + getEffectiveDeductedQuantity(item));
 				});
 				const restockUpdates = Array.from(restockMap.entries()).map(([id, qty]) =>
 					manager
@@ -1410,7 +1411,7 @@ export class ShippingService {
 				const itemsUpdate = manager
 					.createQueryBuilder()
 					.update(OrderItemEntity)
-					.set({ stockDeducted: false })
+					.set({ stockDeducted: false, stockDeductedQuantity: 0 })
 					.where('id IN (:...ids)', { ids: itemsToRestock.map((i) => i.id) })
 					.execute();
 				await Promise.all([...restockUpdates, itemsUpdate]);

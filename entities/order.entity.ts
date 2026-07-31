@@ -53,6 +53,7 @@ export enum OrderStatus {
   DELIVERED = "delivered",//
   RETURN_PREPARING = "return_preparing", //
   RETURNED = "returned",  // 
+  PARTIALLY_RETURNED = "partially_returned", // Partially returned
 }
 
 
@@ -515,6 +516,9 @@ export class OrderItemEntity {
   @Column({ type: "boolean", default: false })
   stockDeducted: boolean;
 
+  @Column({ type: "int", default: 0 })
+  stockDeductedQuantity: number;
+
   @Column({ type: 'uuid', nullable: true })
   bundleId?: string;
 
@@ -919,6 +923,11 @@ export class OrderActionLogEntity {
   createdAt: Date; // Date & Time
 }
 
+export enum DamageResponsibility {
+  COMPANY = 'company',
+  INTERNAL = 'internal',
+}
+
 export enum ReturnRequestStatus {
   PENDING = "pending",
   APPROVED = "approved",
@@ -997,6 +1006,14 @@ export class ReturnRequestItemEntity {
 
   @Column({ type: "int", default: 1 })
   quantity: number;
+  
+  @Column({ type: "int", default: 0 })
+  damagedQuantity: number;
+  @Column({ type: "enum", enum: DamageResponsibility, nullable: true })
+  damageResponsibility: DamageResponsibility | null;
+
+  @Column({ type: "int", default: 0 })
+  restockQuantity: number;
 
   @Column({ nullable: true })
   condition: string; // e.g., "Damaged", "Resellable"

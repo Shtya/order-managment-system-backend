@@ -4437,6 +4437,7 @@ export class ShopifyService extends BaseStoreProvider {
                 return "RETURN_REQUEST";
 
             case OrderStatus.RETURNED:
+            case OrderStatus.PARTIALLY_RETURNED:
                 return "RETURN_APPROVE";
 
             case OrderStatus.POSTPONED:

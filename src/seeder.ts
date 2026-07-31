@@ -310,6 +310,13 @@ async function runGlobalSeed() {
 		{
 			name: 'Returned', code: OrderStatus.RETURNED, isDefault: false, order: 22, color: '#607D8B', // Grey (Standard for Returned/Archive)
 		},
+		{
+			name: 'Partially Returned',
+			code: OrderStatus.PARTIALLY_RETURNED,
+			isDefault: false,
+			order: 23,
+			color: '#795548', // Brown (Distinct from Returned's grey and Delivered's green)
+		},
 	];
 
 	for (const s of systemStatuses) {

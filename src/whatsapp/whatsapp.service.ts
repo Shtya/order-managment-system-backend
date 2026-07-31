@@ -1833,6 +1833,7 @@ export class WhatsappService {
                 accessToken,
                 mobileNumber: phoneData.display_phone_number,
                 isActive: true,
+                pinCode: pin,
             });
             const savedAccount = await this.accountRepo.save(account);
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'completed' });

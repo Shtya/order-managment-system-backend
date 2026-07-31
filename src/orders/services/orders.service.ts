@@ -23,6 +23,8 @@ import {
 } from "typeorm";
 import axios from 'axios';
 import * as ExcelJS from "exceljs";
+import { getMissingDeductionQuantity } from "../utils/stock-deduction";
+import { isPartiallyReturnedForManifest } from "../utils/return-manifest-status";
 import {
   OrderEntity,
   OrderItemEntity,
@@ -45,6 +47,7 @@ import {
   ShipmentManifestType,
   ReturnRequestEntity,
   ReturnRequestStatus,
+  DamageResponsibility,
 } from "entities/order.entity";
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
@@ -106,7 +109,7 @@ export function tenantId(me: any): any | null {
 
 @Injectable()
 export class OrdersService {
-  private readonly logger = new Logger(OrdersService.name);  
+  private readonly logger = new Logger(OrdersService.name);
   constructor(
     private dataSource: DataSource,
     protected readonly orderSyncQueueService: OrderSyncQueueService,
@@ -200,6 +203,7 @@ export class OrdersService {
   public isWarehouseStatus(statusCode: string): boolean {
     const warehouseStatuses: string[] = [
       OrderStatus.RETURNED,
+      OrderStatus.PARTIALLY_RETURNED,
       OrderStatus.DELIVERED,
       OrderStatus.DISTRIBUTED,
       OrderStatus.PRINTED,
@@ -240,16 +244,22 @@ export class OrdersService {
   // ✅ Calculate totals
   private calculateTotals(items: any[], shippingCost = 0, discount = 0) {
     const productsTotal = items.reduce((sum, item) => {
-      return sum + item.unitPrice * item.quantity;
+      return sum + Number(item.unitPrice) * Number(item.quantity);
     }, 0);
 
-    const finalTotal = productsTotal + shippingCost - discount;
+    const finalTotal = Number(productsTotal) + Number(shippingCost) - Number(discount);
 
     const profit = items.reduce((sum, item) => {
-      return sum + (item.unitPrice - item.unitCost) * item.quantity;
+      return sum + (Number(item.unitPrice) - Number(item.unitCost)) * Number(item.quantity);
     }, 0);
 
-    return { productsTotal, finalTotal, profit };
+    const round = (value: number) => Number(value.toFixed(2));
+
+    return {
+      productsTotal: round(productsTotal),
+      finalTotal: round(finalTotal),
+      profit: round(profit),
+    };
   }
 
   // ✅ Generate items signature (sku:quantity|sku:quantity|...)
@@ -317,7 +327,7 @@ export class OrdersService {
           where: { id: params.orderId },
           select: ['id', 'adminId', 'oldStatusId', 'statusId', 'externalId'],
         });
-        
+
         if (!order || (order.oldStatusId === order.statusId)) {
           return;
         }
@@ -342,7 +352,7 @@ export class OrdersService {
 
     // Check if we're in a transaction
     const queryRunner = params.manager.queryRunner;
-    
+
     if (queryRunner) {
       if (!queryRunner.data.postCommitTasks) {
         queryRunner.data.postCommitTasks = [];
@@ -529,19 +539,6 @@ export class OrdersService {
 
     return status;
   }
-
-  ALLOWED_CONFIRM_STATUSES: string[] = [
-    OrderStatus.NEW,
-    OrderStatus.CONFIRMED,
-    OrderStatus.UNDER_REVIEW,
-    OrderStatus.NO_ANSWER,
-    OrderStatus.POSTPONED,
-    OrderStatus.WRONG_NUMBER,
-    OrderStatus.OUT_OF_DELIVERY_AREA,
-    OrderStatus.DUPLICATE,
-    OrderStatus.CANCELLED,
-    OrderStatus.RETURNED,
-  ];
 
   // ========================================
   // ✅ LIST ORDERS
@@ -1454,10 +1451,11 @@ export class OrdersService {
 
         // Collect items for stock validation
         for (const item of order.items) {
-          if (item.stockDeducted || !item.variant) continue;
+          if (!item.variant) continue;
 
           const variantId = item.variant.id;
-          const qty = item.quantity || 0;
+          const qty = getMissingDeductionQuantity(item);
+          if (qty <= 0) continue;
 
           const existing = variantDeductions.get(variantId) || { qty: 0, variant: item.variant };
           variantDeductions.set(variantId, {
@@ -1598,7 +1596,7 @@ export class OrdersService {
           adminId,
           id: In(dto.orderIds),
         },
-        relations: ["lastReturn", "status"],
+        relations: ["lastReturn", "lastReturn.items", "items", "status"],
       });
 
       const returns = orders
@@ -1671,21 +1669,51 @@ export class OrdersService {
       // 1.2 Update statuses for returns
       const preparingStatus = await this.findStatusByCode(OrderStatus.RETURN_PREPARING, adminId, manager);
       const returnedStatus = await this.findStatusByCode(OrderStatus.RETURNED, adminId, manager);
+      const partiallyReturnedStatus = await this.findStatusByCode(OrderStatus.PARTIALLY_RETURNED, adminId, manager);
 
       if (orderIds.length > 0) {
-        await orderRepo.update(
-          {
-            id: In(orderIds),
-            statusId: preparingStatus.id,
-          },
-          {
-            statusId: returnedStatus.id,
-            returnedAt: new Date(),
-            returnedById: userId,
-            updatedByUserId: userId,
-            manifestId: manifest.id, // Ensure manifest linkage is saved
-          }
-        );
+        const fullReturnOrderIds: string[] = [];
+        const partialReturnOrderIds: string[] = [];
+
+        for (const order of orders) {
+          if (!orderIds.includes(order.id)) continue;
+          const isPartial = isPartiallyReturnedForManifest(order.items || [], order.lastReturn?.items || []);
+          if (isPartial) partialReturnOrderIds.push(order.id);
+          else fullReturnOrderIds.push(order.id);
+        }
+
+        const updatePayload = {
+          returnedAt: new Date(),
+          returnedById: userId,
+          updatedByUserId: userId,
+          manifestId: manifest.id,
+        };
+
+        if (fullReturnOrderIds.length > 0) {
+          await orderRepo.update(
+            {
+              id: In(fullReturnOrderIds),
+              statusId: preparingStatus.id,
+            },
+            {
+              statusId: returnedStatus.id,
+              ...updatePayload,
+            }
+          );
+        }
+
+        if (partialReturnOrderIds.length > 0) {
+          await orderRepo.update(
+            {
+              id: In(partialReturnOrderIds),
+              statusId: preparingStatus.id,
+            },
+            {
+              statusId: partiallyReturnedStatus?.id || returnedStatus.id,
+              ...updatePayload,
+            }
+          );
+        }
 
         // Update active shipments status to RETURNED_TO_WAREHOUSE
 
@@ -1732,16 +1760,71 @@ export class OrdersService {
           );
         }
 
+        // Update variants with the received damaged quantities
+        const variantDamagedMap = new Map<string, { customer: number; company: number }>();
+        for (const ret of returns) {
+          for (const item of ret.items || []) {
+            const damagedQty = item.damagedQuantity || 0;
+            if (damagedQty <= 0 || !item.returnedVariantId) continue;
+            const entry = variantDamagedMap.get(item.returnedVariantId) || { customer: 0, company: 0 };
+            if (item.damageResponsibility === DamageResponsibility.INTERNAL) entry.customer += damagedQty;
+            else if (item.damageResponsibility === DamageResponsibility.COMPANY) entry.company += damagedQty;
+            variantDamagedMap.set(item.returnedVariantId, entry);
+          }
+        }
+
+        for (const [variantId, { customer, company }] of variantDamagedMap) {
+          if (customer <= 0 && company <= 0) continue;
+          const updateSet: any = {};
+          if (customer > 0) updateSet.customerDamagedQuantity = () => `"customerDamagedQuantity" + ${customer}`;
+          if (company > 0) updateSet.companyDamagedQuantity = () => `"companyDamagedQuantity" + ${company}`;
+          await manager
+            .createQueryBuilder()
+            .update(ProductVariantEntity)
+            .set(updateSet)
+            .where("id = :variantId", { variantId })
+            .execute();
+        }
+
+        // Return restocked quantities back to stock (atomic updates)
+        const variantRestockMap = new Map<string, number>();
+        for (const ret of returns) {
+          for (const item of ret.items || []) {
+            const restockQty = item.restockQuantity || 0;
+            if (restockQty <= 0 || !item.returnedVariantId) continue;
+            variantRestockMap.set(
+              item.returnedVariantId,
+              (variantRestockMap.get(item.returnedVariantId) || 0) + restockQty,
+            );
+          }
+        }
+
+        for (const [variantId, qty] of variantRestockMap) {
+          await manager
+            .createQueryBuilder()
+            .update(ProductVariantEntity)
+            .set({ stockOnHand: () => `"stockOnHand" + ${qty}` })
+            .where("id = :variantId", { variantId })
+            .execute();
+        }
+
         await this.bulkLogStatusChange({
           adminId,
           manager,
           userId,
           notes: this.translations.t('domains.orders.log_added_to_return_manifest', { args: { manifestNumber } }),
-          orderStatusChanges: orderIds.map(orderId => ({
-            orderId,
-            fromStatusId: preparingStatus.id,
-            toStatusId: returnedStatus.id,
-          })),
+          orderStatusChanges: [
+            ...fullReturnOrderIds.map(orderId => ({
+              orderId,
+              fromStatusId: preparingStatus.id,
+              toStatusId: returnedStatus.id,
+            })),
+            ...partialReturnOrderIds.map(orderId => ({
+              orderId,
+              fromStatusId: preparingStatus.id,
+              toStatusId: partiallyReturnedStatus?.id || returnedStatus.id,
+            })),
+          ],
         });
       }
 
@@ -2575,6 +2658,13 @@ export class OrdersService {
 
     const qb = repo
       .createQueryBuilder("order")
+      .leftJoinAndSelect("order.returnRequests", "returnRequests")
+      .leftJoinAndSelect("returnRequests.items", "returnItems")
+      .leftJoinAndSelect("returnItems.returnedVariant", "retVariant")
+      .leftJoinAndSelect("retVariant.product", "retProduct")
+      .leftJoinAndSelect("returnItems.originalItem", "retOrigItem")
+      .leftJoinAndSelect("retOrigItem.variant", "retOrigVariant")
+      .leftJoinAndSelect("retOrigVariant.product", "retOrigProduct")
       .leftJoinAndSelect("order.items", "items")
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("items.bundle", "bundle")
@@ -2732,8 +2822,8 @@ export class OrdersService {
       const variant = variantMap.get(it.variantId)!;
       const unitPrice = it.unitPrice;
       const unitCost = it.unitCost ?? variant.unitCost ?? 0;
-      const lineTotal = unitPrice * it.quantity;
-      const lineProfit = (unitPrice - unitCost) * it.quantity;
+      const lineTotal = Number(unitPrice * it.quantity).toFixed(2);
+      const lineProfit = Number((unitPrice - unitCost) * it.quantity).toFixed(2);
 
       const item = manager.create(OrderItemEntity, {
         adminId,
@@ -3141,9 +3231,8 @@ export class OrdersService {
               existingItem.isAdditional = dtoItem.isAdditional;
 
             existingItem.bundleId = dtoItem.bundleId ? dtoItem.bundleId : null;
-            existingItem.lineTotal = newQty * dtoItem.unitPrice;
-            existingItem.lineProfit =
-              (dtoItem.unitPrice - existingItem.unitCost) * newQty;
+            existingItem.lineTotal = Number((newQty * dtoItem.unitPrice).toFixed(2));
+            existingItem.lineProfit = Number(((dtoItem.unitPrice - existingItem.unitCost) * newQty).toFixed(2));
 
             const idx = currentOrderItems.indexOf(existingItem);
             if (idx > -1) currentOrderItems[idx] = existingItem;
@@ -3160,8 +3249,8 @@ export class OrdersService {
               unitCost: unitCost,
               bundleId: dtoItem.bundleId ? dtoItem.bundleId : null,
               isAdditional: dtoItem.isAdditional ?? false,
-              lineTotal: newQty * dtoItem.unitPrice,
-              lineProfit: (dtoItem.unitPrice - unitCost) * newQty,
+              lineTotal: Number((newQty * dtoItem.unitPrice).toFixed(2)),
+              lineProfit: Number(((dtoItem.unitPrice - unitCost) * newQty).toFixed(2)),
             } as any);
 
             newItem.variant = variant; // Attach for signature generation
@@ -5566,10 +5655,11 @@ export class OrdersService {
     const itemsToUpdateIds: string[] = [];
 
     for (const item of order.items) {
-      if (item.stockDeducted || !item.variant) continue;
+      if (!item.variant) continue;
 
       const variantId = item.variant.id;
-      const qty = item.quantity || 0;
+      const qty = getMissingDeductionQuantity(item);
+      if (qty <= 0) continue;
 
       const currentTotal = variantDeductions.get(variantId) || 0;
       variantDeductions.set(variantId, currentTotal + qty);
@@ -5614,7 +5704,7 @@ export class OrdersService {
       const itemsUpdate = manager
         .createQueryBuilder()
         .update(OrderItemEntity)
-        .set({ stockDeducted: true })
+        .set({ stockDeducted: true, stockDeductedQuantity: () => `"quantity"` })
         .where("id IN (:...ids)", { ids: itemsToUpdateIds })
         .execute();
 
@@ -5650,10 +5740,11 @@ export class OrdersService {
       if (!shouldDedicate) continue;
 
       for (const item of order.items) {
-        if (item.stockDeducted || !item.variant) continue;
+        if (!item.variant) continue;
 
         const variantId = item.variant.id;
-        const qty = item.quantity || 0;
+        const qty = getMissingDeductionQuantity(item);
+        if (qty <= 0) continue;
 
         // تجميع الكميات لكل VariantID
         const currentTotal = variantDeductions.get(variantId) || 0;
@@ -5706,7 +5797,7 @@ export class OrdersService {
       const itemUpdate = manager
         .createQueryBuilder()
         .update(OrderItemEntity)
-        .set({ stockDeducted: true })
+        .set({ stockDeducted: true, stockDeductedQuantity: () => `"quantity"` })
         .where("id IN (:...ids)", { ids: itemsToUpdateIds })
         .execute();
 
@@ -5845,11 +5936,10 @@ export class OrdersService {
     }));
   }
 
-
-
   ALLOWED_STATUS_CODES_FOR_ASSIGNMENT = new Set([
     OrderStatus.CANCELLED,
     OrderStatus.RETURNED,
+    OrderStatus.PARTIALLY_RETURNED,
     OrderStatus.FAILED_DELIVERY,
     OrderStatus.REJECTED,
     OrderStatus.NO_ANSWER,

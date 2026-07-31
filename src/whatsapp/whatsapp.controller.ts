@@ -251,7 +251,7 @@ export class WhatsappController {
 
     return 'Forbidden';
   }
-
+  
   @Post('webhook')
   handleEvents(@Body() body: any, @Headers() headers: Record<string, string>, @Req() req: Request) {
     return this.whatsappService.handleEvents(body, (req as any).rawBody as any, headers);

@@ -610,11 +610,15 @@
       "order_not_found": "الطلب ذو المعرف {orderId} غير موجود.",
       "item_not_found": "العنصر ذو المعرف {itemId} غير موجود في الطلب {orderId}",
       "qty_mismatch": "عدم تطابق الكمية: المطلوب {requested}، المشتري {purchased}",
+      "restock_qty_mismatch": "عدم تطابق كمية الإرجاع للمخزون: المطلوب {requested}، المرتجع {returned}",
+      "restock_qty_exceeds_deducted": "كمية الإرجاع للمخزون أكبر من الكمية المخصومة: المطلوب {requested}، المخصوم {deducted}",
       "moved_to_return_preparing": "تلقائي: تم النقل إلى حالة تجهيز الإرجاع عبر طلب إرجاع",
+      "moved_to_partially_returned": "تلقائي: تم النقل إلى حالة مرتجع جزئي عبر طلب إرجاع",
       "return_request_created_log": "الطلب {orderNumberOrId} تم تجهيزه للإرجاع لـ {itemsCount} عنصر.",
       "return_request_created_title": "تم إنشاء طلب إرجاع",
       "order_status_wrong": "لا يمكن إنشاء طلب إرجاع إلا للطلبات التي حالتها تم الشحن أو تم التسليم أو فشل التسليم. الطلب رقم {orderNumber} غير مؤهل لإنشاء طلب إرجاع.",
-      "return_request_created_message": "تم إنشاء طلب إرجاع للطلب #{orderNumber}."
+      "return_request_created_message": "تم إنشاء طلب إرجاع للطلب #{orderNumber}.",
+      "damage_responsibility_required": "يرجى تحديد المسؤول عن الكمية التالفة."
     },
     "replacement": {
       "already_has_replacement": "هذا الطلب يحتوي على طلب استبدال بالفعل ولا يمكن استبداله مرة أخرى.",

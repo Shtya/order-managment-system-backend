@@ -1538,6 +1538,7 @@ export class EasyOrderService extends BaseStoreProvider {
             [OrderStatus.REJECTED]: "canceled",
 
             [OrderStatus.RETURNED]: "returning_from_delivery",
+            [OrderStatus.PARTIALLY_RETURNED]: "returning_from_delivery",
             [OrderStatus.RETURN_PREPARING]: "request_refund",
         };
         return map[internalStatus] || null;

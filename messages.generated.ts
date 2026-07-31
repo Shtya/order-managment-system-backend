@@ -750,11 +750,15 @@ export type I18nTranslations = {
                 "order_not_found": string;
                 "item_not_found": string;
                 "qty_mismatch": string;
+                "restock_qty_mismatch": string;
+                "restock_qty_exceeds_deducted": string;
                 "moved_to_return_preparing": string;
+                "moved_to_partially_returned": string;
                 "return_request_created_log": string;
                 "return_request_created_title": string;
                 "order_status_wrong": string;
                 "return_request_created_message": string;
+                "damage_responsibility_required": string;
             };
             "replacement": {
                 "already_has_replacement": string;

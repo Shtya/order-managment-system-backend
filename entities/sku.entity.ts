@@ -175,6 +175,12 @@ export class ProductVariantEntity extends ActivatableEntity {
   @Column({ type: "int", default: 0 })
   reserved!: number;
 
+  @Column({ type: 'int', default: 0 })
+  customerDamagedQuantity!: number;
+
+  @Column({ type: 'int', default: 0 })
+  companyDamagedQuantity!: number;
+
   @Column({ type: "varchar", length: 255, nullable: true })
   externalId?: string | null;
 
@@ -183,5 +189,4 @@ export class ProductVariantEntity extends ActivatableEntity {
 
   @CreateDateColumn({ type: "timestamptz" })
   created_at!: Date;
-
 }
