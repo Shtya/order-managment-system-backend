@@ -1009,6 +1009,7 @@ export class ReturnRequestItemEntity {
   
   @Column({ type: "int", default: 0 })
   damagedQuantity: number;
+  
   @Column({ type: "enum", enum: DamageResponsibility, nullable: true })
   damageResponsibility: DamageResponsibility | null;
 

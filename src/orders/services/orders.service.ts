@@ -2821,7 +2821,7 @@ export class OrdersService {
     const items = dto.items.map((it) => {
       const variant = variantMap.get(it.variantId)!;
       const unitPrice = it.unitPrice;
-      const unitCost = it.unitCost ?? variant.unitCost ?? 0;
+      const unitCost = variant.unitCost ?? variant.product?.wholesalePrice ?? 0;
       const lineTotal = Number(unitPrice * it.quantity).toFixed(2);
       const lineProfit = Number((unitPrice - unitCost) * it.quantity).toFixed(2);
 
@@ -3177,6 +3177,9 @@ export class OrdersService {
 
         const variants = await manager.find(ProductVariantEntity, {
           where: { adminId, id: In(newVariantIds) } as any,
+          relations: {
+            product: true,
+          },
         });
         const variantMap = new Map(variants.map((v) => [v.id, v]));
 
@@ -3239,7 +3242,7 @@ export class OrdersService {
             itemsToSave.push(existingItem);
           } else {
             // Create new
-            const unitCost = dtoItem.unitCost ?? variant.price ?? 0;
+            const unitCost = variant.unitCost ?? variant.product?.wholesalePrice ?? 0;
             const newItem = manager.create(OrderItemEntity, {
               adminId,
               orderId: order.id,
