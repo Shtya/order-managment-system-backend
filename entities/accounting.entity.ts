@@ -184,6 +184,9 @@ export class MonthlyClosingEntity {
     revenue: number;
 
     @Column({ type: 'decimal', precision: 20, scale: 2, default: 0 })
+    returnedRevenue: number;
+    
+    @Column({ type: 'decimal', precision: 20, scale: 2, default: 0 })
     productCost: number; // COGS
 
     @Column({ type: 'decimal', precision: 20, scale: 2, default: 0 })

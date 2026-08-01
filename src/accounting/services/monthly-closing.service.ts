@@ -213,6 +213,7 @@ export class MonthlyClosingService {
         revenue: preview.revenue,
         productCost: preview.cogs,
         operationalExpenses: preview.operationalExpenses,
+        returnedRevenue: preview.returnedRevenue,
         returnsCost: preview.returnsCost,
         grossProfit: preview.grossProfit,
         netProfit: preview.netProfit,
@@ -297,6 +298,7 @@ export class MonthlyClosingService {
         revenue: Number(existingClosing.revenue),
         cogs: Number(existingClosing.productCost),
         operationalExpenses: Number(existingClosing.operationalExpenses),
+        returnedRevenue: Number(existingClosing.returnedRevenue),
         returnsCost: Number(existingClosing.returnsCost),
         grossProfit: Number(existingClosing.grossProfit),
         netProfit: Number(existingClosing.netProfit),
@@ -312,6 +314,7 @@ export class MonthlyClosingService {
       cogsRow,
       operationalRow,
       ReturnsRow,
+      returnedRevenueRow,
     ] = await Promise.all([
       ordersRepo.createQueryBuilder('o')
         .select('COALESCE(SUM(o.finalTotal - COALESCE(o.shippingCost, 0)), 0)', 'sum')
@@ -346,13 +349,30 @@ export class MonthlyClosingService {
         .andWhere('rr.monthlyClosingId IS NULL')
         .andWhere('rr.createdAt BETWEEN :start AND :end', { start, end })
         .getRawOne(),
+
+      this.dataSource.getRepository(ReturnRequestItemEntity)
+        .createQueryBuilder('ri')
+        .innerJoin('ri.returnRequest', 'rr')
+        .innerJoin('ri.originalItem', 'oi')
+        .innerJoin('oi.order', 'o')
+        .select('COALESCE(SUM(oi.unitPrice * ri.quantity), 0)', 'sum')
+        .where('rr.adminId = :adminId', { adminId })
+        .andWhere('rr.status = :status', {
+          status: ReturnRequestStatus.APPROVED,
+        })
+        .andWhere('o.deliveredAt IS NOT NULL')
+        .andWhere('rr.monthlyClosingId IS NULL')
+        .andWhere('rr.createdAt BETWEEN :start AND :end', { start, end })
+        .getRawOne(),
     ]);
 
     const revenue = Number(revenueRow?.sum || 0);
+    const returnedRevenue = Number(returnedRevenueRow?.sum || 0);
+    const finalRevenue = revenue - returnedRevenue;
     const cogs = Number(cogsRow?.sum || 0);
     const operationalExpenses = Number(operationalRow?.sum || 0);
     const returnsCost = Number(ReturnsRow?.sum || 0);
-
+    
     const finalCOGS = cogs - returnsCost;
     const grossProfit = revenue - finalCOGS;
     const netProfit = grossProfit - operationalExpenses;
@@ -361,7 +381,8 @@ export class MonthlyClosingService {
       isClosed: !!existingClosing,
       year,
       month,
-      revenue,
+      revenue: finalRevenue,
+      returnedRevenue,
       cogs: finalCOGS,
       operationalExpenses,
       returnsCost,
@@ -411,7 +432,7 @@ export class MonthlyClosingService {
         .leftJoinAndSelect('oi.variant', 'v')
         .leftJoinAndSelect('v.product', 'p')
         .where('rr.adminId = :adminId', { adminId })
-        .andWhere('rr.status = :status', { status: ReturnRequestStatus.APPROVED})
+        .andWhere('rr.status = :status', { status: ReturnRequestStatus.APPROVED })
         .andWhere('o."deliveredAt" IS NOT NULL')
         .andWhere(closingId ? 'rr.monthlyClosingId = :closingId' : 'rr.monthlyClosingId IS NULL', { closingId })
         .andWhere('rr.createdAt BETWEEN :start AND :end', { start, end })
