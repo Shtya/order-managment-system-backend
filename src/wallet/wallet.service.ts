@@ -84,9 +84,9 @@ export class WalletService {
       throw new BadRequestException(this.translations.t("domains.payments.min_amount_required", {args: {amount:50} }));
     }
     // Check whole number
-    if (!Number.isInteger(Number(amount))) {
-      throw new BadRequestException(this.translations.t("domains.payments.whole_number_required"));
-    }
+    // if (!Number.isInteger(Number(amount))) {
+    //   throw new BadRequestException(this.translations.t("domains.payments.whole_number_required"));
+    // }
     const provider = this.paymentFactory.getProviderByCurrency(defaultCurrency);
     return await this.dataSource.transaction(async (manager) => {
       return await provider.checkout({

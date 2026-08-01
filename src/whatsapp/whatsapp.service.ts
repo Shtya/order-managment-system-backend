@@ -1242,7 +1242,7 @@ export class WhatsappService {
         // this.logger.log(`WhatsApp Webhook Received - mainWabaId: ${mainWabaId} -  Main Account: ${JSON.stringify(mainAccount)}`);
 
         // Step 1: Validate request
-        // this.validateSignature(rawBody, signature, mainAccount.appSecret);
+        this.validateSignature(rawBody, signature, mainAccount.appSecret);
 
 
         for (const entry of entries) {
