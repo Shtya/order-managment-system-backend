@@ -250,7 +250,7 @@ export class SubscriptionsService {
                 usersLimit: dto.usersLimit ?? plan.usersLimit,
                 storesLimit: dto.storesLimit ?? plan.storesLimit,
                 shippingCompaniesLimit: dto.shippingCompaniesLimit ?? plan.shippingCompaniesLimit,
-                bulkUploadPerMonth: dto.bulkUploadPerMonth ?? plan.bulkUploadPerMonth,
+                // bulkUploadPerMonth: dto.bulkUploadPerMonth ?? plan.bulkUploadPerMonth,
                 // Status and dates
                 status: dto.status,
                 startDate: startDate,
@@ -344,7 +344,7 @@ export class SubscriptionsService {
                 sub.usersLimit = dto.usersLimit ?? newPlan.usersLimit;
                 sub.storesLimit = dto.storesLimit ?? newPlan.storesLimit;
                 sub.shippingCompaniesLimit = dto.shippingCompaniesLimit ?? newPlan.shippingCompaniesLimit;
-                sub.bulkUploadPerMonth = dto.bulkUploadPerMonth ?? newPlan.bulkUploadPerMonth;
+                // sub.bulkUploadPerMonth = dto.bulkUploadPerMonth ?? newPlan.bulkUploadPerMonth;
 
                 // إعادة ضبط الاستهلاك وتحديث التواريخ
                 sub.usedOrders = 0;
@@ -366,7 +366,7 @@ export class SubscriptionsService {
                 if (dto.usersLimit !== undefined) sub.usersLimit = dto.usersLimit;
                 if (dto.storesLimit !== undefined) sub.storesLimit = dto.storesLimit;
                 if (dto.shippingCompaniesLimit !== undefined) sub.shippingCompaniesLimit = dto.shippingCompaniesLimit;
-                if (dto.bulkUploadPerMonth !== undefined) sub.bulkUploadPerMonth = dto.bulkUploadPerMonth;
+                // if (dto.bulkUploadPerMonth !== undefined) sub.bulkUploadPerMonth = dto.bulkUploadPerMonth;
             }
 
             // 4️⃣ التحقق من عدم وجود اشتراك نشط آخر لنفس المستخدم (فقط إذا كان الاشتراك الحالي سيصبح ACTIVE)
@@ -529,7 +529,7 @@ export class SubscriptionsService {
                     usersLimit: plan.usersLimit,
                     storesLimit: plan.storesLimit,
                     shippingCompaniesLimit: plan.shippingCompaniesLimit,
-                    bulkUploadPerMonth: plan.bulkUploadPerMonth,
+                    // bulkUploadPerMonth: plan.bulkUploadPerMonth,
                     status: SubscriptionStatus.PENDING,
                     startDate: new Date(),
                     usedOrders: 0,
@@ -883,7 +883,7 @@ export class SubscriptionsService {
                 usersLimit: renderLimit(sub.usersLimit),
                 storesLimit: renderLimit(sub.storesLimit),
                 shippingLimit: renderLimit(sub.shippingCompaniesLimit),
-                bulkUpload: sub.bulkUploadPerMonth || 0,
+                // bulkUpload: sub.bulkUploadPerMonth || 0,
 
                 status:
                     sub.status?.toUpperCase() ||

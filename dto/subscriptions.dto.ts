@@ -50,10 +50,10 @@ export class CreateSubscriptionDto {
     @Min(0, {message: i18nValidationMessage('validation.min')})
     shippingCompaniesLimit?: number | null;
 
-    @IsOptional()
-    @IsInt({message: i18nValidationMessage('validation.is_int')})
-    @Min(0, {message: i18nValidationMessage('validation.min')})
-    bulkUploadPerMonth?: number;
+    // @IsOptional()
+    // @IsInt({message: i18nValidationMessage('validation.is_int')})
+    // @Min(0, {message: i18nValidationMessage('validation.min')})
+    // bulkUploadPerMonth?: number;
 
     @IsOptional()
     @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})

@@ -34,7 +34,7 @@ export class PlansService {
 	async list(me: User) {
 		const qb = this.plansRepo
 			.createQueryBuilder('p')
-			.orderBy('p.id', 'DESC');
+			.orderBy('p.createdAt', 'DESC');
 
 		// Super admin: sees all plans with adminId null
 		// if (this.isSuperAdmin(me)) {
@@ -108,7 +108,7 @@ export class PlansService {
 			usersLimit: dto.usersLimit !== undefined ? dto.usersLimit : 1,
 			storesLimit: dto.storesLimit !== undefined ? dto.storesLimit : 1,
 			shippingCompaniesLimit: dto.shippingCompaniesLimit !== undefined ? dto.shippingCompaniesLimit : 0,
-			bulkUploadPerMonth: dto.bulkUploadPerMonth ?? 0,
+			// bulkUploadPerMonth: dto.bulkUploadPerMonth ?? 0,
 
 			description: dto.description?.trim(),
 			descriptionEn: dto.descriptionEn?.trim(),
@@ -159,7 +159,7 @@ export class PlansService {
 		if (dto.usersLimit !== undefined) plan.usersLimit = dto.usersLimit;
 		if (dto.storesLimit !== undefined) plan.storesLimit = dto.storesLimit;
 		if (dto.shippingCompaniesLimit !== undefined) plan.shippingCompaniesLimit = dto.shippingCompaniesLimit;
-		if (dto.bulkUploadPerMonth !== undefined) plan.bulkUploadPerMonth = dto.bulkUploadPerMonth;
+		// if (dto.bulkUploadPerMonth !== undefined) plan.bulkUploadPerMonth = dto.bulkUploadPerMonth;
 
 		// Metadata & UI
 		if (dto.description !== undefined) plan.description = dto.description.trim();

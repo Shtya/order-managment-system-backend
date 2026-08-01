@@ -119,8 +119,8 @@ export class Plan {
 	price: number | null; //base fee
 	//
 
-	@Column({ type: 'int', default: 0 })
-	bulkUploadPerMonth: number;
+	// @Column({ type: 'int', default: 0 })
+	// bulkUploadPerMonth: number;
 
 	@Column({ type: 'uuid', nullable: true })
 	adminId?: string | null;
@@ -209,8 +209,8 @@ export class Subscription {
 	@Column({ type: 'int', default: 1, nullable: true })
 	shippingCompaniesLimit: number | null;
 
-	@Column({ type: 'int', default: 0 })
-	bulkUploadPerMonth: number;
+	// @Column({ type: 'int', default: 0 })
+	// bulkUploadPerMonth: number;
 
 	// --- Subscription Specifics ---
 

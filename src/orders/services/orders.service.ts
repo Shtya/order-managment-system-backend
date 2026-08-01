@@ -4947,18 +4947,18 @@ export class OrdersService {
     }
 
     const rowCount = sheet.rowCount - 2;
-    const usage = await this.getUsageTracker(adminId);
+    // const usage = await this.getUsageTracker(adminId);
     const activeSub = admin.subscriptions.find(
       (s) => s.status === SubscriptionStatus.ACTIVE,
     );
-    const limit = activeSub?.bulkUploadPerMonth || 0;
-    const remaining = Math.max(0, limit - usage.count);
+    // const limit = activeSub?.bulkUploadPerMonth || 0;
+    // const remaining = Math.max(0, limit - usage.count);
 
-    if (usage.count + rowCount > limit) {
-      throw new BadRequestException(
-        this.translations.t('domains.orders.bulk_upload_limit_exceeded', { args: { remaining, rowCount } }),
-      );
-    }
+    // if (usage.count + rowCount > limit) {
+    //   throw new BadRequestException(
+    //     this.translations.t('domains.orders.bulk_upload_limit_exceeded', { args: { remaining, rowCount } }),
+    //   );
+    // }
 
     const storeMap = new Map(
       storesData.records.map((s) => [s.provider.toLowerCase().trim(), s.id]),
