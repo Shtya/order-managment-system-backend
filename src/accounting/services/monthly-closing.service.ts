@@ -353,7 +353,7 @@ export class MonthlyClosingService {
     const operationalExpenses = Number(operationalRow?.sum || 0);
     const returnsCost = Number(ReturnsRow?.sum || 0);
 
-    const finalCOGS = cogs + returnsCost;
+    const finalCOGS = cogs - returnsCost;
     const grossProfit = revenue - finalCOGS;
     const netProfit = grossProfit - operationalExpenses;
 
