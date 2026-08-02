@@ -8,8 +8,8 @@ export class DateFilterUtil {
         let start = startDate ? new Date(startDate) : null;
         let end = endDate ? new Date(endDate) : null;
 
-        if (start) start?.setHours(0, 0, 0, 0);
-        if (end) end?.setHours(23, 59, 59, 999);
+        if (start) start?.setUTCHours(0, 0, 0, 0);
+        if (end) end?.setUTCHours(23, 59, 59, 999);
 
         return { start, end };
     }
@@ -38,7 +38,40 @@ export class DateFilterUtil {
         startDate?: string | Date,
         endDate?: string | Date,
     ): SelectQueryBuilder<T> {
-        const { start, end } = this.getBoundaries(startDate, endDate);
+        // const { start, end } = this.getBoundaries(startDate, endDate);
+        // const { start, end } = this.getBoundaries(startDate, endDate);
+        let start = startDate;
+        let end = endDate;
+
+        // Creates safe parameter names like "order_created_at_start"
+        const safeParam = columnName.replace('.', '_');
+
+        if (start && end) {
+            qb.andWhere(`${columnName} BETWEEN :${safeParam}_start AND :${safeParam}_end`, {
+                [`${safeParam}_start`]: start,
+                [`${safeParam}_end`]: end,
+            });
+        } else if (start) {
+            qb.andWhere(`${columnName} >= :${safeParam}_start`, {
+                [`${safeParam}_start`]: start,
+            });
+        } else if (end) {
+            qb.andWhere(`${columnName} <= :${safeParam}_end`, {
+                [`${safeParam}_end`]: end,
+            });
+        }
+
+        return qb;
+    }
+
+    static rawDateFilter<T>(
+        qb: SelectQueryBuilder<T>,
+        columnName: string,
+        startDate?: string | Date,
+        endDate?: string | Date,
+    ): SelectQueryBuilder<T> {
+        let start = startDate;
+        let end = endDate;
 
         // Creates safe parameter names like "order_created_at_start"
         const safeParam = columnName.replace('.', '_');

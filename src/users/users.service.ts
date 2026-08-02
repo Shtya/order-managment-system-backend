@@ -172,7 +172,7 @@ export class UsersService {
 			.addSelect(['admin.id', 'admin.name', 'admin.email'])
 			.orderBy('u.createdAt', 'DESC');
 			
-		DateFilterUtil.applyToQueryBuilder(qb, "u.createdAt", opts?.startDate, opts?.endDate);
+		DateFilterUtil.rawDateFilter(qb, "u.createdAt", opts?.startDate, opts?.endDate);
 		// tab filter
 		if (tab === 'active') qb.andWhere('u.isActive = true');
 		if (tab === 'inactive') qb.andWhere('u.isActive = false');

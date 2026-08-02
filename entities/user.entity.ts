@@ -196,6 +196,7 @@ export class User {
 	// 🔗 Relation to Wallet
 	@OneToOne(() => Wallet, (wallet) => wallet.user, { cascade: true })
 	wallet: Relation<Wallet>;
+	
 	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;
 
