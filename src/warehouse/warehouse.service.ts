@@ -239,7 +239,9 @@ export class WarehousesService {
 
 		if (q?.isActive) qb.andWhere("l.isActive = :isActive", { isActive: q.isActive });
 
-		if (q?.warehouseId) qb.andWhere("l.warehouseId = :warehouseId", { warehouseId: q.warehouseId });
+		if (q?.warehouseId && q.warehouseId !== "none" ) {
+			qb.andWhere("l.warehouseId = :warehouseId", { warehouseId: q.warehouseId });
+		}
 
 		if (q?.search?.trim()) {
 			const search = `%${String(q.search).trim().toLowerCase()}%`;
