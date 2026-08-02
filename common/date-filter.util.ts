@@ -8,8 +8,8 @@ export class DateFilterUtil {
         let start = startDate ? new Date(startDate) : null;
         let end = endDate ? new Date(endDate) : null;
 
-        if (start) start?.setUTCHours(0, 0, 0, 0);
-        if (end) end?.setUTCHours(23, 59, 59, 999);
+        if (start) start?.setHours(0, 0, 0, 0);
+        if (end) end?.setHours(23, 59, 59, 999);
 
         return { start, end };
     }
@@ -38,10 +38,8 @@ export class DateFilterUtil {
         startDate?: string | Date,
         endDate?: string | Date,
     ): SelectQueryBuilder<T> {
-        // const { start, end } = this.getBoundaries(startDate, endDate);
-        // const { start, end } = this.getBoundaries(startDate, endDate);
-        let start = startDate;
-        let end = endDate;
+        const { start, end } = this.getBoundaries(startDate, endDate);
+
 
         // Creates safe parameter names like "order_created_at_start"
         const safeParam = columnName.replace('.', '_');
