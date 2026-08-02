@@ -73,7 +73,9 @@ export class UsersController {
 		@Query('role') role?: string,      // contains (legacy)
 		@Query('roleId') roleId?: string,  // exact match by role.id
 		@Query('active') active?: string,  // all | true | false
-		@Query('adminId') adminId?: string // filter by owner
+		@Query('adminId') adminId?: string, // filter by owner
+		@Query('startDate') startDate?: string,
+		@Query('endDate') endDate?: string
 	) {
 		return this.users.superAdminList(req.user, {
 			page: Number(page ?? 1),
@@ -84,6 +86,8 @@ export class UsersController {
 			roleId: roleId ?? '',
 			active: active ?? 'all',
 			adminId: adminId ?? '',
+			startDate: startDate ? new Date(startDate) : undefined,
+			endDate: endDate ? new Date(endDate) : undefined,
 		});
 	}
 
@@ -99,6 +103,8 @@ export class UsersController {
 		@Query('roleId') roleId?: string,
 		@Query('active') active?: string,
 		@Query('adminId') adminId?: string,
+		@Query('startDate') startDate?: string,
+		@Query('endDate') endDate?: string
 	) {
 		const { filename, csv } = await this.users.superAdminExportCsv(req.user, {
 			tab: tab ?? 'all',
@@ -107,6 +113,8 @@ export class UsersController {
 			roleId: roleId ?? '',
 			active: active ?? 'all',
 			adminId: adminId ?? '',
+			startDate: startDate ? new Date(startDate) : undefined,
+			endDate: endDate ? new Date(endDate) : undefined,
 		});
 
 		res.setHeader('Content-Type', 'text/csv; charset=utf-8');

@@ -12,6 +12,7 @@ import { join } from 'path';
 import { tenantId } from 'src/category/category.service';
 import { SeedService } from './initial-seed.service';
 import { TranslationService } from 'common/translation.service';
+import { DateFilterUtil } from 'common/date-filter.util';
 
 
 @Injectable()
@@ -135,6 +136,8 @@ export class UsersService {
 			roleId: string;
 			active: string;
 			adminId: string;
+			startDate: Date;
+			endDate: Date;
 		}
 	) {
 		// ✅ enforce SUPER_ADMIN only
@@ -167,8 +170,9 @@ export class UsersService {
 			// ✅ self join to get admin info (owner)
 			.leftJoin(User, 'admin', 'admin.id = u.adminId')
 			.addSelect(['admin.id', 'admin.name', 'admin.email'])
-			.orderBy('u.id', 'DESC');
-
+			.orderBy('u.createdAt', 'DESC');
+			
+		DateFilterUtil.applyToQueryBuilder(qb, "u.createdAt", opts?.startDate, opts?.endDate);
 		// tab filter
 		if (tab === 'active') qb.andWhere('u.isActive = true');
 		if (tab === 'inactive') qb.andWhere('u.isActive = false');
@@ -258,7 +262,10 @@ export class UsersService {
 
 	async superAdminExportCsv(
 		me: User,
-		opts: { tab: string; search: string; role: string; roleId: string; active: string; adminId: string }
+		opts: { tab: string; search: string; role: string; roleId: string; active: string; adminId: string,
+			startDate: Date;
+			endDate: Date;
+		 }
 	) {
 		if (!this.isSuperAdmin(me)) throw new ForbiddenException(this.translations.t("common.permission_denied"));
 
@@ -281,8 +288,9 @@ export class UsersService {
 			.leftJoinAndSelect('subscription.plan', 'plan')
 			.leftJoin(User, 'admin', 'admin.id = u.adminId')
 			.addSelect(['admin.id', 'admin.name', 'admin.email'])
-			.orderBy('u.id', 'DESC');
+			.orderBy('u.createdAt', 'DESC');
 
+		DateFilterUtil.applyToQueryBuilder(qb, "u.createdAt", opts?.startDate, opts?.endDate);
 		if (tab === 'active') qb.andWhere('u.isActive = true');
 		if (tab === 'inactive') qb.andWhere('u.isActive = false');
 
@@ -430,7 +438,7 @@ export class UsersService {
 				{ status: SubscriptionStatus.ACTIVE }
 			)
 			.leftJoinAndSelect('subscription.plan', 'plan')
-			.orderBy("user.id", "DESC")
+			.orderBy("user.createdAt", "DESC")
 			.take(fetchLimit + 1);
 
 		// Apply cursor (id-based)
@@ -525,7 +533,7 @@ export class UsersService {
 				{ status: SubscriptionStatus.ACTIVE }
 			)
 			.leftJoinAndSelect('subscription.plan', 'plan')
-			.orderBy('u.id', 'DESC');
+			.orderBy('u.createdAt', 'DESC');
 
 		// ownership
 		if (!this.isSuperAdmin(me)) {
@@ -643,7 +651,7 @@ export class UsersService {
 		const qb = this.usersRepo
 			.createQueryBuilder('u')
 			.leftJoinAndSelect('u.role', 'role')
-			.orderBy('u.id', 'DESC');
+			.orderBy('u.createdAt', 'DESC');
 
 		if (!this.isSuperAdmin(me)) {
 			if (me.role?.name === SystemRole.ADMIN) qb.where('u.adminId = :adminId', { adminId: me.id });
