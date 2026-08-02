@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { ApprovalStatus } from 'common/enums';
-import { calculateRange } from 'common/healpers';
+import { calculateRange, isLessThanOneDay } from 'common/healpers';
 import { endOfMonth, startOfMonth, subDays } from 'date-fns';
 import { AccountingStatsDto } from 'dto/accounting.dto';
 import { ManualExpenseCategoryEntity, ManualExpenseEntity, SupplierClosingEntity } from 'entities/accounting.entity';
@@ -154,9 +154,7 @@ export class AccountingService {
         // rawEndDate.setHours(23, 59, 59, 999);
         const params: any[] = [rawStartDate, rawEndDate, points, adminId];
 
-        const ONE_DAY_MS = 24 * 60 * 60 * 1000;
-
-        if (rawEndDate.getTime() - rawStartDate.getTime() < ONE_DAY_MS) {
+        if (isLessThanOneDay(rawStartDate, rawEndDate)) {
             return [];
         }
 
