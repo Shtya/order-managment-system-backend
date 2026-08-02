@@ -154,6 +154,11 @@ export class AccountingService {
         // rawEndDate.setHours(23, 59, 59, 999);
         const params: any[] = [rawStartDate, rawEndDate, points, adminId];
 
+        const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+        if (rawEndDate.getTime() - rawStartDate.getTime() < ONE_DAY_MS) {
+            return [];
+        }
 
         const query = `
         WITH params AS (
@@ -549,14 +554,14 @@ export class AccountingService {
         const worksheet = workbook.addWorksheet(this.translations.t('domains.accounting.shipments_city_report'));
 
         // 5. Define English Columns
-       worksheet.columns = [
-    { header: this.translations.t('domains.accounting.city'), key: "city", width: 25 },
-    { header: this.translations.t('domains.accounting.total_shipments'), key: "totalShipments", width: 15 },
-    { header: this.translations.t('domains.accounting.actual_deliveries'), key: "actualDeliveries", width: 15 },
-    { header: this.translations.t('domains.accounting.failed_cancelled'), key: "failedShipments", width: 15 },
-    { header: this.translations.t('domains.accounting.success_rate'), key: "successRate", width: 15 },
-    { header: this.translations.t('domains.accounting.failure_rate'), key: "failureRate", width: 15 },
-];
+        worksheet.columns = [
+            { header: this.translations.t('domains.accounting.city'), key: "city", width: 25 },
+            { header: this.translations.t('domains.accounting.total_shipments'), key: "totalShipments", width: 15 },
+            { header: this.translations.t('domains.accounting.actual_deliveries'), key: "actualDeliveries", width: 15 },
+            { header: this.translations.t('domains.accounting.failed_cancelled'), key: "failedShipments", width: 15 },
+            { header: this.translations.t('domains.accounting.success_rate'), key: "successRate", width: 15 },
+            { header: this.translations.t('domains.accounting.failure_rate'), key: "failureRate", width: 15 },
+        ];
 
         // Style header row (matching your pattern)
         worksheet.getRow(1).font = { bold: true };
@@ -650,7 +655,7 @@ export class AccountingService {
             const supplier = await manager.findOne(SupplierEntity, {
                 where: { id: supplierId, adminId }
             });
-            
+
             if (!supplier) throw new NotFoundException(this.translations.t('domains.accounting.supplier_not_found'));
 
             if (supplier.lastClosingEndDate) {
@@ -659,14 +664,14 @@ export class AccountingService {
                 if (newStartDate <= lastEnd) {
                     const formattedDate = lastEnd.toISOString().split('T')[0];
                     throw new BadRequestException(
-                        this.translations.t('domains.accounting.closing_period_start_after_last', { args: {formattedDate} })
+                        this.translations.t('domains.accounting.closing_period_start_after_last', { args: { formattedDate } })
                     );
                 }
             }
 
             if (newEndDate <= newStartDate) {
                 throw new BadRequestException(this.translations.t('domains.accounting.end_date_must_be_later'));
-            }   
+            }
 
             const { finalBalance, totalReturns, totalTaken, rCount, pCount, totalPaid, totalPurchases } = await this.getSupplierPeriodPreview(me, supplierId, startDate, endDate, manager);
             if (pCount === 0 && rCount === 0) {

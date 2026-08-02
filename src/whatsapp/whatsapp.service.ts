@@ -7,7 +7,7 @@ import { AutomationFlowEntity, AutomationRunEntity, RunStatus } from 'entities/a
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
-import { getErrorMessage, imageSrc, calculateRange } from 'common/healpers';
+import { getErrorMessage, imageSrc, calculateRange, isLessThanOneDay } from 'common/healpers';
 import { AutomationQueueService } from 'src/queue/queues/automations.queue';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
@@ -311,6 +311,9 @@ export class WhatsappService {
         const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
         const accountFilter = filters.accountId ? `AND m."accountId" = '${filters.accountId}'` : '';
 
+        if (isLessThanOneDay(finalStartDate, finalEndDate)) {
+            return [];
+        }
         const query = `
             WITH params AS (
                 SELECT
@@ -1365,7 +1368,7 @@ export class WhatsappService {
 
 
     private async handleMessages(value: any, account: WhatsappAccountEntity) {
-        
+
         const messages = value?.messages || [];
         const statuses = value?.statuses || [];
         if (messages.length === 0 && statuses.length === 0) return;
@@ -1805,7 +1808,7 @@ export class WhatsappService {
             // 4. Subscribe App to WABA
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'in_progress' });
             try {
-            await this.whatsappApi.subscribeAppToWaba(wabaId, accessToken);
+                await this.whatsappApi.subscribeAppToWaba(wabaId, accessToken);
             } catch (subError) {
                 this.logger.error(`Failed to subscribe app to WABA: ${subError.message}`, subError.stack);
             }
@@ -2134,9 +2137,9 @@ export class WhatsappService {
                 e.stack,
             );
 
-            this.appGateway.emitWhatsappSignupStatus(adminId, { 
-                step: "SYNCING_TEMPLATES", 
-                status: "failed", 
+            this.appGateway.emitWhatsappSignupStatus(adminId, {
+                step: "SYNCING_TEMPLATES",
+                status: "failed",
             });
 
             this.appGateway.emitWhatsappSignupStatus(adminId, {

@@ -23,7 +23,7 @@ import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
-import { calculateRange, calculatePreviousRange } from "common/healpers";
+import { calculateRange, calculatePreviousRange, isLessThanOneDay } from "common/healpers";
 import { User } from "entities/user.entity";
 import { DateFilterUtil } from "common/date-filter.util";
 import { OrderFailStatus, WebhookOrderFailureEntity } from "entities/stores.entity";
@@ -197,6 +197,10 @@ export class DashboardService {
       extraFilters += ` AND (o."orderNumber" ILIKE $${paramIndex} OR o."customerName" ILIKE $${paramIndex})`;
       params.push(`%${filters.search}%`);
       paramIndex++;
+    }
+
+    if (isLessThanOneDay(finalStartDate, finalEndDate)) {
+      return [];
     }
 
     // 3. الاستعلام الشامل (يستخدم generate_series لإنشاء جداول زمنية متساوية)
@@ -384,6 +388,11 @@ export class DashboardService {
       extraFilters += ` AND o."storeId" = $5`;
       params.push(filters.storeId);
     }
+
+    if (isLessThanOneDay(finalStartDate, finalEndDate)) {
+      return [];
+    }
+
 
     const query = `
         WITH params AS (
@@ -668,6 +677,11 @@ export class DashboardService {
       params.push(`%${filters.search}%`);
       paramIndex++;
     }
+
+    if (isLessThanOneDay(finalStartDate, finalEndDate)) {
+      return [];
+    }
+
 
     const query = `
     WITH params AS (
@@ -1316,7 +1330,7 @@ export class DashboardService {
     const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
     const startDate = startRange ? startRange : start;
     const endDate = endRange ? endRange : end;
-    
+
     // Calculate previous range for comparison
     const prevRange = calculatePreviousRange(
       filters.range,
@@ -1393,7 +1407,7 @@ export class DashboardService {
       if (filters.storeId) pendingQb.andWhere("wf.storeId = :storeId", { storeId: filters.storeId });
       if (rangeStart) pendingQb.andWhere("wf.created_at >= :rangeStart", { rangeStart });
       if (rangeEnd) pendingQb.andWhere("wf.created_at <= :rangeEnd", { rangeEnd });
-      
+
       pendingQb.select("COUNT(DISTINCT wf.id)", "count");
 
       const [mainStats, pendingStats] = await Promise.all([
@@ -1471,7 +1485,7 @@ export class DashboardService {
       `st.code AS "code"`,
       `COUNT(DISTINCT o.id) AS "count"`
     ])
-    .groupBy('st.id, st.name, st.system, st.code');
+      .groupBy('st.id, st.name, st.system, st.code');
 
     const [currentStats, comparisonStats, statusBreakdown] = await Promise.all([
       fetchData(startDate, endDate),

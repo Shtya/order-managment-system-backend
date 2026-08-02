@@ -449,3 +449,18 @@ export function expandBundleToOrderLineItems(
         unitCost: a.unitCost,
     }));
 }
+
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Returns true if the range is less than one full day.
+ */
+export function isLessThanOneDay(
+    startDate: Date | string,
+    endDate: Date | string,
+): boolean {
+    const start = startDate instanceof Date ? startDate : new Date(startDate);
+    const end = endDate instanceof Date ? endDate : new Date(endDate);
+
+    return end.getTime() - start.getTime() < ONE_DAY_MS;
+}
