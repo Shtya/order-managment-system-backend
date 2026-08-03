@@ -53,14 +53,14 @@ export class PaymentsController {
     @Res() res: Response
   ) {
     try {
-      const { status, sessionId } = await this.paymentsService.processRedirect(providerName, query);
+      const { status, sessionId, amount, currency, purpose } = await this.paymentsService.processRedirect(providerName, query);
       const frontendUrl = process.env.FRONTEND_URL?.trim() || 'http://localhost:3000';
 
       // Route the user based on the payment status
       if (status === PaymentSessionStatusEnum.SUCCESS) {
-        return res.redirect(`${frontendUrl}/ar/payment/success?session_id=${sessionId}`);
+        return res.redirect(`${frontendUrl}/ar/payment/success?session_id=${sessionId}&amount=${amount}&currency=${currency}&purpose=${purpose}`);
       } else {
-        return res.redirect(`${frontendUrl}/ar/payment/fail?session_id=${sessionId}`);
+        return res.redirect(`${frontendUrl}/ar/payment/fail?session_id=${sessionId}&amount=${amount}&currency=${currency}&purpose=${purpose}`);
       }
 
     } catch (err) {

@@ -376,7 +376,18 @@ export class PaymentsService {
             this.logger.warn(`Redirect query missing session ID for provider ${providerName}`);
         }
 
-        return { status, sessionId };
+        const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+        if (!session) {
+            this.logger.warn(`No payment session found for session ID: ${sessionId}`);
+        } else {
+            this.logger.log(`Payment session found for session ID: ${sessionId}, current status: ${session.status}`);
+        }
+
+        const amount = session?.amount;
+        const currency = session?.currency;
+        const purpose = session?.purpose;
+
+        return { status, sessionId, amount, currency, purpose };
     }
 
     async getPaymentSessionById(me: any, id: string) {
