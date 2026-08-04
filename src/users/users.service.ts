@@ -159,6 +159,8 @@ export class UsersService {
 		// base query
 		const qb = this.usersRepo
 			.createQueryBuilder('u')
+			.leftJoinAndSelect('u.company', 'company')
+			.leftJoinAndSelect('u.wallet', 'wallet')
 			.leftJoinAndSelect('u.role', 'role')
 			.leftJoinAndSelect(
 				'u.subscriptions',
@@ -207,11 +209,7 @@ export class UsersService {
 			const raw = rows.raw[idx] || {};
 			const activeSub = u.activeSubscription ?? null;
 			return {
-				id: u.id,
-				name: u.name,
-				email: u.email,
-				isActive: u.isActive,
-				adminId: u.adminId ?? null,
+				...u,
 				subscription: activeSub ?? null,
 				// subscriptionId: u.subscriptionId ?? null,
 
@@ -222,9 +220,7 @@ export class UsersService {
 				admin: raw?.admin_id
 					? { id: raw.admin_id, name: raw.admin_name, email: raw.admin_email }
 					: null,
-
-				// if your entity has createdAt
-				createdAt: (u as any).createdAt ?? null,
+			
 			};
 		});
 
