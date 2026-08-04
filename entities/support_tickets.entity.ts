@@ -1,12 +1,14 @@
 import {
     Column,
     CreateDateColumn,
+    DeleteDateColumn,
     Entity,
     Index,
     JoinColumn,
     ManyToOne,
     OneToMany,
     PrimaryGeneratedColumn,
+    Relation,
     UpdateDateColumn,
 } from 'typeorm';
 import { User } from './user.entity';
@@ -36,6 +38,21 @@ export enum SupportTicketAttachmentType {
     DOCUMENT = 'document',
 }
 
+export enum SupportTicketActivityType {
+    CREATED = 'created',
+    // MESSAGE_ADDED = 'message_added',
+    STATUS_CHANGED = 'status_changed',
+    PRIORITY_CHANGED = 'priority_changed',
+    ASSIGNED = 'assigned',
+    UNASSIGNED = 'unassigned',
+    RESOLVED = 'resolved',
+    CLOSED = 'closed',
+    REOPENED = 'reopened',
+    CANCELED = 'canceled',
+    // ATTACHMENT_ADDED = 'attachment_added',
+    // ATTACHMENT_DELETED = 'attachment_deleted',
+}
+
 
 
 @Entity({ name: 'support_tickets' })
@@ -58,7 +75,7 @@ export class SupportTicketEntity {
 
     @ManyToOne(() => User, {
         nullable: false,
-        onDelete: 'SET NULL',
+        onDelete: 'RESTRICT',
     })
     @JoinColumn({ name: 'adminId' })
     admin: User;
@@ -73,7 +90,7 @@ export class SupportTicketEntity {
 
     @ManyToOne(() => User, {
         nullable: false,
-        onDelete: 'SET NULL',
+        onDelete: 'RESTRICT',
     })
     @JoinColumn({ name: 'createdByUserId' })
     createdByUser: User;
@@ -139,6 +156,19 @@ export class SupportTicketEntity {
     lastMessageByUser?: User | null;
 
     @Column({
+        type: 'uuid',
+        nullable: true,
+    })
+    lastMessageId?: string | null;
+
+    @ManyToOne(() => SupportTicketMessageEntity, {
+        nullable: true,
+        onDelete: 'SET NULL',
+    })
+    @JoinColumn({ name: 'lastMessageId' })
+    lastMessage?: Relation<SupportTicketMessageEntity | null> ;
+
+    @Column({
         type: 'timestamptz',
         nullable: true,
     })
@@ -187,6 +217,9 @@ export class SupportTicketEntity {
 
     @UpdateDateColumn({ type: 'timestamptz' })
     updated_at: Date;
+
+    @DeleteDateColumn({ type: 'timestamptz' })
+    deleted_at?: Date | null;
 }
 
 @Entity({ name: 'support_ticket_messages' })
@@ -289,6 +322,9 @@ export class SupportTicketMessageEntity {
     })
     deleted_at?: Date | null;
 
+    @Column({ type: 'int', default: 0 })
+    attachmentCount: number;
+
     @OneToMany(
         () => SupportTicketAttachmentEntity,
         (attachment) => attachment.message,
@@ -297,6 +333,13 @@ export class SupportTicketMessageEntity {
         },
     )
     attachments: SupportTicketAttachmentEntity[];
+
+
+    @Column({
+        type: 'boolean',
+        default: false,
+    })
+    isSupportMessage: boolean;
 
     @CreateDateColumn({ type: 'timestamptz' })
     created_at: Date;
@@ -415,6 +458,60 @@ export class SupportTicketAttachmentEntity {
         nullable: true,
     })
     thumbnailUrl?: string | null;
+
+    @CreateDateColumn({ type: 'timestamptz' })
+    created_at: Date;
+}
+
+@Entity({ name: 'support_ticket_activities' })
+@Index(['ticketId', 'created_at'])
+@Index(['adminId', 'ticketId'])
+export class SupportTicketActivityEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: false })
+    adminId: string;
+
+    @ManyToOne(() => User, {
+        nullable: false,
+        onDelete: 'RESTRICT',
+    })
+    @JoinColumn({ name: 'adminId' })
+    admin: User;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: false })
+    ticketId: string;
+
+    @ManyToOne(() => SupportTicketEntity, {
+        onDelete: 'CASCADE',
+    })
+    @JoinColumn({ name: 'ticketId' })
+    ticket: SupportTicketEntity;
+
+    @Column({ type: 'uuid', nullable: true })
+    performedByUserId?: string | null;
+
+    @ManyToOne(() => User, {
+        nullable: true,
+        onDelete: 'SET NULL',
+    })
+    @JoinColumn({ name: 'performedByUserId' })
+    performedByUser?: User | null;
+
+    @Column({
+        type: 'enum',
+        enum: SupportTicketActivityType,
+    })
+    type: SupportTicketActivityType;
+
+    @Column({ type: 'jsonb', nullable: true })
+    metadata?: Record<string, unknown> | null;
+
+    @Column({ type: 'boolean', default: true })
+    isPublic: boolean;
 
     @CreateDateColumn({ type: 'timestamptz' })
     created_at: Date;

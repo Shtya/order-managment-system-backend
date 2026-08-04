@@ -66,7 +66,11 @@ export class PermissionsService implements OnModuleInit {
 			"sms.integrations.read", "sms.integrations.create", "sms.integrations.update",
 			"sms.senders.read", "sms.senders.create", "sms.senders.update", "sms.senders.delete",
 			"sms.send",
-			"sms.logs.read", "sms.logs.resend", "sms.logs.export"
+			"sms.logs.read", "sms.logs.resend", "sms.logs.export",
+
+			// ✅ NEW: Support ticket permissions
+			"support_tickets.create", "support_tickets.read", "support_tickets.reply", "support_tickets.close", "support_tickets.reopen", "support_tickets.export",
+			"support_tickets.manage", "support_tickets.assign", "support_tickets.change_status", "support_tickets.change_priority", "support_tickets.internal_notes", "support_tickets.delete", "support_tickets.export_all"
 		];
 
 		for (const name of keys) {

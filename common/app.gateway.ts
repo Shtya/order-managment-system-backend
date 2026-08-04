@@ -5,6 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
 import { Notification } from 'entities/notifications.entity';
+import { SupportTicketEntity, SupportTicketMessageEntity } from 'entities/support_tickets.entity';
 import { ConversationEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
 import { CustomerEntity } from 'entities/customers.entity';
 import { createClient, RedisClientOptions } from 'redis';
@@ -217,6 +218,38 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
             customer,
             timestamp: new Date(),
         });
+    }
+
+    // --- Support Tickets ---
+
+    private emitToUsers(userIds: string[], event: string, payload: Record<string, unknown>) {
+        const uniqueIds = [...new Set((userIds || []).filter(Boolean))];
+        uniqueIds.forEach((userId) => {
+            this.server.to(`user_${userId}`).emit(event, {
+                ...payload,
+                timestamp: new Date(),
+            });
+        });
+    }
+
+    emitSupportTicketCreated(userIds: string[], ticket: SupportTicketEntity) {
+        this.emitToUsers(userIds, "support_ticket:created", { ticket });
+    }
+
+    emitSupportTicketUpdated(userIds: string[], ticket: SupportTicketEntity) {
+        this.emitToUsers(userIds, "support_ticket:updated", { ticket });
+    }
+
+    emitSupportTicketMessageCreated(userIds: string[], message: SupportTicketMessageEntity) {
+        this.emitToUsers(userIds, "support_ticket:message-created", { message });
+    }
+
+    emitSupportTicketMessageUpdated(userIds: string[], message: SupportTicketMessageEntity) {
+        this.emitToUsers(userIds, "support_ticket:message-updated", { message });
+    }
+
+    emitSupportTicketRead(userIds: string[], ticket: SupportTicketEntity, readByUserId: string, side: "tenant" | "support") {
+        this.emitToUsers(userIds, "support_ticket:read", { ticket, readByUserId, side });
     }
 
     // --- Helper Methods ---

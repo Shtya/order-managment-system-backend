@@ -58,6 +58,7 @@ import { createHash } from 'crypto';
 import { TranslationModule } from "common/translation.service";
 import { ClientSettingsModule } from './client-settings/client-settings.module';
 import { SmsModule } from './sms/sms.module';
+import { SupportTicketModule } from './support_ticket/support_ticket.module';
 
 @Module({
 	imports: [
@@ -145,7 +146,8 @@ import { SmsModule } from './sms/sms.module';
 		CustomerModule,
 		OrderAssignmentModule,
 		ClientSettingsModule,
-		SmsModule
+		SmsModule,
+		SupportTicketModule
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,

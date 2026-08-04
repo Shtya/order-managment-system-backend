@@ -243,7 +243,7 @@ export class SuppliersService {
 	}
 
 	async export(me: any, q?: any) {
-		const data = await this.list(me, { ...q, limit: 1000000 });
+		const data = await this.list(me, { ...q, limit: 100000 });
 
 		const records = data.records.map((s: any) => ({
 			[this.translations.t("common.id")]: s.id,

@@ -77,6 +77,23 @@ export class RolesService implements OnModuleInit {
 					name: 'call center',
 					description: 'Can confirm orders',
 					permissionNames: ["orders.confirm-incoming", "orders.update", "orders.readSettings", "products.getonly"],
+				},
+				{
+					name: 'support',
+					description: 'Support team member (manages support tickets)',
+					permissionNames: [
+						"support_tickets.read",
+						"support_tickets.reply",
+						"support_tickets.close",
+						"support_tickets.reopen",
+						"support_tickets.manage",
+						"support_tickets.assign",
+						"support_tickets.change_status",
+						"support_tickets.change_priority",
+						"support_tickets.internal_notes",
+						"support_tickets.delete",
+						"support_tickets.export_all",
+					],
 				}
 			];
 		for (const r of predefined) {
