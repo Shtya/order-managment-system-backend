@@ -1137,7 +1137,7 @@ export class SupportTicketService {
     return this.activityRepo.find({
       where: { ticketId, isPublic: true } as any,
       relations: ["performedByUser"],
-      order: { created_at: "ASC" } as any,
+      order: { created_at: "DESC" } as any,
     });
   }
   async getStats(me: any) {
