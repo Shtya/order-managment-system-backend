@@ -93,7 +93,7 @@ export class ClientSettingsService {
     // Directly remove after 5 seconds to free memory and ensure freshness
     setTimeout(() => {
       this.localSettingsCache.delete(adminId);
-    }, 5000);
+    }, 15000);
   }
 
   async getCachedSettings(adminId: string): Promise<ClientSettingsEntity> {

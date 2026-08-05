@@ -224,6 +224,7 @@ export interface SendWhatsappTemplateConfig {
     recipientNumber: string;
     templateData: TemplateConfig;
     headerUrl?: string;
+    useOrderFirstItemImage?: boolean;
     bodyVariables?: Record<string, VariableDetails>;
     headerVariables?: Record<string, VariableDetails>;
     buttonVariables?: Record<string, VariableDetails>;

@@ -18,8 +18,128 @@ import { OrdersService } from "src/orders/services/orders.service";
 import { getValueByPath } from "common/whatsapp.helper";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { SmsSendStatus } from "entities/sms.entity";
+import { Company, User } from "entities/user.entity";
+import { Language } from "entities/clientSettings.entity";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+const MONTH_NAMES: Record<string, string[]> = {
+    en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    ar: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+};
+const MONTH_SHORT_NAMES: Record<string, string[]> = {
+    en: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+    ar: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يولي", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+};
+const WEEKDAY_NAMES: Record<string, string[]> = {
+    en: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    ar: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"],
+};
+const WEEKDAY_SHORT_NAMES: Record<string, string[]> = {
+    en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+    ar: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"],
+};
+
+/**
+ * Formats a Date using a token format chosen by the user.
+ * Numeric tokens: YYYY, YY, MM, M, DD, D.
+ * Named tokens (localized by the admin's defaultLang): Weekday, WeekdayShort,
+ * Month, MonthShort — e.g. "Weekday D Month YYYY" -> "الأربعاء 22 يوليو 2026"
+ * or "Wednesday 22 July 2026". Unknown characters pass through as-is.
+ */
+const formatDateWithFormat = (date: Date, format: string, lang: Language = Language.EN): string => {
+    const l = lang === Language.AR ? Language.AR : Language.EN;
+    const tokens: Record<string, string> = {
+        YYYY: String(date.getFullYear()),
+        YY: String(date.getFullYear()).slice(-2),
+        MM: pad2(date.getMonth() + 1),
+        M: String(date.getMonth() + 1),
+        DD: pad2(date.getDate()),
+        D: String(date.getDate()),
+        Weekday: WEEKDAY_NAMES[l][date.getDay()],
+        WeekdayShort: WEEKDAY_SHORT_NAMES[l][date.getDay()],
+        Month: MONTH_NAMES[l][date.getMonth()],
+        MonthShort: MONTH_SHORT_NAMES[l][date.getMonth()],
+    };
+    return format.replace(/WeekdayShort|Weekday|MonthShort|Month|YYYY|YY|MM|M|DD|D/g, (m) => tokens[m] ?? m);
+};
+
+/**
+ * Computes a date offset by a number of days relative to today.
+ * 0 = today, positive = future, negative = past.
+ */
+const computeOffsetDate = (offset: number): Date => {
+    const date = new Date();
+    date.setDate(date.getDate() + (Number.isFinite(offset) ? offset : 0));
+    return date;
+};
+
+interface GlobalContext {
+    /** Pre-formatted "global.*" values (brand/company info + computed date). */
+    values: Record<string, string>;
+    /** Admin's default language, used to localize named date formats. */
+    lang: Language;
+}
+
+/**
+ * Resolves a "global.*" variable path.
+ * - global.date.<offset>.<format> -> computed date in the admin's language
+ * - otherwise reads from the pre-loaded company context map.
+ */
+const resolveGlobalVariablePath = (variablePath: string, globalData?: GlobalContext): string => {
+    const dateMatch = variablePath.match(/^global\.date\.(-?\d+)\.(.+)$/);
+    if (dateMatch) {
+        const offset = parseInt(dateMatch[1], 10);
+        const format = dateMatch[2] || "DD-MM-YYYY";
+        return formatDateWithFormat(computeOffsetDate(offset), format, globalData?.lang);
+    }
+    return globalData?.values?.[variablePath] ?? "";
+};
+
+/**
+ * Loads the admin's company (brand) context so "global.*" variables can be
+ * resolved at send time. Also reads the admin's default language via the
+ * cached client settings to localize named date formats. Returns undefined
+ * when unavailable (e.g. preview).
+ */
+const loadGlobalData = async (
+    userRepo?: Repository<User>,
+    adminId?: string,
+    clientSettingsService?: ClientSettingsService,
+): Promise<GlobalContext | undefined> => {
+    let lang = Language.EN;
+    if (adminId && clientSettingsService) {
+        try {
+            const settings = await clientSettingsService.getCachedSettings(adminId);
+            lang = settings?.defaultLang ?? Language.EN;
+        } catch {
+            // Fall back to English if settings cannot be resolved.
+        }
+    }
+
+    if (!userRepo || !adminId) return undefined;
+    try {
+        const user = await userRepo.findOne({ where: { id: adminId }, relations: ["company"] });
+        if (!user) return undefined;
+        const company = user.company as Company | undefined;
+        return {
+            values: {
+                "global.brandName": company?.name || user.name || "",
+                "global.companyEmail": user.email || "",
+                "global.companyWebsite": company?.website || "",
+                "global.companyPhone": company?.phone || "",
+                "global.companyAddress": company?.address || "",
+                "global.companyCurrency": company?.currency || "",
+            },
+            lang,
+        };
+    } catch {
+        return undefined;
+    }
+};
 
 const checkMessageStatus = async (
     messageId: string,
@@ -63,10 +183,18 @@ export abstract class FlowNodeHandler {
     ) { }
     abstract execute(config: any, run: AutomationRunEntity): Promise<NodeHandlerResponse>;
 
-    protected deepReplaceVariables(data: any, orderData: any): any {
+    protected deepReplaceVariables(data: any, orderData: any, globalData?: GlobalContext): any {
         if (typeof data === 'string') {
             return data.replace(/\{\{([^}]+)\}\}/g, (_, variablePath) => {
-                const value = getValueByPath(orderData, variablePath.trim());
+                const path = variablePath.trim();
+
+                // Global variables (brand/company info + computed date) are
+                // resolved outside the order object.
+                if (path.startsWith('global.')) {
+                    return resolveGlobalVariablePath(path, globalData);
+                }
+
+                const value = getValueByPath(orderData, path);
 
                 if (value == null || value === undefined) {
                     return "";
@@ -94,12 +222,12 @@ export abstract class FlowNodeHandler {
                 return String(value);
             });
         } else if (Array.isArray(data)) {
-            return data.map(item => this.deepReplaceVariables(item, orderData));
+            return data.map(item => this.deepReplaceVariables(item, orderData, globalData));
         } else if (data && typeof data === 'object') {
             const result: any = {};
             for (const key in data) {
                 if (Object.prototype.hasOwnProperty.call(data, key)) {
-                    result[key] = this.deepReplaceVariables(data[key], orderData);
+                    result[key] = this.deepReplaceVariables(data[key], orderData, globalData);
                 }
             }
             return result;
@@ -379,6 +507,9 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
         protected readonly orderRepo: Repository<OrderEntity>,
         @InjectRepository(WhatsappMessageEntity)
         private readonly messageRepo: Repository<WhatsappMessageEntity>,
+        @InjectRepository(User)
+        private readonly userRepo?: Repository<User>,
+        private readonly clientSettingsService?: ClientSettingsService,
     ) {
         super(orderRepo);
     }
@@ -390,6 +521,9 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
             if (!orderData) {
                 return { success: false, error: 'Order data not found in trigger output' };
             }
+
+            // Global context (brand/company info + admin language) for global.* variables
+            const globalData = await loadGlobalData(this.userRepo, orderData?.adminId, this.clientSettingsService);
 
             // 1. Get Template and Account using adapter
             const template = await this.adapter.getTemplateById(hydratedConfig.templateId);
@@ -433,9 +567,9 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
             }
 
             // 2. Prepare Hydrated Variables (Map dynamic paths to real values)
-            const headerVariables = hydratedConfig.headerVariables ? this.mapVariablesToValues(hydratedConfig.headerVariables, orderData) : undefined;
-            const bodyVariables = hydratedConfig.bodyVariables ? this.mapVariablesToValues(hydratedConfig.bodyVariables, orderData) : undefined;
-            const buttonVariables = hydratedConfig.buttonVariables ? this.mapVariablesToValues(hydratedConfig.buttonVariables, orderData) : undefined;
+            const headerVariables = hydratedConfig.headerVariables ? this.mapVariablesToValues(hydratedConfig.headerVariables, orderData, globalData) : undefined;
+            const bodyVariables = hydratedConfig.bodyVariables ? this.mapVariablesToValues(hydratedConfig.bodyVariables, orderData, globalData) : undefined;
+            const buttonVariables = hydratedConfig.buttonVariables ? this.mapVariablesToValues(hydratedConfig.buttonVariables, orderData, globalData) : undefined;
 
             // Handle Location Header if present
             let locationData = undefined;
@@ -443,7 +577,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                 const locValues = this.mapVariablesToValues({
                     name: hydratedConfig.locationData.name,
                     address: hydratedConfig.locationData.address
-                }, orderData);
+                }, orderData, globalData);
 
                 locationData = {
                     latitude: hydratedConfig.locationData.latitude?.toString(),
@@ -470,7 +604,9 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                     bodyVariables,
                     buttonVariables,
                     locationData,
-                    headerUrl: hydratedConfig.headerUrl,
+                    headerUrl: hydratedConfig.useOrderFirstItemImage && template.templateConfig?.headerType?.toUpperCase() === 'IMAGE'
+                        ? orderData.items?.[0]?.variant?.product?.mainImage || hydratedConfig.headerUrl
+                        : hydratedConfig.headerUrl,
                 },
                 orderData.adminId,
             );
@@ -503,7 +639,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
     }
 
 
-    private mapVariablesToValues(variables: Record<string, any>, orderData: OrderEntity): Record<string, string> {
+    private mapVariablesToValues(variables: Record<string, any>, orderData: OrderEntity, globalData?: GlobalContext): Record<string, string> {
         const result: Record<string, string> = {};
         Object.entries(variables).forEach(([key, varDetails]) => {
             let textValue = '';
@@ -514,33 +650,43 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                     throw new Error(`Variable "${key}" is direct type but has no value`);
                 }
             } else if (varDetails.type === 'variable') {
-                const val = getValueByPath(orderData, varDetails.variablePath);
-                if (Array.isArray(val)) {
-                    textValue = val.map(v => String(v)).join(', ');
-                } else {
-                    if (val == null || val === undefined) {
-                        textValue = "";
-                    } else if (val instanceof Date) {
-                        textValue = val.toLocaleString("en-GB", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            year: "numeric"
-                        });
-                    } else if (typeof val === "string") {
-                        const date = new Date(val);
+                const variablePath = varDetails.variablePath;
+                const isGlobal = typeof variablePath === 'string' && variablePath.startsWith('global.');
 
-                        textValue = !isNaN(date.getTime())
-                            ? date.toLocaleString("en-GB", {
+                if (isGlobal) {
+                    // Global variables are already formatted (brand/company info
+                    // or a computed date), so no further order lookup is needed.
+                    textValue = resolveGlobalVariablePath(variablePath, globalData);
+                } else {
+                    const val = getValueByPath(orderData, variablePath);
+                    if (Array.isArray(val)) {
+                        textValue = val.map(v => String(v)).join(', ');
+                    } else {
+                        if (val == null || val === undefined) {
+                            textValue = "";
+                        } else if (val instanceof Date) {
+                            textValue = val.toLocaleString("en-GB", {
                                 day: "2-digit",
                                 month: "2-digit",
                                 year: "numeric"
-                            })
-                            : val;
-                    } else {
-                        textValue = String(val);
+                            });
+                        } else if (typeof val === "string") {
+                            const date = new Date(val);
+
+                            textValue = !isNaN(date.getTime())
+                                ? date.toLocaleString("en-GB", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric"
+                                })
+                                : val;
+                        } else {
+                            textValue = String(val);
+                        }
                     }
                 }
-                if (!textValue) {
+
+                if (!textValue && !isGlobal) {
                     throw new Error(`Variable "${key}" not found at path "${varDetails.variablePath}" in order data`);
                 }
             }
@@ -584,7 +730,10 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
         protected readonly orderRepo: Repository<OrderEntity>,
         @InjectRepository(WhatsappMessageEntity)
         private readonly messageRepo: Repository<WhatsappMessageEntity>,
-        private readonly whatsappService?: WhatsappService
+        private readonly whatsappService?: WhatsappService,
+        @InjectRepository(User)
+        private readonly userRepo?: Repository<User>,
+        private readonly clientSettingsService?: ClientSettingsService,
     ) {
         super(orderRepo);
     }
@@ -601,8 +750,11 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
                 return { success: false, error: 'WhatsApp account not found' };
             }
 
+            // Global context (brand/company info + admin language) for global.* variables
+            const globalData = await loadGlobalData(this.userRepo, orderData?.adminId, this.clientSettingsService);
+
             // Process messageData to replace variables
-            const processedMessageData = this.deepReplaceVariables(config.messageData, orderData);
+            const processedMessageData = this.deepReplaceVariables(config.messageData, orderData, globalData);
 
             // Determine recipient
             const to = config.recipientNumber
@@ -677,6 +829,9 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
         protected readonly orderRepo: Repository<OrderEntity>,
         @InjectRepository(WhatsappMessageEntity)
         private readonly messageRepo: Repository<WhatsappMessageEntity>,
+        @InjectRepository(User)
+        private readonly userRepo?: Repository<User>,
+        private readonly clientSettingsService?: ClientSettingsService,
     ) {
         super(orderRepo);
     }
@@ -688,6 +843,9 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
             if (!orderData) {
                 return { success: false, error: 'Order data not found in trigger output' };
             }
+
+            // Global context (brand/company info + admin language) for global.* variables
+            const globalData = await loadGlobalData(this.userRepo, orderData?.adminId, this.clientSettingsService);
 
             const items = orderData.items || [];
             const productIds = items.map(item => item.variant?.productId).filter(Boolean);
@@ -708,8 +866,12 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
 
             // Send each upsell using the adapter
             for (const upsell of upsells) {
+                // Resolve order + global variables inside the upsell message config
+                const messageConfig = upsell.messageConfig
+                    ? this.deepReplaceVariables(upsell.messageConfig, orderData, globalData)
+                    : upsell.messageConfig;
 
-                const history = await this.adapter.sendUpsell(upsell, orderData, run);
+                const history = await this.adapter.sendUpsell({ ...upsell, messageConfig }, orderData, run);
                 if (history) {
                     sentUpsells.push({
                         upsellId: upsell.id,
@@ -848,6 +1010,9 @@ export class ActionSendSmsHandler extends FlowNodeHandler {
         private readonly adapter: AutomationAdapter,
         @InjectRepository(OrderEntity)
         protected readonly orderRepo: Repository<OrderEntity>,
+        @InjectRepository(User)
+        private readonly userRepo?: Repository<User>,
+        private readonly clientSettingsService?: ClientSettingsService,
     ) {
         super(orderRepo);
     }
@@ -862,7 +1027,10 @@ export class ActionSendSmsHandler extends FlowNodeHandler {
                 return { success: false, shouldPause: false, error: 'SMS providerCode is required' };
             }
 
-            const processedMessage = this.deepReplaceVariables(config.message || "", orderData);
+            // Global context (brand/company info + admin language) for global.* variables
+            const globalData = await loadGlobalData(this.userRepo, orderData?.adminId, this.clientSettingsService);
+
+            const processedMessage = this.deepReplaceVariables(config.message || "", orderData, globalData);
             const processedToNumber = config.toNumber || "";
 
             const to = processedToNumber
@@ -930,6 +1098,9 @@ export class NodeHandlersRegistry {
         private readonly ordersService: OrdersService,
         @Inject(forwardRef(() => WhatsappService))
         private readonly whatsappService: WhatsappService,
+        @InjectRepository(User)
+        private readonly userRepo: Repository<User>,
+        private readonly clientSettingsService: ClientSettingsService,
     ) {
         this.registerHandlers();
     }
@@ -939,11 +1110,11 @@ export class NodeHandlersRegistry {
         this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler(this.orderRepo));
         this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler(this.orderRepo));
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo));
-        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo, this.messageRepo));
-        this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.whatsappService));
-        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo));
+        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService));
+        this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.whatsappService, this.userRepo, this.clientSettingsService));
+        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService));
         this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
-        this.handlers.set(ActionType.SEND_SMS, new ActionSendSmsHandler(this.adapter, this.orderRepo));
+        this.handlers.set(ActionType.SEND_SMS, new ActionSendSmsHandler(this.adapter, this.orderRepo, this.userRepo, this.clientSettingsService));
     }
 
     /**
