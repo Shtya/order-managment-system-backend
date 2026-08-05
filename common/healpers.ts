@@ -7,6 +7,8 @@ import { extname, join } from 'path';
 import { OrderStatus } from 'entities/order.entity';
 import { randomBytes } from 'crypto';
 import { SystemRole, User } from 'entities/user.entity';
+import { BadRequestException } from '@nestjs/common';
+import sharp from "sharp";
 
 export function calculateRange(range?: string): { start?: Date; end?: Date } {
     const now = new Date();
@@ -463,4 +465,80 @@ export function isLessThanOneDay(
     const end = endDate instanceof Date ? endDate : new Date(endDate);
 
     return end.getTime() - start.getTime() < ONE_DAY_MS;
+}
+
+const SHARP_IMAGE_FORMATS = new Set(['webp', 'gif', 'tiff', 'avif', 'heif', 'heic', 'svg', 'bmp', 'jxl', 'dz', 'v']);
+
+/**
+ * WhatsApp only accepts JPEG/PNG images. If the uploaded media is an image in
+ * any other format (GIF, BMP, TIFF, HEIC, AVIF, WebP, ...) it gets rejected by
+ * Meta, so convert it to PNG before uploading.
+ *
+ * Mutates the payload in place (file buffer/mimetype/name, mimeType, filename)
+ * and returns the new filename, or undefined when nothing was converted.
+ * Non-image files (PDF, DOCX, MP4, ...) are ignored; if the MIME type says the
+ * file is an image but processing fails, a BadRequestException is thrown.
+ */
+export async function normalizeWhatsappImageFile(
+    payload: { file?: Express.Multer.File; mimeType?: string; filename?: string },
+    fallbackFilename?: string,
+): Promise<string | undefined> {
+    if (!payload.file?.buffer) return undefined;
+
+    const mimeType = (payload.file.mimetype || "").toLowerCase();
+
+    try {
+        const image = sharp(payload.file.buffer);
+        const metadata = await image.metadata();
+
+        const format = metadata.format;
+
+        const supportedFormats = new Set([
+            "jpeg",
+            "png",
+        ]);
+
+        const isImage =
+            mimeType.startsWith("image/") ||
+            (format && SHARP_IMAGE_FORMATS.has(format));
+
+        if (isImage && format && !supportedFormats.has(format)) {
+            const converted = await image.png().toBuffer();
+
+            const originalName =
+                payload.file.originalname ??
+                payload.file.filename ??
+                fallbackFilename ??
+                "image";
+
+            const baseName = originalName.replace(/\.[^.]+$/, "");
+
+            const filename = `${baseName}.png`;
+
+            payload.file = {
+                ...payload.file,
+                buffer: converted,
+                mimetype: "image/png",
+                originalname: filename,
+                size: converted.length,
+            };
+
+            payload.mimeType = "image/png";
+            payload.filename = filename;
+
+            return filename;
+        }
+
+        return undefined;
+    } catch (error) {
+        // Ignore non-image files (PDF, DOCX, MP4, ...)
+        // but rethrow if the MIME type says it's an image.
+        if (mimeType.startsWith("image/")) {
+            throw new BadRequestException(
+                `Failed to process image: ${getErrorMessage(error)}`,
+            );
+        }
+
+        return undefined;
+    }
 }

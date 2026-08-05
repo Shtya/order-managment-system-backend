@@ -7,7 +7,7 @@ import { AutomationFlowEntity, AutomationRunEntity, RunStatus } from 'entities/a
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
 import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
-import { getErrorMessage, imageSrc, calculateRange, isLessThanOneDay } from 'common/healpers';
+import { getErrorMessage, imageSrc, calculateRange, isLessThanOneDay, normalizeWhatsappImageFile } from 'common/healpers';
 import { AutomationQueueService } from 'src/queue/queues/automations.queue';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
@@ -25,7 +25,6 @@ import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
 import { RequestTranslationService, TranslationService } from 'common/translation.service';
-
 
 @Injectable()
 export class WhatsappService {
@@ -558,6 +557,11 @@ export class WhatsappService {
                 throw new BadRequestException(this.translations.t("domains.whatsapp.failed_to_download_media_from_url", { args: { error: getErrorMessage(error) } }));
             }
         }
+
+        // WhatsApp only accepts JPEG/PNG for images. If the media is an image in any other format
+        // (webp, gif, svg, ...) it gets rejected by Meta, so convert it to PNG before uploading.
+        const normalizedFilename = await normalizeWhatsappImageFile(payload, filename);
+        if (normalizedFilename) filename = normalizedFilename;
 
         const response = await this.whatsappApi.uploadMessageMedia(resolvedAccountId, payload);
 
