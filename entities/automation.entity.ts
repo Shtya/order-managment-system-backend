@@ -223,6 +223,7 @@ export interface SendWhatsappTemplateConfig {
     templateName: string;
     recipientNumber: string;
     templateData: TemplateConfig;
+    headerUrl?: string;
     bodyVariables?: Record<string, VariableDetails>;
     headerVariables?: Record<string, VariableDetails>;
     buttonVariables?: Record<string, VariableDetails>;

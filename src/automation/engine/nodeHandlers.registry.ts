@@ -470,7 +470,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                     bodyVariables,
                     buttonVariables,
                     locationData,
-                    // headerUrl: hydratedConfig.headerUrl,
+                    headerUrl: hydratedConfig.headerUrl,
                 },
                 orderData.adminId,
             );
