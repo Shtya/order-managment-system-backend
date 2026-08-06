@@ -424,6 +424,7 @@ export class WhatsappTemplateEntity {
 export enum MessageActionIntent {
     NONE = 'none',
     LOCATION_REQUEST = 'location_request',
+    BRANCHES = 'branches',
 }
 
 export enum MessageActionStatus {
