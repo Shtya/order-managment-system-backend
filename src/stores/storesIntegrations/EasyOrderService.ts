@@ -1139,9 +1139,9 @@ export class EasyOrderService extends BaseStoreProvider {
 
         const category = remoteProduct.category
             ? {
-                slug: remoteProduct.category.slug,
-                name: remoteProduct.category.name || remoteProduct.category.slug,
-                thumb: remoteProduct.category.thumb || null,
+                slug: remoteProduct.category?.slug,
+                name: remoteProduct.category?.name || remoteProduct.category?.slug,
+                thumb: remoteProduct.category?.thumb || null,
             }
             : null;
 
@@ -1816,7 +1816,7 @@ export class EasyOrderService extends BaseStoreProvider {
         return {
             id: String(remote.id),
             name: remote.name?.trim(),
-            price: Number(remote.price) || 0,
+            price: Number(remote.sale_price || remote.price) || 0,
             expense: Number(remote.expense) || 0,//
             description: remote.description || "",//
             slug: remote.slug,
