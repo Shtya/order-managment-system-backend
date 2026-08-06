@@ -1790,7 +1790,7 @@ export class EasyOrderService extends BaseStoreProvider {
 
     private mapRemoteProductToDto(remote: any): MappedProductDto {
         const variants = (remote.variants || []).map((v: any) => ({
-            price: Number(v.price) || 0,
+            price: Number(v.sale_price || v.price) || 0,
             expense: Number(v.expense) || 0,
             quantity: Number(v.quantity) || 0,
             sku: String(v.taager_code || v.sku || ""),

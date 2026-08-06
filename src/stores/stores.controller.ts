@@ -24,7 +24,7 @@ export class StoresController {
   //   return this.storesService.manualSync(req.user, id);
   // }
   //sync from store endpoint
-  @Throttle({ default: { limit: 10, ttl: minutes(1) } }) 
+  @Throttle({ default: { limit: 20, ttl: minutes(1) } }) 
   @Permissions("stores.update") // Requires update permissions
   @Post(":id/sync")
   async syncFromStore(@Req() req: any, @Param("id") id: string) {
