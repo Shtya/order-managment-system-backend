@@ -1,6 +1,9 @@
+import { Logger } from '@nestjs/common';
 import { Between, MoreThanOrEqual, LessThanOrEqual, SelectQueryBuilder } from 'typeorm';
 
 export class DateFilterUtil {
+    private static readonly logger = new Logger(DateFilterUtil.name);
+
     /**
      * Core logic to safely parse strings into local start/end Date boundaries
      */
@@ -38,52 +41,35 @@ export class DateFilterUtil {
         startDate?: string | Date,
         endDate?: string | Date,
     ): SelectQueryBuilder<T> {
-        const { start, end } = this.getBoundaries(startDate, endDate);
-
-
-        // Creates safe parameter names like "order_created_at_start"
-        const safeParam = columnName.replace('.', '_');
-
-        if (start && end) {
-            qb.andWhere(`${columnName} BETWEEN :${safeParam}_start AND :${safeParam}_end`, {
-                [`${safeParam}_start`]: start,
-                [`${safeParam}_end`]: end,
-            });
-        } else if (start) {
-            qb.andWhere(`${columnName} >= :${safeParam}_start`, {
-                [`${safeParam}_start`]: start,
-            });
-        } else if (end) {
-            qb.andWhere(`${columnName} <= :${safeParam}_end`, {
-                [`${safeParam}_end`]: end,
-            });
-        }
-
-        return qb;
-    }
-
-    static rawDateFilter<T>(
-        qb: SelectQueryBuilder<T>,
-        columnName: string,
-        startDate?: string | Date,
-        endDate?: string | Date,
-    ): SelectQueryBuilder<T> {
         let start = startDate;
         let end = endDate;
 
+        this.logger.debug(`[applyToQueryBuilder] column=${columnName} start=${start} end=${end} (${typeof start} / ${typeof end})`);
+
         // Creates safe parameter names like "order_created_at_start"
         const safeParam = columnName.replace('.', '_');
 
         if (start && end) {
+            // If start and end are the same instant, push the end one day forward
+            // so a single-day range covers the whole day.
+            if (new Date(start as any).getTime() === new Date(end as any).getTime()) {
+                const shiftedEnd = new Date(end as any);
+                shiftedEnd.setDate(shiftedEnd.getDate() + 1);
+                end = shiftedEnd.toISOString();
+                this.logger.debug(`[applyToQueryBuilder] start === end, shifted end to ${end}`);
+            }
+            this.logger.debug(`[applyToQueryBuilder] BETWEEN ${columnName} :start=${start} :end=${end}`);
             qb.andWhere(`${columnName} BETWEEN :${safeParam}_start AND :${safeParam}_end`, {
                 [`${safeParam}_start`]: start,
                 [`${safeParam}_end`]: end,
             });
         } else if (start) {
+            this.logger.debug(`[applyToQueryBuilder] >= ${columnName} :start=${start}`);
             qb.andWhere(`${columnName} >= :${safeParam}_start`, {
                 [`${safeParam}_start`]: start,
             });
         } else if (end) {
+            this.logger.debug(`[applyToQueryBuilder] <= ${columnName} :end=${end}`);
             qb.andWhere(`${columnName} <= :${safeParam}_end`, {
                 [`${safeParam}_end`]: end,
             });
@@ -91,4 +77,5 @@ export class DateFilterUtil {
 
         return qb;
     }
+
 }

@@ -746,6 +746,7 @@ export class OrdersService {
     }
 
     // Date range
+    this.logger.debug(`[list] applying created_at date range: startDate=${q?.startDate} endDate=${q?.endDate}`);
     DateFilterUtil.applyToQueryBuilder(qb, "order.created_at", q?.startDate, q?.endDate);
 
     if (q?.postponedStartDate || q?.postponedEndDate) {

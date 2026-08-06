@@ -593,7 +593,7 @@ export class SupportTicketService {
       .andWhere("message.isDeleted = false")
       .andWhere("message.isInternalNote = false");
 
-    DateFilterUtil.rawDateFilter(
+    DateFilterUtil.applyToQueryBuilder(
       qb,
       "message.created_at",
       q?.startDate,
@@ -1210,7 +1210,7 @@ export class SupportTicketService {
       qb.andWhere("ticket.unreadSupportCount > 0");
     }
 
-    DateFilterUtil.rawDateFilter(
+    DateFilterUtil.applyToQueryBuilder(
       qb,
       "ticket.created_at",
       q?.startDate,
@@ -1310,7 +1310,7 @@ export class SupportTicketService {
       .leftJoinAndSelect("message.attachments", "attachments")
       .where("message.ticketId = :ticketId", { ticketId });
 
-    DateFilterUtil.rawDateFilter(
+    DateFilterUtil.applyToQueryBuilder(
       qb,
       "message.created_at",
       q?.startDate,
