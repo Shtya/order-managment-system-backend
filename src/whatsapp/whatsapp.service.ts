@@ -1048,13 +1048,14 @@ export class WhatsappService {
         try {
             const replyId = payload?.interactive?.list_reply?.id || '';
             const match = replyId.match(/^__date_(\d{2})-(\d{2})-(\d{4})__$/);
+            const date = match ? `${match[1]}-${match[2]}-${match[3]}` : replyId;
 
             if (!match) {
                 this.logger.warn(`Invalid postpone reply id for order ${orderId}: ${replyId}`);
                 await notify(
                     "domains.whatsapp.postpone_not_applied_title",
                     "domains.whatsapp.postpone_not_applied_message",
-                    { orderNumber, date: replyId },
+                    { orderNumber, date },
                     NotificationType.SYSTEM_ALERT,
                 );
                 return;
@@ -1069,7 +1070,7 @@ export class WhatsappService {
                 await notify(
                     "domains.whatsapp.postpone_not_applied_title",
                     "domains.whatsapp.postpone_not_applied_message",
-                    { orderNumber, date: replyId },
+                    { orderNumber, date },
                     NotificationType.SYSTEM_ALERT,
                 );
                 return;
@@ -1086,10 +1087,10 @@ export class WhatsappService {
             await notify(
                 "domains.whatsapp.postpone_accepted_title",
                 "domains.whatsapp.postpone_accepted_message",
-                { orderNumber, date: replyId },
+                { orderNumber, date },
                 NotificationType.ORDER_UPDATED,
             );
-            this.logger.log(`Order ${orderId} postponed to ${replyId} via WhatsApp business action.`);
+            this.logger.log(`Order ${orderId} postponed to ${date} via WhatsApp business action.`);
         } catch (error) {
             this.logger.error(`Failed to postpone order ${orderId}: ${error.message}`, error.stack);
             await notify(
