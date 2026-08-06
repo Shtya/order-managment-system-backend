@@ -20,11 +20,11 @@ import { CustomerEntity } from 'entities/customers.entity';
 import { AppGateway } from 'common/app.gateway';
 import { UpsellsService } from 'src/upsells/upsells.service';
 import { tenantId } from 'src/category/category.service';
-import { OrderEntity } from 'entities/order.entity';
+import { OrderEntity, OrderStatus } from 'entities/order.entity';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
-import { RequestTranslationService, TranslationService } from 'common/translation.service';
+import { RequestTranslationService, TranslationService, I18nKey } from 'common/translation.service';
 
 @Injectable()
 export class WhatsappService {
@@ -902,7 +902,8 @@ export class WhatsappService {
     }
 
     /**
-     * Checks if an incoming message resolves a pending outbound action (like requesting a location).
+     * Checks if an incoming message resolves a pending outbound action (like requesting a location)
+     * or carries a business ready-message command (postpone date / discount offer / ...).
      */
     private async processMessageActions(
         adminId: string,
@@ -915,12 +916,12 @@ export class WhatsappService {
 
             if (!parentMessageWamid) return;
 
-            // 2. Find the parent message and ensure it has a pending action tied to an order
+            // 2. Find the parent message. Business ready-messages carry
+            // metadata.businessCommand; regular intents rely on actionStatus = PENDING.
             const parentMessage = await this.messageRepo.findOne({
                 where: {
                     messageId: parentMessageWamid,
                     adminId,
-                    actionStatus: MessageActionStatus.PENDING,
                 },
                 relations: {
                     order: true,
@@ -930,6 +931,7 @@ export class WhatsappService {
                     orderId: true,
                     actionIntent: true,
                     actionStatus: true,
+                    metadata: true,
                     order: {
                         id: true,
                         orderNumber: true,
@@ -940,8 +942,19 @@ export class WhatsappService {
             if (!parentMessage || !parentMessage.orderId) {
                 return; // Parent message doesn't require an action or isn't linked to an order
             }
+
+            // 3. Business ready-message command (order.set_postponed_date, order.apply_discount, ...)
+            const businessCommand = parentMessage.metadata?.businessCommand;
+            if (businessCommand) {
+                await this.processBusinessAction(adminId, parentMessage, payload, businessCommand);
+            }
+
+            // Regular intents require a pending action
+            if (parentMessage.actionStatus !== MessageActionStatus.PENDING) {
+                return;
+            }
             this.logger.debug("Handle pending action for message:", parentMessage.id, "with intent:", parentMessage.actionIntent, "payload: ", JSON.stringify(payload));
-            // 3. Handle REQUEST_LOCATION
+            // 4. Handle REQUEST_LOCATION
             if (
                 parentMessage.actionIntent === MessageActionIntent.LOCATION_REQUEST &&
                 payload.type === 'location' &&
@@ -988,10 +1001,200 @@ export class WhatsappService {
                 );
             }
 
-            // Future: Add `else if` blocks here for PRESET_POSTPONE or REJECT_REASON lists
+            // Future: Add `else if` blocks here for more pending intents
         } catch (error) {
             this.logger.error(`Failed to process message action: ${error.message}`, error.stack);
         }
+    }
+
+    /**
+     * Executes the business logic tied to a business ready-message command
+     * stored on the outbound message the customer replied to.
+     */
+    private async processBusinessAction(
+        adminId: string,
+        parentMessage: WhatsappMessageEntity,
+        payload: any,
+        businessCommand: string,
+    ): Promise<void> {
+        switch (businessCommand) {
+            case 'order.set_postponed_date':
+                await this.handlePostponeDateAction(adminId, parentMessage, payload);
+                break;
+            case 'order.apply_discount':
+                await this.handleDiscountOfferAction(adminId, parentMessage, payload);
+                break;
+            default:
+                this.logger.warn(`Unknown business command: ${businessCommand}`);
+        }
+    }
+
+    /**
+     * order.set_postponed_date: the customer picked a row from the postpone list.
+     * The reply id carries the chosen date (row id = __date_DD-MM-YYYY__ after the
+     * {{global.date.N.DD-MM-YYYY}} token was replaced). Applies it as the order's
+     * postponed date, unless it is today or earlier.
+     */
+    private async handlePostponeDateAction(
+        adminId: string,
+        parentMessage: WhatsappMessageEntity,
+        payload: any,
+    ): Promise<void> {
+        const orderId = parentMessage.orderId;
+        const orderNumber = parentMessage.order?.orderNumber || '';
+        const notify = (titleKey: I18nKey, messageKey: I18nKey, args: Record<string, any>, type: NotificationType) =>
+            this.notifyBusinessResult(adminId, orderId, titleKey, messageKey, args, type);
+
+        try {
+            const replyId = payload?.interactive?.list_reply?.id || '';
+            const match = replyId.match(/^__date_(\d{2})-(\d{2})-(\d{4})__$/);
+
+            if (!match) {
+                this.logger.warn(`Invalid postpone reply id for order ${orderId}: ${replyId}`);
+                await notify(
+                    "domains.whatsapp.postpone_not_applied_title",
+                    "domains.whatsapp.postpone_not_applied_message",
+                    { orderNumber, date: replyId },
+                    NotificationType.SYSTEM_ALERT,
+                );
+                return;
+            }
+
+            const postponedDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+
+            // Do not apply if the chosen date is today or earlier.
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            if (postponedDate <= today) {
+                await notify(
+                    "domains.whatsapp.postpone_not_applied_title",
+                    "domains.whatsapp.postpone_not_applied_message",
+                    { orderNumber, date: replyId },
+                    NotificationType.SYSTEM_ALERT,
+                );
+                return;
+            }
+
+            const status = await this.orderService.findStatusByCode(OrderStatus.POSTPONED, adminId);
+            await this.orderService.changeStatus(
+                { id: adminId, adminId },
+                orderId,
+                { statusId: status.id, postponedDate: postponedDate.toISOString() },
+            );
+
+            await this.markActionCompleted(parentMessage.id);
+            await notify(
+                "domains.whatsapp.postpone_accepted_title",
+                "domains.whatsapp.postpone_accepted_message",
+                { orderNumber, date: replyId },
+                NotificationType.ORDER_UPDATED,
+            );
+            this.logger.log(`Order ${orderId} postponed to ${replyId} via WhatsApp business action.`);
+        } catch (error) {
+            this.logger.error(`Failed to postpone order ${orderId}: ${error.message}`, error.stack);
+            await notify(
+                "domains.whatsapp.postpone_failed_title",
+                "domains.whatsapp.postpone_failed_message",
+                { orderNumber, error: error.message },
+                NotificationType.SYSTEM_ALERT,
+            );
+        }
+    }
+
+    /**
+     * order.apply_discount: the customer pressed one of the offer buttons.
+     * btn_0 = accept, btn_1 = not now. On accept, reads the discount value/type
+     * from the businessConfig stored in the message metadata and applies it to the order.
+     */
+    private async handleDiscountOfferAction(
+        adminId: string,
+        parentMessage: WhatsappMessageEntity,
+        payload: any,
+    ): Promise<void> {
+        const orderId = parentMessage.orderId;
+        const orderNumber = parentMessage.order?.orderNumber || '';
+        const notify = (titleKey: I18nKey, messageKey: I18nKey, args: Record<string, any>, type: NotificationType) =>
+            this.notifyBusinessResult(adminId, orderId, titleKey, messageKey, args, type);
+
+        try {
+            const buttonReply = payload?.interactive?.button_reply;
+            const replyId = buttonReply?.id || '';
+
+            // Buttons are sent with reply.id = btn_<idx>; the first button is the accept action.
+            if (replyId !== 'btn_0') {
+                await notify(
+                    "domains.whatsapp.discount_not_accepted_title",
+                    "domains.whatsapp.discount_not_accepted_message",
+                    { orderNumber },
+                    NotificationType.SYSTEM_ALERT,
+                );
+                return;
+            }
+
+            const order = await this.orderRepo.findOne({ where: { id: orderId, adminId } });
+            if (!order) {
+                throw new Error('Order not found');
+            }
+
+            const businessConfig = parentMessage.metadata?.businessConfig || {};
+            const discountValue = Number(businessConfig.discountValue) || 0;
+            const discountType = businessConfig.discountType === 'fixed' ? 'fixed' : 'percentage';
+
+            const discount = discountType === 'fixed'
+                ? discountValue
+                : Math.round(((Number(order.productsTotal) || 0) * discountValue) / 100);
+
+            await this.orderService.update({ id: adminId, adminId }, orderId, { discount });
+
+            await this.markActionCompleted(parentMessage.id);
+            await notify(
+                "domains.whatsapp.discount_accepted_title",
+                "domains.whatsapp.discount_accepted_message",
+                { orderNumber, amount: discount },
+                NotificationType.ORDER_UPDATED,
+            );
+            this.logger.log(`Discount ${discount} applied to order ${orderId} via WhatsApp business action.`);
+        } catch (error) {
+            this.logger.error(`Failed to apply discount to order ${orderId}: ${error.message}`, error.stack);
+            await notify(
+                "domains.whatsapp.discount_failed_title",
+                "domains.whatsapp.discount_failed_message",
+                { orderNumber, error: error.message },
+                NotificationType.SYSTEM_ALERT,
+            );
+        }
+    }
+
+    /**
+     * Creates a notification for the admin about a business ready-message action result.
+     */
+    private async notifyBusinessResult(
+        adminId: string,
+        orderId: string,
+        titleKey: I18nKey,
+        messageKey: I18nKey,
+        args: Record<string, any>,
+        type: NotificationType,
+    ): Promise<void> {
+        try {
+            await this.notificationService.create({
+                userId: adminId,
+                type,
+                title: await this.requestTranslations.tAsync(titleKey, adminId),
+                message: await this.requestTranslations.tAsync(messageKey, adminId, { args }),
+                relatedEntityType: "order",
+                relatedEntityId: String(orderId),
+            });
+        } catch (error) {
+            this.logger.error(`Failed to create business action notification: ${error.message}`, error.stack);
+        }
+    }
+
+    private async markActionCompleted(messageId: string): Promise<void> {
+        await this.messageRepo.update(messageId, {
+            actionStatus: MessageActionStatus.COMPLETED,
+            actionCompletedAt: new Date(),
+        });
     }
 
     async markAsRead(me: any, payload: { messageId?: string, conversationId?: string }) {

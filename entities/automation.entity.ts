@@ -265,6 +265,20 @@ export interface SendWhatsappMessageConfig {
         label: string,
         sourceButton: any,
     }[]
+    // Business ready-messages. The full WhatsApp payload lives in messageData
+    // (like custom messages); businessConfig carries the driving params and
+    // the business command is resolved separately.
+    messageMode?: 'custom' | 'business',
+    businessUseCase?: string,
+    businessConfig?: {
+        daysCount?: number;
+        dateFormat?: string;
+        excludeWeekends?: boolean;
+        startFromTomorrow?: boolean;
+        discountValue?: number;
+        discountType?: string;
+    },
+    businessCommand?: string | null,
 }
 export interface QuickOrderStatusConfig {
     status: string;

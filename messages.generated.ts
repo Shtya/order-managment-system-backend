@@ -1134,6 +1134,18 @@ export type I18nTranslations = {
             "media_upload_failed": string;
             "order_location_updated": string;
             "order_location_updated_message": string;
+            "postpone_accepted_title": string;
+            "postpone_accepted_message": string;
+            "postpone_not_applied_title": string;
+            "postpone_not_applied_message": string;
+            "postpone_failed_title": string;
+            "postpone_failed_message": string;
+            "discount_accepted_title": string;
+            "discount_accepted_message": string;
+            "discount_not_accepted_title": string;
+            "discount_not_accepted_message": string;
+            "discount_failed_title": string;
+            "discount_failed_message": string;
             "message_not_found": string;
             "phone_number_id_not_found": string;
             "whatsapp_account_already_integrated": string;

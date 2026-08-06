@@ -67,13 +67,36 @@ const formatDateWithFormat = (date: Date, format: string, lang: Language = Langu
     return format.replace(/WeekdayShort|Weekday|MonthShort|Month|YYYY|YY|MM|M|DD|D/g, (m) => tokens[m] ?? m);
 };
 
+const isWeekend = (date: Date): boolean => {
+    const day = date.getDay();
+    return day === 5 || day === 6; // Friday, Saturday
+};
+
 /**
  * Computes a date offset by a number of days relative to today.
  * 0 = today, positive = future, negative = past.
+ * When excludeWeekends is true, weekends (Friday/Saturday) do NOT count
+ * toward the offset: offset N lands on the N-th working day after today.
+ * Because the weekend skip carries over, consecutive offsets always map to
+ * distinct dates (e.g. from Monday: 4 -> Sun, 5 -> Mon, 6 -> Tue) instead
+ * of several offsets collapsing onto the same weekend-adjusted date.
  */
-const computeOffsetDate = (offset: number): Date => {
+const computeOffsetDate = (offset: number, excludeWeekends = false): Date => {
     const date = new Date();
-    date.setDate(date.getDate() + (Number.isFinite(offset) ? offset : 0));
+    if (!Number.isFinite(offset)) return date;
+
+    if (offset > 0) {
+        let count = 0;
+        while (count < offset) {
+            date.setDate(date.getDate() + 1);
+            if (!excludeWeekends || !isWeekend(date)) {
+                count += 1;
+            }
+        }
+    } else {
+        // Past dates use plain calendar arithmetic.
+        date.setDate(date.getDate() + offset);
+    }
     return date;
 };
 
@@ -82,6 +105,8 @@ interface GlobalContext {
     values: Record<string, string>;
     /** Admin's default language, used to localize named date formats. */
     lang: Language;
+    /** Whether computed dates should skip weekends (Friday/Saturday). */
+    excludeWeekends?: boolean;
 }
 
 /**
@@ -94,7 +119,7 @@ const resolveGlobalVariablePath = (variablePath: string, globalData?: GlobalCont
     if (dateMatch) {
         const offset = parseInt(dateMatch[1], 10);
         const format = dateMatch[2] || "DD-MM-YYYY";
-        return formatDateWithFormat(computeOffsetDate(offset), format, globalData?.lang);
+        return formatDateWithFormat(computeOffsetDate(offset, globalData?.excludeWeekends), format, globalData?.lang);
     }
     return globalData?.values?.[variablePath] ?? "";
 };
@@ -751,7 +776,11 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
             }
 
             // Global context (brand/company info + admin language) for global.* variables
-            const globalData = await loadGlobalData(this.userRepo, orderData?.adminId, this.clientSettingsService);
+            let globalData = (await loadGlobalData(this.userRepo, orderData?.adminId, this.clientSettingsService)) || { values: {}, lang: Language.EN };
+
+            // Business postpone messages: skip weekends (Friday/Saturday) when
+            // computing {{global.date.N.<format>}} replacements.
+            globalData.excludeWeekends = !!config.businessConfig?.excludeWeekends;
 
             // Process messageData to replace variables
             const processedMessageData = this.deepReplaceVariables(config.messageData, orderData, globalData);
@@ -773,6 +802,16 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
                 to,
                 ...processedMessageData
             };
+
+            // Attach the business context (businessConfig + use case + command)
+            // as message metadata so it can be used when the user responds.
+            if (config.businessConfig || config.businessUseCase || config.businessCommand) {
+                payload.metadata = {
+                    businessConfig: config.businessConfig,
+                    businessUseCase: config.businessUseCase,
+                    businessCommand: config.businessCommand,
+                };
+            }
 
             let response: any;
             if (this.whatsappService) {
