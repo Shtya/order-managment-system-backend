@@ -48,6 +48,7 @@ import {
   ActionAssignOrderToEmployeeHandler,
   ActionSendWhatsappMessageHandler,
   ActionSendSmsHandler,
+  ActionWaitHandler,
 } from './nodeHandlers.registry';
 import { OrdersService } from 'src/orders/services/orders.service';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -283,11 +284,13 @@ export class AutomationPreviewService {
       return preview;
     }
 
-    const chosenBranch = waiting.branches.find((branch: any) =>
-      branch?.id === input.buttonId ||
-      branch?.text === input.buttonText ||
-      branch?.label === input.buttonText,
-    );
+    const chosenBranch =
+      waiting.branches.find((branch: any) =>
+        branch?.id === input.buttonId ||
+        branch?.text === input.buttonText ||
+        branch?.label === input.buttonText,
+      ) ||
+      waiting.branches.find((branch: any) => branch?.isCatchAll === true);
 
     if (!chosenBranch) {
       await this.failPreview(
@@ -570,6 +573,10 @@ class PreviewNodeHandlersRegistry {
     this.handlers.set(
       ActionType.SEND_SMS,
       new ActionSendSmsHandler(this.adapter, this.orderRepo),
+    );
+    this.handlers.set(
+      ActionType.WAIT,
+      new ActionWaitHandler(this.orderRepo),
     );
   }
 

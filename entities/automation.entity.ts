@@ -110,6 +110,7 @@ export enum ActionType {
     SEND_UPSELL = 'send_upsell',
     ASSIGN_ORDER_TO_EMPLOYEE = 'assign_order_to_employee',
     SEND_SMS = 'send_sms',
+    WAIT = 'wait',
 }
 
 export enum ConditionType {
@@ -157,7 +158,8 @@ export type NodeConfig =
     SendUpsellConfig |
     QuickOrderStatusConfig |
     OrderCheckConfig |
-    AssignOrderToEmployeeConfig;
+    AssignOrderToEmployeeConfig |
+    WaitConfig;
 
 export interface SendUpsellConfig {
     branches?: {
@@ -208,6 +210,10 @@ export interface SendSmsConfig {
         label: string;
         condition: string;
     }[];
+}
+
+export interface WaitConfig {
+    waitMinutes: number;
 }
 
 export interface VariableDetails {

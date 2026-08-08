@@ -1146,6 +1146,12 @@ export type I18nTranslations = {
             "discount_not_accepted_message": string;
             "discount_failed_title": string;
             "discount_failed_message": string;
+            "payment_method_accepted_title": string;
+            "payment_method_accepted_message": string;
+            "payment_method_not_applied_title": string;
+            "payment_method_not_applied_message": string;
+            "payment_method_failed_title": string;
+            "payment_method_failed_message": string;
             "message_not_found": string;
             "phone_number_id_not_found": string;
             "whatsapp_account_already_integrated": string;

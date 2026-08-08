@@ -257,6 +257,11 @@ export class EngineRunnerService {
             b.label === buttonText
         );
 
+        // Catch-all branch: used whatever the client responds with
+        if (!chosenBranch) {
+            chosenBranch = branches.find((b: any) => b.isCatchAll === true);
+        }
+
         // Special handling for Send Upsell branching
         if (node?.data?.type === ActionType.SEND_UPSELL) {
             if (buttonId?.endsWith('_btn_0')) {
@@ -293,6 +298,20 @@ export class EngineRunnerService {
         await this.resumeExecution(run.id, step.nodeId, chosenBranch.id);
 
         return { success: true, message: 'Automation resumed successfully', runId: run.id, status: run.status };
+    }
+
+    /**
+     * Resume a run that paused on a Wait node (fired by the delayed WAIT_RESUME job).
+     * Guards against resuming a run that was cancelled/failed/resumed meanwhile.
+     */
+    async resumeFromWait(runId: string, waitNodeId: string): Promise<{ success: boolean; message: string; runId: string; status?: RunStatus }> {
+        const run = await this.runRepo.findOne({ where: { id: runId } });
+        if (!run) return { success: false, message: 'Run not found', runId };
+        if (run.status !== RunStatus.PAUSED || run.currentNodeId !== waitNodeId) {
+            this.logger.warn(`Skipping wait-resume for run ${runId} (status=${run.status}, node=${run.currentNodeId})`);
+            return { success: false, message: 'Run is not paused at the expected wait node', runId, status: run.status };
+        }
+        return this.resumeExecution(runId, waitNodeId);
     }
 
     /**

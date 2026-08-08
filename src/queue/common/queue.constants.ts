@@ -48,4 +48,5 @@ export const OrderSyncJobs = {
 export const AutomationJobs = {
   START: 'start',
   RESUME: 'resume',
+  WAIT_RESUME: 'wait-resume',
 } as const;

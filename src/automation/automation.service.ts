@@ -111,7 +111,10 @@ export class AutomationService {
         manager: EntityManager,
         urls: string[],
     ): Promise<void> {
-        const basePaths = this.extractBasePaths(urls);
+        const validUrls = urls.filter(
+            (url): url is string => typeof url === "string" && url.trim().length > 0
+        );
+        const basePaths = this.extractBasePaths(validUrls);
 
         if (manager.queryRunner?.data) {
             manager.queryRunner.data.postCommitTasks ??= [];
@@ -287,7 +290,7 @@ export class AutomationService {
                 //         parentVersion.versionString,
                 //     );
                 // } else {
-                    nextVersion = await this.generateNextVersion(automation.id);
+                nextVersion = await this.generateNextVersion(automation.id);
                 // }
 
                 const newVersion = versionRepo.create({
@@ -368,7 +371,7 @@ export class AutomationService {
             throw new BadRequestException(this.translations.t('domains.automation.only_failed_runs_retriable'));
         }
 
-        if(useLatestVersion) {
+        if (useLatestVersion) {
             // Load automation flow with latestVersion
             const automationFlow = await this.automationRepo.findOne({
                 where: { id: run.automationFlowId },
@@ -731,7 +734,7 @@ export class AutomationService {
 
         const run = await this.runRepo.findOne({
             where: { id },
-            relations: ['automationFlow','automationFlow.latestVersion', 'version', 'steps']
+            relations: ['automationFlow', 'automationFlow.latestVersion', 'version', 'steps']
         });
 
         if (!run) {

@@ -2,7 +2,7 @@
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
-import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendSmsConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig } from "entities/automation.entity";
+import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendSmsConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig, WaitConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { MessageActionIntent, MessageStatus, TemplateStatus, WhatsappMessageEntity } from "entities/whatsapp.entity";
 
@@ -21,6 +21,7 @@ import { SmsSendStatus } from "entities/sms.entity";
 import { Company, User } from "entities/user.entity";
 import { Language } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
+import { AutomationQueueService } from "src/queue/queues/automations.queue";
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -1121,6 +1122,54 @@ export class ActionSendSmsHandler extends FlowNodeHandler {
     }
 }
 
+export class ActionWaitHandler extends FlowNodeHandler {
+    private readonly logger = new Logger(ActionWaitHandler.name);
+
+    constructor(
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+        private readonly automationQueueService?: AutomationQueueService,
+    ) {
+        super(orderRepo);
+    }
+
+    async execute(config: WaitConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
+        const waitMinutes = Number(config?.waitMinutes) || 0;
+        if (waitMinutes <= 0) {
+            return { success: false, shouldPause: false, error: 'Wait minutes must be greater than zero' };
+        }
+        const waitMs = waitMinutes * 60 * 1000;
+
+        // Preview runs pass a PreviewRunDocument (has previewId) — never enqueue/pause there.
+        if ((run as any).previewId) {
+            return {
+                success: true,
+                shouldPause: false,
+                output: { waitMinutes, waitMs, simulated: true },
+            };
+        }
+
+        await this.automationQueueService?.enqueueWaitResume(
+            run.id,
+            run.automationFlowId,
+            run.versionId,
+            run.adminId,
+            run.currentNodeId,
+            waitMs,
+        );
+
+        return {
+            success: true,
+            shouldPause: true,
+            output: {
+                waitMinutes,
+                waitMs,
+                resumeAt: new Date(Date.now() + waitMs).toISOString(),
+            },
+        };
+    }
+}
+
 @Injectable()
 export class NodeHandlersRegistry {
     private readonly handlers = new Map<FlowNodeDataType, FlowNodeHandler>();
@@ -1140,6 +1189,8 @@ export class NodeHandlersRegistry {
         @InjectRepository(User)
         private readonly userRepo: Repository<User>,
         private readonly clientSettingsService: ClientSettingsService,
+        @Inject(forwardRef(() => AutomationQueueService))
+        private readonly automationQueueService: AutomationQueueService,
     ) {
         this.registerHandlers();
     }
@@ -1154,6 +1205,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService));
         this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
         this.handlers.set(ActionType.SEND_SMS, new ActionSendSmsHandler(this.adapter, this.orderRepo, this.userRepo, this.clientSettingsService));
+        this.handlers.set(ActionType.WAIT, new ActionWaitHandler(this.orderRepo, this.automationQueueService));
     }
 
     /**

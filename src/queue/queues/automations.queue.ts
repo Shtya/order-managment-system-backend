@@ -51,6 +51,25 @@ export class AutomationQueueService {
             resumeData,
         }, { jobId });
     }
+
+    async enqueueWaitResume(
+        runId: string,
+        automationFlowId: string,
+        versionId: string,
+        adminId: string,
+        waitNodeId: string,
+        delayMs: number,
+    ) {
+        if (!adminId || !runId || !waitNodeId || delayMs <= 0) return;
+        const jobId = `wait-resume-${adminId}-${runId}-${waitNodeId}`;
+        // NOTE: call automationsQueue.add directly (like auto-assignment) because
+        // addJob() forces jobId: undefined. Deterministic jobId gives BullMQ dedup.
+        await this.automationsQueue.add(
+            AutomationJobs.WAIT_RESUME,
+            { runId, automationFlowId, versionId, waitNodeId, adminId, type: AutomationJobs.WAIT_RESUME },
+            { jobId, delay: delayMs },
+        );
+    }
 }
 
 @Processor(QueueNames.AUTOMATIONS, {
@@ -87,7 +106,7 @@ export class AutomationWorkerService extends WorkerHost {
     }
 
     private async handleJob(job: Job): Promise<any> {
-        const { type, runId, resumeData } = job.data;
+        const { type, runId, resumeData, waitNodeId } = job.data;
         this.logger.debug(`Processing Job ${job.id} | Type: ${type}`);
 
         try {
@@ -104,6 +123,11 @@ export class AutomationWorkerService extends WorkerHost {
                     resumeData.buttonId
                 );
                 this.logger.log(`=== SUCCESS: Finished resume job ${job.id}`);
+                return result;
+            } else if (type === AutomationJobs.WAIT_RESUME && runId && waitNodeId) {
+                this.logger.log(`=== STARTING Job ${job.id} | Type: ${type} | Resuming run ${runId} after wait at node ${waitNodeId}`);
+                const result = await this.engineRunner.resumeFromWait(runId, waitNodeId);
+                this.logger.log(`=== SUCCESS: Finished wait-resume job ${job.id}`);
                 return result;
             }
         } catch (error) {

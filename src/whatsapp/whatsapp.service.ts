@@ -20,7 +20,7 @@ import { CustomerEntity } from 'entities/customers.entity';
 import { AppGateway } from 'common/app.gateway';
 import { UpsellsService } from 'src/upsells/upsells.service';
 import { tenantId } from 'src/category/category.service';
-import { OrderEntity, OrderStatus } from 'entities/order.entity';
+import { OrderEntity, OrderStatus, PaymentMethod } from 'entities/order.entity';
 import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
@@ -1024,6 +1024,9 @@ export class WhatsappService {
             case 'order.apply_discount':
                 await this.handleDiscountOfferAction(adminId, parentMessage, payload);
                 break;
+            case 'order.set_payment_method':
+                await this.handlePaymentMethodAction(adminId, parentMessage, payload);
+                break;
             default:
                 this.logger.warn(`Unknown business command: ${businessCommand}`);
         }
@@ -1160,6 +1163,64 @@ export class WhatsappService {
             await notify(
                 "domains.whatsapp.discount_failed_title",
                 "domains.whatsapp.discount_failed_message",
+                { orderNumber, error: error.message },
+                NotificationType.SYSTEM_ALERT,
+            );
+        }
+    }
+
+    /**
+     * order.set_payment_method: the customer pressed one of the payment buttons.
+     * Buttons are sent with reply.id = btn_<idx> (0 = Cash on delivery,
+     * 1 = E-Wallet, 2 = Credit Card). Saves the chosen method on the order.
+     */
+    private async handlePaymentMethodAction(
+        adminId: string,
+        parentMessage: WhatsappMessageEntity,
+        payload: any,
+    ): Promise<void> {
+        const orderId = parentMessage.orderId;
+        const orderNumber = parentMessage.order?.orderNumber || '';
+        const notify = (titleKey: I18nKey, messageKey: I18nKey, args: Record<string, any>, type: NotificationType) =>
+            this.notifyBusinessResult(adminId, orderId, titleKey, messageKey, args, type);
+
+        const PAYMENT_METHODS_BY_BUTTON_INDEX: Record<string, PaymentMethod> = {
+            btn_0: PaymentMethod.CASH_ON_DELIVERY,
+            btn_1: PaymentMethod.WALLET,
+            btn_2: PaymentMethod.CARD,
+        };
+
+        try {
+            const buttonReply = payload?.interactive?.button_reply;
+            const replyId = buttonReply?.id || '';
+            const paymentMethod = PAYMENT_METHODS_BY_BUTTON_INDEX[replyId];
+
+            if (!paymentMethod) {
+                this.logger.warn(`Invalid payment method reply for order ${orderId}: ${replyId}`);
+                await notify(
+                    "domains.whatsapp.payment_method_not_applied_title",
+                    "domains.whatsapp.payment_method_not_applied_message",
+                    { orderNumber },
+                    NotificationType.SYSTEM_ALERT,
+                );
+                return;
+            }
+
+            await this.orderRepo.update(orderId, { paymentMethod });
+
+            await this.markActionCompleted(parentMessage.id);
+            await notify(
+                "domains.whatsapp.payment_method_accepted_title",
+                "domains.whatsapp.payment_method_accepted_message",
+                { orderNumber, paymentMethod },
+                NotificationType.ORDER_UPDATED,
+            );
+            this.logger.log(`Payment method ${paymentMethod} set for order ${orderId} via WhatsApp business action.`);
+        } catch (error) {
+            this.logger.error(`Failed to set payment method for order ${orderId}: ${error.message}`, error.stack);
+            await notify(
+                "domains.whatsapp.payment_method_failed_title",
+                "domains.whatsapp.payment_method_failed_message",
                 { orderNumber, error: error.message },
                 NotificationType.SYSTEM_ALERT,
             );
@@ -1841,7 +1902,7 @@ export class WhatsappService {
     private async handleAccountReviewUpdate(value: any, account: WhatsappAccountEntity) {
         this.logger.log("account_review_update event");
     }
-
+    
     async retryMessage(me: any, messageId: string) {
         const adminId = tenantId(me);
         const message = await this.messageRepo.findOne({
