@@ -32,7 +32,7 @@ import {
   UpdateMessageDto,
 } from "dto/support_tickets.dto";
 
-@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+@UseGuards(JwtAuthGuard, PermissionsGuard)
 @RequireSubscription()
 @Controller("support-tickets")
 export class SupportTicketController {

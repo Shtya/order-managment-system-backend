@@ -2973,7 +2973,7 @@ export class OrdersService {
       variant.reserved = (variant.reserved || 0) + item.quantity;
       await manager.save(ProductVariantEntity, variant);
     }
-
+    
     // Log initial status
     await this.logStatusChange({
       adminId,
