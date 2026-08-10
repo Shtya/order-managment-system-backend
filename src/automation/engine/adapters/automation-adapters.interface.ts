@@ -4,6 +4,7 @@ import {  WhatsappAccountEntity } from 'entities/whatsapp.entity';
 import { Upsell, UpsellHistory } from 'entities/upsells.entity';
 import { OrderEntity } from 'entities/order.entity';
 import { SmsSendLogEntity } from 'entities/sms.entity';
+import { IssueEntity, IssuePriority } from 'entities/issue.entity';
 
 
 /**
@@ -144,4 +145,30 @@ export interface AutomationAdapter {
      * Get WhatsApp account by ID
      */
     getWhatsappAccount(accountId: string): Promise<WhatsappAccountEntity | null>;
+
+    /**
+     * Create a new issue linked to an order
+     * In production: calls IssueService.create() with actual side effects
+     * In preview: returns mock issue data without persisting
+     */
+    createIssue(
+        user: { adminId: string; id: string | null },
+        dto: {
+            title: string;
+            description?: string;
+            orderId: string;
+            causeId?: string | null;
+            priority?: IssuePriority;
+            statusId?: string | null;
+            assignedRoleId: string;
+            employeeIds?: string[];
+            estimatedMinutes?: number;
+        },
+    ): Promise<{
+        success: boolean;
+        issueId?: string;
+        issue?: IssueEntity;
+        previewMode?: boolean;
+        skippedSideEffect?: boolean;
+    }>;
 }

@@ -603,6 +603,7 @@ export class UsersService {
 					email: u.email,
 					phone: u.phone,
 					employeeType: u.employeeType,
+					roleId: u.roleId,
 
 					// 2. Map subscription and plan data
 					// We return the subscription object, but specifically the plan info for the FE

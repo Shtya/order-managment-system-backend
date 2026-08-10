@@ -14,6 +14,7 @@ import { User } from 'entities/user.entity';
 import { OrderAssignmentEntity } from 'entities/assignment.entity';
 import { OrderAssignmentService } from 'src/order-assignment/order-assignment.service';
 import { SmsSendLogEntity, SmsSendStatus } from 'entities/sms.entity';
+import { IssuePriority } from 'entities/issue.entity';
 
 /**
  * Preview implementation of AutomationAdapter
@@ -228,5 +229,45 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
         return this.accountRepo.findOne({
             where: { id: accountId, isActive: true }
         });
+    }
+
+    async createIssue(
+        user: { adminId: string; id: string | null },
+        dto: {
+            title: string;
+            description?: string;
+            orderId: string;
+            causeId?: string | null;
+            priority?: IssuePriority;
+            statusId?: string | null;
+            assignedRoleId: string;
+            employeeIds?: string[];
+            estimatedMinutes?: number;
+        },
+    ) {
+        this.logger.log(`[PREVIEW] Skipping actual issue creation for "${dto.title}" on order ${dto.orderId}`);
+
+        const mockIssue = {
+            id: randomUUID(),
+            adminId: user.adminId,
+            title: dto.title,
+            description: dto.description ?? null,
+            orderId: dto.orderId,
+            causeId: dto.causeId ?? null,
+            priority: dto.priority ?? 'medium',
+            statusId: dto.statusId ?? null,
+            assignedRoleId: dto.assignedRoleId,
+            estimatedMinutes: dto.estimatedMinutes ?? null,
+            created_at: new Date(),
+            updated_at: new Date(),
+        } as any;
+
+        return {
+            success: true,
+            issueId: mockIssue.id,
+            issue: mockIssue,
+            previewMode: true,
+            skippedSideEffect: true,
+        };
     }
 }

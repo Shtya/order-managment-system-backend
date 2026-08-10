@@ -2,7 +2,7 @@
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
 import { Inject, Injectable, Logger, NotFoundException, forwardRef } from "@nestjs/common";
-import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendSmsConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig, WaitConfig } from "entities/automation.entity";
+import { ActionType, AssignOrderToEmployeeConfig, AutomationRunEntity, ConditionType, CreateIssueConfig, FlowNodeDataType, OrderCheckConfig, QuickOrderStatusConfig, SendSmsConfig, SendUpsellConfig, SendWhatsappMessageConfig, SendWhatsappTemplateConfig, TriggerType, UpdateOrderStatusConfig, WaitConfig } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { MessageActionIntent, MessageStatus, TemplateStatus, WhatsappMessageEntity } from "entities/whatsapp.entity";
 
@@ -1122,6 +1122,70 @@ export class ActionSendSmsHandler extends FlowNodeHandler {
     }
 }
 
+export class ActionCreateIssueHandler extends FlowNodeHandler {
+    private readonly logger = new Logger(ActionCreateIssueHandler.name);
+
+    constructor(
+        private readonly adapter: AutomationAdapter,
+        @InjectRepository(OrderEntity)
+        protected readonly orderRepo: Repository<OrderEntity>,
+        @InjectRepository(User)
+        private readonly userRepo?: Repository<User>,
+        private readonly clientSettingsService?: ClientSettingsService,
+    ) {
+        super(orderRepo);
+    }
+
+    async execute(config: CreateIssueConfig, run: AutomationRunEntity): Promise<NodeHandlerResponse> {
+        try {
+            const orderData = await this.getOrder(run.executionState.trigger.output);
+            if (!orderData) {
+                return { success: false, shouldPause: false, error: 'Order data not found in trigger output' };
+            }
+
+            if (!config?.title) {
+                return { success: false, shouldPause: false, error: 'Issue title is required' };
+            }
+
+            const globalData = await loadGlobalData(this.userRepo, orderData?.adminId, this.clientSettingsService);
+            const hydrated = this.deepReplaceVariables(config, orderData, globalData);
+
+            const createResult = await this.adapter.createIssue(
+                { adminId: orderData.adminId, id: orderData.adminId },
+                {
+                    title: String(hydrated.title || '').trim(),
+                    description: hydrated.description ? String(hydrated.description) : undefined,
+                    orderId: orderData.id,
+                    causeId: hydrated.causeId || null,
+                    priority: hydrated.priority,
+                    statusId: hydrated.statusId || null,
+                    assignedRoleId: String(hydrated.assignedRoleId || ''),
+                    employeeIds: hydrated.employeeIds?.length ? hydrated.employeeIds : undefined,
+                    estimatedMinutes: hydrated.estimatedMinutes ? Number(hydrated.estimatedMinutes) : undefined,
+                } as any,
+            );
+
+            return {
+                success: createResult.success,
+                shouldPause: false,
+                output: {
+                    issueId: createResult.issueId,
+                    previewMode: createResult.previewMode,
+                    skippedSideEffect: createResult.skippedSideEffect,
+                    issue: createResult.issue,
+                },
+            };
+        } catch (error: any) {
+            this.logger.error(`Failed to create issue: ${error?.message}`, error?.stack);
+            return {
+                success: false,
+                shouldPause: false,
+                error: `Issue creation failed: ${error?.message}`,
+            };
+        }
+    }
+}
+
 export class ActionWaitHandler extends FlowNodeHandler {
     private readonly logger = new Logger(ActionWaitHandler.name);
 
@@ -1205,6 +1269,7 @@ export class NodeHandlersRegistry {
         this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService));
         this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
         this.handlers.set(ActionType.SEND_SMS, new ActionSendSmsHandler(this.adapter, this.orderRepo, this.userRepo, this.clientSettingsService));
+        this.handlers.set(ActionType.CREATE_ISSUE, new ActionCreateIssueHandler(this.adapter, this.orderRepo, this.userRepo, this.clientSettingsService));
         this.handlers.set(ActionType.WAIT, new ActionWaitHandler(this.orderRepo, this.automationQueueService));
     }
 

@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
 import { Notification } from 'entities/notifications.entity';
 import { SupportTicketEntity, SupportTicketMessageEntity } from 'entities/support_tickets.entity';
+import { IssueEntity, IssueMessageEntity } from 'entities/issue.entity';
 import { ConversationEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
 import { CustomerEntity } from 'entities/customers.entity';
 import { createClient, RedisClientOptions } from 'redis';
@@ -250,6 +251,28 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     emitSupportTicketRead(userIds: string[], ticket: SupportTicketEntity, readByUserId: string, side: "tenant" | "support") {
         this.emitToUsers(userIds, "support_ticket:read", { ticket, readByUserId, side });
+    }
+
+    // --- Issues ---
+
+    emitIssueCreated(userIds: string[], issue: IssueEntity) {
+        this.emitToUsers(userIds, "issue:created", { issue });
+    }
+
+    emitIssueUpdated(userIds: string[], issue: IssueEntity) {
+        this.emitToUsers(userIds, "issue:updated", { issue });
+    }
+
+    emitIssueMessageCreated(userIds: string[], message: IssueMessageEntity) {
+        this.emitToUsers(userIds, "issue:message-created", { message });
+    }
+
+    emitIssueMessageUpdated(userIds: string[], message: IssueMessageEntity) {
+        this.emitToUsers(userIds, "issue:message-updated", { message });
+    }
+
+    emitIssueRead(userIds: string[], issue: IssueEntity, readByUserId: string) {
+        this.emitToUsers(userIds, "issue:read", { issue, readByUserId });
     }
 
     // --- Helper Methods ---

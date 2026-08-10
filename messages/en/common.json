@@ -129,5 +129,6 @@
   "parent": "Parent site",
   "yes": "Yes",
   "no": "No",
-  "error": "Error"
+  "error": "Error",
+  "invalid_cursor": "Invalid pagination cursor."
 }

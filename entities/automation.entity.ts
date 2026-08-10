@@ -2,6 +2,7 @@ import { Column, CreateDateColumn, DeleteDateColumn, Entity, Index, JoinColumn, 
 import { User } from "./user.entity";
 import { MessageActionIntent, TemplateConfig } from "./whatsapp.entity";
 import { OrderEntity } from "./order.entity";
+import { IssuePriority } from "./issue.entity";
 import { WhatsappMessageData } from "src/whatsapp/services/WhatsappApi.service";
 
 
@@ -111,6 +112,7 @@ export enum ActionType {
     ASSIGN_ORDER_TO_EMPLOYEE = 'assign_order_to_employee',
     SEND_SMS = 'send_sms',
     WAIT = 'wait',
+    CREATE_ISSUE = 'create_issue',
 }
 
 export enum ConditionType {
@@ -159,6 +161,7 @@ export type NodeConfig =
     QuickOrderStatusConfig |
     OrderCheckConfig |
     AssignOrderToEmployeeConfig |
+    CreateIssueConfig |
     WaitConfig;
 
 export interface SendUpsellConfig {
@@ -214,6 +217,17 @@ export interface SendSmsConfig {
 
 export interface WaitConfig {
     waitMinutes: number;
+}
+
+export interface CreateIssueConfig {
+    title: string;
+    description?: string;
+    causeId?: string | null;
+    priority?: IssuePriority;
+    statusId?: string | null;
+    assignedRoleId: string;
+    employeeIds?: string[];
+    estimatedMinutes?: number;
 }
 
 export interface VariableDetails {

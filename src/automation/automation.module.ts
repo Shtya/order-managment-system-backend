@@ -24,6 +24,7 @@ import { OrderAssignmentModule } from 'src/order-assignment/order-assignment.mod
 import { OrphanFilesModule } from 'src/orphan-files/orphan-files.module';
 import { AutomationSubscriber } from './automation-subscriber';
 import { SmsModule } from 'src/sms/sms.module';
+import { IssueModule } from 'src/issue/issue.module';
 
 
 @Module({
@@ -34,6 +35,7 @@ import { SmsModule } from 'src/sms/sms.module';
     forwardRef(() => OrdersModule),
     forwardRef(() => WhatsappModule),
     forwardRef(() => OrderAssignmentModule),
+    IssueModule,
     NotificationModule,
     WebSocketModule,
     TypeOrmModule.forFeature([

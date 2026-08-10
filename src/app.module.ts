@@ -59,6 +59,7 @@ import { TranslationModule } from "common/translation.service";
 import { ClientSettingsModule } from './client-settings/client-settings.module';
 import { SmsModule } from './sms/sms.module';
 import { SupportTicketModule } from './support_ticket/support_ticket.module';
+import { IssueModule } from './issue/issue.module';
 
 @Module({
 	imports: [
@@ -147,7 +148,8 @@ import { SupportTicketModule } from './support_ticket/support_ticket.module';
 		OrderAssignmentModule,
 		ClientSettingsModule,
 		SmsModule,
-		SupportTicketModule
+		SupportTicketModule,
+		IssueModule
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,

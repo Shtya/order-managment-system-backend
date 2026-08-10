@@ -13,6 +13,8 @@ import { UpsellsService } from 'src/upsells/upsells.service';
 import { OrderAssignmentService } from 'src/order-assignment/order-assignment.service';
 import { SmsService } from 'src/sms/sms.service';
 import { isArray } from 'class-validator';
+import { IssueService } from 'src/issue/issue.service';
+import { IssuePriority } from 'entities/issue.entity';
 
 /**
  * Production implementation of AutomationAdapter
@@ -36,6 +38,7 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
         private readonly accountRepo: Repository<WhatsappAccountEntity>,
         private readonly orderAssignmentService: OrderAssignmentService,
         private readonly smsService: SmsService,
+        private readonly issueService: IssueService,
     ) { }
 
 
@@ -173,5 +176,38 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
         return this.accountRepo.findOne({
             where: { id: accountId, isActive: true }
         });
+    }
+
+    async createIssue(
+        user: { adminId: string; id: string | null },
+        dto: {
+            title: string;
+            description?: string;
+            orderId: string;
+            causeId?: string | null;
+            priority?: IssuePriority;
+            statusId?: string | null;
+            assignedRoleId: string;
+            employeeIds?: string[];
+            estimatedMinutes?: number;
+        },
+    ) {
+        try {
+            const result = await this.issueService.create(
+                { ...user, adminId: user.adminId, role: { name: 'admin' } } as any,
+                dto as any,
+            );
+
+            return {
+                success: true,
+                issueId: result?.data?.id,
+                issue: result?.data,
+            };
+        } catch (error: any) {
+            this.logger.error(`Automation: failed to create issue: ${error?.message}`, error?.stack);
+            return {
+                success: false,
+            };
+        }
     }
 }

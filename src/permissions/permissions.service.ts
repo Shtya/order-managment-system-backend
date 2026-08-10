@@ -70,7 +70,14 @@ export class PermissionsService implements OnModuleInit {
 
 			// ✅ NEW: Support ticket permissions
 			"support_tickets.create", "support_tickets.read", "support_tickets.reply", "support_tickets.close", "support_tickets.reopen", "support_tickets.export",
-			"support_tickets.manage", "support_tickets.assign", "support_tickets.change_status", "support_tickets.change_priority", "support_tickets.internal_notes", "support_tickets.delete", "support_tickets.export_all"
+			"support_tickets.manage", "support_tickets.assign", "support_tickets.change_status", "support_tickets.change_priority", "support_tickets.internal_notes", "support_tickets.delete", "support_tickets.export_all",
+
+			// ✅ NEW: Issue permissions
+			"issues.create", "issues.read", "issues.update", "issues.delete",
+			"issues.reply", "issues.assign", "issues.change_status", "issues.change_priority",
+			"issues.export",
+			"issues.statuses.create", "issues.statuses.update", "issues.statuses.delete",
+			"issues.causes.create", "issues.causes.update", "issues.causes.delete"
 		];
 
 		for (const name of keys) {

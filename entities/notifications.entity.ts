@@ -75,6 +75,13 @@ export enum NotificationType {
   SUPPORT_TICKET_RESOLVED = "support_ticket_resolved",
   SUPPORT_TICKET_CLOSED = "support_ticket_closed",
   SUPPORT_TICKET_CANCELED = "support_ticket_canceled",
+  ISSUE_CREATED = "issue_created",
+  ISSUE_NEW_MESSAGE = "issue_new_message",
+  ISSUE_MESSAGE_UPDATED = "issue_message_updated",
+  ISSUE_MESSAGE_DELETED = "issue_message_deleted",
+  ISSUE_STATUS_CHANGED = "issue_status_changed",
+  ISSUE_PRIORITY_CHANGED = "issue_priority_changed",
+  ISSUE_ASSIGNED = "issue_assigned",
 }
 
 @Entity("notifications")
