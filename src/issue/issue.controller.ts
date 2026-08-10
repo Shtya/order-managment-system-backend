@@ -77,8 +77,8 @@ export class IssueController {
     );
     res.send(buffer);
   }
-
-  @Permissions("issues.read")
+  
+  @Permissions("issues.read", "issues.getOnly")
   @Get("statuses")
   statuses(@Req() req: any, @Query() q: any) {
     return this.issueService.getStatuses(req.user, q);
@@ -106,7 +106,7 @@ export class IssueController {
     return this.issueService.removeStatus(req.user, statusId);
   }
 
-  @Permissions("issues.read")
+  @Permissions("issues.read", "issues.getOnly")
   @Get("causes")
   causes(@Req() req: any, @Query() q: any) {
     return this.issueService.getCauses(req.user, q);

@@ -24,7 +24,7 @@ import { CreateRoleDto, UpdateRoleDto } from 'dto/role.dto';
 export class RolesController {
 	constructor(private roles: RolesService) { }
 
-	@Permissions('roles.read')
+	@Permissions('roles.read', 'roles.getOnly')
 	@Get()
 	list(@Req() req: any) {
 		return this.roles.list(req.user);

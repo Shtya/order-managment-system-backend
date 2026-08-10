@@ -123,7 +123,7 @@ export class UsersController {
 	}
 
 
-	@Permissions('users.read')
+	@Permissions('users.read', "users.getOnly")
 	@Get()
 	listForTable(
 		@Req() req: any,
