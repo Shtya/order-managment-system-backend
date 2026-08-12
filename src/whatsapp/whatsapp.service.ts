@@ -1905,7 +1905,7 @@ export class WhatsappService {
     private async handleAccountReviewUpdate(value: any, account: WhatsappAccountEntity) {
         this.logger.log("account_review_update event");
     }
-    
+
     async retryMessage(me: any, messageId: string) {
         const adminId = tenantId(me);
         const message = await this.messageRepo.findOne({
@@ -2064,19 +2064,14 @@ export class WhatsappService {
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'FETCHING_PHONE_DATA', status: 'completed' });
 
             // 3. Check if account already exists
-            const existing = await this.accountRepo.findOne({
+            let existing = await this.accountRepo.findOne({
                 where: [
                     { wabaId, adminId },
                     { phoneNumberId, adminId }
                 ]
             });
-            if (existing) {
-                throw new BadRequestException(
-                    this.translations.t(
-                        "domains.whatsapp.whatsapp_account_already_integrated",
-                    ),
-                );
-            }
+            // If exists, we will update it later; no throw.
+
             // 4. Subscribe App to WABA
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'in_progress' });
             try {
@@ -2097,27 +2092,37 @@ export class WhatsappService {
             this.logger.log(`handleEmbeddedSignup: Registered phone number: ${phoneNumberId}`);
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'REGISTERING_PHONE', status: 'completed' });
 
-            // 6. Create Account Record (Outside step 7 manager)
+            // 6. Create or Update Account Record
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'in_progress' });
-            const account = this.accountRepo.create({
-                adminId,
-                name: phoneData.verified_name || phoneData.display_phone_number,
-                wabaId,
-                phoneNumberId,
-                businessId,
-                accessToken,
-                mobileNumber: phoneData.display_phone_number,
-                isActive: true,
-                pinCode: pin,
-            });
-            const savedAccount = await this.accountRepo.save(account);
+            let savedAccount;
+            if (existing) {
+                // Update existing account with new integration data
+                existing.accessToken = accessToken;
+                existing.name = phoneData.verified_name || phoneData.display_phone_number;
+                existing.pinCode = pin;
+                // Optionally update other fields (businessId, etc.) if needed
+                savedAccount = await this.accountRepo.save(existing);
+            } else {
+                const account = this.accountRepo.create({
+                    adminId,
+                    name: phoneData.verified_name || phoneData.display_phone_number,
+                    wabaId,
+                    phoneNumberId,
+                    businessId,
+                    accessToken,
+                    mobileNumber: phoneData.display_phone_number,
+                    isActive: true,
+                    pinCode: pin,
+                });
+                savedAccount = await this.accountRepo.save(account);
+            }
             this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'completed' });
 
             // Check if it's the first account and set as default
             const accountCount = await this.accountRepo.count({ where: { adminId } });
             if (accountCount === 1) {
                 await this.clientSettingsService.upsertSettings(
-                    { id: adminId, adminId }, // me object
+                    { id: adminId, adminId },
                     { defaultWhatsAppAccountId: savedAccount.id }
                 );
             }
@@ -2207,7 +2212,7 @@ export class WhatsappService {
             const pin = Math.floor(100000 + Math.random() * 900000).toString();
             try {
                 await this.whatsappApi.registerPhoneNumber(account.phoneNumberId, account.accessToken, pin);
-            } catch(regError) {
+            } catch (regError) {
                 this.logger.error(`Failed to register phone number: ${regError.message}`, regError.stack);
             }
             const savedAccount = await this.accountRepo.save(account);
@@ -2331,27 +2336,27 @@ export class WhatsappService {
                 account.appSecret = payload.appSecret;
             }
 
-            try{
+            try {
 
                 const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
                     account.wabaId,
                     account.accessToken,
                 );
-                
+
                 const phoneData = phoneNumbers.data.find(
-                (p) => p.id === account.phoneNumberId,
-            );
-
-            if (!phoneData) {
-                throw new BadRequestException(
-                    this.translations.t(
-                        "domains.whatsapp.failed_to_connect_whatsapp",
-                    ),
+                    (p) => p.id === account.phoneNumberId,
                 );
-            }
-        } catch {
 
-        }
+                if (!phoneData) {
+                    throw new BadRequestException(
+                        this.translations.t(
+                            "domains.whatsapp.failed_to_connect_whatsapp",
+                        ),
+                    );
+                }
+            } catch {
+
+            }
 
             return await this.accountRepo.save(account);
         } catch (e) {
