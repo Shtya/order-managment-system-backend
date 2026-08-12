@@ -7,7 +7,7 @@ import { SubscriptionGuard } from 'common/subscription.guard';
 import { Permissions } from 'common/permissions.decorator';
 import { WhatsappSendMessagePayload } from './services/WhatsappApi.service';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { EmbeddedSignupDto, ManualAddAccountDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
+import { EmbeddedSignupDto, ManualAddAccountDto, ReplaceAccessTokenDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
 
 @Controller('whatsapp')
 export class WhatsappController {
@@ -214,6 +214,16 @@ export class WhatsappController {
     @Param('id') id: string
   ) {
     return this.whatsappService.syncTemplates(req.user, id);
+  }
+
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+  @Post('replace-access-token')
+  @Permissions('whatsapp.manage')
+  async replaceAccessToken(
+    @Req() req: any,
+    @Body() payload: ReplaceAccessTokenDto,
+  ) {
+    return this.whatsappService.replaceAccessToken(req.user, payload);
   }
 
   /**

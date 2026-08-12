@@ -1,7 +1,7 @@
 import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import * as crypto from "crypto";
 import { WhatsappApiService, WhatsappMessageResponsePayload, WhatsappSendMessagePayload, WhatsappUploadMediaPayload } from './services/WhatsappApi.service';
-import { EmbeddedSignupDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
+import { EmbeddedSignupDto, ReplaceAccessTokenDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
 import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappTemplateEntity, WhatsappWebhookEventEntity, TemplateStatus, TemplateQuality, MessageActionIntent, MessageActionStatus } from 'entities/whatsapp.entity';
 import { AutomationFlowEntity, AutomationRunEntity, RunStatus } from 'entities/automation.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -25,6 +25,8 @@ import { NotificationService } from 'src/notifications/notification.service';
 import { NotificationType } from 'entities/notifications.entity';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
 import { RequestTranslationService, TranslationService, I18nKey } from 'common/translation.service';
+import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
+import { GettingStartedAchievementType } from 'entities/getting-started.entity';
 
 @Injectable()
 export class WhatsappService {
@@ -64,6 +66,7 @@ export class WhatsappService {
         private readonly clientSettingsService: ClientSettingsService,
         private readonly translations: TranslationService,
         private requestTranslations: RequestTranslationService,
+        private readonly onboardingAchievementService: OnboardingAchievementService,
     ) {
 
     }
@@ -2145,6 +2148,8 @@ export class WhatsappService {
                 });
             }
 
+            this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.WHATSAPP_CONNECTED);
+
             return savedAccount;
         } catch (e) {
             this.logger.error(`Failed to handle embedded signup: ${e.message}`, e.stack);
@@ -2200,7 +2205,11 @@ export class WhatsappService {
 
             await this.whatsappApi.subscribeAppToWaba(account.wabaId, account.accessToken);
             const pin = Math.floor(100000 + Math.random() * 900000).toString();
-            await this.whatsappApi.registerPhoneNumber(account.phoneNumberId, account.accessToken, pin);
+            try {
+                await this.whatsappApi.registerPhoneNumber(account.phoneNumberId, account.accessToken, pin);
+            } catch(regError) {
+                this.logger.error(`Failed to register phone number: ${regError.message}`, regError.stack);
+            }
             const savedAccount = await this.accountRepo.save(account);
 
             // Check if it's the first account and set as default
@@ -2322,12 +2331,14 @@ export class WhatsappService {
                 account.appSecret = payload.appSecret;
             }
 
-            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
-                account.wabaId,
-                account.accessToken,
-            );
+            try{
 
-            const phoneData = phoneNumbers.data.find(
+                const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
+                    account.wabaId,
+                    account.accessToken,
+                );
+                
+                const phoneData = phoneNumbers.data.find(
                 (p) => p.id === account.phoneNumberId,
             );
 
@@ -2338,6 +2349,9 @@ export class WhatsappService {
                     ),
                 );
             }
+        } catch {
+
+        }
 
             return await this.accountRepo.save(account);
         } catch (e) {
@@ -2349,6 +2363,63 @@ export class WhatsappService {
             throw new BadRequestException(getErrorMessage(e));
         }
     }
+
+    async replaceAccessToken(me: any, payload: ReplaceAccessTokenDto) {
+        const adminId = tenantId(me);
+
+        if (!adminId) {
+            throw new BadRequestException(
+                this.translations.t("common.missing_admin_id"),
+            );
+        }
+
+        const account = await this.accountRepo
+            .createQueryBuilder("account")
+            .addSelect("account.accessToken")
+            .where("account.id = :accountId", {
+                accountId: payload.accountId,
+            })
+            .andWhere("account.adminId = :adminId", { adminId })
+            .getOne();
+
+        if (!account) {
+            throw new NotFoundException(
+                this.translations.t(
+                    "domains.whatsapp.whatsapp_account_not_found",
+                ),
+            );
+        }
+
+        try {
+            await this.whatsappApi.fetchWabaPhoneNumbers(
+                account.wabaId,
+                payload.accessToken,
+            );
+        } catch (e) {
+            this.logger.error(
+                `Failed to validate new WhatsApp access token for account ${account.id}: ${e.message}`,
+                e.stack,
+            );
+
+            throw new BadRequestException(
+                this.translations.t(
+                    "domains.whatsapp.failed_to_connect_whatsapp",
+                ),
+            );
+        }
+
+        account.accessToken = payload.accessToken;
+
+        const saved = await this.accountRepo.save(account);
+
+        return {
+            message: this.translations.t(
+                "domains.whatsapp.access_token_updated",
+            ),
+            account: saved,
+        };
+    }
+
     async syncTemplates(me: any, accountId: string) {
         const adminId = tenantId(me);
 

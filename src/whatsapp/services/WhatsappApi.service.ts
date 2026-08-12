@@ -749,7 +749,7 @@ export class WhatsappApiService {
       );
 
       if (!fs.existsSync(filePath)) {
-        throw new BadRequestException(this.translations.t('domains.whatsapp.file_not_found', { args: {filePath} }));
+        throw new BadRequestException(this.translations.t('domains.whatsapp.file_not_found', { args: { filePath } }));
       }
 
       fileBuffer = fs.readFileSync(filePath);
@@ -907,16 +907,21 @@ export class WhatsappApiService {
   }
 
   async fetchWabaTemplates(wabaId: string, accessToken: string): Promise<any[]> {
-    const response = await firstValueFrom(
-      this.httpService.get(`https://graph.facebook.com/${this.version}/${wabaId}/message_templates`, {
-        params: {
-          fields: 'language,name,rejected_reason,status,category,sub_category,last_updated_time,components,quality_score,parameter_format',
-          limit: 1000,
-          access_token: accessToken,
-        },
-      }),
-    );
-    return response.data.data;
+    try {
+
+      const response = await firstValueFrom(
+        this.httpService.get(`https://graph.facebook.com/${this.version}/${wabaId}/message_templates`, {
+          params: {
+            fields: 'language,name,rejected_reason,status,category,sub_category,last_updated_time,components,quality_score,parameter_format',
+            limit: 1000,
+            access_token: accessToken,
+          },
+        }),
+      );
+      return response.data.data;
+    } catch (e) {
+      this.handleError(e, "GET");
+    }
   }
 
   async streamMedia(accountId: string, mediaUrl: string, headers?: Record<string, string>): Promise<any> {
