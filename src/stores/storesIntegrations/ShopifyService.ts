@@ -25,6 +25,8 @@ import { AppGateway } from "common/app.gateway";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 import { NotificationService } from "src/notifications/notification.service";
 import { ProductSyncQueueService } from "src/queue/queues/product-sync.queue";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 enum ShopifyTopic {
     ORDERS_CREATE = "orders/create",
@@ -119,6 +121,7 @@ export class ShopifyService extends BaseStoreProvider {
         protected readonly notificationService: NotificationService,
         @Inject(forwardRef(() => ProductSyncQueueService))
         protected readonly productSyncQueueService: ProductSyncQueueService,
+        protected readonly onboardingAchievementService: OnboardingAchievementService,
     ) {
         super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, ordersService, notificationService, 400, StoreProvider.SHOPIFY)
 
@@ -226,6 +229,7 @@ export class ShopifyService extends BaseStoreProvider {
 
             await this.storesRepo.save(store);
             const redirectUrl = `${frontendBaseUrl}/store-integration`;
+            this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
             if (!oldIsIntegrated && store.syncRemoteProducts) {
                 this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
             }

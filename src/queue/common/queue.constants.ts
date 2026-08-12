@@ -5,6 +5,7 @@ export enum QueueNames {
   PRODUCT_SYNC = 'product-sync',
   ORDER_SYNC = 'order-sync',
   AUTOMATIONS = 'automations',
+  GETTING_STARTED = 'getting-started',
 }
 
 export const QueueConfigs: Record<QueueNames, { displayName: string; description: string }> = {
@@ -23,6 +24,10 @@ export const QueueConfigs: Record<QueueNames, { displayName: string; description
   [QueueNames.AUTOMATIONS]: {
     displayName: 'Automations Queue',
     description: 'Runs automation flows and resumes them from WhatsApp or upsell replay events',
+  },
+  [QueueNames.GETTING_STARTED]: {
+    displayName: 'Getting Started Queue',
+    description: 'Processes first-time onboarding achievements asynchronously',
   },
 };
 
@@ -49,4 +54,8 @@ export const AutomationJobs = {
   START: 'start',
   RESUME: 'resume',
   WAIT_RESUME: 'wait-resume',
+} as const;
+
+export const GettingStartedJobs = {
+  PROCESS_ACHIEVEMENT: 'process_achievement',
 } as const;

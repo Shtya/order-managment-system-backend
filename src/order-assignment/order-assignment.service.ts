@@ -20,6 +20,8 @@ import { BitmaskHelper, WeekDayHelper } from 'common/bitmask.helper';
 import { StoreEntity } from 'entities/stores.entity';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
 import { RequestTranslationService, TranslationService } from 'common/translation.service';
+import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
+import { GettingStartedAchievementType } from 'entities/getting-started.entity';
 
 @Injectable()
 export class OrderAssignmentService {
@@ -60,6 +62,7 @@ export class OrderAssignmentService {
         private readonly clientSettingsService: ClientSettingsService,
         private readonly translations: TranslationService,
         private requestTranslations: RequestTranslationService,
+        private readonly onboardingAchievementService: OnboardingAchievementService,
     ) { }
 
     private async bulkUpdateOrderStatusOnAssignment(orderIds: string[], adminId: string, manager: EntityManager): Promise<void> {
@@ -1349,7 +1352,9 @@ export class OrderAssignmentService {
 
         if (promises.length) await Promise.all(promises);
 
-        return this.autoAssignRuleRepo.save(rule);
+        const saved = await this.autoAssignRuleRepo.save(rule);
+        this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_ORDER_ASSIGNMENT_AUTOMATION_RULE_CREATED);
+        return saved;
     }
 
     async updateAutoAssignRule(me: any, id: string, dto: UpdateAutoAssignRuleDto) {

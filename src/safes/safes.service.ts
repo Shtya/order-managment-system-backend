@@ -7,6 +7,8 @@ import { tenantId } from 'src/category/category.service';
 import * as ExcelJS from 'exceljs';
 import { formatReferenceMeta } from 'common/healpers';
 import { TranslationService } from 'common/translation.service';
+import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
+import { GettingStartedAchievementType } from 'entities/getting-started.entity';
 
 @Injectable()
 export class SafesService {
@@ -19,6 +21,7 @@ export class SafesService {
         private transferRepo: Repository<AccountTransfer>,
         private dataSource: DataSource,
         private translations: TranslationService,
+        private onboardingAchievementService: OnboardingAchievementService,
     ) { }
 
 
@@ -148,6 +151,8 @@ export class SafesService {
                     manager
                 );
             }
+
+            this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_SAFE_CREATED);
 
             return savedAccount;
         });

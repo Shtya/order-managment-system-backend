@@ -15,6 +15,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as ExcelJS from "exceljs";
 import { RequestTranslationService, TranslationService } from "common/translation.service";
+import { OnboardingAchievementService } from "../queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 export function tenantId(me: any): any | null {
 	if (!me) return null;
@@ -50,6 +52,7 @@ export class PurchasesService {
 		private safesService: SafesService,
 		private translations: TranslationService,
         private requestTranslations: RequestTranslationService,
+        private onboardingAchievementService: OnboardingAchievementService,
 	) { }
 
 	private async log(params: {
@@ -891,6 +894,10 @@ export class PurchasesService {
                 remainingAmount: inv.remainingAmount ?? 0,
                 manager
             });
+
+            if (status === ApprovalStatus.ACCEPTED && oldStatus !== ApprovalStatus.ACCEPTED) {
+                this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_PURCHASE_ACCEPTED);
+            }
             return saved;
         };
 

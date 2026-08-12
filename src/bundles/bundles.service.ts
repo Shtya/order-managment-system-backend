@@ -18,6 +18,8 @@ import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 import { deletePhysicalFiles, generateSlug, getErrorMessage } from "common/healpers";
 import { StoreEntity } from "entities/stores.entity";
 import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 @Injectable()
 export class BundlesService {
@@ -45,6 +47,7 @@ export class BundlesService {
 
 		private readonly dataSource: DataSource,
 		private readonly translations: TranslationService,
+		private readonly onboardingAchievementService: OnboardingAchievementService,
 	) { }
 
 	private async assertOwnedOrNull(
@@ -418,6 +421,8 @@ export class BundlesService {
 		if (toDelete.length) {
 			await this.orphanFilesService.deleteOrphansByIds(this.dataSource.manager, String(adminId), toDelete);
 		}
+
+		this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_ORDER_BUNDLE_CREATED);
 
 		return this.get(me, saved.id);
 	}

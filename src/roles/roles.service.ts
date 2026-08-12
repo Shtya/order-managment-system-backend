@@ -11,6 +11,8 @@ import { Permission, Role, SystemRole, User } from 'entities/user.entity';
 import { CreateRoleDto, UpdateRoleDto } from 'dto/role.dto';
 import { tenantId } from 'src/category/category.service';
 import { TranslationService } from 'common/translation.service';
+import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
+import { GettingStartedAchievementType } from 'entities/getting-started.entity';
 
 @Injectable()
 export class RolesService implements OnModuleInit {
@@ -20,6 +22,7 @@ export class RolesService implements OnModuleInit {
 		@InjectRepository(User) private usersRepo: Repository<User>,
 		private translations: TranslationService,
 		private dataSource: DataSource,
+		private onboardingAchievementService: OnboardingAchievementService,
 	) { }
 
 	async onModuleInit() {
@@ -212,7 +215,9 @@ export class RolesService implements OnModuleInit {
 			isGlobal: !!this.isSuperAdmin(me),
 		});
 
-		return this.rolesRepo.save(role);
+		const saved = await this.rolesRepo.save(role);
+		this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_CUSTOM_ROLE_CREATED);
+		return saved;
 	}
 
 	// ✅ Update Role

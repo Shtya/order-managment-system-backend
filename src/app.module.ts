@@ -60,6 +60,7 @@ import { ClientSettingsModule } from './client-settings/client-settings.module';
 import { SmsModule } from './sms/sms.module';
 import { SupportTicketModule } from './support_ticket/support_ticket.module';
 import { IssueModule } from './issue/issue.module';
+import { GettingStartedModule } from './getting-started/getting-started.module';
 
 @Module({
 	imports: [
@@ -149,7 +150,8 @@ import { IssueModule } from './issue/issue.module';
 		ClientSettingsModule,
 		SmsModule,
 		SupportTicketModule,
-		IssueModule
+		IssueModule,
+		GettingStartedModule
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,

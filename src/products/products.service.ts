@@ -1,5 +1,5 @@
 // --- File: src/products/products.service.ts ---
-import { BadRequestException, forwardRef, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, forwardRef, Get, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository, Like, Not, IsNull, EntityManager, Brackets } from "typeorm";
 
@@ -38,6 +38,8 @@ import { RemoteImageHelper } from "common/emote-image.helper";
 import { StoresService } from "src/stores/stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
 import { RequestTranslationService, TranslationService } from "common/translation.service";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 
 @Injectable()
@@ -84,6 +86,7 @@ export class ProductsService {
     @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
     private readonly translations: TranslationService,
     private requestTranslations: RequestTranslationService,
+    private onboardingAchievementService: OnboardingAchievementService,
   ) { }
 
 
@@ -1455,6 +1458,7 @@ export class ProductsService {
     };
 
     const savedId = manager ? await work(manager) : await this.dataSource.transaction(mgr => work(mgr));
+    this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_PRODUCT_CREATED);
     return this.get(me, savedId);
   }
 

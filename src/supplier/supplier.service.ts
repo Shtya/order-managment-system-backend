@@ -9,6 +9,8 @@ import { tenantId } from "../category/category.service";
 import { SafesService } from "src/safes/safes.service";
 import { TransactionReferenceType } from "entities/safe.entity";
 import { RequestTranslationService, TranslationService } from "common/translation.service";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 @Injectable()
 export class SuppliersService {
@@ -19,6 +21,7 @@ export class SuppliersService {
 		private dataSource: DataSource,
 		private translations: TranslationService,
 		private requestTranslations: RequestTranslationService,
+		private onboardingAchievementService: OnboardingAchievementService,
 	) { }
 
 	async list(me: any, q?: any) {
@@ -187,7 +190,9 @@ export class SuppliersService {
 			purchaseValue: 0,
 		});
 
-		return this.supplierRepo.save(supplier);
+		const saved = await this.supplierRepo.save(supplier);
+		this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_SUPPLIER_CREATED);
+		return saved;
 	}
 
 	async update(me: any, id: string, dto: UpdateSupplierDto) {

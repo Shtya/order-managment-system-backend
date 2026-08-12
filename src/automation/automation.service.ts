@@ -11,6 +11,8 @@ import { AutomationQueueService } from 'src/queue/queues/automations.queue';
 import { isSuperAdmin, deletePhysicalFiles } from 'common/healpers';
 import { OrphanFilesService } from 'src/orphan-files/orphan-files.service';
 import { TranslationService } from 'common/translation.service';
+import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
+import { GettingStartedAchievementType } from 'entities/getting-started.entity';
 
 @Injectable()
 export class AutomationService {
@@ -27,6 +29,7 @@ export class AutomationService {
         private readonly automationQueueService: AutomationQueueService,
         private readonly orphanFilesService: OrphanFilesService,
         private readonly translations: TranslationService,
+        private readonly onboardingAchievementService: OnboardingAchievementService,
     ) { }
 
     async getFlowsStats(me: any) {
@@ -184,6 +187,8 @@ export class AutomationService {
                     dto.orphanFiles.deletedOldUrls,
                 );
             }
+
+            this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_AUTOMATION_CREATED);
 
             return {
                 ...savedAutomation,

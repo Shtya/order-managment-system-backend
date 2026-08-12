@@ -148,6 +148,18 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.server.to(`user_${userId}`).emit("new_notification", notification);
     }
 
+    emitGettingStartedAchievement(userId: string, payload: {
+        achievementId: string;
+        type: string;
+        title: string;
+        message: string;
+    }) {
+        this.server.to(`user_${userId}`).emit("getting_started:achievement", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
     emitShipmentStatus(userId: string, payload: {
         orderId: string;
         orderNumber?: string;

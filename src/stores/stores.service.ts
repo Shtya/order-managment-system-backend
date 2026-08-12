@@ -39,6 +39,8 @@ import { ProductSyncJobs, OrderSyncJobs } from "src/queue/common/queue.constants
 import { ProductSyncQueueService } from "src/queue/queues/product-sync.queue";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { RequestTranslationService, TranslationService } from "common/translation.service";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 @Injectable()
 export class StoresService {
@@ -76,6 +78,7 @@ export class StoresService {
     private readonly clientSettingsService: ClientSettingsService,
     private readonly translations: TranslationService,
     private requestTranslations: RequestTranslationService,
+    private readonly onboardingAchievementService: OnboardingAchievementService,
   ) {
     this.providers = {
       shopify: this.shopifyService,
@@ -332,6 +335,7 @@ export class StoresService {
               this.translations.t('domains.stores.authentication_failed_provider', { args: { providerName: p.displayName } })
             );
           }
+          this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
         } catch (error: any) {
           this.logger.error(`Validation failed for ${dto.provider}: ${error.message}`);
           //the message too long
@@ -374,7 +378,9 @@ export class StoresService {
         ...store.credentials,
         ...dto.credentials,
       };
-      return this.storesRepo.save(store);
+      const saved = await this.storesRepo.save(store);
+      
+      return saved;
     }
 
     const storeToSave = {
@@ -2127,6 +2133,8 @@ export class StoresService {
     if (newStore.syncRemoteProducts) {
       this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
     }
+
+    this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
     return newStore;
   }
 

@@ -9,6 +9,8 @@ import { tenantId } from "../category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
 import * as ExcelJS from 'exceljs';
 import { I18nKey, TranslationService } from "common/translation.service";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 @Injectable()
 export class WarehousesService {
@@ -16,6 +18,7 @@ export class WarehousesService {
 		@InjectRepository(WarehouseEntity) private warehousesRepo: Repository<WarehouseEntity>,
 		@InjectRepository(StorageLocationEntity) private locationsRepo: Repository<StorageLocationEntity>,
 		private readonly translations: TranslationService,
+		private onboardingAchievementService: OnboardingAchievementService,
 	) { }
 
 
@@ -161,6 +164,7 @@ export class WarehousesService {
 			isActive: dto.isActive ?? true,
 		});
 
+		this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_WAREHOUSE_CREATED);
 		return this.warehousesRepo.save(wh);
 	}
 
@@ -364,7 +368,7 @@ export class WarehousesService {
 			parentId: parent ? parent.id : null,
 			description: dto.description ?? null,
 		} as any);
-
+		
 		return this.locationsRepo.save(row);
 	}
 

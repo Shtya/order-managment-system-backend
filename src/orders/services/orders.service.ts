@@ -98,6 +98,8 @@ import { TriggerEntityType, TriggerType } from "entities/automation.entity";
 import { ClientSettingsEntity, StockDeductionStrategy } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { RequestTranslationService, TranslationService } from "common/translation.service";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -178,6 +180,7 @@ export class OrdersService {
     private readonly triggerDispatcher: TriggerDispatcherService,
     private readonly translations: TranslationService,
     private requestTranslations: RequestTranslationService,
+    private readonly onboardingAchievementService: OnboardingAchievementService,
   ) { }
 
   //private function to lock order if he delivered and has monthly closign id
@@ -3002,6 +3005,8 @@ export class OrdersService {
     } else {
       await this.autoAssignmentQueueService.addAutoAssignmentJob({ adminId, orderIds: [saved.id] });
     }
+
+    this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_ORDER_CREATED);
 
     return saved;
   }

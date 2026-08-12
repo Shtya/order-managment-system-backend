@@ -37,6 +37,8 @@ import { OrderFlowPath } from 'entities/clientSettings.entity';
 import { ClientSettingsService } from 'src/client-settings/client-settings.service';
 import { RequestTranslationService, TranslationService } from 'common/translation.service';
 import { getEffectiveDeductedQuantity } from 'src/orders/utils/stock-deduction';
+import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
+import { GettingStartedAchievementType } from 'entities/getting-started.entity';
 
 @Injectable()
 export class ShippingService {
@@ -74,6 +76,7 @@ export class ShippingService {
 		private readonly clientSettingsService: ClientSettingsService,
 		private readonly translations: TranslationService,
 		private requestTranslations: RequestTranslationService,
+		private readonly onboardingAchievementService: OnboardingAchievementService,
 	) {
 		this.providers = {
 			bosta: this.bostaProvider,
@@ -397,6 +400,8 @@ export class ShippingService {
 			await this.validateProviderConnection(provider, integ);
 
 		});
+
+		this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.SHIPPING_INTEGRATION_CONNECTED);
 
 		return {
 			ok: true,

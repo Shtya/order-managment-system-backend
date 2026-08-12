@@ -13,6 +13,7 @@ import { ProductSyncQueueService, ProductSyncWorkerService } from './queues/prod
 import { OrderSyncQueueService, OrderSyncWorkerService } from './queues/order-sync.queue';
 import { AutomationQueueService, AutomationWorkerService } from './queues/automations.queue';
 import { QueueDelayService } from './common/queue-delay.service';
+import { OnboardingAchievementService, OnboardingAchievementProcessor } from './queues/onboarding-achievement.queue';
 import { StoresModule } from 'src/stores/stores.module';
 import { AutomationModule } from 'src/automation/automation.module';
 import { bullQueueConfig } from './common/base-queue.config';
@@ -95,6 +96,8 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     OrderSyncWorkerService,
     AutomationQueueService,
     AutomationWorkerService,
+    OnboardingAchievementService,
+    OnboardingAchievementProcessor,
     QueueDelayService,
   ],
   exports: [
@@ -106,6 +109,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     OrderSyncWorkerService,
     AutomationQueueService,
     AutomationWorkerService,
+    OnboardingAchievementService,
     QueueDelayService,
   ],
   controllers: [OpsController],

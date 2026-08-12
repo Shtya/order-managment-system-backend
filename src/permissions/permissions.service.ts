@@ -77,7 +77,10 @@ export class PermissionsService implements OnModuleInit {
 			"issues.reply", "issues.assign", "issues.change_status", "issues.change_priority",
 			"issues.export",
 			"issues.statuses.create", "issues.statuses.update", "issues.statuses.delete",
-			"issues.causes.create", "issues.causes.update", "issues.causes.delete"
+			"issues.causes.create", "issues.causes.update", "issues.causes.delete",
+
+			// ✅ NEW: Getting started permissions
+			"getting-started.stats"
 		];
 
 		for (const name of keys) {

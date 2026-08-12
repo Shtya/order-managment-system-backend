@@ -13,6 +13,8 @@ import { tenantId } from 'src/category/category.service';
 import { SeedService } from './initial-seed.service';
 import { TranslationService } from 'common/translation.service';
 import { DateFilterUtil } from 'common/date-filter.util';
+import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
+import { GettingStartedAchievementType } from 'entities/getting-started.entity';
 
 
 @Injectable()
@@ -28,6 +30,7 @@ export class UsersService {
 		private readonly subscriptionsService: SubscriptionsService,
 		private readonly seedService: SeedService,
 		private readonly translations: TranslationService,
+		private readonly onboardingAchievementService: OnboardingAchievementService,
 
 	) { }
 
@@ -881,6 +884,8 @@ export class UsersService {
 		});
 
 		const saved = await this.usersRepo.save(user);
+
+		this.onboardingAchievementService.enqueueAchievement(me.id, GettingStartedAchievementType.FIRST_TEAM_MEMBER_CREATED);
 
 		const fullUser = await this.getFullUser(saved.id)
 
