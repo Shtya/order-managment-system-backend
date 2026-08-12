@@ -422,6 +422,31 @@ export type I18nTranslations = {
             "cannot_delete_plan": string;
             "plan_deleted_successfully": string;
         };
+        "getting_started": {
+            "stats_only_super_admins": string;
+            "step_id_or_key_required": string;
+            "item_not_found": string;
+            "step_not_found": string;
+            "achievement_title": string;
+            "achievement_message": string;
+            "achievements": {
+                "first_product_created": string;
+                "first_warehouse_created": string;
+                "first_warehouse_stock_created": string;
+                "first_order_created": string;
+                "shipping_integration_connected": string;
+                "whatsapp_connected": string;
+                "store_connected": string;
+                "first_team_member_created": string;
+                "first_automation_created": string;
+                "first_safe_created": string;
+                "first_purchase_accepted": string;
+                "first_supplier_created": string;
+                "first_order_assignment_automation_rule_created": string;
+                "first_order_bundle_created": string;
+                "first_custom_role_created": string;
+            };
+        };
         "product_sync": {
             "missing_admin_id": string;
             "state_not_found": string;
@@ -1254,6 +1279,7 @@ export type I18nTranslations = {
             "templates_sync_failed_after_integration": string;
             "failed_to_connect_whatsapp": string;
             "whatsapp_account_not_found": string;
+            "access_token_updated": string;
             "only_manual_accounts_can_be_updated": string;
             "whatsapp_accounts_sheet": string;
             "mobile_number": string;

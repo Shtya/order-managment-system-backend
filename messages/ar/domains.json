@@ -281,6 +281,31 @@
     "cannot_delete_plan": "لا يمكن حذف الخطة. هناك {count} مستخدم يستخدمون هذه الخطة حالياً. يرجى إلغاء تفعيلها بدلاً من ذلك حتى لا يتمكن مستخدمون جدد من الانضمام.",
     "plan_deleted_successfully": "تم حذف الخطة بنجاح"
   },
+  "getting_started": {
+    "stats_only_super_admins": "فقط المشرفين يمكنهم الوصول إلى إحصائيات البدء",
+    "step_id_or_key_required": "معرف الخطوة أو مفتاح الخطوة مطلوب لأحداث STEP_VIEWED",
+    "item_not_found": "عنصر البدء غير موجود",
+    "step_not_found": "خطوة البدء غير موجودة",
+    "achievement_title": "إنجاز جديد: {achievement}",
+    "achievement_message": "مبروك! لقد أكملت مهمة \"{achievement}\".",
+    "achievements": {
+      "first_product_created": "إضافة أول منتج",
+      "first_warehouse_created": "إضافة أول مخزن",
+      "first_warehouse_stock_created": "إضافة مخزون لأول مخزن",
+      "first_order_created": "إنشاء أول طلب",
+      "shipping_integration_connected": "ربط شركة شحن",
+      "whatsapp_connected": "ربط واتساب",
+      "store_connected": "ربط متجر",
+      "first_team_member_created": "إضافة أول عضو فريق",
+      "first_automation_created": "إنشاء أول أتمتة",
+      "first_safe_created": "إضافة أول خزنة",
+      "first_purchase_accepted": "قبول أول عملية شراء لمخزون",
+      "first_supplier_created": "إضافة أول مورد",
+      "first_order_assignment_automation_rule_created": "إنشاء أول قاعدة توزيع تلقائي للطلبات",
+      "first_order_bundle_created": "إنشاء أول باندل طلب",
+      "first_custom_role_created": "إنشاء أول دور مخصص"
+    }
+  },
   "product_sync": {
     "missing_admin_id": "معرف المسؤول مفقود",
     "state_not_found": "سجل حالة مزامنة المنتج غير موجود",
@@ -1113,6 +1138,7 @@
     "templates_sync_failed_after_integration": "تم ربط الحساب، ولكن تعذر مزامنة القوالب. يمكنك مزامنتها يدويًا لاحقًا.",
     "failed_to_connect_whatsapp": "فشل الاتصال بواتساب. يرجى التحقق من رمز الوصول (Access Token) ومعرف حساب واتساب للأعمال (WABA ID) ومعرف رقم الهاتف (Phone Number ID).",
     "whatsapp_account_not_found": "لم يتم العثور على حساب واتساب",
+    "access_token_updated": "تم تحديث رمز الوصول لحساب واتساب بنجاح",
     "only_manual_accounts_can_be_updated": "يمكن تحديث الحسابات اليدوية فقط",
     "whatsapp_accounts_sheet": "حسابات واتساب",
     "mobile_number": "رقم الهاتف",

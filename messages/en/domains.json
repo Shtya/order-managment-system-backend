@@ -281,6 +281,31 @@
     "cannot_delete_plan": "Cannot delete plan. There are {count} users currently using this plan. Please deactivate it instead so new users cannot join.",
     "plan_deleted_successfully": "Plan deleted successfully"
   },
+  "getting_started": {
+    "stats_only_super_admins": "Only super admins can access getting started statistics",
+    "step_id_or_key_required": "Step ID or step key is required for STEP_VIEWED events",
+    "item_not_found": "Getting started item not found",
+    "step_not_found": "Getting started step not found",
+    "achievement_title": "New Achievement: {achievement}",
+    "achievement_message": "Congratulations! You completed the \"{achievement}\" task.",
+    "achievements": {
+      "first_product_created": "Add your first product",
+      "first_warehouse_created": "Add your first warehouse",
+      "first_warehouse_stock_created": "Add stock to your first warehouse",
+      "first_order_created": "Create your first order",
+      "shipping_integration_connected": "Connect a shipping company",
+      "whatsapp_connected": "Connect WhatsApp",
+      "store_connected": "Connect a store",
+      "first_team_member_created": "Add your first team member",
+      "first_automation_created": "Create your first automation",
+      "first_safe_created": "Add your first safe",
+      "first_purchase_accepted": "Accept your first purchase for stock",
+      "first_supplier_created": "Add your first supplier",
+      "first_order_assignment_automation_rule_created": "Create your first auto-assignment rule",
+      "first_order_bundle_created": "Create your first order bundle",
+      "first_custom_role_created": "Create your first custom role"
+    }
+  },
   "product_sync": {
     "missing_admin_id": "Missing adminId",
     "state_not_found": "Product sync state record not found",
@@ -1110,6 +1135,7 @@
     "templates_sync_failed_after_integration": "Account integrated but failed to sync templates. You can sync them manually later.",
     "failed_to_connect_whatsapp": "Failed to connect to WhatsApp. Please verify your Access Token, WABA ID, and Phone Number ID.",
     "whatsapp_account_not_found": "WhatsApp account not found",
+    "access_token_updated": "WhatsApp account access token updated successfully",
     "only_manual_accounts_can_be_updated": "Only manual accounts can be updated",
     "whatsapp_accounts_sheet": "WhatsApp Accounts",
     "mobile_number": "Mobile Number",
