@@ -15,10 +15,7 @@ import { User } from "./user.entity";
 export enum GettingStartedEventType {
     ITEM_OPENED = "get_started_item_opened",
     STEP_VIEWED = "get_started_step_viewed",
-    //   NEXT_CLICKED = "get_started_next_clicked",
     SKIPPED = "get_started_skipped",
-    CLOSED = "get_started_closed",
-    REOPENED = "get_started_reopened",
     FINISHED = "get_started_finished",
 }
 
@@ -28,21 +25,29 @@ export enum GettingStartedEventType {
 // }
 
 export enum GettingStartedAchievementType {
-    FIRST_PRODUCT_CREATED = "first_product_created",
-    FIRST_WAREHOUSE_CREATED = "first_warehouse_created",
-    FIRST_WAREHOUSE_STOCK_CREATED = "first_warehouse_stock_created",
-    FIRST_ORDER_CREATED = "first_order_created",
-    SHIPPING_INTEGRATION_CONNECTED = "shipping_integration_connected",
-    WHATSAPP_CONNECTED = "whatsapp_connected",
     STORE_CONNECTED = "store_connected",
-    FIRST_TEAM_MEMBER_CREATED = "first_team_member_created",
-    FIRST_AUTOMATION_CREATED = "first_automation_created",
-    FIRST_SAFE_CREATED = "first_safe_created",
-    FIRST_PURCHASE_ACCEPTED = "first_purchase_accepted",
+    SHIPPING_INTEGRATION_CONNECTED = "shipping_integration_connected",
     FIRST_SUPPLIER_CREATED = "first_supplier_created",
-    FIRST_ORDER_ASSIGNMENT_AUTOMATION_RULE_CREATED = "first_order_assignment_automation_rule_created",
-    FIRST_ORDER_BUNDLE_CREATED = "first_order_bundle_created",
+    FIRST_SAFE_CREATED = "first_safe_created",
+    FIRST_WAREHOUSE_CREATED = "first_warehouse_created",
+    FIRST_PRODUCT_CREATED = "first_product_created", //first_warehouse_created
+    FIRST_ORDER_BUNDLE_CREATED = "first_order_bundle_created",//first_product_created
+    FIRST_PURCHASE_ACCEPTED = "first_purchase_accepted",//first_safe_created, first_supplier_created
+    FIRST_ORDER_CREATED = "first_order_created",//first_product_created
+    WHATSAPP_CONNECTED = "whatsapp_connected",
     FIRST_CUSTOM_ROLE_CREATED = "first_custom_role_created",
+    FIRST_TEAM_MEMBER_CREATED = "first_team_member_created",
+    FIRST_ORDER_ASSIGNMENT_AUTOMATION_RULE_CREATED = "first_order_assignment_automation_rule_created",//first_team_member_created
+    FIRST_AUTOMATION_CREATED = "first_automation_created",
+}
+
+export enum GettingStartedTargetType {
+    PAGE = "page",
+    BUTTON = "button",
+    LINK="link",
+    SECTION = "section",
+    DIALOG = "dialog",
+    SIDEBAR_ITEM = "sidebar_item",
 }
 
 @Entity("getting_started_achievements")
@@ -150,8 +155,8 @@ export class GettingStartedStepEntity {
 
     @Column({ type: "jsonb" })
     target: {
-        type: string;
-        page: string;
+        type: GettingStartedTargetType;
+        page?: string;
         key: string;
     };
 

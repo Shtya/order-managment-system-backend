@@ -423,6 +423,8 @@ export type I18nTranslations = {
             "plan_deleted_successfully": string;
         };
         "getting_started": {
+            "all_complete_title": string;
+            "all_complete_message": string;
             "stats_only_super_admins": string;
             "step_id_or_key_required": string;
             "item_not_found": string;

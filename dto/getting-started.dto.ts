@@ -17,6 +17,7 @@ import {
 import {
   GettingStartedAchievementType,
   GettingStartedEventType,
+  GettingStartedTargetType,
 } from "entities/getting-started.entity";
 
 // ---------- Request DTOs ----------
@@ -70,7 +71,7 @@ export class StepResponseDto {
 
   @IsObject()
   target: {
-    type: string;
+    type: GettingStartedTargetType;
     page: string;
     key: string;
   };

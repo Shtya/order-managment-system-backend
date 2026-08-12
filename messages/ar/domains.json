@@ -282,6 +282,8 @@
     "plan_deleted_successfully": "تم حذف الخطة بنجاح"
   },
   "getting_started": {
+    "all_complete_title": "🎉 أحسنت! لقد أكملت إعداد مدار",
+    "all_complete_message": "لقد أكملت جميع الخطوات الأساسية وأصبحت جاهزًا لاستخدام مدار بشكل كامل.",
     "stats_only_super_admins": "فقط المشرفين يمكنهم الوصول إلى إحصائيات البدء",
     "step_id_or_key_required": "معرف الخطوة أو مفتاح الخطوة مطلوب لأحداث STEP_VIEWED",
     "item_not_found": "عنصر البدء غير موجود",

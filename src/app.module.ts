@@ -75,7 +75,7 @@ import { GettingStartedModule } from './getting-started/getting-started.module';
 				{
 					name: 'default',
 					ttl: minutes(1),
-					limit: 200
+					limit: 300
 				}
 			],
 			errorMessage: "Too many attempts. Please wait before trying again.",

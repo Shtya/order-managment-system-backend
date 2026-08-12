@@ -15,6 +15,7 @@ import {
 	GettingStartedAchievementType,
 	GettingStartedItemEntity,
 	GettingStartedStepEntity,
+	GettingStartedTargetType,
 } from 'entities/getting-started.entity';
 
 /**
@@ -438,13 +439,13 @@ async function seedWarehouses() {
 	 * ========================= */
 	const warehouses = [
 		{
-			name: 'المخزن الرئيسي',
+			name: 'المستودع الرئيسي',
 			address: null,
 			description: null,
 			isActive: true,
 		},
 		{
-			name: 'مخزن الطوارئ',
+			name: 'مستودع الطوارئ',
 			address: null,
 			description: null,
 			isActive: true,
@@ -479,11 +480,19 @@ async function seedWarehouses() {
  * =========================
  */
 
+interface GettingStartedStepOpenFromPrevious {
+	targetType: GettingStartedTargetType;
+	page: string;
+	targetKey: string;
+	trigger: "click";
+}
+
 interface GettingStartedChecklistStep {
 	key: string;
 	title: { ar: string; en: string };
 	description: { ar: string; en: string };
-	target: { type: string; page: string; key: string };
+	target: { type: GettingStartedTargetType; page?: string; key: string };
+	actionConfig?: { trigger?: "click"; openFromPreviousStep?: GettingStartedStepOpenFromPrevious } | null;
 	sortOrder: number;
 }
 
@@ -499,352 +508,1372 @@ interface GettingStartedChecklistItem {
 
 const gettingStartedChecklist: GettingStartedChecklistItem[] = [
 	{
-		key: 'add_first_warehouse',
-		title: { ar: 'أنشئ أول مخزن', en: 'Create your first warehouse' },
-		description: { ar: 'المخازن تحتفظ بمخزونك وهي أساس تجهيز الطلبات.', en: 'Warehouses hold your stock and are the base of order fulfilment.' },
+		key: "add_first_warehouse",
+
+		title: {
+			ar: "إضافة أول مستودع",
+			en: "Add your first warehouse",
+		},
+
+		description: {
+			ar: "أضف أول مستودع عشان تبدأ في تنظيم وإدارة مخزونك.",
+			en: "Add your first warehouse to start organizing and managing your inventory.",
+		},
+
 		completionType: GettingStartedAchievementType.FIRST_WAREHOUSE_CREATED,
+
 		dependsOn: [],
-		sortOrder: 1,
-		steps: [
-			{
-				key: 'open_warehouses_page',
-				title: { ar: 'افتح صفحة المخازن', en: 'Open the Warehouses page' },
-				description: { ar: 'انتقل إلى صفحة المخازن من القائمة الجانبية.', en: 'Navigate to Warehouses from the sidebar.' },
-				target: { type: 'route', page: '/warehouses', key: 'warehouses' },
-				sortOrder: 1,
-			},
-			{
-				key: 'create_warehouse',
-				title: { ar: 'أنشئ مخزنًا', en: 'Create a warehouse' },
-				description: { ar: 'اضغط زر إضافة مخزن واملأ البيانات المطلوبة.', en: 'Click "Add Warehouse" and fill in the required details.' },
-				target: { type: 'element', page: '/warehouses', key: 'add-warehouse-button' },
-				sortOrder: 2,
-			},
-		],
-	},
-	{
-		key: 'add_first_product',
-		title: { ar: 'أنشئ أول منتج', en: 'Create your first product' },
-		description: { ar: 'المنتجات هي العناصر التي تبيعها. أضف منتجًا مع وحدات SKU الخاصة به.', en: 'Products are the items you sell. Add one with its variants and SKUs.' },
-		completionType: GettingStartedAchievementType.FIRST_PRODUCT_CREATED,
-		dependsOn: [],
-		sortOrder: 2,
-		steps: [
-			{
-				key: 'open_products_page',
-				title: { ar: 'افتح صفحة المنتجات', en: 'Open the Products page' },
-				description: { ar: 'انتقل إلى صفحة المنتجات من القائمة الجانبية.', en: 'Navigate to Products from the sidebar.' },
-				target: { type: 'route', page: '/products', key: 'products' },
-				sortOrder: 1,
-			},
-			{
-				key: 'create_product',
-				title: { ar: 'أنشئ منتجًا', en: 'Create a product' },
-				description: { ar: 'اضغط زر إضافة منتج واملأ البيانات الأساسية.', en: 'Click "Add Product" and fill in the basic details.' },
-				target: { type: 'element', page: '/products', key: 'add-product-button' },
-				sortOrder: 2,
-			},
-			{
-				key: 'add_variant_and_sku',
-				title: { ar: 'أضف فرعًا ورمز SKU', en: 'Add a variant and SKU' },
-				description: { ar: 'أضف فرعًا للمنتج وحدد رمز SKU وكمية البداية.', en: 'Add a product variant and set its SKU and starting quantity.' },
-				target: { type: 'element', page: '/products', key: 'variant-form' },
-				sortOrder: 3,
-			},
-		],
-	},
-	{
-		key: 'add_first_supplier',
-		title: { ar: 'أضف أول مورد', en: 'Add your first supplier' },
-		description: { ar: 'الموردون يزودونك بالمنتجات والخامات التي تشتريها.', en: 'Suppliers provide the products and raw materials you purchase.' },
-		completionType: GettingStartedAchievementType.FIRST_SUPPLIER_CREATED,
-		dependsOn: [],
-		sortOrder: 3,
-		steps: [
-			{
-				key: 'open_suppliers_page',
-				title: { ar: 'افتح صفحة الموردين', en: 'Open the Suppliers page' },
-				description: { ar: 'انتقل إلى صفحة الموردين من القائمة الجانبية.', en: 'Navigate to Suppliers from the sidebar.' },
-				target: { type: 'route', page: '/suppliers', key: 'suppliers' },
-				sortOrder: 1,
-			},
-			{
-				key: 'create_supplier',
-				title: { ar: 'أضف موردًا', en: 'Add a supplier' },
-				description: { ar: 'اضغط زر إضافة مورد واملأ بياناته.', en: 'Click "Add Supplier" and fill in the supplier details.' },
-				target: { type: 'element', page: '/suppliers', key: 'add-supplier-button' },
-				sortOrder: 2,
-			},
-		],
-	},
-	{
-		key: 'add_first_safe',
-		title: { ar: 'أضف أول خزنة', en: 'Add your first safe' },
-		description: { ar: 'الخزن تتبع حساباتك النقدية وأرصدتك.', en: 'Safes track your cash accounts and balances.' },
-		completionType: GettingStartedAchievementType.FIRST_SAFE_CREATED,
-		dependsOn: [],
-		sortOrder: 4,
-		steps: [
-			{
-				key: 'open_safes_page',
-				title: { ar: 'افتح صفحة الخزن', en: 'Open the Safes page' },
-				description: { ar: 'انتقل إلى صفحة الخزن من القائمة الجانبية.', en: 'Navigate to Safes from the sidebar.' },
-				target: { type: 'route', page: '/safes', key: 'safes' },
-				sortOrder: 1,
-			},
-			{
-				key: 'create_safe',
-				title: { ar: 'أضف خزنة', en: 'Add a safe' },
-				description: { ar: 'اضغط زر إضافة خزنة وحدد الرصيد الافتتاحي.', en: 'Click "Add Safe" and set the opening balance.' },
-				target: { type: 'element', page: '/safes', key: 'add-safe-button' },
-				sortOrder: 2,
-			},
-		],
-	},
-	{
-		key: 'accept_first_purchase',
-		title: { ar: 'اقبل أول عملية شراء', en: 'Accept your first purchase' },
-		description: { ar: 'قبول عملية الشراء ينقل كمياتها إلى المخزون المتاح لديك.', en: 'Accepting a purchase moves its quantities into your available stock.' },
-		completionType: GettingStartedAchievementType.FIRST_PURCHASE_ACCEPTED,
-		dependsOn: ['add_first_supplier'],
+
 		sortOrder: 5,
+
 		steps: [
 			{
-				key: 'open_purchases_page',
-				title: { ar: 'افتح صفحة المشتريات', en: 'Open the Purchases page' },
-				description: { ar: 'انتقل إلى صفحة المشتريات من القائمة الجانبية.', en: 'Navigate to Purchases from the sidebar.' },
-				target: { type: 'route', page: '/purchases', key: 'purchases' },
+				key: "open_warehouse_management",
+				title: {
+					ar: "افتح إدارة المستودعات",
+					en: "Open Warehouse Management",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح إدارة المستودعات الموجودة تحت قسم المنتجات.",
+					en: "From the sidebar, open Warehouse Management under the Products section.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/warehouses-management",
+					key: "products.warehouses_management",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 1,
 			},
+
 			{
-				key: 'accept_purchase',
-				title: { ar: 'اقبل فاتورة شراء', en: 'Accept a purchase invoice' },
-				description: { ar: 'افتح فاتورة شراء واضغط زر قبول لتطبيق الكميات.', en: 'Open a purchase invoice and click Accept to apply the quantities.' },
-				target: { type: 'element', page: '/purchases', key: 'accept-purchase-button' },
+				key: "create_warehouse",
+				title: {
+					ar: "أنشئ المستودع",
+					en: "Create the warehouse",
+				},
+				description: {
+					ar: "اضغط على إضافة مستودع عشان تبدأ في إنشاء أول مستودع ليك.",
+					en: "Click Add Warehouse to start creating your first warehouse.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/warehouses-management",
+					key: "warehouses.create",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 2,
+			},
+			{
+				key: "enter_warehouse_information",
+				title: {
+					ar: "أدخل بيانات المستودع",
+					en: "Enter warehouse information",
+				},
+				description: {
+					ar: "اكتب اسم المستودع والوصف، وبعدها احفظ المستودع.",
+					en: "Enter the warehouse name and description, then save the warehouse.",
+				},
+				target: {
+					type: GettingStartedTargetType.DIALOG,
+					page: "/warehouses-management",
+					key: "warehouses.create_dialog",
+				},
+				actionConfig: {
+					openFromPreviousStep: {
+						targetType: GettingStartedTargetType.BUTTON,
+						page: "/warehouses-management",
+						targetKey: "warehouses.create",
+						trigger: "click",
+					},
+				},
+				sortOrder: 3,
+			},
+
+			{
+				key: "open_storage_locations",
+				title: {
+					ar: "افتح مواقع التخزين",
+					en: "Open Storage Locations",
+				},
+				description: {
+					ar: "بعد إنشاء المستودع، افتح مواقع التخزين عشان تقدر تنظم أماكن تخزين المنتجات داخله.",
+					en: "After creating the warehouse, open Storage Locations to organize where products will be stored.",
+				},
+				target: {
+					type: GettingStartedTargetType.SECTION,
+					page: "/warehouses-management",
+					key: "warehouse.storage_locations",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 4,
 			},
 		],
 	},
 	{
-		key: 'create_first_order',
-		title: { ar: 'أنشئ أول طلب', en: 'Create your first order' },
-		description: { ar: 'الطلبات هي قلب عملياتك. أنشئ طلبًا باستخدام منتجاتك.', en: 'Orders are the heart of your operations. Create one with your products.' },
-		completionType: GettingStartedAchievementType.FIRST_ORDER_CREATED,
-		dependsOn: ['add_first_product'],
-		sortOrder: 7,
+		key: "add_first_product",
+
+		title: {
+			ar: "إضافة أول منتج",
+			en: "Add your first product",
+		},
+
+		description: {
+			ar: "أضف أول منتج عشان تبدأ في إدارة منتجاتك وطلباتك.",
+			en: "Add your first product to start managing your products and orders.",
+		},
+
+		completionType: GettingStartedAchievementType.FIRST_PRODUCT_CREATED,
+
+		dependsOn: ["add_first_warehouse"],
+
+		sortOrder: 6,
+
 		steps: [
 			{
-				key: 'open_orders_page',
-				title: { ar: 'افتح صفحة الطلبات', en: 'Open the Orders page' },
-				description: { ar: 'انتقل إلى صفحة الطلبات من القائمة الجانبية.', en: 'Navigate to Orders from the sidebar.' },
-				target: { type: 'route', page: '/orders', key: 'orders' },
+				key: "open_add_product",
+				title: {
+					ar: "إضافة منتج جديد",
+					en: "Add a new product",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم المنتجات واضغط على إضافة منتج جديد.",
+					en: "From the sidebar, open the Products section and click Add New Product.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/products",
+					key: "sidebar_item_products_add",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 1,
 			},
+
 			{
-				key: 'create_order',
-				title: { ar: 'أنشئ طلبًا', en: 'Create an order' },
-				description: { ar: 'اضغط زر إنشاء طلب واختر العميل.', en: 'Click "New Order" and select the customer.' },
-				target: { type: 'element', page: '/orders', key: 'add-order-button' },
+				key: "fill_product_information",
+				title: {
+					ar: "أدخل بيانات المنتج",
+					en: "Enter product information",
+				},
+				description: {
+					ar: "أدخل كل بيانات المنتج، زي الاسم والصور والـ SKU وباقي المعلومات، وأضف الـ Variants لو المنتج فيه أكتر من نوع أو شكل.",
+					en: "Enter all the product information, including the name, images, SKU, and other details. Add variants if the product has different types or options.",
+				},
+				target: {
+					type: GettingStartedTargetType.PAGE,
+					page: "/products/new",
+					key: "product_dialog",
+				},
 				sortOrder: 2,
 			},
+
 			{
-				key: 'add_order_items',
-				title: { ar: 'أضف أصنافًا إلى الطلب', en: 'Add items to the order' },
-				description: { ar: 'أضف المنتجات المطلوبة مع الكميات ثم احفظ الطلب.', en: 'Add the requested products with quantities, then save the order.' },
-				target: { type: 'element', page: '/orders', key: 'order-items-form' },
+				key: "save_product",
+				title: {
+					ar: "احفظ المنتج",
+					en: "Save the product",
+				},
+				description: {
+					ar: "بعد ما تخلص كل بيانات المنتج، اضغط حفظ لإضافة المنتج.",
+					en: "Once you finish entering all the product information, click Save to add the product.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/products/new",
+					key: "product_save",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 3,
 			},
 		],
 	},
 	{
-		key: 'connect_shipping_integration',
-		title: { ar: 'اربط شركة شحن', en: 'Connect a shipping company' },
-		description: { ar: 'اربط شركة شحن مثل بوسطة أو تيربو لإنشاء شحنات لطلباتك.', en: 'Connect a carrier like Bosta or Turbo to create shipments for your orders.' },
-		completionType: GettingStartedAchievementType.SHIPPING_INTEGRATION_CONNECTED,
-		dependsOn: ['create_first_order'],
-		sortOrder: 8,
-		steps: [
-			{
-				key: 'open_shipping_settings',
-				title: { ar: 'افتح إعدادات الشحن', en: 'Open Shipping settings' },
-				description: { ar: 'انتقل إلى إعدادات الشحن.', en: 'Navigate to the Shipping settings.' },
-				target: { type: 'route', page: '/settings/shipping', key: 'shipping' },
-				sortOrder: 1,
-			},
-			{
-				key: 'connect_carrier',
-				title: { ar: 'اربط شركة شحن', en: 'Connect a shipping company' },
-				description: { ar: 'اختر شركة الشحن وأدخل مفاتيح الربط (API Key).', en: 'Choose the carrier and enter its API credentials.' },
-				target: { type: 'element', page: '/settings/shipping', key: 'connect-carrier-button' },
-				sortOrder: 2,
-			},
-		],
-	},
-	{
-		key: 'connect_whatsapp',
-		title: { ar: 'اربط واتساب', en: 'Connect WhatsApp' },
-		description: { ar: 'اربط حساب واتساب بزنس للتواصل مع العملاء تلقائيًا.', en: 'Connect your WhatsApp Business account to chat with customers automatically.' },
-		completionType: GettingStartedAchievementType.WHATSAPP_CONNECTED,
-		dependsOn: [],
+		key: "add_first_order",
+
+		title: {
+			ar: "إنشاء أول طلب",
+			en: "Create your first order",
+		},
+
+		description: {
+			ar: "أنشئ أول طلب عشان تبدأ في إدارة طلباتك ومتابعتها.",
+			en: "Create your first order to start managing and tracking your orders.",
+		},
+
+		completionType: GettingStartedAchievementType.FIRST_ORDER_CREATED,
+
+		dependsOn: ["add_first_product"],
+
 		sortOrder: 9,
+
 		steps: [
 			{
-				key: 'open_whatsapp_settings',
-				title: { ar: 'افتح إعدادات واتساب', en: 'Open WhatsApp settings' },
-				description: { ar: 'انتقل إلى إعدادات واتساب.', en: 'Navigate to the WhatsApp settings.' },
-				target: { type: 'route', page: '/settings/whatsapp', key: 'whatsapp' },
+				key: "open_orders",
+				title: {
+					ar: "افتح الطلبات",
+					en: "Open Orders",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح صفحة الطلبات.",
+					en: "From the sidebar, open the Orders page.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/orders",
+					key: "sidebar_item_orders",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 1,
 			},
+
 			{
-				key: 'connect_whatsapp_account',
-				title: { ar: 'اربط واتساب', en: 'Connect WhatsApp' },
-				description: { ar: 'اضغط زر ربط واتساب وأكمل التسجيل من Meta.', en: 'Click "Connect WhatsApp" and complete the signup through Meta.' },
-				target: { type: 'element', page: '/settings/whatsapp', key: 'connect-whatsapp-button' },
+				key: "create_order",
+				title: {
+					ar: "أضف طلب جديد",
+					en: "Add a new order",
+				},
+				description: {
+					ar: "اضغط على إضافة طلب عشان تبدأ في إنشاء أول طلب ليك.",
+					en: "Click Add Order to start creating your first order.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/orders",
+					key: "orders.create",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 2,
+			},
+			{
+				key: "fill_order_information",
+				title: {
+					ar: "أدخل بيانات الطلب",
+					en: "Enter order information",
+				},
+				description: {
+					ar: "أدخل كل بيانات الطلب، زي بيانات العميل والمنتجات وباقي المعلومات المطلوبة.",
+					en: "Enter all the order information, including customer details, products, and the other required information.",
+				},
+				target: {
+					type: GettingStartedTargetType.PAGE,
+					page: "/orders/new",
+					key: "order_form",
+				},
+				sortOrder: 3,
+			},
+
+			{
+				key: "save_order",
+				title: {
+					ar: "احفظ الطلب",
+					en: "Save the order",
+				},
+				description: {
+					ar: "بعد ما تخلص كل بيانات الطلب، اضغط حفظ لإضافة الطلب.",
+					en: "Once you finish entering all the order information, click Save to create the order.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/orders/new",
+					key: "order_save",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 4,
 			},
 		],
 	},
 	{
-		key: 'connect_store',
-		title: { ar: 'اربط متجرًا', en: 'Connect a store' },
-		description: { ar: 'اربط متجر Shopify أو WooCommerce أو Easy Order لمزامنة المنتجات والطلبات.', en: 'Connect Shopify, WooCommerce, or Easy Order to sync products and orders.' },
-		completionType: GettingStartedAchievementType.STORE_CONNECTED,
-		dependsOn: ['add_first_product'],
-		sortOrder: 10,
-		steps: [
-			{
-				key: 'open_stores_page',
-				title: { ar: 'افتح صفحة المتاجر', en: 'Open the Stores page' },
-				description: { ar: 'انتقل إلى صفحة المتاجر من القائمة الجانبية.', en: 'Navigate to Stores from the sidebar.' },
-				target: { type: 'route', page: '/stores', key: 'stores' },
-				sortOrder: 1,
-			},
-			{
-				key: 'connect_store',
-				title: { ar: 'اربط متجرك', en: 'Connect your store' },
-				description: { ar: 'اختر نوع المتجر وأكمل خطوات الربط.', en: 'Choose the store type and complete the connection steps.' },
-				target: { type: 'element', page: '/stores', key: 'connect-store-button' },
-				sortOrder: 2,
-			},
-		],
-	},
-	{
-		key: 'add_first_team_member',
-		title: { ar: 'أضف أول عضو فريق', en: 'Add your first team member' },
-		description: { ar: 'أضف زملاء إلى فريقك حتى يديروا النظام معك.', en: 'Invite teammates so your team can manage orders together.' },
-		completionType: GettingStartedAchievementType.FIRST_TEAM_MEMBER_CREATED,
+		key: "connect_shipping_company",
+		title: {
+			ar: "ربط شركة شحن",
+			en: "Connect a shipping company",
+		},
+
+		description: {
+			ar: "اربط أول شركة شحن عشان تقدر تستخدم خدمات الشحن وإدارة الشحنات من مدار.",
+			en: "Connect your first shipping company to start managing your shipments through Madar.",
+		},
+
+		completionType:
+			GettingStartedAchievementType.SHIPPING_INTEGRATION_CONNECTED,
+
 		dependsOn: [],
-		sortOrder: 11,
+
+		sortOrder: 2,
+
+		steps:
+			[
+				{
+					key: "open_shipping_companies",
+					title: {
+						ar: "افتح شركات الشحن",
+						en: "Open Shipping Companies",
+					},
+					description: {
+						ar: "من القائمة الجانبية، افتح قسم الربط والتكامل ثم اختر شركات الشحن.",
+						en: "From the sidebar, open Integrations and select Shipping Companies.",
+					},
+					target: {
+						type: GettingStartedTargetType.SIDEBAR_ITEM,
+						page: "/shipping-companies",
+						key: "integrations.shipping_companies", // Must match the DOM attribute: data-getting-started="integrations.shipping_companies"
+					},
+					actionConfig: { trigger: "click" },
+					sortOrder: 1,
+				},
+				{
+					key: "start_shipping_integration",
+					title: {
+						ar: "ابدأ ربط شركة الشحن",
+						en: "Start the shipping integration",
+					},
+					description: {
+						ar: "اضغط على إضافة لبدء ربط شركة الشحن، وهيظهر لك شرح وخطوات الربط.",
+						en: "Click Add to start connecting the shipping company and view the integration instructions.",
+					},
+					target: {
+						type: GettingStartedTargetType.BUTTON,
+						page: "/shipping-companies",
+						key: "shipping_company.add",
+					},
+					actionConfig: { trigger: "click" },
+					sortOrder: 3,
+				},
+
+				{
+					key: "learn_shipping_integration",
+					title: {
+						ar: "تعرف على طريقة الربط",
+						en: "Learn how to integrate",
+					},
+					description: {
+						ar: "راجع الخطوات والتعليمات المطلوبة لربط شركة الشحن مع مدار.",
+						en: "Review the steps and instructions required to connect the shipping company to Madar.",
+					},
+					target: {
+						type: GettingStartedTargetType.DIALOG,
+						page: "/shipping-companies",
+						key: "shipping_company.integration_dialog",
+					},
+					actionConfig: {
+						openFromPreviousStep: {
+							targetType: GettingStartedTargetType.BUTTON,
+							page: "/shipping-companies",
+							targetKey: "shipping_company.add",
+							trigger: "click",
+						},
+					},
+					sortOrder: 4,
+				},
+
+				{
+					key: "open_shipping_settings",
+					title: {
+						ar: "افتح الإعدادات",
+						en: "Open Settings",
+					},
+					description: {
+						ar: "بعد ما تعرف خطوات الربط، اضغط على الإعدادات عشان تدخل بيانات شركة الشحن.",
+						en: "After reviewing the integration instructions, click Settings to enter the shipping company details.",
+					},
+					target: {
+						type: GettingStartedTargetType.BUTTON,
+						page: "/shipping-companies",
+						key: "shipping_company.settings",
+					},
+					actionConfig: { trigger: "click" },
+					sortOrder: 5,
+				},
+
+				{
+					key: "fill_shipping_settings",
+					title: { ar: "أدخل بيانات الربط", en: "Enter the integration settings" },
+					description: {
+						ar: "أدخل بيانات وإعدادات شركة الشحن المطلوبة لإتمام عملية الربط، ثم اضغط حفظ.",
+						en: "Enter the required shipping company settings to complete the integration, then click Save.",
+					},
+					target: {
+						type: GettingStartedTargetType.DIALOG,
+						page: "/shipping-companies",
+						key: "shipping_company.settings_dialog",
+					},
+					actionConfig: {
+						openFromPreviousStep: {
+							targetType: GettingStartedTargetType.BUTTON,
+							page: "/shipping-companies",
+							targetKey: "shipping_company.settings",
+							trigger: "click",
+						},
+					},
+					sortOrder: 6, // or whatever
+				}
+			],
+	},
+	{
+		key: "connect_whatsapp",
+
+		title: {
+			ar: "ربط واتساب",
+			en: "Connect WhatsApp",
+		},
+
+		description: {
+			ar: "اربط حساب واتساب للأعمال عشان تقدر تستخدم واتساب لإدارة والتواصل مع عملائك من مدار.",
+			en: "Connect your WhatsApp Business account to start communicating with and managing your customers through Madar.",
+		},
+
+		completionType: GettingStartedAchievementType.WHATSAPP_CONNECTED,
+
+		dependsOn: [],
+
+		sortOrder: 10,
+
 		steps: [
 			{
-				key: 'open_team_page',
-				title: { ar: 'افتح صفحة الفريق', en: 'Open the Team page' },
-				description: { ar: 'انتقل إلى صفحة الفريق.', en: 'Navigate to the Team page.' },
-				target: { type: 'route', page: '/team', key: 'team' },
+				key: "open_whatsapp_accounts",
+				title: {
+					ar: "افتح حسابات واتساب",
+					en: "Open WhatsApp Accounts",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح حسابات واتساب.",
+					en: "From the sidebar, open WhatsApp Accounts.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/whatsapp/accounts",
+					key: "whatsapp.accounts",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 1,
 			},
+
 			{
-				key: 'invite_team_member',
-				title: { ar: 'أضف عضو فريق', en: 'Invite a team member' },
-				description: { ar: 'اضغط زر إضافة عضو وأدخل بياناته وحدد دوره.', en: 'Click "Add Member", enter their details, and assign a role.' },
-				target: { type: 'element', page: '/team', key: 'invite-member-button' },
+				key: "integrate_meta_business_account",
+				title: {
+					ar: "اربط حساب أعمال Meta",
+					en: "Connect Meta Business Account",
+				},
+				description: {
+					ar: "اضغط على ربط حساب أعمال Meta لبدء ربط حساب واتساب للأعمال.",
+					en: "Click Connect Meta Business Account to start connecting your WhatsApp Business account.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/whatsapp/accounts",
+					key: "whatsapp.integrate_meta_business_account",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 2,
 			},
 		],
 	},
 	{
-		key: 'create_first_custom_role',
-		title: { ar: 'أنشئ أول دور مخصص', en: 'Create your first custom role' },
-		description: { ar: 'عرّف أدوارًا للتحكم فيما يمكن لفريقك الوصول إليه والقيام به.', en: 'Define roles to control what your team can access and do.' },
-		completionType: GettingStartedAchievementType.FIRST_CUSTOM_ROLE_CREATED,
-		dependsOn: ['add_first_team_member'],
+		key: "connect_store",
+
+		title: {
+			ar: "ربط متجر",
+			en: "Connect a store",
+		},
+
+		description: {
+			ar: "اربط أول متجر ليك عشان تقدر تدير طلبات متجرك من مدار.",
+			en: "Connect your first store to start managing your store orders through Madar.",
+		},
+
+		completionType: GettingStartedAchievementType.STORE_CONNECTED,
+
+		dependsOn: [],
+
+		sortOrder: 1,
+
+		steps: [
+
+			{
+				key: "open_stores",
+				title: {
+					ar: "افتح المتاجر",
+					en: "Open Stores",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم الربط والتكامل ثم اختر المتاجر.",
+					en: "From the sidebar, open Integrations and select Stores.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/store-integration",
+					key: "integrations.stores",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 1,
+			},
+			{
+				key: "choose_store",
+				title: {
+					ar: "اختر المتجر",
+					en: "Choose the store",
+				},
+				description: {
+					ar: "اختار المتجر اللي عايز تربطه مع مدار.",
+					en: "Choose the store you want to connect to Madar.",
+				},
+				target: {
+					type: GettingStartedTargetType.SECTION,
+					page: "/store-integration",
+					key: "stores.available",
+				},
+				sortOrder: 2,
+			},
+
+			{
+				key: "learn_store_integration",
+				title: {
+					ar: "تعرف على طريقة الربط",
+					en: "Learn how to integrate",
+				},
+				description: {
+					ar: "اضغط على كيفية الربط عشان تعرف خطوات ربط المتجر بالكامل.",
+					en: "Click How to Integrate to learn the complete store integration steps.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/store-integration",
+					key: "store.how_to_integrate",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 3,
+			},
+
+			{
+				key: "view_store_integration_steps",
+				title: {
+					ar: "راجع خطوات الربط",
+					en: "Review the integration steps",
+				},
+				description: {
+					ar: "راجع الخطوات والتعليمات المطلوبة لربط المتجر مع مدار.",
+					en: "Review the instructions and steps required to connect the store to Madar.",
+				},
+				target: {
+					type: GettingStartedTargetType.DIALOG,
+					page: "/store-integration",
+					key: "store.integration_steps_dialog",
+				},
+				actionConfig: {
+					openFromPreviousStep: {
+						targetType: GettingStartedTargetType.BUTTON,
+						page: "/store-integration",
+						targetKey: "store.how_to_integrate",
+						trigger: "click",
+					},
+				},
+				sortOrder: 4,
+			},
+
+			{
+				key: "open_store_settings",
+				title: {
+					ar: "افتح الإعدادات",
+					en: "Open Settings",
+				},
+				description: {
+					ar: "بعد ما تراجع خطوات الربط، افتح الإعدادات عشان تدخل بيانات المتجر المطلوبة.",
+					en: "After reviewing the integration steps, open Settings to enter the required store configuration.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/store-integration",
+					key: "store.settings",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 5,
+			},
+
+			{
+				key: "fill_store_settings",
+				title: {
+					ar: "أدخل إعدادات المتجر",
+					en: "Enter the store settings",
+				},
+				description: {
+					ar: "أدخل بيانات وإعدادات المتجر المطلوبة لإتمام عملية الربط.",
+					en: "Enter the required store configuration to complete the integration.",
+				},
+				target: {
+					type: GettingStartedTargetType.DIALOG,
+					page: "/store-integration",
+					key: "store.settings_dialog",
+				},
+				actionConfig: {
+					openFromPreviousStep: {
+						targetType: GettingStartedTargetType.BUTTON,
+						page: "/store-integration",
+						targetKey: "store.settings",
+						trigger: "click",
+					},
+				},
+				sortOrder: 6,
+			},
+
+			{
+				key: "integrate_store",
+				title: {
+					ar: "اربط المتجر",
+					en: "Connect the store",
+				},
+				description: {
+					ar: "بعد ما تدخل كل الإعدادات المطلوبة، اضغط ربط لإتمام عملية الربط. بعض المتاجر لا تتطلب تلمك الخطوة",
+					en: "Once you enter all the required settings, click Integrate to complete the connection. Some stores do not require this step.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/store-integration",
+					key: "store.integrate",
+				},
+				actionConfig: {
+					trigger: "click",
+				},
+				sortOrder: 7,
+			},
+		],
+	},
+	{
+		key: "add_first_team_member",
+
+		title: {
+			ar: "إضافة أول موظف",
+			en: "Add your first team member",
+		},
+
+		description: {
+			ar: "أضف أول موظف لفريقك عشان تبدأ في إدارة فريق العمل داخل مدار.",
+			en: "Add your first team member to start managing your team in Madar.",
+		},
+
+		completionType:
+			GettingStartedAchievementType.FIRST_TEAM_MEMBER_CREATED,
+
+		dependsOn: [],
+
 		sortOrder: 12,
+
 		steps: [
 			{
-				key: 'open_roles_page',
-				title: { ar: 'افتح صفحة الأدوار', en: 'Open the Roles page' },
-				description: { ar: 'انتقل إلى صفحة الأدوار.', en: 'Navigate to the Roles page.' },
-				target: { type: 'route', page: '/roles', key: 'roles' },
+				key: "open_add_employees",
+				title: {
+					ar: "افتح الموظفين",
+					en: "Open Employees",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم الفرق واضغط على إضافة موظفين.",
+					en: "From the sidebar, open the Teams section and click Add Employees.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/employees",
+					key: "teams.add_employees",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 1,
 			},
+
 			{
-				key: 'create_custom_role',
-				title: { ar: 'أنشئ دورًا مخصصًا', en: 'Create a custom role' },
-				description: { ar: 'اضغط زر إنشاء دور وحدد الصلاحيات.', en: 'Click "Create Role" and choose the permissions.' },
-				target: { type: 'element', page: '/roles', key: 'create-role-button' },
+				key: "create_employee",
+				title: {
+					ar: "أضف موظف جديد",
+					en: "Add a new employee",
+				},
+				description: {
+					ar: "اضغط على إضافة موظف عشان تبدأ في إضافة أول موظف لفريقك.",
+					en: "Click Add Employee to start adding your first team member.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/employees",
+					key: "employees.create",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 2,
+			},
+
+			{
+				key: "fill_employee_information",
+				title: {
+					ar: "أدخل بيانات الموظف",
+					en: "Enter employee information",
+				},
+				description: {
+					ar: "أدخل كل بيانات الموظف المطلوبة، وبعدها احفظ الموظف.",
+					en: "Enter all the required employee information, then save the employee.",
+				},
+				target: {
+					type: GettingStartedTargetType.PAGE,
+					page: "/employees/new",
+					key: "employee_form",
+				},
+				sortOrder: 3,
+			},
+
+			{
+				key: "save_employee",
+				title: {
+					ar: "احفظ الموظف",
+					en: "Save the employee",
+				},
+				description: {
+					ar: "بعد ما تخلص كل بيانات الموظف، اضغط حفظ لإضافة الموظف.",
+					en: "Once you finish entering the employee information, click Save to add the employee.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/employees/new",
+					key: "employee_save",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 4,
 			},
 		],
 	},
+
 	{
-		key: 'create_first_automation',
-		title: { ar: 'أنشئ أول أتمتة', en: 'Create your first automation' },
-		description: { ar: 'الأتمتة تُطلق إجراءات مثل الرسائل وتغيير الحالات تلقائيًا.', en: 'Automations trigger actions like messages and status changes automatically.' },
-		completionType: GettingStartedAchievementType.FIRST_AUTOMATION_CREATED,
-		dependsOn: ['create_first_order'],
-		sortOrder: 13,
-		steps: [
-			{
-				key: 'open_automations_page',
-				title: { ar: 'افتح صفحة الأتمتة', en: 'Open the Automations page' },
-				description: { ar: 'انتقل إلى صفحة الأتمتة.', en: 'Navigate to the Automations page.' },
-				target: { type: 'route', page: '/automation', key: 'automation' },
-				sortOrder: 1,
-			},
-			{
-				key: 'create_automation',
-				title: { ar: 'أنشئ أتمتة', en: 'Create an automation' },
-				description: { ar: 'اضغط زر إنشاء أتمتة وحدد المثير والإجراء.', en: 'Click "New Automation", pick a trigger, and configure the action.' },
-				target: { type: 'element', page: '/automation', key: 'create-automation-button' },
-				sortOrder: 2,
-			},
-		],
-	},
-	{
-		key: 'create_first_auto_assignment_rule',
-		title: { ar: 'أنشئ أول قاعدة توزيع تلقائي', en: 'Create your first auto-assignment rule' },
-		description: { ar: 'وزّع الطلبات تلقائيًا على الموظفين حسب المدن أو المنتجات وغيره من الطرق.', en: 'Auto-assign orders to employees based on cities, products, or availability.' },
-		completionType: GettingStartedAchievementType.FIRST_ORDER_ASSIGNMENT_AUTOMATION_RULE_CREATED,
-		dependsOn: ['add_first_team_member', 'create_first_order'],
+		key: "create_first_automation",
+
+		title: {
+			ar: "إنشاء أول مسار أتمتة",
+			en: "Create your first automation",
+		},
+
+		description: {
+			ar: "أنشئ أول مسار أتمتة عشان تبدأ في أتمتة المهام والعمليات داخل مدار.",
+			en: "Create your first automation to start automating tasks and processes in Madar.",
+		},
+
+		completionType:
+			GettingStartedAchievementType.FIRST_AUTOMATION_CREATED,
+
+		dependsOn: [],
+
 		sortOrder: 14,
+
 		steps: [
 			{
-				key: 'open_assignment_settings',
-				title: { ar: 'افتح إعدادات توزيع الطلبات', en: 'Open the Order Assignment settings' },
-				description: { ar: 'انتقل إلى إعدادات توزيع الطلبات.', en: 'Navigate to the Order Assignment settings.' },
-				target: { type: 'route', page: '/settings/order-assignment', key: 'order-assignment' },
+				key: "open_automations",
+				title: {
+					ar: "افتح مسارات الأتمتة",
+					en: "Open Automations",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم الأتمتة والتشغيل ثم اختر مسارات الأتمتة.",
+					en: "From the sidebar, open Automation & Operations and select Automations.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/automations",
+					key: "automation.automations",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 1,
 			},
+
 			{
-				key: 'create_assignment_rule',
-				title: { ar: 'أنشئ قاعدة توزيع تلقائي', en: 'Create an auto-assignment rule' },
-				description: { ar: 'اضغط زر إنشاء قاعدة وحدد شروط التوزيع.', en: 'Click "New Rule" and define the assignment conditions.' },
-				target: { type: 'element', page: '/settings/order-assignment', key: 'create-rule-button' },
+				key: "create_automation",
+				title: {
+					ar: "أضف مسار أتمتة",
+					en: "Add an automation",
+				},
+				description: {
+					ar: "اضغط على إضافة مسار أتمتة عشان تبدأ في إنشاء أول مسار أتمتة ليك.",
+					en: "Click Add Automation to start creating your first automation.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/automations",
+					key: "automations.create",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 2,
+			},
+			{
+				key: "add_automation_trigger",
+				title: {
+					ar: "أنشئ مسار الأتمتة",
+					en: "Build your automation flow",
+				},
+				description: {
+					ar: "في منشئ الأتمتة، أضف المشغّل ثم أضف الإجراءات والشروط اللي تناسب مسار الأتمتة حسب احتياجك.",
+					en: "In the Automation Builder, add the trigger, then add the actions and conditions you need for your automation.",
+				},
+				target: {
+					type: GettingStartedTargetType.SECTION,
+					page: "/automations/builder",
+					key: "automation_builder.trigger",
+				},
+				sortOrder: 3,
+			},
+			{
+				key: "save_automation",
+				title: {
+					ar: "احفظ مسار الأتمتة",
+					en: "Save the automation",
+				},
+				description: {
+					ar: "بعد ما تخلص إعداد مسار الأتمتة، اضغط حفظ لإنشاء مسار الأتمتة.",
+					en: "Once you finish configuring the automation, click Save to create the automation.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/automations/builder",
+					key: "automation.save",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 4,
 			},
 		],
 	},
 	{
-		key: 'create_first_order_bundle',
-		title: { ar: 'أنشئ أول باندل', en: 'Create your first order bundle' },
-		description: { ar: 'الباندل يجمّع عدة منتجات في صنف واحد قابل للبيع.', en: 'Bundles group several products into one saleable item.' },
-		completionType: GettingStartedAchievementType.FIRST_ORDER_BUNDLE_CREATED,
-		dependsOn: ['add_first_product'],
-		sortOrder: 15,
+		key: "create_first_safe",
+
+		title: {
+			ar: "إضافة أول خزينة",
+			en: "Add your first safe",
+		},
+
+		description: {
+			ar: "أضف أول خزينة عشان تبدأ في إدارة حساباتك وأرصدتك داخل مدار.",
+			en: "Add your first safe to start managing your accounts and balances in Madar.",
+		},
+
+		completionType: GettingStartedAchievementType.FIRST_SAFE_CREATED,
+
+		dependsOn: [],
+
+		sortOrder: 4,
+
 		steps: [
 			{
-				key: 'open_bundles_page',
-				title: { ar: 'افتح صفحة الباندلات', en: 'Open the Bundles page' },
-				description: { ar: 'انتقل إلى صفحة الباندلات.', en: 'Navigate to the Bundles page.' },
-				target: { type: 'route', page: '/bundles', key: 'bundles' },
+				key: "open_safes",
+				title: {
+					ar: "افتح الخزائن",
+					en: "Open Safes",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم الحسابات ثم اختر الخزائن.",
+					en: "From the sidebar, open Accounts and select Safes.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/accounts?tab=safes",
+					key: "accounts.safes",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 1,
+			},
+
+			{
+				key: "create_safe",
+				title: {
+					ar: "أضف خزينة جديدة",
+					en: "Add a new safe",
+				},
+				description: {
+					ar: "اضغط على إضافة حساب جديد عشان تبدأ في إنشاء أول خزينة ليك.",
+					en: "Click Add New Account to start creating your first safe.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/accounts?tab=safes",
+					key: "safes.create",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 2,
+			},
+			{
+				key: "fill_safe_information",
+				title: {
+					ar: "أدخل بيانات الخزينة",
+					en: "Enter safe information",
+				},
+				description: {
+					ar: "أدخل بيانات الخزينة، زي النوع والاسم والرصيد الافتتاحي والعمولة وباقي المعلومات المطلوبة، ثم اضغط حفظ لإضافتها.",
+					en: "Enter the safe information, including its type, name, initial balance, commission, and other required details, then click Save to add it.",
+				},
+				target: {
+					type: GettingStartedTargetType.DIALOG,
+					page: "/accounts?tab=safes",
+					key: "safes.create_dialog",
+				},
+				actionConfig: {
+					openFromPreviousStep: {
+						targetType: GettingStartedTargetType.BUTTON,
+						page: "/accounts?tab=safes",
+						targetKey: "safes.create",
+						trigger: "click",
+					},
+				},
+				sortOrder: 3, // unchanged
+			}
+		],
+	},
+	{
+		key: "create_first_supplier",
+
+		title: {
+			ar: "إضافة أول مورد",
+			en: "Add your first supplier",
+		},
+
+		description: {
+			ar: "أضف أول مورد عشان تبدأ في إدارة الموردين والمشتريات داخل مدار.",
+			en: "Add your first supplier to start managing suppliers and purchases in Madar.",
+		},
+
+		completionType: GettingStartedAchievementType.FIRST_SUPPLIER_CREATED,
+
+		dependsOn: [],
+
+		sortOrder: 3,
+
+		steps: [
+			{
+				key: "open_suppliers",
+				title: {
+					ar: "افتح الموردين",
+					en: "Open Suppliers",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم المشتريات ثم اختر الموردين.",
+					en: "From the sidebar, open Purchases and select Suppliers.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/suppliers",
+					key: "purchases.suppliers",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 1,
+			},
+
+			{
+				key: "create_supplier",
+				title: {
+					ar: "أضف مورد جديد",
+					en: "Add a new supplier",
+				},
+				description: {
+					ar: "اضغط على إضافة مورد عشان تبدأ في إضافة أول مورد ليك.",
+					en: "Click Add Supplier to start adding your first supplier.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/suppliers",
+					key: "suppliers.create",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 2,
+			},
+			{
+				key: "fill_supplier_information",
+				title: {
+					ar: "أدخل بيانات المورد",
+					en: "Enter supplier information",
+				},
+				description: {
+					ar: "أدخل كل بيانات المورد المطلوبة، ثم اضغط إضافة لحفظ المورد.",
+					en: "Enter all the required supplier information, then click Add to save the supplier.",
+				},
+				target: {
+					type: GettingStartedTargetType.DIALOG,
+					page: "/suppliers",
+					key: "suppliers.create_dialog",
+				},
+				actionConfig: {
+					openFromPreviousStep: {
+						targetType: GettingStartedTargetType.BUTTON,
+						page: "/suppliers",
+						targetKey: "suppliers.create",
+						trigger: "click",
+					},
+				},
+				sortOrder: 3, // unchanged
+			}
+		],
+	},
+	{
+		key: "accept_first_purchase",
+
+		title: {
+			ar: "قبول أول عملية شراء",
+			en: "Accept your first purchase",
+		},
+
+		description: {
+			ar: "أنشئ أول عملية شراء واقبلها عشان تبدأ في تسجيل ومتابعة مشترياتك داخل مدار.",
+			en: "Create and accept your first purchase to start managing your purchases in Madar.",
+		},
+
+		completionType: GettingStartedAchievementType.FIRST_PURCHASE_ACCEPTED,
+
+		dependsOn: ["create_first_safe", "create_first_supplier"],
+
+		sortOrder: 8,
+
+		steps: [
+			{
+				key: "open_purchases",
+				title: {
+					ar: "افتح المشتريات",
+					en: "Open Purchases",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم المشتريات ثم اختر المشتريات.",
+					en: "From the sidebar, open Purchases and select Purchases.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/purchases",
+					key: "purchases.purchases",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 1,
+			},
+
+			{
+				key: "create_purchase",
+				title: {
+					ar: "أضف عملية شراء",
+					en: "Add a purchase",
+				},
+				description: {
+					ar: "اضغط على إضافة ثم إضافة عملية شراء جديدة عشان تبدأ في إنشاء أول عملية شراء.",
+					en: "Click Add and then Add New Purchase to start creating your first purchase.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/purchases",
+					key: "purchases.create",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 2,
+			},
+
+			{
+				key: "fill_purchase_information",
+				title: {
+					ar: "أدخل بيانات الشراء",
+					en: "Enter purchase information",
+				},
+				description: {
+					ar: "أدخل بيانات عملية الشراء، زي رقم فاتورة الشراء والمنتجات والكميات وباقي المعلومات المطلوبة.",
+					en: "Enter the purchase information, including the purchase invoice number, products, quantities, and other required details.",
+				},
+				target: {
+					type: GettingStartedTargetType.PAGE,
+					page: "/purchases/new",
+					key: "purchase_form",
+				},
+				sortOrder: 3,
+			},
+
+			{
+				key: "save_purchase",
+				title: {
+					ar: "احفظ عملية الشراء",
+					en: "Save the purchase",
+				},
+				description: {
+					ar: "بعد ما تخلص بيانات عملية الشراء، اضغط حفظ لإضافتها.",
+					en: "Once you finish entering the purchase information, click Save to add it.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/purchases/new",
+					key: "purchase_save",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 4,
+			},
+
+			{
+				key: "find_created_purchase",
+				title: {
+					ar: "افتح عملية الشراء",
+					en: "Find the purchase",
+				},
+				description: {
+					ar: "بعد الحفظ، هترجع لصفحة المشتريات. دور على عملية الشراء الجديدة في جدول المشتريات. و إقبلها.",
+					en: "After saving, you will return to the Purchases page. Find the new purchase in the purchases table and accept it.",
+				},
+				target: {
+					type: GettingStartedTargetType.SECTION,
+					page: "/purchases",
+					key: "purchases.table",
+				},
+				sortOrder: 5,
+			},
+		],
+	},
+	{
+		key: "create_first_custom_role",
+
+		title: {
+			ar: "إنشاء أول دور مخصص",
+			en: "Create your first custom role",
+		},
+
+		description: {
+			ar: "أنشئ أول دور مخصص عشان تحدد صلاحيات الموظفين وإمكانية وصولهم داخل مدار.",
+			en: "Create your first custom role to control employee permissions and access in Madar.",
+		},
+
+		completionType:
+			GettingStartedAchievementType.FIRST_CUSTOM_ROLE_CREATED,
+
+		dependsOn: [],
+
+		sortOrder: 11,
+
+		steps: [
+			{
+				key: "open_roles_permissions",
+				title: {
+					ar: "افتح الأدوار والصلاحيات",
+					en: "Open Roles & Permissions",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم الفريق ثم اختر الأدوار والصلاحيات.",
+					en: "From the sidebar, open the Teams section and select Roles & Permissions.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/roles",
+					key: "teams.roles_permissions",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 1,
+			},
+
+			{
+				key: "create_role",
+				title: {
+					ar: "أضف دور جديد",
+					en: "Add a new role",
+				},
+				description: {
+					ar: "اضغط على إضافة دور جديد عشان تبدأ في إنشاء أول دور مخصص.",
+					en: "Click Add New Role to start creating your first custom role.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/roles",
+					key: "roles.create",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 2,
+			}, {
+				key: "fill_role_information",
+				title: {
+					ar: "أدخل بيانات الدور",
+					en: "Enter role information",
+				},
+				description: {
+					ar: "اكتب اسم الدور ووصفه، واختار الصلاحيات المناسبة، ثم اضغط حفظ لإنشاء الدور.",
+					en: "Enter the role name and description, choose the appropriate permissions, then click Save to create the role.",
+				},
+				target: {
+					type: GettingStartedTargetType.DIALOG,
+					page: "/roles",
+					key: "roles.create_dialog",
+				},
+				actionConfig: {
+					openFromPreviousStep: {
+						targetType: GettingStartedTargetType.BUTTON,
+						page: "/roles",
+						targetKey: "roles.create",
+						trigger: "click",
+					},
+				},
+				sortOrder: 3, // unchanged
+			}
+		],
+	},
+	{
+		key: "create_first_order_bundle",
+
+		title: {
+			ar: "إنشاء أول باقة منتجات",
+			en: "Create your first product bundle",
+		},
+
+		description: {
+			ar: "أنشئ أول باقة منتجات عشان تقدر تجمع منتجاتك في باقة واحدة وتستخدمها في طلباتك.",
+			en: "Create your first product bundle to combine products into a single bundle for your orders.",
+		},
+
+		completionType:
+			GettingStartedAchievementType.FIRST_ORDER_BUNDLE_CREATED,
+
+		dependsOn: [],
+
+		sortOrder: 7,
+
+		steps: [
+			{
+				key: "open_add_product_bundle",
+				title: {
+					ar: "افتح إضافة باقة منتجات",
+					en: "Open Add Product Bundle",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح قسم المنتجات ثم اختر إضافة باقة منتجات.",
+					en: "From the sidebar, open the Products section and select Add Product Bundle.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/bundles/new",
+					key: "products.add_bundle",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 1,
+			},
+
+			{
+				key: "fill_bundle_information",
+				title: {
+					ar: "أدخل بيانات الباقة",
+					en: "Enter bundle information",
+				},
+				description: {
+					ar: "أدخل بيانات الباقة المطلوبة، وأضف الاشتراك وحدد الـ SKUs الخاصة بالمنتجات الموجودة في الباقة.",
+					en: "Enter the required bundle information, add its subscription, and select the product SKUs included in the bundle.",
+				},
+				target: {
+					type: GettingStartedTargetType.PAGE,
+					page: "/bundles/new",
+					key: "product_bundle_form",
+				},
+				sortOrder: 2,
+			},
+
+			{
+				key: "save_bundle",
+				title: {
+					ar: "احفظ الباقة",
+					en: "Save the bundle",
+				},
+				description: {
+					ar: "بعد ما تخلص بيانات الباقة وتحدد المنتجات والـ SKUs، اضغط حفظ لإنشاء الباقة.",
+					en: "Once you finish the bundle information and select the products and SKUs, click Save to create the bundle.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/bundles/new",
+					key: "product_bundle.save",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 3,
+			},
+		],
+	},
+	{
+		key: "create_first_order_assignment_automation_rule",
+
+		title: {
+			ar: "إنشاء أول قاعدة أتمتة لتوزيع الطلبات",
+			en: "Create your first order assignment automation rule",
+		},
+
+		description: {
+			ar: "أنشئ أول قاعدة أتمتة لتوزيع الطلبات عشان تساعدك في توزيع الطلبات تلقائيًا على فريق العمل.",
+			en: "Create your first order assignment automation rule to help automatically assign orders to your team.",
+		},
+
+		completionType:
+			GettingStartedAchievementType.FIRST_ORDER_ASSIGNMENT_AUTOMATION_RULE_CREATED,
+
+		dependsOn: ["add_first_team_member"],
+
+		sortOrder: 13,
+
+		steps: [
+			{
+				key: "open_call_center",
+				title: {
+					ar: "افتح الكول سنتر",
+					en: "Open Call Center",
+				},
+				description: {
+					ar: "من القائمة الجانبية، افتح صفحة الكول سنتر.",
+					en: "From the sidebar, open the Call Center page.",
+				},
+				target: {
+					type: GettingStartedTargetType.SIDEBAR_ITEM,
+					page: "/call-center?tab=automatic",
+					key: "call_center",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 1,
 			},
 			{
-				key: 'create_bundle',
-				title: { ar: 'أنشئ باندلًا', en: 'Create a bundle' },
-				description: { ar: 'اضغط زر إنشاء باندل واختر المنتجات المكونة له.', en: 'Click "New Bundle" and select the products that compose it.' },
-				target: { type: 'element', page: '/bundles', key: 'create-bundle-button' },
+				key: "create_order_assignment_rule",
+				title: {
+					ar: "أنشئ قاعدة أتمتة",
+					en: "Create an automation rule",
+				},
+				description: {
+					ar: "اضغط على إنشاء قاعدة أتمتة عشان تبدأ في إنشاء أول قاعدة لتوزيع الطلبات.",
+					en: "Click Create Automation Rule to start creating your first order assignment rule.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/call-center?tab=automatic",
+					key: "order_assignment_automation.create",
+				},
+				actionConfig: { trigger: "click" },
 				sortOrder: 2,
+			},
+
+			{
+				key: "fill_order_assignment_rule",
+				title: {
+					ar: "أدخل بيانات قاعدة الأتمتة",
+					en: "Enter the automation rule information",
+				},
+				description: {
+					ar: "أدخل بيانات قاعدة الأتمتة والإعدادات المطلوبة لتحديد طريقة توزيع الطلبات.",
+					en: "Enter the automation rule information and the required settings for assigning orders.",
+				},
+				target: {
+					type: GettingStartedTargetType.PAGE,
+					page: "/call-center?tab=automatic",
+					key: "order_assignment_automation.create_dialog",
+				},
+				actionConfig: {
+					openFromPreviousStep: {
+						targetType: GettingStartedTargetType.BUTTON,
+						page: "/call-center?tab=automatic",
+						targetKey: "order_assignment_automation.create",
+						trigger: "click",
+					},
+				},
+				sortOrder: 3,
+			},
+			{
+				key: "save_order_assignment_rule",
+				title: {
+					ar: "احفظ قاعدة الأتمتة",
+					en: "Save the automation rule",
+				},
+				description: {
+					ar: "بعد ما تخلص إعداد قاعدة الأتمتة، اضغط حفظ لإنشاء القاعدة.",
+					en: "Once you finish configuring the automation rule, click Save to create it.",
+				},
+				target: {
+					type: GettingStartedTargetType.BUTTON,
+					page: "/call-center?tab=automatic",
+					key: "order_assignment_automation.save",
+				},
+				actionConfig: { trigger: "click" },
+				sortOrder: 4,
 			},
 		],
 	},
@@ -886,7 +1915,7 @@ async function seedGettingStarted() {
 				title: step.title,
 				description: step.description,
 				target: step.target,
-				actionConfig: null,
+				actionConfig: step.actionConfig ?? null,
 				sortOrder: step.sortOrder,
 			});
 			const savedStep = await stepRepo.save(stepEntity);
@@ -903,7 +1932,7 @@ async function seedGettingStarted() {
  * =========================
  */
 async function runGlobalSeed(seedName?: string) {
-	
+
 	switch (seedName) {
 		case 'statuses':
 			await seedOrderStatuses();

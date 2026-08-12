@@ -282,6 +282,8 @@
     "plan_deleted_successfully": "Plan deleted successfully"
   },
   "getting_started": {
+    "all_complete_title": "🎉 Awesome! You've completed Madar's setup",
+    "all_complete_message": "You've completed all the essential steps and are now ready to use Madar to its full potential.",
     "stats_only_super_admins": "Only super admins can access getting started statistics",
     "step_id_or_key_required": "Step ID or step key is required for STEP_VIEWED events",
     "item_not_found": "Getting started item not found",
