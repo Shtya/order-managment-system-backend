@@ -341,3 +341,13 @@ export class UpdateManualAccountDto {
     @IsString({message: i18nValidationMessage('validation.is_string')})
     appSecret?: string;
 }
+
+export class ReplaceAccessTokenDto {
+    @IsUUID('4', { message: i18nValidationMessage('validation.is_uuid') })
+    @IsNotEmpty({ message: i18nValidationMessage('validation.is_not_empty') })
+    accountId: string;
+
+    @IsString({ message: i18nValidationMessage('validation.is_string') })
+    @IsNotEmpty({ message: i18nValidationMessage('validation.is_not_empty') })
+    accessToken: string;
+}
