@@ -1287,6 +1287,7 @@
   },
   "stores": {
     "not_found": "Store not found",
+    "name_provider_taken": "A store named \"{name}\" already exists for the {provider} provider.",
     "unsupported_shipping_provider": "Unsupported shipping provider: {provider}",
     "api_key_required": "API Key is required for integration.",
     "authentication_failed_provider": "Unable to authenticate with the provided credentials for {providerName}. Please check your API key and other settings.",
@@ -1358,7 +1359,14 @@
     "cannot_retry_status": "Cannot retry. Current status is: {status}",
     "problems_count_suffix": " +{count}...",
     "retry_job_queued_successfully": "Retry job queued successfully",
-    "failed_to_sync_product_to_store": "Failed to sync product \"{productName}\" to {storeName}: {message}"
+    "failed_to_sync_product_to_store": "Failed to sync product \"{productName}\" to {storeName}: {message}",
+    "export_title": "Stores",
+    "export_name": "Store Name",
+    "export_provider": "Provider",
+    "export_store_url": "Store URL",
+    "export_integrated": "Integrated",
+    "export_sync_status": "Sync Status",
+    "export_last_sync": "Last Synced At"
   },
   "sms_provider_not_supported": "SMS provider not supported",
   "sms_provider_not_found": "SMS provider not found",

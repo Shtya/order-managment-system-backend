@@ -1290,6 +1290,7 @@
   },
   "stores": {
     "not_found": "لم يتم العثور على المجر",
+    "name_provider_taken": "يوجد بالفعل متجر باسم \"{name}\" لمزود {provider}.",
     "unsupported_shipping_provider": "مزود الشحن غير مدعوم: {provider}",
     "api_key_required": "مفتاح واجهة برمجة التطبيقات (API Key) مطلوب لإتمام الربط.",
     "authentication_failed_provider": "تعذر المصادقة باستخدام بيانات الاعتماد المقدمة لـ {providerName}. يرجى التحقق من مفتاح الـ API والإعدادات الأخرى.",
@@ -1361,7 +1362,14 @@
     "cannot_retry_status": "لا يمكن إعادة المحاولة. الحالة الحالية هي: {status}",
     "problems_count_suffix": " +{count} أخرى...",
     "retry_job_queued_successfully": "تم وضع مهمة إعادة المحاولة في قائمة الانتظار بنجاح",
-    "failed_to_sync_product_to_store": "فشل في مزامنة المنتج \"{productName}\" إلى المتجر {storeName}: {message}"
+    "failed_to_sync_product_to_store": "فشل في مزامنة المنتج \"{productName}\" إلى المتجر {storeName}: {message}",
+    "export_title": "المتاجر",
+    "export_name": "اسم المتجر",
+    "export_provider": "مزود الخدمة",
+    "export_store_url": "رابط المتجر",
+    "export_integrated": "مدمج",
+    "export_sync_status": "حالة المزامنة",
+    "export_last_sync": "آخر مزامنة"
   },
   "sms_provider_not_supported": "مزود SMS غير مدعوم",
   "sms_provider_not_found": "مزود SMS غير موجود",

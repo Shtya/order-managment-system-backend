@@ -104,6 +104,35 @@ export class StoresService {
     return p;
   }
 
+  /**
+   * Returns true when the given value is one of the StoreProvider enum values
+   * (e.g. "easyorder", "shopify", "woocommerce") rather than a uuid store id.
+   */
+  private isStoreProviderEnum(value: string): boolean {
+    return !!value && Object.values(StoreProvider).includes(value as StoreProvider);
+  }
+
+  /**
+   * Flexible store resolution used by webhook/integration endpoints so they can
+   * be addressed either by provider enum (legacy, single store) or by store id
+   * (uuid, multi-store). Falls back to a provider lookup when an id is not found.
+   */
+  private async resolveStoreByTarget(adminId: string, target: string): Promise<StoreEntity | null> {
+    if (this.isStoreProviderEnum(target)) {
+      return this.storesRepo.findOne({
+        where: { provider: target as StoreProvider, adminId },
+        order: { created_at: 'ASC' },
+      });
+    }
+    const byId = await this.storesRepo.findOne({ where: { id: target, adminId } });
+    if (byId) return byId;
+    // Fallback: treat the segment as a provider name (old static-name URLs)
+    return this.storesRepo.findOne({
+      where: { provider: target as StoreProvider, adminId },
+      order: { created_at: 'ASC' },
+    });
+  }
+
 
   private async clearStoreCache(storeId: string) {
     const pattern = `stores:${storeId}:*`;
@@ -135,13 +164,17 @@ export class StoresService {
   }
 
 
-  async list(me: any, q?: any) {
-    const adminId = tenantId(me); // Normalized and trimmed adminId
+  /**
+   * Builds the base stores query with all shared filters (tenant, search,
+   * provider, date range, active flag, sync status, sorting). Reused by both
+   * the paginated `list` and the `exportStores` export so their results stay
+   * consistent.
+   */
+  private buildStoresQuery(me: any, q?: any) {
+    const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
-    const page = Number(q?.page ?? 1);
-    const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim(); // Remember to trim
+    const search = String(q?.search ?? "").trim();
 
     const qb = this.storesRepo.createQueryBuilder("store");
 
@@ -180,7 +213,7 @@ export class StoresService {
       qb.andWhere("store.syncStatus = :syncStatus", { syncStatus: q?.syncStatus });
     }
 
-    // 5. Search (Name, Code, or URL)
+    // 5. Search (Name or URL)
     if (search) {
       qb.andWhere(
         "(store.name ILIKE :s OR store.storeUrl ILIKE :s)",
@@ -188,12 +221,23 @@ export class StoresService {
       );
     }
 
-    // 6. Sorting
+    // 6. Date range filter
+    DateFilterUtil.applyToQueryBuilder(qb, "store.created_at", q?.startDate, q?.endDate);
+
+    // 7. Sorting
     const sortBy = q?.sortBy || "created_at";
     const sortOrder = q?.sortOrder === "ASC" ? "ASC" : "DESC";
     qb.orderBy(`store.${sortBy}`, sortOrder);
 
-    // 7. Pagination
+    return qb;
+  }
+
+  async list(me: any, q?: any) {
+    const page = Number(q?.page ?? 1);
+    const limit = Number(q?.limit ?? 12);
+
+    const qb = this.buildStoresQuery(me, q);
+
     const [records, total] = await qb
       .skip((page - 1) * limit)
       .take(limit)
@@ -215,6 +259,56 @@ export class StoresService {
       per_page: limit,
       records: sanitizedRecords,
     };
+  }
+
+  async exportStores(me: any, q?: any) {
+    const qb = this.buildStoresQuery(me, q);
+    const stores = await qb.getMany();
+
+    const exportData = stores.map((s) => ({
+      name: s.name || "",
+      provider: s.provider,
+      storeUrl: s.storeUrl || "",
+      isActive: s.isActive
+        ? this.translations.t("common.yes")
+        : this.translations.t("common.no"),
+      isIntegrated: s.isIntegrated
+        ? this.translations.t("common.yes")
+        : this.translations.t("common.no"),
+      syncStatus: s.syncStatus || this.translations.t("common.not_available"),
+      lastSyncAttemptAt: s.lastSyncAttemptAt
+        ? new Date(s.lastSyncAttemptAt).toLocaleDateString()
+        : this.translations.t("common.not_available"),
+      created_at: s.created_at
+        ? new Date(s.created_at).toLocaleDateString()
+        : this.translations.t("common.not_available"),
+    }));
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(this.translations.t("domains.stores.export_title"));
+
+    worksheet.columns = [
+      { header: this.translations.t("domains.stores.export_name"), key: "name", width: 30 },
+      { header: this.translations.t("domains.stores.export_provider"), key: "provider", width: 20 },
+      { header: this.translations.t("domains.stores.export_store_url"), key: "storeUrl", width: 40 },
+      { header: this.translations.t("common.active"), key: "isActive", width: 12 },
+      { header: this.translations.t("domains.stores.export_integrated"), key: "isIntegrated", width: 14 },
+      { header: this.translations.t("domains.stores.export_sync_status"), key: "syncStatus", width: 18 },
+      { header: this.translations.t("domains.stores.export_last_sync"), key: "lastSyncAttemptAt", width: 20 },
+      { header: this.translations.t("common.created_at"), key: "created_at", width: 20 },
+    ];
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    exportData.forEach((row) => worksheet.addRow(row));
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    return buffer;
   }
 
   async listWithCredentials(me: any) {
@@ -270,7 +364,21 @@ export class StoresService {
   async create(me: any, dto: CreateStoreDto) {
     const adminId = tenantId(me);
 
-    // 1. Uniqueness Checks (Code must be unique for this admin)
+    const trimmedName = dto.name.trim();
+
+    // 1. Uniqueness Check: (adminId, provider, name) must be unique
+    const existingStore = await this.storesRepo.findOne({
+      where: { adminId, provider: dto.provider, name: trimmedName },
+    });
+    if (existingStore) {
+      throw new BadRequestException(
+        this.translations.t('domains.stores.name_provider_taken', {
+          args: { name: trimmedName, provider: dto.provider },
+        })
+      );
+    }
+
+    // 2. Uniqueness Checks (Code must be unique for this admin)
     // const existingStore = await this.storesRepo.findOne({
     //   where: { adminId, code: dto.code }
     // });
@@ -311,7 +419,7 @@ export class StoresService {
 
       const store = manager.create(StoreEntity, {
         adminId,
-        name: dto.name.trim(),
+        name: trimmedName,
         externalStoreId: p.code === StoreProvider.WOOCOMMERCE ? this.extractDomain(dto.storeUrl) : null,
         storeUrl: dto.storeUrl.trim(),
         provider: dto.provider,
@@ -367,7 +475,9 @@ export class StoresService {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
-    const store = await this.storesRepo.findOne({ where: { adminId, provider: dto.provider } });
+    const store = dto.storeId
+      ? await this.storesRepo.findOne({ where: { id: dto.storeId, adminId } })
+      : null;
 
     if (store) {
       store.name = dto.name.trim();
@@ -378,14 +488,38 @@ export class StoresService {
         ...store.credentials,
         ...dto.credentials,
       };
+
+      const duplicate = await this.storesRepo.findOne({
+        where: { adminId, provider: store.provider, name: store.name },
+      });
+      if (duplicate && duplicate.id !== store.id) {
+        throw new BadRequestException(
+          this.translations.t('domains.stores.name_provider_taken', {
+            args: { name: store.name, provider: store.provider },
+          })
+        );
+      }
+
       const saved = await this.storesRepo.save(store);
       
       return saved;
     }
 
+    const trimmedName = dto.name.trim();
+    const duplicate = await this.storesRepo.findOne({
+      where: { adminId, provider: dto.provider, name: trimmedName },
+    });
+    if (duplicate) {
+      throw new BadRequestException(
+        this.translations.t('domains.stores.name_provider_taken', {
+          args: { name: trimmedName, provider: dto.provider },
+        })
+      );
+    }
+
     const storeToSave = {
       adminId,
-      name: dto.name.trim(),
+      name: trimmedName,
       storeUrl: dto.storeUrl.trim(),
       provider: dto.provider,
       credentials: {
@@ -408,17 +542,17 @@ export class StoresService {
   }
 
 
-  async cancelIntegration(me: any, provider: StoreProvider) {
+  async cancelIntegration(me: any, target: string) {
     const adminId = tenantId(me);
     if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
 
-    const store = await this.storesRepo.findOne({ where: { adminId, provider } });
+    const store = await this.resolveStoreByTarget(adminId, target);
 
     if (!store) {
       throw new BadRequestException(this.translations.t('domains.stores.store_not_found'));
     }
 
-    const p = this.getProvider(provider);
+    const p = this.getProvider(store.provider);
     await p.cancelIntegration(adminId);
     store.isActive = false;
     store.isIntegrated = false;
@@ -461,10 +595,25 @@ export class StoresService {
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
     if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
 
+    const trimmedName = dto.name ? dto.name.trim() : store.name;
+
+    if (dto.name) {
+      const duplicate = await this.storesRepo.findOne({
+        where: { adminId, provider: store.provider, name: trimmedName },
+      });
+      if (duplicate && duplicate.id !== store.id) {
+        throw new BadRequestException(
+          this.translations.t('domains.stores.name_provider_taken', {
+            args: { name: trimmedName, provider: store.provider },
+          })
+        );
+      }
+    }
+
     const p = this.getProvider(store.provider);
     return await this.dataSource.transaction(async (manager) => {
 
-      if (dto.name) store.name = dto.name.trim();
+      if (dto.name) store.name = trimmedName;
       if (dto.storeUrl) store.storeUrl = dto.storeUrl.trim();
       if (dto.syncNewProducts !== undefined) store.syncNewProducts = dto.syncNewProducts;
       if (dto.syncRemoteProducts !== undefined) store.syncRemoteProducts = dto.syncRemoteProducts;
@@ -689,14 +838,13 @@ export class StoresService {
       return;
     }
 
-    const store = await this.storesRepo.findOne({
-      where: { adminId: order.adminId, isActive: true, isIntegrated: true, provider: order.store.provider }
-    });
-
-    if (!store) {
-      this.logger.warn(`[Order Status Sync] No active store found to sync Order #${order.id} for Admin ${order.adminId}.`);
+    // Use the order's own store (already loaded) instead of re-resolving by
+    // provider, which would be ambiguous in a multi-store setup.
+    if (!order.store.isActive || !order.store.isIntegrated) {
+      this.logger.warn(`[Order Status Sync] Store "${order.store.name}" (ID: ${order.store.id}) for Order #${order.id} is not active/integrated.`);
       return;
     }
+    const store = order.store;
 
     // Route to the correct queue based on Provider
 
@@ -781,8 +929,8 @@ export class StoresService {
     });
 
 
-    // Route to the correct queue based on Provider
-    await this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider);
+    // Route to the correct queue based on Store
+    await this.productSyncQueueService.enqueueFullProductSyncLocally(store);
 
     this.logger.log(
       `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
@@ -1200,15 +1348,16 @@ export class StoresService {
     }
   }
 
-  async handleWebhookOrderCreate(provider: string, body: any, headers: Record<string, any>, adminId: string, req: any) {
-    this.logger.log(`[Webhook Order Create] Received webhook order create for provider=${provider}`);
-    const p = this.getProvider(provider);
+  async handleWebhookOrderCreate(target: string, body: any, headers: Record<string, any>, adminId: string, req: any) {
+    this.logger.log(`[Webhook Order Create] Received webhook order create for target=${target}`);
     //notification here
 
-    const store = await this.storesRepo.findOne({ where: { provider: p.code, adminId } });
+    const store = await this.resolveStoreByTarget(adminId, target);
     if (!store) {
       return { ok: true, ignored: true, reason: 'store_not_found' };
     }
+
+    const p = this.getProvider(store.provider);
 
     if (!store.isActive || !store.isIntegrated) {
       return { ok: true, ignored: true, reason: 'store_not_active' };
@@ -1228,14 +1377,21 @@ export class StoresService {
   }
 
   async handleWebhookOrderUpdate(
-    provider: string,
+    target: string,
     body: any,
     headers: Record<string, any>,
     adminId: string,
     req: any
   ) {
     try {
-      const p = this.getProvider(provider);
+      // Resolve store from the target segment (enum or store id)
+      const targetStore = await this.resolveStoreByTarget(adminId, target);
+      if (!targetStore) {
+        this.logger.warn(`[Webhook Order Update] Could not resolve store from target=${target}`);
+        return;
+      }
+
+      const p = this.getProvider(targetStore.provider);
 
       const externalId = await p.processExternalOrderId(body, headers);
       const externalOrderId = p.normalizeOrderId(externalId);
@@ -1396,6 +1552,9 @@ export class StoresService {
 
     // Filters
     if (q?.storeId) qb.andWhere("failure.storeId = :storeId", { storeId: q.storeId });
+
+    // Filter by provider (resolved through the related store)
+    if (q?.provider) qb.andWhere("store.provider = :provider", { provider: q.provider });
 
     // Date range
     DateFilterUtil.applyToQueryBuilder(qb, "failure.created_at", q?.startDate, q?.endDate);
@@ -2113,9 +2272,18 @@ export class StoresService {
   }
 
   public async saveEasyOrdersCredentials(adminId: string, credentials: EasyOrdersCredentialsDto) {
-    const store = await this.storesRepo.findOne({
-      where: { adminId, provider: StoreProvider.EASYORDER },
-    });
+    let store: StoreEntity | null;
+    if (credentials.internalStoreId) {
+      // Multi-store path: link to the exact local store by its uuid
+      store = await this.storesRepo.findOne({
+        where: { id: credentials.internalStoreId, adminId },
+      });
+    } else {
+      // Legacy path: single store per admin, addressed by provider enum
+      store = await this.storesRepo.findOne({
+        where: { adminId, provider: StoreProvider.EASYORDER },
+      });
+    }
     if (!store) {
       throw new Error(
         this.translations.t('domains.stores.easyorder_store_not_found')
@@ -2123,30 +2291,29 @@ export class StoresService {
     }
 
     store.credentials = {
+      ...store.credentials,
       apiKey: credentials.apiKey,
     };
     store.isActive = true;
     store.isIntegrated = true;
     store.externalStoreId = credentials.storeId;
 
-    const newStore = await this.storesRepo.save(store);;
+    const newStore = await this.storesRepo.save(store);
     if (newStore.syncRemoteProducts) {
-      this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, newStore.provider)
+      this.productSyncQueueService.enqueueFullProductSyncLocally(newStore)
     }
 
     this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
     return newStore;
   }
 
-  public async getFullProductById(userContext: any, provider: StoreProvider, id: string) {
+  public async getFullProductById(userContext: any, target: string, id: string) {
     const adminId = tenantId(userContext);
-    const store = await this.storesRepo.findOne({
-      where: { adminId, provider }
-    });
+    const store = await this.resolveStoreByTarget(adminId, target);
     if (!store) {
       throw new BadRequestException(
         this.translations.t('domains.stores.store_not_found_provider', {
-          args: { provider },
+          args: { provider: target },
         }),
       );
     }
@@ -2166,7 +2333,7 @@ export class StoresService {
 
     }
 
-    const p = this.getProvider(provider)
+    const p = this.getProvider(store.provider)
 
     try {
       const product = await p.getFullProductById(store, id);
@@ -2186,7 +2353,7 @@ export class StoresService {
       if (status === 429) {
         throw new BadRequestException(
           this.translations.t('domains.stores.provider_rate_limit_hit', {
-            args: { provider },
+            args: { provider: store.provider },
           }),
         );
       }
@@ -2194,7 +2361,7 @@ export class StoresService {
       throw new BadRequestException(
         this.translations.t('domains.stores.failed_to_fetch_product', {
           args: {
-            provider,
+            provider: store.provider,
             message,
           },
         }),
@@ -2202,12 +2369,10 @@ export class StoresService {
     }
   }
 
-  public async syncStoreProductsLocally(adminId: string, provider: StoreProvider) {
-    const store = await this.storesRepo.findOne({
-      where: { adminId, provider }
-    });
+  public async syncStoreProductsLocally(adminId: string, target: string) {
+    const store = await this.resolveStoreByTarget(adminId, target);
     if (!store) {
-      throw new BadRequestException(`Store not found, provider: ${provider}`);
+      throw new BadRequestException(`Store not found, target: ${target}`);
     }
 
     if (!store.isIntegrated) {
@@ -2226,7 +2391,7 @@ export class StoresService {
     try {
 
 
-      const p = this.getProvider(provider);
+      const p = this.getProvider(store.provider);
       const remoteProducts = await p.getAllMappedProducts(store);
 
       let successCount = 0;
@@ -2599,7 +2764,15 @@ export class StoresService {
           break;
 
         case ProductSyncJobs.SYNC_LOCAL:
-          if (adminId && storeType) {
+          if (data.storeId) {
+            const store = await this.storesRepo.findOneBy({ id: data.storeId });
+            if (store) {
+              const syncResult = await this.syncStoreProductsLocally(store.adminId, store.id);
+              this.logger.log(`[Sync Products Locally] Store: ${store.id} | Admin: ${store.adminId} | Successfully processed`);
+              return syncResult;
+            }
+          } else if (adminId && storeType) {
+            // Legacy provider-based fallback
             const syncResult = await this.syncStoreProductsLocally(adminId, storeType);
             this.logger.log(`[Sync Products Locally] Provider: ${storeType} | Admin: ${adminId} | Successfully processed`);
             return syncResult;

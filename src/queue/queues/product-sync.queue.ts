@@ -123,9 +123,15 @@ export class ProductSyncQueueService {
         }, { jobId, priority: 4 });
     }
 
-    async enqueueFullProductSyncLocally(adminId: string, provider: StoreProvider) {
-        const jobId = `syncProductsLocally:${provider}:${adminId}`;
-        await this.addJob(adminId, ProductSyncJobs.SYNC_LOCAL, provider, {}, { jobId, priority: 5 });
+    async enqueueFullProductSyncLocally(store: StoreEntity) {
+        const jobId = `syncProductsLocally:${store.id}`;
+        await this.addJob(
+            store.adminId,
+            ProductSyncJobs.SYNC_LOCAL,
+            store.provider,
+            { storeId: store.id },
+            { jobId, priority: 5 },
+        );
     }
 }
 
@@ -133,7 +139,7 @@ export class ProductSyncQueueService {
     concurrency: 20,
     maxStartedAttempts: 200,
     metrics: {
-        maxDataPoints: MetricsTime.ONE_WEEK * 2, 
+        maxDataPoints: MetricsTime.ONE_WEEK * 2,
     },
 })
 export class ProductSyncWorkerService extends WorkerHost {
@@ -151,7 +157,7 @@ export class ProductSyncWorkerService extends WorkerHost {
         super();
     }
 
-    
+
 
     async process(job: Job, token?: string): Promise<any> {
         const { adminId } = job.data;

@@ -7,7 +7,6 @@ import { SubscriptionGuard } from "common/subscription.guard";
 import { StoresService } from "./stores.service";
 import { CreateStoreDto, IntegrateDto, UpdateStoreDto } from "dto/stores.dto";
 import { Response } from "express";
-import { StoreProvider } from "entities/stores.entity";
 import { minutes, Throttle } from "@nestjs/throttler";
 import { FullStoreSyncType } from "./storesIntegrations/BaseStoreProvider";
 
@@ -24,7 +23,7 @@ export class StoresController {
   //   return this.storesService.manualSync(req.user, id);
   // }
   //sync from store endpoint
-  @Throttle({ default: { limit: 20, ttl: minutes(1) } }) 
+  // @Throttle({ default: { limit: 20, ttl: minutes(1) } }) 
   @Permissions("stores.update") // Requires update permissions
   @Post(":id/sync")
   async syncFromStore(@Req() req: any, @Param("id") id: string) {
@@ -32,7 +31,7 @@ export class StoresController {
   }
 
   @Permissions("stores.update")
-  @Throttle({ default: { limit: 60, ttl: minutes(1) } }) 
+  // @Throttle({ default: { limit: 60, ttl: minutes(1) } }) 
   @Post(":id/sync-store")
   async syncSpecificProducts(
     @Req() req: any,
@@ -123,11 +122,33 @@ export class StoresController {
     return this.storesService.listWithCredentials(req.user);
   }
 
+  @Permissions("stores.read")
+  @Get("export")
+  async exportStores(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.storesService.exportStores(req.user, q);
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=stores_${Date.now()}.xlsx`,
+    );
+
+    return res.send(buffer);
+  }
+
   // get external product by slug
   @Permissions("stores.read")
-  @Get("external/:provider")
-  async getExternalProductById(@Req() req: any, @Param("provider") provider: StoreProvider, @Query("id") id: string) {
-    return this.storesService.getFullProductById(req.user, provider, id);
+  @Get("external/:target")
+  async getExternalProductById(@Req() req: any, @Param("target") target: string, @Query("id") id: string) {
+    return this.storesService.getFullProductById(req.user, target, id);
   }
 
   @Permissions("stores.read")
@@ -148,9 +169,9 @@ export class StoresController {
     return await this.storesService.upsertIntegrate(req.user, dto);
   }
 
-  @Patch(":provider/cancel-integration")
-  async cancelIntegration(@Req() req: any, @Param("provider") provider: StoreProvider) {
-    return this.storesService.cancelIntegration(req.user, provider);
+  @Patch(":target/cancel-integration")
+  async cancelIntegration(@Req() req: any, @Param("target") target: string) {
+    return this.storesService.cancelIntegration(req.user, target);
   }
 
   @Permissions("stores.update")

@@ -42,6 +42,7 @@ export enum SyncStatus {
 @Entity({ name: "stores" })
 // @Index(["adminId", "code"], { unique: true })
 @Index(["adminId", "name"])
+@Index(["adminId", "provider", "name"], { unique: true })
 @Index(["adminId", "isActive"])
 export class StoreEntity {
 	@PrimaryGeneratedColumn('uuid')
@@ -120,8 +121,6 @@ export class StoreEntity {
 	updated_at!: Date;
 
 }
-
-
 
 @Entity({ name: 'store_events' })
 @Index(['storeId', 'created_at'])

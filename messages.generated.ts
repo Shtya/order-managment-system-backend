@@ -1431,6 +1431,7 @@ export type I18nTranslations = {
         };
         "stores": {
             "not_found": string;
+            "name_provider_taken": string;
             "unsupported_shipping_provider": string;
             "api_key_required": string;
             "authentication_failed_provider": string;
@@ -1503,6 +1504,13 @@ export type I18nTranslations = {
             "problems_count_suffix": string;
             "retry_job_queued_successfully": string;
             "failed_to_sync_product_to_store": string;
+            "export_title": string;
+            "export_name": string;
+            "export_provider": string;
+            "export_store_url": string;
+            "export_integrated": string;
+            "export_sync_status": string;
+            "export_last_sync": string;
         };
         "sms_provider_not_supported": string;
         "sms_provider_not_found": string;

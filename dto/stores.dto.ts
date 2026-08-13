@@ -72,6 +72,10 @@ export class IntegrateDto {
   @Transform(({ value }) => value?.trim())
   storeUrl: string;
 
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsOptional()
+  storeId: string;
+
   @IsEnum(StoreProvider,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(StoreProvider).join(', ')], }); }})
   provider: StoreProvider;
 
@@ -129,8 +133,11 @@ export class EasyOrdersCredentialsDto {
   apiKey: string;
 
   @IsString({message: i18nValidationMessage('validation.is_string')})
-  @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
-  storeId: string;
+  @IsOptional()
+  storeId?: string;
+
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  internalStoreId: string;
 }
 
 

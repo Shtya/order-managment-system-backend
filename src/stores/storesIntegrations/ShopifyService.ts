@@ -183,12 +183,20 @@ export class ShopifyService extends BaseStoreProvider {
             return { url: `${frontendBaseUrl}/store-integration?error=shopify_invalid_session` };
         }
 
-        const store = await this.storesRepo.findOne({
-            where: {
-                adminId: adminId,
-                provider: StoreProvider.SHOPIFY,
-            },
-        });
+        const candidateId = (query.internalStoreId as string);
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{0,4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+        let store: StoreEntity | null = null;
+        if (candidateId && uuidRegex.test(candidateId)) {
+            store = await this.storesRepo.findOne({ where: { id: candidateId, adminId } });
+        }
+        if (!store) {
+            // Legacy single-store fallback: first Shopify store for this admin
+            store = await this.storesRepo.findOne({
+                where: { adminId, provider: StoreProvider.SHOPIFY },
+                order: { created_at: 'ASC' },
+            });
+        }
 
         if (!store) {
             return {
@@ -231,7 +239,7 @@ export class ShopifyService extends BaseStoreProvider {
             const redirectUrl = `${frontendBaseUrl}/store-integration`;
             this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
             if (!oldIsIntegrated && store.syncRemoteProducts) {
-                this.productSyncQueueService.enqueueFullProductSyncLocally(adminId, store.provider)
+                this.productSyncQueueService.enqueueFullProductSyncLocally(store)
             }
             return { url: redirectUrl };
         } catch (error) {
@@ -772,7 +780,7 @@ export class ShopifyService extends BaseStoreProvider {
     }
     //
     public async subscribeAllWebhooks(store: StoreEntity) {
-        const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
+        const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/${store?.id || "shopify"}/orders/create`;
         const topics: { topic: ShopifyTopic, url?: string }[] = [
             { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl },
             { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE },
@@ -784,7 +792,7 @@ export class ShopifyService extends BaseStoreProvider {
             // { topic: ShopifyTopic.RETURNS_CLOSE }, { topic: ShopifyTopic.RETURNS_REOPEN }, { topic: ShopifyTopic.RETURNS_UPDATE }, { topic: ShopifyTopic.RETURNS_CANCEL }, 
         ];
 
-        const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
+        const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/${store?.id || "shopify"}/orders/status`;
 
         // Process in chunks of 5 to avoid triggering Shopify's 429 rate limits
         const chunkSize = 5;
@@ -800,23 +808,33 @@ export class ShopifyService extends BaseStoreProvider {
     }
 
     public async unsubscribeAllWebhooks(store: StoreEntity) {
-        const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
-        const topics: { topic: ShopifyTopic, url?: string }[] = [
-            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl },
-            { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE },
-            { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
-        ];
+        // Use a Set to ensure we don't duplicate calls if store.id happens to be "shopify"
+        const identifiers = Array.from(new Set([store.id, "shopify"].filter(Boolean)));
 
-        const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
+        const tasks: { topic: ShopifyTopic, url: string }[] = [];
+
+        identifiers.forEach(id => {
+            const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/${id}/orders/create`;
+            const statusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/${id}/orders/status`;
+
+            tasks.push(
+                { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl },
+                { topic: ShopifyTopic.ORDERS_CANCELLED, url: statusUrl },
+                { topic: ShopifyTopic.ORDERS_DELETE, url: statusUrl },
+                { topic: ShopifyTopic.ORDERS_UPDATED, url: statusUrl },
+                { topic: ShopifyTopic.ORDERS_PAID, url: statusUrl },
+                { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED, url: statusUrl }
+            );
+        });
 
         const chunkSize = 5;
 
-        for (let i = 0; i < topics.length; i += chunkSize) {
-            const chunk = topics.slice(i, i + chunkSize);
+        for (let i = 0; i < tasks.length; i += chunkSize) {
+            const chunk = tasks.slice(i, i + chunkSize);
 
             await Promise.all(
                 chunk.map(({ topic, url }) =>
-                    this.unsubscribeWebhook(store, topic, url || statusUrl)
+                    this.unsubscribeWebhook(store, topic, url)
                 )
             );
         }
