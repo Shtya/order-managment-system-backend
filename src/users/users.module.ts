@@ -11,12 +11,13 @@ import { SupplierCategoriesModule } from '../supplier/categories/categories.modu
 import { SuppliersModule } from '../supplier/supplier.module';
 import { ProductsModule } from '../products/products.module';
 import { ProductEntity } from 'entities/sku.entity';
+import { GettingStartedItemEntity } from 'entities/getting-started.entity';
 
 @Global()
 @Module({
   imports: [
     forwardRef(() => SubscriptionsModule),
-    TypeOrmModule.forFeature([User, Role, Plan, Subscription, Company, ProductEntity]),
+    TypeOrmModule.forFeature([User, Role, Plan, Subscription, Company, ProductEntity, GettingStartedItemEntity]),
     forwardRef(() => CategoryModule),
     forwardRef(() => SupplierCategoriesModule),
     forwardRef(() => SuppliersModule),

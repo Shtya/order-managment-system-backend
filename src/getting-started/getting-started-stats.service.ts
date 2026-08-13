@@ -282,7 +282,7 @@ export class GettingStartedStatsService {
     const stepStatsRaw = await this.itemRepo.manager.query(
       `
     WITH step_data AS (
-      SELECT s.id, s."itemId", s.key, s.title, s."sortOrder"
+      SELECT s.id, s."itemId", s.key, s.title, s."sortOrder", s.description, s.target
       FROM getting_started_steps s
       JOIN getting_started_items i ON s."itemId" = i.id
       WHERE i."isActive" = true
@@ -341,6 +341,8 @@ export class GettingStartedStatsService {
       s.id,
       s.key,
       s.title,
+      s.description,
+      s.target,
       s."itemId",
       s."sortOrder",
       COALESCE(vc.total_views, 0) AS total_views,
@@ -384,6 +386,8 @@ export class GettingStartedStatsService {
           id: step.id,
           key: step.key,
           title: step.title,
+          description: step.description,
+          target: step.target,
           sortOrder: step.sortOrder,
           totalViews: Number(stats.total_views ?? 0),
           uniqueViewers,
@@ -414,88 +418,114 @@ export class GettingStartedStatsService {
   async getUserOverview(me: any, userId: string) {
     this.ensureSuperAdmin(me);
 
-    // Optionally, you can also allow the user themselves to view their own stats.
-    // For now, only super admin can see any user; we already have ensureSuperAdmin.
+    const result = await this.itemRepo.manager.query(
+      `
+        WITH active_items AS (
+            SELECT
+                i.id,
+                i."completionType"
+            FROM getting_started_items i
+            WHERE i."isActive" = true
+        ),
 
-    const totalItems = await this.itemRepo.count({
-      where: { isActive: true },
-    });
+        user_achievements AS (
+            SELECT DISTINCT
+                a.type::text AS completion_type
+            FROM getting_started_achievements a
+            WHERE a."adminId" = $1
+        ),
 
-    if (totalItems === 0) {
-      return {
+        completed AS (
+            SELECT COUNT(DISTINCT ai.id) AS count
+            FROM active_items ai
+            INNER JOIN user_achievements ua
+                ON ua.completion_type = ai."completionType"::text
+        ),
+
+        started AS (
+            SELECT COUNT(DISTINCT e."itemId") AS count
+            FROM getting_started_events e
+            INNER JOIN active_items ai
+                ON ai.id = e."itemId"
+            WHERE e."adminId" = $1
+              AND e.type IN ($2, $3)
+        ),
+
+        finished AS (
+            SELECT COUNT(DISTINCT e."itemId") AS count
+            FROM getting_started_events e
+            INNER JOIN active_items ai
+                ON ai.id = e."itemId"
+            WHERE e."adminId" = $1
+              AND e.type = $4
+        ),
+
+        skipped AS (
+            SELECT COUNT(DISTINCT e."itemId") AS count
+            FROM getting_started_events e
+            INNER JOIN active_items ai
+                ON ai.id = e."itemId"
+            WHERE e."adminId" = $1
+              AND e.type = $5
+        )
+
+        SELECT
+            (SELECT COUNT(*) FROM active_items) AS total_items,
+            COALESCE((SELECT count FROM completed), 0) AS completed_count,
+            COALESCE((SELECT count FROM started), 0) AS started_count,
+            COALESCE((SELECT count FROM finished), 0) AS finished_count,
+            COALESCE((SELECT count FROM skipped), 0) AS skipped_count
+        `,
+      [
         userId,
-        totalItems: 0,
-        completedCount: 0,
-        startedCount: 0,
-        skippedCount: 0,
-        finishedCount: 0,
-        notStartedCount: 0,
-      };
-    }
+        GettingStartedEventType.ITEM_OPENED,
+        GettingStartedEventType.STEP_VIEWED,
+        GettingStartedEventType.FINISHED,
+        GettingStartedEventType.SKIPPED,
+      ],
+    );
 
-    // Get all active item keys (or ids) to check completion.
-    const items = await this.itemRepo.find({
-      where: { isActive: true },
-      select: ["id", "completionType"],
-    });
+    const row = result[0] ?? {};
 
-    const itemIds = items.map((i) => i.id);
-    const completionTypes = items.map((i) => i.completionType);
-
-    // Completed items: those with an achievement record for any of the completion types
-    const completedCount = await this.achievementRepo
-      .createQueryBuilder("a")
-      .where("a.adminId = :userId", { userId })
-      .andWhere("a.type::text IN (:...types)", { types: completionTypes })
-      .select("COUNT(DISTINCT a.type)", "count")
-      .getRawOne<{ count: string }>()
-      .then((res) => (res ? parseInt(res.count, 10) : 0));
-
-    // Started: at least one ITEM_OPENED or STEP_VIEWED event
-    const startedCount = await this.eventRepo
-      .createQueryBuilder("e")
-      .where("e.adminId = :userId", { userId })
-      .andWhere("e.type IN (:...types)", {
-        types: [
-          GettingStartedEventType.ITEM_OPENED,
-          GettingStartedEventType.STEP_VIEWED,
-        ],
-      })
-      .select("COUNT(DISTINCT e.itemId)", "count")
-      .getRawOne<{ count: string }>()
-      .then((res) => (res ? parseInt(res.count, 10) : 0));
-
-    // Finished: has FINISHED event
-    const finishedCount = await this.eventRepo
-      .createQueryBuilder("e")
-      .where("e.adminId = :userId", { userId })
-      .andWhere("e.type = :type", { type: GettingStartedEventType.FINISHED })
-      .select("COUNT(DISTINCT e.itemId)", "count")
-      .getRawOne<{ count: string }>()
-      .then((res) => (res ? parseInt(res.count, 10) : 0));
-
-    // Skipped: has SKIPPED event
-    const skippedCount = await this.eventRepo
-      .createQueryBuilder("e")
-      .where("e.adminId = :userId", { userId })
-      .andWhere("e.type = :type", { type: GettingStartedEventType.SKIPPED })
-      .select("COUNT(DISTINCT e.itemId)", "count")
-      .getRawOne<{ count: string }>()
-      .then((res) => (res ? parseInt(res.count, 10) : 0));
-
-    const notStartedCount = totalItems - startedCount;
+    const totalItems = Number(row.total_items ?? 0);
+    const completedCount = Number(row.completed_count ?? 0);
+    const startedCount = Number(row.started_count ?? 0);
+    const finishedCount = Number(row.finished_count ?? 0);
+    const skippedCount = Number(row.skipped_count ?? 0);
 
     return {
       userId,
+
       totalItems,
+
       completedCount,
+      notCompletedCount: Math.max(0, totalItems - completedCount),
+
       startedCount,
+      notStartedCount: Math.max(0, totalItems - startedCount),
+
       finishedCount,
       skippedCount,
-      notStartedCount,
-      // Percentages relative to total items
-      completionPercent: this.percent(completedCount, totalItems),
-      startedPercent: this.percent(startedCount, totalItems),
+
+      completionPercent: this.percent(
+        completedCount,
+        totalItems,
+      ),
+
+      startedPercent: this.percent(
+        startedCount,
+        totalItems,
+      ),
+
+      finishedPercent: this.percent(
+        finishedCount,
+        totalItems,
+      ),
+
+      skippedPercent: this.percent(
+        skippedCount,
+        totalItems,
+      ),
     };
   }
 
@@ -505,103 +535,239 @@ export class GettingStartedStatsService {
   async getUserItemStats(me: any, userId: string) {
     this.ensureSuperAdmin(me);
 
-    const items = await this.itemRepo.find({
-      where: { isActive: true },
-      order: { sortOrder: "ASC" },
-      select: ["id", "key", "title", "completionType"],
+    const rows = await this.itemRepo.manager.query(
+      `
+        WITH item_data AS (
+            SELECT
+                i.id,
+                i.key,
+                i.title,
+                i."completionType",
+                i."sortOrder",
+                COUNT(s.id)::int AS step_count
+            FROM getting_started_items i
+            LEFT JOIN getting_started_steps s
+                ON s."itemId" = i.id
+            WHERE i."isActive" = true
+            GROUP BY
+                i.id,
+                i.key,
+                i.title,
+                i."completionType",
+                i."sortOrder"
+        ),
+
+        user_events AS (
+            SELECT
+                e."itemId",
+
+                COUNT(*) FILTER (
+                    WHERE e.type = $2
+                ) AS view_count,
+
+                COUNT(*) FILTER (
+                    WHERE e.type = $3
+                ) AS skip_event_count,
+
+                COUNT(DISTINCT e."stepKey") FILTER (
+                    WHERE e.type = $2
+                      AND e."stepKey" IS NOT NULL
+                ) AS unique_steps_viewed,
+
+                MIN(e.created_at) FILTER (
+                    WHERE e.type IN ($1, $2)
+                ) AS first_started_at,
+
+                MAX(e.created_at) FILTER (
+                    WHERE e.type = $2
+                ) AS last_viewed_at,
+
+                COUNT(*) FILTER (
+                    WHERE e.type = $1
+                ) AS item_open_count
+
+            FROM getting_started_events e
+            INNER JOIN item_data i
+                ON i.id = e."itemId"
+            WHERE e."adminId" = $4
+            GROUP BY e."itemId"
+        ),
+
+        finished AS (
+            SELECT DISTINCT
+                e."itemId"
+            FROM getting_started_events e
+            INNER JOIN item_data i
+                ON i.id = e."itemId"
+            WHERE e."adminId" = $4
+              AND e.type = $5
+        ),
+
+        skipped AS (
+            SELECT DISTINCT
+                e."itemId"
+            FROM getting_started_events e
+            INNER JOIN item_data i
+                ON i.id = e."itemId"
+            WHERE e."adminId" = $4
+              AND e.type = $3
+        ),
+
+        achievements AS (
+            SELECT DISTINCT
+                i.id AS "itemId",
+                a.first_completed_at
+            FROM getting_started_achievements a
+            INNER JOIN item_data i
+                ON i."completionType"::text = a.type::text
+            WHERE a."adminId" = $4
+        ),
+
+       last_step AS (
+          SELECT DISTINCT ON (e."itemId")
+              e."itemId",
+              s.title AS step_title,
+              e."stepKey",
+              e.created_at
+          FROM getting_started_events e
+          INNER JOIN item_data i
+              ON i.id = e."itemId"
+          INNER JOIN getting_started_steps s
+              ON s."itemId" = e."itemId"
+            AND s.key = e."stepKey"
+          WHERE e."adminId" = $4
+            AND e.type = $2
+            AND e."stepKey" IS NOT NULL
+          ORDER BY
+              e."itemId",
+              e.created_at DESC
+      ),
+
+        skipped_finished AS (
+            SELECT DISTINCT
+                e."itemId"
+            FROM getting_started_events e
+            INNER JOIN item_data i
+                ON i.id = e."itemId"
+            INNER JOIN finished f
+                ON f."itemId" = e."itemId"
+            WHERE e."adminId" = $4
+              AND e.type = $3
+        )
+
+        SELECT
+            i.id,
+            i.key,
+            i.title,
+            i."completionType",
+            i."sortOrder",
+            i.step_count,
+
+            CASE
+                WHEN a."itemId" IS NOT NULL THEN true
+                ELSE false
+            END AS completed,
+
+            CASE
+                WHEN ue.first_started_at IS NOT NULL THEN true
+                ELSE false
+            END AS started,
+
+            CASE
+                WHEN f."itemId" IS NOT NULL THEN true
+                ELSE false
+            END AS finished,
+
+            CASE
+                WHEN s."itemId" IS NOT NULL THEN true
+                ELSE false
+            END AS skipped,
+
+            CASE
+                WHEN sf."itemId" IS NOT NULL THEN true
+                ELSE false
+            END AS skipped_finished,
+
+            COALESCE(ue.item_open_count, 0) AS open_count,
+            COALESCE(ue.view_count, 0) AS step_view_event_count,
+            COALESCE(ue.skip_event_count, 0) AS skip_event_count,
+            COALESCE(ue.unique_steps_viewed, 0) AS unique_steps_viewed,
+
+            ue.first_started_at,
+            ue.last_viewed_at,
+
+            ls."stepKey" AS last_viewed_step_key,
+            ls."step_title" AS last_viewed_step_title,
+
+            a.first_completed_at AS completed_at
+
+        FROM item_data i
+
+        LEFT JOIN user_events ue
+            ON ue."itemId" = i.id
+
+        LEFT JOIN achievements a
+            ON a."itemId" = i.id
+
+        LEFT JOIN finished f
+            ON f."itemId" = i.id
+
+        LEFT JOIN skipped s
+            ON s."itemId" = i.id
+
+        LEFT JOIN skipped_finished sf
+            ON sf."itemId" = i.id
+
+        LEFT JOIN last_step ls
+            ON ls."itemId" = i.id
+
+        ORDER BY i."sortOrder"
+        `,
+      [
+        GettingStartedEventType.ITEM_OPENED,
+        GettingStartedEventType.STEP_VIEWED,
+        GettingStartedEventType.SKIPPED,
+        userId,
+        GettingStartedEventType.FINISHED,
+      ],
+    );
+
+    return rows.map((row) => {
+      const stepCount = Number(row.step_count ?? 0);
+      const uniqueStepsViewed = Number(row.unique_steps_viewed ?? 0);
+
+      return {
+        id: row.id,
+        key: row.key,
+        title: row.title,
+        completionType: row.completionType,
+
+        stepCount,
+
+        completed: row.completed,
+        started: row.started,
+        finished: row.finished,
+        skipped: row.skipped,
+        skippedFinished: row.skipped_finished,
+
+        openCount: Number(row.open_count ?? 0),
+        stepViewEventCount: Number(row.step_view_event_count ?? 0),
+        skipEventCount: Number(row.skip_event_count ?? 0),
+
+        uniqueStepsViewed,
+
+        stepsProgressPercent: this.percent(
+          uniqueStepsViewed,
+          stepCount,
+        ),
+
+        firstStartedAt: row.first_started_at,
+        lastViewedAt: row.last_viewed_at,
+        lastViewedStepKey: row.last_viewed_step_key,
+        last_viewed_step_title: row.last_viewed_step_title,
+        completedAt: row.completed_at,
+      };
     });
-
-    if (items.length === 0) return [];
-
-    // Build a map of itemId → stats for this user
-    const result = [];
-
-    for (const item of items) {
-      // Check completion via achievement
-      const completed = await this.achievementRepo
-        .createQueryBuilder("a")
-        .where("a.adminId = :userId", { userId })
-        .andWhere("a.type = :type", { type: item.completionType })
-        .getExists();
-
-      // Check events for this item
-      const [hasStarted, hasFinished, hasSkipped] = await Promise.all([
-        this.eventRepo
-          .createQueryBuilder("e")
-          .where("e.adminId = :userId", { userId })
-          .andWhere("e.itemId = :itemId", { itemId: item.id })
-          .andWhere("e.type IN (:...types)", {
-            types: [
-              GettingStartedEventType.ITEM_OPENED,
-              GettingStartedEventType.STEP_VIEWED,
-            ],
-          })
-          .getExists(),
-        this.eventRepo
-          .createQueryBuilder("e")
-          .where("e.adminId = :userId", { userId })
-          .andWhere("e.itemId = :itemId", { itemId: item.id })
-          .andWhere("e.type = :type", { type: GettingStartedEventType.FINISHED })
-          .getExists(),
-        this.eventRepo
-          .createQueryBuilder("e")
-          .where("e.adminId = :userId", { userId })
-          .andWhere("e.itemId = :itemId", { itemId: item.id })
-          .andWhere("e.type = :type", { type: GettingStartedEventType.SKIPPED })
-          .getExists(),
-      ]);
-
-      // Get last step viewed (if any)
-      const lastViewed = await this.eventRepo
-        .createQueryBuilder("e")
-        .where("e.adminId = :userId", { userId })
-        .andWhere("e.itemId = :itemId", { itemId: item.id })
-        .andWhere("e.type = :type", { type: GettingStartedEventType.STEP_VIEWED })
-        .andWhere("e.stepKey IS NOT NULL")
-        .orderBy("e.created_at", "DESC")
-        .select(["e.stepKey", "e.created_at"])
-        .getOne();
-
-      // Get first opened/viewed date (start)
-      const firstEvent = await this.eventRepo
-        .createQueryBuilder("e")
-        .where("e.adminId = :userId", { userId })
-        .andWhere("e.itemId = :itemId", { itemId: item.id })
-        .andWhere("e.type IN (:...types)", {
-          types: [
-            GettingStartedEventType.ITEM_OPENED,
-            GettingStartedEventType.STEP_VIEWED,
-          ],
-        })
-        .orderBy("e.created_at", "ASC")
-        .select(["e.created_at"])
-        .getOne();
-
-      // Get achievement date (if completed)
-      const achievement = await this.achievementRepo
-        .createQueryBuilder("a")
-        .where("a.adminId = :userId", { userId })
-        .andWhere("a.type = :type", { type: item.completionType })
-        .select(["a.first_completed_at"])
-        .getOne();
-
-      result.push({
-        id: item.id,
-        key: item.key,
-        title: item.title,
-        completionType: item.completionType,
-        completed,
-        started: hasStarted,
-        finished: hasFinished,
-        skipped: hasSkipped,
-        firstEventAt: firstEvent?.created_at || null,
-        lastViewedStepKey: lastViewed?.stepKey || null,
-        lastViewedAt: lastViewed?.created_at || null,
-        completedAt: achievement?.first_completed_at || null,
-      });
-    }
-
-    return result;
   }
 
   /**
@@ -610,79 +776,130 @@ export class GettingStartedStatsService {
   async getUserStepStats(me: any, userId: string) {
     this.ensureSuperAdmin(me);
 
-    const items = await this.itemRepo.find({
-      where: { isActive: true },
-      order: { sortOrder: "ASC" },
-      relations: { steps: true },
-    });
+    const rows = await this.itemRepo.manager.query(
+      `
+        WITH step_data AS (
+            SELECT
+                s.id,
+                s."itemId",
+                s.key,
+                s.title,
+                s."sortOrder",
+                i.key AS item_key,
+                i.title AS item_title
+            FROM getting_started_steps s
+            INNER JOIN getting_started_items i
+                ON i.id = s."itemId"
+            WHERE i."isActive" = true
+        ),
 
-    if (items.length === 0) return [];
+        step_events AS (
+            SELECT
+                e."itemId",
+                e."stepKey",
 
-    const result = [];
+                COUNT(*) FILTER (
+                    WHERE e.type = $1
+                ) AS view_count,
 
-    for (const item of items) {
-      const itemSteps = (item.steps ?? []).sort((a, b) => a.sortOrder - b.sortOrder);
-      const stepsWithStats = [];
+                COUNT(*) FILTER (
+                    WHERE e.type = $2
+                ) AS skip_count,
 
-      for (const step of itemSteps) {
-        // Count views for this step (distinct events – but for a single user, we can just check existence)
-        const hasViewed = await this.eventRepo
-          .createQueryBuilder("e")
-          .where("e.adminId = :userId", { userId })
-          .andWhere("e.itemId = :itemId", { itemId: item.id })
-          .andWhere("e.stepKey = :stepKey", { stepKey: step.key })
-          .andWhere("e.type = :type", { type: GettingStartedEventType.STEP_VIEWED })
-          .getExists();
+                MIN(e.created_at) FILTER (
+                    WHERE e.type = $1
+                ) AS first_viewed_at,
 
-        // Count total view events (could be multiple times)
-        const viewCount = await this.eventRepo
-          .createQueryBuilder("e")
-          .where("e.adminId = :userId", { userId })
-          .andWhere("e.itemId = :itemId", { itemId: item.id })
-          .andWhere("e.stepKey = :stepKey", { stepKey: step.key })
-          .andWhere("e.type = :type", { type: GettingStartedEventType.STEP_VIEWED })
-          .getCount();
+                MAX(e.created_at) FILTER (
+                    WHERE e.type = $1
+                ) AS last_viewed_at
 
-        // Check if skipped at this step (event with stepKey)
-        const hasSkipped = await this.eventRepo
-          .createQueryBuilder("e")
-          .where("e.adminId = :userId", { userId })
-          .andWhere("e.itemId = :itemId", { itemId: item.id })
-          .andWhere("e.stepKey = :stepKey", { stepKey: step.key })
-          .andWhere("e.type = :type", { type: GettingStartedEventType.SKIPPED })
-          .getExists();
+            FROM getting_started_events e
 
-        // Get last view time
-        const lastView = await this.eventRepo
-          .createQueryBuilder("e")
-          .where("e.adminId = :userId", { userId })
-          .andWhere("e.itemId = :itemId", { itemId: item.id })
-          .andWhere("e.stepKey = :stepKey", { stepKey: step.key })
-          .andWhere("e.type = :type", { type: GettingStartedEventType.STEP_VIEWED })
-          .orderBy("e.created_at", "DESC")
-          .select(["e.created_at"])
-          .getOne();
+            INNER JOIN step_data s
+                ON s."itemId" = e."itemId"
+               AND s.key = e."stepKey"
 
-        stepsWithStats.push({
-          id: step.id,
-          key: step.key,
-          title: step.title,
-          sortOrder: step.sortOrder,
-          hasViewed,
-          viewCount,
-          hasSkipped,
-          lastViewedAt: lastView?.created_at || null,
+            WHERE e."adminId" = $3
+              AND e."stepKey" IS NOT NULL
+
+            GROUP BY
+                e."itemId",
+                e."stepKey"
+        )
+
+        SELECT
+            s.id,
+            s.key,
+            s.title,
+            s."sortOrder",
+            s."itemId",
+
+            s.item_key,
+            s.item_title,
+
+            COALESCE(se.view_count, 0) AS view_count,
+            COALESCE(se.skip_count, 0) AS skip_count,
+
+            se.first_viewed_at,
+            se.last_viewed_at,
+
+            CASE
+                WHEN se.view_count > 0 THEN true
+                ELSE false
+            END AS viewed,
+
+            CASE
+                WHEN se.skip_count > 0 THEN true
+                ELSE false
+            END AS skipped
+
+        FROM step_data s
+
+        LEFT JOIN step_events se
+            ON se."itemId" = s."itemId"
+           AND se."stepKey" = s.key
+
+        ORDER BY
+            s."itemId",
+            s."sortOrder"
+        `,
+      [
+        GettingStartedEventType.STEP_VIEWED,
+        GettingStartedEventType.SKIPPED,
+        userId,
+      ],
+    );
+
+    const resultMap = new Map<string, any>();
+
+    for (const row of rows) {
+      if (!resultMap.has(row.itemId)) {
+        resultMap.set(row.itemId, {
+          itemId: row.itemId,
+          itemKey: row.item_key,
+          itemTitle: row.item_title,
+          steps: [],
         });
       }
 
-      result.push({
-        itemId: item.id,
-        itemKey: item.key,
-        itemTitle: item.title,
-        steps: stepsWithStats,
+      resultMap.get(row.itemId).steps.push({
+        id: row.id,
+        key: row.key,
+        title: row.title,
+        sortOrder: Number(row.sortOrder),
+
+        viewed: row.viewed,
+        skipped: row.skipped,
+
+        viewCount: Number(row.view_count ?? 0),
+        skipCount: Number(row.skip_count ?? 0),
+
+        firstViewedAt: row.first_viewed_at,
+        lastViewedAt: row.last_viewed_at,
       });
     }
 
-    return result;
+    return Array.from(resultMap.values());
   }
 }

@@ -14,7 +14,7 @@ import { SeedService } from './initial-seed.service';
 import { TranslationService } from 'common/translation.service';
 import { DateFilterUtil } from 'common/date-filter.util';
 import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
-import { GettingStartedAchievementType } from 'entities/getting-started.entity';
+import { GettingStartedAchievementType, GettingStartedItemEntity } from 'entities/getting-started.entity';
 
 
 @Injectable()
@@ -25,6 +25,7 @@ export class UsersService {
 		@InjectRepository(Role) private rolesRepo: Repository<Role>,
 		@InjectRepository(Plan) private plansRepo: Repository<Plan>, // ✅ NEW
 		@InjectRepository(Subscription) private subscriptionsRepo: Repository<Subscription>, // ✅ NEW
+		@InjectRepository(GettingStartedItemEntity) private itemRepo: Repository<GettingStartedItemEntity>, // ✅ NEW
 
 		@Inject(forwardRef(() => SubscriptionsService))
 		private readonly subscriptionsService: SubscriptionsService,
@@ -143,128 +144,278 @@ export class UsersService {
 			endDate: Date;
 		}
 	) {
-		// ✅ enforce SUPER_ADMIN only
+		// Enforce SUPER_ADMIN only
 		if (!this.isSuperAdmin(me)) {
-			throw new ForbiddenException(this.translations.t("common.permission_denied"));
+			throw new ForbiddenException(
+				this.translations.t("common.permission_denied"),
+			);
 		}
 
 		const page = Math.max(1, Number(opts.page || 1));
 		const limit = Math.min(100, Math.max(1, Number(opts.limit || 10)));
 		const skip = (page - 1) * limit;
 
-		const tab = (opts.tab || 'all').toLowerCase();
-		const search = (opts.search || '').trim();
-		const roleContains = (opts.role || '').trim();
-		const roleId = (opts.roleId || '').trim();
-		const active = (opts.active || 'all').toLowerCase();
-		const adminId = (opts.adminId || '').trim();
+		const tab = (opts.tab || "all").toLowerCase();
+		const search = (opts.search || "").trim();
+		const roleContains = (opts.role || "").trim();
+		const roleId = (opts.roleId || "").trim();
+		const active = (opts.active || "all").toLowerCase();
+		const adminId = (opts.adminId || "").trim();
 
-		// base query
 		const qb = this.usersRepo
-			.createQueryBuilder('u')
-			.leftJoinAndSelect('u.company', 'company')
-			.leftJoinAndSelect('u.wallet', 'wallet')
-			.leftJoinAndSelect('u.role', 'role')
+			.createQueryBuilder("u")
+			.leftJoinAndSelect("u.company", "company")
+			.leftJoinAndSelect("u.wallet", "wallet")
+			.leftJoinAndSelect("u.role", "role")
 			.leftJoinAndSelect(
-				'u.subscriptions',
-				'subscription',
-				'subscription.status = :status',
+				"u.subscriptions",
+				"subscription",
+				"subscription.status = :status",
 				{ status: SubscriptionStatus.ACTIVE }
 			)
-			.leftJoinAndSelect('subscription.plan', 'plan')
-			// ✅ self join to get admin info (owner)
-			.leftJoin(User, 'admin', 'admin.id = u.adminId')
-			.addSelect(['admin.id', 'admin.name', 'admin.email'])
-			.orderBy('u.createdAt', 'DESC');
-			
-		DateFilterUtil.applyToQueryBuilder(qb, "u.createdAt", opts?.startDate, opts?.endDate);
-		// tab filter
-		if (tab === 'active') qb.andWhere('u.isActive = true');
-		if (tab === 'inactive') qb.andWhere('u.isActive = false');
+			.leftJoinAndSelect("subscription.plan", "plan")
 
-		// active filter (extra)
-		if (active === 'true') qb.andWhere('u.isActive = true');
-		if (active === 'false') qb.andWhere('u.isActive = false');
+			// Get admin / owner info
+			.leftJoin(
+				User,
+				"admin",
+				"admin.id = u.adminId"
+			)
+			.addSelect([
+				"admin.id",
+				"admin.name",
+				"admin.email",
+			])
 
-		// adminId filter
-		if (adminId) qb.andWhere('u.adminId = :adminId', { adminId: adminId });
+			// Getting Started progress
+			.addSelect(
+				`
+    (
+        SELECT COUNT(DISTINCT gi.id)
+        FROM getting_started_items gi
+        INNER JOIN getting_started_achievements a
+            ON gi."completionType"::text = a.type::text
+        WHERE gi."isActive" = true
+          AND a."adminId" = u.id
+    )
+    `,
+				"getting_started_completed"
+			)
 
-		// search
+			.orderBy("u.createdAt", "DESC");
+
+		DateFilterUtil.applyToQueryBuilder(
+			qb,
+			"u.createdAt",
+			opts?.startDate,
+			opts?.endDate
+		);
+
+		// Tab filter
+		if (tab === "active") {
+			qb.andWhere("u.isActive = true");
+		}
+
+		if (tab === "inactive") {
+			qb.andWhere("u.isActive = false");
+		}
+
+		// Active filter
+		if (active === "true") {
+			qb.andWhere("u.isActive = true");
+		}
+
+		if (active === "false") {
+			qb.andWhere("u.isActive = false");
+		}
+
+		// Admin filter
+		if (adminId) {
+			qb.andWhere("u.adminId = :adminId", {
+				adminId,
+			});
+		}
+
+		// Search
 		if (search) {
-			qb.andWhere('(u.name LIKE :q OR u.email LIKE :q)', { q: `%${search}%` });
+			qb.andWhere(
+				"(u.name LIKE :q OR u.email LIKE :q)",
+				{
+					q: `%${search}%`,
+				}
+			);
 		}
 
-		// role exact match (preferred) or contains (legacy)
+		// Role filter
 		if (roleId) {
-			qb.andWhere('role.id = :roleId', { roleId });
+			qb.andWhere("role.id = :roleId", {
+				roleId,
+			});
 		} else if (roleContains) {
-			qb.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
+			qb.andWhere("role.name LIKE :r", {
+				r: `%${roleContains}%`,
+			});
 		}
 
-		// count (total with current filters)
-		const total_records = await qb.getCount();
+		// Count
+		const [total_records, gettingStartedTotalResult] = await Promise.all([
+			qb.getCount(),
+			this.itemRepo.manager.query(`
+        SELECT COUNT(*)::int AS total
+        FROM getting_started_items
+        WHERE "isActive" = true
+    `),
+		]);
 
-		// page data
-		const rows = await qb.skip(skip).take(limit).getRawAndEntities();
+		const gettingStartedTotal = Number(
+			gettingStartedTotalResult[0]?.total ?? 0
+		);
 
-		// entities are in rows.entities, admin fields in rows.raw
+		// Page data
+		const rows = await qb
+			.skip(skip)
+			.take(limit)
+			.getRawAndEntities();
+
 		const records = rows.entities.map((u, idx) => {
 			const raw = rows.raw[idx] || {};
+
 			const activeSub = u.activeSubscription ?? null;
+
+			const gettingStartedCompleted = Number(
+				raw.getting_started_completed ?? 0
+			);
+
+			const gettingStartedTotal = Number(
+    gettingStartedTotalResult[0]?.total ?? 0
+);
+
+
+			const gettingStartedPercent = Math.round(
+				(gettingStartedCompleted / gettingStartedTotal) * 100
+			);
+
 			return {
 				...u,
-				subscription: activeSub ?? null,
-				// subscriptionId: u.subscriptionId ?? null,
 
-				// extra info
-				role: u.role ? { id: u.role.id, name: u.role.name } : null,
-				plan: activeSub ? { id: activeSub.id, name: activeSub.plan?.name } : null,
+				subscription: activeSub ?? null,
+
+				role: u.role
+					? {
+						id: u.role.id,
+						name: u.role.name,
+					}
+					: null,
+
+				plan: activeSub
+					? {
+						id: activeSub.id,
+						name: activeSub.plan?.name,
+					}
+					: null,
 
 				admin: raw?.admin_id
-					? { id: raw.admin_id, name: raw.admin_name, email: raw.admin_email }
+					? {
+						id: raw.admin_id,
+						name: raw.admin_name,
+						email: raw.admin_email,
+					}
 					: null,
-			
+
+				gettingStarted: {
+					completed: gettingStartedCompleted,
+					total: gettingStartedTotal,
+					percent: gettingStartedPercent,
+				},
 			};
 		});
 
-		// stats (same filters except pagination)
-		// For stats, we reuse qb but without skip/take:
+		// Stats
 		const qbStats = this.usersRepo
-			.createQueryBuilder('u')
-			.leftJoin('u.role', 'role');
+			.createQueryBuilder("u")
+			.leftJoin("u.role", "role");
 
-		// apply same filters
-		if (tab === 'active') qbStats.andWhere('u.isActive = true');
-		if (tab === 'inactive') qbStats.andWhere('u.isActive = false');
-		if (active === 'true') qbStats.andWhere('u.isActive = true');
-		if (active === 'false') qbStats.andWhere('u.isActive = false');
-		if (adminId) qbStats.andWhere('u.adminId = :adminId', { adminId: adminId });
-		if (search) qbStats.andWhere('(u.name LIKE :q OR u.email LIKE :q)', { q: `%${search}%` });
+		DateFilterUtil.applyToQueryBuilder(
+			qbStats,
+			"u.createdAt",
+			opts?.startDate,
+			opts?.endDate
+		);
+
+		if (tab === "active") {
+			qbStats.andWhere("u.isActive = true");
+		}
+
+		if (tab === "inactive") {
+			qbStats.andWhere("u.isActive = false");
+		}
+
+		if (active === "true") {
+			qbStats.andWhere("u.isActive = true");
+		}
+
+		if (active === "false") {
+			qbStats.andWhere("u.isActive = false");
+		}
+
+		if (adminId) {
+			qbStats.andWhere("u.adminId = :adminId", {
+				adminId,
+			});
+		}
+
+		if (search) {
+			qbStats.andWhere(
+				"(u.name LIKE :q OR u.email LIKE :q)",
+				{
+					q: `%${search}%`,
+				}
+			);
+		}
+
 		if (roleId) {
-			qbStats.andWhere('role.id = :roleId', { roleId });
+			qbStats.andWhere("role.id = :roleId", {
+				roleId,
+			});
 		} else if (roleContains) {
-			qbStats.andWhere('role.name LIKE :r', { r: `%${roleContains}%` });
+			qbStats.andWhere("role.name LIKE :r", {
+				r: `%${roleContains}%`,
+			});
 		}
 
 		const total = await qbStats.getCount();
-		const activeCount = await qbStats.clone().andWhere('u.isActive = true').getCount();
-		const inactiveCount = await qbStats.clone().andWhere('u.isActive = false').getCount();
+
+		const activeCount = await qbStats
+			.clone()
+			.andWhere("u.isActive = true")
+			.getCount();
+
+		const inactiveCount = await qbStats
+			.clone()
+			.andWhere("u.isActive = false")
+			.getCount();
 
 		return {
 			records,
 			total_records,
 			current_page: page,
 			per_page: limit,
-			stats: { total, active: activeCount, inactive: inactiveCount },
+
+			stats: {
+				total,
+				active: activeCount,
+				inactive: inactiveCount,
+			},
 		};
 	}
 
 	async superAdminExportCsv(
 		me: User,
-		opts: { tab: string; search: string; role: string; roleId: string; active: string; adminId: string,
+		opts: {
+			tab: string; search: string; role: string; roleId: string; active: string; adminId: string,
 			startDate: Date;
 			endDate: Date;
-		 }
+		}
 	) {
 		if (!this.isSuperAdmin(me)) throw new ForbiddenException(this.translations.t("common.permission_denied"));
 
