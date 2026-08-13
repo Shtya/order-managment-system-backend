@@ -1147,6 +1147,7 @@
     "waba_id": "معرف حساب واتساب للأعمال (WABA ID)",
     "phone_number_id": "معرف رقم الهاتف",
     "template_not_found_or_inactive": "لم يتم العثور على القالب أو أنه غير نشط",
+    "template_already_exists": "يوجد بالفعل قالب بنفس الاسم والحساب واللغة",
     "whatsapp_account_inactive_or_missing_credentials": "حساب واتساب غير نشط أو بيانات الاعتماد مفقودة",
     "unable_to_determine_file_type": "تعذر تحديد نوع الملف",
     "file_not_found": "لم يتم العثور على الملف: {filePath}",

@@ -1144,6 +1144,7 @@
     "waba_id": "WABA ID",
     "phone_number_id": "Phone Number ID",
     "template_not_found_or_inactive": "Template not found or inactive",
+    "template_already_exists": "A template with the same name, account, and language already exists",
     "whatsapp_account_inactive_or_missing_credentials": "WhatsApp account is inactive or missing credentials",
     "unable_to_determine_file_type": "Unable to determine file type",
     "file_not_found": "File not found: {filePath}",

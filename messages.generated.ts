@@ -1288,6 +1288,7 @@ export type I18nTranslations = {
             "waba_id": string;
             "phone_number_id": string;
             "template_not_found_or_inactive": string;
+            "template_already_exists": string;
             "whatsapp_account_inactive_or_missing_credentials": string;
             "unable_to_determine_file_type": string;
             "file_not_found": string;

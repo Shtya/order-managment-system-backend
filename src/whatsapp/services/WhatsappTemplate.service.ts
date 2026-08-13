@@ -158,7 +158,16 @@ export class WhatsappTemplateService {
         }
 
         if (accountId) {
-            qb.andWhere("tpl.accountId = :accountId", { accountId });
+            // Filter by the selected account's WABA ID (templates are keyed to a single WABA).
+            const selectedAccount = await this.accountRepo.findOne({
+                where: { id: accountId },
+                select: { wabaId: true },
+            });
+            if (selectedAccount?.wabaId) {
+                qb.andWhere("account.wabaId = :wabaId", { wabaId: selectedAccount.wabaId });
+            } else {
+                qb.andWhere("tpl.accountId = :accountId", { accountId });
+            }
         }
 
         if (status && status !== 'all') {
@@ -326,6 +335,20 @@ export class WhatsappTemplateService {
             if (!account) throw new NotFoundException(this.translations.t('domains.whatsapp.whatsapp_account_not_found'));
         }
 
+        const existingTemplate = await this.templateRepo.findOne({
+            where: {
+                name: dto.name,
+                language: dto.language,
+                account: {
+                    wabaId: account.wabaId,
+                },
+                adminId,
+            },
+        });
+        if (existingTemplate) {
+            throw new BadRequestException(this.translations.t('domains.whatsapp.template_already_exists'));
+        }
+
         let metaId: string | null = null;
         let status = TemplateStatus.PENDING;
 
@@ -468,13 +491,13 @@ export class WhatsappTemplateService {
 
         return await this.templateRepo.save(template);
     }
-      async delete(me: any, id: string) {
+    async delete(me: any, id: string) {
         const adminId = tenantId(me);
         const template = await this.findOne(me, id);
         const isSuperAdmin = this.isSuperAdmin(me);
         if (!isSuperAdmin && template.status === TemplateStatus.DISABLED) {
             throw new BadRequestException(await this.requestTranslations.tAsync("domains.whatsapp.disabled_templates_cannot_be_deleted", adminId));
-            
+
         }
 
         if (!isSuperAdmin) {
@@ -1180,7 +1203,14 @@ export class WhatsappTemplateService {
             }
 
             const existing = await repo.findOne({
-                where: { name: metaTpl.name, accountId, adminId, language }
+                where: {
+                    name: metaTpl.name,
+                    adminId,
+                    language,
+                    account: {
+                        wabaId,
+                    },
+                },
             });
 
             if (existing) {

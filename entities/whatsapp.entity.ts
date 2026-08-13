@@ -426,6 +426,7 @@ export class WhatsappTemplateEntity {
     @UpdateDateColumn({ type: 'timestamptz' })
     updatedAt: Date;
 }
+
 export enum MessageActionIntent {
     NONE = 'none',
     LOCATION_REQUEST = 'location_request',

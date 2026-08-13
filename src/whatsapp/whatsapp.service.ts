@@ -828,12 +828,18 @@ export class WhatsappService {
             // Handle Template Metadata for Frontend Preview
             let templateMetadata = null;
             if (payload.type === 'template' && payload.template?.name) {
+                const templateAccount = await this.accountRepo.findOne({
+                    where: { id: accountId },
+                    select: { wabaId: true },
+                });
                 const template = await this.templateRepo.findOne({
                     where: {
                         name: payload.template.name,
-                        accountId,
-                        adminId
-                    }
+                        adminId,
+                        ...(templateAccount?.wabaId
+                            ? { account: { wabaId: templateAccount.wabaId } }
+                            : { accountId }),
+                    },
                 });
                 if (template) {
                     templateMetadata = {
