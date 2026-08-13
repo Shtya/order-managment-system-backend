@@ -1460,19 +1460,29 @@ export class WhatsappService {
         // 🔥 request-scoped cache (ONLY THIS REQUEST)
         const accountCache = new Map<string, WhatsappAccountEntity>();
 
-        const resolveAccount = async (wabaId: any) => {
-            if (!wabaId) {
-                throw new BadRequestException("Missing WABA ID");
+        const resolveAccount = async (opts: { phoneNumberId?: string; wabaId?: string }) => {
+            const { phoneNumberId, wabaId } = opts;
+            if (!phoneNumberId && !wabaId) {
+                throw new BadRequestException("Missing WABA ID or phone_number_id");
             }
+
+            // A single WABA can host multiple phone numbers, each mapped to its own
+            // account record. Prefer resolving by metadata.phone_number_id so the
+            // webhook event and its messages are stored against the correct number.
+            const cacheKey = phoneNumberId ? `phone:${phoneNumberId}` : `waba:${wabaId}`;
 
             // 1. check request cache
-            if (accountCache.has(wabaId)) {
-                return accountCache.get(wabaId)!;
+            if (accountCache.has(cacheKey)) {
+                return accountCache.get(cacheKey)!;
             }
 
-            // 2. DB lookup
+            // 2. DB lookup (phone_number_id preferred, wabaId as fallback)
+            const where: any = {};
+            if (phoneNumberId) where.phoneNumberId = phoneNumberId;
+            if (wabaId) where.wabaId = wabaId;
+
             const account = await this.accountRepo.findOne({
-                where: { wabaId },
+                where,
                 select: {
                     accessToken: true,
                     adminId: true,
@@ -1503,7 +1513,7 @@ export class WhatsappService {
             }
 
             // 3. store in request cache
-            accountCache.set(wabaId, account);
+            accountCache.set(cacheKey, account);
 
             return account;
         };
@@ -1513,7 +1523,7 @@ export class WhatsappService {
             headers["X-Hub-Signature-256"];
         const entries = body?.entry || [];
         const mainWabaId = entries?.[0]?.id;
-        const mainAccount = await resolveAccount(mainWabaId);
+        const mainAccount = await resolveAccount({ wabaId: mainWabaId });
         // this.logger.log(`WhatsApp Webhook Received - mainWabaId: ${mainWabaId} -  Main Account: ${JSON.stringify(mainAccount)}`);
 
         // Step 1: Validate request
@@ -1521,12 +1531,19 @@ export class WhatsappService {
 
 
         for (const entry of entries) {
-            const account = await resolveAccount(entry?.id);
             const changes = entry?.changes || [];
 
             for (const change of changes) {
                 const field = change?.field as WebhookEventType;
                 const value = change?.value;
+
+                // Resolve the account by phone_number_id (preferred) falling back to wabaId.
+                // This ensures the rawPayload webhook event and any inbound messages are
+                // stored against the specific WhatsApp number/account that received them.
+                const account = await resolveAccount({
+                    phoneNumberId: value?.metadata?.phone_number_id,
+                    wabaId: entry?.id,
+                });
 
                 // Save raw webhook event
                 const webhookEvent = this.webhookRepo.create({
@@ -2066,8 +2083,7 @@ export class WhatsappService {
             // 3. Check if account already exists
             let existing = await this.accountRepo.findOne({
                 where: [
-                    { wabaId, adminId },
-                    { phoneNumberId, adminId }
+                    { wabaId, adminId, phoneNumberId },
                 ]
             });
             // If exists, we will update it later; no throw.

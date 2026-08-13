@@ -289,9 +289,14 @@ export class ConversationEntity {
     messages: WhatsappMessageEntity[];
 }
 
-@Index(["adminId", "phoneNumberId"], { unique: true, where: `"phoneNumberId" IS NOT NULL` })
-@Index(["adminId", "wabaId"], { unique: true, where: `"wabaId" IS NOT NULL` })
-@Entity('whatsapp_accounts')
+@Index(
+  ["adminId", "wabaId", "phoneNumberId"],
+  {
+    unique: true,
+    where: `"wabaId" IS NOT NULL AND "phoneNumberId" IS NOT NULL`,
+  }
+)
+@Entity("whatsapp_accounts")
 export class WhatsappAccountEntity {
     @PrimaryGeneratedColumn('uuid')
     id: string;
