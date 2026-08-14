@@ -659,6 +659,7 @@ export type I18nTranslations = {
             "bulk_deposit_must_be_positive": string;
             "bulk_shipping_cost_must_be_positive": string;
             "bulk_discount_must_be_positive": string;
+            "bulk_additional_fees_must_be_positive": string;
             "bulk_sku_not_found": string;
             "bulk_quantity_min_one": string;
             "bulk_price_must_be_positive": string;
@@ -750,6 +751,7 @@ export type I18nTranslations = {
             "export_payment_method": string;
             "export_payment_status": string;
             "export_discount": string;
+            "export_additional_fees": string;
             "export_deposit": string;
             "export_notes": string;
             "export_shipping_company": string;

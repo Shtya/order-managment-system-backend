@@ -1797,6 +1797,11 @@ export class WhatsappService {
             return { id: listReply.id, text: listReply.title };
         }
 
+        // 4. Location Reply (response to a location_request message)
+        if (type === WhatsappMessageType.LOCATION && metaMsg.location) {
+            return { id: 'any_option', text: metaMsg.location?.name || 'location' };
+        }
+
         return null;
     }
 

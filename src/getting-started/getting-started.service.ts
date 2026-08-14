@@ -50,6 +50,7 @@ export class GettingStartedService {
       dependsOn: item.dependsOn ?? [],
       sortOrder: item.sortOrder,
       isActive: item.isActive,
+      groupNumber: item.groupNumber,
       steps: (item.steps ?? [])
         .slice()
         .sort((a, b) => a.sortOrder - b.sortOrder)

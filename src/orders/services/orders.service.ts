@@ -245,12 +245,12 @@ export class OrdersService {
   }
 
   // ✅ Calculate totals
-  private calculateTotals(items: any[], shippingCost = 0, discount = 0) {
+  public calculateTotals(items: any[], shippingCost = 0, discount = 0, additionalFees = 0) {
     const productsTotal = items.reduce((sum, item) => {
       return sum + Number(item.unitPrice) * Number(item.quantity);
     }, 0);
 
-    const finalTotal = Number(productsTotal) + Number(shippingCost) - Number(discount);
+    const finalTotal = Number(productsTotal) + Number(shippingCost) + Number(additionalFees) - Number(discount);
 
     const profit = items.reduce((sum, item) => {
       return sum + (Number(item.unitPrice) - Number(item.unitCost)) * Number(item.quantity);
@@ -2850,6 +2850,7 @@ export class OrdersService {
       items,
       dto.shippingCost ?? 0,
       dto.discount ?? 0,
+      dto.additionalFees ?? 0,
     );
 
     const itemsSignature = this.generateItemsSignature(items);
@@ -2948,6 +2949,7 @@ export class OrdersService {
       storeId: dto.storeId ? dto.storeId : null,
       shippingCost: dto.shippingCost ?? 0,
       discount: dto.discount ?? 0,
+      additionalFees: dto.additionalFees ?? 0,
       productsTotal,
       finalTotal,
       profit,
@@ -3304,6 +3306,7 @@ export class OrdersService {
         storeId: dto.storeId !== undefined ? dto.storeId : order.storeId,
         shippingCost: dto.shippingCost !== undefined ? dto.shippingCost : order.shippingCost,
         discount: dto.discount !== undefined ? dto.discount : order.discount,
+        additionalFees: dto.additionalFees !== undefined ? dto.additionalFees : order.additionalFees,
         notes: dto.notes !== undefined ? dto.notes : order.notes,
         customerNotes: dto.customerNotes !== undefined ? dto.customerNotes : order.customerNotes,
         trackingNumber: dto.trackingNumber !== undefined ? dto.trackingNumber : order.trackingNumber,
@@ -3325,6 +3328,7 @@ export class OrdersService {
         })),
         order.shippingCost,
         order.discount,
+        order.additionalFees,
       );
       order.productsTotal = productsTotal;
       order.finalTotal = finalTotal;
@@ -4491,13 +4495,15 @@ export class OrdersService {
         shippingCompany: order.shippingCompany?.name || na,
         shippingCost: order.shippingCost || 0,
         discount: order.discount || 0,
+        additionalFees: order.additionalFees || 0,
         deposit: order.deposit || 0,
         finalTotal:
           (order.items?.reduce(
             (sum, item) => sum + item.unitPrice * item.quantity,
             0,
           ) || 0) +
-          (order.shippingCost || 0) -
+          (order.shippingCost || 0) +
+          (order.additionalFees || 0) -
           (order.discount || 0),
         notes: order.notes || na,
         customerNotes: order.customerNotes || na,
@@ -4532,6 +4538,7 @@ export class OrdersService {
       { header: t('common.export_shipping_company'), key: "shippingCompany", width: 20 },
       { header: t('domains.orders.export_shipping_cost'), key: "shippingCost", width: 15 },
       { header: t('domains.orders.export_discount'), key: "discount", width: 15 },
+      { header: t('domains.orders.export_additional_fees'), key: "additionalFees", width: 15 },
       { header: t('domains.orders.export_deposit'), key: "deposit", width: 15 },
       { header: t('domains.orders.export_final_total'), key: "finalTotal", width: 15 },
       { header: t('domains.orders.export_notes'), key: "notes", width: 30 },
@@ -4631,6 +4638,7 @@ export class OrdersService {
       { header: this.translations.t('domains.orders.export_shipping_cost'), key: "shippingCost", width: 30 },
       { header: this.translations.t('domains.orders.export_deposit'), key: "deposit", width: 30 },
       { header: this.translations.t('domains.orders.export_discount'), key: "discount", width: 30 },
+      { header: this.translations.t('domains.orders.export_additional_fees'), key: "additionalFees", width: 30 },
       { header: this.translations.t('domains.orders.export_notes'), key: "notes", width: 24 },
       { header: this.translations.t('domains.orders.export_customer_notes'), key: "customerNotes", width: 40 },
     ];
@@ -4654,6 +4662,7 @@ export class OrdersService {
       shippingCost: 50,
       deposit: 0,
       discount: 0,
+      additionalFees: 0,
       notes: "Handle with care",
       customerNotes: "Call before delivery",
       // ✅ Grouped items logic applied here
@@ -5106,6 +5115,7 @@ export class OrdersService {
         shippingCost: Number(row.getCell(14).value || 0),
         deposit: Number(row.getCell(15).value || 0),
         discount: Number(row.getCell(16).value || 0),
+        additionalFees: Number(row.getCell(20).value || 0),
         notes: this.convertCellValue(
           row.getCell(17).value,
           "notes",
@@ -5297,6 +5307,13 @@ export class OrdersService {
         addCellError(row.rowNumber, 16, msg);
       }
 
+      const additionalFees = Number(row.additionalFees) || 0;
+      if (isNaN(additionalFees) || additionalFees < 0) {
+        const msg = this.translations.t('domains.orders.bulk_additional_fees_must_be_positive');
+        rowErrors.push(msg);
+        addCellError(row.rowNumber, 20, msg);
+      }
+
       const items: OrderItemDto[] = [];
       const itemParts = row.itemsRaw.split(",").filter(Boolean);
 
@@ -5372,6 +5389,7 @@ export class OrdersService {
           allowOpenPackage: row.allowOpenPackage,
           deposit: row.deposit,
           discount: row.discount,
+          additionalFees: row.additionalFees,
           notes: row.notes,
           customerNotes: row.customerNotes,
         });
@@ -5475,6 +5493,7 @@ export class OrdersService {
       { header: this.translations.t('domains.orders.export_shipping_cost'), key: "shippingCost", width: 30 },
       { header: this.translations.t('domains.orders.export_deposit'), key: "deposit", width: 30 },
       { header: this.translations.t('domains.orders.export_discount'), key: "discount", width: 30 },
+      { header: this.translations.t('domains.orders.export_additional_fees'), key: "additionalFees", width: 30 },
       { header: this.translations.t('domains.orders.export_notes'), key: "notes", width: 24 },
       { header: this.translations.t('domains.orders.export_customer_notes'), key: "customerNotes", width: 40 },
     ];
@@ -5518,6 +5537,7 @@ export class OrdersService {
         shippingCost: row.shippingCost,
         deposit: row.deposit,
         discount: row.discount,
+        additionalFees: row.additionalFees,
         notes: row.notes,
         customerNotes: row.customerNotes,
         items: row.itemsRaw,

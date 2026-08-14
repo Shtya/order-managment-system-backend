@@ -1605,7 +1605,7 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
             paymentStatus: paymentStatus,
             status: orderStatus,
             shippingCost: Number(body.shipping_total || 0),
-
+            totalCost: Number(body.total),
             cartItems: await Promise.all(
                 lineItems.map(async (item: any) => {
                     const productId = String(item.product_id);

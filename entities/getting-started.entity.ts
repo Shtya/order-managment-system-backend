@@ -93,7 +93,10 @@ export class GettingStartedItemEntity {
     description: {
         ar: string;
         en: string;
-    };
+    };  
+
+    @Column({ type: "int", default: 1 })
+    groupNumber: number;
 
     @Column({
         type: "enum",

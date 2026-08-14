@@ -327,7 +327,10 @@ export class OrderEntity {
   discount!: number;
 
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
-  finalTotal!: number; // productsTotal + shippingCost - discount
+  additionalFees!: number; // Manual store-side adjustments (tips, fees) added to the total
+
+  @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
+  finalTotal!: number; // productsTotal + shippingCost + additionalFees - discount
 
   @Column({ type: "decimal", precision: 12, scale: 2, default: 0 })
   profit!: number; // finalTotal - totalCost

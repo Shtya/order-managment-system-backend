@@ -1273,6 +1273,28 @@ export class StoresService {
           }
         }
 
+        //  Reconcile the order total against the store's actual charged amount.
+        //  The store may have manually edited the total (manual discount or a
+        //  manual surcharge like a tip / extra fee). Our locally computed total
+        //  (items + shipping) is the baseline; anything below it becomes a
+        //  discount, anything above it is captured as additionalFees so the
+        //  stored finalTotal always matches what the customer actually paid.
+        const round = (value: number) => Number(value.toFixed(2));
+
+        const shippingCost = round(Number(payload.shippingCost || 0));
+        
+        const {finalTotal: computedTotal} =  this.ordersService.calculateTotals(items, shippingCost, 0 , 0);
+        const incomingTotal = payload.totalCost != null ? round(Number(payload.totalCost)) : computedTotal;
+        const delta = round(incomingTotal - computedTotal);
+
+        let mappedDiscount = 0;
+        let mappedAdditionalFees = 0;
+        if (delta < 0) {
+          mappedDiscount = -delta;
+        } else if (delta > 0) {
+          mappedAdditionalFees = delta;
+        }
+
         //  Create Order
         const createOrderDto: CreateOrderDto = {
           customerName: payload.fullName,
@@ -1281,9 +1303,10 @@ export class StoresService {
           city: payload.government || "Unknown",
           paymentMethod: payload.paymentMethod,
           paymentStatus: payload.paymentStatus,
-          shippingCost: payload.shippingCost || 0,
+          shippingCost: shippingCost,
           shippingCompanyId: null,
-          discount: 0,
+          discount: mappedDiscount,
+          additionalFees: mappedAdditionalFees,
           items: items,
           // notes: `Imported from ${p.displayName}) via Webhook`,
           storeId: String(store.id),

@@ -503,6 +503,7 @@ interface GettingStartedChecklistItem {
 	completionType: GettingStartedAchievementType;
 	dependsOn: string[];
 	sortOrder: number;
+	groupNumber?: number;
 	steps: GettingStartedChecklistStep[];
 }
 
@@ -523,9 +524,8 @@ const gettingStartedChecklist: GettingStartedChecklistItem[] = [
 		completionType: GettingStartedAchievementType.FIRST_WAREHOUSE_CREATED,
 
 		dependsOn: [],
-
+		
 		sortOrder: 5,
-
 		steps: [
 			{
 				key: "open_warehouse_management",
@@ -1114,27 +1114,6 @@ const gettingStartedChecklist: GettingStartedChecklistItem[] = [
 				},
 				sortOrder: 6,
 			},
-
-			{
-				key: "integrate_store",
-				title: {
-					ar: "اربط المتجر",
-					en: "Connect the store",
-				},
-				description: {
-					ar: "بعد ما تدخل كل الإعدادات المطلوبة، اضغط ربط لإتمام عملية الربط. بعض المتاجر لا تتطلب تلمك الخطوة",
-					en: "Once you enter all the required settings, click Integrate to complete the connection. Some stores do not require this step.",
-				},
-				target: {
-					type: GettingStartedTargetType.BUTTON,
-					page: "/store-integration",
-					key: "store.integrate",
-				},
-				actionConfig: {
-					trigger: "click",
-				},
-				sortOrder: 7,
-			},
 		],
 	},
 	{
@@ -1347,6 +1326,8 @@ const gettingStartedChecklist: GettingStartedChecklistItem[] = [
 
 		dependsOn: [],
 
+		groupNumber: 1,
+
 		sortOrder: 4,
 
 		steps: [
@@ -1431,6 +1412,8 @@ const gettingStartedChecklist: GettingStartedChecklistItem[] = [
 
 		dependsOn: [],
 
+		groupNumber: 1,
+
 		sortOrder: 3,
 
 		steps: [
@@ -1514,6 +1497,8 @@ const gettingStartedChecklist: GettingStartedChecklistItem[] = [
 		completionType: GettingStartedAchievementType.FIRST_PURCHASE_ACCEPTED,
 
 		dependsOn: ["create_first_safe", "create_first_supplier"],
+
+		groupNumber: 1,
 
 		sortOrder: 8,
 
@@ -1898,6 +1883,7 @@ async function seedGettingStarted() {
 			completionType: checklistItem.completionType,
 			dependsOn: checklistItem.dependsOn,
 			sortOrder: checklistItem.sortOrder,
+			groupNumber: checklistItem.groupNumber ?? 2,
 			isActive: true,
 		});
 		const savedItem = await itemRepo.save(itemEntity);
@@ -1905,6 +1891,7 @@ async function seedGettingStarted() {
 
 		const existingSteps = await stepRepo.find({ where: { itemId: savedItem.id } });
 		const stepByKey = new Map(existingSteps.map((step) => [step.key, step]));
+		const definedStepKeys = new Set(checklistItem.steps.map((step) => step.key));
 
 		for (const step of checklistItem.steps) {
 			const existingStep = stepByKey.get(step.key);
@@ -1921,6 +1908,22 @@ async function seedGettingStarted() {
 			const savedStep = await stepRepo.save(stepEntity);
 			stepByKey.set(step.key, savedStep);
 		}
+
+		// Remove steps that were seeded before but are no longer defined in this file.
+		const staleSteps = existingSteps.filter((step) => !definedStepKeys.has(step.key));
+		if (staleSteps.length > 0) {
+			await stepRepo.remove(staleSteps);
+			console.log(`🗑️  Removed ${staleSteps.length} stale step(s) from checklist item "${checklistItem.key}"`);
+		}
+	}
+
+	// Remove items that were seeded before but are no longer defined in this file
+	// (their steps are cascade-deleted by the database).
+	const definedItemKeys = new Set(gettingStartedChecklist.map((item) => item.key));
+	const staleItems = existingItems.filter((item) => !definedItemKeys.has(item.key));
+	if (staleItems.length > 0) {
+		await itemRepo.remove(staleItems);
+		console.log(`🗑️  Removed ${staleItems.length} stale getting started checklist item(s)`);
 	}
 
 	console.log(`✅ Seeded ${gettingStartedChecklist.length} getting started checklist items`);

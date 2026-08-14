@@ -210,6 +210,11 @@ export class CreateOrderDto {
   @Min(0, { message: i18nValidationMessage('validation.min') })
   discount?: number;
 
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_number') })
+  @Min(0, { message: i18nValidationMessage('validation.min') })
+  additionalFees?: number;
+
   // Notes
   @IsOptional()
   @IsString({ message: i18nValidationMessage('validation.is_string') })
@@ -415,6 +420,11 @@ export class CreateReplacementDto {
   @Type(() => Number)
   @Min(0, { message: i18nValidationMessage('validation.min') })
   discount?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_number') })
+  @Min(0, { message: i18nValidationMessage('validation.min') })
+  additionalFees?: number;
 
   @IsOptional()
   @IsNumber({}, { message: i18nValidationMessage('validation.is_number') })

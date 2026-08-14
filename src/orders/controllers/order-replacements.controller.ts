@@ -76,6 +76,7 @@ export class OrderReplacemetsController {
             customerNotes: body.customerNotes || undefined,
             shippingCompanyId: body.shippingCompanyId || undefined,
             discount: body.discount != null ? Number(parseNumber(body.discount)) : undefined,
+            additionalFees: body.additionalFees != null ? Number(parseNumber(body.additionalFees)) : undefined,
             deposit: body.deposit != null ? Number(parseNumber(body.deposit)) : undefined,
             paymentMethod: body.paymentMethod,
             shippingCost: body.shippingCost != null ? Number(parseNumber(body.shippingCost)) : undefined,

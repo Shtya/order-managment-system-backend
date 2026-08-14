@@ -303,6 +303,7 @@ export class OrderReplacementService {
                 storeId: originalOrder.storeId?.toString(),
                 shippingCost: dto.shippingCost,
                 discount: dto.discount,
+                additionalFees: dto.additionalFees,
                 notes: dto.internalNotes,
                 customerNotes: dto.customerNotes,
                 items: dto.items.map((it) => ({
