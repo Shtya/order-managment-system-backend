@@ -1735,7 +1735,54 @@ export default class WooCommerceService extends BaseStoreProvider implements ISk
     }
     
     public async getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]> {
-        return [];
+        let allProducts: MappedProductDto[] = [];
+        let currentPage = 1;
+        const perPage = 50;
+        let hasNextPage = true;
+
+        while (hasNextPage) {
+            try {
+                // Fetch basic product list without variations to get IDs
+                const response = await this.sendRequest(store, {
+                    method: 'GET',
+                    url: '/products',
+                    params: {
+                        status: 'any',
+                        per_page: perPage,
+                        page: currentPage,
+                    },
+                });
+
+                const remoteProducts = response?.data ?? response ?? [];
+
+                // Process in chunks of 10 to get full details (variations) for each product
+                for (let i = 0; i < remoteProducts.length; i += 10) {
+                    const chunk = remoteProducts.slice(i, i + 10);
+                    const chunkPromises = chunk.map(p => this.getFullProductById(store, String(p.id)));
+                    const results = await Promise.allSettled(chunkPromises);
+                    const successfulProducts = results
+                        .filter(
+                            (r): r is PromiseFulfilledResult<MappedProductDto> =>
+                                r.status === 'fulfilled'
+                        )
+                        .map(r => r.value);
+                    allProducts.push(...successfulProducts);
+                }
+
+                // WooCommerce returns an empty (or partial) array when the page is out of range
+                if (remoteProducts.length < perPage) {
+                    hasNextPage = false;
+                } else {
+                    currentPage++;
+                }
+            } catch (error: any) {
+                const message = this.getErrorMessage(error);
+                this.logger.error(`[Product] Failed to fetch products page ${currentPage}: ${message}`);
+                hasNextPage = false; // Stop on error
+            }
+        }
+
+        return allProducts;
     }
     
     

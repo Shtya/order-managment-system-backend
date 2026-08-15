@@ -1910,7 +1910,11 @@ export class ProductsService {
       where: {
         adminId,
         sku: In(normalized),
+        product: {
+          isActive: true
+        }
       } as any,
+      
       select: ["sku", "productId"],
     });
 

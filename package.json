@@ -47,6 +47,7 @@
     "@nestjs/platform-express": "^10.4.15",
     "@nestjs/platform-socket.io": "^10.4.15",
     "@nestjs/schedule": "^6.0.0",
+    "@nestjs/swagger": "^7.4.2",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "@nestjs/websockets": "^10.4.15",
@@ -122,6 +123,10 @@
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
       "^.+\\.(t|j)s$": "ts-jest"
+    },
+    "moduleNameMapper": {
+      "^common/(.*)$": "<rootDir>/../common/$1",
+      "^entities/(.*)$": "<rootDir>/../entities/$1"
     },
     "collectCoverageFrom": [
       "**/*.(t|j)s"
