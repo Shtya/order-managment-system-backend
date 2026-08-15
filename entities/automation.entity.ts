@@ -169,6 +169,8 @@ export interface SendUpsellConfig {
         id: string;
         label: string;
         condition: string;
+        isNoResponse?: boolean;
+        timeoutMinutes?: number;
     }[];
 }
 
@@ -259,6 +261,8 @@ export interface SendWhatsappTemplateConfig {
         label: string;
         condition: string;
         sourceButton: any;
+        isNoResponse?: boolean;
+        timeoutMinutes?: number;
     }[];
 }
 export enum MessageType {
@@ -284,6 +288,8 @@ export interface SendWhatsappMessageConfig {
         id: string,
         label: string,
         sourceButton: any,
+        isNoResponse?: boolean,
+        timeoutMinutes?: number,
     }[]
     // Business ready-messages. The full WhatsApp payload lives in messageData
     // (like custom messages); businessConfig carries the driving params and

@@ -303,6 +303,8 @@ export class EngineRunnerService {
     /**
      * Resume a run that paused on a Wait node (fired by the delayed WAIT_RESUME job).
      * Guards against resuming a run that was cancelled/failed/resumed meanwhile.
+     * When the paused node has a "no response" (timeout) branch, the run resumes
+     * through that branch so it continues down the no-response path.
      */
     async resumeFromWait(runId: string, waitNodeId: string): Promise<{ success: boolean; message: string; runId: string; status?: RunStatus }> {
         const run = await this.runRepo.findOne({ where: { id: runId } });
@@ -311,7 +313,21 @@ export class EngineRunnerService {
             this.logger.warn(`Skipping wait-resume for run ${runId} (status=${run.status}, node=${run.currentNodeId})`);
             return { success: false, message: 'Run is not paused at the expected wait node', runId, status: run.status };
         }
-        return this.resumeExecution(runId, waitNodeId);
+
+        let chosenBranchId: string | undefined;
+        try {
+            const version = await this.versionRepo.findOne({ where: { id: run.versionId } });
+            const node = version?.flow?.nodes?.find(n => n.id === waitNodeId);
+            const branches = (node?.data?.config as any)?.branches || [];
+            const noResponseBranch = branches.find((b: any) => b.isNoResponse === true);
+            if (noResponseBranch) {
+                chosenBranchId = noResponseBranch.id;
+            }
+        } catch (error) {
+            this.logger.warn(`Could not inspect node ${waitNodeId} for a no-response branch: ${error.message}`);
+        }
+
+        return this.resumeExecution(runId, waitNodeId, chosenBranchId);
     }
 
     /**

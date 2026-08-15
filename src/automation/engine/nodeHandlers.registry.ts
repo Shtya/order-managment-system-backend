@@ -536,6 +536,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
         @InjectRepository(User)
         private readonly userRepo?: Repository<User>,
         private readonly clientSettingsService?: ClientSettingsService,
+        private readonly automationQueueService?: AutomationQueueService,
     ) {
         super(orderRepo);
     }
@@ -568,7 +569,10 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
 
             const buttons = template.templateConfig.buttons || [];
             const customButtons = template.templateConfig.buttons?.filter(btn => btn.type === 'CUSTOM') || [];
-            if ((customButtons.length || 0) != (hydratedConfig.branches?.length || 0)) {
+            // The "no response" (timeout) branch is not a real template button,
+            // so it must not be counted when validating button/branch counts.
+            const configBranches = (hydratedConfig.branches || []).filter(b => !b.isNoResponse);
+            if ((customButtons.length || 0) != configBranches.length) {
                 return { success: false, error: 'WhatsApp template buttons and configuration buttons count do not match' };
             }
             const bodyVarsLength = (Array.isArray(template.templateConfig.examples)
@@ -638,6 +642,25 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
             );
 
 
+            // "No response" (timeout) branch: pause the run and schedule a
+            // wait-resume job that continues down the no-response branch when
+            // the client doesn't respond within the configured time.
+            const noResponseBranch = (hydratedConfig.branches || []).find(b => b.isNoResponse === true);
+            const noResponseMinutes = Number(noResponseBranch?.timeoutMinutes);
+            const noResponseMs = noResponseMinutes > 0 ? noResponseMinutes * 60 * 1000 : null;
+
+            // Preview runs pass a PreviewRunDocument (has previewId) — never enqueue/pause there.
+            if (noResponseMs && !(run as any).previewId) {
+                await this.automationQueueService?.enqueueWaitResume(
+                    run.id,
+                    run.automationFlowId,
+                    run.versionId,
+                    run.adminId,
+                    run.currentNodeId,
+                    noResponseMs,
+                );
+            }
+
             return {
                 success: true,
                 shouldPause: hydratedConfig.branches?.length > 0,
@@ -651,7 +674,14 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
                         header: headerVariables,
                         body: bodyVariables,
                         button: buttonVariables,
-                    }
+                    },
+                    ...(noResponseMs
+                        ? {
+                            waitMinutes: noResponseMinutes,
+                            waitMs: noResponseMs,
+                            resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
+                        }
+                        : {}),
                 }
             };
 
@@ -760,6 +790,7 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
         @InjectRepository(User)
         private readonly userRepo?: Repository<User>,
         private readonly clientSettingsService?: ClientSettingsService,
+        private readonly automationQueueService?: AutomationQueueService,
     ) {
         super(orderRepo);
     }
@@ -841,12 +872,39 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
                 await checkMessageStatus(finalMessageId, this.messageRepo, this.logger);
             }
             const shouldPause = config.branches?.length > 0;
+
+            // "No response" (timeout) branch: pause the run and schedule a
+            // wait-resume job that continues down the no-response branch when
+            // the client doesn't respond within the configured time.
+            const noResponseBranch = (config.branches || []).find(b => b.isNoResponse === true);
+            const noResponseMinutes = Number(noResponseBranch?.timeoutMinutes);
+            const noResponseMs = noResponseMinutes > 0 ? noResponseMinutes * 60 * 1000 : null;
+
+            // Preview runs pass a PreviewRunDocument (has previewId) — never enqueue/pause there.
+            if (noResponseMs && !(run as any).previewId) {
+                await this.automationQueueService?.enqueueWaitResume(
+                    run.id,
+                    run.automationFlowId,
+                    run.versionId,
+                    run.adminId,
+                    run.currentNodeId,
+                    noResponseMs,
+                );
+            }
+
             return {
                 success: true,
                 shouldPause,
                 output: {
                     messageId: finalMessageId,
-                    recipient: to
+                    recipient: to,
+                    ...(noResponseMs
+                        ? {
+                            waitMinutes: noResponseMinutes,
+                            waitMs: noResponseMs,
+                            resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
+                        }
+                        : {}),
                 }
             };
         } catch (error) {
@@ -872,6 +930,7 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
         @InjectRepository(User)
         private readonly userRepo?: Repository<User>,
         private readonly clientSettingsService?: ClientSettingsService,
+        private readonly automationQueueService?: AutomationQueueService,
     ) {
         super(orderRepo);
     }
@@ -929,13 +988,39 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
                 }
             }
 
+            // "No response" (timeout) branch: pause the run and schedule a
+            // wait-resume job that continues down the no-response branch when
+            // the client doesn't respond within the configured time.
+            const noResponseBranch = (hydratedConfig.branches || []).find(b => b.isNoResponse === true);
+            const noResponseMinutes = Number(noResponseBranch?.timeoutMinutes);
+            const noResponseMs = noResponseMinutes > 0 ? noResponseMinutes * 60 * 1000 : null;
+
+            // Preview runs pass a PreviewRunDocument (has previewId) — never enqueue/pause there.
+            if (noResponseMs && !(run as any).previewId) {
+                await this.automationQueueService?.enqueueWaitResume(
+                    run.id,
+                    run.automationFlowId,
+                    run.versionId,
+                    run.adminId,
+                    run.currentNodeId,
+                    noResponseMs,
+                );
+            }
+
             return {
                 success: true,
                 shouldPause: true, // We are waiting for a response
                 output: {
                     sentUpsellsCount: sentUpsells.length,
                     sentUpsells,
-                    recipient: orderData.phoneNumber
+                    recipient: orderData.phoneNumber,
+                    ...(noResponseMs
+                        ? {
+                            waitMinutes: noResponseMinutes,
+                            waitMs: noResponseMs,
+                            resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
+                        }
+                        : {}),
                 }
             };
 
@@ -1264,9 +1349,9 @@ export class NodeHandlersRegistry {
         this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler(this.orderRepo));
         this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler(this.orderRepo));
         this.handlers.set(ActionType.UPDATE_ORDER_STATUS, new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo));
-        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService));
-        this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.whatsappService, this.userRepo, this.clientSettingsService));
-        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService));
+        this.handlers.set(ActionType.SEND_WHATSAPP_TEMPLATE, new ActionSendWhatsappTemplateMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService, this.automationQueueService));
+        this.handlers.set(ActionType.SEND_WHATSAPP_MESSAGE, new ActionSendWhatsappMessageHandler(this.adapter, this.orderRepo, this.messageRepo, this.whatsappService, this.userRepo, this.clientSettingsService, this.automationQueueService));
+        this.handlers.set(ActionType.SEND_UPSELL, new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo, this.userRepo, this.clientSettingsService, this.automationQueueService));
         this.handlers.set(ActionType.ASSIGN_ORDER_TO_EMPLOYEE, new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService));
         this.handlers.set(ActionType.SEND_SMS, new ActionSendSmsHandler(this.adapter, this.orderRepo, this.userRepo, this.clientSettingsService));
         this.handlers.set(ActionType.CREATE_ISSUE, new ActionCreateIssueHandler(this.adapter, this.orderRepo, this.userRepo, this.clientSettingsService));
