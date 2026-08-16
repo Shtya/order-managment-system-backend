@@ -20,8 +20,34 @@ export class CitiesService {
 		private areaRepo: Repository<AreaEntity>,
 		@InjectRepository(CityTenantConfigEntity)
 		private tenantConfigRepo: Repository<CityTenantConfigEntity>,
+		@InjectRepository(ProviderLocationEntity)
+		private providerLocationRepo: Repository<ProviderLocationEntity>,
 		private readonly translations: TranslationService,
 	) { }
+
+	async findProviderLocationByProviderCityId(provider: string, providerCityId: string) {
+		return this.providerLocationRepo.findOne({
+			where: { provider: provider as any, providerCityId },
+			relations: ['city'],
+		});
+	}
+
+	async findProviderLocationByName(provider: string, name: string) {
+		const normalized = name.trim().toLowerCase();
+		return this.providerLocationRepo
+			.createQueryBuilder('pl')
+			.leftJoinAndSelect('pl.city', 'city')
+			.where('pl.provider = :provider', { provider })
+			.andWhere(
+				new Brackets((qb) => {
+					qb.where('LOWER(pl."providerCityNameAr") = :name', { name: normalized })
+						.orWhere('LOWER(pl."providerCityNameEn") = :name', { name: normalized })
+						.orWhere('LOWER(pl."providerCityNameAr") ILIKE :like', { like: `%${normalized}%` })
+						.orWhere('LOWER(pl."providerCityNameEn") ILIKE :like', { like: `%${normalized}%` });
+				}),
+			)
+			.getMany();
+	}
 
 
 

@@ -3352,6 +3352,53 @@ export class OrdersService {
   }
 
   // orders.service.ts
+  // AI: idempotent shipping-location update used by the AI shipping tools.
+  async updateOrderShippingLocation(
+    me: any,
+    orderId: string,
+    dto: {
+      cityId?: string;
+      districtId?: string;
+      zoneId?: string;
+      locationId?: string;
+      orderSize?: string;
+    },
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+
+    return this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(OrderEntity);
+      const order = await repo.findOne({
+        where: { id: orderId, adminId },
+      });
+
+      if (!order) throw new BadRequestException(this.translations.t('domains.orders.order_not_found'));
+
+      const current = order.shippingMetadata ?? {};
+      const nextMetadata = {
+        ...current,
+        cityId: dto.cityId ?? current.cityId,
+        districtId: dto.districtId ?? current.districtId,
+        zoneId: dto.zoneId ?? current.zoneId,
+        locationId: dto.locationId ?? current.locationId,
+        orderSize: dto.orderSize ?? current.orderSize,
+      };
+
+      order.shippingMetadata = nextMetadata;
+      if (dto.cityId) order.cityId = dto.cityId;
+
+      await repo.save(order);
+
+      return {
+        id: order.id,
+        orderNumber: order.orderNumber,
+        cityId: order.cityId,
+        shippingMetadata: nextMetadata,
+      };
+    });
+  }
+
   async bulkUpdateShippingFields(
     me: any,
     dto: BulkUpdateShippingFieldsDto,

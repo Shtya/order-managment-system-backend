@@ -80,7 +80,13 @@ export class PermissionsService implements OnModuleInit {
 			"issues.causes.create", "issues.causes.update", "issues.causes.delete",
 
 			// ✅ NEW: Getting started permissions
-			"getting-started.stats"
+			"getting-started.stats",
+
+			// ✅ NEW: AI assistant permissions
+			"ai.chat",
+			"ai.tools.orders.read", "ai.tools.orders.write",
+			"ai.tools.shipping.read", "ai.tools.shipping.write",
+			"ai.tools.whatsapp.read", "ai.tools.whatsapp.write"
 		];
 
 		for (const name of keys) {

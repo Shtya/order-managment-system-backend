@@ -61,7 +61,16 @@ import { SmsModule } from './sms/sms.module';
 import { SupportTicketModule } from './support_ticket/support_ticket.module';
 import { IssueModule } from './issue/issue.module';
 import { GettingStartedModule } from './getting-started/getting-started.module';
+import { AiModule } from './ai/ai.module';
+import { config as loadEnvFile } from 'dotenv';
 
+// Load env files BEFORE the module decorator is evaluated so that
+// process.env checks at module-definition time (e.g. AI_MODULE_ENABLED)
+// see the values from .env / .env.<NODE_ENV>.
+loadEnvFile({ path: `.env.${process.env.NODE_ENV || 'production'}` });
+loadEnvFile({ path: '.env' });
+
+const aiEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.AI_MODULE_ENABLED ?? '').toLowerCase());
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -151,7 +160,8 @@ import { GettingStartedModule } from './getting-started/getting-started.module';
 		SmsModule,
 		SupportTicketModule,
 		IssueModule,
-		GettingStartedModule
+		GettingStartedModule,
+		...(aiEnabled ? [AiModule] : []),
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,
