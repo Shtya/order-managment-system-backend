@@ -56,18 +56,18 @@ export class StoreWebhooksController {
      * Shopify store to initialize (forwarded into the OAuth query so ShopifyService
      * resolves it instead of the legacy single-store fallback).
      */
-    @Get(':adminId/:storeId/shopify/init')
-    async handleInitWithStore(
-        @Param('adminId') adminId: string,
-        @Param('storeId') internalStoreId: string,
-        @Query() query: Record<string, any>,
-        @Res() res: Response
-    ) {
-        const result = await this.shopifyService.Init({ ...query, internalStoreId }, adminId);
+    // @Get(':adminId/:storeId/shopify/init')
+    // async handleInitWithStore(
+    //     @Param('adminId') adminId: string,
+    //     @Param('storeId') internalStoreId: string,
+    //     @Query() query: Record<string, any>,
+    //     @Res() res: Response
+    // ) {
+    //     const result = await this.shopifyService.Init({ ...query, internalStoreId }, adminId);
 
-        // This tells the browser to go to your React Dashboard
-        return res.redirect(result.url);
-    }
+    //     // This tells the browser to go to your React Dashboard
+    //     return res.redirect(result.url);
+    // }
     /**
      * Endpoint for New Order Webhook
      * The :target segment is flexible: it may be a provider enum

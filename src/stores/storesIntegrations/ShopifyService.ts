@@ -177,26 +177,22 @@ export class ShopifyService extends BaseStoreProvider {
         const { hmac, ...params } = query;
         const rawShop = query.shop as string | undefined;
         const shop = rawShop?.split('/')[0].trim();
+        const normalizedShopQuery = rawShop?.replace(/^https?:\/\/(www\.)?|\/$/g, '').trim();
         const frontendBaseUrl = process.env.FRONTEND_URL?.trim();
 
         if (!shop || !hmac || !adminId) {
             return { url: `${frontendBaseUrl}/store-integration?error=shopify_invalid_session` };
         }
 
-        const candidateId = (query.internalStoreId as string);
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{0,4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        let store = await this.storesRepo.findOne({
+            where: {
+                adminId,
+                provider: StoreProvider.SHOPIFY,
+                normalizedStoreUrl: normalizedShopQuery
+            },
+            order: { created_at: 'ASC' },
+        });
 
-        let store: StoreEntity | null = null;
-        if (candidateId && uuidRegex.test(candidateId)) {
-            store = await this.storesRepo.findOne({ where: { id: candidateId, adminId } });
-        }
-        if (!store) {
-            // Legacy single-store fallback: first Shopify store for this admin
-            store = await this.storesRepo.findOne({
-                where: { adminId, provider: StoreProvider.SHOPIFY },
-                order: { created_at: 'ASC' },
-            });
-        }
 
         if (!store) {
             return {
@@ -781,8 +777,9 @@ export class ShopifyService extends BaseStoreProvider {
     //
     public async subscribeAllWebhooks(store: StoreEntity) {
         const createUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/${store?.id || "shopify"}/orders/create`;
-        const topics: { topic: ShopifyTopic, url?: string }[] = [
-            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl },
+        const oldCreateUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
+        const topics: { topic: ShopifyTopic, url?: string, oldUrl?: string }[] = [
+            { topic: ShopifyTopic.ORDERS_CREATE, url: createUrl, oldUrl: oldCreateUrl },
             { topic: ShopifyTopic.ORDERS_CANCELLED }, { topic: ShopifyTopic.ORDERS_DELETE },
             { topic: ShopifyTopic.ORDERS_UPDATED }, { topic: ShopifyTopic.ORDERS_PAID }, { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED }
             // { topic: ShopifyTopic.FULFILLMENT_ORDERS_PLACED_ON_HOLD }, { topic: ShopifyTopic.FULFILLMENT_ORDERS_HOLD_RELEASED },
@@ -802,7 +799,14 @@ export class ShopifyService extends BaseStoreProvider {
 
             // Execute the current chunk in parallel
             await Promise.all(
-                chunk.map(({ topic, url }) => this.subscribeWebhook(store, topic, url || statusUrl))
+                chunk.map(async ({ topic, url, oldUrl }) => {
+                    // If old URL exists on Shopify, skip creating the new one
+                    if (oldUrl) {
+                        const existingOld = await this.ensureWebhookForTopic(store, topic, oldUrl);
+                        if (existingOld) return existingOld;
+                    }
+                    return this.subscribeWebhook(store, topic, url || statusUrl);
+                })
             );
         }
     }
@@ -826,6 +830,18 @@ export class ShopifyService extends BaseStoreProvider {
                 { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED, url: statusUrl }
             );
         });
+
+        // Also unsubscribe old URL pattern (without store.id, hardcoded "shopify")
+        const oldCreateUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/create`;
+        const oldStatusUrl = `${process.env.BACKEND_URL}/stores/webhooks/${store.adminId}/shopify/orders/status`;
+        tasks.push(
+            { topic: ShopifyTopic.ORDERS_CREATE, url: oldCreateUrl },
+            { topic: ShopifyTopic.ORDERS_CANCELLED, url: oldStatusUrl },
+            { topic: ShopifyTopic.ORDERS_DELETE, url: oldStatusUrl },
+            { topic: ShopifyTopic.ORDERS_UPDATED, url: oldStatusUrl },
+            { topic: ShopifyTopic.ORDERS_PAID, url: oldStatusUrl },
+            { topic: ShopifyTopic.ORDERS_RISK_ASSESSMENT_CHANGED, url: oldStatusUrl }
+        );
 
         const chunkSize = 5;
 

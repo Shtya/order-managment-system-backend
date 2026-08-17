@@ -64,6 +64,13 @@ export class StoreEntity {
 	storeUrl!: string;
 
 	@Column({
+		type: 'varchar',
+		generatedType: 'STORED',
+		asExpression: `REGEXP_REPLACE("storeUrl", '^https?://(www\.)?|/$', '', 'g')`,
+	})
+	normalizedStoreUrl!: string;
+
+	@Column({
 		type: "enum",
 		enum: StoreProvider
 	})

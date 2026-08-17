@@ -478,6 +478,11 @@ export class StoresService {
     const store = dto.storeId
       ? await this.storesRepo.findOne({ where: { id: dto.storeId, adminId } })
       : null;
+    const cleanedCredentials = Object.fromEntries(
+      Object.entries(dto.credentials ?? {}).filter(
+        ([, value]) => !!value,
+      ),
+    );
 
     if (store) {
       store.name = dto.name.trim();
@@ -486,7 +491,7 @@ export class StoresService {
       store.syncRemoteProducts = dto.syncRemoteProducts;
       store.credentials = {
         ...store.credentials,
-        ...dto.credentials,
+        ...cleanedCredentials,
       };
 
       const duplicate = await this.storesRepo.findOne({
@@ -501,7 +506,7 @@ export class StoresService {
       }
 
       const saved = await this.storesRepo.save(store);
-      
+
       return saved;
     }
 
@@ -517,6 +522,7 @@ export class StoresService {
       );
     }
 
+
     const storeToSave = {
       adminId,
       name: trimmedName,
@@ -528,7 +534,7 @@ export class StoresService {
         webhookCreateOrderSecret: null,
         webhookUpdateStatusSecret: null,
         webhookSecret: null,
-        ...dto.credentials,
+        ...cleanedCredentials,
       },
       isIntegrated: false,
       isActive: false,
@@ -693,31 +699,37 @@ export class StoresService {
     const masked: Record<string, string> = {};
     const credentials = store.credentials || {};
 
-    const SENSITIVE_KEYS = ["clientSecret", "apiKey"];
+    const hasClientSecret = !!credentials.clientSecret;
 
     Object.keys(credentials).forEach((key) => {
       const value = credentials[key as keyof typeof credentials];
 
-      if (value && SENSITIVE_KEYS.includes(key)) {
+      if (!value) {
+        return;
+      }
+
+      // Always mask clientSecret.
+      // Mask apiKey only when there is no clientSecret.
+      const shouldMask =
+        key === 'clientSecret' ||
+        (key === 'apiKey' && !hasClientSecret);
+
+      if (shouldMask) {
         masked[key] =
           value.length > 8
             ? `${value.substring(0, 4)}****************${value.slice(-4)}`
-            : "****************";
+            : '****************';
       } else {
         // Return non-sensitive values as-is
         masked[key] = value;
       }
     });
 
-
-    // We no longer need to destructure encryptedData, tag, or iv
-    // Just return the store data with the masked credentials
     return {
       id: store.id,
       adminId: store.adminId,
       name: store.name,
       storeUrl: store.storeUrl,
-      // code: store.code,
       provider: store.provider,
       isActive: store.isActive,
       syncStatus: store.syncStatus,
@@ -727,7 +739,7 @@ export class StoresService {
       syncRemoteProducts: store.syncRemoteProducts,
       created_at: store.created_at,
       updated_at: store.updated_at,
-      credentials: masked // Renamed for frontend consistency
+      credentials: masked,
     };
   }
 
@@ -1282,8 +1294,8 @@ export class StoresService {
         const round = (value: number) => Number(value.toFixed(2));
 
         const shippingCost = round(Number(payload.shippingCost || 0));
-        
-        const {finalTotal: computedTotal} =  this.ordersService.calculateTotals(items, shippingCost, 0 , 0);
+
+        const { finalTotal: computedTotal } = this.ordersService.calculateTotals(items, shippingCost, 0, 0);
         const incomingTotal = payload.totalCost != null ? round(Number(payload.totalCost)) : computedTotal;
         const delta = round(incomingTotal - computedTotal);
 
@@ -1701,7 +1713,7 @@ export class StoresService {
             const variant = bi?.variant;
             const alloc = allocationMap.get(variant?.id);
             finalCardItems.push({
-              name: `${variant?.product?.name || variant?.sku || `#${variant?.id ||  "Unknown"}`}`,
+              name: `${variant?.product?.name || variant?.sku || `#${variant?.id || "Unknown"}`}`,
               productSlug: variant?.product?.slug,
               bundleId: matchedBundle.id,
               bundleName,
@@ -1719,7 +1731,7 @@ export class StoresService {
               bundleHasFatalProblems = true;
               problems.push({
                 // remoteId: item.remoteProductId,
-                key: variant?.key,  
+                key: variant?.key,
                 bundleId: matchedBundle.id,
                 productId: bi.variantId,
                 slug: variant?.product?.slug,
