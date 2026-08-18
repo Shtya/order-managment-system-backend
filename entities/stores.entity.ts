@@ -43,6 +43,13 @@ export enum SyncStatus {
 // @Index(["adminId", "code"], { unique: true })
 @Index(["adminId", "name"])
 @Index(["adminId", "provider", "name"], { unique: true })
+@Index(
+    ["adminId", "provider", "normalizedStoreUrl"],
+    {
+        unique: true,
+        where: `"normalizedStoreUrl" IS NOT NULL`,
+    }
+)
 @Index(["adminId", "isActive"])
 export class StoreEntity {
 	@PrimaryGeneratedColumn('uuid')
