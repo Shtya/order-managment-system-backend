@@ -80,6 +80,11 @@ export class ResetPasswordDto {
 }
 
 // Google
+export class SuperAdminLoginDto {
+  @IsEmail({}, { message: i18nValidationMessage('validation.is_email') })
+  email: string;
+}
+
 export class GoogleLoginDto {
   @IsString({message: i18nValidationMessage('validation.is_string')}) @IsNotEmpty({message: i18nValidationMessage('validation.is_not_empty')})
   idToken: string;

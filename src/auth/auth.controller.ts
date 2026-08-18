@@ -7,6 +7,7 @@ import {
   LoginDto,
   RegisterDto,
   ResetPasswordDto,
+  SuperAdminLoginDto,
   VerifyOtpDto,
 } from 'dto/auth.dto';
 import axios from 'axios';
@@ -16,6 +17,7 @@ import { PermissionsGuard } from 'common/permissions.guard';
 import { ChangePasswordDto, RequestEmailChangeDto, SetPasswordDto, VerifyEmailChangeDto } from 'dto/user.dto';
 import { minutes, SkipThrottle, Throttle } from '@nestjs/throttler';
 import { SystemRole } from 'entities/user.entity';
+
 
 
 @Controller('auth')
@@ -57,6 +59,15 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
+  }
+
+  @Post('super-admin-login')
+  @UseGuards(JwtAuthGuard)
+  async superAdminLogin(@Req() req: any, @Body() dto: SuperAdminLoginDto) {
+    if (req.user?.role?.name !== SystemRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Only super admins can use this endpoint');
+    }
+    return this.auth.superAdminLogin(dto.email);
   }
 
   @SkipThrottle({ default: true })

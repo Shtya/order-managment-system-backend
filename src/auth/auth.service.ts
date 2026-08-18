@@ -41,6 +41,11 @@ export class AuthService {
 		};
 	}
 
+	private isSuperAdmin(me: User) {
+		return me.role?.name === SystemRole.SUPER_ADMIN;
+	}
+
+
 	async validatePayload(payload: { sub: number }) {
 		const user = await this.usersRepo.createQueryBuilder('user')
 			// 
@@ -300,11 +305,20 @@ export class AuthService {
 		const user = await this.usersService.getFullUserByEmail(email, true);
 
 		if (!user || !user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_credentials'));
-		
+
 		const ok = await bcrypt.compare(password, user.passwordHash || '');
 		if (!ok) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_credentials'));
 
 		const { passwordHash, ...finalUser } = user;
+		return this.sign(finalUser as User);
+	}
+
+	async superAdminLogin(email: string) {
+		const user = await this.usersService.getFullUserByEmail(email);
+
+		if (!user || !user.isActive) throw new UnauthorizedException(this.translations.t('domains.auth.invalid_user'));
+
+		const { passwordHash, ...finalUser } = user as any;
 		return this.sign(finalUser as User);
 	}
 
