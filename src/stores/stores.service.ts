@@ -361,6 +361,40 @@ export class StoresService {
     }
   }
 
+  private async assertStoreUrlUnique(
+    adminId: string,
+    storeUrl: string,
+    excludeStoreId?: string,
+  ): Promise<void> {
+    if (!adminId || !storeUrl) {
+      return;
+    }
+
+    const normalizedStoreUrl = this.extractDomain(storeUrl);
+
+    const queryBuilder = this.storesRepo
+      .createQueryBuilder('store')
+      .where('store.adminId = :adminId', { adminId })
+      .andWhere('store.normalizedStoreUrl = :normalizedStoreUrl', {
+        normalizedStoreUrl,
+      });
+
+    if (excludeStoreId) {
+      queryBuilder.andWhere('store.id != :excludeStoreId', {
+        excludeStoreId,
+      });
+    }
+
+    const duplicateExists = await queryBuilder.getExists();
+
+    if (duplicateExists) {
+      throw new BadRequestException(
+        this.translations.t('domains.stores.url_already_exists', {
+          args: { url: normalizedStoreUrl },
+        }),
+      );
+    }
+  }
   async create(me: any, dto: CreateStoreDto) {
     const adminId = tenantId(me);
 
@@ -378,14 +412,8 @@ export class StoresService {
       );
     }
 
-    // 2. Uniqueness Checks (Code must be unique for this admin)
-    // const existingStore = await this.storesRepo.findOne({
-    //   where: { adminId, code: dto.code }
-    // });
-
-    // if (existingStore) {
-    //   throw new BadRequestException(`Store code "${dto.code}" is already in use.`);
-    // }
+    // 2. Uniqueness Check: normalized URL must be unique for this admin
+    await this.assertStoreUrlUnique(adminId, dto.storeUrl);
 
     const p = this.getProvider(dto.provider);
 
@@ -505,6 +533,8 @@ export class StoresService {
         );
       }
 
+      await this.assertStoreUrlUnique(adminId, store.storeUrl, store.id);
+
       const saved = await this.storesRepo.save(store);
 
       return saved;
@@ -522,6 +552,7 @@ export class StoresService {
       );
     }
 
+    await this.assertStoreUrlUnique(adminId, dto.storeUrl);
 
     const storeToSave = {
       adminId,
@@ -614,6 +645,10 @@ export class StoresService {
           })
         );
       }
+    }
+
+    if (dto.storeUrl) {
+      await this.assertStoreUrlUnique(adminId, dto.storeUrl, id);
     }
 
     const p = this.getProvider(store.provider);

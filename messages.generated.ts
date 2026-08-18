@@ -1434,6 +1434,7 @@ export type I18nTranslations = {
         "stores": {
             "not_found": string;
             "name_provider_taken": string;
+            "url_already_exists": string;
             "unsupported_shipping_provider": string;
             "api_key_required": string;
             "authentication_failed_provider": string;

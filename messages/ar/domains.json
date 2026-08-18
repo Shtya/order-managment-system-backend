@@ -1293,6 +1293,7 @@
   "stores": {
     "not_found": "لم يتم العثور على المجر",
     "name_provider_taken": "يوجد بالفعل متجر باسم \"{name}\" لمزود {provider}.",
+    "url_already_exists": "يوجد بالفعل متجر بهذا الرابط \"{url}\". يرجى استخدام رابط متجر مختلف.",
     "unsupported_shipping_provider": "مزود الشحن غير مدعوم: {provider}",
     "api_key_required": "مفتاح واجهة برمجة التطبيقات (API Key) مطلوب لإتمام الربط.",
     "authentication_failed_provider": "تعذر المصادقة باستخدام بيانات الاعتماد المقدمة لـ {providerName}. يرجى التحقق من مفتاح الـ API والإعدادات الأخرى.",

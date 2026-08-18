@@ -1290,6 +1290,7 @@
   "stores": {
     "not_found": "Store not found",
     "name_provider_taken": "A store named \"{name}\" already exists for the {provider} provider.",
+    "url_already_exists": "A store with the URL \"{url}\" already exists. Please use a different store URL.",
     "unsupported_shipping_provider": "Unsupported shipping provider: {provider}",
     "api_key_required": "API Key is required for integration.",
     "authentication_failed_provider": "Unable to authenticate with the provided credentials for {providerName}. Please check your API key and other settings.",
