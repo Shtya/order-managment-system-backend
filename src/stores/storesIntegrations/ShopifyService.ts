@@ -2,7 +2,7 @@
  * Fetch a Shopify product by slug (handle) with all details needed for local sync
  */
 
-import { forwardRef, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, MappedProductDto, ShopifyAction, FullStoreSyncType } from "./BaseStoreProvider";
 import { InjectRepository } from "@nestjs/typeorm";
 import { CategoryEntity } from "entities/categories.entity";
@@ -94,7 +94,7 @@ const ShopifyTopicToGraphQL: Record<ShopifyTopic, string> = {
 
 @Injectable()
 export class ShopifyService extends BaseStoreProvider {
-
+    protected readonly logger = new Logger(this.constructor.name);
     maxBundleItems?: number = 30;
     supportBundle: boolean = true;
     code: StoreProvider = StoreProvider.SHOPIFY;
@@ -173,6 +173,8 @@ export class ShopifyService extends BaseStoreProvider {
     }
 
     public async Init(query: Record<string, any>, adminId: string) {
+        this.logger.log(`[Shopify] Init started | adminId: ${adminId} | query keys: ${Object.keys(query).join(', ')}`);
+
         // 1. Extract hmac from the query
         const { hmac, ...params } = query;
         const rawShop = query.shop as string | undefined;
@@ -180,9 +182,14 @@ export class ShopifyService extends BaseStoreProvider {
         const normalizedShopQuery = rawShop?.replace(/^https?:\/\/(www\.)?|\/$/g, '').trim();
         const frontendBaseUrl = process.env.FRONTEND_URL?.trim();
 
+        this.logger.log(`[Shopify] Init params extracted | rawShop: ${rawShop} | shop: ${shop} | normalizedShop: ${normalizedShopQuery} | hmac present: ${!!hmac} | param keys: ${Object.keys(params).join(', ')}`);
+
         if (!shop || !hmac || !adminId) {
+            this.logger.warn(`[Shopify] Init validation failed | missing: ${!shop ? 'shop' : ''} ${!hmac ? 'hmac' : ''} ${!adminId ? 'adminId' : ''}`);
             return { url: `${frontendBaseUrl}/store-integration?error=shopify_invalid_session` };
         }
+
+        this.logger.log(`[Shopify] Init looking up store | adminId: ${adminId} | normalizedStoreUrl: ${normalizedShopQuery}`);
 
         let store = await this.storesRepo.findOne({
             where: {
@@ -193,12 +200,14 @@ export class ShopifyService extends BaseStoreProvider {
             order: { created_at: 'ASC' },
         });
 
-
         if (!store) {
+            this.logger.warn(`[Shopify] Init store not found | adminId: ${adminId} | normalizedStoreUrl: ${normalizedShopQuery}`);
             return {
                 url: `${frontendBaseUrl}/store-integration?error=shopify_store_not_found&shop=${encodeURIComponent(shop)}`
             };
         }
+
+        this.logger.log(`[Shopify] Init store found | storeId: ${store.id} | storeUrl: ${store.storeUrl} | isIntegrated: ${store.isIntegrated} | isActive: ${store.isActive}`);
 
         const keys = store.credentials;
 
@@ -208,6 +217,8 @@ export class ShopifyService extends BaseStoreProvider {
             .map((key) => `${key}=${params[key]}`)
             .join('&');
 
+        this.logger.log(`[Shopify] Init HMAC message built | param count: ${Object.keys(params).length} | message length: ${message.length}`);
+
         // 3. Compute HMAC using your client secret and SHA256
         const generatedHmac = crypto
             .createHmac('sha256', keys.clientSecret)
@@ -216,30 +227,52 @@ export class ShopifyService extends BaseStoreProvider {
 
         const isValid = hmac === generatedHmac;
 
+        this.logger.log(`[Shopify] Init HMAC computed | valid: ${isValid}`);
+
         if (!isValid) {
+            this.logger.warn(`[Shopify] Init HMAC verification failed | adminId: ${adminId} | storeId: ${store.id}`);
             return { url: `${frontendBaseUrl}/store-integration?error=shopify_security_verification_failed` };
         }
+
+        this.logger.log(`[Shopify] Init HMAC verified successfully | adminId: ${adminId} | storeId: ${store.id}`);
 
         try {
 
             const oldIsIntegrated = store.isIntegrated;
+            this.logger.log(`[Shopify] Init previous integration state | wasIntegrated: ${oldIsIntegrated} | syncRemoteProducts: ${store.syncRemoteProducts}`);
+
             if (!oldIsIntegrated) {
+                this.logger.log(`[Shopify] Init first integration - subscribing to webhooks | storeId: ${store.id}`);
                 await this.subscribeAllWebhooks(store);
+                this.logger.log(`[Shopify] Init webhooks subscribed successfully | storeId: ${store.id}`);
+            } else {
+                this.logger.log(`[Shopify] Init skipping webhook subscription - already integrated | storeId: ${store.id}`);
             }
 
             store.isActive = true;
             store.isIntegrated = true;
             store.externalStoreId = rawShop;
 
+            this.logger.log(`[Shopify] Init updating store | storeId: ${store.id} | setting isActive=true, isIntegrated=true, externalStoreId=${rawShop}`);
+
             await this.storesRepo.save(store);
+            this.logger.log(`[Shopify] Init store saved successfully | storeId: ${store.id}`);
+
             const redirectUrl = `${frontendBaseUrl}/store-integration`;
             this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
+            this.logger.log(`[Shopify] Init onboarding achievement enqueued | adminId: ${adminId} | type: STORE_CONNECTED`);
+
             if (!oldIsIntegrated && store.syncRemoteProducts) {
-                this.productSyncQueueService.enqueueFullProductSyncLocally(store)
+                this.productSyncQueueService.enqueueFullProductSyncLocally(store);
+                this.logger.log(`[Shopify] Init full product sync enqueued | storeId: ${store.id} | adminId: ${adminId}`);
+            } else {
+                this.logger.log(`[Shopify] Init skipping product sync | wasIntegrated: ${oldIsIntegrated} | syncRemoteProducts: ${store.syncRemoteProducts}`);
             }
+
+            this.logger.log(`[Shopify] Init completed successfully | storeId: ${store.id} | adminId: ${adminId} | redirect: ${redirectUrl}`);
             return { url: redirectUrl };
         } catch (error) {
-            this.logger.error(`[Shopify] Error in Init: ${error.message}`, store);
+            this.logger.error(`[Shopify] Init error | adminId: ${adminId} | storeId: ${store?.id} | error: ${error.message}`, error.stack);
             const errorMessage = this.getErrorMessage(error);
             return { url: `${frontendBaseUrl}/store-integration?errorMessage=${encodeURIComponent(errorMessage)}` };
         }
