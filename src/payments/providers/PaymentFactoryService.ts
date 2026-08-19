@@ -5,20 +5,24 @@ import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class PaymentFactoryService {
-    constructor(
-        private kashierProvider: KashierProvider,
-        private readonly translations: TranslationService,
-        // Add other providers here (e.g., private stripeProvider: StripeProvider)
-    ) { }
+  constructor(
+    private kashierProvider: KashierProvider,
+    private readonly translations: TranslationService,
+    // Add other providers here (e.g., private stripeProvider: StripeProvider)
+  ) {}
 
-    getProviderByCurrency(currency: string): PaymentProvider {
-        const formattedCurrency = currency.toUpperCase();
-        
-        switch (formattedCurrency) {
-            case 'EGP':
-                return this.kashierProvider;
-            default:
-                throw new BadRequestException(this.translations.t('domains.payments.provider_not_yet_implemented', { args: { currency: formattedCurrency } }));
-        }
+  getProviderByCurrency(currency: string): PaymentProvider {
+    const formattedCurrency = currency.toUpperCase();
+
+    switch (formattedCurrency) {
+      case "EGP":
+        return this.kashierProvider;
+      default:
+        throw new BadRequestException(
+          this.translations.t("domains.payments.provider_not_yet_implemented", {
+            args: { currency: formattedCurrency },
+          }),
+        );
     }
+  }
 }

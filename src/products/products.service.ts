@@ -1,11 +1,30 @@
 // --- File: src/products/products.service.ts ---
-import { BadRequestException, forwardRef, Get, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  forwardRef,
+  Get,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository, Like, Not, IsNull, EntityManager, Brackets } from "typeorm";
+import {
+  In,
+  Repository,
+  Like,
+  Not,
+  IsNull,
+  EntityManager,
+  Brackets,
+} from "typeorm";
 
-import { unlink } from 'fs/promises';
-import { join } from 'path';
-import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
+import { unlink } from "fs/promises";
+import { join } from "path";
+import {
+  ProductEntity,
+  ProductType,
+  ProductVariantEntity,
+} from "entities/sku.entity";
 import { CategoryEntity } from "entities/categories.entity";
 import { StoreEntity } from "entities/stores.entity";
 import { WarehouseEntity } from "entities/warehouses.entity";
@@ -24,7 +43,11 @@ import { OrderItemEntity, OrderStatus } from "entities/order.entity";
 import { PurchaseInvoiceItemEntity } from "entities/purchase.entity";
 import { PurchaseReturnInvoiceItemEntity } from "entities/purchase_return.entity";
 import { ApprovalStatus } from "common/enums";
-import { deletePhysicalFiles, generateSlug, getErrorMessage } from "common/healpers";
+import {
+  deletePhysicalFiles,
+  generateSlug,
+  getErrorMessage,
+} from "common/healpers";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { PurchaseReturnsService } from "src/purchases-return/purchases-return.service";
@@ -33,14 +56,19 @@ import { DataSource } from "typeorm";
 import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
-import { ProductSyncStateEntity, ProductSyncStatus } from "entities/product_sync_error.entity";
+import {
+  ProductSyncStateEntity,
+  ProductSyncStatus,
+} from "entities/product_sync_error.entity";
 import { RemoteImageHelper } from "common/emote-image.helper";
 import { StoresService } from "src/stores/stores.service";
 import { OrdersService } from "src/orders/services/orders.service";
-import { RequestTranslationService, TranslationService } from "common/translation.service";
+import {
+  RequestTranslationService,
+  TranslationService,
+} from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
-
 
 @Injectable()
 export class ProductsService {
@@ -83,17 +111,16 @@ export class ProductsService {
     private storesService: StoresService,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
-    @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    @InjectRepository(ProductSyncStateEntity)
+    protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
     private readonly translations: TranslationService,
     private requestTranslations: RequestTranslationService,
     private onboardingAchievementService: OnboardingAchievementService,
-  ) { }
-
-
+  ) {}
 
   public async handleImageCleanup(
     currentData: { images?: { url: string }[] },
-    urlsToRemove: string[] | undefined
+    urlsToRemove: string[] | undefined,
   ) {
     if (!urlsToRemove || urlsToRemove.length === 0) return;
 
@@ -102,7 +129,7 @@ export class ProductsService {
 
     // 3. Return the filtered gallery images
     return (currentData.images ?? []).filter(
-      (img) => img?.url && !urlsToRemove.includes(img.url)
+      (img) => img?.url && !urlsToRemove.includes(img.url),
     );
   }
 
@@ -115,16 +142,17 @@ export class ProductsService {
   }
 
   public slugifyKey(s) {
-    return (s || '')
-      .toString()
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      // .replace(/[^\w]/g, '')
-      .replace(/_+/g, '_')
-      .replace(/^_+|_+$/g, '');
+    return (
+      (s || "")
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, "_")
+        // .replace(/[^\w]/g, '')
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "")
+    );
   }
-
 
   private generateSku(product: ProductEntity, attrs: Record<string, any>) {
     const parts = (product.slug || "product").split("-");
@@ -132,7 +160,7 @@ export class ProductsService {
     const base = parts.slice(0, 2).join("-").toUpperCase();
 
     const attrPart = Object.values(attrs)
-      .map(v => String(v).replace(/\s+/g, "").toUpperCase())
+      .map((v) => String(v).replace(/\s+/g, "").toUpperCase())
       .join("-");
 
     return `${base}-${attrPart}`;
@@ -142,11 +170,17 @@ export class ProductsService {
     repo: Repository<any>,
     adminId: string,
     id?: string | null,
-    label = "entity"
+    label = "entity",
   ) {
     if (id == null) return null;
     const e = await repo.findOne({ where: { id } as any });
-    if (!e) throw new BadRequestException(this.translations.t("domains.products.entity_not_found", { args: { label } }));
+    if (!e) {
+      throw new BadRequestException(
+        this.translations.t("domains.products.entity_not_found", {
+          args: { label },
+        }),
+      );
+    }
     return e;
   }
 
@@ -164,7 +198,11 @@ export class ProductsService {
       deactivatedAt: r.deactivatedAt,
       customerDamagedQuantity: r.customerDamagedQuantity,
       companyDamagedQuantity: r.companyDamagedQuantity,
-      available: await this.ordersService.calculateAvailableStock(r.stockOnHand ?? 0, r.reserved ?? 0, r.adminId),
+      available: await this.ordersService.calculateAvailableStock(
+        r.stockOnHand ?? 0,
+        r.reserved ?? 0,
+        r.adminId,
+      ),
     };
   }
 
@@ -194,14 +232,23 @@ export class ProductsService {
   private buildEmptyProductStockSummary() {
     return {
       productCount: 1,
-      inventory: { reserved: 0, available: 0, totalOnHand: 0, customerDamagedQuantity: 0, companyDamagedQuantity: 0 },
+      inventory: {
+        reserved: 0,
+        available: 0,
+        totalOnHand: 0,
+        customerDamagedQuantity: 0,
+        companyDamagedQuantity: 0,
+      },
       orders: { soldQuantity: 0, inTransitQuantity: 0 },
       purchases: { acceptedQuantity: 0 },
       purchaseReturns: { acceptedReturnedQuantity: 0 },
     };
   }
 
-  private async getStockSummariesForProductIds(adminId: string, productIds: string[]): Promise<Map<string, any>> {
+  private async getStockSummariesForProductIds(
+    adminId: string,
+    productIds: string[],
+  ): Promise<Map<string, any>> {
     const map = new Map<string, any>();
     for (const id of productIds) {
       map.set(id, this.buildEmptyProductStockSummary());
@@ -209,53 +256,75 @@ export class ProductsService {
 
     const [invRows, ordRows, purRows, retRows] = await Promise.all([
       this.pvRepo
-        .createQueryBuilder('pv')
-        .select('pv.productId', 'productId')
-        .addSelect('COALESCE(SUM(pv.reserved), 0)', 'reserved')
-        .addSelect('COALESCE(SUM(pv.stockOnHand - pv.reserved), 0)', 'available')
-        .addSelect('COALESCE(SUM(pv.stockOnHand), 0)', 'totalOnHand')
-        .addSelect('COALESCE(SUM(pv.customerDamagedQuantity), 0)', 'customerDamagedQuantity')
-        .addSelect('COALESCE(SUM(pv.companyDamagedQuantity), 0)', 'companyDamagedQuantity')
-        .where('pv.adminId = :adminId', { adminId })
-        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
-        .groupBy('pv.productId')
+        .createQueryBuilder("pv")
+        .select("pv.productId", "productId")
+        .addSelect("COALESCE(SUM(pv.reserved), 0)", "reserved")
+        .addSelect(
+          "COALESCE(SUM(pv.stockOnHand - pv.reserved), 0)",
+          "available",
+        )
+        .addSelect("COALESCE(SUM(pv.stockOnHand), 0)", "totalOnHand")
+        .addSelect(
+          "COALESCE(SUM(pv.customerDamagedQuantity), 0)",
+          "customerDamagedQuantity",
+        )
+        .addSelect(
+          "COALESCE(SUM(pv.companyDamagedQuantity), 0)",
+          "companyDamagedQuantity",
+        )
+        .where("pv.adminId = :adminId", { adminId })
+        .andWhere("pv.productId IN (:...ids)", { ids: productIds })
+        .groupBy("pv.productId")
         .getRawMany(),
       this.orderItemRepo
-        .createQueryBuilder('oi')
-        .innerJoin('oi.order', 'order')
-        .innerJoin('order.status', 'status')
-        .innerJoin('oi.variant', 'pv')
-        .select('pv.productId', 'productId')
-        .addSelect(`SUM(CASE WHEN status.code = :delivered THEN oi.quantity ELSE 0 END)`, 'sold')
-        .addSelect(`SUM(CASE WHEN status.code = :shipped THEN oi.quantity ELSE 0 END)`, 'inTransit')
-        .where('oi.adminId = :adminId', { adminId })
-        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
-        .groupBy('pv.productId')
-        .setParameters({ delivered: OrderStatus.DELIVERED, shipped: OrderStatus.SHIPPED })
+        .createQueryBuilder("oi")
+        .innerJoin("oi.order", "order")
+        .innerJoin("order.status", "status")
+        .innerJoin("oi.variant", "pv")
+        .select("pv.productId", "productId")
+        .addSelect(
+          `SUM(CASE WHEN status.code = :delivered THEN oi.quantity ELSE 0 END)`,
+          "sold",
+        )
+        .addSelect(
+          `SUM(CASE WHEN status.code = :shipped THEN oi.quantity ELSE 0 END)`,
+          "inTransit",
+        )
+        .where("oi.adminId = :adminId", { adminId })
+        .andWhere("pv.productId IN (:...ids)", { ids: productIds })
+        .groupBy("pv.productId")
+        .setParameters({
+          delivered: OrderStatus.DELIVERED,
+          shipped: OrderStatus.SHIPPED,
+        })
         .getRawMany(),
       this.purchaseItemRepo
-        .createQueryBuilder('pii')
-        .innerJoin('pii.invoice', 'pi')
-        .innerJoin('pii.variant', 'pv')
-        .select('pv.productId', 'productId')
-        .addSelect('COALESCE(SUM(pii.quantity), 0)', 'qty')
-        .where('pii.adminId = :adminId', { adminId })
-        .andWhere('pi.adminId = :adminId', { adminId })
-        .andWhere('pi.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
-        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
-        .groupBy('pv.productId')
+        .createQueryBuilder("pii")
+        .innerJoin("pii.invoice", "pi")
+        .innerJoin("pii.variant", "pv")
+        .select("pv.productId", "productId")
+        .addSelect("COALESCE(SUM(pii.quantity), 0)", "qty")
+        .where("pii.adminId = :adminId", { adminId })
+        .andWhere("pi.adminId = :adminId", { adminId })
+        .andWhere("pi.status = :accepted", {
+          accepted: ApprovalStatus.ACCEPTED,
+        })
+        .andWhere("pv.productId IN (:...ids)", { ids: productIds })
+        .groupBy("pv.productId")
         .getRawMany(),
       this.purchaseReturnItemRepo
-        .createQueryBuilder('prii')
-        .innerJoin('prii.invoice', 'pri')
-        .innerJoin('prii.variant', 'pv')
-        .select('pv.productId', 'productId')
-        .addSelect('COALESCE(SUM(prii.returnedQuantity), 0)', 'qty')
-        .where('prii.adminId = :adminId', { adminId })
-        .andWhere('pri.adminId = :adminId', { adminId })
-        .andWhere('pri.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
-        .andWhere('pv.productId IN (:...ids)', { ids: productIds })
-        .groupBy('pv.productId')
+        .createQueryBuilder("prii")
+        .innerJoin("prii.invoice", "pri")
+        .innerJoin("prii.variant", "pv")
+        .select("pv.productId", "productId")
+        .addSelect("COALESCE(SUM(prii.returnedQuantity), 0)", "qty")
+        .where("prii.adminId = :adminId", { adminId })
+        .andWhere("pri.adminId = :adminId", { adminId })
+        .andWhere("pri.status = :accepted", {
+          accepted: ApprovalStatus.ACCEPTED,
+        })
+        .andWhere("pv.productId IN (:...ids)", { ids: productIds })
+        .groupBy("pv.productId")
         .getRawMany(),
     ]);
 
@@ -267,8 +336,12 @@ export class ProductsService {
       s.inventory.reserved = Number(row.reserved || 0);
       s.inventory.available = Number(row.available || 0);
       s.inventory.totalOnHand = Number(row.totalOnHand || 0);
-      s.inventory.customerDamagedQuantity = Number(row.customerDamagedQuantity || 0);
-      s.inventory.companyDamagedQuantity = Number(row.companyDamagedQuantity || 0);
+      s.inventory.customerDamagedQuantity = Number(
+        row.customerDamagedQuantity || 0,
+      );
+      s.inventory.companyDamagedQuantity = Number(
+        row.companyDamagedQuantity || 0,
+      );
     }
     for (const row of ordRows) {
       const pid = pidOf(row);
@@ -299,26 +372,34 @@ export class ProductsService {
     if (!adminId || !ids.length) return products;
     const summaries = await this.getStockSummariesForProductIds(adminId, ids);
     for (const p of products) {
-      p.stockSummary = summaries.get(p.id) ?? this.buildEmptyProductStockSummary();
+      p.stockSummary =
+        summaries.get(p.id) ?? this.buildEmptyProductStockSummary();
     }
     return products;
   }
 
-  private async attachSkusToProduct(me: any, product: any, manager?: EntityManager) {
+  private async attachSkusToProduct(
+    me: any,
+    product: any,
+    manager?: EntityManager,
+  ) {
     if (!product?.id) return product;
 
-    const repo = manager ? manager.getRepository(ProductVariantEntity) : this.pvRepo;
+    const repo = manager
+      ? manager.getRepository(ProductVariantEntity)
+      : this.pvRepo;
     const rows = await repo.find({
       where: { adminId: me.adminId, productId: product.id } as any,
       order: { id: "ASC" },
     });
 
-    product.skus = await Promise.all(rows.map(async (r) => await this.mapSkuRow(r)));
+    product.skus = await Promise.all(
+      rows.map(async (r) => await this.mapSkuRow(r)),
+    );
     return product;
   }
 
   async getAdminSummary(me: any) {
-
     const adminId = tenantId(me);
 
     // Run all queries in parallel for better performance
@@ -334,29 +415,29 @@ export class ProductsService {
 
       // 2. Inventory Stats (Reserved & Available)
       this.pvRepo
-        .createQueryBuilder('pv')
-        .select('SUM(pv.reserved)', 'totalReserved')
-        .addSelect('SUM(pv.stockOnHand - pv.reserved)', 'totalAvailable')
-        .addSelect('SUM(pv.stockOnHand)', 'totalStockOnHand')
-        .addSelect('SUM(pv.customerDamagedQuantity)', 'totalCustomerDamaged')
-        .addSelect('SUM(pv.companyDamagedQuantity)', 'totalCompanyDamaged')
-        .where('pv.adminId = :adminId', { adminId })
+        .createQueryBuilder("pv")
+        .select("SUM(pv.reserved)", "totalReserved")
+        .addSelect("SUM(pv.stockOnHand - pv.reserved)", "totalAvailable")
+        .addSelect("SUM(pv.stockOnHand)", "totalStockOnHand")
+        .addSelect("SUM(pv.customerDamagedQuantity)", "totalCustomerDamaged")
+        .addSelect("SUM(pv.companyDamagedQuantity)", "totalCompanyDamaged")
+        .where("pv.adminId = :adminId", { adminId })
         .getRawOne(),
 
       // 3. Order Item Stats using Enums
       this.orderItemRepo
-        .createQueryBuilder('oi')
-        .leftJoin('oi.order', 'order')
-        .leftJoin('order.status', 'status')
+        .createQueryBuilder("oi")
+        .leftJoin("oi.order", "order")
+        .leftJoin("order.status", "status")
         .select(
           `SUM(CASE WHEN status.code = :delivered THEN oi.quantity ELSE 0 END)`,
-          'totalDelivered'
+          "totalDelivered",
         )
         .addSelect(
           `SUM(CASE WHEN status.code = :shipped THEN oi.quantity ELSE 0 END)`,
-          'totalShipped'
+          "totalShipped",
         )
-        .where('oi.adminId = :adminId')
+        .where("oi.adminId = :adminId")
         .setParameters({
           adminId,
           delivered: OrderStatus.DELIVERED,
@@ -366,24 +447,30 @@ export class ProductsService {
 
       // 4. Accepted purchase invoices — total line quantity
       this.purchaseItemRepo
-        .createQueryBuilder('pii')
-        .innerJoin('pii.invoice', 'pi')
-        .select('COALESCE(SUM(pii.quantity), 0)', 'totalAcceptedPurchaseQty')
-        .where('pii.adminId = :adminId', { adminId })
-        .andWhere('pi.adminId = :adminId', { adminId })
-        .andWhere('pi.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
+        .createQueryBuilder("pii")
+        .innerJoin("pii.invoice", "pi")
+        .select("COALESCE(SUM(pii.quantity), 0)", "totalAcceptedPurchaseQty")
+        .where("pii.adminId = :adminId", { adminId })
+        .andWhere("pi.adminId = :adminId", { adminId })
+        .andWhere("pi.status = :accepted", {
+          accepted: ApprovalStatus.ACCEPTED,
+        })
         .getRawOne(),
 
       // 5. Accepted purchase return invoices — total returned quantity
       this.purchaseReturnItemRepo
-        .createQueryBuilder('prii')
-        .innerJoin('prii.invoice', 'pri')
-        .select('COALESCE(SUM(prii.returnedQuantity), 0)', 'totalAcceptedReturnQty')
-        .where('prii.adminId = :adminId', { adminId })
-        .andWhere('pri.adminId = :adminId', { adminId })
-        .andWhere('pri.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
+        .createQueryBuilder("prii")
+        .innerJoin("prii.invoice", "pri")
+        .select(
+          "COALESCE(SUM(prii.returnedQuantity), 0)",
+          "totalAcceptedReturnQty",
+        )
+        .where("prii.adminId = :adminId", { adminId })
+        .andWhere("pri.adminId = :adminId", { adminId })
+        .andWhere("pri.status = :accepted", {
+          accepted: ApprovalStatus.ACCEPTED,
+        })
         .getRawOne(),
-
     ]);
 
     return {
@@ -402,10 +489,14 @@ export class ProductsService {
         inTransitQuantity: Number(orderStats?.totalShipped || 0),
       },
       purchases: {
-        acceptedQuantity: Number(acceptedPurchaseStats?.totalAcceptedPurchaseQty || 0),
+        acceptedQuantity: Number(
+          acceptedPurchaseStats?.totalAcceptedPurchaseQty || 0,
+        ),
       },
       purchaseReturns: {
-        acceptedReturnedQuantity: Number(acceptedReturnStats?.totalAcceptedReturnQty || 0),
+        acceptedReturnedQuantity: Number(
+          acceptedReturnStats?.totalAcceptedReturnQty || 0,
+        ),
       },
     };
   }
@@ -415,20 +506,22 @@ export class ProductsService {
     const filters: Record<string, any> = {};
     const type = q?.type ?? "PRODUCT";
 
-    if (q?.categoryId && q?.categoryId != "none")
+    if (q?.categoryId && q?.categoryId != "none") {
       filters.categoryId = q.categoryId;
+    }
 
-    if (q?.storeId && q?.storeId != "none")
-      filters.storeId = q.storeId;
+    if (q?.storeId && q?.storeId != "none") filters.storeId = q.storeId;
 
-    if (q?.warehouseId && q?.warehouseId != "none")
+    if (q?.warehouseId && q?.warehouseId != "none") {
       filters.warehouseId = q.warehouseId;
+    }
     if (q?.productType && q?.productType !== "none") {
       filters.productType = q.productType;
     }
 
-    if (q?.storageLocationId && q?.storageLocationId != "none")
+    if (q?.storageLocationId && q?.storageLocationId != "none") {
       filters.storageLocationId = q.storageLocationId;
+    }
 
     if (q?.search) {
       filters.search = q.search?.trim();
@@ -438,22 +531,32 @@ export class ProductsService {
       const gte = q["wholesalePrice.gte"];
       const lte = q["wholesalePrice.lte"];
 
-      if (!Number.isNaN(Number(gte)))
-        filters.wholesalePrice = { ...filters.wholesalePrice, gte: Number(gte) };
+      if (!Number.isNaN(Number(gte))) {
+        filters.wholesalePrice = {
+          ...filters.wholesalePrice,
+          gte: Number(gte),
+        };
+      }
 
-      if (!Number.isNaN(Number(lte)))
-        filters.wholesalePrice = { ...filters.wholesalePrice, lte: Number(lte) };
+      if (!Number.isNaN(Number(lte))) {
+        filters.wholesalePrice = {
+          ...filters.wholesalePrice,
+          lte: Number(lte),
+        };
+      }
     }
 
     if (q?.["salePrice.gte"] || q?.["salePrice.lte"]) {
       const gte = q["salePrice.gte"];
       const lte = q["salePrice.lte"];
 
-      if (!Number.isNaN(Number(gte)))
+      if (!Number.isNaN(Number(gte))) {
         filters.salePrice = { ...filters.salePrice, gte: Number(gte) };
+      }
 
-      if (!Number.isNaN(Number(lte)))
+      if (!Number.isNaN(Number(lte))) {
         filters.salePrice = { ...filters.salePrice, lte: Number(lte) };
+      }
     }
 
     let idleDate: Date | null = null;
@@ -474,64 +577,72 @@ export class ProductsService {
       .andWhere("product.isActive = :isActive", { isActive: true });
 
     // Normal Filters
-    if (filters.categoryId)
+    if (filters.categoryId) {
       qb.andWhere("product.categoryId = :categoryId", {
         categoryId: filters.categoryId,
       });
+    }
 
-    if (filters.storeId)
+    if (filters.storeId) {
       qb.andWhere("product.storeId = :storeId", {
         storeId: filters.storeId,
       });
+    }
 
-    if (filters.warehouseId)
+    if (filters.warehouseId) {
       qb.andWhere("product.warehouseId = :warehouseId", {
         warehouseId: filters.warehouseId,
       });
-    if (filters.productType) {
-      qb.andWhere("product.type = :productType", { productType: filters.productType });
     }
-    if (filters.storageLocationId)
+    if (filters.productType) {
+      qb.andWhere("product.type = :productType", {
+        productType: filters.productType,
+      });
+    }
+    if (filters.storageLocationId) {
       qb.andWhere("product.storageLocationId = :storageLocationId", {
         storageLocationId: filters.storageLocationId,
       });
-      
+    }
 
-    if (filters.wholesalePrice?.gte)
+    if (filters.wholesalePrice?.gte) {
       qb.andWhere("product.wholesalePrice >= :gte", {
         gte: filters.wholesalePrice.gte,
       });
+    }
 
-    if (filters.wholesalePrice?.lte)
+    if (filters.wholesalePrice?.lte) {
       qb.andWhere("product.wholesalePrice <= :lte", {
         lte: filters.wholesalePrice.lte,
       });
+    }
 
-    if (filters.salePrice?.gte)
+    if (filters.salePrice?.gte) {
       qb.andWhere("product.salePrice >= :gte", {
         gte: filters.salePrice.gte,
       });
+    }
 
-    if (filters.salePrice?.lte)
+    if (filters.salePrice?.lte) {
       qb.andWhere("product.salePrice <= :lte", {
         lte: filters.salePrice.lte,
       });
-
+    }
 
     if (filters.search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("product.name ILIKE :s", { s: `%${filters.search}%` })
+          sq.where("product.name ILIKE :s", { s: `%${filters.search}%` });
         }),
       );
     }
 
-
     // =====================================
     // 🟣 PRODUCT_IDLE LOGIC
     // =====================================
-   if (type === "PRODUCT_IDLE" && idleDate) {
-      qb.andWhere(`
+    if (type === "PRODUCT_IDLE" && idleDate) {
+      qb.andWhere(
+        `
       product."created_at" <= :idleDate
       AND NOT EXISTS (
         SELECT 1
@@ -540,12 +651,14 @@ export class ProductsService {
         WHERE pv."productId" = product.id
         AND oi."created_at" > :idleDate
       )
-    `, { idleDate });
+    `,
+        { idleDate },
+      );
     }
 
     qb.orderBy(
       `product.${q?.sortBy ?? "created_at"}`,
-      (q?.sortOrder ?? "DESC") as any
+      (q?.sortOrder ?? "DESC") as any,
     );
 
     // ⚠️ No pagination for export
@@ -563,15 +676,15 @@ export class ProductsService {
 
       const totalStock = skus.reduce(
         (sum: number, s: any) => sum + (s.stockOnHand || 0),
-        0
+        0,
       );
       const totalReserved = skus.reduce(
         (sum: number, s: any) => sum + (Number(s?.reserved) || 0),
-        0
+        0,
       );
       const totalAvailable = skus.reduce(
         (sum: number, s: any) => sum + (Number(s?.available) || 0),
-        0
+        0,
       );
 
       return {
@@ -601,27 +714,97 @@ export class ProductsService {
     // 📦 Excel Generation
     // =============================
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t("domains.products.products_sheet"));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.products.products_sheet"),
+    );
     const naText = this.translations.t("domains.product_sync.n_a");
 
     worksheet.columns = [
-      { header: this.translations.t("domains.product_sync.id"), key: "id", width: 10 },
-      { header: this.translations.t("domains.products.slug_header"), key: "slug", width: 25 },
-      { header: this.translations.t("domains.products.name_header"), key: "name", width: 30 },
-      { header: this.translations.t("domains.products.type_header"), key: "type", width: 14 },
-      { header: this.translations.t("domains.products.sku_header"), key: "sku", width: 20 },
-      { header: this.translations.t("domains.products.skus_count_header"), key: "skuCount", width: 12 },
-      { header: this.translations.t("domains.products.category_header"), key: "category", width: 20 },
-      { header: this.translations.t("domains.product_sync.store"), key: "store", width: 20 },
-      { header: this.translations.t("domains.products.warehouse_header"), key: "warehouse", width: 20 },
-      { header: this.translations.t("domains.products.storage_rack_header"), key: "storageLocation", width: 18 },
-      { header: this.translations.t("domains.products.wholesale_price_header"), key: "wholesalePrice", width: 16 },
-      { header: this.translations.t("domains.products.sale_price_header"), key: "salePrice", width: 16 },
-      { header: this.translations.t("domains.products.lowest_price_header"), key: "lowestPrice", width: 16 },
-      { header: this.translations.t("domains.products.total_stock_header"), key: "totalStock", width: 14 },
-      { header: this.translations.t("domains.products.total_reserved_header"), key: "totalReserved", width: 14 },
-      { header: this.translations.t("domains.products.total_available_header"), key: "totalAvailable", width: 14 },
-      { header: this.translations.t("domains.product_sync.created_at"), key: "created_at", width: 18 },
+      {
+        header: this.translations.t("domains.product_sync.id"),
+        key: "id",
+        width: 10,
+      },
+      {
+        header: this.translations.t("domains.products.slug_header"),
+        key: "slug",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.products.name_header"),
+        key: "name",
+        width: 30,
+      },
+      {
+        header: this.translations.t("domains.products.type_header"),
+        key: "type",
+        width: 14,
+      },
+      {
+        header: this.translations.t("domains.products.sku_header"),
+        key: "sku",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.products.skus_count_header"),
+        key: "skuCount",
+        width: 12,
+      },
+      {
+        header: this.translations.t("domains.products.category_header"),
+        key: "category",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.product_sync.store"),
+        key: "store",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.products.warehouse_header"),
+        key: "warehouse",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.products.storage_rack_header"),
+        key: "storageLocation",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.products.wholesale_price_header"),
+        key: "wholesalePrice",
+        width: 16,
+      },
+      {
+        header: this.translations.t("domains.products.sale_price_header"),
+        key: "salePrice",
+        width: 16,
+      },
+      {
+        header: this.translations.t("domains.products.lowest_price_header"),
+        key: "lowestPrice",
+        width: 16,
+      },
+      {
+        header: this.translations.t("domains.products.total_stock_header"),
+        key: "totalStock",
+        width: 14,
+      },
+      {
+        header: this.translations.t("domains.products.total_reserved_header"),
+        key: "totalReserved",
+        width: 14,
+      },
+      {
+        header: this.translations.t("domains.products.total_available_header"),
+        key: "totalAvailable",
+        width: 14,
+      },
+      {
+        header: this.translations.t("domains.product_sync.created_at"),
+        key: "created_at",
+        width: 18,
+      },
     ];
 
     // 🎨 Header Styling (same style you use)
@@ -670,9 +853,9 @@ export class ProductsService {
     const productsBySku =
       productIdsFromSkus.length > 0
         ? await this.prodRepo.find({
-          where: { adminId, id: In(productIdsFromSkus) } as any,
-          relations: ["category", "store", "warehouse"],
-        })
+            where: { adminId, id: In(productIdsFromSkus) } as any,
+            relations: ["category", "store", "warehouse"],
+          })
         : [];
 
     const productMap = new Map();
@@ -696,24 +879,25 @@ export class ProductsService {
     const filters: Record<string, any> = {};
     const type = q?.type ?? "PRODUCT";
 
-    const ids = q?.ids?.split(',') || [];
+    const ids = q?.ids?.split(",") || [];
 
-    if (q?.categoryId && q?.categoryId != "none")
+    if (q?.categoryId && q?.categoryId != "none") {
       filters.categoryId = q.categoryId;
+    }
 
-    if (q?.storeId && q?.storeId != "none")
-      filters.storeId = q.storeId;
+    if (q?.storeId && q?.storeId != "none") filters.storeId = q.storeId;
 
-    if (q?.warehouseId && q?.warehouseId != "none")
+    if (q?.warehouseId && q?.warehouseId != "none") {
       filters.warehouseId = q.warehouseId;
+    }
     if (q?.productType && q?.productType !== "none") {
       filters.productType = q.productType;
     }
 
-    if (q?.storageLocationId && q?.storageLocationId != "none")
+    if (q?.storageLocationId && q?.storageLocationId != "none") {
       filters.storageLocationId = q.storageLocationId;
-    
-    
+    }
+
     if (q?.search) {
       filters.search = q.search?.trim();
     }
@@ -723,11 +907,17 @@ export class ProductsService {
       const lte = q["wholesalePrice.lte"];
 
       if (!Number.isNaN(Number(gte))) {
-        filters.wholesalePrice = { ...filters.wholesalePrice, gte: Number(gte) };
+        filters.wholesalePrice = {
+          ...filters.wholesalePrice,
+          gte: Number(gte),
+        };
       }
 
       if (!Number.isNaN(Number(lte))) {
-        filters.wholesalePrice = { ...filters.wholesalePrice, lte: Number(lte) };
+        filters.wholesalePrice = {
+          ...filters.wholesalePrice,
+          lte: Number(lte),
+        };
       }
     }
 
@@ -735,11 +925,13 @@ export class ProductsService {
       const gte = q["salePrice.gte"];
       const lte = q["salePrice.lte"];
 
-      if (!Number.isNaN(Number(gte)))
+      if (!Number.isNaN(Number(gte))) {
         filters.salePrice = { ...filters.salePrice, gte: Number(gte) };
+      }
 
-      if (!Number.isNaN(Number(lte)))
+      if (!Number.isNaN(Number(lte))) {
         filters.salePrice = { ...filters.salePrice, lte: Number(lte) };
+      }
     }
 
     // =========================================
@@ -750,7 +942,7 @@ export class ProductsService {
     if (type === "PRODUCT_IDLE" && q?.["created_at.lte"]) {
       idleDate = new Date(q["created_at.lte"]);
     }
-    const isActiveFilter = q?.isActive !== 'false';
+    const isActiveFilter = q?.isActive !== "false";
 
     const qb = this.prodRepo
       .createQueryBuilder("product")
@@ -768,51 +960,69 @@ export class ProductsService {
     AND "syncState"."adminId" = product."adminId"
     AND "syncState"."storeId" = product."storeId"
     AND "syncState"."externalStoreId" = "store"."externalStoreId"
-  `
+  `,
       )
       .where("product.adminId = :adminId", { adminId })
       .andWhere("product.isActive = :isActive", { isActive: isActiveFilter });
 
     // Apply normal filters manually (since we use QueryBuilder now)
-    if (!!ids && ids?.length > 0)
+    if (!!ids && ids?.length > 0) {
       qb.andWhere("product.id IN (:...ids)", { ids: ids });
-
-    if (filters.categoryId)
-      qb.andWhere("product.categoryId = :categoryId", { categoryId: filters.categoryId });
-
-    if (filters.storeId)
-      qb.andWhere("product.storeId = :storeId", { storeId: filters.storeId });
-
-    if (filters.warehouseId)
-      qb.andWhere("product.warehouseId = :warehouseId", { warehouseId: filters.warehouseId });
-    if (filters.productType) {
-      qb.andWhere("product.type = :productType", { productType: filters.productType });
     }
 
-    if (filters.storageLocationId)
+    if (filters.categoryId) {
+      qb.andWhere("product.categoryId = :categoryId", {
+        categoryId: filters.categoryId,
+      });
+    }
+
+    if (filters.storeId) {
+      qb.andWhere("product.storeId = :storeId", { storeId: filters.storeId });
+    }
+
+    if (filters.warehouseId) {
+      qb.andWhere("product.warehouseId = :warehouseId", {
+        warehouseId: filters.warehouseId,
+      });
+    }
+    if (filters.productType) {
+      qb.andWhere("product.type = :productType", {
+        productType: filters.productType,
+      });
+    }
+
+    if (filters.storageLocationId) {
       qb.andWhere("product.storageLocationId = :storageLocationId", {
         storageLocationId: filters.storageLocationId,
       });
+    }
 
-    
-    if (filters.wholesalePrice?.gte)
-      qb.andWhere("product.wholesalePrice >= :gte", { gte: filters.wholesalePrice.gte });
+    if (filters.wholesalePrice?.gte) {
+      qb.andWhere("product.wholesalePrice >= :gte", {
+        gte: filters.wholesalePrice.gte,
+      });
+    }
 
-    if (filters.wholesalePrice?.lte)
-      qb.andWhere("product.wholesalePrice <= :lte", { lte: filters.wholesalePrice.lte });
+    if (filters.wholesalePrice?.lte) {
+      qb.andWhere("product.wholesalePrice <= :lte", {
+        lte: filters.wholesalePrice.lte,
+      });
+    }
 
-    if (filters.salePrice?.gte)
+    if (filters.salePrice?.gte) {
       qb.andWhere("product.salePrice >= :gte", { gte: filters.salePrice.gte });
+    }
 
-    if (filters.salePrice?.lte)
+    if (filters.salePrice?.lte) {
       qb.andWhere("product.salePrice <= :lte", { lte: filters.salePrice.lte });
+    }
 
     if (filters.search) {
       qb.andWhere(
         new Brackets((sq) => {
           sq.where("product.name ILIKE :s", { s: `%${filters.search}%` })
             .orWhere("product.slug ILIKE :s", { s: `%${filters.search}%` })
-            .orWhere("variant.sku ILIKE :s", { s: `%${filters.search}%` })
+            .orWhere("variant.sku ILIKE :s", { s: `%${filters.search}%` });
         }),
       );
     }
@@ -825,7 +1035,9 @@ export class ProductsService {
       });
 
       if (triggerProduct) {
-        const upsellIds = triggerProduct.upsellingProducts.map((up) => up.productId);
+        const upsellIds = triggerProduct.upsellingProducts.map(
+          (up) => up.productId,
+        );
 
         if (upsellIds.length > 0) {
           qb.andWhere("product.id IN (:...upsellIds)", { upsellIds });
@@ -842,7 +1054,8 @@ export class ProductsService {
     // 🔥 Idle Products Filter
     // =========================================
     if (type === "PRODUCT_IDLE" && idleDate) {
-      qb.andWhere(`
+      qb.andWhere(
+        `
       product."created_at" <= :idleDate
       AND  NOT EXISTS (
         SELECT 1
@@ -851,12 +1064,14 @@ export class ProductsService {
         WHERE pv."productId" = product.id
         AND oi."created_at" > :idleDate
       )
-    `, { idleDate });
+    `,
+        { idleDate },
+      );
     }
 
     qb.orderBy(
       `product.${q?.sortBy ?? "created_at"}`,
-      (q?.sortOrder ?? "DESC") as any
+      (q?.sortOrder ?? "DESC") as any,
     );
 
     qb.skip(((q?.page ?? 1) - 1) * (q?.limit ?? 10));
@@ -865,7 +1080,10 @@ export class ProductsService {
     const [records, total] = await qb.getManyAndCount();
 
     const enriched = await this.attachSkusToProducts(me, records);
-    const withSummaries = await this.attachStockSummariesToProducts(me, enriched);
+    const withSummaries = await this.attachStockSummariesToProducts(
+      me,
+      enriched,
+    );
 
     return {
       records: withSummaries,
@@ -894,7 +1112,11 @@ export class ProductsService {
     const row = await this.pvRepo.findOne({
       where: { adminId, sku } as any,
     });
-    if (!row) throw new BadRequestException(this.translations.t("domains.products.sku_not_found"));
+    if (!row) {
+      throw new BadRequestException(
+        this.translations.t("domains.products.sku_not_found"),
+      );
+    }
 
     const product = await this.get(me, row.productId);
 
@@ -922,13 +1144,17 @@ export class ProductsService {
     me: any,
     productId: string,
     body: UpsertProductSkusDto,
-    manager?: EntityManager
+    manager?: EntityManager,
   ) {
     const adminId = tenantId(me);
     const product = await this.get(me, productId, manager);
 
     const items = Array.isArray(body?.items) ? body.items : [];
-    if (!items.length) throw new BadRequestException(this.translations.t("domains.products.items_required"));
+    if (!items.length) {
+      throw new BadRequestException(
+        this.translations.t("domains.products.items_required"),
+      );
+    }
 
     const pvRepo = manager
       ? manager.getRepository(ProductVariantEntity)
@@ -949,28 +1175,30 @@ export class ProductsService {
     for (const it of items as any[]) {
       const attrs = it.attributes ?? {};
       if (!Object.keys(attrs).length) {
-        throw new BadRequestException(this.translations.t("domains.products.each_item_must_have_attributes"));
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.products.each_item_must_have_attributes",
+          ),
+        );
       }
 
       const key = this.canonicalKey(attrs);
 
       incomingKeys.add(key);
 
-      let row = existingByKey.get(key);
+      const row = existingByKey.get(key);
 
       if (row) {
         // 🔄 UPDATE EXISTING
         row.attributes = attrs;
         row.price =
-          it.price !== undefined && it.price !== null
-            ? Number(it.price)
-            : null;
+          it.price !== undefined && it.price !== null ? Number(it.price) : null;
 
-        if (it.stockOnHand !== undefined)
+        if (it.stockOnHand !== undefined) {
           row.stockOnHand = Number(it.stockOnHand) || 0;
+        }
 
-        if (it.reserved !== undefined)
-          row.reserved = Number(it.reserved) || 0;
+        if (it.reserved !== undefined) row.reserved = Number(it.reserved) || 0;
 
         toSave.push(row);
       } else {
@@ -1010,16 +1238,27 @@ export class ProductsService {
     // 🔒 VALIDATIONS
     // ==========================
     for (const r of toSave) {
-      if (r.stockOnHand < 0)
-        throw new BadRequestException(this.translations.t("domains.products.stock_on_hand_cannot_be_negative"));
-
-      if (r.reserved < 0)
-        throw new BadRequestException(this.translations.t("domains.products.reserved_cannot_be_negative"));
-
-      if (r.reserved > r.stockOnHand)
+      if (r.stockOnHand < 0) {
         throw new BadRequestException(
-          this.translations.t("domains.products.reserved_cannot_exceed_stock_on_hand")
+          this.translations.t(
+            "domains.products.stock_on_hand_cannot_be_negative",
+          ),
         );
+      }
+
+      if (r.reserved < 0) {
+        throw new BadRequestException(
+          this.translations.t("domains.products.reserved_cannot_be_negative"),
+        );
+      }
+
+      if (r.reserved > r.stockOnHand) {
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.products.reserved_cannot_exceed_stock_on_hand",
+          ),
+        );
+      }
     }
 
     await pvRepo.save(toSave);
@@ -1030,35 +1269,54 @@ export class ProductsService {
     };
   }
 
-  async adjustVariantStock(me: any, productId: string, variantId: string, body: AdjustVariantStockDto) {
+  async adjustVariantStock(
+    me: any,
+    productId: string,
+    variantId: string,
+    body: AdjustVariantStockDto,
+  ) {
     const adminId = tenantId(me);
     await this.get(me, productId);
 
     const delta = Number(body?.delta);
-    if (!Number.isFinite(delta)) throw new BadRequestException(this.translations.t("domains.products.delta_must_be_a_number"));
+    if (!Number.isFinite(delta)) {
+      throw new BadRequestException(
+        this.translations.t("domains.products.delta_must_be_a_number"),
+      );
+    }
 
     const row = await this.pvRepo.findOne({
       where: { id: variantId, adminId, productId } as any,
     });
-    if (!row) throw new BadRequestException(this.translations.t("domains.products.variant_sku_row_not_found"));
+    if (!row) {
+      throw new BadRequestException(
+        this.translations.t("domains.products.variant_sku_row_not_found"),
+      );
+    }
 
     const next = row.stockOnHand + delta;
-    if (next < 0) throw new BadRequestException(this.translations.t("domains.products.stock_cannot_go_below_zero"));
+    if (next < 0) {
+      throw new BadRequestException(
+        this.translations.t("domains.products.stock_cannot_go_below_zero"),
+      );
+    }
 
     row.stockOnHand = next;
     await this.pvRepo.save(row);
 
     return {
-      ...await this.mapSkuRow(row),
+      ...(await this.mapSkuRow(row)),
       productId,
     };
   }
 
-
-
   async create(me: any, dto: CreateProductDto, manager?: EntityManager) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const work = async (mgr: EntityManager) => {
       const prodRepo = mgr.getRepository(ProductEntity);
@@ -1085,34 +1343,45 @@ export class ProductsService {
         });
 
         if (!category) {
-          const slug = generateSlug(categoryName)
+          const slug = generateSlug(categoryName);
           category = catRepo.create({
             name: categoryName.trim(),
-            slug: categorySlug ? categorySlug : slug && slug !== "-" ? slug : `category-${Date.now()}`,
+            slug: categorySlug
+              ? categorySlug
+              : slug && slug !== "-"
+                ? slug
+                : `category-${Date.now()}`,
             adminId,
           });
 
           category = await catRepo.save(category);
         }
-      }
-
-      else if (dto.categoryId && dto.categoryId !== "none") {
-
+      } else if (dto.categoryId && dto.categoryId !== "none") {
         category = await this.assertOwnedOrNull(
           catRepo,
           adminId,
           dto.categoryId,
-          "category"
+          "category",
         );
       }
 
       let store: StoreEntity;
-      if (dto.storeId && dto.storeId !== 'none') {
-        store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+      if (dto.storeId && dto.storeId !== "none") {
+        store = await this.assertOwnedOrNull(
+          storeRepo,
+          adminId,
+          dto.storeId ?? null,
+          "store",
+        );
       }
 
-      if (dto.warehouseId && dto.warehouseId !== 'none') {
-        const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
+      if (dto.warehouseId && dto.warehouseId !== "none") {
+        const warehouse = await this.assertOwnedOrNull(
+          whRepo,
+          adminId,
+          dto.warehouseId ?? null,
+          "warehouse",
+        );
       }
 
       const existingSlug = await prodRepo.findOne({
@@ -1121,14 +1390,15 @@ export class ProductsService {
           slug: dto.slug.trim(),
           isActive: true,
           // storeId: dto.storeId === "none" ? IsNull() : dto.storeId,
-        }
+        },
       });
 
       if (existingSlug) {
         throw new BadRequestException(
-          this.translations.t("domains.products.slug_already_in_use", { args: { slug: dto.slug } })
+          this.translations.t("domains.products.slug_already_in_use", {
+            args: { slug: dto.slug },
+          }),
         );
-
       }
 
       if (store && !dto.skipRemoteCheck) {
@@ -1136,56 +1406,64 @@ export class ProductsService {
           const provider = this.storesService.getProvider(store?.provider);
 
           const promises: Promise<any>[] = [];
-          promises.push(provider?.getProductBySlug(store, dto.slug.trim(), false));
+          promises.push(
+            provider?.getProductBySlug(store, dto.slug.trim(), false),
+          );
 
           if (dto.sku && this.storesService.isSkuFetchProvider(provider)) {
-            promises.push(provider.getProductBySku(
-              store,
-              dto.sku.trim(),
-              false
-            ));
+            promises.push(
+              provider.getProductBySku(store, dto.sku.trim(), false),
+            );
           }
 
           const results = await Promise.allSettled(promises);
 
           // Check slug result
           const slugResult = results[0];
-          if (slugResult.status === 'fulfilled') {
+          if (slugResult.status === "fulfilled") {
             const remoteSlug = slugResult.value;
             if (remoteSlug?.id) {
-              throw new BadRequestException(this.translations.t("domains.products.slug_already_in_use_by_store", { args: { slug: dto.slug, storeName: store?.name } }));
+              throw new BadRequestException(
+                this.translations.t(
+                  "domains.products.slug_already_in_use_by_store",
+                  { args: { slug: dto.slug, storeName: store?.name } },
+                ),
+              );
             }
-          } else if (slugResult.status === 'rejected') {
+          } else if (slugResult.status === "rejected") {
             throw slugResult.reason;
           }
 
           // Check sku result if we had it
           if (results.length > 1) {
             const skuResult = results[1];
-            if (skuResult.status === 'fulfilled') {
+            if (skuResult.status === "fulfilled") {
               const remoteSku = skuResult.value;
               if (remoteSku?.id) {
                 throw new BadRequestException(
-                  this.translations.t("domains.products.sku_already_in_use_by_store", { args: { sku: dto.sku, storeName: store?.name } })
+                  this.translations.t(
+                    "domains.products.sku_already_in_use_by_store",
+                    { args: { sku: dto.sku, storeName: store?.name } },
+                  ),
                 );
               }
-            } else if (skuResult.status === 'rejected') {
+            } else if (skuResult.status === "rejected") {
               throw skuResult.reason;
             }
           }
-
         } catch (e) {
           if (e instanceof BadRequestException) {
             throw e;
           }
           const errorMsg = getErrorMessage(e);
           throw new BadRequestException(
-            this.translations.t("domains.products.failed_to_verify_uniqueness", { args: { storeName: store?.name, errorMsg } })
+            this.translations.t(
+              "domains.products.failed_to_verify_uniqueness",
+              { args: { storeName: store?.name, errorMsg } },
+            ),
           );
         }
-
       }
-
 
       const existingSKU = await prodRepo.findOne({
         where: {
@@ -1193,16 +1471,16 @@ export class ProductsService {
           adminId,
           isActive: true,
           // storeId: dto.storeId === "none" ? IsNull() : dto.storeId,
-        }
+        },
       });
 
       if (existingSKU) {
         throw new BadRequestException(
-          this.translations.t("domains.products.sku_already_in_use", { args: { sku: dto.sku } })
+          this.translations.t("domains.products.sku_already_in_use", {
+            args: { sku: dto.sku },
+          }),
         );
       }
-
-
 
       const p = prodRepo.create({
         adminId,
@@ -1215,8 +1493,14 @@ export class ProductsService {
         salePrice: dto.salePrice ?? null,
         storageLocationId: dto.storageLocationId ?? null,
         categoryId: category ? category.id : null,
-        storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? dto.storeId ?? null : null,
-        warehouseId: dto.warehouseId !== undefined && dto.warehouseId !== 'none' ? dto.warehouseId ?? null : null,
+        storeId:
+          dto.storeId !== undefined && dto.storeId !== "none"
+            ? (dto.storeId ?? null)
+            : null,
+        warehouseId:
+          dto.warehouseId !== undefined && dto.warehouseId !== "none"
+            ? (dto.warehouseId ?? null)
+            : null,
 
         description: dto.description ?? null,
         callCenterProductDescription: dto.callCenterProductDescription ?? null,
@@ -1244,13 +1528,19 @@ export class ProductsService {
           });
 
           if (!mainRow) {
-            throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_not_found"));
+            throw new BadRequestException(
+              this.translations.t(
+                "domains.products.main_image_orphan_not_found",
+              ),
+            );
           }
 
           p.mainImage = mainRow.url;
         } else {
           throw new BadRequestException(
-            this.translations.t("domains.products.main_image_or_orphan_required")
+            this.translations.t(
+              "domains.products.main_image_or_orphan_required",
+            ),
           );
         }
       }
@@ -1262,68 +1552,97 @@ export class ProductsService {
             // const file = await this.remoteImageHelper.downloadAndSaveImage(img.url);
 
             return { url: img.url };
-          })
+          }),
       );
-      const orphanIds = Array.isArray((dto as any).imagesOrphanIds) ? (dto as any).imagesOrphanIds : [];
-      const orphanRows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
+      const orphanIds = Array.isArray((dto as any).imagesOrphanIds)
+        ? (dto as any).imagesOrphanIds
+        : [];
+      const orphanRows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(
+        mgr,
+        String(adminId),
+        orphanIds,
+      );
       const orphanImages = orphanRows.map((r) => ({ url: r.url }));
 
       const finalImages = [...imagesMeta, ...orphanImages];
       if (finalImages.length > 20) {
-        throw new BadRequestException(this.translations.t("domains.products.total_images_cannot_exceed_20"));
+        throw new BadRequestException(
+          this.translations.t("domains.products.total_images_cannot_exceed_20"),
+        );
       }
       p.images = finalImages;
 
       const savedProduct = await prodRepo.save(p);
 
       if (dto.remoteId && store) {
-        await this.productSyncStateService.upsertSyncState({ adminId, productId: savedProduct.id, storeId: store.id, externalStoreId: store.externalStoreId }, {
-          remoteProductId: dto.remoteId,
-          status: ProductSyncStatus.PENDING
-        },
-          mgr)
+        await this.productSyncStateService.upsertSyncState(
+          {
+            adminId,
+            productId: savedProduct.id,
+            storeId: store.id,
+            externalStoreId: store.externalStoreId,
+          },
+          {
+            remoteProductId: dto.remoteId,
+            status: ProductSyncStatus.PENDING,
+          },
+          mgr,
+        );
       }
 
       // delete used orphans AFTER product save
-      const toDelete = [mainOrphanId, ...orphanRows.map((r) => r.id),
-      ].filter(Boolean) as string[];
-      await this.orphanFilesService.deleteOrphansByIds(mgr, String(adminId), toDelete);
+      const toDelete = [mainOrphanId, ...orphanRows.map((r) => r.id)].filter(
+        Boolean,
+      ) as string[];
+      await this.orphanFilesService.deleteOrphansByIds(
+        mgr,
+        String(adminId),
+        toDelete,
+      );
 
-      const productType = p.type === ProductType.VARIABLE ? ProductType.VARIABLE : ProductType.SINGLE;
-      const combos = productType === ProductType.VARIABLE
-        ? (Array.isArray(dto.combinations) ? dto.combinations : [])
-        : [];
+      const productType =
+        p.type === ProductType.VARIABLE
+          ? ProductType.VARIABLE
+          : ProductType.SINGLE;
+      const combos =
+        productType === ProductType.VARIABLE
+          ? Array.isArray(dto.combinations)
+            ? dto.combinations
+            : []
+          : [];
 
       let savedVariants: ProductVariantEntity[] = [];
 
-      const candidateSkus = productType === ProductType.SINGLE
-        ? []
-        : combos
-          .map(c => c.sku)
-          .filter((sku): sku is string => !!sku);
+      const candidateSkus =
+        productType === ProductType.SINGLE
+          ? []
+          : combos.map((c) => c.sku).filter((sku): sku is string => !!sku);
 
       if (candidateSkus.length > 0) {
         const existingVariants = await pvRepo.find({
           where: {
             adminId,
-            sku: In(candidateSkus)
+            sku: In(candidateSkus),
           },
-          select: ['sku']
+          select: ["sku"],
         });
 
         if (existingVariants.length > 0) {
-          const duplicateSkus = existingVariants.map(v => v.sku);
+          const duplicateSkus = existingVariants.map((v) => v.sku);
           throw new BadRequestException(
-            this.translations.t("domains.products.duplicate_skus_exist", { args: { duplicateSkus: duplicateSkus.join(', ') } })
+            this.translations.t("domains.products.duplicate_skus_exist", {
+              args: { duplicateSkus: duplicateSkus.join(", ") },
+            }),
           );
         }
       }
 
       let singleRow;
       if (productType === ProductType.SINGLE) {
-        const defaultPrice = dto.salePrice !== undefined && dto.salePrice !== null
-          ? Number(dto.salePrice)
-          : 0;
+        const defaultPrice =
+          dto.salePrice !== undefined && dto.salePrice !== null
+            ? Number(dto.salePrice)
+            : 0;
         singleRow = pvRepo.create({
           adminId,
           productId: savedProduct.id,
@@ -1339,22 +1658,24 @@ export class ProductsService {
         savedVariants = [await pvRepo.save(singleRow as any)];
       } else if (combos.length) {
         const skusToCheck = combos
-          .map(c => c.sku)
+          .map((c) => c.sku)
           .filter((sku): sku is string => !!sku);
 
         if (skusToCheck.length > 0) {
           const existingVariants = await pvRepo.find({
             where: {
               adminId,
-              sku: In(skusToCheck)
+              sku: In(skusToCheck),
             },
-            select: ['sku']
+            select: ["sku"],
           });
 
           if (existingVariants.length > 0) {
-            const duplicateSkus = existingVariants.map(v => v.sku);
+            const duplicateSkus = existingVariants.map((v) => v.sku);
             throw new BadRequestException(
-              this.translations.t("domains.products.duplicate_skus_exist", { args: { duplicateSkus: duplicateSkus.join(', ') } })
+              this.translations.t("domains.products.duplicate_skus_exist", {
+                args: { duplicateSkus: duplicateSkus.join(", ") },
+              }),
             );
           }
         }
@@ -1363,26 +1684,39 @@ export class ProductsService {
           const attrs = c.attributes ?? {};
 
           if (!Object.keys(attrs).length) {
-            throw new BadRequestException(this.translations.t("domains.products.each_combination_must_have_attributes"));
+            throw new BadRequestException(
+              this.translations.t(
+                "domains.products.each_combination_must_have_attributes",
+              ),
+            );
           }
 
           const key = this.canonicalKey(attrs); // ✅ Always generated
           const sku = c.sku;
 
-          if (!key) throw new BadRequestException(this.translations.t("domains.products.each_combination_must_have_key_or_attributes"));
+          if (!key) {
+            throw new BadRequestException(
+              this.translations.t(
+                "domains.products.each_combination_must_have_key_or_attributes",
+              ),
+            );
+          }
 
           return {
             adminId,
             productId: savedProduct.id,
             key,
             sku: sku ?? null,
-            price: c.price !== undefined && c.price !== null ? Number(c.price) : null,
+            price:
+              c.price !== undefined && c.price !== null
+                ? Number(c.price)
+                : null,
             attributes: attrs,
             stockOnHand: 0,
             reserved: 0,
             isActive: c.isActive,
-            deactivatedAt: c.isActive ? null : new Date()
-          } as any
+            deactivatedAt: c.isActive ? null : new Date(),
+          } as any;
         });
 
         {
@@ -1390,11 +1724,25 @@ export class ProductsService {
           const skusInRequest = new Set<string>();
           for (const r of rows) {
             const k = `${adminId}::${savedProduct.id}::${r.key}`;
-            if (seen.has(k)) throw new BadRequestException(this.translations.t("domains.products.duplicate_attributes_in_request", { args: { key: r.key } }));
+            if (seen.has(k)) {
+              throw new BadRequestException(
+                this.translations.t(
+                  "domains.products.duplicate_attributes_in_request",
+                  { args: { key: r.key } },
+                ),
+              );
+            }
             seen.add(k);
 
             if (r.sku) {
-              if (skusInRequest.has(r.sku)) throw new BadRequestException(this.translations.t("domains.products.duplicate_sku_in_request", { args: { sku: r.sku } }));
+              if (skusInRequest.has(r.sku)) {
+                throw new BadRequestException(
+                  this.translations.t(
+                    "domains.products.duplicate_sku_in_request",
+                    { args: { sku: r.sku } },
+                  ),
+                );
+              }
               skusInRequest.add(r.sku);
             }
           }
@@ -1403,17 +1751,24 @@ export class ProductsService {
         {
           const keys = rows.map((r) => r.key);
           const exists = await pvRepo.find({
-            where: { adminId, productId: savedProduct.id, key: In(keys) } as any,
+            where: {
+              adminId,
+              productId: savedProduct.id,
+              key: In(keys),
+            } as any,
             select: ["id", "key"],
           });
 
           if (exists.length) {
             const attrDetails = Object.entries(exists[0].attributes || {})
               .map(([k, v]) => `${k}: ${v}`)
-              .join(", ")
+              .join(", ");
 
             throw new BadRequestException(
-              this.translations.t("domains.products.variant_attributes_already_exists", { args: { attrDetails } })
+              this.translations.t(
+                "domains.products.variant_attributes_already_exists",
+                { args: { attrDetails } },
+              ),
             );
           }
         }
@@ -1424,47 +1779,81 @@ export class ProductsService {
       // Handle Purchase Data if provided
       if (dto.purchase) {
         // Map combinations to variant IDs for purchase items
-        const purchaseItems = savedVariants.map(v => {
-          const combo = productType === ProductType.SINGLE
-            ? singleRow
-            : combos.find(c => this.canonicalKey(c.attributes) === v.key);
+        const purchaseItems = savedVariants
+          .map((v) => {
+            const combo =
+              productType === ProductType.SINGLE
+                ? singleRow
+                : combos.find((c) => this.canonicalKey(c.attributes) === v.key);
 
-
-          return {
-            variantId: v.id,
-            quantity: productType === ProductType.SINGLE ? Number(dto.purchase.quantity || 0) : Number(combo?.stockOnHand) || 0,
-            purchaseCost: Number(dto.purchase.wholesalePrice || 0) || 0,
-          };
-        }).filter(it => it.quantity > 0);
+            return {
+              variantId: v.id,
+              quantity:
+                productType === ProductType.SINGLE
+                  ? Number(dto.purchase.quantity || 0)
+                  : Number(combo?.stockOnHand) || 0,
+              purchaseCost: Number(dto.purchase.wholesalePrice || 0) || 0,
+            };
+          })
+          .filter((it) => it.quantity > 0);
 
         if (purchaseItems.length) {
-          await this.purchasesService.create(me, {
-            ...dto.purchase,
-            items: purchaseItems
-          }, undefined, mgr);
+          await this.purchasesService.create(
+            me,
+            {
+              ...dto.purchase,
+              items: purchaseItems,
+            },
+            undefined,
+            mgr,
+          );
         }
       }
 
-      await this.notificationService.create({
-        userId: adminId,
-        type: NotificationType.PRODUCT_CREATED,
-        title: await this.requestTranslations.tAsync("domains.products.product_created_title", adminId),
-        message: await this.requestTranslations.tAsync("domains.products.product_created_message", adminId, { args: { name: savedProduct.name } }),
-        relatedEntityType: "product",
-        relatedEntityId: String(savedProduct.id),
-      }, mgr);
+      await this.notificationService.create(
+        {
+          userId: adminId,
+          type: NotificationType.PRODUCT_CREATED,
+          title: await this.requestTranslations.tAsync(
+            "domains.products.product_created_title",
+            adminId,
+          ),
+          message: await this.requestTranslations.tAsync(
+            "domains.products.product_created_message",
+            adminId,
+            { args: { name: savedProduct.name } },
+          ),
+          relatedEntityType: "product",
+          relatedEntityId: String(savedProduct.id),
+        },
+        mgr,
+      );
 
       return savedProduct.id;
     };
 
-    const savedId = manager ? await work(manager) : await this.dataSource.transaction(mgr => work(mgr));
-    this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_PRODUCT_CREATED);
+    const savedId = manager
+      ? await work(manager)
+      : await this.dataSource.transaction((mgr) => work(mgr));
+    this.onboardingAchievementService.enqueueAchievement(
+      adminId,
+      GettingStartedAchievementType.FIRST_PRODUCT_CREATED,
+    );
     return this.get(me, savedId);
   }
 
-  async update(me: any, id: string, dto: UpdateProductDto, manager?: EntityManager) {
+  async update(
+    me: any,
+    id: string,
+    dto: UpdateProductDto,
+    manager?: EntityManager,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const work = async (mgr: EntityManager) => {
       const prodRepo = mgr.getRepository(ProductEntity);
@@ -1477,10 +1866,14 @@ export class ProductsService {
       // 1. Fetch existing product
       const p = await prodRepo.findOne({
         where: { id, adminId } as any,
-        relations: ["category", "store", "warehouse"]
+        relations: ["category", "store", "warehouse"],
       });
 
-      if (!p) throw new BadRequestException(this.translations.t("domains.products.product_not_found"));
+      if (!p) {
+        throw new BadRequestException(
+          this.translations.t("domains.products.product_not_found"),
+        );
+      }
 
       if (dto.slug) {
         const cleanSlug = dto.slug;
@@ -1490,66 +1883,100 @@ export class ProductsService {
             slug: cleanSlug,
             isActive: true,
             // storeId: dto.storeId !== undefined && dto.storeId !== 'none' ? (dto.storeId ?? null) : p.storeId,
-            id: Not(id)
-          }
+            id: Not(id),
+          },
         });
 
         if (existingSlug) {
-          throw new BadRequestException(this.translations.t("domains.products.slug_already_in_use", { args: { slug: cleanSlug } }));
+          throw new BadRequestException(
+            this.translations.t("domains.products.slug_already_in_use", {
+              args: { slug: cleanSlug },
+            }),
+          );
         }
 
         p.slug = cleanSlug;
       }
 
       // --- 2. Handle Base Relations & Fields ---
-      if (dto.categoryId !== undefined && dto.categoryId !== 'none') {
-        const category = await this.assertOwnedOrNull(catRepo, adminId, dto.categoryId ?? null, "category");
+      if (dto.categoryId !== undefined && dto.categoryId !== "none") {
+        const category = await this.assertOwnedOrNull(
+          catRepo,
+          adminId,
+          dto.categoryId ?? null,
+          "category",
+        );
         (p as any).categoryId = dto.categoryId ?? null;
         (p as any).category = category ?? null;
-      } else if (dto.categoryId === 'none') {
+      } else if (dto.categoryId === "none") {
         (p as any).categoryId = null;
         (p as any).category = null;
       }
 
-
-      if (dto.storeId !== undefined && dto.storeId !== 'none') {
-        const store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+      if (dto.storeId !== undefined && dto.storeId !== "none") {
+        const store = await this.assertOwnedOrNull(
+          storeRepo,
+          adminId,
+          dto.storeId ?? null,
+          "store",
+        );
         (p as any).storeId = dto.storeId ?? null;
         (p as any).store = store ?? null;
-      } else if (dto.storeId === 'none') {
+      } else if (dto.storeId === "none") {
         (p as any).storeId = null;
         (p as any).store = null;
       }
 
-      if (dto.warehouseId !== undefined && dto.warehouseId !== 'none') {
-        const warehouse = await this.assertOwnedOrNull(whRepo, adminId, dto.warehouseId ?? null, "warehouse");
+      if (dto.warehouseId !== undefined && dto.warehouseId !== "none") {
+        const warehouse = await this.assertOwnedOrNull(
+          whRepo,
+          adminId,
+          dto.warehouseId ?? null,
+          "warehouse",
+        );
         (p as any).warehouseId = dto.warehouseId ?? null;
         (p as any).warehouse = warehouse ?? null;
-      } else if (dto.warehouseId === 'none') {
+      } else if (dto.warehouseId === "none") {
         (p as any).warehouseId = null;
         (p as any).warehouse = null;
       }
 
-
       if (p.storeId) {
         let store: StoreEntity;
-        store = await this.assertOwnedOrNull(storeRepo, adminId, dto.storeId ?? null, "store");
+        store = await this.assertOwnedOrNull(
+          storeRepo,
+          adminId,
+          dto.storeId ?? null,
+          "store",
+        );
         try {
-          const provider = this.storesService.getProvider(store?.provider)
+          const provider = this.storesService.getProvider(store?.provider);
 
-          const remoteSlug = await provider?.getProductBySlug(store, dto.slug.trim(), false)
+          const remoteSlug = await provider?.getProductBySlug(
+            store,
+            dto.slug.trim(),
+            false,
+          );
 
           const productSyncState = await this.productSyncStateRepo.findOne({
             where: {
               productId: p.id,
               storeId: store.id,
               adminId: p.adminId,
-              externalStoreId: store?.externalStoreId
-            }
+              externalStoreId: store?.externalStoreId,
+            },
           });
-          let externalId = productSyncState?.remoteProductId;
-          if (remoteSlug && remoteSlug?.id?.toString() !== externalId?.toString()) {
-            throw new BadRequestException(this.translations.t("domains.products.slug_already_in_use_by_store", { args: { slug: dto.slug, storeName: store?.name } }));
+          const externalId = productSyncState?.remoteProductId;
+          if (
+            remoteSlug &&
+            remoteSlug?.id?.toString() !== externalId?.toString()
+          ) {
+            throw new BadRequestException(
+              this.translations.t(
+                "domains.products.slug_already_in_use_by_store",
+                { args: { slug: dto.slug, storeName: store?.name } },
+              ),
+            );
           }
         } catch (e) {
           if (e instanceof BadRequestException) {
@@ -1557,53 +1984,74 @@ export class ProductsService {
           }
           const errorMsg = getErrorMessage(e);
           throw new BadRequestException(
-            this.translations.t("domains.products.failed_to_verify_slug_uniqueness", { args: { storeName: store?.name, errorMsg } })
+            this.translations.t(
+              "domains.products.failed_to_verify_slug_uniqueness",
+              { args: { storeName: store?.name, errorMsg } },
+            ),
           );
         }
-
       }
 
       // ✅ removeImgs
       const removeImgs = (dto as any).removeImgs as string[] | undefined;
       if (removeImgs?.length) {
         (p as any).images = ((p as any).images ?? []).filter(
-          (img: any) => img?.url && !removeImgs.includes(img.url)
+          (img: any) => img?.url && !removeImgs.includes(img.url),
         );
       }
       const removeUrls = dto.removeImgs as string[] | undefined;
 
       if (removeUrls?.length) {
-        p.images = await this.handleImageCleanup(
-          p,
-          removeUrls,
-        );
+        p.images = await this.handleImageCleanup(p, removeUrls);
       }
 
       delete (dto as any).removeImgs;
 
-
       // images replacement (existing + library) from frontend
       const imagesCount = dto.imagesOrphanIds?.length + p.images.length;
-      if (imagesCount > 20) throw new BadRequestException(this.translations.t("domains.products.total_images_cannot_exceed_20"));
+      if (imagesCount > 20) {
+        throw new BadRequestException(
+          this.translations.t("domains.products.total_images_cannot_exceed_20"),
+        );
+      }
 
       const imagesMeta = (dto as any).imagesMeta;
       delete (dto as any).imagesMeta;
 
       // main image via orphan id
       const mainOrphanId = (dto as any).mainImageOrphanId;
-      if (mainOrphanId !== undefined && mainOrphanId !== null && mainOrphanId !== "") {
+      if (
+        mainOrphanId !== undefined &&
+        mainOrphanId !== null &&
+        mainOrphanId !== ""
+      ) {
         const oid = mainOrphanId;
-        if (!oid) throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_id_invalid"));
+        if (!oid) {
+          throw new BadRequestException(
+            this.translations.t(
+              "domains.products.main_image_orphan_id_invalid",
+            ),
+          );
+        }
         const row = await orphanRepo.findOne({
           where: { adminId: String(adminId), id: oid } as any,
           select: ["id", "url"],
         });
-        if (!row) throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_id_not_found"));
+        if (!row) {
+          throw new BadRequestException(
+            this.translations.t(
+              "domains.products.main_image_orphan_id_not_found",
+            ),
+          );
+        }
         if ((p as any).mainImage) {
-          deletePhysicalFiles([p.mainImage])
+          deletePhysicalFiles([p.mainImage]);
         }
         (p as any).mainImage = row.url;
-        await this.orphanRepo.delete({ adminId: String(adminId), id: oid } as any);
+        await this.orphanRepo.delete({
+          adminId: String(adminId),
+          id: oid,
+        } as any);
       }
       delete (dto as any).mainImageOrphanId;
 
@@ -1611,14 +2059,30 @@ export class ProductsService {
       const orphanIds = (dto as any).imagesOrphanIds;
 
       if (orphanIds !== undefined) {
-        if (!Array.isArray(orphanIds)) throw new BadRequestException(this.translations.t("domains.products.images_orphan_ids_must_be_array"));
-        const rows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(mgr, String(adminId), orphanIds);
+        if (!Array.isArray(orphanIds)) {
+          throw new BadRequestException(
+            this.translations.t(
+              "domains.products.images_orphan_ids_must_be_array",
+            ),
+          );
+        }
+        const rows = await this.orphanFilesService.resolveOrphanUrlsOrThrow(
+          mgr,
+          String(adminId),
+          orphanIds,
+        );
 
-        const current = Array.isArray((p as any).images) ? (p as any).images : [];
+        const current = Array.isArray((p as any).images)
+          ? (p as any).images
+          : [];
         const toAppend = rows.map((r) => ({ url: r.url }));
 
         if (current.length + toAppend.length > 20) {
-          throw new BadRequestException(this.translations.t("domains.products.total_images_cannot_exceed_20"));
+          throw new BadRequestException(
+            this.translations.t(
+              "domains.products.total_images_cannot_exceed_20",
+            ),
+          );
         }
 
         (p as any).images = [...current, ...toAppend];
@@ -1630,7 +2094,6 @@ export class ProductsService {
       }
       delete (dto as any).imagesOrphanIds;
 
-
       const patch: any = { ...dto };
       delete patch.categoryId;
       delete patch.storeId;
@@ -1638,7 +2101,9 @@ export class ProductsService {
       delete patch.combinations;
 
       const combos = dto.combinations;
-      const hasRealVariants = Array.isArray(combos) && combos.some(c => Object.keys(c.attributes || {}).length > 0);
+      const hasRealVariants =
+        Array.isArray(combos) &&
+        combos.some((c) => Object.keys(c.attributes || {}).length > 0);
 
       if (p.type === ProductType.SINGLE && hasRealVariants) {
         p.type = ProductType.VARIABLE;
@@ -1658,7 +2123,9 @@ export class ProductsService {
         });
 
         if (!mainVariant) {
-          throw new BadRequestException(this.translations.t("domains.products.main_sku_row_not_found"));
+          throw new BadRequestException(
+            this.translations.t("domains.products.main_sku_row_not_found"),
+          );
         }
 
         if (mainVariant) {
@@ -1667,48 +2134,83 @@ export class ProductsService {
         }
       }
 
-      if (p.type !== ProductType.SINGLE && dto.combinations && Array.isArray(dto.combinations)) {
+      if (
+        p.type !== ProductType.SINGLE &&
+        dto.combinations &&
+        Array.isArray(dto.combinations)
+      ) {
         const combos = dto.combinations;
-
 
         const keysInRequest = new Set<string>();
         const skusInRequest = new Set<string>();
 
         for (const c of combos) {
           const attrs = c.attributes ?? {};
-          const key = Object.keys(attrs).length > 0 ? this.canonicalKey(attrs) : (c.key === 'default' ? 'default' : null);
+          const key =
+            Object.keys(attrs).length > 0
+              ? this.canonicalKey(attrs)
+              : c.key === "default"
+                ? "default"
+                : null;
 
           if (!key) {
-            throw new BadRequestException(this.translations.t("domains.products.each_combination_must_have_attributes_or_default"));
+            throw new BadRequestException(
+              this.translations.t(
+                "domains.products.each_combination_must_have_attributes_or_default",
+              ),
+            );
           }
 
-          if (keysInRequest.has(key)) throw new BadRequestException(this.translations.t("domains.products.duplicate_attributes_in_request", { args: { key } }));
+          if (keysInRequest.has(key)) {
+            throw new BadRequestException(
+              this.translations.t(
+                "domains.products.duplicate_attributes_in_request",
+                { args: { key } },
+              ),
+            );
+          }
           keysInRequest.add(key);
 
           if (c.sku) {
-            if (skusInRequest.has(c.sku)) throw new BadRequestException(this.translations.t("domains.products.duplicate_sku_in_request", { args: { sku: c.sku } }));
+            if (skusInRequest.has(c.sku)) {
+              throw new BadRequestException(
+                this.translations.t(
+                  "domains.products.duplicate_sku_in_request",
+                  { args: { sku: c.sku } },
+                ),
+              );
+            }
             skusInRequest.add(c.sku);
           }
         }
 
-        const existingVariants = await pvRepo.find({ where: { adminId, productId: p.id } as any });
-        const existingVariantMap = new Map(existingVariants.map(v => [v.key, v]));
+        const existingVariants = await pvRepo.find({
+          where: { adminId, productId: p.id } as any,
+        });
+        const existingVariantMap = new Map(
+          existingVariants.map((v) => [v.key, v]),
+        );
 
-        const existingSkusForThisProduct = new Set(existingVariants.map(v => v.sku).filter(Boolean));
+        const existingSkusForThisProduct = new Set(
+          existingVariants.map((v) => v.sku).filter(Boolean),
+        );
 
-        const skusToCheck = Array.from(skusInRequest).filter(sku => !existingSkusForThisProduct.has(sku));
+        const skusToCheck = Array.from(skusInRequest).filter(
+          (sku) => !existingSkusForThisProduct.has(sku),
+        );
 
         if (skusToCheck.length > 0) {
           const conflictingVariants = await pvRepo.find({
             where: { adminId, sku: In(skusToCheck) } as any,
-            select: ['sku']
+            select: ["sku"],
           });
 
           if (conflictingVariants.length > 0) {
-            const duplicateSkus = conflictingVariants.map(v => v.sku);
+            const duplicateSkus = conflictingVariants.map((v) => v.sku);
             throw new BadRequestException(
-              this.translations.t("domains.products.duplicate_skus_exist", { args: { duplicateSkus: duplicateSkus.join(', ') }}
-              )
+              this.translations.t("domains.products.duplicate_skus_exist", {
+                args: { duplicateSkus: duplicateSkus.join(", ") },
+              }),
             );
           }
         }
@@ -1718,14 +2220,20 @@ export class ProductsService {
 
         for (const c of combos) {
           const attrs = c.attributes ?? {};
-          const key = Object.keys(attrs).length > 0 ? this.canonicalKey(attrs) : 'default';
+          const key =
+            Object.keys(attrs).length > 0
+              ? this.canonicalKey(attrs)
+              : "default";
 
           const existing = existingVariantMap.get(key);
 
           if (existing) {
             // UPDATE: Variant exists. Update fields and ensure it is active.
             existing.sku = c.sku ?? null;
-            existing.price = c.price !== undefined && c.price !== null ? Number(c.price) : null;
+            existing.price =
+              c.price !== undefined && c.price !== null
+                ? Number(c.price)
+                : null;
             const nextActive = c.isActive !== false;
             existing.isActive = nextActive;
             existing.deletdWithParent = false;
@@ -1738,16 +2246,18 @@ export class ProductsService {
               productId: savedProduct.id,
               key,
               sku: c.sku ?? null,
-              price: c.price !== undefined && c.price !== null ? Number(c.price) : null,
+              price:
+                c.price !== undefined && c.price !== null
+                  ? Number(c.price)
+                  : null,
               attributes: c.attributes,
               stockOnHand: 0,
               reserved: 0,
               isActive: c.isActive,
-              deactivatedAt: c.isActive ? null : new Date()
+              deactivatedAt: c.isActive ? null : new Date(),
             } as any);
           }
         }
-
 
         if (variantsToSave.length > 0) {
           await pvRepo.save(variantsToSave);
@@ -1758,7 +2268,9 @@ export class ProductsService {
     };
 
     // Run everything inside a transaction to prevent partial updates
-    const savedId = manager ? await work(manager) : await this.dataSource.transaction(mgr => work(mgr));
+    const savedId = manager
+      ? await work(manager)
+      : await this.dataSource.transaction((mgr) => work(mgr));
     return this.get(me, savedId);
   }
 
@@ -1771,21 +2283,25 @@ export class ProductsService {
         id,
         adminId,
         false, // Deactivate
-        ['variants'],
+        ["variants"],
         {
           relations: {
             variants: {
-              deletdWithParent: true
-            }
-          }
-        }
+              deletdWithParent: true,
+            },
+          },
+        },
       );
     });
   }
 
   async restore(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     return await this.dataSource.transaction(async (manager) => {
       const productRepo = manager.getRepository(ProductEntity);
@@ -1793,11 +2309,13 @@ export class ProductsService {
 
       // 1. Restore product
       const product = await productRepo.findOne({
-        where: { id, adminId }
+        where: { id, adminId },
       });
 
       if (!product) {
-        throw new NotFoundException(this.translations.t("domains.products.product_not_found"));
+        throw new NotFoundException(
+          this.translations.t("domains.products.product_not_found"),
+        );
       }
 
       await productRepo.update(
@@ -1805,7 +2323,7 @@ export class ProductsService {
         {
           isActive: true,
           deactivatedAt: null,
-        }
+        },
       );
 
       // 2. Restore only variants that were deleted with parent
@@ -1813,13 +2331,13 @@ export class ProductsService {
         {
           productId: id,
           adminId,
-          deletdWithParent: true
+          deletdWithParent: true,
         },
         {
           isActive: true,
           deactivatedAt: null,
-          deletdWithParent: false
-        }
+          deletdWithParent: false,
+        },
       );
 
       const items = await variantRepo.find({
@@ -1843,12 +2361,18 @@ export class ProductsService {
   async checkSlug(me: any, slug, productId) {
     const adminId = tenantId(me);
     const formatedSlug = slug.trim().toLowerCase();
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     if (productId) {
       const entity = await CRUD.findOne(this.prodRepo, "products", productId);
-      if (formatedSlug === entity.slug) return {
-        isUnique: true
+      if (formatedSlug === entity.slug) {
+        return {
+          isUnique: true,
+        };
       }
     }
 
@@ -1856,10 +2380,10 @@ export class ProductsService {
       where: {
         adminId,
         slug: formatedSlug,
-        isActive: true
+        isActive: true,
         // storeId: storeId ? storeId : IsNull()
       },
-      select: ["id"] // نختار الـ id فقط لتحسين الأداء
+      select: ["id"], // نختار الـ id فقط لتحسين الأداء
     });
 
     return { isUnique: !exists };
@@ -1867,12 +2391,18 @@ export class ProductsService {
 
   async checkSku(me: any, sku, productId) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     if (productId) {
       const entity = await CRUD.findOne(this.prodRepo, "products", productId);
-      if (sku === entity.sku) return {
-        isUnique: true
+      if (sku === entity.sku) {
+        return {
+          isUnique: true,
+        };
       }
     }
 
@@ -1880,23 +2410,27 @@ export class ProductsService {
       where: {
         adminId,
         sku: sku.trim(),
-        isActive: true
+        isActive: true,
         // storeId: storeId ? storeId : IsNull()
       },
-      select: ["id"] // نختار الـ id فقط لتحسين الأداء
+      select: ["id"], // نختار الـ id فقط لتحسين الأداء
     });
 
     return { isUnique: !exists };
   }
 
-  async checkSkusAvailability(me: any, skus: string[] = [], productId?: string) {
+  async checkSkusAvailability(
+    me: any,
+    skus: string[] = [],
+    productId?: string,
+  ) {
     const adminId = tenantId(me);
     const normalized = Array.from(
       new Set(
         (Array.isArray(skus) ? skus : [])
           .map((sku) => String(sku ?? "").trim())
-          .filter(Boolean)
-      )
+          .filter(Boolean),
+      ),
     );
 
     if (!normalized.length) {
@@ -1911,17 +2445,19 @@ export class ProductsService {
         adminId,
         sku: In(normalized),
         product: {
-          isActive: true
-        }
+          isActive: true,
+        },
       } as any,
-      
+
       select: ["sku", "productId"],
     });
 
     const existingSet = new Set(
       existingRows
-        .filter((row) => !productId || String(row.productId) !== String(productId))
-        .map((row) => row.sku)
+        .filter(
+          (row) => !productId || String(row.productId) !== String(productId),
+        )
+        .map((row) => row.sku),
     );
 
     const existing = normalized.filter((sku) => existingSet.has(sku));

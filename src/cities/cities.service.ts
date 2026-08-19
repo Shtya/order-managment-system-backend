@@ -1,197 +1,288 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository } from 'typeorm';
-import { AreaEntity, CityEntity, CityTenantConfigEntity, ProviderLocationEntity } from '../../entities/cities.entity';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Brackets, Repository } from "typeorm";
+import {
+  AreaEntity,
+  CityEntity,
+  CityTenantConfigEntity,
+  ProviderLocationEntity,
+} from "../../entities/cities.entity";
 
-import { UpdateCityTenantConfigDto } from 'dto/cities.dto';
-import * as ExcelJS from 'exceljs';
-import { tenantId } from 'src/category/category.service';
-import { DateFilterUtil } from 'common/date-filter.util';
-import { TranslationService } from 'common/translation.service';
+import { UpdateCityTenantConfigDto } from "dto/cities.dto";
+import * as ExcelJS from "exceljs";
+import { tenantId } from "src/category/category.service";
+import { DateFilterUtil } from "common/date-filter.util";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class CitiesService {
-	private readonly logger = new Logger(CitiesService.name);
+  private readonly logger = new Logger(CitiesService.name);
 
-	constructor(
-		@InjectRepository(CityEntity)
-		private cityRepo: Repository<CityEntity>,
-		@InjectRepository(AreaEntity)
-		private areaRepo: Repository<AreaEntity>,
-		@InjectRepository(CityTenantConfigEntity)
-		private tenantConfigRepo: Repository<CityTenantConfigEntity>,
-		@InjectRepository(ProviderLocationEntity)
-		private providerLocationRepo: Repository<ProviderLocationEntity>,
-		private readonly translations: TranslationService,
-	) { }
+  constructor(
+    @InjectRepository(CityEntity)
+    private cityRepo: Repository<CityEntity>,
+    @InjectRepository(AreaEntity)
+    private areaRepo: Repository<AreaEntity>,
+    @InjectRepository(CityTenantConfigEntity)
+    private tenantConfigRepo: Repository<CityTenantConfigEntity>,
+    @InjectRepository(ProviderLocationEntity)
+    private providerLocationRepo: Repository<ProviderLocationEntity>,
+    private readonly translations: TranslationService,
+  ) {}
 
-	async findProviderLocationByProviderCityId(provider: string, providerCityId: string) {
-		return this.providerLocationRepo.findOne({
-			where: { provider: provider as any, providerCityId },
-			relations: ['city'],
-		});
-	}
+  async findProviderLocationByProviderCityId(
+    provider: string,
+    providerCityId: string,
+  ) {
+    return this.providerLocationRepo.findOne({
+      where: { provider: provider as any, providerCityId },
+      relations: ["city"],
+    });
+  }
 
-	async findProviderLocationByName(provider: string, name: string) {
-		const normalized = name.trim().toLowerCase();
-		return this.providerLocationRepo
-			.createQueryBuilder('pl')
-			.leftJoinAndSelect('pl.city', 'city')
-			.where('pl.provider = :provider', { provider })
-			.andWhere(
-				new Brackets((qb) => {
-					qb.where('LOWER(pl."providerCityNameAr") = :name', { name: normalized })
-						.orWhere('LOWER(pl."providerCityNameEn") = :name', { name: normalized })
-						.orWhere('LOWER(pl."providerCityNameAr") ILIKE :like', { like: `%${normalized}%` })
-						.orWhere('LOWER(pl."providerCityNameEn") ILIKE :like', { like: `%${normalized}%` });
-				}),
-			)
-			.getMany();
-	}
+  async findProviderLocationByName(provider: string, name: string) {
+    const normalized = name.trim().toLowerCase();
+    return this.providerLocationRepo
+      .createQueryBuilder("pl")
+      .leftJoinAndSelect("pl.city", "city")
+      .where("pl.provider = :provider", { provider })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('LOWER(pl."providerCityNameAr") = :name', {
+            name: normalized,
+          })
+            .orWhere('LOWER(pl."providerCityNameEn") = :name', {
+              name: normalized,
+            })
+            .orWhere('LOWER(pl."providerCityNameAr") ILIKE :like', {
+              like: `%${normalized}%`,
+            })
+            .orWhere('LOWER(pl."providerCityNameEn") ILIKE :like', {
+              like: `%${normalized}%`,
+            });
+        }),
+      )
+      .getMany();
+  }
 
+  async findAllWithProviders() {
+    return this.cityRepo.find({
+      relations: ["providerLocations"],
+      where: { isActive: true },
+      order: { nameEn: "ASC" },
+    });
+  }
 
+  async findAreas(cityId: string) {
+    return this.areaRepo.find({
+      where: { cityId },
+      order: { nameEn: "ASC" },
+    });
+  }
 
-	async findAllWithProviders() {
-		return this.cityRepo.find({
-			relations: ['providerLocations'],
-			where: { isActive: true },
-			order: { nameEn: 'ASC' }
-		});
-	}
+  async findAllWithTenantConfig(me: any, q?: any) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-	async findAreas(cityId: string) {
-		return this.areaRepo.find({
-			where: { cityId },
-			order: { nameEn: 'ASC' }
-		});
-	}
+    const page = Number(q?.page ?? 1);
+    const limit = Number(q?.limit ?? 10);
+    const search = String(q?.search ?? "").trim();
 
-	async findAllWithTenantConfig(me: any, q?: any) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    const qb = this.cityRepo
+      .createQueryBuilder("city")
+      .leftJoinAndSelect(
+        "city.tenantConfigs",
+        "config",
+        "config.adminId = :adminId",
+        { adminId },
+      );
 
-		const page = Number(q?.page ?? 1);
-		const limit = Number(q?.limit ?? 10);
-		const search = String(q?.search ?? '').trim();
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("city.nameEn ILIKE :s", { s: `%${search}%` }).orWhere(
+            "city.nameAr ILIKE :s",
+            { s: `%${search}%` },
+          );
+        }),
+      );
+    }
 
-		const qb = this.cityRepo.createQueryBuilder('city')
-			.leftJoinAndSelect('city.tenantConfigs', 'config', 'config.adminId = :adminId', { adminId });
+    if (q?.minDays !== undefined && q?.minDays !== "") {
+      qb.andWhere("config.minShippingDays >= :minDays", {
+        minDays: Number(q.minDays),
+      });
+    }
+    if (q?.maxDays !== undefined && q?.maxDays !== "") {
+      qb.andWhere("config.maxShippingDays <= :maxDays", {
+        maxDays: Number(q.maxDays),
+      });
+    }
 
-		if (search) {
-			qb.andWhere(new Brackets(sq => {
-				sq.where('city.nameEn ILIKE :s', { s: `%${search}%` })
-					.orWhere('city.nameAr ILIKE :s', { s: `%${search}%` });
-			}));
-		}
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      'config."createdAt"',
+      q?.startDate,
+      q?.endDate,
+    );
 
-		if (q?.minDays !== undefined && q?.minDays !== '') {
-			qb.andWhere('config.minShippingDays >= :minDays', { minDays: Number(q.minDays) });
-		}
-		if (q?.maxDays !== undefined && q?.maxDays !== '') {
-			qb.andWhere('config.maxShippingDays <= :maxDays', { maxDays: Number(q.maxDays) });
-		}
+    if (q?.isConfigured === "true") {
+      qb.andWhere("config.id IS NOT NULL");
+    } else if (q?.isConfigured === "false") {
+      qb.andWhere("config.id IS NULL");
+    }
 
-		DateFilterUtil.applyToQueryBuilder(qb, 'config."createdAt"', q?.startDate, q?.endDate);
+    qb.andWhere('city."isActive" = true');
 
+    const [records, total] = await qb
+      .orderBy("city.nameEn", "ASC")
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
-		if (q?.isConfigured === 'true') {
-			qb.andWhere('config.id IS NOT NULL');
-		} else if (q?.isConfigured === 'false') {
-			qb.andWhere('config.id IS NULL');
-		}
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
 
-		qb.andWhere('city."isActive" = true');
+  async exportCitiesConfig(me: any, q?: any) {
+    const { records } = await this.findAllWithTenantConfig(me, {
+      ...q,
+      limit: 10000,
+    });
+    const adminId = tenantId(me);
 
-		const [records, total] = await qb
-			.orderBy('city.nameEn', 'ASC')
-			.skip((page - 1) * limit)
-			.take(limit)
-			.getManyAndCount();
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.cities.export_sheet"),
+    );
 
-		return {
-			total_records: total,
-			current_page: page,
-			per_page: limit,
-			records,
-		};
-	}
+    worksheet.columns = [
+      {
+        header: this.translations.t("domains.cities.export_city_name_en"),
+        key: "nameEn",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.cities.export_city_name_ar"),
+        key: "nameAr",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.cities.export_min_shipping_days"),
+        key: "minDays",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.cities.export_max_shipping_days"),
+        key: "maxDays",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.cities.export_status"),
+        key: "status",
+        width: 15,
+      },
+    ];
 
-	async exportCitiesConfig(me: any, q?: any) {
-		const { records } = await this.findAllWithTenantConfig(me, { ...q, limit: 10000 });
-		const adminId = tenantId(me);
+    const rows = records.map((city) => {
+      const config = city.tenantConfigs?.[0];
+      const isConfigured = Boolean(config);
+      return {
+        nameEn: city.nameEn,
+        nameAr: city.nameAr,
+        minDays: config?.minShippingDays ?? "—",
+        maxDays: config?.maxShippingDays ?? "—",
+        status: isConfigured
+          ? this.translations.t("domains.cities.status_configured")
+          : this.translations.t("domains.cities.status_not_configured"),
+      };
+    });
 
-		const workbook = new ExcelJS.Workbook();
-		const worksheet = workbook.addWorksheet(this.translations.t('domains.cities.export_sheet'));
+    worksheet.addRows(rows);
 
-		worksheet.columns = [
-			{ header: this.translations.t('domains.cities.export_city_name_en'), key: "nameEn", width: 25 },
-			{ header: this.translations.t('domains.cities.export_city_name_ar'), key: "nameAr", width: 25 },
-			{ header: this.translations.t('domains.cities.export_min_shipping_days'), key: "minDays", width: 20 },
-			{ header: this.translations.t('domains.cities.export_max_shipping_days'), key: "maxDays", width: 20 },
-			{ header: this.translations.t('domains.cities.export_status'), key: "status", width: 15 },
-		];
+    // Styling
+    worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF4F46E5" },
+    };
+    worksheet.getRow(1).alignment = {
+      vertical: "middle",
+      horizontal: "center",
+    };
 
-		const rows = records.map(city => {
-			const config = city.tenantConfigs?.[0];
-			const isConfigured = Boolean(config);
-			return {
-				nameEn: city.nameEn,
-				nameAr: city.nameAr,
-				minDays: config?.minShippingDays ?? '—',
-				maxDays: config?.maxShippingDays ?? '—',
-				status: isConfigured ? this.translations.t('domains.cities.status_configured') : this.translations.t('domains.cities.status_not_configured'),
-			};
-		});
+    return await workbook.xlsx.writeBuffer();
+  }
 
-		worksheet.addRows(rows);
+  async upsertTenantConfig(
+    me: any,
+    cityId: string,
+    payload: UpdateCityTenantConfigDto,
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-		// Styling
-		worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-		worksheet.getRow(1).fill = {
-			type: 'pattern',
-			pattern: 'solid',
-			fgColor: { argb: 'FF4F46E5' },
-		};
-		worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+    const city = await this.cityRepo.findOne({ where: { id: cityId } });
+    if (!city) {
+      throw new NotFoundException(
+        this.translations.t("domains.cities.not_found"),
+      );
+    }
 
-		return await workbook.xlsx.writeBuffer();
-	}
+    let config = await this.tenantConfigRepo.findOne({
+      where: { adminId, cityId },
+    });
 
-	async upsertTenantConfig(me: any, cityId: string, payload: UpdateCityTenantConfigDto) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!config) {
+      config = this.tenantConfigRepo.create({
+        adminId,
+        cityId,
+        ...payload,
+      });
+    } else {
+      Object.assign(config, payload);
+    }
 
-		const city = await this.cityRepo.findOne({ where: { id: cityId } });
-		if (!city) throw new NotFoundException(this.translations.t('domains.cities.not_found'));
+    return this.tenantConfigRepo.save(config);
+  }
 
-		let config = await this.tenantConfigRepo.findOne({
-			where: { adminId, cityId }
-		});
+  async deleteTenantConfig(me: any, cityId: string) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-		if (!config) {
-			config = this.tenantConfigRepo.create({
-				adminId,
-				cityId,
-				...payload
-			});
-		} else {
-			Object.assign(config, payload);
-		}
+    const config = await this.tenantConfigRepo.findOne({
+      where: { adminId, cityId },
+    });
 
-		return this.tenantConfigRepo.save(config);
-	}
+    if (!config) {
+      throw new NotFoundException(
+        this.translations.t("domains.cities.config_not_found"),
+      );
+    }
 
-	async deleteTenantConfig(me: any, cityId: string) {
-		const adminId = tenantId(me);
-		if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
-
-		const config = await this.tenantConfigRepo.findOne({
-			where: { adminId, cityId }
-		});
-
-		if (!config) throw new NotFoundException(this.translations.t('domains.cities.config_not_found'));
-
-		await this.tenantConfigRepo.remove(config);
-		return { success: true };
-	}
+    await this.tenantConfigRepo.remove(config);
+    return { success: true };
+  }
 }

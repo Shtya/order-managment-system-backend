@@ -13,7 +13,7 @@ export class OrphanFilesCleanupCronService {
   constructor(
     @InjectRepository(OrphanFileEntity)
     private readonly orphanRepo: Repository<OrphanFileEntity>,
-  ) { }
+  ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async cleanupOldOrphans() {
@@ -41,8 +41,9 @@ export class OrphanFilesCleanupCronService {
     const res = await this.orphanRepo.delete(ids as any);
 
     if ((res as any)?.affected) {
-      this.logger.log(`Deleted ${res.affected} orphan files older than 2 hours.`);
+      this.logger.log(
+        `Deleted ${res.affected} orphan files older than 2 hours.`,
+      );
     }
   }
 }
-

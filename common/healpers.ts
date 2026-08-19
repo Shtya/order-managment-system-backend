@@ -351,6 +351,13 @@ export function normalizeEnglish(text?: string): string {
         .replace(/\s+/g, ' ');      // Remove double spaces
 }
 
+export function maskSensitiveValue(value: string): string {
+    if (!value) return '****************';
+    return value.length > 8
+        ? `${value.substring(0, 4)}****************${value.slice(-4)}`
+        : '****************';
+}
+
 export interface BundleAllocationItem {
     variantId: string;
     productId?: string;

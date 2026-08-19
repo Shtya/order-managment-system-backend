@@ -1,12 +1,7 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { diskStorage } from "multer";
 import { extname, join } from "path";
-import {
-  createReadStream,
-  existsSync,
-  mkdirSync,
-  ReadStream,
-} from "fs";
+import { createReadStream, existsSync, mkdirSync, ReadStream } from "fs";
 
 export const SUPPORT_TICKET_ALLOWED_MIME_TYPES = [
   "image/jpeg",

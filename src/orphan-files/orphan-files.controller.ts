@@ -62,16 +62,24 @@ const anyFileMulterOptions = {
 export class OrphanFilesController {
   constructor(
     private readonly orphanFiles: OrphanFilesService,
-    private readonly translations: TranslationService
-  ) { }
+    private readonly translations: TranslationService,
+  ) {}
 
   @Post()
   @UseInterceptors(FileInterceptor("file", multerOptions))
   async upload(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException(this.translations.t("common.no_file_provided"));
+    if (!file) {
+      throw new BadRequestException(
+        this.translations.t("common.no_file_provided"),
+      );
+    }
 
     const adminId = tenantId(req.user);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const url = `/uploads/products/${file.filename}`;
     const row = await this.orphanFiles.create(String(adminId), url);
@@ -85,10 +93,18 @@ export class OrphanFilesController {
   @Post("any")
   @UseInterceptors(FileInterceptor("file", anyFileMulterOptions))
   async uploadAny(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
-    if (!file) throw new BadRequestException(this.translations.t("common.no_file_provided"));
+    if (!file) {
+      throw new BadRequestException(
+        this.translations.t("common.no_file_provided"),
+      );
+    }
 
     const adminId = tenantId(req.user);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));  
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const url = `/uploads/files/${file.filename}`;
     const row = await this.orphanFiles.create(String(adminId), url);
@@ -100,16 +116,15 @@ export class OrphanFilesController {
     };
   }
 
-
   @Delete(":id")
   async delete(@Req() req: any, @Param("id") id: string) {
     const adminId = tenantId(req.user);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-    return this.orphanFiles.deleteOne(
-      String(adminId),
-      id
-    );
-
+    return this.orphanFiles.deleteOne(String(adminId), id);
   }
 }

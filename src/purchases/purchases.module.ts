@@ -21,11 +21,11 @@ import { Account } from "entities/safe.entity";
       PurchaseAuditLogEntity,
       ProductVariantEntity,
       SupplierEntity,
-      Account
+      Account,
     ]),
   ],
   providers: [PurchasesService, PurchaseSubscriber],
   controllers: [PurchasesController],
   exports: [PurchasesService],
 })
-export class PurchasesModule { }
+export class PurchasesModule {}

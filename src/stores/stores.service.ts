@@ -1,18 +1,49 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, In, Not, Repository } from "typeorm";
-import { OrderFailStatus, StoreEntity, StoreProvider, SyncStatus, WebhookOrderFailureEntity, WebhookOrderProblem } from "entities/stores.entity";
-import { CreateStoreDto, EasyOrdersCredentialsDto, IntegrateDto, UpdateStoreDto } from "dto/stores.dto";
+import {
+  OrderFailStatus,
+  StoreEntity,
+  StoreProvider,
+  SyncStatus,
+  WebhookOrderFailureEntity,
+  WebhookOrderProblem,
+} from "entities/stores.entity";
+import {
+  CreateStoreDto,
+  EasyOrdersCredentialsDto,
+  IntegrateDto,
+  UpdateStoreDto,
+} from "dto/stores.dto";
 import { tenantId } from "src/category/category.service";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
-import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
+import {
+  ProductEntity,
+  ProductType,
+  ProductVariantEntity,
+} from "entities/sku.entity";
 import { OrderEntity, OrderStatus } from "entities/order.entity";
 import { RedisService } from "common/redis/RedisService";
 
 import { OrderSyncQueueService } from "src/queue/queues/order-sync.queue";
 
-import { BaseStoreProvider, FullStoreSyncType, ISkuFetch, MappedProductDto, oldBundleDataDto, UnifiedProductDto, WebhookOrderPayload } from "./storesIntegrations/BaseStoreProvider";
+import {
+  BaseStoreProvider,
+  FullStoreSyncType,
+  ISkuFetch,
+  MappedProductDto,
+  oldBundleDataDto,
+  UnifiedProductDto,
+  WebhookOrderPayload,
+} from "./storesIntegrations/BaseStoreProvider";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import WooCommerceService from "./storesIntegrations/WooCommerce";
@@ -23,7 +54,11 @@ import { PurchasesService } from "src/purchases/purchases.service";
 import { SafesService } from "src/safes/safes.service";
 import { ShippingService } from "src/shipping/shipping.service";
 import { CreateOrderDto } from "dto/order.dto";
-import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
+import {
+  CreateProductDto,
+  CreateSkuItemDto,
+  UpsertProductSkusDto,
+} from "dto/product.dto";
 import { CreatePurchaseDto, PurchaseItemDto } from "dto/purchase.dto";
 import { CreateAccountDto } from "dto/safe.dto";
 import { Account, AccountType } from "entities/safe.entity";
@@ -32,13 +67,31 @@ import * as ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
-import { allocateBundlePrices, expandBundleToOrderLineItems, generateRandomAlphanumeric, generateSlug, getErrorMessage, normalizeSku } from "common/healpers";
-import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntityType } from "entities/product_sync_error.entity";
+import {
+  allocateBundlePrices,
+  expandBundleToOrderLineItems,
+  generateRandomAlphanumeric,
+  generateSlug,
+  getErrorMessage,
+  normalizeSku,
+} from "common/healpers";
+import {
+  ProductSyncStatus,
+  ProductSyncStateEntity,
+  ProductSyncAction,
+  SyncEntityType,
+} from "entities/product_sync_error.entity";
 import { NotificationType } from "entities/notifications.entity";
-import { ProductSyncJobs, OrderSyncJobs } from "src/queue/common/queue.constants";
+import {
+  ProductSyncJobs,
+  OrderSyncJobs,
+} from "src/queue/common/queue.constants";
 import { ProductSyncQueueService } from "src/queue/queues/product-sync.queue";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
-import { RequestTranslationService, TranslationService } from "common/translation.service";
+import {
+  RequestTranslationService,
+  TranslationService,
+} from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
@@ -60,13 +113,20 @@ export class StoresService {
     private readonly easyOrderService: EasyOrderService,
     private readonly woocommerceService: WooCommerceService,
 
-    @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
-    @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
-    @InjectRepository(WebhookOrderFailureEntity) private readonly failureRepo: Repository<WebhookOrderFailureEntity>,
-    @InjectRepository(ProductSyncStateEntity) private readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
-    @InjectRepository(OrderEntity) private readonly orderRepo: Repository<OrderEntity>,
-    @InjectRepository(OrderEntity) private readonly ordersRepo: Repository<OrderEntity>,
-    @InjectRepository(BundleEntity) private readonly bundleRepo: Repository<BundleEntity>,
+    @InjectRepository(ProductEntity)
+    protected readonly productsRepo: Repository<ProductEntity>,
+    @InjectRepository(ProductVariantEntity)
+    protected readonly pvRepo: Repository<ProductVariantEntity>,
+    @InjectRepository(WebhookOrderFailureEntity)
+    private readonly failureRepo: Repository<WebhookOrderFailureEntity>,
+    @InjectRepository(ProductSyncStateEntity)
+    private readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    @InjectRepository(OrderEntity)
+    private readonly orderRepo: Repository<OrderEntity>,
+    @InjectRepository(OrderEntity)
+    private readonly ordersRepo: Repository<OrderEntity>,
+    @InjectRepository(BundleEntity)
+    private readonly bundleRepo: Repository<BundleEntity>,
 
     @Inject(forwardRef(() => OrdersService))
     protected readonly ordersService: OrdersService,
@@ -87,20 +147,24 @@ export class StoresService {
     };
   }
 
-
   private generateSecret() {
     return crypto.randomBytes(24).toString("hex");
   }
 
   isSkuFetchProvider(provider: any): provider is ISkuFetch {
-    return typeof provider.getProductBySku === 'function';
+    return typeof provider.getProductBySku === "function";
   }
 
   public getProvider(provider: string): BaseStoreProvider {
-    const key = (provider || '').toLowerCase().trim();
+    const key = (provider || "").toLowerCase().trim();
     const p = this.providers[key];
-    if (!p)
-      throw new BadRequestException(this.translations.t('domains.stores.unsupported_shipping_provider', { args: { provider } }));
+    if (!p) {
+      throw new BadRequestException(
+        this.translations.t("domains.stores.unsupported_shipping_provider", {
+          args: { provider },
+        }),
+      );
+    }
     return p;
   }
 
@@ -109,7 +173,9 @@ export class StoresService {
    * (e.g. "easyorder", "shopify", "woocommerce") rather than a uuid store id.
    */
   private isStoreProviderEnum(value: string): boolean {
-    return !!value && Object.values(StoreProvider).includes(value as StoreProvider);
+    return (
+      !!value && Object.values(StoreProvider).includes(value as StoreProvider)
+    );
   }
 
   /**
@@ -117,22 +183,26 @@ export class StoresService {
    * be addressed either by provider enum (legacy, single store) or by store id
    * (uuid, multi-store). Falls back to a provider lookup when an id is not found.
    */
-  private async resolveStoreByTarget(adminId: string, target: string): Promise<StoreEntity | null> {
+  private async resolveStoreByTarget(
+    adminId: string,
+    target: string,
+  ): Promise<StoreEntity | null> {
     if (this.isStoreProviderEnum(target)) {
       return this.storesRepo.findOne({
         where: { provider: target as StoreProvider, adminId },
-        order: { created_at: 'ASC' },
+        order: { created_at: "ASC" },
       });
     }
-    const byId = await this.storesRepo.findOne({ where: { id: target, adminId } });
+    const byId = await this.storesRepo.findOne({
+      where: { id: target, adminId },
+    });
     if (byId) return byId;
     // Fallback: treat the segment as a provider name (old static-name URLs)
     return this.storesRepo.findOne({
       where: { provider: target as StoreProvider, adminId },
-      order: { created_at: 'ASC' },
+      order: { created_at: "ASC" },
     });
   }
-
 
   private async clearStoreCache(storeId: string) {
     const pattern = `stores:${storeId}:*`;
@@ -142,27 +212,30 @@ export class StoresService {
 
       if (keys && keys.length > 0) {
         await this.redisService.redisClient.del(keys);
-        this.logger.log(`[Cache] Cleared ${keys.length} keys for store ${storeId} using pattern: ${pattern}`);
+        this.logger.log(
+          `[Cache] Cleared ${keys.length} keys for store ${storeId} using pattern: ${pattern}`,
+        );
       }
-
-
     } catch (error: any) {
-      this.logger.error(`[Cache] Failed to clear cache for store ${storeId}: ${error.message}`);
+      this.logger.error(
+        `[Cache] Failed to clear cache for store ${storeId}: ${error.message}`,
+      );
     }
   }
 
   listProviders() {
     return {
       ok: true,
-      providers: Object.values(this.providers).filter(p => !!p).map((p) => ({
-        code: p.code,
-        name: p.displayName,
-        supportBundle: p.supportBundle,
-        maxBundleItems: p.maxBundleItems,
-      })),
+      providers: Object.values(this.providers)
+        .filter((p) => !!p)
+        .map((p) => ({
+          code: p.code,
+          name: p.displayName,
+          supportBundle: p.supportBundle,
+          maxBundleItems: p.maxBundleItems,
+        })),
     };
   }
-
 
   /**
    * Builds the base stores query with all shared filters (tenant, search,
@@ -172,7 +245,11 @@ export class StoresService {
    */
   private buildStoresQuery(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const search = String(q?.search ?? "").trim();
 
@@ -201,7 +278,9 @@ export class StoresService {
     // 2. Multi-tenant Filter
     qb.where("store.adminId = :adminId", { adminId });
 
-    if (q?.isActive === 'true') qb.andWhere('store.isActive = :isActive', { isActive: q?.isActive });
+    if (q?.isActive === "true") {
+      qb.andWhere("store.isActive = :isActive", { isActive: q?.isActive });
+    }
 
     // 3. Optional Filter: Platform/Provider
     if (q?.provider) {
@@ -210,19 +289,25 @@ export class StoresService {
 
     // 4. Optional Filter: Status
     if (q?.syncStatus) {
-      qb.andWhere("store.syncStatus = :syncStatus", { syncStatus: q?.syncStatus });
+      qb.andWhere("store.syncStatus = :syncStatus", {
+        syncStatus: q?.syncStatus,
+      });
     }
 
     // 5. Search (Name or URL)
     if (search) {
-      qb.andWhere(
-        "(store.name ILIKE :s OR store.storeUrl ILIKE :s)",
-        { s: `%${search}%` }
-      );
+      qb.andWhere("(store.name ILIKE :s OR store.storeUrl ILIKE :s)", {
+        s: `%${search}%`,
+      });
     }
 
     // 6. Date range filter
-    DateFilterUtil.applyToQueryBuilder(qb, "store.created_at", q?.startDate, q?.endDate);
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "store.created_at",
+      q?.startDate,
+      q?.endDate,
+    );
 
     // 7. Sorting
     const sortBy = q?.sortBy || "created_at";
@@ -247,8 +332,8 @@ export class StoresService {
       ...record,
       credentials: record.credentials
         ? {
-          apiKey: record.credentials?.apiKey || '',
-        }
+            apiKey: record.credentials?.apiKey || "",
+          }
         : null,
     }));
 
@@ -285,17 +370,51 @@ export class StoresService {
     }));
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t("domains.stores.export_title"));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.stores.export_title"),
+    );
 
     worksheet.columns = [
-      { header: this.translations.t("domains.stores.export_name"), key: "name", width: 30 },
-      { header: this.translations.t("domains.stores.export_provider"), key: "provider", width: 20 },
-      { header: this.translations.t("domains.stores.export_store_url"), key: "storeUrl", width: 40 },
-      { header: this.translations.t("common.active"), key: "isActive", width: 12 },
-      { header: this.translations.t("domains.stores.export_integrated"), key: "isIntegrated", width: 14 },
-      { header: this.translations.t("domains.stores.export_sync_status"), key: "syncStatus", width: 18 },
-      { header: this.translations.t("domains.stores.export_last_sync"), key: "lastSyncAttemptAt", width: 20 },
-      { header: this.translations.t("common.created_at"), key: "created_at", width: 20 },
+      {
+        header: this.translations.t("domains.stores.export_name"),
+        key: "name",
+        width: 30,
+      },
+      {
+        header: this.translations.t("domains.stores.export_provider"),
+        key: "provider",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.stores.export_store_url"),
+        key: "storeUrl",
+        width: 40,
+      },
+      {
+        header: this.translations.t("common.active"),
+        key: "isActive",
+        width: 12,
+      },
+      {
+        header: this.translations.t("domains.stores.export_integrated"),
+        key: "isIntegrated",
+        width: 14,
+      },
+      {
+        header: this.translations.t("domains.stores.export_sync_status"),
+        key: "syncStatus",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.stores.export_last_sync"),
+        key: "lastSyncAttemptAt",
+        width: 20,
+      },
+      {
+        header: this.translations.t("common.created_at"),
+        key: "created_at",
+        width: 20,
+      },
     ];
 
     worksheet.getRow(1).font = { bold: true };
@@ -313,15 +432,19 @@ export class StoresService {
 
   async listWithCredentials(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const stores = await this.storesRepo.find({
       where: { adminId },
-      order: { created_at: "DESC" }
+      order: { created_at: "DESC" },
     });
 
     const records = await Promise.all(
-      stores.map(async (store) => await this.getMaskedStoreIntegrations(store))
+      stores.map(async (store) => await this.getMaskedStoreIntegrations(store)),
     );
 
     return {
@@ -330,7 +453,6 @@ export class StoresService {
     };
   }
 
-
   async get(me: any, id: string) {
     const store = await this.getStoreById(me, id);
     return this.getMaskedStoreIntegrations(store);
@@ -338,26 +460,34 @@ export class StoresService {
 
   async getStoreById(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
+    if (!store) {
+      throw new NotFoundException(
+        this.translations.t("domains.stores.not_found"),
+      );
+    }
     return store;
   }
 
   private extractDomain(url: string): string {
     try {
       let formattedUrl = url.trim().toLowerCase();
-      if (!formattedUrl.startsWith('http')) {
+      if (!formattedUrl.startsWith("http")) {
         formattedUrl = `https://${formattedUrl}`;
       }
 
       const parsedUrl = new URL(formattedUrl);
-      let domain = parsedUrl.hostname;
+      const domain = parsedUrl.hostname;
 
-      return domain.replace(/^www\./, '');
+      return domain.replace(/^www\./, "");
     } catch (error) {
-      return url.trim().toLowerCase().split('/')[0];
+      return url.trim().toLowerCase().split("/")[0];
     }
   }
 
@@ -373,14 +503,14 @@ export class StoresService {
     const normalizedStoreUrl = this.extractDomain(storeUrl);
 
     const queryBuilder = this.storesRepo
-      .createQueryBuilder('store')
-      .where('store.adminId = :adminId', { adminId })
-      .andWhere('store.normalizedStoreUrl = :normalizedStoreUrl', {
+      .createQueryBuilder("store")
+      .where("store.adminId = :adminId", { adminId })
+      .andWhere("store.normalizedStoreUrl = :normalizedStoreUrl", {
         normalizedStoreUrl,
       });
 
     if (excludeStoreId) {
-      queryBuilder.andWhere('store.id != :excludeStoreId', {
+      queryBuilder.andWhere("store.id != :excludeStoreId", {
         excludeStoreId,
       });
     }
@@ -389,7 +519,7 @@ export class StoresService {
 
     if (duplicateExists) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.url_already_exists', {
+        this.translations.t("domains.stores.url_already_exists", {
           args: { url: normalizedStoreUrl },
         }),
       );
@@ -406,9 +536,9 @@ export class StoresService {
     });
     if (existingStore) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.name_provider_taken', {
+        this.translations.t("domains.stores.name_provider_taken", {
           args: { name: trimmedName, provider: dto.provider },
-        })
+        }),
       );
     }
 
@@ -421,8 +551,10 @@ export class StoresService {
     const baseCredentials = {
       apiKey: dto.credentials.apiKey?.trim(),
       clientSecret: dto.credentials.clientSecret?.trim(),
-      webhookCreateOrderSecret: dto.credentials.webhookCreateOrderSecret?.trim(),
-      webhookUpdateStatusSecret: dto.credentials.webhookUpdateStatusSecret?.trim(),
+      webhookCreateOrderSecret:
+        dto.credentials.webhookCreateOrderSecret?.trim(),
+      webhookUpdateStatusSecret:
+        dto.credentials.webhookUpdateStatusSecret?.trim(),
       webhookSecret: dto.credentials.webhookSecret?.trim(),
     };
 
@@ -430,15 +562,17 @@ export class StoresService {
     const credentials =
       dto.provider === StoreProvider.WOOCOMMERCE
         ? {
-          apiKey: baseCredentials.apiKey,
-          clientSecret: baseCredentials.clientSecret,
-          webhookCreateOrderSecret: this.generateSecret(),
-          webhookUpdateStatusSecret: this.generateSecret(),
-        }
+            apiKey: baseCredentials.apiKey,
+            clientSecret: baseCredentials.clientSecret,
+            webhookCreateOrderSecret: this.generateSecret(),
+            webhookUpdateStatusSecret: this.generateSecret(),
+          }
         : baseCredentials;
 
     if (!credentials.apiKey) {
-      throw new BadRequestException(this.translations.t('domains.stores.api_key_required'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.api_key_required"),
+      );
     }
 
     // 3. Transactional Save & Connection Validation
@@ -448,7 +582,10 @@ export class StoresService {
       const store = manager.create(StoreEntity, {
         adminId,
         name: trimmedName,
-        externalStoreId: p.code === StoreProvider.WOOCOMMERCE ? this.extractDomain(dto.storeUrl) : null,
+        externalStoreId:
+          p.code === StoreProvider.WOOCOMMERCE
+            ? this.extractDomain(dto.storeUrl)
+            : null,
         storeUrl: dto.storeUrl.trim(),
         provider: dto.provider,
         credentials, // Direct jsonb assignment
@@ -468,17 +605,25 @@ export class StoresService {
           const isAuth = await p.validateProviderConnection(savedStore);
           if (!isAuth) {
             throw new BadRequestException(
-              this.translations.t('domains.stores.authentication_failed_provider', { args: { providerName: p.displayName } })
+              this.translations.t(
+                "domains.stores.authentication_failed_provider",
+                { args: { providerName: p.displayName } },
+              ),
             );
           }
-          this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
+          this.onboardingAchievementService.enqueueAchievement(
+            adminId,
+            GettingStartedAchievementType.STORE_CONNECTED,
+          );
         } catch (error: any) {
-          this.logger.error(`Validation failed for ${dto.provider}: ${error.message}`);
+          this.logger.error(
+            `Validation failed for ${dto.provider}: ${error.message}`,
+          );
           //the message too long
           throw new BadRequestException(
             dto.provider === StoreProvider.SHOPIFY
               ? `Unable to validate the Shopify connection. Please install the app and verify your credentials and store URL.`
-              : `Unable to validate the connection to ${p.displayName}. Please verify your credentials and settings.`
+              : `Unable to validate the connection to ${p.displayName}. Please verify your credentials and settings.`,
           );
         }
       }
@@ -492,24 +637,24 @@ export class StoresService {
         provider: savedStore.provider,
         isActive: savedStore.isActive,
         // You can still use a masker if you want to show '****' on the frontend
-        credentialsConfigured: true
+        credentialsConfigured: true,
       };
     });
   }
 
-
-
   async upsertIntegrate(me: any, dto: IntegrateDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const store = dto.storeId
       ? await this.storesRepo.findOne({ where: { id: dto.storeId, adminId } })
       : null;
     const cleanedCredentials = Object.fromEntries(
-      Object.entries(dto.credentials ?? {}).filter(
-        ([, value]) => !!value,
-      ),
+      Object.entries(dto.credentials ?? {}).filter(([, value]) => !!value),
     );
 
     if (store) {
@@ -527,9 +672,9 @@ export class StoresService {
       });
       if (duplicate && duplicate.id !== store.id) {
         throw new BadRequestException(
-          this.translations.t('domains.stores.name_provider_taken', {
+          this.translations.t("domains.stores.name_provider_taken", {
             args: { name: store.name, provider: store.provider },
-          })
+          }),
         );
       }
 
@@ -546,9 +691,9 @@ export class StoresService {
     });
     if (duplicate) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.name_provider_taken', {
+        this.translations.t("domains.stores.name_provider_taken", {
           args: { name: trimmedName, provider: dto.provider },
-        })
+        }),
       );
     }
 
@@ -571,22 +716,26 @@ export class StoresService {
       isActive: false,
       syncNewProducts: dto.syncNewProducts,
       syncRemoteProducts: dto.syncRemoteProducts,
-
     };
 
     const savedStore = await this.storesRepo.save(storeToSave);
     return savedStore;
   }
 
-
   async cancelIntegration(me: any, target: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const store = await this.resolveStoreByTarget(adminId, target);
 
     if (!store) {
-      throw new BadRequestException(this.translations.t('domains.stores.store_not_found'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.store_not_found"),
+      );
     }
 
     const p = this.getProvider(store.provider);
@@ -597,17 +746,29 @@ export class StoresService {
     await this.storesRepo.save(store);
     return {
       ok: true,
-    }
+    };
   }
 
   async regenerateWebhookSecrets(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
+    if (!store) {
+      throw new NotFoundException(
+        this.translations.t("domains.stores.not_found"),
+      );
+    }
     if (store.provider !== StoreProvider.WOOCOMMERCE) {
-      throw new BadRequestException(this.translations.t('domains.stores.woocommerce_only_webhook_regeneration'));
+      throw new BadRequestException(
+        this.translations.t(
+          "domains.stores.woocommerce_only_webhook_regeneration",
+        ),
+      );
     }
     store.credentials = {
       ...(store.credentials || {}),
@@ -616,8 +777,9 @@ export class StoresService {
     };
 
     await this.storesRepo.save(store);
-    await this.clearStoreCache(store.id)
-    const { webhookCreateOrderSecret, webhookUpdateStatusSecret } = store.credentials;
+    await this.clearStoreCache(store.id);
+    const { webhookCreateOrderSecret, webhookUpdateStatusSecret } =
+      store.credentials;
 
     return {
       webhookCreateOrderSecret,
@@ -627,10 +789,18 @@ export class StoresService {
 
   async update(me: any, id: string, dto: UpdateStoreDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
     // Find the existing store
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
+    if (!store) {
+      throw new NotFoundException(
+        this.translations.t("domains.stores.not_found"),
+      );
+    }
 
     const trimmedName = dto.name ? dto.name.trim() : store.name;
 
@@ -640,9 +810,9 @@ export class StoresService {
       });
       if (duplicate && duplicate.id !== store.id) {
         throw new BadRequestException(
-          this.translations.t('domains.stores.name_provider_taken', {
+          this.translations.t("domains.stores.name_provider_taken", {
             args: { name: trimmedName, provider: store.provider },
-          })
+          }),
         );
       }
     }
@@ -653,53 +823,71 @@ export class StoresService {
 
     const p = this.getProvider(store.provider);
     return await this.dataSource.transaction(async (manager) => {
-
       if (dto.name) store.name = trimmedName;
       if (dto.storeUrl) store.storeUrl = dto.storeUrl.trim();
-      if (dto.syncNewProducts !== undefined) store.syncNewProducts = dto.syncNewProducts;
-      if (dto.syncRemoteProducts !== undefined) store.syncRemoteProducts = dto.syncRemoteProducts;
+      if (dto.syncNewProducts !== undefined) {
+        store.syncNewProducts = dto.syncNewProducts;
+      }
+      if (dto.syncRemoteProducts !== undefined) {
+        store.syncRemoteProducts = dto.syncRemoteProducts;
+      }
       if (dto.isActive !== undefined) store.isActive = dto.isActive;
-      if (p.code === StoreProvider.WOOCOMMERCE) store.externalStoreId = this.extractDomain(store.storeUrl)
+      if (p.code === StoreProvider.WOOCOMMERCE) {
+        store.externalStoreId = this.extractDomain(store.storeUrl);
+      }
 
       // Handle Credentials Update
       if (dto.credentials) {
         const updatedCredentials: any = {
           ...(store.credentials || {}),
-          ...(dto.credentials.apiKey && { apiKey: dto.credentials.apiKey.trim() }),
-          ...(dto.credentials.clientSecret && { clientSecret: dto.credentials.clientSecret.trim() }),
-          ...(dto.credentials.webhookSecret && { webhookSecret: dto.credentials.webhookSecret.trim() }),
+          ...(dto.credentials.apiKey && {
+            apiKey: dto.credentials.apiKey.trim(),
+          }),
+          ...(dto.credentials.clientSecret && {
+            clientSecret: dto.credentials.clientSecret.trim(),
+          }),
+          ...(dto.credentials.webhookSecret && {
+            webhookSecret: dto.credentials.webhookSecret.trim(),
+          }),
         };
 
         // Only allow updating webhookCreateOrderSecret / webhookUpdateStatusSecret for non-WooCommerce providers
         if (store.provider !== StoreProvider.WOOCOMMERCE) {
           if (dto.credentials.webhookCreateOrderSecret) {
-            updatedCredentials.webhookCreateOrderSecret = dto.credentials.webhookCreateOrderSecret.trim();
+            updatedCredentials.webhookCreateOrderSecret =
+              dto.credentials.webhookCreateOrderSecret.trim();
           }
           if (dto.credentials.webhookUpdateStatusSecret) {
-            updatedCredentials.webhookUpdateStatusSecret = dto.credentials.webhookUpdateStatusSecret.trim();
+            updatedCredentials.webhookUpdateStatusSecret =
+              dto.credentials.webhookUpdateStatusSecret.trim();
           }
         }
 
         store.credentials = updatedCredentials;
-
       }
-      if (dto.credentials || dto.isActive)
+      if (dto.credentials || dto.isActive) {
         try {
           const isAuth = await p.validateProviderConnection(store);
 
           if (!isAuth) {
             throw new BadRequestException(
-              this.translations.t('domains.stores.authentication_failed_provider', { args: { providerName: p.displayName } })
+              this.translations.t(
+                "domains.stores.authentication_failed_provider",
+                { args: { providerName: p.displayName } },
+              ),
             );
           }
         } catch (error) {
           throw new BadRequestException(
             store.provider === StoreProvider.SHOPIFY
-              ? this.translations.t('domains.stores.shopify_validation_failed')
-              : this.translations.t('domains.stores.connection_validation_failed_provider', { args: { providerName: p.displayName } })
+              ? this.translations.t("domains.stores.shopify_validation_failed")
+              : this.translations.t(
+                  "domains.stores.connection_validation_failed_provider",
+                  { args: { providerName: p.displayName } },
+                ),
           );
         }
-
+      }
 
       // 4. Update standard fields (with trimming)
 
@@ -717,13 +905,20 @@ export class StoresService {
     });
   }
 
-
   async remove(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
-    if (!store) throw new NotFoundException(this.translations.t('domains.stores.not_found'));
+    if (!store) {
+      throw new NotFoundException(
+        this.translations.t("domains.stores.not_found"),
+      );
+    }
 
     const removedStore = await this.storesRepo.remove(store);
     await this.clearStoreCache(store.id);
@@ -746,14 +941,13 @@ export class StoresService {
       // Always mask clientSecret.
       // Mask apiKey only when there is no clientSecret.
       const shouldMask =
-        key === 'clientSecret' ||
-        (key === 'apiKey' && !hasClientSecret);
+        key === "clientSecret" || (key === "apiKey" && !hasClientSecret);
 
       if (shouldMask) {
         masked[key] =
           value.length > 8
             ? `${value.substring(0, 4)}****************${value.slice(-4)}`
-            : '****************';
+            : "****************";
       } else {
         // Return non-sensitive values as-is
         masked[key] = value;
@@ -783,29 +977,31 @@ export class StoresService {
 
     // Get active stores
     const activeStores = await this.storesRepo.find({
-      where: { adminId, isActive: true, isIntegrated: true }
+      where: { adminId, isActive: true, isIntegrated: true },
     });
 
     if (activeStores.length === 0) {
-      this.logger.warn(`[Category Sync] No active stores found for Admin ${adminId}. Skipping.`);
+      this.logger.warn(
+        `[Category Sync] No active stores found for Admin ${adminId}. Skipping.`,
+      );
       return;
     }
     //  Queue the jobs
-    const promises = activeStores.map(store => {
+    const promises = activeStores.map((store) => {
       // We pass store.provider directly to our unified queue service
       return this.productSyncQueueService.enqueueCategorySync(
         category,
         store.id,
         store.provider, // Pass the provider (e.g., 'shopify')
-        slug
+        slug,
       );
     });
 
     await Promise.all(promises);
     this.logger.log(
       `[Category Sync] Dispatched jobs for Category: "${name}" (ID: ${id}) ` +
-      `to ${activeStores.length} stores for Admin: ${adminId}. ` +
-      `${slug ? `(Slug change detected from: ${slug})` : ''}`
+        `to ${activeStores.length} stores for Admin: ${adminId}. ` +
+        `${slug ? `(Slug change detected from: ${slug})` : ""}`,
     );
   }
 
@@ -815,16 +1011,20 @@ export class StoresService {
 
     // Get active stores
     const store = await this.storesRepo.findOne({
-      where: { id: storeId, adminId, isActive: true, isIntegrated: true }
+      where: { id: storeId, adminId, isActive: true, isIntegrated: true },
     });
 
     if (!store) {
-      this.logger.warn(`[Product Sync] No active store found (ID: ${storeId}) for Product: "${name}". Skipping.`);
+      this.logger.warn(
+        `[Product Sync] No active store found (ID: ${storeId}) for Product: "${name}". Skipping.`,
+      );
       return;
     }
 
     if (!store.syncNewProducts && auto) {
-      this.logger.warn(`[Product Sync] Store ${storeId} is not set to sync new products. Skipping.`);
+      this.logger.warn(
+        `[Product Sync] Store ${storeId} is not set to sync new products. Skipping.`,
+      );
       return;
     }
 
@@ -833,29 +1033,42 @@ export class StoresService {
       return;
     }
     // Route to the correct queue based on Provider
-    await this.productSyncQueueService.enqueueProductSync(product.id, product.adminId, store.id, store.provider);
+    await this.productSyncQueueService.enqueueProductSync(
+      product.id,
+      product.adminId,
+      store.id,
+      store.provider,
+    );
     this.logger.log(
       `[Product Sync] Dispatched sync job for Product: "${name}" (ID: ${id}) ` +
-      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. `
+        `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}. `,
     );
   }
 
-  async syncBundleToStore(bundle: BundleEntity, oldBundleData: oldBundleDataDto, auto?: boolean) {
+  async syncBundleToStore(
+    bundle: BundleEntity,
+    oldBundleData: oldBundleDataDto,
+    auto?: boolean,
+  ) {
     const { storeId, adminId, name, id } = bundle;
     if (!storeId) return;
 
     // Get active stores
     const store = await this.storesRepo.findOne({
-      where: { id: storeId, adminId, isActive: true, isIntegrated: true }
+      where: { id: storeId, adminId, isActive: true, isIntegrated: true },
     });
 
     if (!store) {
-      this.logger.warn(`[Bundle Sync] No active store found (ID: ${storeId}) for Bundle: "${name}". Skipping.`);
+      this.logger.warn(
+        `[Bundle Sync] No active store found (ID: ${storeId}) for Bundle: "${name}". Skipping.`,
+      );
       return;
     }
 
     if (!store.syncNewProducts && auto) {
-      this.logger.warn(`[Bundle Sync] Store ${storeId} is not set to sync new products. Skipping.`);
+      this.logger.warn(
+        `[Bundle Sync] Store ${storeId} is not set to sync new products. Skipping.`,
+      );
       return;
     }
 
@@ -865,183 +1078,248 @@ export class StoresService {
     }
 
     // Route to the correct queue based on Provider
-    await this.productSyncQueueService.enqueueBundleSync(bundle.id, bundle.adminId, store.id, store.provider, oldBundleData);
+    await this.productSyncQueueService.enqueueBundleSync(
+      bundle.id,
+      bundle.adminId,
+      store.id,
+      store.provider,
+      oldBundleData,
+    );
     this.logger.log(
       `[Bundle Sync] Dispatched sync job for Bundle: "${name}" (ID: ${id}) ` +
-      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`
+        `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${adminId}.`,
     );
-
   }
 
-  async syncOrderStatus(orderId: string, newStatusId: string, oldStatusId: string) {
+  async syncOrderStatus(
+    orderId: string,
+    newStatusId: string,
+    oldStatusId: string,
+  ) {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ['store'],
+      relations: ["store"],
     });
 
-
     if (!order.store) {
-      this.logger.warn(`[Order Status Sync] No active store found to sync Order #${order.id} for Admin ${order.adminId}.`);
+      this.logger.warn(
+        `[Order Status Sync] No active store found to sync Order #${order.id} for Admin ${order.adminId}.`,
+      );
       return;
     }
 
     // Use the order's own store (already loaded) instead of re-resolving by
     // provider, which would be ambiguous in a multi-store setup.
     if (!order.store.isActive || !order.store.isIntegrated) {
-      this.logger.warn(`[Order Status Sync] Store "${order.store.name}" (ID: ${order.store.id}) for Order #${order.id} is not active/integrated.`);
+      this.logger.warn(
+        `[Order Status Sync] Store "${order.store.name}" (ID: ${order.store.id}) for Order #${order.id} is not active/integrated.`,
+      );
       return;
     }
     const store = order.store;
 
     // Route to the correct queue based on Provider
 
-    await this.orderSyncQueueService.enqueueOrderStatusSync(order, store.id, store.provider, newStatusId, oldStatusId);
+    await this.orderSyncQueueService.enqueueOrderStatusSync(
+      order,
+      store.id,
+      store.provider,
+      newStatusId,
+      oldStatusId,
+    );
 
     this.logger.log(
       `[Order Status Sync] Dispatched status update for Order #${order.id} (ID: ${orderId}) ` +
-      `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${order.adminId}.`
+        `to Store: "${store.name}" (ID: ${store.id}) for Admin: ${order.adminId}.`,
     );
-
   }
 
   async manualSync(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
     if (!store) {
       throw new NotFoundException(
-        this.translations.t('domains.stores.store_id_not_found', { args: { id } })
+        this.translations.t("domains.stores.store_id_not_found", {
+          args: { id },
+        }),
       );
     }
 
     if (!store.isActive) {
-      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_inactive'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.cannot_sync_inactive"),
+      );
     }
 
     if (!store.isIntegrated) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_integrated', { args: { storeName: store.name.trim() } })
+        this.translations.t("domains.stores.store_not_integrated", {
+          args: { storeName: store.name.trim() },
+        }),
       );
     }
 
     if (store.localSyncStatus === SyncStatus.SYNCING) {
-      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_already_syncing'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.cannot_sync_already_syncing"),
+      );
     }
-
 
     // Route to the correct queue based on Provider
     await this.productSyncQueueService.enqueueFullStoreSync(store);
 
     this.logger.log(
       `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
-      `initiated by Admin: ${adminId}.`
+        `initiated by Admin: ${adminId}.`,
     );
 
     return {
-      message: this.translations.t('domains.stores.sync_job_queued', { args: { storeName: store.name } }),
-      storeId: id
+      message: this.translations.t("domains.stores.sync_job_queued", {
+        args: { storeName: store.name },
+      }),
+      storeId: id,
     };
   }
 
   async manualSyncFromStore(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
     if (!store) {
       throw new NotFoundException(
-        this.translations.t('domains.stores.store_id_not_found', { args: { id } })
+        this.translations.t("domains.stores.store_id_not_found", {
+          args: { id },
+        }),
       );
     }
 
     if (!store.isActive) {
-      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_inactive'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.cannot_sync_inactive"),
+      );
     }
 
     if (!store.isIntegrated) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_integrated', { args: { storeName: store.name.trim() } })
+        this.translations.t("domains.stores.store_not_integrated", {
+          args: { storeName: store.name.trim() },
+        }),
       );
     }
 
     if (store.syncStatus === SyncStatus.SYNCING) {
-      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_already_syncing'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.cannot_sync_already_syncing"),
+      );
     }
-
 
     await this.storesRepo.update(store.id, {
       syncStatus: SyncStatus.SYNCING,
-      lastSyncAttemptAt: new Date()
+      lastSyncAttemptAt: new Date(),
     });
-
 
     // Route to the correct queue based on Store
     await this.productSyncQueueService.enqueueFullProductSyncLocally(store);
 
     this.logger.log(
       `[Manual Full Sync] Dispatched full catalog sync for Store: "${store.name}" (ID: ${id}) ` +
-      `initiated by Admin: ${adminId}.`
+        `initiated by Admin: ${adminId}.`,
     );
 
     return {
-      message: this.translations.t('domains.stores.sync_job_queued', { args: { storeName: store.name } }),
-      storeId: id
+      message: this.translations.t("domains.stores.sync_job_queued", {
+        args: { storeName: store.name },
+      }),
+      storeId: id,
     };
   }
 
-  async manualSyncSpecificProducts(me: any, id: string, ids: string[], type?: FullStoreSyncType) {
+  async manualSyncSpecificProducts(
+    me: any,
+    id: string,
+    ids: string[],
+    type?: FullStoreSyncType,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     if (!ids || ids.length === 0) {
-      throw new BadRequestException(this.translations.t('domains.stores.no_products_provided'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.no_products_provided"),
+      );
     }
 
     if (ids.length > 50) {
-      throw new BadRequestException(this.translations.t('domains.stores.max_products_exceeded'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.max_products_exceeded"),
+      );
     }
 
     const store = await this.storesRepo.findOne({ where: { id, adminId } });
     if (!store) {
       throw new NotFoundException(
-        this.translations.t('domains.stores.store_id_not_found', { args: { id } })
+        this.translations.t("domains.stores.store_id_not_found", {
+          args: { id },
+        }),
       );
     }
 
     if (!store.isActive) {
-      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_inactive'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.cannot_sync_inactive"),
+      );
     }
 
     if (!store.isIntegrated) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_integrated', { args: { storeName: store.name.trim() } })
+        this.translations.t("domains.stores.store_not_integrated", {
+          args: { storeName: store.name.trim() },
+        }),
       );
     }
 
-    // We don't necessarily block partial sync if a full sync is running, 
+    // We don't necessarily block partial sync if a full sync is running,
     // but it's safer to check.
     if (store.localSyncStatus === SyncStatus.SYNCING) {
-      throw new BadRequestException(this.translations.t('domains.stores.cannot_sync_already_syncing'));
+      throw new BadRequestException(
+        this.translations.t("domains.stores.cannot_sync_already_syncing"),
+      );
     }
 
     await this.productSyncQueueService.enqueueFullStoreSync(store, ids, type);
 
     const isBundle = type === FullStoreSyncType.BUNDLE;
-    const entityLabel = isBundle ? 'bundles' : 'products';
+    const entityLabel = isBundle ? "bundles" : "products";
 
     this.logger.log(
       `[Manual Partial Sync] Dispatched sync for ${ids.length} ${entityLabel} in Store: "${store.name}" (ID: ${id}) ` +
-      `initiated by Admin: ${adminId}.`
+        `initiated by Admin: ${adminId}.`,
     );
 
     const localizationKey = isBundle
-      ? 'domains.stores.partial_sync_bundle_job_queued'
-      : 'domains.stores.partial_sync_job_queued';
+      ? "domains.stores.partial_sync_bundle_job_queued"
+      : "domains.stores.partial_sync_job_queued";
 
     return {
-      message: this.translations.t(localizationKey, { args: { count: ids.length, storeName: store.name } }),
-      storeId: id
+      message: this.translations.t(localizationKey, {
+        args: { count: ids.length, storeName: store.name },
+      }),
+      storeId: id,
     };
   }
 
@@ -1055,14 +1333,13 @@ export class StoresService {
     customerName?: string,
     phoneNumber?: string,
   ) {
-
     const existingFailure = await this.failureRepo.findOne({
       where: {
         adminId,
         storeId: store?.id,
         externalOrderId: externalOrderId || null,
-      }
-    })
+      },
+    });
 
     if (existingFailure) {
       existingFailure.attempts += 1;
@@ -1081,14 +1358,23 @@ export class StoresService {
       phoneNumber,
     });
     const created = await this.failureRepo.save(record);
-    this.logger.warn(`[Webhook Order Failure] recorded for admin ${adminId} store ${store?.id} reason=${reason}`);
+    this.logger.warn(
+      `[Webhook Order Failure] recorded for admin ${adminId} store ${store?.id} reason=${reason}`,
+    );
     await this.notificationService.create({
       userId: adminId,
       type: NotificationType.ORDER_CREATTION_FAILED,
-      title: await this.requestTranslations.tAsync('domains.stores.order_creation_failed_title', adminId),
-      message: await this.requestTranslations.tAsync('domains.stores.order_creation_failed_message', adminId, {
-        args: { storeName: store.name, reason }
-      }),
+      title: await this.requestTranslations.tAsync(
+        "domains.stores.order_creation_failed_title",
+        adminId,
+      ),
+      message: await this.requestTranslations.tAsync(
+        "domains.stores.order_creation_failed_message",
+        adminId,
+        {
+          args: { storeName: store.name, reason },
+        },
+      ),
       relatedEntityType: "webhook_order_failures",
       relatedEntityId: String(created.id),
     });
@@ -1102,10 +1388,15 @@ export class StoresService {
   private async resolveWebhookCartLineItem(
     manager: EntityManager,
     adminId: string,
-    item: WebhookOrderPayload['cartItems'][number],
+    item: WebhookOrderPayload["cartItems"][number],
     productMap: Map<string, ProductEntity>,
     skuFallbackEnabled: boolean,
-  ): Promise<{ variantId: string; quantity: number; unitPrice: number; unitCost: number }> {
+  ): Promise<{
+    variantId: string;
+    quantity: number;
+    unitPrice: number;
+    unitCost: number;
+  }> {
     const pvRepo = manager.getRepository(ProductVariantEntity);
 
     const sku = item.variant?.sku?.trim();
@@ -1114,10 +1405,10 @@ export class StoresService {
       if (!skuFallbackEnabled || !sku) return null;
 
       return await pvRepo
-        .createQueryBuilder('v')
-        .innerJoinAndSelect('v.product', 'p')
-        .where('v.sku = :sku', { sku })
-        .andWhere('p.adminId = :adminId', { adminId })
+        .createQueryBuilder("v")
+        .innerJoinAndSelect("v.product", "p")
+        .where("v.sku = :sku", { sku })
+        .andWhere("p.adminId = :adminId", { adminId })
         .getOne();
     };
 
@@ -1129,9 +1420,7 @@ export class StoresService {
       const key = item.variant.key;
 
       matchedVariant =
-        localProduct.variants.find(
-          v => v.key === key && v.isActive,
-        ) || null;
+        localProduct.variants.find((v) => v.key === key && v.isActive) || null;
     }
 
     // Fallback to SKU if:
@@ -1149,25 +1438,33 @@ export class StoresService {
 
     if (!localProduct) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.product_not_found_in_system', { args: { itemName: item.name } })
+        this.translations.t("domains.stores.product_not_found_in_system", {
+          args: { itemName: item.name },
+        }),
       );
     }
 
     if (!localProduct.isActive) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.product_not_active', { args: { itemName: item.name } })
+        this.translations.t("domains.stores.product_not_active", {
+          args: { itemName: item.name },
+        }),
       );
     }
 
     if (!matchedVariant) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.variant_not_found', { args: { itemName: item.name } })
+        this.translations.t("domains.stores.variant_not_found", {
+          args: { itemName: item.name },
+        }),
       );
     }
 
     if (!matchedVariant.isActive) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.variant_not_active', { args: { itemName: item.name } })
+        this.translations.t("domains.stores.variant_not_active", {
+          args: { itemName: item.name },
+        }),
       );
     }
 
@@ -1185,31 +1482,40 @@ export class StoresService {
         id?: string;
         variantId: string;
         qty: number;
-        variant?: ProductVariantEntity & { product?: { wholesalePrice?: number } } | null;
+        variant?:
+          | (ProductVariantEntity & { product?: { wholesalePrice?: number } })
+          | null;
       }[];
     },
-    item: WebhookOrderPayload['cartItems'][number],
-  ): { variantId: string; quantity: number; unitPrice: number; unitCost: number, bundleId: string }[] {
+    item: WebhookOrderPayload["cartItems"][number],
+  ): {
+    variantId: string;
+    quantity: number;
+    unitPrice: number;
+    unitCost: number;
+    bundleId: string;
+  }[] {
     const bundleName = bundle?.name || item.name;
 
     if (!bundle?.items || bundle.items.length === 0) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.bundle_no_items', { args: { itemName: bundleName } }) ||
-        `Bundle "${bundleName}" has no items configured.`,
+        this.translations.t("domains.stores.bundle_no_items", {
+          args: { itemName: bundleName },
+        }) || `Bundle "${bundleName}" has no items configured.`,
       );
     }
 
     for (const bi of bundle.items) {
       if (!bi?.variant) {
         throw new BadRequestException(
-          this.translations.t('domains.stores.bundle_item_variant_not_found', {
+          this.translations.t("domains.stores.bundle_item_variant_not_found", {
             args: { itemName: bundleName, variantId: bi.variantId },
           }) || `Bundle "${bundleName}" item has missing variant data.`,
         );
       }
       if (!bi.variant.isActive) {
         throw new BadRequestException(
-          this.translations.t('domains.stores.bundle_item_variant_not_active', {
+          this.translations.t("domains.stores.bundle_item_variant_not_active", {
             args: { itemName: bundleName, variantId: bi.variantId },
           }) || `Bundle "${bundleName}" contains inactive variant.`,
         );
@@ -1229,56 +1535,83 @@ export class StoresService {
     isWebhook = false,
     failureLog?: WebhookOrderFailureEntity,
     manager?: EntityManager,
-
-  ): Promise<{ ok: boolean; ignored?: boolean; reason?: string; orderId?: string }> {
-
+  ): Promise<{
+    ok: boolean;
+    ignored?: boolean;
+    reason?: string;
+    orderId?: string;
+  }> {
     try {
-      const runInTransaction = async (work: (em: EntityManager) => Promise<any>) => {
+      const runInTransaction = async (
+        work: (em: EntityManager) => Promise<any>,
+      ) => {
         if (manager) return work(manager);
         return this.dataSource.transaction(work);
       };
       return await runInTransaction(async (manager) => {
         const p = this.getProvider(store.provider);
-        const proccessedExternalOrderId = p.normalizeOrderId(payload.externalOrderId);
-        const existingOrder = await this.ordersService.findByExternalId(proccessedExternalOrderId, adminId);
+        const proccessedExternalOrderId = p.normalizeOrderId(
+          payload.externalOrderId,
+        );
+        const existingOrder = await this.ordersService.findByExternalId(
+          proccessedExternalOrderId,
+          adminId,
+        );
         if (existingOrder) {
           //notification here
-          return { ok: true, ignored: true, reason: 'order_exists' };
+          return { ok: true, ignored: true, reason: "order_exists" };
         }
 
-        const remoteIds = payload.cartItems.map(item => item.remoteProductId);
+        const remoteIds = payload.cartItems.map((item) => item.remoteProductId);
         const safeRemoteIds = remoteIds.length > 0 ? remoteIds : [null];
 
         const syncStates = await manager
           .getRepository(ProductSyncStateEntity)
-          .createQueryBuilder('state')
-          .leftJoinAndSelect('state.product', 'product', 'product.isActive = true')
-          .leftJoinAndSelect('product.variants', 'variants')
-          .leftJoinAndSelect('state.bundle', 'bundle', 'bundle.isActive = true')
-          .leftJoinAndSelect('bundle.items', 'bundleItems')
-          .leftJoinAndSelect('bundleItems.variant', 'bundleVariant')
-          .leftJoinAndSelect('bundleVariant.product', 'bundleVariantProduct')
-          .where('state.adminId = :adminId', { adminId })
-          .andWhere('state.storeId = :storeId', { storeId: store.id })
-          .andWhere('state.externalStoreId = :externalStoreId', {
+          .createQueryBuilder("state")
+          .leftJoinAndSelect(
+            "state.product",
+            "product",
+            "product.isActive = true",
+          )
+          .leftJoinAndSelect("product.variants", "variants")
+          .leftJoinAndSelect("state.bundle", "bundle", "bundle.isActive = true")
+          .leftJoinAndSelect("bundle.items", "bundleItems")
+          .leftJoinAndSelect("bundleItems.variant", "bundleVariant")
+          .leftJoinAndSelect("bundleVariant.product", "bundleVariantProduct")
+          .where("state.adminId = :adminId", { adminId })
+          .andWhere("state.storeId = :storeId", { storeId: store.id })
+          .andWhere("state.externalStoreId = :externalStoreId", {
             externalStoreId: store.externalStoreId,
           })
-          .andWhere('state.remoteProductId IN (:...safeRemoteIds)', { safeRemoteIds })
+          .andWhere("state.remoteProductId IN (:...safeRemoteIds)", {
+            safeRemoteIds,
+          })
           .getMany();
 
         const productMap = new Map(
-          syncStates?.filter(s => s.remoteProductId && s.entityType === SyncEntityType.PRODUCT && s.product)
-            .map(s => [s.remoteProductId, s.product])
+          syncStates
+            ?.filter(
+              (s) =>
+                s.remoteProductId &&
+                s.entityType === SyncEntityType.PRODUCT &&
+                s.product,
+            )
+            .map((s) => [s.remoteProductId, s.product]),
         );
 
         const bundleMap = new Map(
-          syncStates?.filter(s => s.remoteProductId && s.entityType === SyncEntityType.BUNDLE && s.bundle)
-            .map(s => [s.remoteProductId, s.bundle])
+          syncStates
+            ?.filter(
+              (s) =>
+                s.remoteProductId &&
+                s.entityType === SyncEntityType.BUNDLE &&
+                s.bundle,
+            )
+            .map((s) => [s.remoteProductId, s.bundle]),
         );
 
-        const settings = await this.clientSettingsService.getCachedSettings(
-          adminId,
-        );
+        const settings =
+          await this.clientSettingsService.getCachedSettings(adminId);
         const skuFallbackEnabled = settings?.storeOrderSkuFallback !== false;
 
         const items = [];
@@ -1290,13 +1623,13 @@ export class StoresService {
           if (!matchedBundle && sku && skuFallbackEnabled) {
             const bundleBySku = await manager
               .getRepository(BundleEntity)
-              .createQueryBuilder('b')
-              .leftJoinAndSelect('b.items', 'bi')
-              .leftJoinAndSelect('bi.variant', 'v')
-              .leftJoinAndSelect('v.product', 'vp')
-              .where('b.sku = :sku', { sku })
-              .andWhere('b.adminId = :adminId', { adminId })
-              .andWhere('b.isActive = true')
+              .createQueryBuilder("b")
+              .leftJoinAndSelect("b.items", "bi")
+              .leftJoinAndSelect("bi.variant", "v")
+              .leftJoinAndSelect("v.product", "vp")
+              .where("b.sku = :sku", { sku })
+              .andWhere("b.adminId = :adminId", { adminId })
+              .andWhere("b.isActive = true")
               .getOne();
             if (bundleBySku) matchedBundle = bundleBySku;
           }
@@ -1330,8 +1663,12 @@ export class StoresService {
 
         const shippingCost = round(Number(payload.shippingCost || 0));
 
-        const { finalTotal: computedTotal } = this.ordersService.calculateTotals(items, shippingCost, 0, 0);
-        const incomingTotal = payload.totalCost != null ? round(Number(payload.totalCost)) : computedTotal;
+        const { finalTotal: computedTotal } =
+          this.ordersService.calculateTotals(items, shippingCost, 0, 0);
+        const incomingTotal =
+          payload.totalCost != null
+            ? round(Number(payload.totalCost))
+            : computedTotal;
         const delta = round(incomingTotal - computedTotal);
 
         let mappedDiscount = 0;
@@ -1359,20 +1696,42 @@ export class StoresService {
           storeId: String(store.id),
         };
 
-        const User = { id: store.adminId, role: { name: 'admin' } };
+        const User = { id: store.adminId, role: { name: "admin" } };
 
-        const newOrder = await this.ordersService.createWithManager(manager, adminId, User, createOrderDto);
-        await this.ordersService.updateExternalId(newOrder.id, payload.externalOrderId);
-        await manager.update(OrderEntity, newOrder.id, { externalId: payload.externalOrderId });
+        const newOrder = await this.ordersService.createWithManager(
+          manager,
+          adminId,
+          User,
+          createOrderDto,
+        );
+        await this.ordersService.updateExternalId(
+          newOrder.id,
+          payload.externalOrderId,
+        );
+        await manager.update(OrderEntity, newOrder.id, {
+          externalId: payload.externalOrderId,
+        });
 
-        this.logger.log(`[Webhook Order Create] Created new order from webhook with External ID ${payload.externalOrderId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`);
+        this.logger.log(
+          `[Webhook Order Create] Created new order from webhook with External ID ${payload.externalOrderId} mapped to Internal Order #${newOrder.orderNumber} (ID: ${newOrder.id}).`,
+        );
         await this.notificationService.create({
           userId: adminId,
           type: NotificationType.ORDER_CREATED,
-          title: await this.requestTranslations.tAsync('domains.stores.new_order_created_title', adminId),
-          message: await this.requestTranslations.tAsync('domains.stores.new_order_created_message', adminId, {
-            args: { orderNumber: newOrder.orderNumber, storeName: store.name }
-          }),
+          title: await this.requestTranslations.tAsync(
+            "domains.stores.new_order_created_title",
+            adminId,
+          ),
+          message: await this.requestTranslations.tAsync(
+            "domains.stores.new_order_created_message",
+            adminId,
+            {
+              args: {
+                orderNumber: newOrder.orderNumber,
+                storeName: store.name,
+              },
+            },
+          ),
           relatedEntityType: "order",
           relatedEntityId: String(newOrder.id),
         });
@@ -1381,9 +1740,11 @@ export class StoresService {
       });
     } catch (error: any) {
       const errorMessage = getErrorMessage(error);
-      this.logger.error(`[Webhook Order Create] Error processing webhook order: ${errorMessage}`, error.stack);
+      this.logger.error(
+        `[Webhook Order Create] Error processing webhook order: ${errorMessage}`,
+        error.stack,
+      );
       if (failureLog) {
-
         failureLog.status = OrderFailStatus.FAILED;
         failureLog.lastRetryFailedReason = errorMessage;
         await this.failureRepo.save(failureLog);
@@ -1391,18 +1752,24 @@ export class StoresService {
           await this.notificationService.create({
             userId: adminId,
             type: NotificationType.ORDER_CREATTION_FAILED,
-            title: await this.requestTranslations.tAsync('domains.stores.retry_order_failed_title', adminId),
-            message: await this.requestTranslations.tAsync('domains.stores.retry_order_failed_message', adminId, {
-              args: { storeName: store.name, errorMessage }
-            }),
+            title: await this.requestTranslations.tAsync(
+              "domains.stores.retry_order_failed_title",
+              adminId,
+            ),
+            message: await this.requestTranslations.tAsync(
+              "domains.stores.retry_order_failed_message",
+              adminId,
+              {
+                args: { storeName: store.name, errorMessage },
+              },
+            ),
             relatedEntityType: "webhook_order_failures",
             relatedEntityId: String(failureLog.id),
           });
         }
       } else {
-
-        const externalId = payload?.externalOrderId || 'UNKNOWN';
-        const customerName = payload?.fullName?.trim() || 'N/A';
+        const externalId = payload?.externalOrderId || "UNKNOWN";
+        const customerName = payload?.fullName?.trim() || "N/A";
         await this.logFailedWebhookOrder(
           adminId,
           store,
@@ -1411,35 +1778,43 @@ export class StoresService {
           `${errorMessage}`,
           externalId,
           customerName,
-          payload?.phone
+          payload?.phone,
         );
       }
-      return { ok: false, ignored: true, reason: 'processing_error' };
+      return { ok: false, ignored: true, reason: "processing_error" };
     }
   }
 
-  async handleWebhookOrderCreate(target: string, body: any, headers: Record<string, any>, adminId: string, req: any) {
-    this.logger.log(`[Webhook Order Create] Received webhook order create for target=${target}`);
+  async handleWebhookOrderCreate(
+    target: string,
+    body: any,
+    headers: Record<string, any>,
+    adminId: string,
+    req: any,
+  ) {
+    this.logger.log(
+      `[Webhook Order Create] Received webhook order create for target=${target}`,
+    );
     //notification here
 
     const store = await this.resolveStoreByTarget(adminId, target);
     if (!store) {
-      return { ok: true, ignored: true, reason: 'store_not_found' };
+      return { ok: true, ignored: true, reason: "store_not_found" };
     }
 
     const p = this.getProvider(store.provider);
 
     if (!store.isActive || !store.isIntegrated) {
-      return { ok: true, ignored: true, reason: 'store_not_active' };
+      return { ok: true, ignored: true, reason: "store_not_active" };
     }
 
     if (store.provider !== p.code) {
-      return { ok: true, ignored: true, reason: 'provider_mismatched' };
+      return { ok: true, ignored: true, reason: "provider_mismatched" };
     }
 
     const isAuthed = p.verifyWebhookAuth(headers, body, store, req, "create");
     if (!isAuthed) {
-      return { ok: true, ignored: true, reason: 'auth_failed' };
+      return { ok: true, ignored: true, reason: "auth_failed" };
     }
 
     const payload = await p.mapWebhookCreate(body, store);
@@ -1451,13 +1826,15 @@ export class StoresService {
     body: any,
     headers: Record<string, any>,
     adminId: string,
-    req: any
+    req: any,
   ) {
     try {
       // Resolve store from the target segment (enum or store id)
       const targetStore = await this.resolveStoreByTarget(adminId, target);
       if (!targetStore) {
-        this.logger.warn(`[Webhook Order Update] Could not resolve store from target=${target}`);
+        this.logger.warn(
+          `[Webhook Order Update] Could not resolve store from target=${target}`,
+        );
         return;
       }
 
@@ -1470,23 +1847,25 @@ export class StoresService {
         throw new Error(`Unknown order`);
       }
 
-      const order = await this.ordersService.findByExternalId(externalOrderId, adminId);
+      const order = await this.ordersService.findByExternalId(
+        externalOrderId,
+        adminId,
+      );
 
       if (!order) {
         throw new Error(`Unknown order`);
       }
       const payload =
-        p.mapWebhookUpdate(
-          body,
-          order?.status?.code as OrderStatus,
-          headers,
-        ) || ({} as ReturnType<typeof p.mapWebhookUpdate>);
+        p.mapWebhookUpdate(body, order?.status?.code as OrderStatus, headers) ||
+        ({} as ReturnType<typeof p.mapWebhookUpdate>);
 
       if (!order.storeId) {
         throw new Error(`Order ${order.orderNumber} has no storeId`);
       }
 
-      const store = await this.storesRepo.findOne({ where: { id: order.storeId } });
+      const store = await this.storesRepo.findOne({
+        where: { id: order.storeId },
+      });
 
       if (!store) {
         throw new Error(`Store ${order.storeId} not found`);
@@ -1498,7 +1877,7 @@ export class StoresService {
 
       if (store.provider !== p.code) {
         throw new Error(
-          `Provider mismatch: expected ${p.code}, got ${store.provider}`
+          `Provider mismatch: expected ${p.code}, got ${store.provider}`,
         );
       }
 
@@ -1514,8 +1893,7 @@ export class StoresService {
       }
 
       const isOrderStatusChanged =
-        payload.mappedStatus &&
-        order.status?.code !== payload.mappedStatus;
+        payload.mappedStatus && order.status?.code !== payload.mappedStatus;
 
       const isPaymentStatusChanged =
         payload.mappedPaymentStatus &&
@@ -1523,7 +1901,7 @@ export class StoresService {
 
       if (!isOrderStatusChanged && !isPaymentStatusChanged) {
         this.logger.log(
-          `[Webhook Order Update] No changes for Order #${order.orderNumber}`
+          `[Webhook Order Update] No changes for Order #${order.orderNumber}`,
         );
         return;
       }
@@ -1532,13 +1910,11 @@ export class StoresService {
       if (isOrderStatusChanged) {
         const statusEntity = await this.ordersService.findStatusByCode(
           payload.mappedStatus,
-          order.adminId.toString()
+          order.adminId.toString(),
         );
 
         if (!statusEntity) {
-          throw new Error(
-            `Mapped status "${payload.mappedStatus}" not found`
-          );
+          throw new Error(`Mapped status "${payload.mappedStatus}" not found`);
         }
 
         const User = { id: order.adminId.toString(), role: { name: "admin" } };
@@ -1546,9 +1922,10 @@ export class StoresService {
         await this.ordersService.changeStatus(User, order.id, {
           statusId: statusEntity.id,
           notes: payload.note || `Updated via webhook`,
-          postponedDate: payload.postponedDate ? new Date(payload.postponedDate)?.toISOString() || null : null,
+          postponedDate: payload.postponedDate
+            ? new Date(payload.postponedDate)?.toISOString() || null
+            : null,
         });
-
       }
 
       // 💰 Payment status
@@ -1559,21 +1936,30 @@ export class StoresService {
         await this.notificationService.create({
           userId: order.adminId.toString(),
           type: NotificationType.ORDER_UPDATED,
-          title: await this.requestTranslations.tAsync('domains.stores.order_payment_status_updated_title', adminId),
-          message: await this.requestTranslations.tAsync('domains.stores.order_payment_status_updated_message', adminId, {
-            args: { orderNumber: order.orderNumber, status: payload.mappedPaymentStatus }
-          }),
+          title: await this.requestTranslations.tAsync(
+            "domains.stores.order_payment_status_updated_title",
+            adminId,
+          ),
+          message: await this.requestTranslations.tAsync(
+            "domains.stores.order_payment_status_updated_message",
+            adminId,
+            {
+              args: {
+                orderNumber: order.orderNumber,
+                status: payload.mappedPaymentStatus,
+              },
+            },
+          ),
           relatedEntityType: "order",
           relatedEntityId: String(order.id),
         });
       }
-
     } catch (error: any) {
       const message = getErrorMessage(error);
 
       this.logger.error(
         `[Webhook Order Update Failed] ${message}`,
-        error?.stack
+        error?.stack,
       );
 
       // 🔥 notify admin
@@ -1594,7 +1980,11 @@ export class StoresService {
 
   async listFailedOrders(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
@@ -1616,20 +2006,31 @@ export class StoresService {
       const searchTerm = `%${q.search}%`;
       qb.andWhere(
         "(failure.customerName ILIKE :searchTerm OR failure.phoneNumber ILIKE :searchTerm OR failure.externalOrderId ILIKE :searchTerm)",
-        { searchTerm }
+        { searchTerm },
       );
     }
 
     // Filters
-    if (q?.storeId) qb.andWhere("failure.storeId = :storeId", { storeId: q.storeId });
+    if (q?.storeId) {
+      qb.andWhere("failure.storeId = :storeId", { storeId: q.storeId });
+    }
 
     // Filter by provider (resolved through the related store)
-    if (q?.provider) qb.andWhere("store.provider = :provider", { provider: q.provider });
+    if (q?.provider) {
+      qb.andWhere("store.provider = :provider", { provider: q.provider });
+    }
 
     // Date range
-    DateFilterUtil.applyToQueryBuilder(qb, "failure.created_at", q?.startDate, q?.endDate);
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "failure.created_at",
+      q?.startDate,
+      q?.endDate,
+    );
 
-    if (q?.status) qb.andWhere("failure.status = :status", { status: String(q.status) });
+    if (q?.status) {
+      qb.andWhere("failure.status = :status", { status: String(q.status) });
+    }
 
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
@@ -1651,61 +2052,83 @@ export class StoresService {
     };
   }
 
-
   async getFailedOrderDetail(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
-
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const failure = await this.failureRepo.findOne({
       where: { id, adminId },
-      relations: ['store'],
+      relations: ["store"],
     });
 
     if (!failure) {
-      throw new NotFoundException(this.translations.t('domains.stores.failed_order_retry_not_found'));
+      throw new NotFoundException(
+        this.translations.t("domains.stores.failed_order_retry_not_found"),
+      );
     }
 
     const storeId = failure.store?.id;
     const payload = failure.payload;
     const problems = [];
 
-    const retrySettings = await this.clientSettingsService.getCachedSettings(
-      adminId,
-    );
+    const retrySettings =
+      await this.clientSettingsService.getCachedSettings(adminId);
     const skuFallbackEnabled = retrySettings?.storeOrderSkuFallback !== false;
-
 
     const finalCardItems: any[] = [];
 
     if (payload && payload.cartItems) {
-      const remoteIds = payload.cartItems.map(item => String(item.remoteProductId));
+      const remoteIds = payload.cartItems.map((item) =>
+        String(item.remoteProductId),
+      );
       const safeRemoteIds = remoteIds.length > 0 ? remoteIds : [null];
       //
       const syncStates = await this.productSyncStateRepo
-        .createQueryBuilder('state')
-        .leftJoinAndSelect('state.product', 'product', 'product.isActive = true')
-        .leftJoinAndSelect('product.variants', 'variants')
-        .leftJoinAndSelect('state.bundle', 'bundle', 'bundle.isActive = true')
-        .leftJoinAndSelect('bundle.items', 'bundleItems')
-        .leftJoinAndSelect('bundleItems.variant', 'bundleVariant')
-        .leftJoinAndSelect('bundleVariant.product', 'bundleVariantProduct')
-        .where('state.adminId = :adminId', { adminId })
-        .andWhere('state.storeId = :storeId', { storeId: storeId })
-        .andWhere('state.externalStoreId = :externalStoreId', {
+        .createQueryBuilder("state")
+        .leftJoinAndSelect(
+          "state.product",
+          "product",
+          "product.isActive = true",
+        )
+        .leftJoinAndSelect("product.variants", "variants")
+        .leftJoinAndSelect("state.bundle", "bundle", "bundle.isActive = true")
+        .leftJoinAndSelect("bundle.items", "bundleItems")
+        .leftJoinAndSelect("bundleItems.variant", "bundleVariant")
+        .leftJoinAndSelect("bundleVariant.product", "bundleVariantProduct")
+        .where("state.adminId = :adminId", { adminId })
+        .andWhere("state.storeId = :storeId", { storeId: storeId })
+        .andWhere("state.externalStoreId = :externalStoreId", {
           externalStoreId: failure?.store.externalStoreId,
         })
-        .andWhere('state.remoteProductId IN (:...safeRemoteIds)', { safeRemoteIds })
+        .andWhere("state.remoteProductId IN (:...safeRemoteIds)", {
+          safeRemoteIds,
+        })
         .getMany();
 
       const productMap = new Map(
-        syncStates.filter(s => s.remoteProductId && s.entityType === SyncEntityType.PRODUCT && s.product)
-          .map(s => [s.remoteProductId, s.product])
+        syncStates
+          .filter(
+            (s) =>
+              s.remoteProductId &&
+              s.entityType === SyncEntityType.PRODUCT &&
+              s.product,
+          )
+          .map((s) => [s.remoteProductId, s.product]),
       );
 
       const bundleMap = new Map(
-        syncStates.filter(s => s.remoteProductId && s.entityType === SyncEntityType.BUNDLE && s.bundle)
-          .map(s => [s.remoteProductId, s.bundle])
+        syncStates
+          .filter(
+            (s) =>
+              s.remoteProductId &&
+              s.entityType === SyncEntityType.BUNDLE &&
+              s.bundle,
+          )
+          .map((s) => [s.remoteProductId, s.bundle]),
       );
 
       for (const item of payload.cartItems) {
@@ -1715,13 +2138,13 @@ export class StoresService {
         // ── Rule 2: bundle SKU fallback (search bundles by sku first, before product flow) ──
         if (!matchedBundle && sku && skuFallbackEnabled) {
           const bundleBySku = await this.bundleRepo
-            .createQueryBuilder('b')
-            .leftJoinAndSelect('b.items', 'bi')
-            .leftJoinAndSelect('bi.variant', 'v')
-            .leftJoinAndSelect('v.product', 'vp')
-            .where('b.sku = :sku', { sku })
-            .andWhere('b.adminId = :adminId', { adminId })
-            .andWhere('b.isActive = true')
+            .createQueryBuilder("b")
+            .leftJoinAndSelect("b.items", "bi")
+            .leftJoinAndSelect("bi.variant", "v")
+            .leftJoinAndSelect("v.product", "vp")
+            .where("b.sku = :sku", { sku })
+            .andWhere("b.adminId = :adminId", { adminId })
+            .andWhere("b.isActive = true")
             .getOne();
           if (bundleBySku) matchedBundle = bundleBySku;
         }
@@ -1740,11 +2163,16 @@ export class StoresService {
           const bundleQty = Math.max(1, Number(item.quantity) || 1);
           let bundleHasFatalProblems = false;
 
-          const allocations = expandBundleToOrderLineItems(matchedBundle, bundleQty);
-          const allocationMap = new Map(allocations.map(a => [a.variantId, a]));
+          const allocations = expandBundleToOrderLineItems(
+            matchedBundle,
+            bundleQty,
+          );
+          const allocationMap = new Map(
+            allocations.map((a) => [a.variantId, a]),
+          );
 
           for (const bi of matchedBundle.items) {
-            const totalQty = (Number(bi.qty ?? 1)) * bundleQty;
+            const totalQty = Number(bi.qty ?? 1) * bundleQty;
             const variant = bi?.variant;
             const alloc = allocationMap.get(variant?.id);
             finalCardItems.push({
@@ -1772,12 +2200,18 @@ export class StoresService {
                 slug: variant?.product?.slug,
                 name: variant.product.name,
                 code: WebhookOrderProblem.SKU_NOT_FOUND,
-                problem: this.translations.t('domains.stores.bundle_item_variant_not_found', {
-                  args: { itemName: bundleName, variantId: bi.variantId },
-                }),
-                details: this.translations.t('domains.stores.bundle_item_variant_not_found_details', {
-                  args: { itemName: bundleName },
-                }),
+                problem: this.translations.t(
+                  "domains.stores.bundle_item_variant_not_found",
+                  {
+                    args: { itemName: bundleName, variantId: bi.variantId },
+                  },
+                ),
+                details: this.translations.t(
+                  "domains.stores.bundle_item_variant_not_found_details",
+                  {
+                    args: { itemName: bundleName },
+                  },
+                ),
               });
               continue;
             }
@@ -1793,21 +2227,31 @@ export class StoresService {
                 name: variant.product.name,
                 sku: variant.sku,
                 code: WebhookOrderProblem.SKU_INACTIVE,
-                problem: this.translations.t('domains.stores.bundle_item_variant_not_active', {
-                  args: { itemName: bundleName, variantId: bi.variantId },
-                }),
-                details: this.translations.t('domains.stores.bundle_item_variant_not_active_details', {
-                  args: { itemName: bundleName, sku: variant.sku || String(bi.variantId) },
-                }),
+                problem: this.translations.t(
+                  "domains.stores.bundle_item_variant_not_active",
+                  {
+                    args: { itemName: bundleName, variantId: bi.variantId },
+                  },
+                ),
+                details: this.translations.t(
+                  "domains.stores.bundle_item_variant_not_active_details",
+                  {
+                    args: {
+                      itemName: bundleName,
+                      sku: variant.sku || String(bi.variantId),
+                    },
+                  },
+                ),
               });
               continue;
             }
 
-            const availableStock = await this.ordersService.calculateAvailableStock(
-              variant.stockOnHand,
-              variant.reserved,
-              variant.adminId,
-            );
+            const availableStock =
+              await this.ordersService.calculateAvailableStock(
+                variant.stockOnHand,
+                variant.reserved,
+                variant.adminId,
+              );
             if (availableStock < totalQty) {
               problems.push({
                 // remoteId: item.remoteProductId,
@@ -1818,12 +2262,18 @@ export class StoresService {
                 name: variant.product.name,
                 sku: variant.sku,
                 code: WebhookOrderProblem.INSUFFICIENT_STOCK,
-                problem: this.translations.t('domains.stores.problem_insufficient_stock', {
-                  args: { key: variant.key, slug: variant?.product?.slug },
-                }),
-                details: this.translations.t('domains.stores.problem_insufficient_stock_details', {
-                  args: { quantity: totalQty, available: availableStock },
-                }),
+                problem: this.translations.t(
+                  "domains.stores.problem_insufficient_stock",
+                  {
+                    args: { key: variant.key, slug: variant?.product?.slug },
+                  },
+                ),
+                details: this.translations.t(
+                  "domains.stores.problem_insufficient_stock_details",
+                  {
+                    args: { quantity: totalQty, available: availableStock },
+                  },
+                ),
               });
               continue;
             }
@@ -1842,9 +2292,8 @@ export class StoresService {
 
         if (localProduct?.isActive) {
           matchedVariant =
-            localProduct.variants.find(
-              v => v.key === item.variant.key,
-            ) || null;
+            localProduct.variants.find((v) => v.key === item.variant.key) ||
+            null;
         }
 
         finalCardItems.push({
@@ -1853,10 +2302,10 @@ export class StoresService {
 
         if (!matchedVariant && sku && skuFallbackEnabled) {
           matchedVariant = await this.pvRepo
-            .createQueryBuilder('v')
-            .innerJoinAndSelect('v.product', 'p')
-            .where('v.sku = :sku', { sku })
-            .andWhere('p.adminId = :adminId', { adminId })
+            .createQueryBuilder("v")
+            .innerJoinAndSelect("v.product", "p")
+            .where("v.sku = :sku", { sku })
+            .andWhere("p.adminId = :adminId", { adminId })
             .getOne();
 
           if (matchedVariant?.product) {
@@ -1865,7 +2314,6 @@ export class StoresService {
           }
         }
 
-
         if (!localProduct || !localProduct?.isActive) {
           problems.push({
             remoteId: item.remoteProductId,
@@ -1873,8 +2321,14 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_NOT_FOUND,
-            problem: this.translations.t('domains.stores.problem_product_not_found', { args: { name: item.name } }),
-            details: this.translations.t('domains.stores.problem_product_not_found_details', { args: { name: item.name } }),
+            problem: this.translations.t(
+              "domains.stores.problem_product_not_found",
+              { args: { name: item.name } },
+            ),
+            details: this.translations.t(
+              "domains.stores.problem_product_not_found_details",
+              { args: { name: item.name } },
+            ),
           });
           continue;
         }
@@ -1886,18 +2340,22 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.PRODUCT_INACTIVE,
-            problem: this.translations.t('domains.stores.problem_product_inactive', { args: { name: item.name } }),
-            details: this.translations.t('domains.stores.problem_product_inactive_details', { args: { name: item.name } }),
+            problem: this.translations.t(
+              "domains.stores.problem_product_inactive",
+              { args: { name: item.name } },
+            ),
+            details: this.translations.t(
+              "domains.stores.problem_product_inactive_details",
+              { args: { name: item.name } },
+            ),
           });
           continue;
         }
-
 
         // Add local product ID to the item's variant for the UI/frontend
         if (!item.variant) item.variant = {};
         (item.variant as any).localProductId = localProduct.id;
         (item.variant as any).matchedBySku = matchedBySku;
-
 
         if (!matchedVariant) {
           problems.push({
@@ -1907,10 +2365,18 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.SKU_NOT_FOUND,
-            problem: this.translations.t('domains.stores.problem_variant_not_found', { args: { key: item.variant?.key, slug: item.productSlug } }),
-            details: localProduct.type === ProductType.SINGLE
-              ? this.translations.t('domains.stores.problem_single_product_no_sku')
-              : this.translations.t('domains.stores.problem_variant_missing_details')
+            problem: this.translations.t(
+              "domains.stores.problem_variant_not_found",
+              { args: { key: item.variant?.key, slug: item.productSlug } },
+            ),
+            details:
+              localProduct.type === ProductType.SINGLE
+                ? this.translations.t(
+                    "domains.stores.problem_single_product_no_sku",
+                  )
+                : this.translations.t(
+                    "domains.stores.problem_variant_missing_details",
+                  ),
           });
           continue;
         }
@@ -1923,8 +2389,14 @@ export class StoresService {
             slug: item.productSlug,
             name: item.name,
             code: WebhookOrderProblem.SKU_INACTIVE,
-            problem: this.translations.t('domains.stores.problem_variant_inactive', { args: { name: item.name } }),
-            details: this.translations.t('domains.stores.problem_variant_inactive_details', { args: { name: item.name } }),
+            problem: this.translations.t(
+              "domains.stores.problem_variant_inactive",
+              { args: { name: item.name } },
+            ),
+            details: this.translations.t(
+              "domains.stores.problem_variant_inactive_details",
+              { args: { name: item.name } },
+            ),
           });
           continue;
         }
@@ -1932,7 +2404,7 @@ export class StoresService {
         const availableStock = await this.ordersService.calculateAvailableStock(
           matchedVariant.stockOnHand,
           matchedVariant.reserved,
-          matchedVariant.adminId
+          matchedVariant.adminId,
         );
         if (availableStock < item.quantity) {
           problems.push({
@@ -1943,8 +2415,14 @@ export class StoresService {
             name: item.name,
             sku: matchedVariant.sku,
             code: WebhookOrderProblem.INSUFFICIENT_STOCK,
-            problem: this.translations.t('domains.stores.problem_insufficient_stock', { args: { key: item.variant?.key, slug: item.productSlug } }),
-            details: this.translations.t('domains.stores.problem_insufficient_stock_details', { args: { quantity: item.quantity, available: availableStock } })
+            problem: this.translations.t(
+              "domains.stores.problem_insufficient_stock",
+              { args: { key: item.variant?.key, slug: item.productSlug } },
+            ),
+            details: this.translations.t(
+              "domains.stores.problem_insufficient_stock_details",
+              { args: { quantity: item.quantity, available: availableStock } },
+            ),
           });
         }
       }
@@ -1957,23 +2435,40 @@ export class StoresService {
     };
   }
 
-  async updateFailedOrderPayload(me: any, id: string, payload: WebhookOrderPayload) {
+  async updateFailedOrderPayload(
+    me: any,
+    id: string,
+    payload: WebhookOrderPayload,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const failure = await this.failureRepo.findOne({
       where: { id, adminId },
     });
 
     if (!failure) {
-      throw new NotFoundException(this.translations.t('domains.stores.failed_order_not_found'));
+      throw new NotFoundException(
+        this.translations.t("domains.stores.failed_order_not_found"),
+      );
     }
 
-    if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failure.status as any)) {
+    if (
+      [OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(
+        failure.status as any,
+      )
+    ) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.cannot_update_payload_current_status', {
-          args: { status: failure.status },
-        }),
+        this.translations.t(
+          "domains.stores.cannot_update_payload_current_status",
+          {
+            args: { status: failure.status },
+          },
+        ),
       );
     }
 
@@ -1989,7 +2484,11 @@ export class StoresService {
 
   async getFailedOrdersStatistics(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const raw = await this.failureRepo
       .createQueryBuilder("failure")
@@ -2016,42 +2515,61 @@ export class StoresService {
     return stats;
   }
 
-
-
   async retryFailedOrder(me: any, failureId: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     return await this.dataSource.transaction(async (manager) => {
-      const { failureLog, problems } = await this.getFailedOrderDetail(me, failureId);
+      const { failureLog, problems } = await this.getFailedOrderDetail(
+        me,
+        failureId,
+      );
       try {
         if (!failureLog || !failureLog.store) {
-          throw new NotFoundException(this.translations.t('domains.stores.failed_order_or_store_not_found'));
+          throw new NotFoundException(
+            this.translations.t(
+              "domains.stores.failed_order_or_store_not_found",
+            ),
+          );
         }
 
         if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
           throw new BadRequestException(
-            this.translations.t('domains.stores.store_inactive_or_missing_integration', {
-              args: { storeName: failureLog.store.name },
-            }),
+            this.translations.t(
+              "domains.stores.store_inactive_or_missing_integration",
+              {
+                args: { storeName: failureLog.store.name },
+              },
+            ),
           );
         }
 
-        if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
+        if (
+          [OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(
+            failureLog.status as any,
+          )
+        ) {
           throw new BadRequestException(
-            this.translations.t('domains.stores.cannot_retry_current_status', {
+            this.translations.t("domains.stores.cannot_retry_current_status", {
               args: { status: failureLog.status },
             }),
           );
         }
 
         if (problems.length > 0) {
-          const displayed = problems.slice(0, 2).map((p) => p.problem).join(", ");
+          const displayed = problems
+            .slice(0, 2)
+            .map((p) => p.problem)
+            .join(", ");
           const moreCount = problems.length - 2;
           const suffix = moreCount > 0 ? ` +${moreCount}...` : "";
 
           throw new BadRequestException(
-            this.translations.t('domains.stores.cannot_retry_problems', {
+            this.translations.t("domains.stores.cannot_retry_problems", {
               args: { problems: `${displayed}${suffix}` },
             }),
           );
@@ -2076,7 +2594,7 @@ export class StoresService {
 
         if (!result.ok) {
           throw new BadRequestException(
-            this.translations.t('domains.stores.retry_failed_again', {
+            this.translations.t("domains.stores.retry_failed_again", {
               args: { reason: result.reason },
             }),
           );
@@ -2086,7 +2604,9 @@ export class StoresService {
         }
 
         return {
-          message: this.translations.t('domains.stores.order_successfully_retried_and_created'),
+          message: this.translations.t(
+            "domains.stores.order_successfully_retried_and_created",
+          ),
           orderId: result.orderId || null,
           result,
         };
@@ -2100,10 +2620,13 @@ export class StoresService {
     });
   }
 
-
   async exportFailedOrders(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const qb = this.failureRepo
       .createQueryBuilder("failure")
@@ -2114,7 +2637,7 @@ export class StoresService {
       const searchTerm = `%${q.search}%`;
       qb.andWhere(
         "(failure.customerName ILIKE :searchTerm OR failure.phoneNumber ILIKE :searchTerm OR failure.externalOrderId ILIKE :searchTerm)",
-        { searchTerm }
+        { searchTerm },
       );
     }
 
@@ -2130,7 +2653,12 @@ export class StoresService {
       });
     }
 
-    DateFilterUtil.applyToQueryBuilder(qb, "failure.created_at", q?.startDate, q?.endDate);
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "failure.created_at",
+      q?.startDate,
+      q?.endDate,
+    );
 
     qb.orderBy("failure.created_at", "DESC");
 
@@ -2148,15 +2676,31 @@ export class StoresService {
 
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(
-      this.translations.t("domains.stores.failed_orders")
+      this.translations.t("domains.stores.failed_orders"),
     );
 
     worksheet.columns = [
-      { header: this.translations.t("domains.stores.failure_id"), key: "id", width: 15 },
+      {
+        header: this.translations.t("domains.stores.failure_id"),
+        key: "id",
+        width: 15,
+      },
       { header: this.translations.t("common.store"), key: "store", width: 25 },
-      { header: this.translations.t("common.status"), key: "status", width: 15 },
-      { header: this.translations.t("common.reason"), key: "reason", width: 40 },
-      { header: this.translations.t("common.created_at"), key: "createdAt", width: 20 },
+      {
+        header: this.translations.t("common.status"),
+        key: "status",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.reason"),
+        key: "reason",
+        width: 40,
+      },
+      {
+        header: this.translations.t("common.created_at"),
+        key: "createdAt",
+        width: 20,
+      },
     ];
 
     worksheet.getRow(1).font = { bold: true };
@@ -2174,33 +2718,61 @@ export class StoresService {
 
   async queueRetryFailedOrder(me: any, failureId: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
-
-    // Fetch the failure log to get the store provider
-    const { failureLog, problems } = await this.getFailedOrderDetail(me, failureId);
-
-    if (!failureLog || !failureLog.store) {
-      throw new NotFoundException(this.translations.t('domains.stores.failure_log_or_store_not_found'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
     }
 
-    if ([OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(failureLog.status as any)) {
+    // Fetch the failure log to get the store provider
+    const { failureLog, problems } = await this.getFailedOrderDetail(
+      me,
+      failureId,
+    );
+
+    if (!failureLog || !failureLog.store) {
+      throw new NotFoundException(
+        this.translations.t("domains.stores.failure_log_or_store_not_found"),
+      );
+    }
+
+    if (
+      [OrderFailStatus.RETRYING, OrderFailStatus.SUCCESS].includes(
+        failureLog.status as any,
+      )
+    ) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.cannot_retry_status', { args: { status: failureLog.status } })
+        this.translations.t("domains.stores.cannot_retry_status", {
+          args: { status: failureLog.status },
+        }),
       );
     }
     if (!failureLog.store.isActive || !failureLog.store.isIntegrated) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_inactive_or_missing_integration', { args: { storeName: failureLog.store.name } })
+        this.translations.t(
+          "domains.stores.store_inactive_or_missing_integration",
+          { args: { storeName: failureLog.store.name } },
+        ),
       );
     }
 
     if (problems.length > 0) {
-      const displayed = problems.slice(0, 2).map((p) => p.problem).join(", ");
+      const displayed = problems
+        .slice(0, 2)
+        .map((p) => p.problem)
+        .join(", ");
       const moreCount = problems.length - 2;
-      const suffix = moreCount > 0 ? this.translations.t('domains.stores.problems_count_suffix', { args: { count: moreCount } }) : "";
+      const suffix =
+        moreCount > 0
+          ? this.translations.t("domains.stores.problems_count_suffix", {
+              args: { count: moreCount },
+            })
+          : "";
 
       throw new BadRequestException(
-        this.translations.t('domains.stores.cannot_retry_problems', { args: { problems: displayed, suffix } })
+        this.translations.t("domains.stores.cannot_retry_problems", {
+          args: { problems: displayed, suffix },
+        }),
       );
     }
 
@@ -2208,22 +2780,26 @@ export class StoresService {
     await this.orderSyncQueueService.enqueueRetryFailedOrder(
       adminId,
       failureId,
-      failureLog.store.provider
+      failureLog.store.provider,
     );
 
-    this.logger.log(`[Queue Retry] Enqueued retry job for failureId=${failureId}, adminId=${adminId}`);
+    this.logger.log(
+      `[Queue Retry] Enqueued retry job for failureId=${failureId}, adminId=${adminId}`,
+    );
 
     return {
-      message: this.translations.t('domains.stores.retry_job_queued_successfully'),
+      message: this.translations.t(
+        "domains.stores.retry_job_queued_successfully",
+      ),
       failureId,
     };
   }
 
   /**
- * Generic helper to sync a unified external product payload into the local DB.
- * Uses EasyOrder's reverse-sync logic (category mapping, product upsert, SKU upsert)
- * as the single source of truth for how reverse product sync should behave.
- */
+   * Generic helper to sync a unified external product payload into the local DB.
+   * Uses EasyOrder's reverse-sync logic (category mapping, product upsert, SKU upsert)
+   * as the single source of truth for how reverse product sync should behave.
+   */
   public async syncExternalProductPayloadToLocal(
     adminId: string,
     store: StoreEntity,
@@ -2236,7 +2812,9 @@ export class StoresService {
       role: { name: "admin" },
     };
 
-    const runInTransaction = async (work: (em: EntityManager) => Promise<ProductEntity>) => {
+    const runInTransaction = async (
+      work: (em: EntityManager) => Promise<ProductEntity>,
+    ) => {
       if (manager) return work(manager);
       return this.dataSource.transaction(work);
     };
@@ -2269,14 +2847,16 @@ export class StoresService {
       const mainImage = payload.mainImage || payload.images?.[0] || "";
 
       // 2) Upsert product by slug + adminId
-      let existingProduct = await productsRepository.findOne({
+      const existingProduct = await productsRepository.findOne({
         where: { adminId, slug: payload.slug },
       });
 
       let savedProduct: ProductEntity;
 
       if (existingProduct) {
-        this.logger.log(`[Reverse Sync] Updating existing product: ${existingProduct.slug}`);
+        this.logger.log(
+          `[Reverse Sync] Updating existing product: ${existingProduct.slug}`,
+        );
 
         em.merge(ProductEntity, existingProduct, {
           name: payload.name,
@@ -2334,14 +2914,22 @@ export class StoresService {
         };
 
         // Pass manager if available to upsertSkus
-        await this.productsService.upsertSkus(userContext, savedProduct.id, upsertDto, em);
+        await this.productsService.upsertSkus(
+          userContext,
+          savedProduct.id,
+          upsertDto,
+          em,
+        );
       }
 
       return savedProduct;
     });
   }
 
-  public async saveEasyOrdersCredentials(adminId: string, credentials: EasyOrdersCredentialsDto) {
+  public async saveEasyOrdersCredentials(
+    adminId: string,
+    credentials: EasyOrdersCredentialsDto,
+  ) {
     let store: StoreEntity | null;
     if (credentials.internalStoreId) {
       // Multi-store path: link to the exact local store by its uuid
@@ -2356,7 +2944,7 @@ export class StoresService {
     }
     if (!store) {
       throw new Error(
-        this.translations.t('domains.stores.easyorder_store_not_found')
+        this.translations.t("domains.stores.easyorder_store_not_found"),
       );
     }
 
@@ -2370,19 +2958,26 @@ export class StoresService {
 
     const newStore = await this.storesRepo.save(store);
     if (newStore.syncRemoteProducts) {
-      this.productSyncQueueService.enqueueFullProductSyncLocally(newStore)
+      this.productSyncQueueService.enqueueFullProductSyncLocally(newStore);
     }
 
-    this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.STORE_CONNECTED);
+    this.onboardingAchievementService.enqueueAchievement(
+      adminId,
+      GettingStartedAchievementType.STORE_CONNECTED,
+    );
     return newStore;
   }
 
-  public async getFullProductById(userContext: any, target: string, id: string) {
+  public async getFullProductById(
+    userContext: any,
+    target: string,
+    id: string,
+  ) {
     const adminId = tenantId(userContext);
     const store = await this.resolveStoreByTarget(adminId, target);
     if (!store) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_found_provider', {
+        this.translations.t("domains.stores.store_not_found_provider", {
           args: { provider: target },
         }),
       );
@@ -2390,28 +2985,25 @@ export class StoresService {
 
     if (!store.isIntegrated) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_integrated', {
+        this.translations.t("domains.stores.store_not_integrated", {
           args: { storeName: store.name.trim() },
         }),
       );
-
     }
     if (!store.isActive) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_active'),
+        this.translations.t("domains.stores.store_not_active"),
       );
-
     }
 
-    const p = this.getProvider(store.provider)
+    const p = this.getProvider(store.provider);
 
     try {
       const product = await p.getFullProductById(store, id);
       if (!product) {
         throw new BadRequestException(
-          this.translations.t('domains.stores.product_not_found'),
+          this.translations.t("domains.stores.product_not_found"),
         );
-
       }
       return { ...product, storeId: store.id };
     } catch (error: any) {
@@ -2422,14 +3014,14 @@ export class StoresService {
 
       if (status === 429) {
         throw new BadRequestException(
-          this.translations.t('domains.stores.provider_rate_limit_hit', {
+          this.translations.t("domains.stores.provider_rate_limit_hit", {
             args: { provider: store.provider },
           }),
         );
       }
 
       throw new BadRequestException(
-        this.translations.t('domains.stores.failed_to_fetch_product', {
+        this.translations.t("domains.stores.failed_to_fetch_product", {
           args: {
             provider: store.provider,
             message,
@@ -2447,20 +3039,18 @@ export class StoresService {
 
     if (!store.isIntegrated) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_integrated', {
+        this.translations.t("domains.stores.store_not_integrated", {
           args: { storeName: store.name.trim() },
         }),
       );
     }
     if (!store.isActive) {
       throw new BadRequestException(
-        this.translations.t('domains.stores.store_not_active'),
+        this.translations.t("domains.stores.store_not_active"),
       );
     }
 
     try {
-
-
       const p = this.getProvider(store.provider);
       const remoteProducts = await p.getAllMappedProducts(store);
 
@@ -2471,7 +3061,7 @@ export class StoresService {
       let newFailed = 0;
       const errors: string[] = [];
 
-      const me = { id: adminId, adminId, role: { name: 'admin' } };
+      const me = { id: adminId, adminId, role: { name: "admin" } };
       const purchaseItems: PurchaseItemDto[] = [];
       const allProductsmap = new Map<string, Map<string, number>>();
       for (const remoteProduct of remoteProducts) {
@@ -2481,24 +3071,26 @@ export class StoresService {
 
           // 1. Check if linked via ProductSyncState
           const syncState = await this.productSyncStateRepo
-            .createQueryBuilder('sync')
-            .leftJoinAndSelect('sync.product', 'product')
-            .leftJoinAndSelect('sync.bundle', 'bundle')
-            .where('sync.adminId = :adminId', { adminId })
-            .andWhere('sync.storeId = :storeId', { storeId: store.id })
-            .andWhere('sync.remoteProductId = :remoteProductId', {
+            .createQueryBuilder("sync")
+            .leftJoinAndSelect("sync.product", "product")
+            .leftJoinAndSelect("sync.bundle", "bundle")
+            .where("sync.adminId = :adminId", { adminId })
+            .andWhere("sync.storeId = :storeId", { storeId: store.id })
+            .andWhere("sync.remoteProductId = :remoteProductId", {
               remoteProductId: remoteId,
             })
-            .andWhere('sync.externalStoreId = :externalStoreId', {
+            .andWhere("sync.externalStoreId = :externalStoreId", {
               externalStoreId: store.externalStoreId,
             })
-            .andWhere(`
+            .andWhere(
+              `
             (
               (sync.productId IS NOT NULL AND product.isActive = true)
               OR
               (sync.bundleId IS NOT NULL AND bundle.isActive = true)
             )
-          `)
+          `,
+            )
             .getOne();
           isNew = !syncState;
           if (isNew) newTotal++;
@@ -2507,50 +3099,71 @@ export class StoresService {
           if (syncState) {
             // UPDATE (Mocked for now as requested)
             // await this.productsService.update(me, localProduct.id, this.mapMappedProductToCreateDto(remoteProduct, store));
-            this.logger.log(`[Sync] Product "${remoteProduct.name}" locally already exists with ID: ${syncState.productId}.`);
+            this.logger.log(
+              `[Sync] Product "${remoteProduct.name}" locally already exists with ID: ${syncState.productId}.`,
+            );
             // localProduct = await this.productsRepo.findOne({ where: { id: syncState.productId, adminId }, relations: ['skus'] });
           } else {
             // CREATE
-            const { product: createDto, skuQuantityMap } = this.mapMappedProductToCreateDto(remoteProduct, store);
+            const { product: createDto, skuQuantityMap } =
+              this.mapMappedProductToCreateDto(remoteProduct, store);
             createDto.skipRemoteCheck = true; // Skip redundant remote slug/sku checks during local sync
             localProduct = await this.productsService.create(me, createDto);
             allProductsmap.set(localProduct.id, skuQuantityMap);
-
           }
 
           // 3. Upsert sync state to link remote product to local product
           if (localProduct) {
             await this.productSyncStateService.upsertSyncState(
-              { adminId, productId: localProduct.id, storeId: store.id, externalStoreId: store.externalStoreId },
+              {
+                adminId,
+                productId: localProduct.id,
+                storeId: store.id,
+                externalStoreId: store.externalStoreId,
+              },
               {
                 remoteProductId: remoteId,
                 status: ProductSyncStatus.SYNCED,
                 lastError: null,
                 lastSynced_at: new Date(),
-              }
+              },
             );
 
             // Collect SKUs for purchase if they have remote stock
             if (localProduct.type === ProductType.SINGLE) {
               const sku = localProduct.skus?.[0];
-              const quantity = allProductsmap.get(localProduct.id)?.get(sku?.sku) || 0;
+              const quantity =
+                allProductsmap.get(localProduct.id)?.get(sku?.sku) || 0;
               if (sku && quantity > 0) {
                 purchaseItems.push({
                   variantId: sku.id,
                   quantity: quantity,
-                  purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
+                  purchaseCost:
+                    localProduct.wholesalePrice ||
+                    localProduct.wholesalePrice ||
+                    0,
                 });
               }
-            } else if (localProduct.type === ProductType.VARIABLE && localProduct.skus?.length > 0) {
+            } else if (
+              localProduct.type === ProductType.VARIABLE &&
+              localProduct.skus?.length > 0
+            ) {
               for (const localVariant of localProduct.skus) {
-                const localQuantity = allProductsmap.get(localProduct.id)?.get(localVariant.sku) || 0;
+                const localQuantity =
+                  allProductsmap.get(localProduct.id)?.get(localVariant.sku) ||
+                  0;
                 if (localQuantity > 0) {
-                  const localSku = localProduct.skus?.find(s => s.key === localVariant.key);
+                  const localSku = localProduct.skus?.find(
+                    (s) => s.key === localVariant.key,
+                  );
                   if (localSku) {
                     purchaseItems.push({
                       variantId: localSku.id,
                       quantity: localQuantity,
-                      purchaseCost: localProduct.wholesalePrice || localProduct.wholesalePrice || 0
+                      purchaseCost:
+                        localProduct.wholesalePrice ||
+                        localProduct.wholesalePrice ||
+                        0,
                     });
                   }
                 }
@@ -2564,17 +3177,24 @@ export class StoresService {
           failedCount++;
           if (isNew) newFailed++;
           const errMsg = getErrorMessage(error);
-          const stack = error?.stack || 'No stack trace';
-          errors.push(`Product "${remoteProduct.name}" (Remote ID: ${remoteProduct.id}): ${errMsg}`);
+          const stack = error?.stack || "No stack trace";
+          errors.push(
+            `Product "${remoteProduct.name}" (Remote ID: ${remoteProduct.id}): ${errMsg}`,
+          );
           // LOG THE ERROR
           await this.productSyncStateService.upsertSyncErrorLog(
-            { adminId, productId: null, storeId: store.id, entityType: SyncEntityType.PULL },
+            {
+              adminId,
+              productId: null,
+              storeId: store.id,
+              entityType: SyncEntityType.PULL,
+            },
             {
               remoteProductId: remoteProduct.id || null,
               action: ProductSyncAction.PULL,
               errorMessage: errMsg,
               userMessage: this.translations.t(
-                'domains.stores.failed_to_sync_product_to_store',
+                "domains.stores.failed_to_sync_product_to_store",
                 {
                   args: {
                     productName: remoteProduct.name,
@@ -2584,12 +3204,16 @@ export class StoresService {
                 },
               ),
               responseStatus: error?.response?.status,
-              requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
-            }
+              requestPayload: error?.config?.data
+                ? JSON.parse(error.config.data)
+                : null,
+            },
           );
 
-
-          this.logger.error(`[Sync] Failed to sync product "${remoteProduct.name}": ${errMsg}`, stack);
+          this.logger.error(
+            `[Sync] Failed to sync product "${remoteProduct.name}": ${errMsg}`,
+            stack,
+          );
         }
       }
 
@@ -2599,7 +3223,7 @@ export class StoresService {
         userId: adminId,
         type: NotificationType.REMOTE_SYNC_END,
         title: await this.requestTranslations.tAsync(
-          'domains.stores.full_store_sync_finished',
+          "domains.stores.full_store_sync_finished",
           adminId,
           {
             args: {
@@ -2608,7 +3232,7 @@ export class StoresService {
           },
         ),
         message: await this.requestTranslations.tAsync(
-          'domains.stores.full_store_sync_finished_message',
+          "domains.stores.full_store_sync_finished_message",
           adminId,
           {
             args: {
@@ -2621,7 +3245,6 @@ export class StoresService {
           },
         ),
       });
-
 
       await this.storesRepo.update(store.id, {
         syncStatus: SyncStatus.SYNCED,
@@ -2637,8 +3260,15 @@ export class StoresService {
         });
       }
 
-
-      return { total, successCount, failedCount, newTotal, newSuccess, newFailed, errors };
+      return {
+        total,
+        successCount,
+        failedCount,
+        newTotal,
+        newSuccess,
+        newFailed,
+        errors,
+      };
     } catch (error) {
       await this.storesRepo.update(store.id, {
         syncStatus: SyncStatus.FAILED,
@@ -2654,17 +3284,18 @@ export class StoresService {
       }
       throw error;
     }
-
   }
 
-  private mapMappedProductToCreateDto(p: MappedProductDto, store: StoreEntity): { product: CreateProductDto, skuQuantityMap: Map<string, number> } {
-    //qunatity map 
+  private mapMappedProductToCreateDto(
+    p: MappedProductDto,
+    store: StoreEntity,
+  ): { product: CreateProductDto; skuQuantityMap: Map<string, number> } {
+    //qunatity map
     const skuQuantityMap = new Map<string, number>();
-
 
     // Safe slug/sku generation
     const slug = p.slug || generateSlug(p.name);
-    // then rand  8numbers and letters 
+    // then rand  8numbers and letters
 
     let sku = normalizeSku(p.sku || "");
 
@@ -2672,44 +3303,40 @@ export class StoresService {
       sku = `SKU-${generateRandomAlphanumeric(8)}`;
     }
 
-
-    const combinations: CreateSkuItemDto[] = p.variants?.map(v => {
-      const attrs = v.variation_props.reduce((acc, vp) => {
-        if (vp.variation && vp.variation_prop) {
-          const key = this.productsService.slugifyKey(vp.variation);
-          const value = vp.variation_prop;
-          acc[key] = value;
+    const combinations: CreateSkuItemDto[] =
+      p.variants?.map((v) => {
+        const attrs = v.variation_props.reduce((acc, vp) => {
+          if (vp.variation && vp.variation_prop) {
+            const key = this.productsService.slugifyKey(vp.variation);
+            const value = vp.variation_prop;
+            acc[key] = value;
+          }
+          return acc;
+        }, {});
+        let normalized = normalizeSku(v.sku || "");
+        if (!normalized) {
+          normalized = `${sku}-${generateRandomAlphanumeric(5)}`;
         }
-        return acc;
-      }, {});
-      let normalized = normalizeSku(v.sku || "");
-      if (!normalized) {
-        normalized = `${sku}-${generateRandomAlphanumeric(5)}`;
-      }
 
-      skuQuantityMap.set(
-        normalized,
-        v.quantity ?? 0,
-      );
-      return {
-        sku: normalized,
-        price: v.price,
-        stockOnHand: 0,
-        isActive: true,
-        attributes: attrs,
-      }
-    }) || [];
+        skuQuantityMap.set(normalized, v.quantity ?? 0);
+        return {
+          sku: normalized,
+          price: v.price,
+          stockOnHand: 0,
+          isActive: true,
+          attributes: attrs,
+        };
+      }) || [];
 
-    skuQuantityMap.set(
-      sku,
-      p.quantity ?? 0,
-    );
+    skuQuantityMap.set(sku, p.quantity ?? 0);
 
     const product = {
       name: p.name,
       slug: slug,
       sku: sku,
-      type: p.type || (combinations.length > 0 ? ProductType.VARIABLE : ProductType.SINGLE),
+      type:
+        p.type ||
+        (combinations.length > 0 ? ProductType.VARIABLE : ProductType.SINGLE),
       salePrice: p.price,
       wholesalePrice: p.expense || 0,
       lowestPrice: p.price,
@@ -2718,11 +3345,11 @@ export class StoresService {
       storeId: store.id,
       remoteId: String(p.id),
       mainImage: p.thumb,
-      images: p.images?.map(url => ({ url })),
+      images: p.images?.map((url) => ({ url })),
       combinations: combinations.length > 0 ? combinations : undefined,
     };
 
-    return { product, skuQuantityMap }
+    return { product, skuQuantityMap };
   }
 
   private getService(provider: string | StoreProvider): BaseStoreProvider {
@@ -2739,7 +3366,12 @@ export class StoresService {
   }
 
   protected getErrorMessage(error: any): string {
-    return error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
+    return (
+      error?.response?.data?.message ||
+      error?.response?.message ||
+      error?.message ||
+      "Unknown error"
+    );
   }
 
   async processProductSyncJob(data: any): Promise<any> {
@@ -2761,51 +3393,58 @@ export class StoresService {
       type,
       actions: [] as string[],
       success: true,
-      skipped: false
+      skipped: false,
     };
 
     try {
-
       const service = storeType ? this.getService(storeType) : null;
 
       switch (type) {
         case ProductSyncJobs.SYNC_CATEGORY:
-          const categoryResult = await service?.syncCategory({ category, slug });
-          this.logger.log(`[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.name?.trim()}`);
+          const categoryResult = await service?.syncCategory({
+            category,
+            slug,
+          });
+          this.logger.log(
+            `[Category Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${category?.name?.trim()}`,
+          );
           return categoryResult;
           break;
 
         case ProductSyncJobs.SYNC_PRODUCT:
           const product = await this.productsRepo.findOne({
             where: { id: productId },
-            relations: ['category', 'store']
+            relations: ["category", "store"],
           });
 
           if (!product || !product.isActive) return;
 
           const productResult = await service?.syncProduct({ productId });
-          this.logger.log(`[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${productId}`);
+          this.logger.log(
+            `[Product Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${productId}`,
+          );
           return productResult;
           break;
 
         case ProductSyncJobs.SYNC_BUNDLE:
-          const bundle = await this.bundleRepo.createQueryBuilder('bundle')
+          const bundle = await this.bundleRepo
+            .createQueryBuilder("bundle")
             // .leftJoinAndSelect('bundle.variant', 'variant')
             // .leftJoinAndSelect('variant.product', 'product')
             .leftJoinAndSelect(
-              'bundle.items',
-              'items',
-              'items.isActive = :itemActive',
-              { itemActive: true }
+              "bundle.items",
+              "items",
+              "items.isActive = :itemActive",
+              { itemActive: true },
             )
             .innerJoinAndSelect(
-              'items.variant',
-              'itemVariant',
-              'itemVariant.isActive = :active',
-              { active: true }
+              "items.variant",
+              "itemVariant",
+              "itemVariant.isActive = :active",
+              { active: true },
             )
-            .leftJoinAndSelect('itemVariant.product', 'itemProduct')
-            .where('bundle.id = :bundleId', { bundleId })
+            .leftJoinAndSelect("itemVariant.product", "itemProduct")
+            .where("bundle.id = :bundleId", { bundleId })
             .getOne();
 
           if (!bundle) return;
@@ -2821,14 +3460,22 @@ export class StoresService {
 
           // if (!bundle?.variant?.isActive) return;
           await service.syncBundle(bundle);
-          this.logger.log(`[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`);
+          this.logger.log(
+            `[Bundle Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${bundleId}`,
+          );
           break;
 
         case ProductSyncJobs.FULL_SYNC:
           const store = await this.storesRepo.findOneBy({ id: storeId });
           if (store) {
-            const fullSyncResult = await service?.syncFullStore(store, ids, fullStoreSyncType);
-            this.logger.log(`[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`);
+            const fullSyncResult = await service?.syncFullStore(
+              store,
+              ids,
+              fullStoreSyncType,
+            );
+            this.logger.log(
+              `[Full Store Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${storeId}`,
+            );
             return fullSyncResult;
           }
           break;
@@ -2837,27 +3484,40 @@ export class StoresService {
           if (data.storeId) {
             const store = await this.storesRepo.findOneBy({ id: data.storeId });
             if (store) {
-              const syncResult = await this.syncStoreProductsLocally(store.adminId, store.id);
-              this.logger.log(`[Sync Products Locally] Store: ${store.id} | Admin: ${store.adminId} | Successfully processed`);
+              const syncResult = await this.syncStoreProductsLocally(
+                store.adminId,
+                store.id,
+              );
+              this.logger.log(
+                `[Sync Products Locally] Store: ${store.id} | Admin: ${store.adminId} | Successfully processed`,
+              );
               return syncResult;
             }
           } else if (adminId && storeType) {
             // Legacy provider-based fallback
-            const syncResult = await this.syncStoreProductsLocally(adminId, storeType);
-            this.logger.log(`[Sync Products Locally] Provider: ${storeType} | Admin: ${adminId} | Successfully processed`);
+            const syncResult = await this.syncStoreProductsLocally(
+              adminId,
+              storeType,
+            );
+            this.logger.log(
+              `[Sync Products Locally] Provider: ${storeType} | Admin: ${adminId} | Successfully processed`,
+            );
             return syncResult;
           }
           break;
 
         default:
-          this.logger.warn(`Unknown job type: ${type} for provider: ${storeType}`);
+          this.logger.warn(
+            `Unknown job type: ${type} for provider: ${storeType}`,
+          );
       }
     } catch (error: any) {
       const message = this.getErrorMessage(error);
-      const stack = error instanceof Error ? error.stack : 'No stack trace available';
+      const stack =
+        error instanceof Error ? error.stack : "No stack trace available";
       this.logger.error(
         `[Worker Error] Provider: ${storeType} | Job: ${type} | ${message}`,
-        stack
+        stack,
       );
       throw error;
     }
@@ -2884,13 +3544,18 @@ export class StoresService {
       switch (type) {
         case OrderSyncJobs.BULK_CREATE_ORDERS:
           if (!orders?.length) {
-            this.logger.warn(`[Bulk Orders] Empty payload for admin ${adminId}`);
+            this.logger.warn(
+              `[Bulk Orders] Empty payload for admin ${adminId}`,
+            );
             return;
           }
           if (orders.length > 0) {
-            const result = await this.ordersService.createBulkOrders(orders, adminId);
+            const result = await this.ordersService.createBulkOrders(
+              orders,
+              adminId,
+            );
             this.logger.log(
-              `[Bulk Orders] Created ${orders.length} orders for admin ${adminId}`
+              `[Bulk Orders] Created ${orders.length} orders for admin ${adminId}`,
             );
             return result;
           }
@@ -2901,39 +3566,56 @@ export class StoresService {
             where: { id: orderId },
           });
           if (order) {
-            const result = await service?.syncOrderStatus(order, newStatusId, oldStatusId);
-            this.logger.log(`[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`);
+            const result = await service?.syncOrderStatus(
+              order,
+              newStatusId,
+              oldStatusId,
+            );
+            this.logger.log(
+              `[Order Status Sync] Provider: ${storeType} | Job: ${type} | Successfully processed: ${orderId}`,
+            );
             return result;
           }
           break;
 
         case OrderSyncJobs.RETRY_FAILED_ORDER:
           if (failureId && adminId) {
-            const mockUser = { id: adminId, role: { name: 'admin' } };
+            const mockUser = { id: adminId, role: { name: "admin" } };
             const result = await this.retryFailedOrder(mockUser, failureId);
-            this.logger.log(`[Retry Failed Order] Processed failureId=${failureId}, result=${JSON.stringify(result)}`);
+            this.logger.log(
+              `[Retry Failed Order] Processed failureId=${failureId}, result=${JSON.stringify(result)}`,
+            );
             return result;
           }
           break;
 
         case OrderSyncJobs.BULK_SHIPPING:
           if (!items?.length) {
-            this.logger.warn(`[Bulk Shipping] Empty payload for admin ${adminId}`);
+            this.logger.warn(
+              `[Bulk Shipping] Empty payload for admin ${adminId}`,
+            );
             return;
           }
-          const result = await this.processBulkShipping(adminId, provider, items);
+          const result = await this.processBulkShipping(
+            adminId,
+            provider,
+            items,
+          );
           return result;
           break;
 
         default:
-          this.logger.warn(`Unknown job type: ${type} for provider: ${storeType}`);
+          this.logger.warn(
+            `Unknown job type: ${type} for provider: ${storeType}`,
+          );
       }
     } catch (error: any) {
       const message = this.getErrorMessage(error);
-      const stack = error instanceof Error ? error.stack : 'No stack trace available';
+      const stack =
+        error instanceof Error ? error.stack : "No stack trace available";
       this.logger.error(
         `[Worker Error] Provider: ${storeType} | Job: ${type} | ${message}`,
-        stack
+        stack,
       );
       throw error;
     }
@@ -2944,12 +3626,14 @@ export class StoresService {
     provider: any,
     items: any[],
   ) {
-    const mockUser = { id: adminId, role: { name: 'admin' } };
+    const mockUser = { id: adminId, role: { name: "admin" } };
     const chunkSize = 3;
 
     for (let i = 0; i < items.length; i += chunkSize) {
       const chunk = items.slice(i, i + chunkSize);
-      this.logger.log(`[Bulk Shipping] Processing chunk ${Math.floor(i / chunkSize) + 1} (${chunk.length} items)`);
+      this.logger.log(
+        `[Bulk Shipping] Processing chunk ${Math.floor(i / chunkSize) + 1} (${chunk.length} items)`,
+      );
 
       const results = await Promise.allSettled(
         chunk.map(async (item) => {
@@ -2963,15 +3647,26 @@ export class StoresService {
             );
             return { orderId, success: true };
           } catch (error) {
-            this.logger.error(`[Bulk Shipping] Failed to process order ${item.orderId}:`, error);
+            this.logger.error(
+              `[Bulk Shipping] Failed to process order ${item.orderId}:`,
+              error,
+            );
             return { orderId: item.orderId, success: false, error };
           }
-        })
+        }),
       );
 
-      const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
-      const failed = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)).length;
-      this.logger.log(`[Bulk Shipping] Chunk complete. Success: ${successful}, Failed: ${failed}`);
+      const successful = results.filter(
+        (r) => r.status === "fulfilled" && r.value.success,
+      ).length;
+      const failed = results.filter(
+        (r) =>
+          r.status === "rejected" ||
+          (r.status === "fulfilled" && !r.value.success),
+      ).length;
+      this.logger.log(
+        `[Bulk Shipping] Chunk complete. Success: ${successful}, Failed: ${failed}`,
+      );
     }
   }
 }

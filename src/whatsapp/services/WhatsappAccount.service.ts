@@ -1,13 +1,21 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets } from 'typeorm';
-import * as ExcelJS from 'exceljs';
-import { WhatsappAccountEntity, WhatsappMessageEntity, MessageStatus, MessageDirection } from 'entities/whatsapp.entity';
-import { tenantId } from 'src/category/category.service';
-import { DateFilterUtil } from 'common/date-filter.util';
-import { ConversationEntity } from 'entities/whatsapp.entity';
-import { TranslationService } from 'common/translation.service';
-
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, Brackets } from "typeorm";
+import * as ExcelJS from "exceljs";
+import {
+  WhatsappAccountEntity,
+  WhatsappMessageEntity,
+  MessageStatus,
+  MessageDirection,
+} from "entities/whatsapp.entity";
+import { tenantId } from "src/category/category.service";
+import { DateFilterUtil } from "common/date-filter.util";
+import { ConversationEntity } from "entities/whatsapp.entity";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class WhatsappAccountService {
@@ -19,31 +27,37 @@ export class WhatsappAccountService {
     @InjectRepository(ConversationEntity)
     private readonly conversationRepo: Repository<ConversationEntity>,
     private readonly translations: TranslationService,
-  ) { }
+  ) {}
 
   async getStats(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const fortyEightHoursAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
 
     const [messageStatsRaw, newConversations] = await Promise.all([
       // 1. Message status counts for outbound messages in last 48h
       this.messageRepo
-        .createQueryBuilder('m')
-        .select('m.status', 'status')
-        .addSelect('COUNT(*)', 'count')
-        .where('m.adminId = :adminId', { adminId })
-        .andWhere('m.direction = :direction', { direction: MessageDirection.OUTBOUND })
+        .createQueryBuilder("m")
+        .select("m.status", "status")
+        .addSelect("COUNT(*)", "count")
+        .where("m.adminId = :adminId", { adminId })
+        .andWhere("m.direction = :direction", {
+          direction: MessageDirection.OUTBOUND,
+        })
         // .andWhere('m.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
-        .groupBy('m.status')
+        .groupBy("m.status")
         .getRawMany(),
 
       // 2. New conversations in last 48h
       this.conversationRepo
-        .createQueryBuilder('c')
-        .where('c.adminId = :adminId', { adminId })
-        .andWhere('c.createdAt >= :fortyEightHoursAgo', { fortyEightHoursAgo })
+        .createQueryBuilder("c")
+        .where("c.adminId = :adminId", { adminId })
+        .andWhere("c.createdAt >= :fortyEightHoursAgo", { fortyEightHoursAgo })
         .getCount(),
     ]);
 
@@ -52,37 +66,57 @@ export class WhatsappAccountService {
     let read = 0;
     let failed = 0;
 
-    messageStatsRaw.forEach(s => {
+    messageStatsRaw.forEach((s) => {
       const count = parseInt(s.count, 10);
       totalOutbound += count;
-      if (s.status === MessageStatus.DELIVERED || s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) delivered += count;
-      if (s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) read += count;
+      if (
+        s.status === MessageStatus.DELIVERED ||
+        s.status === MessageStatus.READ ||
+        s.status === MessageStatus.PLAYED
+      ) {
+        delivered += count;
+      }
+      if (
+        s.status === MessageStatus.READ ||
+        s.status === MessageStatus.PLAYED
+      ) {
+        read += count;
+      }
       if (s.status === MessageStatus.FAILED) failed += count;
     });
 
     return {
-      deliveryRate: totalOutbound > 0 ? Number(((delivered / totalOutbound) * 100).toFixed(2)) : 0,
-      readRate: delivered > 0 ? Number(((read / delivered) * 100).toFixed(2)) : 0,
+      deliveryRate:
+        totalOutbound > 0
+          ? Number(((delivered / totalOutbound) * 100).toFixed(2))
+          : 0,
+      readRate:
+        delivered > 0 ? Number(((read / delivered) * 100).toFixed(2)) : 0,
       newConversations,
-      failureRate: totalOutbound > 0 ? Number(((failed / totalOutbound) * 100).toFixed(2)) : 0,
+      failureRate:
+        totalOutbound > 0
+          ? Number(((failed / totalOutbound) * 100).toFixed(2))
+          : 0,
     };
   }
 
   async list(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
     const sortBy = String(q?.sortBy ?? "createdAt");
 
-
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-    const qb = this.accountRepo
-      .createQueryBuilder("acc")
+    const qb = this.accountRepo.createQueryBuilder("acc");
 
     qb.where("acc.adminId = :adminId", { adminId });
 
@@ -94,13 +128,18 @@ export class WhatsappAccountService {
     };
 
     // Filter by Active Status
-    if (q?.isActive !== undefined && q.isActive !== 'all') {
-      const activeStatus = q.isActive === 'true' || q.isActive === true;
+    if (q?.isActive !== undefined && q.isActive !== "all") {
+      const activeStatus = q.isActive === "true" || q.isActive === true;
       qb.andWhere("acc.isActive = :isActive", { isActive: activeStatus });
     }
 
     // Date range filter
-    DateFilterUtil.applyToQueryBuilder(qb, "acc.createdAt", q?.startDate, q?.endDate);
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "acc.createdAt",
+      q?.startDate,
+      q?.endDate,
+    );
 
     // Search logic
     if (search) {
@@ -135,7 +174,11 @@ export class WhatsappAccountService {
   async findOne(me: any, id: string) {
     const adminId = tenantId(me);
     const account = await this.accountRepo.findOne({ where: { id, adminId } });
-    if (!account) throw new NotFoundException(this.translations.t("domains.whatsapp.whatsapp_account_not_found"));
+    if (!account) {
+      throw new NotFoundException(
+        this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+      );
+    }
     return account;
   }
 
@@ -205,7 +248,9 @@ export class WhatsappAccountService {
         wabaId: acc.wabaId,
         phoneNumberId: acc.phoneNumberId,
         isActive: acc.isActive ? "Active" : "Inactive",
-        createdAt: acc.createdAt ? new Date(acc.createdAt).toLocaleString() : "N/A",
+        createdAt: acc.createdAt
+          ? new Date(acc.createdAt).toLocaleString()
+          : "N/A",
       });
       row.alignment = { horizontal: "center" };
     });

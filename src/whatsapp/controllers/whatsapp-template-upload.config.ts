@@ -13,7 +13,10 @@ export const whatsappTemplateHeaderStorage = diskStorage({
   destination: UPLOAD_DIR,
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `wa-template-header-${uniqueSuffix}${extname(file.originalname).toLowerCase()}`);
+    cb(
+      null,
+      `wa-template-header-${uniqueSuffix}${extname(file.originalname).toLowerCase()}`,
+    );
   },
 });
 

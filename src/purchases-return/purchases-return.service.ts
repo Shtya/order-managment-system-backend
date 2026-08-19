@@ -2,21 +2,42 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, In, Repository } from "typeorm";
-import { PurchaseReturnInvoiceEntity, PurchaseReturnInvoiceItemEntity, PurchaseReturnAuditLogEntity, PurchaseReturnAuditAction } from "entities/purchase_return.entity";
-import { CreatePurchaseReturnDto, UpdatePaidAmountDto, UpdatePurchaseReturnDto } from "dto/purchase_return.dto";
+import {
+  PurchaseReturnInvoiceEntity,
+  PurchaseReturnInvoiceItemEntity,
+  PurchaseReturnAuditLogEntity,
+  PurchaseReturnAuditAction,
+} from "entities/purchase_return.entity";
+import {
+  CreatePurchaseReturnDto,
+  UpdatePaidAmountDto,
+  UpdatePurchaseReturnDto,
+} from "dto/purchase_return.dto";
 import { ApprovalStatus, PurchaseReturnType } from "common/enums";
 import { tenantId } from "../category/category.service"; // or duplicate helper locally
 import { ProductVariantEntity } from "entities/sku.entity";
 import { SupplierEntity } from "entities/supplier.entity";
 import { SafesService } from "../safes/safes.service";
-import { Account, AccountStatus, TransactionReferenceType } from "entities/safe.entity";
+import {
+  Account,
+  AccountStatus,
+  TransactionReferenceType,
+} from "entities/safe.entity";
 import { DateFilterUtil } from "common/date-filter.util";
 import * as fs from "fs";
 import * as path from "path";
 import * as ExcelJS from "exceljs";
-import { RequestTranslationService, TranslationService } from "common/translation.service";
+import {
+  RequestTranslationService,
+  TranslationService,
+} from "common/translation.service";
 
-function calcLine(cost: number, qty: number, taxRate: number, taxInclusive: boolean) {
+function calcLine(
+  cost: number,
+  qty: number,
+  taxRate: number,
+  taxInclusive: boolean,
+) {
   const lineSubtotal = cost * qty;
   const lineTax = taxInclusive ? Math.round((lineSubtotal * taxRate) / 100) : 0;
   const lineTotal = lineSubtotal + lineTax;
@@ -27,16 +48,21 @@ function calcLine(cost: number, qty: number, taxRate: number, taxInclusive: bool
 export class PurchaseReturnsService {
   constructor(
     private dataSource: DataSource,
-    @InjectRepository(PurchaseReturnInvoiceEntity) private invRepo: Repository<PurchaseReturnInvoiceEntity>,
-    @InjectRepository(PurchaseReturnInvoiceItemEntity) private itemRepo: Repository<PurchaseReturnInvoiceItemEntity>,
-    @InjectRepository(PurchaseReturnAuditLogEntity) private auditRepo: Repository<PurchaseReturnAuditLogEntity>,
-    @InjectRepository(SupplierEntity) private supplierRepo: Repository<SupplierEntity>,
-    @InjectRepository(ProductVariantEntity) private pvRepo: Repository<ProductVariantEntity>,
+    @InjectRepository(PurchaseReturnInvoiceEntity)
+    private invRepo: Repository<PurchaseReturnInvoiceEntity>,
+    @InjectRepository(PurchaseReturnInvoiceItemEntity)
+    private itemRepo: Repository<PurchaseReturnInvoiceItemEntity>,
+    @InjectRepository(PurchaseReturnAuditLogEntity)
+    private auditRepo: Repository<PurchaseReturnAuditLogEntity>,
+    @InjectRepository(SupplierEntity)
+    private supplierRepo: Repository<SupplierEntity>,
+    @InjectRepository(ProductVariantEntity)
+    private pvRepo: Repository<ProductVariantEntity>,
     @InjectRepository(Account) private accountRepo: Repository<Account>,
     private translations: TranslationService,
     private requestTranslations: RequestTranslationService,
     private safesService: SafesService,
-  ) { }
+  ) {}
 
   private async log(params: {
     adminId: string;
@@ -93,14 +119,16 @@ export class PurchaseReturnsService {
 
     const wasAccepted = oldStatus === ApprovalStatus.ACCEPTED;
     const isAccepted = newStatus === ApprovalStatus.ACCEPTED;
-    const repo = params?.manager ? params?.manager.getRepository(SupplierEntity) : this.supplierRepo;
+    const repo = params?.manager
+      ? params?.manager.getRepository(SupplierEntity)
+      : this.supplierRepo;
 
     // Helper to update supplier safely
     const updateSupplier = async (
       supplierId: string | null | undefined,
       op: "add" | "subtract",
       tr?: number,
-      pa?: number
+      pa?: number,
     ) => {
       if (!supplierId) return;
 
@@ -117,7 +145,7 @@ export class PurchaseReturnsService {
       const usePaidAmount = pa !== undefined ? pa : paidAmount;
       const useRemaining = useTotalReturn - usePaidAmount;
 
-      // In returns: 
+      // In returns:
       // op "subtract" means the return is ACCEPTED (so it subtracts from supplier's balance)
       // op "add" means the return left ACCEPTED (so it adds back to supplier's balance)
       if (op === "subtract") {
@@ -165,17 +193,32 @@ export class PurchaseReturnsService {
       const deltaPaidAmount = paidAmount - (oldPaidAmount ?? 0);
       // If deltaTotalReturn is positive, it means more items returned -> subtract more from supplier balance
       // If deltaPaidAmount is positive, it means more cash taken back -> adds back to supplier balance (remaining decreases)
-      await updateSupplier(newSupplierId, "subtract", deltaTotalReturn, deltaPaidAmount);
+      await updateSupplier(
+        newSupplierId,
+        "subtract",
+        deltaTotalReturn,
+        deltaPaidAmount,
+      );
     }
   }
 
   async stats(me: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-    const acceptedCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.ACCEPTED } as any });
-    const pendingCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.PENDING } as any });
-    const rejectedCount = await this.invRepo.count({ where: { adminId, status: ApprovalStatus.REJECTED } as any });
+    const acceptedCount = await this.invRepo.count({
+      where: { adminId, status: ApprovalStatus.ACCEPTED } as any,
+    });
+    const pendingCount = await this.invRepo.count({
+      where: { adminId, status: ApprovalStatus.PENDING } as any,
+    });
+    const rejectedCount = await this.invRepo.count({
+      where: { adminId, status: ApprovalStatus.REJECTED } as any,
+    });
 
     const totalReturnValueRaw = await this.invRepo
       .createQueryBuilder("r")
@@ -195,18 +238,25 @@ export class PurchaseReturnsService {
 
   async list(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
 
-    const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
+    const supplierId =
+      q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
     const status = q?.status && q.status !== "all" ? String(q.status) : null;
-    const returnType = q?.returnType && q.returnType !== "all" ? String(q.returnType) : null;
+    const returnType =
+      q?.returnType && q.returnType !== "all" ? String(q.returnType) : null;
     const startDate = q?.startDate ? String(q.startDate) : null;
     const endDate = q?.endDate ? String(q.endDate) : null;
-    const hasReceipt = q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
+    const hasReceipt =
+      q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
 
     const qb = this.invRepo
       .createQueryBuilder("inv")
@@ -223,7 +273,7 @@ export class PurchaseReturnsService {
         "items.taxInclusive",
         "items.lineSubtotal",
         "items.returnedQuantity",
-        "items.lineTotal"
+        "items.lineTotal",
       ])
       .leftJoin("items.variant", "variant")
       .addSelect([
@@ -232,7 +282,7 @@ export class PurchaseReturnsService {
         "variant.stockOnHand",
         "variant.sku",
         "variant.price",
-        "variant.unitCost"
+        "variant.unitCost",
       ])
       .leftJoin("variant.product", "product")
       .addSelect([
@@ -240,12 +290,12 @@ export class PurchaseReturnsService {
         "product.name",
         "product.wholesalePrice",
         "product.salePrice",
-        "product.sku"
+        "product.sku",
       ]);
 
-    if (supplierId && supplierId != 'none')
+    if (supplierId && supplierId != "none") {
       qb.andWhere("inv.supplierId = :supplierId", { supplierId });
-    else if (supplierId === 'none') {
+    } else if (supplierId === "none") {
       qb.andWhere("inv.supplierId IS NULL");
     }
     if (status) qb.andWhere("inv.status = :status", { status });
@@ -254,18 +304,23 @@ export class PurchaseReturnsService {
     if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
     if (hasReceipt === "no") qb.andWhere("inv.receiptAsset IS NULL");
 
-    DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "inv.created_at",
+      startDate,
+      endDate,
+    );
 
     if (search) {
       qb.andWhere(
         "(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR supplier.name ILIKE :s OR variant.sku ILIKE :s OR product.name ILIKE :s)",
-        { s: `%${search}%` }
+        { s: `%${search}%` },
       );
     }
 
-
-    if (q?.closingId) qb.andWhere("inv.closingId = :closingId", { closingId: q?.closingId });
-    else {
+    if (q?.closingId) {
+      qb.andWhere("inv.closingId = :closingId", { closingId: q?.closingId });
+    } else {
       if (q?.closed && q?.closed !== "none") {
         if (q?.closed === "false") {
           qb.andWhere("inv.closingId IS NULL");
@@ -275,7 +330,10 @@ export class PurchaseReturnsService {
       }
     }
 
-    qb.orderBy("inv.created_at", (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC");
+    qb.orderBy(
+      "inv.created_at",
+      (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC",
+    );
 
     const total = await qb.getCount();
     const records = await qb
@@ -293,7 +351,11 @@ export class PurchaseReturnsService {
 
   async get(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const inv = await this.invRepo.findOne({
       where: { id, adminId } as any,
@@ -301,17 +363,24 @@ export class PurchaseReturnsService {
     });
 
     const supplier = await this.supplierRepo.findOne({
-      where: { id: inv.supplierId }
+      where: { id: inv.supplierId },
     });
 
-    if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.not_found"));
+    if (!inv) {
+      throw new BadRequestException(
+        this.translations.t("domains.purchase_return.not_found"),
+      );
+    }
     return { ...inv, supplier };
   }
 
-
   async getAuditLogs(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     // ensure invoice exists and belongs to tenant
     await this.get(me, id);
@@ -324,13 +393,21 @@ export class PurchaseReturnsService {
 
   async acceptPreview(me: any, id: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const inv = await this.invRepo.findOne({
       where: { id, adminId } as any,
       relations: ["items", "items.variant", "items.variant.product"],
     });
-    if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.not_found"));
+    if (!inv) {
+      throw new BadRequestException(
+        this.translations.t("domains.purchase_return.not_found"),
+      );
+    }
 
     const oldStatus = inv.status;
     const willApply = oldStatus !== ApprovalStatus.ACCEPTED;
@@ -373,17 +450,32 @@ export class PurchaseReturnsService {
     };
   }
 
-  async updatePaidAmount(me: any, id: string, dto: UpdatePaidAmountDto, ipAddress?: string) {
+  async updatePaidAmount(
+    me: any,
+    id: string,
+    dto: UpdatePaidAmountDto,
+    ipAddress?: string,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     return await this.dataSource.transaction(async (manager) => {
       const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
         where: { id, adminId } as any,
       });
-      if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.not_found"));
+      if (!inv) {
+        throw new BadRequestException(
+          this.translations.t("domains.purchase_return.not_found"),
+        );
+      }
       if (inv.closingId) {
-        throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_update_closed"));
+        throw new BadRequestException(
+          this.translations.t("domains.purchase_return.cannot_update_closed"),
+        );
       }
 
       const oldStatus = inv.status;
@@ -391,13 +483,15 @@ export class PurchaseReturnsService {
       const newPaidAmount = Number(dto.paidAmount);
 
       (inv as any).paidAmount = newPaidAmount;
-      (inv as any).totalReturn = Number((inv as any).subtotal) + Number((inv as any).taxTotal);
+      (inv as any).totalReturn =
+        Number((inv as any).subtotal) + Number((inv as any).taxTotal);
 
       /** Refund to safe ↑ → deposit delta; correction ↓ → withdraw excess from safe */
       if (oldStatus === ApprovalStatus.ACCEPTED && inv.safeId) {
         const delta = Math.round((newPaidAmount - oldPaidAmount) * 100) / 100;
         if (delta > 0) {
-          await this.safesService.deposit(me,
+          await this.safesService.deposit(
+            me,
             {
               accountId: inv.safeId,
               amount: delta,
@@ -406,12 +500,17 @@ export class PurchaseReturnsService {
               referenceMeta: {
                 purchaseReturnNumber: inv.returnNumber || null,
               },
-              notes: await this.requestTranslations.tAsync("domains.purchase_return.refunded_amount_adjustment_positive_notes", adminId, { args: { returnNumber: inv.returnNumber, delta }}),
+              notes: await this.requestTranslations.tAsync(
+                "domains.purchase_return.refunded_amount_adjustment_positive_notes",
+                adminId,
+                { args: { returnNumber: inv.returnNumber, delta } },
+              ),
             },
             manager,
           );
         } else if (delta < 0) {
-          await this.safesService.withdraw(me,
+          await this.safesService.withdraw(
+            me,
             {
               accountId: inv.safeId,
               amount: -delta,
@@ -420,7 +519,11 @@ export class PurchaseReturnsService {
               referenceMeta: {
                 purchaseReturnNumber: inv.returnNumber || null,
               },
-              notes: await this.requestTranslations.tAsync("domains.purchase_return.refunded_amount_adjustment_notes", adminId, { args: { returnNumber: inv.returnNumber, delta }}),
+              notes: await this.requestTranslations.tAsync(
+                "domains.purchase_return.refunded_amount_adjustment_notes",
+                adminId,
+                { args: { returnNumber: inv.returnNumber, delta } },
+              ),
             },
             manager,
           );
@@ -448,7 +551,11 @@ export class PurchaseReturnsService {
         invoiceId: saved.id,
         userId: me?.id ?? null,
         action: PurchaseReturnAuditAction.PAID_AMOUNT_UPDATED,
-        description: await this.requestTranslations.tAsync("domains.purchase_return.refunded_amount_updated", adminId, { args: { refundedAmount: newPaidAmount }}),
+        description: await this.requestTranslations.tAsync(
+          "domains.purchase_return.refunded_amount_updated",
+          adminId,
+          { args: { refundedAmount: newPaidAmount } },
+        ),
         ipAddress,
         manager,
       });
@@ -457,10 +564,25 @@ export class PurchaseReturnsService {
     });
   }
 
-  async create(me: any, dto: CreatePurchaseReturnDto, ipAddress?: string, manager?: EntityManager) {
+  async create(
+    me: any,
+    dto: CreatePurchaseReturnDto,
+    ipAddress?: string,
+    manager?: EntityManager,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-    if (!dto.items?.length) throw new BadRequestException(this.translations.t("domains.purchase_return.at_least_one_item_required"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    if (!dto.items?.length) {
+      throw new BadRequestException(
+        this.translations.t(
+          "domains.purchase_return.at_least_one_item_required",
+        ),
+      );
+    }
 
     const runWithManager = async (manager: EntityManager) => {
       const invRepo = manager.getRepository(PurchaseReturnInvoiceEntity);
@@ -468,24 +590,53 @@ export class PurchaseReturnsService {
       const supplierRepo = manager.getRepository(SupplierEntity);
       const accountRepo = manager.getRepository(Account);
 
-      const exists = await invRepo.findOne({ where: { adminId, returnNumber: dto.returnNumber } as any });
-      if (exists) throw new BadRequestException(this.translations.t("domains.purchase_return.return_number_already_exists"));
+      const exists = await invRepo.findOne({
+        where: { adminId, returnNumber: dto.returnNumber } as any,
+      });
+      if (exists) {
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.purchase_return.return_number_already_exists",
+          ),
+        );
+      }
 
       if (dto.supplierId) {
-        const supplier = await supplierRepo.findOne({ where: { id: dto.supplierId } as any });
-        if (!supplier) throw new BadRequestException(this.translations.t("domains.purchase_invoice.supplier_not_found"));
+        const supplier = await supplierRepo.findOne({
+          where: { id: dto.supplierId } as any,
+        });
+        if (!supplier) {
+          throw new BadRequestException(
+            this.translations.t("domains.purchase_invoice.supplier_not_found"),
+          );
+        }
       }
 
       if (dto.safeId) {
-        const safe = await accountRepo.findOne({ where: { id: dto.safeId, adminId } as any });
-        if (!safe) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_found"));
-        if (safe.status !== AccountStatus.ACTIVE) throw new BadRequestException(this.translations.t("domains.purchase_invoice.safe_not_active"));
+        const safe = await accountRepo.findOne({
+          where: { id: dto.safeId, adminId } as any,
+        });
+        if (!safe) {
+          throw new BadRequestException(
+            this.translations.t("domains.purchase_invoice.safe_not_found"),
+          );
+        }
+        if (safe.status !== AccountStatus.ACTIVE) {
+          throw new BadRequestException(
+            this.translations.t("domains.purchase_invoice.safe_not_active"),
+          );
+        }
       }
 
       const items = dto.items.map((it) => {
         const taxRate = it.taxRate ?? 5;
         const taxInclusive = !!it.taxInclusive;
-        const { lineSubtotal, lineTax, lineTotal } = calcLine(it.unitCost, it.returnedQuantity, taxRate, taxInclusive);
+        const { lineSubtotal, lineTax, lineTotal } = calcLine(
+          it.unitCost,
+          it.returnedQuantity,
+          taxRate,
+          taxInclusive,
+        );
 
         return itemRepo.create({
           adminId,
@@ -532,7 +683,11 @@ export class PurchaseReturnsService {
         invoiceId: saved.id,
         userId: me?.id ?? null,
         action: PurchaseReturnAuditAction.CREATED,
-        description: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_created", adminId, {}),
+        description: await this.requestTranslations.tAsync(
+          "domains.purchase_return.purchase_return_created",
+          adminId,
+          {},
+        ),
         ipAddress,
         manager,
       });
@@ -547,13 +702,24 @@ export class PurchaseReturnsService {
     }
   }
 
-  async update(me: any, id: string, dto: UpdatePurchaseReturnDto, ipAddress?: string) {
+  async update(
+    me: any,
+    id: string,
+    dto: UpdatePurchaseReturnDto,
+    ipAddress?: string,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const inv = await this.get(me, id);
     if (inv.closingId) {
-      throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_update_closed"));
+      throw new BadRequestException(
+        this.translations.t("domains.purchase_return.cannot_update_closed"),
+      );
     }
     const oldStatus = inv.status;
     const oldSupplierId = inv.supplierId;
@@ -561,7 +727,11 @@ export class PurchaseReturnsService {
     const oldPaidAmount = inv.paidAmount ?? 0;
 
     // Delete old file if a new one is uploaded
-    if (dto.receiptAsset && inv.receiptAsset && dto.receiptAsset !== inv.receiptAsset) {
+    if (
+      dto.receiptAsset &&
+      inv.receiptAsset &&
+      dto.receiptAsset !== inv.receiptAsset
+    ) {
       const oldPath = path.join(process.cwd(), inv.receiptAsset);
       if (fs.existsSync(oldPath)) {
         try {
@@ -580,7 +750,12 @@ export class PurchaseReturnsService {
       const items = dto.items.map((it) => {
         const taxRate = it.taxRate ?? 5;
         const taxInclusive = !!it.taxInclusive;
-        const { lineSubtotal, lineTax, lineTotal } = calcLine(it.unitCost, it.returnedQuantity, taxRate, taxInclusive);
+        const { lineSubtotal, lineTax, lineTotal } = calcLine(
+          it.unitCost,
+          it.returnedQuantity,
+          taxRate,
+          taxInclusive,
+        );
 
         return this.itemRepo.create({
           adminId,
@@ -601,12 +776,20 @@ export class PurchaseReturnsService {
       const paidAmount = dto.paidAmount ?? inv.paidAmount ?? 0;
       const totalReturn = subtotal + taxTotal;
 
-      Object.assign(inv as any, dto, { subtotal, taxTotal, totalReturn, items, paidAmount });
+      Object.assign(inv as any, dto, {
+        subtotal,
+        taxTotal,
+        totalReturn,
+        items,
+        paidAmount,
+      });
       saved = await this.invRepo.save(inv as any);
     } else {
       Object.assign(inv as any, dto);
       if (typeof dto.paidAmount === "number") {
-        (inv as any).totalReturn = Number(((inv as any).subtotal ?? 0)) + Number(((inv as any).taxTotal ?? 0));
+        (inv as any).totalReturn =
+          Number((inv as any).subtotal ?? 0) +
+          Number((inv as any).taxTotal ?? 0);
       }
       saved = await this.invRepo.save(inv as any);
     }
@@ -628,25 +811,47 @@ export class PurchaseReturnsService {
       invoiceId: saved.id,
       userId: me?.id ?? null,
       action: PurchaseReturnAuditAction.UPDATED,
-      description: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_updated", adminId, {}),
+      description: await this.requestTranslations.tAsync(
+        "domains.purchase_return.purchase_return_updated",
+        adminId,
+        {},
+      ),
       ipAddress,
     });
 
     return saved;
   }
 
-  async updateStatus(me: any, id: string, status: ApprovalStatus, ipAddress?: string, manager?: EntityManager) {
+  async updateStatus(
+    me: any,
+    id: string,
+    status: ApprovalStatus,
+    ipAddress?: string,
+    manager?: EntityManager,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const runWithManager = async (manager: EntityManager) => {
       const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
         where: { id, adminId } as any,
         relations: ["items", "items.variant"],
       });
-      if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.purchase_return_not_found"));
+      if (!inv) {
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.purchase_return.purchase_return_not_found",
+          ),
+        );
+      }
       if (inv.closingId) {
-        throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_update_closed"));
+        throw new BadRequestException(
+          this.translations.t("domains.purchase_return.cannot_update_closed"),
+        );
       }
 
       const oldStatus = inv.status;
@@ -658,7 +863,10 @@ export class PurchaseReturnsService {
       //    - check if enough stock exists
       //    - write audit logs (STOCK_REMOVED)
       // =========================================================
-      if (status === ApprovalStatus.ACCEPTED && oldStatus !== ApprovalStatus.ACCEPTED) {
+      if (
+        status === ApprovalStatus.ACCEPTED &&
+        oldStatus !== ApprovalStatus.ACCEPTED
+      ) {
         const byVariant = new Map<string, number>();
 
         for (const it of inv.items ?? []) {
@@ -668,7 +876,11 @@ export class PurchaseReturnsService {
         }
 
         const variantIds = [...byVariant.keys()];
-        if (!variantIds.length) throw new BadRequestException(this.translations.t("domains.purchase_return.no_items_to_return"));
+        if (!variantIds.length) {
+          throw new BadRequestException(
+            this.translations.t("domains.purchase_return.no_items_to_return"),
+          );
+        }
 
         const variants = await manager.find(ProductVariantEntity, {
           where: { adminId, id: In(variantIds) } as any,
@@ -682,7 +894,13 @@ export class PurchaseReturnsService {
 
         for (const variantId of variantIds) {
           const v = byId.get(variantId);
-          if (!v) throw new BadRequestException(this.translations.t("domains.purchase_return.variant_not_found", { args: { variantId } }));
+          if (!v) {
+            throw new BadRequestException(
+              this.translations.t("domains.purchase_return.variant_not_found", {
+                args: { variantId },
+              }),
+            );
+          }
 
           const removeQty = byVariant.get(variantId)!;
           const oldStock = Number(v.stockOnHand) || 0;
@@ -690,14 +908,27 @@ export class PurchaseReturnsService {
 
           if (nextStock < 0) {
             throw new BadRequestException(
-              this.translations.t("domains.purchase_return.insufficient_stock", {
-                args: { variant: v.sku || variantId, required: removeQty, available: oldStock }
-              })
+              this.translations.t(
+                "domains.purchase_return.insufficient_stock",
+                {
+                  args: {
+                    variant: v.sku || variantId,
+                    required: removeQty,
+                    available: oldStock,
+                  },
+                },
+              ),
             );
           }
 
           v.stockOnHand = nextStock;
-          stockChanges.push({ variantId, sku: v.sku, oldStock, removeQty, newStock: nextStock });
+          stockChanges.push({
+            variantId,
+            sku: v.sku,
+            oldStock,
+            removeQty,
+            newStock: nextStock,
+          });
           changedVariants.push(v);
         }
 
@@ -709,23 +940,35 @@ export class PurchaseReturnsService {
           userId: me?.id ?? null,
           action: PurchaseReturnAuditAction.STOCK_REMOVED,
           changes: stockChanges,
-          description: await this.requestTranslations.tAsync("domains.purchase_return.stock_deducted_description", adminId, {}),
+          description: await this.requestTranslations.tAsync(
+            "domains.purchase_return.stock_deducted_description",
+            adminId,
+            {},
+          ),
           ipAddress,
           manager,
         });
 
         // Deposit to safe if paidAmount > 0 and safeId is provided
         if (Number(inv.paidAmount) > 0 && inv.safeId) {
-          await this.safesService.deposit(me, {
-            accountId: inv.safeId,
-            amount: Number(inv.paidAmount),
-            referenceType: TransactionReferenceType.PURCHASE_RETURN,
-            referenceId: inv.id,
-            referenceMeta: {
-              purchaseReturnNumber: inv.returnNumber || null,
+          await this.safesService.deposit(
+            me,
+            {
+              accountId: inv.safeId,
+              amount: Number(inv.paidAmount),
+              referenceType: TransactionReferenceType.PURCHASE_RETURN,
+              referenceId: inv.id,
+              referenceMeta: {
+                purchaseReturnNumber: inv.returnNumber || null,
+              },
+              notes: await this.requestTranslations.tAsync(
+                "domains.purchase_return.purchase_return_accepted_notes",
+                adminId,
+                { args: { returnNumber: inv.returnNumber } },
+              ),
             },
-            notes: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_accepted_notes", adminId, { args: { returnNumber: inv.returnNumber }}),
-          }, manager);
+            manager,
+          );
         }
       }
 
@@ -734,7 +977,10 @@ export class PurchaseReturnsService {
       //    - rollback stock (add back)
       //    - write audit logs (STOCK_APPLIED)
       // =========================================================
-      if (oldStatus === ApprovalStatus.ACCEPTED && status !== ApprovalStatus.ACCEPTED) {
+      if (
+        oldStatus === ApprovalStatus.ACCEPTED &&
+        status !== ApprovalStatus.ACCEPTED
+      ) {
         const byVariant = new Map<string, number>();
 
         for (const it of inv.items ?? []) {
@@ -757,14 +1003,27 @@ export class PurchaseReturnsService {
 
           for (const variantId of variantIds) {
             const v = byId.get(variantId);
-            if (!v) throw new BadRequestException(this.translations.t("domains.purchase_return.variant_not_found", { args: { variantId } }));
+            if (!v) {
+              throw new BadRequestException(
+                this.translations.t(
+                  "domains.purchase_return.variant_not_found",
+                  { args: { variantId } },
+                ),
+              );
+            }
 
             const addQty = byVariant.get(variantId)!;
             const oldStock = Number(v.stockOnHand) || 0;
             const nextStock = oldStock + addQty;
 
             v.stockOnHand = nextStock;
-            stockChanges.push({ variantId, sku: v.sku, oldStock, addQty, newStock: nextStock });
+            stockChanges.push({
+              variantId,
+              sku: v.sku,
+              oldStock,
+              addQty,
+              newStock: nextStock,
+            });
             changedVariants.push(v);
           }
 
@@ -776,7 +1035,11 @@ export class PurchaseReturnsService {
             userId: me?.id ?? null,
             action: PurchaseReturnAuditAction.STOCK_APPLIED,
             changes: stockChanges,
-            description: await this.requestTranslations.tAsync("domains.purchase_return.stock_restored_description", adminId, {}),
+            description: await this.requestTranslations.tAsync(
+              "domains.purchase_return.stock_restored_description",
+              adminId,
+              {},
+            ),
             ipAddress,
             manager,
           });
@@ -784,16 +1047,24 @@ export class PurchaseReturnsService {
 
         // Withdraw from safe if paidAmount > 0 and safeId is provided (Reversing the return deposit)
         if (Number(inv.paidAmount) > 0 && inv.safeId) {
-          await this.safesService.withdraw(me, {
-            accountId: inv.safeId,
-            amount: Number(inv.paidAmount),
-            referenceType: TransactionReferenceType.PURCHASE_RETURN,
-            referenceId: inv.id,
-            referenceMeta: {
-              purchaseReturnNumber: inv.returnNumber || null,
+          await this.safesService.withdraw(
+            me,
+            {
+              accountId: inv.safeId,
+              amount: Number(inv.paidAmount),
+              referenceType: TransactionReferenceType.PURCHASE_RETURN,
+              referenceId: inv.id,
+              referenceMeta: {
+                purchaseReturnNumber: inv.returnNumber || null,
+              },
+              notes: await this.requestTranslations.tAsync(
+                "domains.purchase_return.purchase_return_rolled_back_notes",
+                adminId,
+                { args: { returnNumber: inv.returnNumber } },
+              ),
             },
-            notes: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_rolled_back_notes", adminId, { args: { returnNumber: inv.returnNumber }}),
-          }, manager);
+            manager,
+          );
         }
       }
 
@@ -820,7 +1091,11 @@ export class PurchaseReturnsService {
         action: PurchaseReturnAuditAction.STATUS_CHANGED,
         oldData: { status: oldStatus },
         newData: { status },
-        description: await this.requestTranslations.tAsync("domains.purchase_return.status_changed_description", adminId, { args: { oldStatus, status }}),
+        description: await this.requestTranslations.tAsync(
+          "domains.purchase_return.status_changed_description",
+          adminId,
+          { args: { oldStatus, status } },
+        ),
         ipAddress,
         manager,
       });
@@ -835,19 +1110,36 @@ export class PurchaseReturnsService {
     }
   }
 
-  async remove(me: any, id: string, ipAddress?: string, manager?: EntityManager) {
+  async remove(
+    me: any,
+    id: string,
+    ipAddress?: string,
+    manager?: EntityManager,
+  ) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const runWithManager = async (manager: EntityManager) => {
       const inv = await manager.findOne(PurchaseReturnInvoiceEntity, {
         where: { id, adminId } as any,
         relations: ["items", "items.variant"],
       });
-      if (!inv) throw new BadRequestException(this.translations.t("domains.purchase_return.purchase_return_not_found"));
+      if (!inv) {
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.purchase_return.purchase_return_not_found",
+          ),
+        );
+      }
 
       if (inv.closingId) {
-        throw new BadRequestException(this.translations.t("domains.purchase_return.cannot_delete_closed"));
+        throw new BadRequestException(
+          this.translations.t("domains.purchase_return.cannot_delete_closed"),
+        );
       }
 
       // Rollback supplier financials if invoice was ACCEPTED before deletion
@@ -864,16 +1156,24 @@ export class PurchaseReturnsService {
 
         // Withdraw from safe if paidAmount > 0 and safeId was provided (Reversing the return deposit)
         if (Number(inv.paidAmount) > 0 && inv.safeId) {
-          await this.safesService.withdraw(me, {
-            accountId: inv.safeId,
-            amount: Number(inv.paidAmount),
-            referenceType: TransactionReferenceType.PURCHASE_RETURN,
-            referenceId: inv.id,
-            referenceMeta: {
-              purchaseReturnNumber: inv.returnNumber || null,
+          await this.safesService.withdraw(
+            me,
+            {
+              accountId: inv.safeId,
+              amount: Number(inv.paidAmount),
+              referenceType: TransactionReferenceType.PURCHASE_RETURN,
+              referenceId: inv.id,
+              referenceMeta: {
+                purchaseReturnNumber: inv.returnNumber || null,
+              },
+              notes: await this.requestTranslations.tAsync(
+                "domains.purchase_return.purchase_return_deleted_withdrawn_notes",
+                adminId,
+                { args: { returnNumber: inv.returnNumber } },
+              ),
             },
-            notes: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_deleted_withdrawn_notes", adminId, { args: { returnNumber: inv.returnNumber }}),
-          }, manager);
+            manager,
+          );
         }
       }
 
@@ -884,7 +1184,11 @@ export class PurchaseReturnsService {
         invoiceId: id,
         userId: me?.id ?? null,
         action: PurchaseReturnAuditAction.DELETED,
-        description: await this.requestTranslations.tAsync("domains.purchase_return.purchase_return_deleted", adminId, {}),
+        description: await this.requestTranslations.tAsync(
+          "domains.purchase_return.purchase_return_deleted",
+          adminId,
+          {},
+        ),
         ipAddress,
         manager,
       });
@@ -901,15 +1205,22 @@ export class PurchaseReturnsService {
 
   async exportPurchaseReturns(me: any, q?: any) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const search = String(q?.search ?? "").trim();
-    const supplierId = q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
+    const supplierId =
+      q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
     const status = q?.status && q.status !== "all" ? String(q.status) : null;
-    const returnType = q?.returnType && q.returnType !== "all" ? String(q.returnType) : null;
+    const returnType =
+      q?.returnType && q.returnType !== "all" ? String(q.returnType) : null;
     const startDate = q?.startDate ? String(q.startDate) : null;
     const endDate = q?.endDate ? String(q.endDate) : null;
-    const hasReceipt = q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
+    const hasReceipt =
+      q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
 
     const qb = this.invRepo
       .createQueryBuilder("inv")
@@ -917,9 +1228,9 @@ export class PurchaseReturnsService {
       .leftJoinAndSelect("inv.supplier", "supplier")
       .leftJoinAndSelect("inv.createdBy", "createdBy");
 
-    if (supplierId && supplierId != 'none')
+    if (supplierId && supplierId != "none") {
       qb.andWhere("inv.supplierId = :supplierId", { supplierId });
-    else if (supplierId === 'none') {
+    } else if (supplierId === "none") {
       qb.andWhere("inv.supplierId IS NULL");
     }
     if (status) qb.andWhere("inv.status = :status", { status });
@@ -928,38 +1239,92 @@ export class PurchaseReturnsService {
     if (hasReceipt === "yes") qb.andWhere("inv.receiptAsset IS NOT NULL");
     if (hasReceipt === "no") qb.andWhere("inv.receiptAsset IS NULL");
 
-    DateFilterUtil.applyToQueryBuilder(qb, "inv.created_at", startDate, endDate);
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "inv.created_at",
+      startDate,
+      endDate,
+    );
 
     if (search) {
       qb.andWhere(
         "(inv.returnNumber ILIKE :s OR inv.invoiceNumber ILIKE :s OR inv.supplierNameSnapshot ILIKE :s OR inv.notes ILIKE :s)",
-        { s: `%${search}%` }
+        { s: `%${search}%` },
       );
     }
 
-    qb.orderBy("inv.created_at", (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC");
+    qb.orderBy(
+      "inv.created_at",
+      (q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC",
+    );
 
     const records = await qb.getMany();
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t("domains.purchase_return.sheet_name"));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.purchase_return.sheet_name"),
+    );
 
     worksheet.columns = [
       { header: this.translations.t("common.id"), key: "id", width: 10 },
-      { header: this.translations.t("domains.purchase_return.return_number"), key: "returnNumber", width: 20 },
-      { header: this.translations.t("domains.purchase_return.invoice_number"), key: "invoiceNumber", width: 20 },
-      { header: this.translations.t("common.supplier"), key: "supplier", width: 25 },
-      { header: this.translations.t("common.status"), key: "status", width: 15 },
-      { header: this.translations.t("domains.purchase_return.return_type"), key: "returnType", width: 15 },
-      { header: this.translations.t("common.subtotal"), key: "subtotal", width: 15 },
-      { header: this.translations.t("domains.purchase_return.tax_total"), key: "taxTotal", width: 15 },
-      { header: this.translations.t("domains.purchase_return.total_return"), key: "totalReturn", width: 15 },
-      { header: this.translations.t("domains.purchase_return.refunded"), key: "paidAmount", width: 15 },
-      { header: this.translations.t("common.created_at"), key: "created_at", width: 18 },
+      {
+        header: this.translations.t("domains.purchase_return.return_number"),
+        key: "returnNumber",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.purchase_return.invoice_number"),
+        key: "invoiceNumber",
+        width: 20,
+      },
+      {
+        header: this.translations.t("common.supplier"),
+        key: "supplier",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.status"),
+        key: "status",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.purchase_return.return_type"),
+        key: "returnType",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.subtotal"),
+        key: "subtotal",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.purchase_return.tax_total"),
+        key: "taxTotal",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.purchase_return.total_return"),
+        key: "totalReturn",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.purchase_return.refunded"),
+        key: "paidAmount",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.created_at"),
+        key: "created_at",
+        width: 18,
+      },
     ];
 
     worksheet.getRow(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
-    worksheet.getRow(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF6C5CE7" } };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF6C5CE7" },
+    };
 
     records.forEach((inv) => {
       worksheet.addRow({
@@ -973,7 +1338,9 @@ export class PurchaseReturnsService {
         taxTotal: inv.taxTotal,
         totalReturn: inv.totalReturn,
         paidAmount: inv.paidAmount,
-        created_at: inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US") : "",
+        created_at: inv.created_at
+          ? new Date(inv.created_at).toLocaleDateString("en-US")
+          : "",
       });
     });
 

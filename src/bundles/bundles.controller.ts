@@ -25,7 +25,7 @@ import { RequireSubscription } from "common/require-subscription.decorator";
 @Controller("bundles")
 @RequireSubscription()
 export class BundlesController {
-  constructor(private bundles: BundlesService) { }
+  constructor(private bundles: BundlesService) {}
 
   @Permissions("products.read", "products.getonly")
   @Get()
@@ -33,28 +33,22 @@ export class BundlesController {
     return this.bundles.list(req.user, q);
   }
 
-
   @Permissions("products.read")
   @Get("export")
-  async exportProducts(
-    @Req() req: any,
-    @Query() q: any,
-    @Res() res: Response
-  ) {
+  async exportProducts(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.bundles.exportBundles(req.user, q);
 
     res.setHeader(
       "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=Bundles_export_${Date.now()}.xlsx`
+      `attachment; filename=Bundles_export_${Date.now()}.xlsx`,
     );
 
     return res.send(buffer);
   }
-
 
   @Permissions("products.read")
   @Get("check-sku")
@@ -102,7 +96,11 @@ export class BundlesController {
 
   @Permissions("products.update")
   @Patch(":id")
-  update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateBundleDto) {
+  update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateBundleDto,
+  ) {
     return this.bundles.update(req.user, id, dto);
   }
 

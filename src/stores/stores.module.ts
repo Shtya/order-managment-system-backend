@@ -9,7 +9,12 @@ import { EasyOrderService } from "./storesIntegrations/EasyOrderService";
 import { CategoryEntity } from "entities/categories.entity";
 import { StoreSubscriber } from "./store-subscriber";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
-import { OrderEntity, OrderStatusEntity, ReturnRequestEntity, ReturnRequestItemEntity } from "entities/order.entity";
+import {
+  OrderEntity,
+  OrderStatusEntity,
+  ReturnRequestEntity,
+  ReturnRequestItemEntity,
+} from "entities/order.entity";
 import { WebhookOrderFailureEntity } from "entities/stores.entity";
 import { OrdersModule } from "src/orders/orders.module";
 import { ProductsModule } from "src/products/products.module";
@@ -36,17 +41,30 @@ import { ShippingModule } from "src/shipping/shipping.module";
     forwardRef(() => ShippingModule),
     ProductSyncStateModule,
     WebSocketModule,
-    TypeOrmModule.forFeature([StoreEntity, ProductSyncStateEntity, CategoryEntity, ProductEntity, ProductVariantEntity, OrderEntity, OrderStatusEntity, WebhookOrderFailureEntity, BundleEntity, Account,ReturnRequestEntity,ReturnRequestItemEntity]),
+    TypeOrmModule.forFeature([
+      StoreEntity,
+      ProductSyncStateEntity,
+      CategoryEntity,
+      ProductEntity,
+      ProductVariantEntity,
+      OrderEntity,
+      OrderStatusEntity,
+      WebhookOrderFailureEntity,
+      BundleEntity,
+      Account,
+      ReturnRequestEntity,
+      ReturnRequestItemEntity,
+    ]),
   ],
   providers: [
     StoresService,
     StoreSubscriber,
     EncryptionService,
-    EasyOrderService,      // The API Logic + Bottleneck
+    EasyOrderService, // The API Logic + Bottleneck
     ShopifyService,
     WooCommerceService,
   ],
   controllers: [StoresController, StoreWebhooksController],
   exports: [StoresService, EasyOrderService, WooCommerceService],
 })
-export class StoresModule { }
+export class StoresModule {}

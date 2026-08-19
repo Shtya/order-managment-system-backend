@@ -17,7 +17,9 @@ export const VALIDITY_PERIOD_TO_SECONDS: Record<string, number> = {
   "12h": 43200,
 };
 
-export function validityPeriodToSeconds(period?: string | null): number | undefined {
+export function validityPeriodToSeconds(
+  period?: string | null,
+): number | undefined {
   if (!period || typeof period !== "string") return undefined;
   return VALIDITY_PERIOD_TO_SECONDS[period];
 }

@@ -1,25 +1,58 @@
-import { Module } from '@nestjs/common';
-import { AccountingService } from './services/accounting.service';
-import { AccountingController } from './controllers/accounting.controller';
-import { ExpensesService } from './services/expenses.service';
-import { ExpensesController } from './controllers/expenses.controller';
-import { ExpenseCategoriesService } from './services/expense-categories.service';
-import { ExpenseCategoriesController } from './controllers/expense-categories.controller';
-import { ManualExpenseCategoryEntity, ManualExpenseEntity, SupplierClosingEntity, MonthlyClosingEntity } from 'entities/accounting.entity';
-import { PurchaseReturnInvoiceEntity } from 'entities/purchase_return.entity';
-import { PurchaseInvoiceEntity } from 'entities/purchase.entity';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { OrderEntity, OrderItemEntity, OrderStatusEntity } from 'entities/order.entity';
-import { SupplierEntity } from 'entities/supplier.entity';
-import { ShipmentEntity } from 'entities/shipping.entity';
-import { MonthlyClosingService } from './services/monthly-closing.service';
-import { MonthlyClosingController } from './controllers/monthly-closing.controller';
-import { Account } from 'entities/safe.entity';
+import { Module } from "@nestjs/common";
+import { AccountingService } from "./services/accounting.service";
+import { AccountingController } from "./controllers/accounting.controller";
+import { ExpensesService } from "./services/expenses.service";
+import { ExpensesController } from "./controllers/expenses.controller";
+import { ExpenseCategoriesService } from "./services/expense-categories.service";
+import { ExpenseCategoriesController } from "./controllers/expense-categories.controller";
+import {
+  ManualExpenseCategoryEntity,
+  ManualExpenseEntity,
+  SupplierClosingEntity,
+  MonthlyClosingEntity,
+} from "entities/accounting.entity";
+import { PurchaseReturnInvoiceEntity } from "entities/purchase_return.entity";
+import { PurchaseInvoiceEntity } from "entities/purchase.entity";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import {
+  OrderEntity,
+  OrderItemEntity,
+  OrderStatusEntity,
+} from "entities/order.entity";
+import { SupplierEntity } from "entities/supplier.entity";
+import { ShipmentEntity } from "entities/shipping.entity";
+import { MonthlyClosingService } from "./services/monthly-closing.service";
+import { MonthlyClosingController } from "./controllers/monthly-closing.controller";
+import { Account } from "entities/safe.entity";
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PurchaseInvoiceEntity, PurchaseReturnInvoiceEntity, ManualExpenseEntity, OrderEntity, OrderItemEntity,
-    ManualExpenseCategoryEntity, SupplierClosingEntity, SupplierEntity, ShipmentEntity, MonthlyClosingEntity, OrderStatusEntity, Account])],
-  controllers: [AccountingController, ExpensesController, ExpenseCategoriesController, MonthlyClosingController],
-  providers: [AccountingService, ExpensesService, ExpenseCategoriesService, MonthlyClosingService],
+  imports: [
+    TypeOrmModule.forFeature([
+      PurchaseInvoiceEntity,
+      PurchaseReturnInvoiceEntity,
+      ManualExpenseEntity,
+      OrderEntity,
+      OrderItemEntity,
+      ManualExpenseCategoryEntity,
+      SupplierClosingEntity,
+      SupplierEntity,
+      ShipmentEntity,
+      MonthlyClosingEntity,
+      OrderStatusEntity,
+      Account,
+    ]),
+  ],
+  controllers: [
+    AccountingController,
+    ExpensesController,
+    ExpenseCategoriesController,
+    MonthlyClosingController,
+  ],
+  providers: [
+    AccountingService,
+    ExpensesService,
+    ExpenseCategoriesService,
+    MonthlyClosingService,
+  ],
 })
-export class AccountingModule { }
+export class AccountingModule {}

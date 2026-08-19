@@ -1,5 +1,20 @@
 // purchases-return/purchases-return.controller.ts
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UploadedFiles, UseGuards, UseInterceptors } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from "@nestjs/common";
 import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
@@ -7,7 +22,12 @@ import { Permissions } from "common/permissions.decorator";
 import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { PurchaseReturnsService } from "./purchases-return.service";
-import { CreatePurchaseReturnDto, UpdatePurchaseReturnDto, UpdatePurchaseReturnStatusDto, UpdatePaidAmountDto } from "dto/purchase_return.dto";
+import {
+  CreatePurchaseReturnDto,
+  UpdatePurchaseReturnDto,
+  UpdatePurchaseReturnStatusDto,
+  UpdatePaidAmountDto,
+} from "dto/purchase_return.dto";
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path/win32";
@@ -22,7 +42,6 @@ const purchasesStorage = diskStorage({
   },
 });
 
-
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("purchases-return")
 @RequireSubscription()
@@ -30,7 +49,7 @@ export class PurchaseReturnsController {
   constructor(
     private svc: PurchaseReturnsService,
     private translations: TranslationService,
-  ) { }
+  ) {}
 
   @Permissions("purchase_returns.read")
   @Get("stats")
@@ -49,17 +68,17 @@ export class PurchaseReturnsController {
   async exportPurchaseReturns(
     @Req() req: any,
     @Query() q: any,
-    @Res() res: Response
+    @Res() res: Response,
   ) {
     const buffer = await this.svc.exportPurchaseReturns(req.user, q);
 
     res.setHeader(
       "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=Purchase_Returns_export_${Date.now()}.xlsx`
+      `attachment; filename=Purchase_Returns_export_${Date.now()}.xlsx`,
     );
 
     return res.send(buffer);
@@ -81,10 +100,13 @@ export class PurchaseReturnsController {
 
   @Permissions("purchase_returns.update")
   @Patch(":id/paid-amount")
-  updatePaidAmount(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePaidAmountDto) {
+  updatePaidAmount(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdatePaidAmountDto,
+  ) {
     return this.svc.updatePaidAmount(req.user, id, dto, req.ip);
   }
-
 
   @Permissions("purchase_returns.read")
   @Get(":id")
@@ -96,14 +118,14 @@ export class PurchaseReturnsController {
   @UseInterceptors(
     FileFieldsInterceptor([{ name: "receiptAsset", maxCount: 1 }], {
       storage: purchasesStorage,
-    })
+    }),
   )
   @Post()
   async create(
     @Req() req: any,
     @UploadedFiles()
     files: { receiptAsset?: Express.Multer.File[] },
-    @Body() body: any
+    @Body() body: any,
   ) {
     //
     const dto: CreatePurchaseReturnDto = {
@@ -116,26 +138,32 @@ export class PurchaseReturnsController {
       safeId: body.safeId,
       returnType: body.returnType,
       notes: body.notes ?? undefined,
-      paidAmount: body.paidAmount !== undefined ? Number(parseNumber(body.paidAmount)) : undefined,
+      paidAmount:
+        body.paidAmount !== undefined
+          ? Number(parseNumber(body.paidAmount))
+          : undefined,
       items: parseJsonField(body.items, []),
       receiptAsset: body.receiptAsset ?? undefined,
     };
 
-
     if (!dto.returnNumber) {
-      throw new BadRequestException(this.translations.t("domains.purchase_return.return_number_required"));
+      throw new BadRequestException(
+        this.translations.t("domains.purchase_return.return_number_required"),
+      );
     }
 
     if (!Array.isArray(dto.items) || !dto.items.length) {
-      throw new BadRequestException(this.translations.t("domains.purchase_return.at_least_one_item_required"));
+      throw new BadRequestException(
+        this.translations.t(
+          "domains.purchase_return.at_least_one_item_required",
+        ),
+      );
     }
-
 
     const receiptFile = files?.receiptAsset?.[0];
     if (receiptFile) {
       dto.receiptAsset = `/uploads/purchases-returns/${receiptFile.filename}`;
     }
-
 
     return this.svc.create(req.user, dto, req.ip);
   }
@@ -145,24 +173,31 @@ export class PurchaseReturnsController {
   @UseInterceptors(
     FileFieldsInterceptor([{ name: "receiptAsset", maxCount: 1 }], {
       storage: purchasesStorage,
-    })
+    }),
   )
   update(
     @Req() req: any,
     @Param("id") id: string,
     @UploadedFiles()
     files: { receiptAsset?: Express.Multer.File[] },
-    @Body() body: any
+    @Body() body: any,
   ) {
     const dto: UpdatePurchaseReturnDto = {
       supplierId: body.supplierId !== undefined ? body.supplierId : undefined,
-      returnNumber: body.returnNumber !== undefined ? body.returnNumber : undefined,
+      returnNumber:
+        body.returnNumber !== undefined ? body.returnNumber : undefined,
       safeId: body.safeId !== undefined ? body.safeId : undefined,
-      paidAmount: body.paidAmount !== undefined ? Number(parseNumber(body.paidAmount)) : undefined,
+      paidAmount:
+        body.paidAmount !== undefined
+          ? Number(parseNumber(body.paidAmount))
+          : undefined,
       notes: body.notes !== undefined ? body.notes : undefined,
-      items: body.items !== undefined ? parseJsonField(body.items, []) : undefined,
-      receiptAsset: body.receiptAsset !== undefined ? body.receiptAsset : undefined,
-      returnReason: body.returnReason !== undefined ? body.returnReason : undefined,
+      items:
+        body.items !== undefined ? parseJsonField(body.items, []) : undefined,
+      receiptAsset:
+        body.receiptAsset !== undefined ? body.receiptAsset : undefined,
+      returnReason:
+        body.returnReason !== undefined ? body.returnReason : undefined,
       returnType: body.returnType !== undefined ? body.returnType : undefined,
     } as any;
 
@@ -176,7 +211,11 @@ export class PurchaseReturnsController {
 
   @Permissions("purchase_returns.update")
   @Patch(":id/status")
-  updateStatus(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePurchaseReturnStatusDto) {
+  updateStatus(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdatePurchaseReturnStatusDto,
+  ) {
     return this.svc.updateStatus(req.user, id, dto.status, req.ip);
   }
 
@@ -185,6 +224,4 @@ export class PurchaseReturnsController {
   remove(@Req() req: any, @Param("id") id: string) {
     return this.svc.remove(req.user, id, req.ip);
   }
-
-
 }

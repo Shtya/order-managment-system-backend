@@ -28,7 +28,7 @@ import { Response } from "express";
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("subscriptions")
 export class SubscriptionsController {
-  constructor(private subscriptions: SubscriptionsService) { }
+  constructor(private subscriptions: SubscriptionsService) {}
 
   // ✅ List subscriptions
   @Permissions("subscriptions.read")
@@ -90,22 +90,19 @@ export class SubscriptionsController {
   //         dto,
   //     );
   // }
-  
+
   @Permissions("subscriptions.create")
   @Post("subscribe")
-  @Throttle({ 
-      default: { limit: 60, ttl: minutes(1) }, 
-    })
+  @Throttle({
+    default: { limit: 60, ttl: minutes(1) },
+  })
   subscribe(@Req() req: any, @Body() dto: { planId }) {
     return this.subscriptions.subscribe(req.user, dto.planId);
   }
 
   @Permissions("subscriptions.update")
   @Post("cancel/:id")
-  cancelSubscription(
-    @Req() req: any,
-    @Param("id") subscriptionId: string,
-  ) {
+  cancelSubscription(@Req() req: any, @Param("id") subscriptionId: string) {
     return this.subscriptions.cancelSubscription(req.user, subscriptionId);
   }
 
@@ -115,10 +112,7 @@ export class SubscriptionsController {
     @Req() req: any,
     @Param("userId") userId: string,
   ) {
-    return this.subscriptions.getActiveSubscriptionForAdmin(
-      req.user,
-      userId,
-    );
+    return this.subscriptions.getActiveSubscriptionForAdmin(req.user, userId);
   }
 
   // ✅ Get my active subscription
@@ -142,10 +136,6 @@ export class SubscriptionsController {
     @Param("id") id: string,
     @Body("status") status: SubscriptionStatus,
   ) {
-    return this.subscriptions.updateSubscriptionStatus(
-      req.user,
-      id,
-      status,
-    );
+    return this.subscriptions.updateSubscriptionStatus(req.user, id, status);
   }
 }

@@ -1,873 +1,1005 @@
-import { Injectable, BadRequestException, NotFoundException, forwardRef, Inject } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets, Not, In } from 'typeorm';
-import { Upsell, UpsellHistory, UpsellStatus } from 'entities/upsells.entity';
-import { ProductEntity, ProductVariantEntity } from 'entities/sku.entity';
-import { CreateUpsellDto, UpdateUpsellDto } from 'dto/upsells.dto';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  forwardRef,
+  Inject,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, Brackets, Not, In } from "typeorm";
+import { Upsell, UpsellHistory, UpsellStatus } from "entities/upsells.entity";
+import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
+import { CreateUpsellDto, UpdateUpsellDto } from "dto/upsells.dto";
 
-import { WhatsappApiService } from '../whatsapp/services/WhatsappApi.service';
-import * as ExcelJS from 'exceljs';
-import { tenantId } from 'src/category/category.service';
-import { calculateRange } from 'common/healpers';
-import { DateFilterUtil } from 'common/date-filter.util';
-import { OrdersService } from '../orders/services/orders.service';
-import { OrderEntity, OrderStatus } from 'entities/order.entity';
-import { AutomationRunEntity } from 'entities/automation.entity';
-import { WhatsappAccountEntity } from 'entities/whatsapp.entity';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
-import { NotificationService } from 'src/notifications/notification.service';
-import { NotificationType } from 'entities/notifications.entity';
-import { TranslationService } from 'common/translation.service';
+import { WhatsappApiService } from "../whatsapp/services/WhatsappApi.service";
+import * as ExcelJS from "exceljs";
+import { tenantId } from "src/category/category.service";
+import { calculateRange } from "common/healpers";
+import { DateFilterUtil } from "common/date-filter.util";
+import { OrdersService } from "../orders/services/orders.service";
+import { OrderEntity, OrderStatus } from "entities/order.entity";
+import { AutomationRunEntity } from "entities/automation.entity";
+import { WhatsappAccountEntity } from "entities/whatsapp.entity";
+import { WhatsappService } from "../whatsapp/whatsapp.service";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class UpsellsService {
-    constructor(
-        @InjectRepository(Upsell)
-        private readonly upsellRepo: Repository<Upsell>,
-        @InjectRepository(UpsellHistory)
-        private readonly upsellHistoryRepo: Repository<UpsellHistory>,
-        @InjectRepository(ProductEntity)
-        private readonly productRepo: Repository<ProductEntity>,
-        @InjectRepository(ProductVariantEntity)
-        private readonly skuRepo: Repository<ProductVariantEntity>,
-        @InjectRepository(WhatsappAccountEntity)
-        private readonly accountRepo: Repository<WhatsappAccountEntity>,
-        @Inject(forwardRef(() => WhatsappApiService))
-        private readonly whatsappApi: WhatsappApiService,
-        @Inject(forwardRef(() => WhatsappService))
-        private readonly whatsappService: WhatsappService,
-        @Inject(forwardRef(() => OrdersService))
-        private readonly ordersService: OrdersService,
-        private readonly notificationService: NotificationService,
-        private readonly translations: TranslationService,
-    ) { }
+  constructor(
+    @InjectRepository(Upsell)
+    private readonly upsellRepo: Repository<Upsell>,
+    @InjectRepository(UpsellHistory)
+    private readonly upsellHistoryRepo: Repository<UpsellHistory>,
+    @InjectRepository(ProductEntity)
+    private readonly productRepo: Repository<ProductEntity>,
+    @InjectRepository(ProductVariantEntity)
+    private readonly skuRepo: Repository<ProductVariantEntity>,
+    @InjectRepository(WhatsappAccountEntity)
+    private readonly accountRepo: Repository<WhatsappAccountEntity>,
+    @Inject(forwardRef(() => WhatsappApiService))
+    private readonly whatsappApi: WhatsappApiService,
+    @Inject(forwardRef(() => WhatsappService))
+    private readonly whatsappService: WhatsappService,
+    @Inject(forwardRef(() => OrdersService))
+    private readonly ordersService: OrdersService,
+    private readonly notificationService: NotificationService,
+    private readonly translations: TranslationService,
+  ) {}
 
-    async create(me: any, dto: CreateUpsellDto) {
-        const adminId = tenantId(me);
+  async create(me: any, dto: CreateUpsellDto) {
+    const adminId = tenantId(me);
 
-        // 1. Verify products exist and belong to the same admin (if applicable)
-        const triggerProduct = await this.productRepo.findOne({ where: { id: dto.triggerProductId } });
-        if (!triggerProduct) throw new BadRequestException(this.translations.t('domains.upsells.trigger_product_not_found'));
-
-        const upsellProduct = await this.productRepo.findOne({ where: { id: dto.upsellProductId }, relations: ['variants'] });
-        if (!upsellProduct) throw new BadRequestException(this.translations.t('domains.upsells.upsell_product_not_found'));
-
-        const sku = await this.skuRepo.findOne({ where: { id: dto.upsellSkuId, productId: dto.upsellProductId } });
-        if (!sku) throw new BadRequestException(this.translations.t('domains.upsells.sku_not_found_or_not_belong'));
-
-        // 2. Check if upsell is linked to trigger (business logic check)
-        // const upsellingProducts = triggerProduct.upsellingProducts || [];
-        // const isLinked = upsellingProducts.some(p => p.productId === dto.upsellProductId);
-        // if (!isLinked) {
-        //     throw new BadRequestException('The selected upsell product is not linked to the trigger product');
-        // }
-
-        if (sku.productId !== dto.upsellProductId) {
-            throw new BadRequestException(this.translations.t('domains.upsells.sku_not_belong_to_upsell_product'));
-        }
-
-        // 2.5 Check for uniqueness (triggerProductId, upsellProductId, upsellSkuId, adminId, upsellPrice)
-        const existing = await this.upsellRepo.findOne({
-            where: {
-                triggerProductId: dto.triggerProductId,
-                upsellProductId: dto.upsellProductId,
-                upsellSkuId: dto.upsellSkuId,
-                upsellPrice: dto.upsellPrice,
-                adminId
-            }
-        });
-        if (existing) {
-            throw new BadRequestException(this.translations.t('domains.upsells.upsell_already_exists'));
-        }
-
-        // 3. Handle media handle if applicable
-        const messageConfig = { ...dto.messageConfig };
-        // if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType) && messageConfig.headerUrl) {
-        //     try {
-        //         const accountId = await this.whatsappService.getDefaultAccountId(adminId);
-        //         messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
-        //     } catch (err) {
-        //         console.error('Failed to upload media to Meta:', err);
-        //         // We might still want to save, or throw error. Usually better to throw if it's required.
-        //         throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
-        //     }
-        // }
-
-        const upsell = this.upsellRepo.create({
-            ...dto,
-            adminId,
-            messageConfig,
-        });
-
-        return await this.upsellRepo.save(upsell);
+    // 1. Verify products exist and belong to the same admin (if applicable)
+    const triggerProduct = await this.productRepo.findOne({
+      where: { id: dto.triggerProductId },
+    });
+    if (!triggerProduct) {
+      throw new BadRequestException(
+        this.translations.t("domains.upsells.trigger_product_not_found"),
+      );
     }
 
-    async update(me: any, id: string, dto: UpdateUpsellDto) {
-        const adminId = tenantId(me);
-        const upsell = await this.findOne(me, id);
-
-        // Validation logic similar to create if IDs or Price change
-        if (dto.triggerProductId || dto.upsellProductId || dto.upsellSkuId || dto.upsellPrice !== undefined) {
-            const triggerId = dto.triggerProductId || upsell.triggerProductId;
-            const upsellId = dto.upsellProductId || upsell.upsellProductId;
-            const skuId = dto.upsellSkuId || upsell.upsellSkuId;
-            const price = dto.upsellPrice !== undefined ? dto.upsellPrice : upsell.upsellPrice;
-
-            const triggerProduct = await this.productRepo.findOne({ where: { id: triggerId } });
-            if (!triggerProduct) throw new BadRequestException(this.translations.t('domains.upsells.trigger_product_not_found'));
-
-            const upsellProduct = await this.productRepo.findOne({ where: { id: upsellId } });
-            if (!upsellProduct) throw new BadRequestException(this.translations.t('domains.upsells.upsell_product_not_found'));
-
-            const sku = await this.skuRepo.findOne({ where: { id: skuId, productId: upsellId } });
-            if (!sku) throw new BadRequestException(this.translations.t('domains.upsells.sku_not_found_or_not_belong'));
-
-            upsell.triggerProduct = triggerProduct;
-            upsell.triggerProductId = triggerProduct.id;
-
-            upsell.upsellProduct = upsellProduct;
-            upsell.upsellProductId = upsellProduct.id;
-            upsell.upsellSku = sku;
-            upsell.upsellSkuId = sku.id;
-
-
-            // const upsellingProducts = triggerProduct.upsellingProducts || [];
-            // const isLinked = upsellingProducts.some(p => p.productId === upsellId);
-            // if (!isLinked) {
-            //     throw new BadRequestException('The selected upsell product is not linked to the trigger product');
-            // }
-
-            // Check for uniqueness if IDs or Price changed
-            const existing = await this.upsellRepo.findOne({
-                where: {
-                    triggerProductId: triggerId,
-                    upsellProductId: upsellId,
-                    upsellSkuId: skuId,
-                    upsellPrice: price,
-                    adminId,
-                    id: Not(id)
-                }
-            });
-            if (existing) {
-                throw new BadRequestException(this.translations.t('domains.upsells.upsell_already_exists'));
-            }
-        }
-
-        const messageConfig = dto.messageConfig ? { ...dto.messageConfig } : upsell.messageConfig;
-
-        // If headerUrl changed, re-upload to Meta
-        // if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
-        //     if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType)) {
-        //         try {
-        //             const accountId = await this.whatsappService.getDefaultAccountId(adminId);
-        //             messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
-        //         } catch (err) {
-        //             throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
-        //         }
-        //     }
-        // }
-
-        if (dto.expireTimeM !== undefined) {
-            upsell.expireTimeM = dto.expireTimeM;
-        }
-
-        if (dto.isActive !== undefined) {
-            upsell.isActive = dto.isActive;
-        }
-
-        if (dto.upsellPrice !== undefined) {
-            upsell.upsellPrice = dto.upsellPrice;
-        }
-
-
-        upsell.messageConfig = messageConfig;
-
-        return await this.upsellRepo.save(upsell);
+    const upsellProduct = await this.productRepo.findOne({
+      where: { id: dto.upsellProductId },
+      relations: ["variants"],
+    });
+    if (!upsellProduct) {
+      throw new BadRequestException(
+        this.translations.t("domains.upsells.upsell_product_not_found"),
+      );
     }
 
-    async list(me: any, q?: any) {
-        const adminId = tenantId(me);
-        const page = Number(q?.page ?? 1);
-        const limit = Number(q?.limit ?? 10);
-        const search = String(q?.search ?? "").trim();
-        const status = q?.status;
-        const productId = q?.productId;
-
-        const qb = this.upsellRepo.createQueryBuilder('u')
-            .leftJoinAndSelect('u.triggerProduct', 'tp')
-            .leftJoin("tp.variants", "tpVariant")
-            .leftJoinAndSelect('u.upsellProduct', 'up')
-            .leftJoin("up.variants", "upVariant")
-            .leftJoinAndSelect('u.upsellSku', 'us')
-            .where('u.adminId = :adminId', { adminId });
-
-        if (status !== undefined && status !== 'all') {
-            qb.andWhere('u.isActive = :isActive', { isActive: status === 'active' });
-        }
-
-        if (productId && productId !== 'all') {
-            qb.andWhere('u.triggerProductId = :triggerProductId', { triggerProductId: productId })
-                .orWhere('u.upsellProductId = :upsellProductId', { upsellProductId: productId });
-        }
-
-        DateFilterUtil.applyToQueryBuilder(qb, 'u.createdAt', q?.startDate, q?.endDate);
-
-        if (search) {
-            qb.andWhere(new Brackets(sq => {
-                sq.where('tp.name ILIKE :s', { s: `%${search}%` })
-                    .orWhere('up.name ILIKE :s', { s: `%${search}%` })
-                    .orWhere('us.sku ILIKE :s', { s: `%${search}%` })
-                    .orWhere('tpVariant.sku ILIKE :s', { s: `%${search}%` })
-                    .orWhere('upVariant.sku ILIKE :s', { s: `%${search}%` })
-            }));
-        }
-
-        qb.orderBy('u.createdAt', 'DESC');
-
-        const [records, total] = await qb
-            .skip((page - 1) * limit)
-            .take(limit)
-            .getManyAndCount();
-
-        return { total_records: total, current_page: page, per_page: limit, records };
+    const sku = await this.skuRepo.findOne({
+      where: { id: dto.upsellSkuId, productId: dto.upsellProductId },
+    });
+    if (!sku) {
+      throw new BadRequestException(
+        this.translations.t("domains.upsells.sku_not_found_or_not_belong"),
+      );
     }
 
-    async findOne(me: any, id: string) {
-        const adminId = tenantId(me);
-        const upsell = await this.upsellRepo.findOne({
-            where: { id, adminId },
-            relations: ['triggerProduct', 'upsellProduct', 'upsellSku']
-        });
-        if (!upsell) throw new NotFoundException(this.translations.t('domains.upsells.upsell_not_found'));
-        return upsell;
+    // 2. Check if upsell is linked to trigger (business logic check)
+    // const upsellingProducts = triggerProduct.upsellingProducts || [];
+    // const isLinked = upsellingProducts.some(p => p.productId === dto.upsellProductId);
+    // if (!isLinked) {
+    //     throw new BadRequestException('The selected upsell product is not linked to the trigger product');
+    // }
+
+    if (sku.productId !== dto.upsellProductId) {
+      throw new BadRequestException(
+        this.translations.t("domains.upsells.sku_not_belong_to_upsell_product"),
+      );
     }
 
-    async stats(me: any, filters: any = {}) {
-        const adminId = tenantId(me);
+    // 2.5 Check for uniqueness (triggerProductId, upsellProductId, upsellSkuId, adminId, upsellPrice)
+    const existing = await this.upsellRepo.findOne({
+      where: {
+        triggerProductId: dto.triggerProductId,
+        upsellProductId: dto.upsellProductId,
+        upsellSkuId: dto.upsellSkuId,
+        upsellPrice: dto.upsellPrice,
+        adminId,
+      },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        this.translations.t("domains.upsells.upsell_already_exists"),
+      );
+    }
 
-        const qb = this.upsellHistoryRepo
-            .createQueryBuilder('uh')
-            .leftJoin('orders', 'o', 'o.id = uh.orderId')
-            .leftJoin('order_statuses', 'os', 'os.id = o.statusId')
-            .select('uh.status', 'status')
-            .addSelect('os.code', 'orderStatusCode')
-            .addSelect('COUNT(*)', 'count')
-            .where('uh."adminId" = :adminId', { adminId });
+    // 3. Handle media handle if applicable
+    const messageConfig = { ...dto.messageConfig };
+    // if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType) && messageConfig.headerUrl) {
+    //     try {
+    //         const accountId = await this.whatsappService.getDefaultAccountId(adminId);
+    //         messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
+    //     } catch (err) {
+    //         console.error('Failed to upload media to Meta:', err);
+    //         // We might still want to save, or throw error. Usually better to throw if it's required.
+    //         throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
+    //     }
+    // }
 
-        if (filters.startDate) {
-            qb.andWhere('uh."createdAt" >= :startDate', { startDate: new Date(filters.startDate) });
+    const upsell = this.upsellRepo.create({
+      ...dto,
+      adminId,
+      messageConfig,
+    });
+
+    return await this.upsellRepo.save(upsell);
+  }
+
+  async update(me: any, id: string, dto: UpdateUpsellDto) {
+    const adminId = tenantId(me);
+    const upsell = await this.findOne(me, id);
+
+    // Validation logic similar to create if IDs or Price change
+    if (
+      dto.triggerProductId ||
+      dto.upsellProductId ||
+      dto.upsellSkuId ||
+      dto.upsellPrice !== undefined
+    ) {
+      const triggerId = dto.triggerProductId || upsell.triggerProductId;
+      const upsellId = dto.upsellProductId || upsell.upsellProductId;
+      const skuId = dto.upsellSkuId || upsell.upsellSkuId;
+      const price =
+        dto.upsellPrice !== undefined ? dto.upsellPrice : upsell.upsellPrice;
+
+      const triggerProduct = await this.productRepo.findOne({
+        where: { id: triggerId },
+      });
+      if (!triggerProduct) {
+        throw new BadRequestException(
+          this.translations.t("domains.upsells.trigger_product_not_found"),
+        );
+      }
+
+      const upsellProduct = await this.productRepo.findOne({
+        where: { id: upsellId },
+      });
+      if (!upsellProduct) {
+        throw new BadRequestException(
+          this.translations.t("domains.upsells.upsell_product_not_found"),
+        );
+      }
+
+      const sku = await this.skuRepo.findOne({
+        where: { id: skuId, productId: upsellId },
+      });
+      if (!sku) {
+        throw new BadRequestException(
+          this.translations.t("domains.upsells.sku_not_found_or_not_belong"),
+        );
+      }
+
+      upsell.triggerProduct = triggerProduct;
+      upsell.triggerProductId = triggerProduct.id;
+
+      upsell.upsellProduct = upsellProduct;
+      upsell.upsellProductId = upsellProduct.id;
+      upsell.upsellSku = sku;
+      upsell.upsellSkuId = sku.id;
+
+      // const upsellingProducts = triggerProduct.upsellingProducts || [];
+      // const isLinked = upsellingProducts.some(p => p.productId === upsellId);
+      // if (!isLinked) {
+      //     throw new BadRequestException('The selected upsell product is not linked to the trigger product');
+      // }
+
+      // Check for uniqueness if IDs or Price changed
+      const existing = await this.upsellRepo.findOne({
+        where: {
+          triggerProductId: triggerId,
+          upsellProductId: upsellId,
+          upsellSkuId: skuId,
+          upsellPrice: price,
+          adminId,
+          id: Not(id),
+        },
+      });
+      if (existing) {
+        throw new BadRequestException(
+          this.translations.t("domains.upsells.upsell_already_exists"),
+        );
+      }
+    }
+
+    const messageConfig = dto.messageConfig
+      ? { ...dto.messageConfig }
+      : upsell.messageConfig;
+
+    // If headerUrl changed, re-upload to Meta
+    // if (dto.messageConfig?.headerUrl && dto.messageConfig.headerUrl !== upsell.messageConfig?.headerUrl) {
+    //     if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(messageConfig.headerType)) {
+    //         try {
+    //             const accountId = await this.whatsappService.getDefaultAccountId(adminId);
+    //             messageConfig.headerHandle = await this.whatsappApi.uploadMediaToMeta(messageConfig.headerUrl, accountId);
+    //         } catch (err) {
+    //             throw new BadRequestException('Failed to process header media for WhatsApp: ' + err.message);
+    //         }
+    //     }
+    // }
+
+    if (dto.expireTimeM !== undefined) {
+      upsell.expireTimeM = dto.expireTimeM;
+    }
+
+    if (dto.isActive !== undefined) {
+      upsell.isActive = dto.isActive;
+    }
+
+    if (dto.upsellPrice !== undefined) {
+      upsell.upsellPrice = dto.upsellPrice;
+    }
+
+    upsell.messageConfig = messageConfig;
+
+    return await this.upsellRepo.save(upsell);
+  }
+
+  async list(me: any, q?: any) {
+    const adminId = tenantId(me);
+    const page = Number(q?.page ?? 1);
+    const limit = Number(q?.limit ?? 10);
+    const search = String(q?.search ?? "").trim();
+    const status = q?.status;
+    const productId = q?.productId;
+
+    const qb = this.upsellRepo
+      .createQueryBuilder("u")
+      .leftJoinAndSelect("u.triggerProduct", "tp")
+      .leftJoin("tp.variants", "tpVariant")
+      .leftJoinAndSelect("u.upsellProduct", "up")
+      .leftJoin("up.variants", "upVariant")
+      .leftJoinAndSelect("u.upsellSku", "us")
+      .where("u.adminId = :adminId", { adminId });
+
+    if (status !== undefined && status !== "all") {
+      qb.andWhere("u.isActive = :isActive", { isActive: status === "active" });
+    }
+
+    if (productId && productId !== "all") {
+      qb.andWhere("u.triggerProductId = :triggerProductId", {
+        triggerProductId: productId,
+      }).orWhere("u.upsellProductId = :upsellProductId", {
+        upsellProductId: productId,
+      });
+    }
+
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "u.createdAt",
+      q?.startDate,
+      q?.endDate,
+    );
+
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("tp.name ILIKE :s", { s: `%${search}%` })
+            .orWhere("up.name ILIKE :s", { s: `%${search}%` })
+            .orWhere("us.sku ILIKE :s", { s: `%${search}%` })
+            .orWhere("tpVariant.sku ILIKE :s", { s: `%${search}%` })
+            .orWhere("upVariant.sku ILIKE :s", { s: `%${search}%` });
+        }),
+      );
+    }
+
+    qb.orderBy("u.createdAt", "DESC");
+
+    const [records, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
+
+  async findOne(me: any, id: string) {
+    const adminId = tenantId(me);
+    const upsell = await this.upsellRepo.findOne({
+      where: { id, adminId },
+      relations: ["triggerProduct", "upsellProduct", "upsellSku"],
+    });
+    if (!upsell) {
+      throw new NotFoundException(
+        this.translations.t("domains.upsells.upsell_not_found"),
+      );
+    }
+    return upsell;
+  }
+
+  async stats(me: any, filters: any = {}) {
+    const adminId = tenantId(me);
+
+    const qb = this.upsellHistoryRepo
+      .createQueryBuilder("uh")
+      .leftJoin("orders", "o", "o.id = uh.orderId")
+      .leftJoin("order_statuses", "os", "os.id = o.statusId")
+      .select("uh.status", "status")
+      .addSelect("os.code", "orderStatusCode")
+      .addSelect("COUNT(*)", "count")
+      .where('uh."adminId" = :adminId', { adminId });
+
+    if (filters.startDate) {
+      qb.andWhere('uh."createdAt" >= :startDate', {
+        startDate: new Date(filters.startDate),
+      });
+    }
+    if (filters.endDate) {
+      qb.andWhere('uh."createdAt" <= :endDate', {
+        endDate: new Date(filters.endDate),
+      });
+    }
+    if (filters.range) {
+      const { start, end } = calculateRange(filters.range);
+      if (start) qb.andWhere('uh."createdAt" >= :start', { start });
+      if (end) qb.andWhere('uh."createdAt" <= :end', { end });
+    }
+
+    const stats = await qb
+      .groupBy("uh.status")
+      .addGroupBy("os.code")
+      .getRawMany();
+
+    const result = {
+      sent: 0,
+      accepted: 0,
+      rejected: 0,
+      noAnswer: 0,
+      expired: 0,
+      acceptedNonEligible: 0,
+      failedToAdd: 0,
+      delivered: 0,
+      pending: 0,
+    };
+
+    stats.forEach((s) => {
+      const count = parseInt(s.count, 10);
+      const status = s.status;
+      const orderStatusCode = s.orderStatusCode;
+
+      // Total Sent (All records contribute to total sent)
+      result.sent += count;
+
+      if (status === UpsellStatus.ACCEPTED) {
+        if (orderStatusCode === OrderStatus.DELIVERED) {
+          result.delivered += count;
+        } else {
+          result.accepted += count;
         }
-        if (filters.endDate) {
-            qb.andWhere('uh."createdAt" <= :endDate', { endDate: new Date(filters.endDate) });
-        }
-        if (filters.range) {
-            const { start, end } = calculateRange(filters.range);
-            if (start) qb.andWhere('uh."createdAt" >= :start', { start });
-            if (end) qb.andWhere('uh."createdAt" <= :end', { end });
-        }
+      } else if (status === UpsellStatus.REJECTED) {
+        result.rejected += count;
+      } else if (status === UpsellStatus.EXPIRED) {
+        result.expired += count;
+      } else if (status === UpsellStatus.PENDING) {
+        result.pending += count;
+      } else if (status === UpsellStatus.ACCEPTED_NON_ELIGIBLE) {
+        result.acceptedNonEligible += count;
+      } else if (status === UpsellStatus.FAILED_TO_ADD) {
+        result.failedToAdd += count;
+      }
+    });
 
-        const stats = await qb
-            .groupBy('uh.status')
-            .addGroupBy('os.code')
-            .getRawMany();
+    return result;
+  }
 
-        const result = {
-            sent: 0,
-            accepted: 0,
-            rejected: 0,
-            noAnswer: 0,
-            expired: 0,
-            acceptedNonEligible: 0,
-            failedToAdd: 0,
-            delivered: 0,
-            pending: 0,
+  async remove(me: any, id: string) {
+    const upsell = await this.findOne(me, id);
+    return await this.upsellRepo.remove(upsell);
+  }
+
+  async toggleActive(me: any, id: string) {
+    const upsell = await this.findOne(me, id);
+    upsell.isActive = !upsell.isActive;
+    return await this.upsellRepo.save(upsell);
+  }
+
+  async getUpsellsByProductIds(
+    productIds: string[],
+    adminId: string,
+  ): Promise<Upsell[]> {
+    return await this.upsellRepo.find({
+      where: {
+        triggerProductId: In(productIds),
+        adminId: adminId,
+        isActive: true,
+      },
+      relations: ["triggerProduct", "upsellProduct", "upsellSku"],
+    });
+  }
+
+  async getUpsellsByProductIdsExcludingOrderItems(
+    productIds: string[],
+    adminId: string,
+    orderItemVariantIds: string[],
+  ): Promise<Upsell[]> {
+    // Get all upsells first
+    const allUpsells = await this.getUpsellsByProductIds(productIds, adminId);
+    // Filter out any upsell whose upsellSkuId is already in the order
+    return allUpsells.filter(
+      (upsell) => !orderItemVariantIds.includes(upsell.upsellSkuId),
+    );
+  }
+
+  async sendUpsell(
+    upsell: Upsell,
+    order: OrderEntity,
+    run?: AutomationRunEntity,
+  ) {
+    const adminId = order.adminId;
+
+    const config = upsell.messageConfig;
+    if (!config) return null;
+
+    const interactive: any = {
+      type: "button",
+      body: { text: config.bodyText },
+    };
+
+    if (config.headerType !== "NONE") {
+      if (config.headerType === "TEXT") {
+        interactive.header = { type: "text", text: config.headerText };
+      } else {
+        const url = config.headerUrl
+          ? config.headerUrl
+          : config.headerType?.toUpperCase() === "IMAGE"
+            ? upsell.upsellProduct?.mainImage
+            : null;
+        config.headerUrl = url;
+        if (!url) return null;
+        const media = await this.whatsappService.uploadMedia(
+          { id: adminId, adminId },
+          { url },
+        );
+        interactive.header = {
+          type: config.headerType.toLowerCase(),
+          [config.headerType.toLowerCase()]: {
+            id: media?.id,
+            ...(config.headerType === "DOCUMENT"
+              ? { filename: media?.filename }
+              : {}),
+          },
         };
-
-        stats.forEach(s => {
-            const count = parseInt(s.count, 10);
-            const status = s.status;
-            const orderStatusCode = s.orderStatusCode;
-
-            // Total Sent (All records contribute to total sent)
-            result.sent += count;
-
-            if (status === UpsellStatus.ACCEPTED) {
-                if (orderStatusCode === OrderStatus.DELIVERED) {
-                    result.delivered += count;
-                } else {
-                    result.accepted += count;
-                }
-            }
-            else if (status === UpsellStatus.REJECTED) {
-                result.rejected += count;
-            }
-            else if (status === UpsellStatus.EXPIRED) {
-                result.expired += count;
-            }
-            else if (status === UpsellStatus.PENDING) {
-                result.pending += count;
-            }
-
-            else if (status === UpsellStatus.ACCEPTED_NON_ELIGIBLE) {
-                result.acceptedNonEligible += count;
-            }
-            else if (status === UpsellStatus.FAILED_TO_ADD) {
-                result.failedToAdd += count;
-            }
-        });
-
-        return result;
+      }
     }
 
-
-    async remove(me: any, id: string) {
-        const upsell = await this.findOne(me, id);
-        return await this.upsellRepo.remove(upsell);
+    if (config.footerText) {
+      interactive.footer = { text: config.footerText };
     }
 
-    async toggleActive(me: any, id: string) {
-        const upsell = await this.findOne(me, id);
-        upsell.isActive = !upsell.isActive;
-        return await this.upsellRepo.save(upsell);
+    // Add buttons from config
+    if (config.buttons && config.buttons.length > 0) {
+      interactive.action = {
+        buttons: config.buttons.map((btn, idx) => ({
+          type: "reply",
+          reply: {
+            id: `upsell_${upsell.id}_btn_${idx}`,
+            title: btn.text.slice(0, 20), // Meta limit is 20 chars
+          },
+        })),
+      };
     }
 
-    async getUpsellsByProductIds(productIds: string[], adminId: string): Promise<Upsell[]> {
-        return await this.upsellRepo.find({
-            where: {
-                triggerProductId: In(productIds),
-                adminId: adminId,
-                isActive: true,
+    const response = await this.whatsappService.sendMessage(
+      { id: adminId, adminId },
+      {
+        to: order.phoneNumber,
+        messaging_product: "whatsapp",
+        type: "interactive",
+        interactive,
+      },
+    );
+
+    // Save Upsell History record
+    const expiresAt = upsell.expireTimeM
+      ? new Date(Date.now() + upsell.expireTimeM * 60000)
+      : null;
+    const messageId = response.messages[0].id;
+    const history = this.upsellHistoryRepo.create({
+      adminId,
+      upsellId: upsell.id,
+      automationRunId: run?.id,
+      orderId: order.id,
+      messageId,
+      status: UpsellStatus.PENDING,
+      sentConfig: config,
+      triggerProductId: upsell.triggerProductId,
+      upsellProductId: upsell.upsellProductId,
+      upsellSkuId: upsell.upsellSkuId,
+      sentPrice: upsell.upsellPrice,
+      expiresAt,
+    });
+
+    return await this.upsellHistoryRepo.save(history);
+  }
+
+  async applyUpsellByMessageId(me: any, messageId: string) {
+    const adminId = tenantId(me);
+
+    const history = await this.upsellHistoryRepo.findOne({
+      where: { messageId, adminId },
+      order: { createdAt: "DESC" },
+    });
+
+    if (!history) {
+      return {
+        success: false,
+        code: "HISTORY_NOT_FOUND",
+        message: this.translations.t(
+          "domains.upsells.history_not_found_for_message",
+        ),
+      };
+    }
+
+    const result = await this.applyUpsellToOrder(
+      me,
+      history.orderId,
+      history.upsellId,
+    );
+
+    if (
+      result.success ||
+      result.code === "INVALID_ORDER_STATUS" ||
+      result.code === "ORDER_DELIVERED" ||
+      result.code === "UPSELL_EXPIRED"
+    ) {
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.UPSELL_UPDATED,
+        title: this.translations.t("domains.upsells.updated_title"),
+        message: result.message,
+        relatedEntityType: "order",
+        relatedEntityId: String(history.orderId),
+      });
+    }
+
+    return result;
+  }
+
+  async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
+    const adminId = tenantId(me);
+
+    let order: OrderEntity;
+
+    try {
+      order = await this.ordersService.get(me, orderId);
+    } catch (err) {
+      return {
+        success: false,
+        code: "ORDER_NOT_FOUND",
+        message: this.translations.t("domains.upsells.order_not_found"),
+      };
+    }
+
+    if (!order) {
+      return {
+        success: false,
+        code: "ORDER_NOT_FOUND",
+        message: this.translations.t("domains.upsells.order_not_found"),
+      };
+    }
+
+    const upsell = await this.upsellRepo.findOne({
+      where: { id: upsellId, adminId },
+      relations: ["upsellSku"],
+    });
+
+    if (!upsell) {
+      return {
+        success: false,
+        code: "UPSELL_NOT_FOUND",
+        message: this.translations.t(
+          "domains.upsells.can_apply_upsell_to_order",
+          {
+            args: {
+              orderNumber: order.orderNumber,
             },
-            relations: ['triggerProduct', 'upsellProduct', 'upsellSku'],
-        });
+          },
+        ),
+      };
     }
 
-    async getUpsellsByProductIdsExcludingOrderItems(productIds: string[], adminId: string, orderItemVariantIds: string[]): Promise<Upsell[]> {
-        // Get all upsells first
-        const allUpsells = await this.getUpsellsByProductIds(productIds, adminId);
-        // Filter out any upsell whose upsellSkuId is already in the order
-        return allUpsells.filter(upsell => !orderItemVariantIds.includes(upsell.upsellSkuId));
-    }
+    const orderStatusCode = order.status?.code;
 
-    async sendUpsell(upsell: Upsell, order: OrderEntity, run?: AutomationRunEntity) {
-        const adminId = order.adminId;
+    if (
+      orderStatusCode === OrderStatus.DELIVERED ||
+      (orderStatusCode && this.ordersService.isWarehouseStatus(orderStatusCode))
+    ) {
+      const history = await this.upsellHistoryRepo.findOne({
+        where: { orderId, upsellId, adminId },
+        order: { createdAt: "DESC" },
+      });
 
+      if (history && history.status === UpsellStatus.PENDING) {
+        history.status = UpsellStatus.ACCEPTED_NON_ELIGIBLE;
+        history.respondedAt = new Date();
+        await this.upsellHistoryRepo.save(history);
+      }
 
-        const config = upsell.messageConfig;
-        if (!config) return null;
-
-        const interactive: any = {
-            type: 'button',
-            body: { text: config.bodyText },
+      if (orderStatusCode === OrderStatus.DELIVERED) {
+        return {
+          success: false,
+          code: "ORDER_DELIVERED",
+          message: this.translations.t("domains.upsells.order_delivered", {
+            args: {
+              orderNumber: order.orderNumber,
+            },
+          }),
         };
+      }
 
-        if (config.headerType !== 'NONE') {
-            if (config.headerType === 'TEXT') {
-                interactive.header = { type: 'text', text: config.headerText };
-            } else {
-                const url = config.headerUrl ? config.headerUrl : config.headerType?.toUpperCase() === "IMAGE" ? upsell.upsellProduct?.mainImage : null;
-                config.headerUrl = url;
-                if (!url) return null;
-                const media = await this.whatsappService.uploadMedia({ id: adminId, adminId }, { url });
-                interactive.header = {
-                    type: config.headerType.toLowerCase(),
-                    [config.headerType.toLowerCase()]: {
-                        id: media?.id,
-                        ...(config.headerType === 'DOCUMENT' ? { filename: media?.filename } : {})
-                    }
-                };
-            }
-        }
+      return {
+        success: false,
+        code: "INVALID_ORDER_STATUS",
+        message: this.translations.t("domains.upsells.invalid_order_status", {
+          args: {
+            orderNumber: order.orderNumber,
+            status: orderStatusCode,
+          },
+        }),
+        status: orderStatusCode,
+      };
+    }
 
-        if (config.footerText) {
-            interactive.footer = { text: config.footerText };
-        }
+    const history = await this.upsellHistoryRepo.findOne({
+      where: { orderId, upsellId, adminId },
+      order: { createdAt: "DESC" },
+    });
 
-        // Add buttons from config
-        if (config.buttons && config.buttons.length > 0) {
-            interactive.action = {
-                buttons: config.buttons.map((btn, idx) => ({
-                    type: 'reply',
-                    reply: {
-                        id: `upsell_${upsell.id}_btn_${idx}`,
-                        title: btn.text.slice(0, 20) // Meta limit is 20 chars
-                    }
-                }))
-            };
-        }
+    if (!history) {
+      return {
+        success: false,
+        code: "HISTORY_NOT_FOUND",
+        message: this.translations.t("domains.upsells.history_not_found"),
+      };
+    }
 
-        const response = await this.whatsappService.sendMessage(
-            { id: adminId, adminId },
+    if (history.status === UpsellStatus.ACCEPTED) {
+      return {
+        success: false,
+        code: "ALREADY_ACCEPTED",
+        message: this.translations.t("domains.upsells.already_accepted", {
+          args: {
+            sku: upsell.upsellSku.sku,
+            orderNumber: order.orderNumber,
+          },
+        }),
+      };
+    }
+
+    if (
+      history.status === UpsellStatus.EXPIRED ||
+      (history.expiresAt && history.expiresAt < new Date())
+    ) {
+      if (history.status !== UpsellStatus.EXPIRED) {
+        history.status = UpsellStatus.EXPIRED;
+        history.respondedAt = new Date();
+        await this.upsellHistoryRepo.save(history);
+      }
+
+      return {
+        success: false,
+        code: "UPSELL_EXPIRED",
+        message: this.translations.t("domains.upsells.expired", {
+          args: {
+            orderNumber: order.orderNumber,
+          },
+        }),
+      };
+    }
+
+    try {
+      await this.ordersService.update(
+        me,
+        orderId,
+        {
+          items: [
             {
-                to: order.phoneNumber,
-                messaging_product: 'whatsapp',
-                type: 'interactive',
-                interactive,
-
+              variantId: upsell.upsellSkuId,
+              quantity: 1,
+              unitPrice: Number(upsell.upsellPrice),
+              isAdditional: true,
+              addQuantity: true,
             },
-        );
+          ],
+        } as any,
+        null,
+        {
+          skipStockValidation: true,
+        },
+      );
 
-        // Save Upsell History record
-        const expiresAt = upsell.expireTimeM ? new Date(Date.now() + upsell.expireTimeM * 60000) : null;
-        const messageId = response.messages[0].id;
-        const history = this.upsellHistoryRepo.create({
-            adminId,
-            upsellId: upsell.id,
-            automationRunId: run?.id,
-            orderId: order.id,
-            messageId,
-            status: UpsellStatus.PENDING,
-            sentConfig: config,
-            triggerProductId: upsell.triggerProductId,
-            upsellProductId: upsell.upsellProductId,
-            upsellSkuId: upsell.upsellSkuId,
-            sentPrice: upsell.upsellPrice,
-            expiresAt,
-        });
+      history.status = UpsellStatus.ACCEPTED;
+      history.respondedAt = new Date();
 
-        return await this.upsellHistoryRepo.save(history);
+      await this.upsellHistoryRepo.save(history);
+
+      return {
+        success: true,
+        code: "SUCCESS",
+        message: this.translations.t("domains.upsells.applied_successfully", {
+          args: {
+            sku: upsell.upsellSku.sku,
+            orderNumber: order.orderNumber,
+          },
+        }),
+      };
+    } catch (err) {
+      if (history.status === UpsellStatus.PENDING) {
+        history.status = UpsellStatus.FAILED_TO_ADD;
+        history.respondedAt = new Date();
+        await this.upsellHistoryRepo.save(history);
+      }
+
+      await this.notificationService.create({
+        userId: adminId,
+        type: NotificationType.UPSELL_APPLICATION_FAILED,
+        title: this.translations.t("domains.upsells.application_failed_title"),
+        message: this.translations.t(
+          "domains.upsells.application_failed_message",
+          {
+            args: {
+              orderNumber: order.orderNumber,
+              error: err.message,
+            },
+          },
+        ),
+        relatedEntityType: "order",
+        relatedEntityId: order.id,
+      });
+
+      return {
+        success: false,
+        code: "APPLY_FAILED",
+        message: err.message,
+      };
+    }
+  }
+
+  async export(me: any, q: any) {
+    const { records } = await this.list(me, { ...q, limit: 1000, page: 1 });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.upsells.title"),
+    );
+
+    worksheet.columns = [
+      {
+        header: this.translations.t("common.trigger_product"),
+        key: "triggerProduct",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.upsell_product"),
+        key: "upsellProduct",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.upsell_sku"),
+        key: "upsellSku",
+        width: 20,
+      },
+      {
+        header: this.translations.t("common.expire_time_minutes"),
+        key: "expireTimeM",
+        width: 20,
+      },
+      { header: this.translations.t("common.price"), key: "price", width: 15 },
+      {
+        header: this.translations.t("common.status"),
+        key: "status",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.created_at"),
+        key: "createdAt",
+        width: 25,
+      },
+    ];
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    records.forEach((u) => {
+      worksheet.addRow({
+        triggerProduct:
+          u.triggerProduct?.name ||
+          this.translations.t("common.not_available_symbol"),
+        upsellProduct:
+          u.upsellProduct?.name ||
+          this.translations.t("common.not_available_symbol"),
+        upsellSku:
+          u.upsellSku?.sku ||
+          this.translations.t("common.not_available_symbol"),
+        expireTimeM:
+          u.expireTimeM || this.translations.t("common.not_available_symbol"),
+        price: Number(u.upsellPrice || 0),
+        status: u.isActive
+          ? this.translations.t("common.active")
+          : this.translations.t("common.inactive"),
+        createdAt: u.createdAt,
+      });
+    });
+
+    return await workbook.xlsx.writeBuffer();
+  }
+
+  async listHistory(me: any, q?: any) {
+    const adminId = me.tenantId || me.id; // Replace with your tenantId(me) helper
+    const page = Number(q?.page ?? 1);
+    const limit = Number(q?.limit ?? 10);
+    const search = String(q?.search ?? "").trim();
+    const status = q?.status;
+    const orderId = q?.orderId;
+    const upsellId = q?.upsellId;
+
+    const qb = this.upsellHistoryRepo
+      .createQueryBuilder("uh")
+      .leftJoinAndSelect("uh.upsell", "u")
+      .leftJoinAndSelect("uh.triggerProduct", "tp")
+      .leftJoinAndSelect("uh.upsellProduct", "up")
+      .leftJoinAndSelect("uh.upsellSku", "us")
+      .where("uh.adminId = :adminId", { adminId });
+
+    // Filter by Order ID (Crucial for the Order Details Modal)
+    if (orderId) {
+      qb.andWhere("uh.orderId = :orderId", { orderId });
     }
 
-    async applyUpsellByMessageId(me: any, messageId: string) {
-        const adminId = tenantId(me);
-
-        const history = await this.upsellHistoryRepo.findOne({
-            where: { messageId, adminId },
-            order: { createdAt: "DESC" },
-        });
-
-        if (!history) {
-            return {
-                success: false,
-                code: "HISTORY_NOT_FOUND",
-                message: this.translations.t("domains.upsells.history_not_found_for_message"),
-            };
-        }
-
-        const result = await this.applyUpsellToOrder(
-            me,
-            history.orderId,
-            history.upsellId
-        );
-
-        if (
-            result.success ||
-            result.code === "INVALID_ORDER_STATUS" ||
-            result.code === "ORDER_DELIVERED" ||
-            result.code === "UPSELL_EXPIRED"
-        ) {
-            await this.notificationService.create({
-                userId: adminId,
-                type: NotificationType.UPSELL_UPDATED,
-                title: this.translations.t("domains.upsells.updated_title"),
-                message: result.message,
-                relatedEntityType: "order",
-                relatedEntityId: String(history.orderId),
-            });
-        }
-
-        return result;
+    // Filter by Upsell ID
+    if (upsellId) {
+      qb.andWhere("uh.upsellId = :upsellId", { upsellId });
     }
 
-
-    async applyUpsellToOrder(me: any, orderId: string, upsellId: string) {
-        const adminId = tenantId(me);
-
-        let order: OrderEntity;
-
-        try {
-            order = await this.ordersService.get(me, orderId);
-        } catch (err) {
-            return {
-                success: false,
-                code: "ORDER_NOT_FOUND",
-                message: this.translations.t("domains.upsells.order_not_found"),
-            };
-        }
-
-        if (!order) {
-            return {
-                success: false,
-                code: "ORDER_NOT_FOUND",
-                message: this.translations.t("domains.upsells.order_not_found"),
-            };
-        }
-
-
-        const upsell = await this.upsellRepo.findOne({
-            where: { id: upsellId, adminId },
-            relations: ["upsellSku"],
-        });
-
-        if (!upsell) {
-            return {
-                success: false,
-                code: "UPSELL_NOT_FOUND",
-                message: this.translations.t(
-                    "domains.upsells.can_apply_upsell_to_order",
-                    {
-                        args: {
-                            orderNumber: order.orderNumber,
-                        },
-                    }
-                ),
-            };
-        }
-
-
-        const orderStatusCode = order.status?.code;
-
-
-        if (
-            orderStatusCode === OrderStatus.DELIVERED ||
-            (orderStatusCode &&
-                this.ordersService.isWarehouseStatus(orderStatusCode))
-        ) {
-            const history = await this.upsellHistoryRepo.findOne({
-                where: { orderId, upsellId, adminId },
-                order: { createdAt: "DESC" },
-            });
-
-            if (history && history.status === UpsellStatus.PENDING) {
-                history.status = UpsellStatus.ACCEPTED_NON_ELIGIBLE;
-                history.respondedAt = new Date();
-                await this.upsellHistoryRepo.save(history);
-            }
-
-            if (orderStatusCode === OrderStatus.DELIVERED) {
-                return {
-                    success: false,
-                    code: "ORDER_DELIVERED",
-                    message: this.translations.t(
-                        "domains.upsells.order_delivered",
-                        {
-                            args: {
-                                orderNumber: order.orderNumber,
-                            },
-                        }
-                    ),
-                };
-            }
-
-            return {
-                success: false,
-                code: "INVALID_ORDER_STATUS",
-                message: this.translations.t(
-                    "domains.upsells.invalid_order_status",
-                    {
-                        args: {
-                            orderNumber: order.orderNumber,
-                            status: orderStatusCode,
-                        },
-                    }
-                ),
-                status: orderStatusCode,
-            };
-        }
-
-
-        const history = await this.upsellHistoryRepo.findOne({
-            where: { orderId, upsellId, adminId },
-            order: { createdAt: "DESC" },
-        });
-
-
-        if (!history) {
-            return {
-                success: false,
-                code: "HISTORY_NOT_FOUND",
-                message: this.translations.t(
-                    "domains.upsells.history_not_found"
-                ),
-            };
-        }
-
-
-        if (history.status === UpsellStatus.ACCEPTED) {
-            return {
-                success: false,
-                code: "ALREADY_ACCEPTED",
-                message: this.translations.t(
-                    "domains.upsells.already_accepted",
-                    {
-                        args: {
-                            sku: upsell.upsellSku.sku,
-                            orderNumber: order.orderNumber,
-                        },
-                    }
-                ),
-            };
-        }
-
-
-        if (
-            history.status === UpsellStatus.EXPIRED ||
-            (history.expiresAt && history.expiresAt < new Date())
-        ) {
-            if (history.status !== UpsellStatus.EXPIRED) {
-                history.status = UpsellStatus.EXPIRED;
-                history.respondedAt = new Date();
-                await this.upsellHistoryRepo.save(history);
-            }
-
-            return {
-                success: false,
-                code: "UPSELL_EXPIRED",
-                message: this.translations.t(
-                    "domains.upsells.expired",
-                    {
-                        args: {
-                            orderNumber: order.orderNumber,
-                        },
-                    }
-                ),
-            };
-        }
-
-
-        try {
-            await this.ordersService.update(
-                me,
-                orderId,
-                {
-                    items: [
-                        {
-                            variantId: upsell.upsellSkuId,
-                            quantity: 1,
-                            unitPrice: Number(upsell.upsellPrice),
-                            isAdditional: true,
-                            addQuantity: true,
-                        },
-                    ],
-                } as any,
-                null,
-                {
-                    skipStockValidation: true,
-                }
-            );
-
-
-            history.status = UpsellStatus.ACCEPTED;
-            history.respondedAt = new Date();
-
-            await this.upsellHistoryRepo.save(history);
-
-
-            return {
-                success: true,
-                code: "SUCCESS",
-                message: this.translations.t(
-                    "domains.upsells.applied_successfully",
-                    {
-                        args: {
-                            sku: upsell.upsellSku.sku,
-                            orderNumber: order.orderNumber,
-                        },
-                    }
-                ),
-            };
-
-        } catch (err) {
-
-            if (history.status === UpsellStatus.PENDING) {
-                history.status = UpsellStatus.FAILED_TO_ADD;
-                history.respondedAt = new Date();
-                await this.upsellHistoryRepo.save(history);
-            }
-
-
-            await this.notificationService.create({
-                userId: adminId,
-                type: NotificationType.UPSELL_APPLICATION_FAILED,
-                title: this.translations.t(
-                    "domains.upsells.application_failed_title"
-                ),
-                message: this.translations.t(
-                    "domains.upsells.application_failed_message",
-                    {
-                        args: {
-                            orderNumber: order.orderNumber,
-                            error: err.message,
-                        },
-                    }
-                ),
-                relatedEntityType: "order",
-                relatedEntityId: order.id,
-            });
-
-
-            return {
-                success: false,
-                code: "APPLY_FAILED",
-                message: err.message,
-            };
-        }
+    // Filter by Status
+    if (status && status !== "all") {
+      qb.andWhere("uh.status = :status", { status });
     }
 
-    async export(me: any, q: any) {
-        const { records } = await this.list(me, { ...q, limit: 1000, page: 1 });
-
-        const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet(this.translations.t("domains.upsells.title"));
-
-        worksheet.columns = [
-            { header: this.translations.t("common.trigger_product"), key: "triggerProduct", width: 25 },
-            { header: this.translations.t("common.upsell_product"), key: "upsellProduct", width: 25 },
-            { header: this.translations.t("common.upsell_sku"), key: "upsellSku", width: 20 },
-            { header: this.translations.t("common.expire_time_minutes"), key: "expireTimeM", width: 20 },
-            { header: this.translations.t("common.price"), key: "price", width: 15 },
-            { header: this.translations.t("common.status"), key: "status", width: 15 },
-            { header: this.translations.t("common.created_at"), key: "createdAt", width: 25 },
-        ];
-
-        worksheet.getRow(1).font = { bold: true };
-        worksheet.getRow(1).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FFE0E0E0" },
-        };
-
-        records.forEach(u => {
-            worksheet.addRow({
-                triggerProduct: u.triggerProduct?.name || this.translations.t("common.not_available_symbol"),
-                upsellProduct: u.upsellProduct?.name || this.translations.t("common.not_available_symbol"),
-                upsellSku: u.upsellSku?.sku || this.translations.t("common.not_available_symbol"),
-                expireTimeM: u.expireTimeM || this.translations.t("common.not_available_symbol"),
-                price: Number(u.upsellPrice || 0),
-                status: u.isActive
-                    ? this.translations.t("common.active")
-                    : this.translations.t("common.inactive"),
-                createdAt: u.createdAt,
-            });
-        });
-
-        return await workbook.xlsx.writeBuffer();
+    // Date Range Filter
+    // DateFilterUtil.applyToQueryBuilder(qb, 'uh.createdAt', q?.startDate, q?.endDate);
+    if (q?.startDate && q?.endDate) {
+      qb.andWhere("uh.createdAt BETWEEN :startDate AND :endDate", {
+        startDate: q.startDate,
+        endDate: q.endDate,
+      });
     }
 
-
-    async listHistory(me: any, q?: any) {
-        const adminId = me.tenantId || me.id; // Replace with your tenantId(me) helper
-        const page = Number(q?.page ?? 1);
-        const limit = Number(q?.limit ?? 10);
-        const search = String(q?.search ?? '').trim();
-        const status = q?.status;
-        const orderId = q?.orderId;
-        const upsellId = q?.upsellId;
-
-        const qb = this.upsellHistoryRepo.createQueryBuilder('uh')
-            .leftJoinAndSelect('uh.upsell', 'u')
-            .leftJoinAndSelect('uh.triggerProduct', 'tp')
-            .leftJoinAndSelect('uh.upsellProduct', 'up')
-            .leftJoinAndSelect('uh.upsellSku', 'us')
-            .where('uh.adminId = :adminId', { adminId });
-
-        // Filter by Order ID (Crucial for the Order Details Modal)
-        if (orderId) {
-            qb.andWhere('uh.orderId = :orderId', { orderId });
-        }
-
-        // Filter by Upsell ID
-        if (upsellId) {
-            qb.andWhere('uh.upsellId = :upsellId', { upsellId });
-        }
-
-        // Filter by Status
-        if (status && status !== 'all') {
-            qb.andWhere('uh.status = :status', { status });
-        }
-
-        // Date Range Filter
-        // DateFilterUtil.applyToQueryBuilder(qb, 'uh.createdAt', q?.startDate, q?.endDate);
-        if (q?.startDate && q?.endDate) {
-            qb.andWhere('uh.createdAt BETWEEN :startDate AND :endDate', {
-                startDate: q.startDate,
-                endDate: q.endDate,
-            });
-        }
-
-        // Search Filter (Matches product names, SKUs, or message IDs)
-        if (search) {
-            qb.andWhere(new Brackets(sq => {
-                sq.where('tp.name ILIKE :s', { s: `%${search}%` })
-                    .orWhere('up.name ILIKE :s', { s: `%${search}%` })
-                    .orWhere('us.sku ILIKE :s', { s: `%${search}%` })
-                    .orWhere('uh.messageId ILIKE :s', { s: `%${search}%` });
-            }));
-        }
-
-        qb.orderBy('uh.createdAt', 'DESC');
-
-        const [records, total] = await qb
-            .skip((page - 1) * limit)
-            .take(limit)
-            .getManyAndCount();
-
-        return { total_records: total, current_page: page, per_page: limit, records };
+    // Search Filter (Matches product names, SKUs, or message IDs)
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("tp.name ILIKE :s", { s: `%${search}%` })
+            .orWhere("up.name ILIKE :s", { s: `%${search}%` })
+            .orWhere("us.sku ILIKE :s", { s: `%${search}%` })
+            .orWhere("uh.messageId ILIKE :s", { s: `%${search}%` });
+        }),
+      );
     }
 
+    qb.orderBy("uh.createdAt", "DESC");
 
-    async exportHistory(me: any, q: any) {
-        const { records } = await this.listHistory(me, {
-            ...q,
-            limit: 10000,
-            page: 1,
-        });
+    const [records, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
-        const workbook = new ExcelJS.Workbook();
-        const worksheet = workbook.addWorksheet(this.translations.t("domains.upsells.history"));
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
 
-        worksheet.columns = [
-            { header: this.translations.t("common.trigger_product"), key: "triggerProduct", width: 25 },
-            { header: this.translations.t("common.upsell_product"), key: "upsellProduct", width: 25 },
-            { header: this.translations.t("common.upsell_sku"), key: "upsellSku", width: 20 },
-            { header: this.translations.t("common.sent_price"), key: "sentPrice", width: 15 },
-            { header: this.translations.t("common.status"), key: "status", width: 15 },
-            { header: this.translations.t("common.sent_at"), key: "createdAt", width: 22 },
-            { header: this.translations.t("common.responded_at"), key: "respondedAt", width: 22 },
-            { header: this.translations.t("common.expires_at"), key: "expiresAt", width: 22 },
-        ];
+  async exportHistory(me: any, q: any) {
+    const { records } = await this.listHistory(me, {
+      ...q,
+      limit: 10000,
+      page: 1,
+    });
 
-        worksheet.getRow(1).font = { bold: true };
-        worksheet.getRow(1).fill = {
-            type: "pattern",
-            pattern: "solid",
-            fgColor: { argb: "FFE0E0E0" },
-        };
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.upsells.history"),
+    );
 
-        records.forEach(uh => {
-            worksheet.addRow({
-                triggerProduct:
-                    uh.triggerProduct?.name ||
-                    this.translations.t("common.not_available_symbol"),
+    worksheet.columns = [
+      {
+        header: this.translations.t("common.trigger_product"),
+        key: "triggerProduct",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.upsell_product"),
+        key: "upsellProduct",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.upsell_sku"),
+        key: "upsellSku",
+        width: 20,
+      },
+      {
+        header: this.translations.t("common.sent_price"),
+        key: "sentPrice",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.status"),
+        key: "status",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.sent_at"),
+        key: "createdAt",
+        width: 22,
+      },
+      {
+        header: this.translations.t("common.responded_at"),
+        key: "respondedAt",
+        width: 22,
+      },
+      {
+        header: this.translations.t("common.expires_at"),
+        key: "expiresAt",
+        width: 22,
+      },
+    ];
 
-                upsellProduct:
-                    uh.upsellProduct?.name ||
-                    this.translations.t("common.not_available_symbol"),
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
 
-                upsellSku:
-                    uh.upsellSku?.sku ||
-                    this.translations.t("common.not_available_symbol"),
+    records.forEach((uh) => {
+      worksheet.addRow({
+        triggerProduct:
+          uh.triggerProduct?.name ||
+          this.translations.t("common.not_available_symbol"),
 
-                sentPrice: Number(uh.sentPrice || 0),
+        upsellProduct:
+          uh.upsellProduct?.name ||
+          this.translations.t("common.not_available_symbol"),
 
-                status:
-                    uh.status ||
-                    this.translations.t("common.not_available_symbol"),
+        upsellSku:
+          uh.upsellSku?.sku ||
+          this.translations.t("common.not_available_symbol"),
 
-                createdAt: uh.createdAt
-                    ? new Date(uh.createdAt).toLocaleString()
-                    : this.translations.t("common.not_available_symbol"),
+        sentPrice: Number(uh.sentPrice || 0),
 
-                respondedAt: uh.respondedAt
-                    ? new Date(uh.respondedAt).toLocaleString()
-                    : this.translations.t("common.not_available_symbol"),
+        status: uh.status || this.translations.t("common.not_available_symbol"),
 
-                expiresAt: uh.expiresAt
-                    ? new Date(uh.expiresAt).toLocaleString()
-                    : this.translations.t("common.not_available_symbol"),
-            });
-        });
+        createdAt: uh.createdAt
+          ? new Date(uh.createdAt).toLocaleString()
+          : this.translations.t("common.not_available_symbol"),
 
-        return await workbook.xlsx.writeBuffer();
-    }
+        respondedAt: uh.respondedAt
+          ? new Date(uh.respondedAt).toLocaleString()
+          : this.translations.t("common.not_available_symbol"),
+
+        expiresAt: uh.expiresAt
+          ? new Date(uh.expiresAt).toLocaleString()
+          : this.translations.t("common.not_available_symbol"),
+      });
+    });
+
+    return await workbook.xlsx.writeBuffer();
+  }
 }

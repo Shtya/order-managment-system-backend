@@ -43,29 +43,80 @@ const DEFAULT_ISSUE_STATUSES: {
   color: string;
   sortOrder: number;
 }[] = [
-    { nameEn: "Open", nameAr: "مفتوح", code: IssueStatus.OPEN, color: "#2E86DE", sortOrder: 1 },
-    { nameEn: "In Progress", nameAr: "قيد التقدم", code: IssueStatus.IN_PROGRESS, color: "#F39C12", sortOrder: 2 },
-    { nameEn: "Waiting For Employee", nameAr: "في انتظار الموظف", code: IssueStatus.WAITING_FOR_EMPLOYEE, color: "#8E44AD", sortOrder: 3 },
-    { nameEn: "Waiting For Customer", nameAr: "في انتظار العميل", code: IssueStatus.WAITING_FOR_CUSTOMER, color: "#16A085", sortOrder: 4 },
-    { nameEn: "Waiting For Shipping Company", nameAr: "في انتظار شركة الشحن", code: IssueStatus.WAITING_FOR_SHIPPING_COMPANY, color: "#5D6D7E", sortOrder: 5 },
-    { nameEn: "Waiting For Warehouse", nameAr: "في انتظار المخزن", code: IssueStatus.WAITING_FOR_WAREHOUSE, color: "#A93226", sortOrder: 6 },
-    { nameEn: "Solved", nameAr: "تم الحل", code: IssueStatus.SOLVED, color: "#27AE60", sortOrder: 7 },
-    { nameEn: "Cancelled", nameAr: "ملغي", code: IssueStatus.CANCELLED, color: "#CB4335", sortOrder: 8 },
-  ];
+  {
+    nameEn: "Open",
+    nameAr: "مفتوح",
+    code: IssueStatus.OPEN,
+    color: "#2E86DE",
+    sortOrder: 1,
+  },
+  {
+    nameEn: "In Progress",
+    nameAr: "قيد التقدم",
+    code: IssueStatus.IN_PROGRESS,
+    color: "#F39C12",
+    sortOrder: 2,
+  },
+  {
+    nameEn: "Waiting For Employee",
+    nameAr: "في انتظار الموظف",
+    code: IssueStatus.WAITING_FOR_EMPLOYEE,
+    color: "#8E44AD",
+    sortOrder: 3,
+  },
+  {
+    nameEn: "Waiting For Customer",
+    nameAr: "في انتظار العميل",
+    code: IssueStatus.WAITING_FOR_CUSTOMER,
+    color: "#16A085",
+    sortOrder: 4,
+  },
+  {
+    nameEn: "Waiting For Shipping Company",
+    nameAr: "في انتظار شركة الشحن",
+    code: IssueStatus.WAITING_FOR_SHIPPING_COMPANY,
+    color: "#5D6D7E",
+    sortOrder: 5,
+  },
+  {
+    nameEn: "Waiting For Warehouse",
+    nameAr: "في انتظار المخزن",
+    code: IssueStatus.WAITING_FOR_WAREHOUSE,
+    color: "#A93226",
+    sortOrder: 6,
+  },
+  {
+    nameEn: "Solved",
+    nameAr: "تم الحل",
+    code: IssueStatus.SOLVED,
+    color: "#27AE60",
+    sortOrder: 7,
+  },
+  {
+    nameEn: "Cancelled",
+    nameAr: "ملغي",
+    code: IssueStatus.CANCELLED,
+    color: "#CB4335",
+    sortOrder: 8,
+  },
+];
 
 const DEFAULT_ISSUE_CAUSES: {
   nameEn: string;
   nameAr: string;
   sortOrder: number;
 }[] = [
-    { nameEn: "Client Not Responding", nameAr: "العميل لا يرد", sortOrder: 1 },
-    { nameEn: "Wrong Address", nameAr: "عنوان خاطئ", sortOrder: 2 },
-    { nameEn: "Product Damaged", nameAr: "المنتج تالف", sortOrder: 3 },
-    { nameEn: "Delay In Delivery", nameAr: "تأخر التوصيل", sortOrder: 4 },
-    { nameEn: "Customer Refused Order", nameAr: "العميل رفض الطلب", sortOrder: 5 },
-    { nameEn: "Payment Issue", nameAr: "مشكلة في الدفع", sortOrder: 6 },
-
-  ];
+  { nameEn: "Client Not Responding", nameAr: "العميل لا يرد", sortOrder: 1 },
+  { nameEn: "Wrong Address", nameAr: "عنوان خاطئ", sortOrder: 2 },
+  { nameEn: "Product Damaged", nameAr: "المنتج تالف", sortOrder: 3 },
+  { nameEn: "Delay In Delivery", nameAr: "تأخر التوصيل", sortOrder: 4 },
+  {
+    nameEn: "Customer Refused Order",
+    nameAr: "العميل رفض الطلب",
+    sortOrder: 5,
+  },
+  { nameEn: "Payment Issue", nameAr: "مشكلة في الدفع", sortOrder: 6 },
+];
 
 @Injectable()
 export class IssueService implements OnModuleInit {
@@ -90,7 +141,7 @@ export class IssueService implements OnModuleInit {
     private requestTranslations: RequestTranslationService,
     private notificationService: NotificationService,
     private appGateway: AppGateway,
-  ) { }
+  ) {}
 
   private t(key: any) {
     return this.translations.t(key);
@@ -222,9 +273,7 @@ export class IssueService implements OnModuleInit {
     if (assignmentCount > 0) {
       if (isAssignedEmployee) return;
 
-      throw new ForbiddenException(
-        this.t("domains.issues.access_denied"),
-      );
+      throw new ForbiddenException(this.t("domains.issues.access_denied"));
     }
 
     // A role is assigned but no specific employees:
@@ -233,9 +282,7 @@ export class IssueService implements OnModuleInit {
       return;
     }
 
-    throw new ForbiddenException(
-      this.t("domains.issues.access_denied"),
-    );
+    throw new ForbiddenException(this.t("domains.issues.access_denied"));
   }
 
   private async logActivity(
@@ -277,15 +324,17 @@ export class IssueService implements OnModuleInit {
       const found = new Set(users.map((u) => u.id));
       const invalid = uniqueIds.filter((id) => !found.has(id));
       if (invalid.length) {
-        throw new BadRequestException(this.t("domains.issues.employee_not_found"));
+        throw new BadRequestException(
+          this.t("domains.issues.employee_not_found"),
+        );
       }
       const scoped = users.filter(
-        (u) =>
-          u.id === adminId ||
-          u.adminId === adminId
+        (u) => u.id === adminId || u.adminId === adminId,
       );
       if (scoped.length !== users.length) {
-        throw new BadRequestException(this.t("domains.issues.employee_not_found"));
+        throw new BadRequestException(
+          this.t("domains.issues.employee_not_found"),
+        );
       }
     }
 
@@ -448,7 +497,9 @@ export class IssueService implements OnModuleInit {
     }
 
     if (!dto.assignedRoleId) {
-      throw new BadRequestException(this.t("domains.issues.assigned_role_required"));
+      throw new BadRequestException(
+        this.t("domains.issues.assigned_role_required"),
+      );
     }
     await this.requireRole(adminId, dto.assignedRoleId);
 
@@ -476,7 +527,6 @@ export class IssueService implements OnModuleInit {
         });
         customerId = customer.id;
       }
-
     }
 
     const issue = this.issueRepo.create({
@@ -504,9 +554,15 @@ export class IssueService implements OnModuleInit {
       await this.replaceIssueUsers(adminId, saved.id, dto.employeeIds);
     }
 
-    await this.logActivity(saved.id, adminId, me.id, IssueActivityType.CREATED, {
-      title: saved.title,
-    });
+    await this.logActivity(
+      saved.id,
+      adminId,
+      me.id,
+      IssueActivityType.CREATED,
+      {
+        title: saved.title,
+      },
+    );
 
     const recipients = await this.issueRecipientIds(saved);
     await this.notifyUsers(
@@ -615,21 +671,16 @@ export class IssueService implements OnModuleInit {
             .getQuery()}`,
       ).setParameter("assignedEmployeeId", q.assignedEmployeeId);
     }
-  if (q?.isDelayed === true || q?.isDelayed === "true") {
-  qb.andWhere("issue.due_at IS NOT NULL")
-    .andWhere(
-      new Brackets((b) => {
-        // Not resolved yet and the due date has passed
-        b.where(
-          "issue.resolved_at IS NULL AND issue.due_at < NOW()",
-        )
-          // Resolved, but after the due date
-          .orWhere(
-            "issue.resolved_at > issue.due_at",
-          );
-      }),
-    );
-}
+    if (q?.isDelayed === true || q?.isDelayed === "true") {
+      qb.andWhere("issue.due_at IS NOT NULL").andWhere(
+        new Brackets((b) => {
+          // Not resolved yet and the due date has passed
+          b.where("issue.resolved_at IS NULL AND issue.due_at < NOW()")
+            // Resolved, but after the due date
+            .orWhere("issue.resolved_at > issue.due_at");
+        }),
+      );
+    }
     DateFilterUtil.applyToQueryBuilder(
       qb,
       "issue.created_at",
@@ -666,23 +717,16 @@ export class IssueService implements OnModuleInit {
   } {
     try {
       const decoded = JSON.parse(
-        Buffer.from(cursor, "base64url").toString(
-          "utf8",
-        ),
+        Buffer.from(cursor, "base64url").toString("utf8"),
       );
 
-      if (
-        !decoded?.created_at ||
-        !decoded?.id
-      ) {
+      if (!decoded?.created_at || !decoded?.id) {
         throw new Error("Invalid cursor");
       }
 
       return decoded;
     } catch {
-      throw new BadRequestException(
-        this.t("common.invalid_cursor"),
-      );
+      throw new BadRequestException(this.t("common.invalid_cursor"));
     }
   }
 
@@ -732,10 +776,7 @@ export class IssueService implements OnModuleInit {
       .leftJoin("issue.order", "order")
       .addSelect(["order.id", "order.orderNumber"])
       .leftJoinAndSelect("issue.lastMessage", "lastMessage")
-      .leftJoinAndSelect(
-        "issue.lastMessageByUser",
-        "lastMessageByUser",
-      )
+      .leftJoinAndSelect("issue.lastMessageByUser", "lastMessageByUser")
       .where("issue.adminId = :adminId", {
         adminId,
       })
@@ -756,12 +797,9 @@ export class IssueService implements OnModuleInit {
           b.where(
             new Brackets((roleB) => {
               roleB
-                .where(
-                  "issue.assignedRoleId = :myRoleId",
-                  {
-                    myRoleId: me.roleId,
-                  },
-                )
+                .where("issue.assignedRoleId = :myRoleId", {
+                  myRoleId: me.roleId,
+                })
                 .andWhere(
                   (subQb) =>
                     `NOT EXISTS (${subQb
@@ -820,12 +858,9 @@ export class IssueService implements OnModuleInit {
     }
 
     if (q?.assignedRoleId) {
-      qb.andWhere(
-        "issue.assignedRoleId = :assignedRoleId",
-        {
-          assignedRoleId: q.assignedRoleId,
-        },
-      );
+      qb.andWhere("issue.assignedRoleId = :assignedRoleId", {
+        assignedRoleId: q.assignedRoleId,
+      });
     }
 
     if (q?.assignedEmployeeId) {
@@ -836,31 +871,20 @@ export class IssueService implements OnModuleInit {
             .select("1")
             .from(IssueUserEntity, "issueUser")
             .where("issueUser.issueId = issue.id")
-            .andWhere(
-              "issueUser.userId = :assignedEmployeeId",
-            )
+            .andWhere("issueUser.userId = :assignedEmployeeId")
             .getQuery()})`,
-      ).setParameter(
-        "assignedEmployeeId",
-        q.assignedEmployeeId,
-      );
+      ).setParameter("assignedEmployeeId", q.assignedEmployeeId);
     }
 
-   if (
-  q?.isDelayed === true ||
-  q?.isDelayed === "true"
-) {
-  qb.andWhere("issue.due_at IS NOT NULL")
-    .andWhere(
-      new Brackets((b) => {
-        b.where(
-          "issue.resolved_at IS NULL AND issue.due_at < NOW()",
-        ).orWhere(
-          "issue.resolved_at > issue.due_at",
-        );
-      }),
-    );
-}
+    if (q?.isDelayed === true || q?.isDelayed === "true") {
+      qb.andWhere("issue.due_at IS NOT NULL").andWhere(
+        new Brackets((b) => {
+          b.where("issue.resolved_at IS NULL AND issue.due_at < NOW()").orWhere(
+            "issue.resolved_at > issue.due_at",
+          );
+        }),
+      );
+    }
 
     DateFilterUtil.applyToQueryBuilder(
       qb,
@@ -886,31 +910,19 @@ export class IssueService implements OnModuleInit {
      */
 
     if (cursor) {
-      const decodedCursor =
-        this.decodeIssueCursor(cursor);
+      const decodedCursor = this.decodeIssueCursor(cursor);
 
       qb.andWhere(
         new Brackets((b) => {
-          b.where(
-            "issue.created_at < :cursorCreatedAt",
-            {
-              cursorCreatedAt:
-                decodedCursor.created_at,
-            },
-          ).orWhere(
+          b.where("issue.created_at < :cursorCreatedAt", {
+            cursorCreatedAt: decodedCursor.created_at,
+          }).orWhere(
             new Brackets((b2) => {
-              b2.where(
-                "issue.created_at = :cursorCreatedAt",
-                {
-                  cursorCreatedAt:
-                    decodedCursor.created_at,
-                },
-              ).andWhere(
-                "issue.id < :cursorId",
-                {
-                  cursorId: decodedCursor.id,
-                },
-              );
+              b2.where("issue.created_at = :cursorCreatedAt", {
+                cursorCreatedAt: decodedCursor.created_at,
+              }).andWhere("issue.id < :cursorId", {
+                cursorId: decodedCursor.id,
+              });
             }),
           );
         }),
@@ -926,8 +938,7 @@ export class IssueService implements OnModuleInit {
      * If we receive limit + 1, another page exists.
      */
 
-    qb
-      .orderBy("issue.created_at", "DESC")
+    qb.orderBy("issue.created_at", "DESC")
       .addOrderBy("issue.id", "DESC")
       .take(limit + 1);
 
@@ -939,9 +950,7 @@ export class IssueService implements OnModuleInit {
 
     const nextCursor =
       hasNextPage && records.length > 0
-        ? this.encodeIssueCursor(
-          records[records.length - 1],
-        )
+        ? this.encodeIssueCursor(records[records.length - 1])
         : null;
 
     return {
@@ -969,15 +978,10 @@ export class IssueService implements OnModuleInit {
     const adminId = tenantId(me);
 
     if (!adminId) {
-      throw new BadRequestException(
-        this.t("common.missing_admin_id"),
-      );
+      throw new BadRequestException(this.t("common.missing_admin_id"));
     }
 
-    const limit = Math.min(
-      Math.max(Number(q?.limit) || 20, 1),
-      100,
-    );
+    const limit = Math.min(Math.max(Number(q?.limit) || 20, 1), 100);
 
     const statuses = await this.getBoardStatuses(me, q);
 
@@ -985,13 +989,7 @@ export class IssueService implements OnModuleInit {
 
     const columns = await Promise.all(
       statuses.map((status) =>
-        this.getBoardColumn(
-          me,
-          status,
-          q,
-          cursors[status.id] ?? null,
-          limit,
-        ),
+        this.getBoardColumn(me, status, q, cursors[status.id] ?? null, limit),
       ),
     );
 
@@ -1000,43 +998,24 @@ export class IssueService implements OnModuleInit {
     };
   }
 
-  async boardColumn(
-    me: any,
-    statusId: string,
-    q?: any,
-  ) {
+  async boardColumn(me: any, statusId: string, q?: any) {
     const adminId = tenantId(me);
 
     if (!adminId) {
-      throw new BadRequestException(
-        this.t("common.missing_admin_id"),
-      );
+      throw new BadRequestException(this.t("common.missing_admin_id"));
     }
 
-    const limit = Math.min(
-      Math.max(Number(q?.limit) || 20, 1),
-      100,
-    );
+    const limit = Math.min(Math.max(Number(q?.limit) || 20, 1), 100);
 
     const statuses = await this.getBoardStatuses(me, q);
 
-    const status = statuses.find(
-      (item) => item.id === statusId,
-    );
+    const status = statuses.find((item) => item.id === statusId);
 
     if (!status) {
-      throw new NotFoundException(
-        this.t("domains.issues.status_not_found"),
-      );
+      throw new NotFoundException(this.t("domains.issues.status_not_found"));
     }
 
-    return this.getBoardColumn(
-      me,
-      status,
-      q,
-      q?.cursor ?? null,
-      limit,
-    );
+    return this.getBoardColumn(me, status, q, q?.cursor ?? null, limit);
   }
 
   async exportIssues(me: any, q?: any) {
@@ -1068,20 +1047,76 @@ export class IssueService implements OnModuleInit {
 
     worksheet.columns = [
       // { header: this.t("domains.issues.excel_header_issue_id"), key: "id", width: 38 },
-      { header: this.t("domains.issues.excel_header_title"), key: "title", width: 40 },
-      { header: this.t("domains.issues.excel_header_status"), key: "status", width: 22 },
-      { header: this.t("domains.issues.excel_header_cause"), key: "cause", width: 22 },
-      { header: this.t("domains.issues.excel_header_priority"), key: "priority", width: 16 },
-      { header: this.t("domains.issues.excel_header_order_number"), key: "orderNumber", width: 22 },
-      { header: this.t("domains.issues.excel_header_customer_name"), key: "customerName", width: 22 },
-      { header: this.t("domains.issues.excel_header_customer_phone"), key: "customerPhone", width: 18 },
-      { header: this.t("domains.issues.excel_header_assigned_role"), key: "assignedRole", width: 22 },
-      { header: this.t("domains.issues.excel_header_estimated_minutes"), key: "estimatedMinutes", width: 18 },
-      { header: this.t("domains.issues.excel_header_due_at"), key: "due_at", width: 22 },
-      { header: this.t("domains.issues.excel_header_last_message_at"), key: "lastMessageAt", width: 22 },
-      { header: this.t("domains.issues.excel_header_resolved_at"), key: "resolved_at", width: 22 },
-      { header: this.t("domains.issues.excel_header_created_at"), key: "created_at", width: 22 },
-      { header: this.t("domains.issues.excel_header_updated_at"), key: "updated_at", width: 22 },
+      {
+        header: this.t("domains.issues.excel_header_title"),
+        key: "title",
+        width: 40,
+      },
+      {
+        header: this.t("domains.issues.excel_header_status"),
+        key: "status",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_cause"),
+        key: "cause",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_priority"),
+        key: "priority",
+        width: 16,
+      },
+      {
+        header: this.t("domains.issues.excel_header_order_number"),
+        key: "orderNumber",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_customer_name"),
+        key: "customerName",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_customer_phone"),
+        key: "customerPhone",
+        width: 18,
+      },
+      {
+        header: this.t("domains.issues.excel_header_assigned_role"),
+        key: "assignedRole",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_estimated_minutes"),
+        key: "estimatedMinutes",
+        width: 18,
+      },
+      {
+        header: this.t("domains.issues.excel_header_due_at"),
+        key: "due_at",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_last_message_at"),
+        key: "lastMessageAt",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_resolved_at"),
+        key: "resolved_at",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_created_at"),
+        key: "created_at",
+        width: 22,
+      },
+      {
+        header: this.t("domains.issues.excel_header_updated_at"),
+        key: "updated_at",
+        width: 22,
+      },
     ];
 
     worksheet.getRow(1).font = {
@@ -1106,49 +1141,45 @@ export class IssueService implements OnModuleInit {
       throw new BadRequestException(this.t("common.missing_admin_id"));
     }
 
-    const [statusRows, newToday, delayed, total] =
-      await Promise.all([
-        this.issueRepo
-          .createQueryBuilder("issue")
-          .select("issue.statusId", "statusId")
-          .addSelect("COUNT(*)::int", "count")
-          .where("issue.adminId = :adminId", { adminId })
-          .groupBy("issue.statusId")
-          .getRawMany(),
+    const [statusRows, newToday, delayed, total] = await Promise.all([
+      this.issueRepo
+        .createQueryBuilder("issue")
+        .select("issue.statusId", "statusId")
+        .addSelect("COUNT(*)::int", "count")
+        .where("issue.adminId = :adminId", { adminId })
+        .groupBy("issue.statusId")
+        .getRawMany(),
 
-        this.issueRepo
-          .createQueryBuilder("issue")
-          .where("issue.adminId = :adminId", { adminId })
-          .andWhere("issue.created_at >= CURRENT_DATE")
-          .getCount(),
+      this.issueRepo
+        .createQueryBuilder("issue")
+        .where("issue.adminId = :adminId", { adminId })
+        .andWhere("issue.created_at >= CURRENT_DATE")
+        .getCount(),
 
-        this.issueRepo
-          .createQueryBuilder("issue")
-          .leftJoin("issue.status", "status")
-          .where("issue.adminId = :adminId", { adminId })
-          .andWhere("issue.due_at IS NOT NULL")
-          .andWhere(
-            new Brackets((qb) => {
-              qb.where(
-                "issue.resolved_at IS NULL AND issue.due_at < NOW()",
-              ).orWhere(
-                "issue.resolved_at IS NOT NULL AND issue.resolved_at > issue.due_at",
-              );
-            }),
-          )
-          .andWhere(
-            "status.code NOT IN (:...terminalStatuses)",
-            {
-              terminalStatuses: TERMINAL_STATUSES,
-            },
-          )
-          .getCount(),
+      this.issueRepo
+        .createQueryBuilder("issue")
+        .leftJoin("issue.status", "status")
+        .where("issue.adminId = :adminId", { adminId })
+        .andWhere("issue.due_at IS NOT NULL")
+        .andWhere(
+          new Brackets((qb) => {
+            qb.where(
+              "issue.resolved_at IS NULL AND issue.due_at < NOW()",
+            ).orWhere(
+              "issue.resolved_at IS NOT NULL AND issue.resolved_at > issue.due_at",
+            );
+          }),
+        )
+        .andWhere("status.code NOT IN (:...terminalStatuses)", {
+          terminalStatuses: TERMINAL_STATUSES,
+        })
+        .getCount(),
 
-    this.issueRepo
-      .createQueryBuilder("issue")
-      .where("issue.adminId = :adminId", { adminId })
-      .getCount(),
-      ]);
+      this.issueRepo
+        .createQueryBuilder("issue")
+        .where("issue.adminId = :adminId", { adminId })
+        .getCount(),
+    ]);
 
     const byStatus: Record<string, number> = {};
     statusRows.forEach((row) => {
@@ -1196,7 +1227,9 @@ export class IssueService implements OnModuleInit {
       issue.causeId = cause ? cause.id : null;
     }
     if (dto.assignedRoleId !== undefined) {
-      const newRoleId: string | null = dto.assignedRoleId ? String(dto.assignedRoleId) : null;
+      const newRoleId: string | null = dto.assignedRoleId
+        ? String(dto.assignedRoleId)
+        : null;
       if (newRoleId) {
         await this.requireRole(issue.adminId, newRoleId);
       }
@@ -1237,9 +1270,7 @@ export class IssueService implements OnModuleInit {
     const saved = await this.issueRepo.save(issue);
 
     const empIds =
-      dto.employeeIds !== undefined
-        ? dto.employeeIds
-        : dto.assignedEmployeeIds;
+      dto.employeeIds !== undefined ? dto.employeeIds : dto.assignedEmployeeIds;
     if (empIds !== undefined) {
       await this.replaceIssueUsers(
         issue.adminId,
@@ -1251,7 +1282,10 @@ export class IssueService implements OnModuleInit {
 
     await Promise.all(activities);
 
-    this.appGateway.emitIssueUpdated(await this.issueRecipientIds(saved), saved);
+    this.appGateway.emitIssueUpdated(
+      await this.issueRecipientIds(saved),
+      saved,
+    );
 
     return {
       success: true,
@@ -1316,9 +1350,7 @@ export class IssueService implements OnModuleInit {
       records,
       hasMore,
       limit,
-      nextCursor: hasMore
-        ? { value: last.created_at, id: last.id }
-        : undefined,
+      nextCursor: hasMore ? { value: last.created_at, id: last.id } : undefined,
       sortBy: "created_at",
       sortDir,
     };
@@ -1342,10 +1374,11 @@ export class IssueService implements OnModuleInit {
     });
     const saved = await this.messageRepo.save(message);
 
-    const enriched = await this.messageRepo.findOne({
-      where: { id: saved.id } as any,
-      relations: ["sender"],
-    }) ?? saved;
+    const enriched =
+      (await this.messageRepo.findOne({
+        where: { id: saved.id } as any,
+        relations: ["sender"],
+      })) ?? saved;
 
     issue.last_message_at = new Date();
     issue.lastMessageByUserId = me.id;
@@ -1380,12 +1413,7 @@ export class IssueService implements OnModuleInit {
     };
   }
 
-  async updateMessage(
-    me: any,
-    issueId: string,
-    messageId: string,
-    dto: any,
-  ) {
+  async updateMessage(me: any, issueId: string, messageId: string, dto: any) {
     const issue = await this.findTenantIssue(me, issueId);
 
     const message = await this.messageRepo.findOne({
@@ -1598,7 +1626,9 @@ export class IssueService implements OnModuleInit {
     await this.requireCanActOnIssue(me, issue);
 
     if (dto.assignedRoleId !== undefined) {
-      const newRoleId: string | null = dto.assignedRoleId ? String(dto.assignedRoleId) : null;
+      const newRoleId: string | null = dto.assignedRoleId
+        ? String(dto.assignedRoleId)
+        : null;
       if (newRoleId) {
         await this.requireRole(issue.adminId, newRoleId);
       }
@@ -1617,9 +1647,7 @@ export class IssueService implements OnModuleInit {
     const saved = await this.issueRepo.save(issue);
 
     const empIds =
-      dto.employeeIds !== undefined
-        ? dto.employeeIds
-        : dto.assignedEmployeeIds;
+      dto.employeeIds !== undefined ? dto.employeeIds : dto.assignedEmployeeIds;
     if (empIds !== undefined) {
       await this.replaceIssueUsers(
         issue.adminId,
@@ -1699,8 +1727,9 @@ export class IssueService implements OnModuleInit {
     if (q?.search) {
       qb.andWhere(
         new Brackets((b) => {
-          b.where("status.nameEn ILIKE :search", { search: `%${q.search}%` })
-            .orWhere("status.nameAr ILIKE :search");
+          b.where("status.nameEn ILIKE :search", {
+            search: `%${q.search}%`,
+          }).orWhere("status.nameAr ILIKE :search");
         }),
       );
     }
@@ -1729,7 +1758,9 @@ export class IssueService implements OnModuleInit {
     const nameEn = dto.nameEn?.trim();
     const nameAr = dto.nameAr?.trim();
     if (!nameEn) {
-      throw new BadRequestException(this.t("domains.issues.status_name_required"));
+      throw new BadRequestException(
+        this.t("domains.issues.status_name_required"),
+      );
     }
 
     const code = slugify(nameEn).slice(0, 50);
@@ -1786,7 +1817,9 @@ export class IssueService implements OnModuleInit {
       nameAr,
       code,
       description:
-        dto.description !== undefined ? dto.description?.trim() : status.description,
+        dto.description !== undefined
+          ? dto.description?.trim()
+          : status.description,
       color: dto.color?.trim() ?? status.color,
       sortOrder: dto.sortOrder ?? status.sortOrder,
     });
@@ -1846,8 +1879,6 @@ export class IssueService implements OnModuleInit {
     }
   }
 
-
-
   private async assertStatusCodeAvailable(
     adminId: string,
     excludeId: string | null,
@@ -1867,7 +1898,9 @@ export class IssueService implements OnModuleInit {
       qb.andWhere("status.id != :id", { id: excludeId });
     }
     if (await qb.getOne()) {
-      throw new BadRequestException(this.t("domains.issues.status_code_exists"));
+      throw new BadRequestException(
+        this.t("domains.issues.status_code_exists"),
+      );
     }
   }
 
@@ -1885,7 +1918,9 @@ export class IssueService implements OnModuleInit {
       );
     }
 
-    const inUse = await this.issueRepo.count({ where: { statusId: id } as any });
+    const inUse = await this.issueRepo.count({
+      where: { statusId: id } as any,
+    });
     if (inUse > 0) {
       throw new BadRequestException(this.t("domains.issues.status_in_use"));
     }
@@ -1974,11 +2009,31 @@ export class IssueService implements OnModuleInit {
     );
 
     worksheet.columns = [
-      { header: this.t("domains.issues.excel_header_cause_name_en"), key: "nameEn", width: 30 },
-      { header: this.t("domains.issues.excel_header_cause_name_ar"), key: "nameAr", width: 30 },
-      { header: this.t("domains.issues.excel_header_cause_type"), key: "type", width: 14 },
-      { header: this.t("domains.issues.excel_header_cause_sort_order"), key: "sortOrder", width: 12 },
-      { header: this.t("domains.issues.excel_header_cause_issue_count"), key: "issueCount", width: 14 },
+      {
+        header: this.t("domains.issues.excel_header_cause_name_en"),
+        key: "nameEn",
+        width: 30,
+      },
+      {
+        header: this.t("domains.issues.excel_header_cause_name_ar"),
+        key: "nameAr",
+        width: 30,
+      },
+      {
+        header: this.t("domains.issues.excel_header_cause_type"),
+        key: "type",
+        width: 14,
+      },
+      {
+        header: this.t("domains.issues.excel_header_cause_sort_order"),
+        key: "sortOrder",
+        width: 12,
+      },
+      {
+        header: this.t("domains.issues.excel_header_cause_issue_count"),
+        key: "issueCount",
+        width: 14,
+      },
     ];
 
     worksheet.getRow(1).font = {
@@ -2022,34 +2077,39 @@ export class IssueService implements OnModuleInit {
       return qb;
     };
 
-    const [totalCauses, systemCauses, customCauses, mostIssuedCause, mostIssuedLast7Days] =
-      await Promise.all([
-        this.causeRepo
-          .createQueryBuilder("cause")
-          .where(this.causeScope(adminId))
-          .getCount(),
-        this.causeRepo
-          .createQueryBuilder("cause")
-          .where("cause.system = true")
-          .getCount(),
-        this.causeRepo
-          .createQueryBuilder("cause")
-          .where("cause.system = false AND cause.adminId = :adminId", {
-            adminId,
-          })
-          .getCount(),
-        buildMostQuery(),
-        buildMostQuery("issue.created_at >= CURRENT_DATE - INTERVAL '7 days'"),
-      ]);
+    const [
+      totalCauses,
+      systemCauses,
+      customCauses,
+      mostIssuedCause,
+      mostIssuedLast7Days,
+    ] = await Promise.all([
+      this.causeRepo
+        .createQueryBuilder("cause")
+        .where(this.causeScope(adminId))
+        .getCount(),
+      this.causeRepo
+        .createQueryBuilder("cause")
+        .where("cause.system = true")
+        .getCount(),
+      this.causeRepo
+        .createQueryBuilder("cause")
+        .where("cause.system = false AND cause.adminId = :adminId", {
+          adminId,
+        })
+        .getCount(),
+      buildMostQuery(),
+      buildMostQuery("issue.created_at >= CURRENT_DATE - INTERVAL '7 days'"),
+    ]);
 
     const toCard = (r: any) =>
       r
         ? {
-          id: r.id,
-          nameEn: r.nameEn,
-          nameAr: r.nameAr,
-          issueCount: parseInt(r.issueCount, 10),
-        }
+            id: r.id,
+            nameEn: r.nameEn,
+            nameAr: r.nameAr,
+            issueCount: parseInt(r.issueCount, 10),
+          }
         : null;
 
     return {
@@ -2070,8 +2130,9 @@ export class IssueService implements OnModuleInit {
 
   private causeSearch(search?: string) {
     return new Brackets((b) => {
-      b.where("cause.nameEn ILIKE :search", { search: `%${search}%` })
-        .orWhere("cause.nameAr ILIKE :search");
+      b.where("cause.nameEn ILIKE :search", { search: `%${search}%` }).orWhere(
+        "cause.nameAr ILIKE :search",
+      );
     });
   }
 
@@ -2105,7 +2166,9 @@ export class IssueService implements OnModuleInit {
     const nameEn = dto.nameEn?.trim();
     const nameAr = dto.nameAr?.trim();
     if (!nameEn) {
-      throw new BadRequestException(this.t("domains.issues.cause_name_required"));
+      throw new BadRequestException(
+        this.t("domains.issues.cause_name_required"),
+      );
     }
 
     await this.assertCauseNameAvailable(adminId, null, nameEn, nameAr);
@@ -2229,12 +2292,9 @@ export class IssueService implements OnModuleInit {
     const results = await Promise.all(queries.map((qb) => qb.getOne()));
 
     if (results.some(Boolean)) {
-      throw new BadRequestException(
-        this.t("domains.issues.cause_name_exists"),
-      );
+      throw new BadRequestException(this.t("domains.issues.cause_name_exists"));
     }
   }
-
 
   private async requireCause(adminId: string, causeId?: string | null) {
     if (!causeId) return null;

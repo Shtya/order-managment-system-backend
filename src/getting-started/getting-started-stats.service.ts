@@ -25,7 +25,7 @@ export class GettingStartedStatsService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly translations: TranslationService,
-  ) { }
+  ) {}
 
   private ensureSuperAdmin(me: any) {
     if (!me || me.role?.name !== SystemRole.SUPER_ADMIN) {
@@ -76,34 +76,32 @@ export class GettingStartedStatsService {
     }
 
     // 2. Run ALL aggregate queries in parallel – no sequential awaits.
-    const [startedResult, completedAdminIds, totalAdmins] =
-      await Promise.all([
-        // --- a) Number of admins who have at least one onboarding event (started) ---
-        this.eventRepo
-          .createQueryBuilder("e")
-          .select("COUNT(DISTINCT e.adminId)", "count")
-          .getRawOne<{ count: string }>(),
+    const [startedResult, completedAdminIds, totalAdmins] = await Promise.all([
+      // --- a) Number of admins who have at least one onboarding event (started) ---
+      this.eventRepo
+        .createQueryBuilder("e")
+        .select("COUNT(DISTINCT e.adminId)", "count")
+        .getRawOne<{ count: string }>(),
 
-        // --- b) Admins who have completed ALL active items ---
-        // Returns an array of { adminId: '...' } – we only need the count.
-        this.achievementRepo
-          .createQueryBuilder("a")
-          .where("a.type::text IN (:...types)", { types: activeTypes })
-          .groupBy("a.adminId")
-          .having("COUNT(DISTINCT a.type) = :total", { total: totalItems })
-          .select("a.adminId", "adminId")
-          .getRawMany<{ adminId: string }>(),
+      // --- b) Admins who have completed ALL active items ---
+      // Returns an array of { adminId: '...' } – we only need the count.
+      this.achievementRepo
+        .createQueryBuilder("a")
+        .where("a.type::text IN (:...types)", { types: activeTypes })
+        .groupBy("a.adminId")
+        .having("COUNT(DISTINCT a.type) = :total", { total: totalItems })
+        .select("a.adminId", "adminId")
+        .getRawMany<{ adminId: string }>(),
 
-        // --- d) Total number of admin users ---
-        this.userRepo.count({
-          where: { role: { name: SystemRole.ADMIN } },
-        }),
-      ]);
+      // --- d) Total number of admin users ---
+      this.userRepo.count({
+        where: { role: { name: SystemRole.ADMIN } },
+      }),
+    ]);
 
     // 3. Extract & compute final values
     const startedCount = startedResult ? parseInt(startedResult.count, 10) : 0;
     const completedCount = completedAdminIds ? completedAdminIds.length : 0;
-
 
     const neverStartedCount = Math.max(0, totalAdmins - startedCount);
     const overallCompletionPercentage = this.percent(
@@ -372,7 +370,9 @@ export class GettingStartedStatsService {
 
     const result = [];
     for (const item of items) {
-      const itemSteps = (item.steps ?? []).sort((a, b) => a.sortOrder - b.sortOrder);
+      const itemSteps = (item.steps ?? []).sort(
+        (a, b) => a.sortOrder - b.sortOrder,
+      );
       const stepsWithStats = [];
 
       for (const step of itemSteps) {
@@ -507,25 +507,13 @@ export class GettingStartedStatsService {
       finishedCount,
       skippedCount,
 
-      completionPercent: this.percent(
-        completedCount,
-        totalItems,
-      ),
+      completionPercent: this.percent(completedCount, totalItems),
 
-      startedPercent: this.percent(
-        startedCount,
-        totalItems,
-      ),
+      startedPercent: this.percent(startedCount, totalItems),
 
-      finishedPercent: this.percent(
-        finishedCount,
-        totalItems,
-      ),
+      finishedPercent: this.percent(finishedCount, totalItems),
 
-      skippedPercent: this.percent(
-        skippedCount,
-        totalItems,
-      ),
+      skippedPercent: this.percent(skippedCount, totalItems),
     };
   }
 
@@ -756,10 +744,7 @@ export class GettingStartedStatsService {
 
         uniqueStepsViewed,
 
-        stepsProgressPercent: this.percent(
-          uniqueStepsViewed,
-          stepCount,
-        ),
+        stepsProgressPercent: this.percent(uniqueStepsViewed, stepCount),
 
         firstStartedAt: row.first_started_at,
         lastViewedAt: row.last_viewed_at,

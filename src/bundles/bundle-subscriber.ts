@@ -1,45 +1,52 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { DataSource, EntitySubscriberInterface, EventSubscriber, InsertEvent, UpdateEvent } from "typeorm";
+import {
+  DataSource,
+  EntitySubscriberInterface,
+  EventSubscriber,
+  InsertEvent,
+  UpdateEvent,
+} from "typeorm";
 import { BundleEntity } from "entities/bundle.entity";
 import { StoresService } from "src/stores/stores.service";
 
 @EventSubscriber()
 @Injectable()
 export class BundleSubscriber implements EntitySubscriberInterface<BundleEntity> {
-    private readonly logger = new Logger(BundleSubscriber.name);
+  private readonly logger = new Logger(BundleSubscriber.name);
 
-    constructor(
-        private dataSource: DataSource,
-        private readonly storesService: StoresService,
-    ) {
-        this.dataSource.subscribers.push(this);
+  constructor(
+    private dataSource: DataSource,
+    private readonly storesService: StoresService,
+  ) {
+    this.dataSource.subscribers.push(this);
+  }
+
+  listenTo() {
+    return BundleEntity;
+  }
+
+  async afterInsert(event: InsertEvent<BundleEntity>) {
+    const entity = event.entity as BundleEntity;
+    if (!entity.isActive) return;
+
+    // Only sync if assigned to a specific store
+    if (entity.storeId) {
+      await this.storesService.syncBundleToStore(event.entity, null, true);
     }
+  }
 
-    listenTo() {
-        return BundleEntity;
-    }
+  async afterUpdate(event: UpdateEvent<BundleEntity>) {
+    const entity = event.entity as BundleEntity;
 
-    async afterInsert(event: InsertEvent<BundleEntity>) {
-        const entity = event.entity as BundleEntity;
-        if (!entity.isActive) return;
-        
-        // Only sync if assigned to a specific store
-        if (entity.storeId) {
-            await this.storesService.syncBundleToStore(event.entity, null, true);
-        }
-    }
+    if (!entity.storeId) return;
 
-    async afterUpdate(event: UpdateEvent<BundleEntity>) {
-        const entity = event.entity as BundleEntity;
+    const oldEntity = event.databaseEntity;
+    const { adminId, storeId } = oldEntity;
 
-        if (!entity.storeId) return;
-
-        const oldEntity = event.databaseEntity;
-        const { adminId, storeId } = oldEntity;
-        
-        await this.storesService.syncBundleToStore(
-            entity,
-            { adminId, oldStoreId: storeId },
-        true);
-    }
+    await this.storesService.syncBundleToStore(
+      entity,
+      { adminId, oldStoreId: storeId },
+      true,
+    );
+  }
 }

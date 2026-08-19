@@ -1,30 +1,29 @@
-import { forwardRef, Global, Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { PendingUser, Role, User } from 'entities/user.entity';
-import { JwtModule } from '@nestjs/jwt';
-import { AuthService } from './auth.service';
-import { JwtStrategy } from './jwt.strategy';
-import { AuthController } from './auth.controller';
-import { PassportModule } from '@nestjs/passport';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { FirebaseService } from './firebase.service';
-import { UsersModule } from 'src/users/users.module';
-import { MailService } from '../../common/nodemailer';
-
+import { forwardRef, Global, Module } from "@nestjs/common";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { PendingUser, Role, User } from "entities/user.entity";
+import { JwtModule } from "@nestjs/jwt";
+import { AuthService } from "./auth.service";
+import { JwtStrategy } from "./jwt.strategy";
+import { AuthController } from "./auth.controller";
+import { PassportModule } from "@nestjs/passport";
+import { ConfigModule, ConfigService } from "@nestjs/config";
+import { FirebaseService } from "./firebase.service";
+import { UsersModule } from "src/users/users.module";
+import { MailService } from "../../common/nodemailer";
 
 @Module({
   imports: [
     ConfigModule,
     forwardRef(() => UsersModule),
     TypeOrmModule.forFeature([User, Role, PendingUser]),
-    PassportModule.register({ defaultStrategy: 'jwt' }),
+    PassportModule.register({ defaultStrategy: "jwt" }),
 
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET'),
-        signOptions: { expiresIn: '7d' },
+        secret: config.get<string>("JWT_SECRET"),
+        signOptions: { expiresIn: "7d" },
       }),
     }),
   ],
@@ -32,14 +31,13 @@ import { MailService } from '../../common/nodemailer';
   controllers: [AuthController],
   exports: [JwtModule, AuthService, MailService],
 })
-export class AuthModule { }
-
+export class AuthModule {}
 
 // auth-core.module.ts
 @Global()
 @Module({
   imports: [
-    PassportModule.register({ defaultStrategy: 'jwt' }),
+    PassportModule.register({ defaultStrategy: "jwt" }),
     forwardRef(() => AuthModule), // JwtStrategy needs AuthService
   ],
   providers: [JwtStrategy],

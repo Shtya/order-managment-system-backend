@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class BackfillGettingStartedAchievements1760000000000
-  implements MigrationInterface
-{
+export class BackfillGettingStartedAchievements1760000000000 implements MigrationInterface {
   name = "BackfillGettingStartedAchievements1760000000000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {

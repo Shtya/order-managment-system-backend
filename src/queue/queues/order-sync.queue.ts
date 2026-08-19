@@ -4,11 +4,14 @@ import { OrderSyncJobs, QueueNames } from "../common/queue.constants";
 import { Job, JobsOptions, MetricsTime, Queue } from "bullmq";
 import { OrderEntity } from "entities/order.entity";
 import { StoresService } from "src/stores/stores.service";
-import { QueueDelayConfig, QueueDelayService } from "../common/queue-delay.service";
+import {
+  QueueDelayConfig,
+  QueueDelayService,
+} from "../common/queue-delay.service";
 import { StoreProvider } from "entities/stores.entity";
 import { ProviderCode } from "src/shipping/providers/shipping-provider.interface";
 
-import { createHash } from 'crypto';
+import { createHash } from "crypto";
 import { BulkAssignOrderDto } from "dto/shipping.dto";
 
 @Injectable()
@@ -16,7 +19,7 @@ export class OrderSyncQueueService {
   constructor(
     @InjectQueue(QueueNames.ORDER_SYNC)
     private readonly orderSyncQueue: Queue,
-  ) { }
+  ) {}
 
   private async addJob(
     adminId: string,
@@ -39,28 +42,25 @@ export class OrderSyncQueueService {
         // jobId: options.jobId,
         ...options,
         jobId: undefined,
-      }
+      },
     );
   }
 
-  async enqueueBulkOrderCreate(
-    adminId: string,
-    orders: any[],
-  ) {
+  async enqueueBulkOrderCreate(adminId: string, orders: any[]) {
     if (!orders?.length) return;
 
     // Extract order identifiers to generate consistent hash
     // If orders don't have id, use Date.now() as fallback
     let orderHash;
-    const orderIds = orders.map(o => o.id || o.orderId).filter(Boolean);
+    const orderIds = orders.map((o) => o.id || o.orderId).filter(Boolean);
     if (orderIds.length === orders.length) {
-      orderHash = createHash('sha1')
-        .update([...orderIds].sort().join(','))
-        .digest('hex');
+      orderHash = createHash("sha1")
+        .update([...orderIds].sort().join(","))
+        .digest("hex");
     } else {
       orderHash = Date.now().toString();
     }
-    
+
     const jobId = `bulk-orders::${adminId}:${orderHash}`;
 
     await this.addJob(
@@ -73,24 +73,45 @@ export class OrderSyncQueueService {
       },
       {
         jobId,
-      }
+      },
     );
   }
 
-  async enqueueOrderStatusSync(order: OrderEntity, storeId: string, storeType: StoreProvider, newStatusId: string, oldStatusId?: string) {
-    await this.addJob(order.adminId, OrderSyncJobs.SYNC_ORDER_STATUS, storeType, {
-      orderId: order.id,
-      newStatusId,
-      storeId,
-      oldStatusId,
-    });
+  async enqueueOrderStatusSync(
+    order: OrderEntity,
+    storeId: string,
+    storeType: StoreProvider,
+    newStatusId: string,
+    oldStatusId?: string,
+  ) {
+    await this.addJob(
+      order.adminId,
+      OrderSyncJobs.SYNC_ORDER_STATUS,
+      storeType,
+      {
+        orderId: order.id,
+        newStatusId,
+        storeId,
+        oldStatusId,
+      },
+    );
   }
 
-  async enqueueRetryFailedOrder(adminId: string, failureId: string, provider: StoreProvider) {
+  async enqueueRetryFailedOrder(
+    adminId: string,
+    failureId: string,
+    provider: StoreProvider,
+  ) {
     const jobId = `retry-failed-order:${failureId}`;
-    await this.addJob(adminId, OrderSyncJobs.RETRY_FAILED_ORDER, provider, {
-      failureId,
-    }, { jobId });
+    await this.addJob(
+      adminId,
+      OrderSyncJobs.RETRY_FAILED_ORDER,
+      provider,
+      {
+        failureId,
+      },
+      { jobId },
+    );
   }
 
   async enqueueBulkShippingTasks(
@@ -100,10 +121,10 @@ export class OrderSyncQueueService {
   ) {
     if (!dto?.items?.length) return;
 
-    const orderHash = createHash('sha1')
-      .update([...dto.items.map(item => item.orderId)].sort().join(','))
-      .digest('hex');
-      
+    const orderHash = createHash("sha1")
+      .update([...dto.items.map((item) => item.orderId)].sort().join(","))
+      .digest("hex");
+
     const jobId = `bulk-shipping:${adminId}:${orderHash}`;
 
     await this.addJob(
@@ -117,7 +138,7 @@ export class OrderSyncQueueService {
       },
       {
         jobId,
-      }
+      },
     );
   }
 }
@@ -132,7 +153,7 @@ export class OrderSyncQueueService {
 export class OrderSyncWorkerService extends WorkerHost {
   private readonly logger = new Logger(OrderSyncWorkerService.name);
   private readonly queueConfig: Partial<QueueDelayConfig> = {
-    keyPrefix: 'order-sync',
+    keyPrefix: "order-sync",
     maxPerUser: 3,
   };
 

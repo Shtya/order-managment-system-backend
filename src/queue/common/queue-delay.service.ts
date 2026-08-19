@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { Semaphore } from 'redis-semaphore';
-import { RedisService } from 'common/redis/RedisService';
-import { Job, DelayedError } from 'bullmq';
+import { Injectable } from "@nestjs/common";
+import { Semaphore } from "redis-semaphore";
+import { RedisService } from "common/redis/RedisService";
+import { Job, DelayedError } from "bullmq";
 
 export interface QueueDelayConfig {
   baseDelayMs: number;
@@ -18,7 +18,7 @@ const DEFAULT_CONFIG: QueueDelayConfig = {
   jitterFactor: 0.3,
   maxPerUser: 1,
   lockTimeout: 60000,
-   keyPrefix: 'user-slot',
+  keyPrefix: "user-slot",
 };
 
 @Injectable()
@@ -43,7 +43,7 @@ export class QueueDelayService {
       ...DEFAULT_CONFIG,
       ...config,
     };
-    const semaphoreKey = `${mergedConfig.keyPrefix}:${userId}`;  // ← uses config
+    const semaphoreKey = `${mergedConfig.keyPrefix}:${userId}`; // ← uses config
     const semaphore = new Semaphore(
       this.redisService.redisClient,
       semaphoreKey,

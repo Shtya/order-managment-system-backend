@@ -35,7 +35,7 @@ const categoriesStorage = diskStorage({
 @Controller("categories")
 @RequireSubscription()
 export class CategoriesController {
-  constructor(private cats: CategoriesService) { }
+  constructor(private cats: CategoriesService) {}
 
   @Permissions("categories.read")
   @Get()
@@ -50,7 +50,6 @@ export class CategoriesController {
     @Query("slug") slug: string,
     @Query("category") category: string,
   ) {
-
     return this.cats.checkSlug(req.user, slug, category);
   }
 
@@ -65,13 +64,13 @@ export class CategoriesController {
   @UseInterceptors(
     FileFieldsInterceptor([{ name: "image", maxCount: 1 }], {
       storage: categoriesStorage,
-    })
+    }),
   )
   create(
     @Req() req: any,
     @UploadedFiles()
     files: { image?: Express.Multer.File[] },
-    @Body() body: any
+    @Body() body: any,
   ) {
     const dto: CreateCategoryDto = {
       name: body.name,
@@ -88,19 +87,19 @@ export class CategoriesController {
   @UseInterceptors(
     FileFieldsInterceptor([{ name: "image", maxCount: 1 }], {
       storage: categoriesStorage,
-    })
+    }),
   )
   update(
     @Req() req: any,
     @Param("id") id: string,
     @UploadedFiles()
     files: { image?: Express.Multer.File[] },
-    @Body() body: any
+    @Body() body: any,
   ) {
     const dto: UpdateCategoryDto = {
       name: body.name,
       slug: body.slug,
-      removeImage: !!body.removeImage
+      removeImage: !!body.removeImage,
     };
     if (files?.image?.[0]) {
       dto.image = `/uploads/categories/${files.image[0].filename}`;
@@ -113,7 +112,7 @@ export class CategoriesController {
   duplicate(
     @Req() req: any,
     @Param("id") id: string,
-    @Body() body: { name: string; slug: string }
+    @Body() body: { name: string; slug: string },
   ) {
     return this.cats.duplicate(req.user, id, body);
   }
@@ -123,5 +122,4 @@ export class CategoriesController {
   remove(@Req() req: any, @Param("id") id: string) {
     return this.cats.remove(req.user, id);
   }
-
 }

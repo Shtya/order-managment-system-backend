@@ -1,196 +1,273 @@
-import { BadRequestException, forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
 import * as crypto from "crypto";
-import { WhatsappApiService, WhatsappMessageResponsePayload, WhatsappSendMessagePayload, WhatsappUploadMediaPayload } from './services/WhatsappApi.service';
-import { EmbeddedSignupDto, ReplaceAccessTokenDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
-import { ConversationEntity, ConversationStatus, MessageDirection, MessageStatus, WebhookEventStatus, WebhookEventType, WhatsappAccountEntity, WhatsappMessageEntity, WhatsappMessageType, WhatsappTemplateEntity, WhatsappWebhookEventEntity, TemplateStatus, TemplateQuality, MessageActionIntent, MessageActionStatus } from 'entities/whatsapp.entity';
-import { AutomationFlowEntity, AutomationRunEntity, RunStatus } from 'entities/automation.entity';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Brackets, Repository, Not, LessThanOrEqual, In } from 'typeorm';
-import { WhatsappTemplateService } from './services/WhatsappTemplate.service';
-import { getErrorMessage, imageSrc, calculateRange, isLessThanOneDay, normalizeWhatsappImageFile } from 'common/healpers';
-import { AutomationQueueService } from 'src/queue/queues/automations.queue';
-import { OrdersService } from 'src/orders/services/orders.service';
-import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
-import { ConversationService } from 'src/conversation/conversation.service';
-import axios from 'axios';
-import { RedisService } from 'common/redis/RedisService';
-import { subDays } from 'date-fns';
-import { CustomerService } from 'src/customer/customer.service';
-import { CustomerEntity } from 'entities/customers.entity';
-import { AppGateway } from 'common/app.gateway';
-import { UpsellsService } from 'src/upsells/upsells.service';
-import { tenantId } from 'src/category/category.service';
-import { OrderEntity, OrderStatus, PaymentMethod } from 'entities/order.entity';
-import { NotificationService } from 'src/notifications/notification.service';
-import { NotificationType } from 'entities/notifications.entity';
-import { ClientSettingsService } from 'src/client-settings/client-settings.service';
-import { RequestTranslationService, TranslationService, I18nKey } from 'common/translation.service';
-import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
-import { GettingStartedAchievementType } from 'entities/getting-started.entity';
+import {
+  WhatsappApiService,
+  WhatsappMessageResponsePayload,
+  WhatsappSendMessagePayload,
+  WhatsappUploadMediaPayload,
+} from "./services/WhatsappApi.service";
+import {
+  EmbeddedSignupDto,
+  ReplaceAccessTokenDto,
+  UpdateManualAccountDto,
+} from "dto/whatsapp.dto";
+import {
+  ConversationEntity,
+  ConversationStatus,
+  MessageDirection,
+  MessageStatus,
+  WebhookEventStatus,
+  WebhookEventType,
+  WhatsappAccountEntity,
+  WhatsappMessageEntity,
+  WhatsappMessageType,
+  WhatsappTemplateEntity,
+  WhatsappWebhookEventEntity,
+  TemplateStatus,
+  TemplateQuality,
+  MessageActionIntent,
+  MessageActionStatus,
+} from "entities/whatsapp.entity";
+import {
+  AutomationFlowEntity,
+  AutomationRunEntity,
+  RunStatus,
+} from "entities/automation.entity";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Brackets, Repository, Not, LessThanOrEqual, In } from "typeorm";
+import { WhatsappTemplateService } from "./services/WhatsappTemplate.service";
+import {
+  getErrorMessage,
+  imageSrc,
+  calculateRange,
+  isLessThanOneDay,
+  normalizeWhatsappImageFile,
+} from "common/healpers";
+import { AutomationQueueService } from "src/queue/queues/automations.queue";
+import { OrdersService } from "src/orders/services/orders.service";
+import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { ConversationService } from "src/conversation/conversation.service";
+import axios from "axios";
+import { RedisService } from "common/redis/RedisService";
+import { subDays } from "date-fns";
+import { CustomerService } from "src/customer/customer.service";
+import { CustomerEntity } from "entities/customers.entity";
+import { AppGateway } from "common/app.gateway";
+import { UpsellsService } from "src/upsells/upsells.service";
+import { tenantId } from "src/category/category.service";
+import { OrderEntity, OrderStatus, PaymentMethod } from "entities/order.entity";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
+import {
+  RequestTranslationService,
+  TranslationService,
+  I18nKey,
+} from "common/translation.service";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 @Injectable()
 export class WhatsappService {
-    protected readonly logger = new Logger(this.constructor.name);
-    constructor(
-        private readonly whatsappApi: WhatsappApiService,
-        @InjectRepository(WhatsappAccountEntity)
-        private readonly accountRepo: Repository<WhatsappAccountEntity>,
-        @InjectRepository(WhatsappMessageEntity)
-        private readonly messageRepo: Repository<WhatsappMessageEntity>,
-        @InjectRepository(WhatsappWebhookEventEntity)
-        private readonly webhookRepo: Repository<WhatsappWebhookEventEntity>,
-        @InjectRepository(WhatsappTemplateEntity)
-        private readonly templateRepo: Repository<WhatsappTemplateEntity>,
-        private readonly templateService: WhatsappTemplateService,
-        @Inject(forwardRef(() => AutomationQueueService))
-        private readonly automationQueueService: AutomationQueueService,
-        @Inject(forwardRef(() => OrdersService))
-        private readonly orderService: OrdersService,
-        @Inject(forwardRef(() => ConversationService))
-        private readonly conversationService: ConversationService,
-        @InjectRepository(OrderEntity)
-        private readonly orderRepo: Repository<OrderEntity>,
-        @InjectRepository(ConversationEntity)
-        private readonly conversationRepo: Repository<ConversationEntity>,
-        @InjectRepository(CustomerEntity)
-        private readonly customerRepo: Repository<CustomerEntity>,
-        @Inject(forwardRef(() => CustomerService))
-        private readonly customerService: CustomerService,
-        private readonly appGateway: AppGateway,
-        private readonly redisService: RedisService,
-        @Inject(forwardRef(() => UpsellsService))
-        private readonly upsellsService: UpsellsService,
-        @InjectRepository(AutomationRunEntity)
-        private readonly runRepo: Repository<AutomationRunEntity>,
-        private readonly notificationService: NotificationService,
-        private readonly clientSettingsService: ClientSettingsService,
-        private readonly translations: TranslationService,
-        private requestTranslations: RequestTranslationService,
-        private readonly onboardingAchievementService: OnboardingAchievementService,
-    ) {
+  protected readonly logger = new Logger(this.constructor.name);
+  constructor(
+    private readonly whatsappApi: WhatsappApiService,
+    @InjectRepository(WhatsappAccountEntity)
+    private readonly accountRepo: Repository<WhatsappAccountEntity>,
+    @InjectRepository(WhatsappMessageEntity)
+    private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @InjectRepository(WhatsappWebhookEventEntity)
+    private readonly webhookRepo: Repository<WhatsappWebhookEventEntity>,
+    @InjectRepository(WhatsappTemplateEntity)
+    private readonly templateRepo: Repository<WhatsappTemplateEntity>,
+    private readonly templateService: WhatsappTemplateService,
+    @Inject(forwardRef(() => AutomationQueueService))
+    private readonly automationQueueService: AutomationQueueService,
+    @Inject(forwardRef(() => OrdersService))
+    private readonly orderService: OrdersService,
+    @Inject(forwardRef(() => ConversationService))
+    private readonly conversationService: ConversationService,
+    @InjectRepository(OrderEntity)
+    private readonly orderRepo: Repository<OrderEntity>,
+    @InjectRepository(ConversationEntity)
+    private readonly conversationRepo: Repository<ConversationEntity>,
+    @InjectRepository(CustomerEntity)
+    private readonly customerRepo: Repository<CustomerEntity>,
+    @Inject(forwardRef(() => CustomerService))
+    private readonly customerService: CustomerService,
+    private readonly appGateway: AppGateway,
+    private readonly redisService: RedisService,
+    @Inject(forwardRef(() => UpsellsService))
+    private readonly upsellsService: UpsellsService,
+    @InjectRepository(AutomationRunEntity)
+    private readonly runRepo: Repository<AutomationRunEntity>,
+    private readonly notificationService: NotificationService,
+    private readonly clientSettingsService: ClientSettingsService,
+    private readonly translations: TranslationService,
+    private requestTranslations: RequestTranslationService,
+    private readonly onboardingAchievementService: OnboardingAchievementService,
+  ) {}
 
+  async getMessagesByTypeStats(me: any, filters: any = {}) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
     }
 
-    async getMessagesByTypeStats(me: any, filters: any = {}) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    const { finalStartDate, finalEndDate } =
+      this.getDashboardDateRange(filters);
 
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+    const qb = this.messageRepo
+      .createQueryBuilder("m")
+      .select("m.messageType", "type")
+      .addSelect("COUNT(*)", "count")
+      .where("m.adminId = :adminId", { adminId })
+      .andWhere("m.createdAt >= :finalStartDate", { finalStartDate })
+      .andWhere("m.createdAt <= :finalEndDate", { finalEndDate });
 
-        const qb = this.messageRepo
-            .createQueryBuilder('m')
-            .select('m.messageType', 'type')
-            .addSelect('COUNT(*)', 'count')
-            .where('m.adminId = :adminId', { adminId })
-            .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
-            .andWhere('m.createdAt <= :finalEndDate', { finalEndDate });
-
-        if (filters.accountId) {
-            qb.andWhere('m.accountId = :accountId', { accountId: filters.accountId });
-        }
-
-        return qb.groupBy('m.messageType').orderBy('count', 'DESC').getRawMany();
+    if (filters.accountId) {
+      qb.andWhere("m.accountId = :accountId", { accountId: filters.accountId });
     }
 
-    async getTopClickedButtons(me: any, limit = 5, filters: any = {}) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    return qb.groupBy("m.messageType").orderBy("count", "DESC").getRawMany();
+  }
 
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
-
-        const buttonTextExpr =
-            "COALESCE(m.content->'interactive'->'button_reply'->>'title', m.content->'button'->>'text')";
-
-        const qb = this.messageRepo
-            .createQueryBuilder('m')
-            .select(buttonTextExpr, 'buttonText')
-            .addSelect('COUNT(*)', 'count')
-            .where('m.adminId = :adminId', { adminId })
-            .andWhere('m.direction = :direction', {
-                direction: MessageDirection.INBOUND,
-            })
-            .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
-            .andWhere('m.createdAt <= :finalEndDate', { finalEndDate })
-            .andWhere(
-                new Brackets((qb) => {
-                    qb.where(
-                        "m.content->'interactive'->'button_reply'->>'title' IS NOT NULL"
-                    ).orWhere(
-                        "m.content->'button'->>'text' IS NOT NULL"
-                    );
-                }),
-            );
-
-        if (filters.accountId) {
-            qb.andWhere('m.accountId = :accountId', { accountId: filters.accountId });
-        }
-
-        return qb.groupBy(buttonTextExpr).orderBy('count', 'DESC').limit(limit).getRawMany();
+  async getTopClickedButtons(me: any, limit = 5, filters: any = {}) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
     }
 
-    async getTopAutomations(me: any, limit = 5, filters: any = {}) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    const { finalStartDate, finalEndDate } =
+      this.getDashboardDateRange(filters);
 
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
+    const buttonTextExpr =
+      "COALESCE(m.content->'interactive'->'button_reply'->>'title', m.content->'button'->>'text')";
 
-        const qb = this.runRepo
-            .createQueryBuilder('run')
-            .innerJoin('run.automationFlow', 'flow')
-            .select('flow.id', 'id')
-            .addSelect('flow.name', 'name')
-            .addSelect('COUNT(run.id)', 'totalRuns')
-            .addSelect(`COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.COMPLETED}')`, 'completed')
-            .addSelect(`COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.FAILED}')`, 'failed')
-            .addSelect(`COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.PAUSED}')`, 'paused')
-            .where('run.adminId = :adminId', { adminId })
-            .andWhere('run.startedAt >= :finalStartDate', { finalStartDate })
-            .andWhere('run.startedAt <= :finalEndDate', { finalEndDate });
+    const qb = this.messageRepo
+      .createQueryBuilder("m")
+      .select(buttonTextExpr, "buttonText")
+      .addSelect("COUNT(*)", "count")
+      .where("m.adminId = :adminId", { adminId })
+      .andWhere("m.direction = :direction", {
+        direction: MessageDirection.INBOUND,
+      })
+      .andWhere("m.createdAt >= :finalStartDate", { finalStartDate })
+      .andWhere("m.createdAt <= :finalEndDate", { finalEndDate })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where(
+            "m.content->'interactive'->'button_reply'->>'title' IS NOT NULL",
+          ).orWhere("m.content->'button'->>'text' IS NOT NULL");
+        }),
+      );
 
-        // if (filters.accountId) {
-        //     // Join with messages to filter runs that sent messages through this account
-        //     qb.innerJoin(WhatsappMessageEntity, 'm', 'm.automationRunId = run.id')
-        //       .andWhere('m.accountId = :accountId', { accountId: filters.accountId });
-        // }
-
-        const stats = await qb
-            .groupBy('flow.id')
-            .addGroupBy('flow.name')
-            .orderBy('COUNT(run.id)', 'DESC')
-            .addOrderBy(
-                `CASE WHEN COUNT(run.id) > 0 THEN (COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.COMPLETED}') * 100.0 / NULLIF(COUNT(run.id), 0)) ELSE 0 END`,
-                'DESC'
-            )
-            .limit(limit)
-            .getRawMany();
-
-        // Calculate success rate and sort
-        const results = stats.map(s => {
-            const total = parseInt(s.totalRuns, 10);
-            const completed = parseInt(s.completed, 10);
-            const successRate = total > 0 ? (completed / total) * 100 : 0;
-            return {
-                ...s,
-                totalRuns: total,
-                completed,
-                failed: parseInt(s.failed, 10),
-                paused: parseInt(s.paused, 10),
-                successRate: Math.round(successRate * 100) / 100
-            };
-        });
-
-        return results;
+    if (filters.accountId) {
+      qb.andWhere("m.accountId = :accountId", { accountId: filters.accountId });
     }
 
-    async getTopTemplates(me: any, limit = 5, filters: any = {}) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    return qb
+      .groupBy(buttonTextExpr)
+      .orderBy("count", "DESC")
+      .limit(limit)
+      .getRawMany();
+  }
 
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
-        const accountFilter = filters.accountId ? `AND "accountId" = '${filters.accountId}'` : '';
+  async getTopAutomations(me: any, limit = 5, filters: any = {}) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-        // Single optimized query using CTEs to get sent, read and click stats
-        const query = `
+    const { finalStartDate, finalEndDate } =
+      this.getDashboardDateRange(filters);
+
+    const qb = this.runRepo
+      .createQueryBuilder("run")
+      .innerJoin("run.automationFlow", "flow")
+      .select("flow.id", "id")
+      .addSelect("flow.name", "name")
+      .addSelect("COUNT(run.id)", "totalRuns")
+      .addSelect(
+        `COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.COMPLETED}')`,
+        "completed",
+      )
+      .addSelect(
+        `COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.FAILED}')`,
+        "failed",
+      )
+      .addSelect(
+        `COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.PAUSED}')`,
+        "paused",
+      )
+      .where("run.adminId = :adminId", { adminId })
+      .andWhere("run.startedAt >= :finalStartDate", { finalStartDate })
+      .andWhere("run.startedAt <= :finalEndDate", { finalEndDate });
+
+    // if (filters.accountId) {
+    //     // Join with messages to filter runs that sent messages through this account
+    //     qb.innerJoin(WhatsappMessageEntity, 'm', 'm.automationRunId = run.id')
+    //       .andWhere('m.accountId = :accountId', { accountId: filters.accountId });
+    // }
+
+    const stats = await qb
+      .groupBy("flow.id")
+      .addGroupBy("flow.name")
+      .orderBy("COUNT(run.id)", "DESC")
+      .addOrderBy(
+        `CASE WHEN COUNT(run.id) > 0 THEN (COUNT(run.id) FILTER (WHERE run.status = '${RunStatus.COMPLETED}') * 100.0 / NULLIF(COUNT(run.id), 0)) ELSE 0 END`,
+        "DESC",
+      )
+      .limit(limit)
+      .getRawMany();
+
+    // Calculate success rate and sort
+    const results = stats.map((s) => {
+      const total = parseInt(s.totalRuns, 10);
+      const completed = parseInt(s.completed, 10);
+      const successRate = total > 0 ? (completed / total) * 100 : 0;
+      return {
+        ...s,
+        totalRuns: total,
+        completed,
+        failed: parseInt(s.failed, 10),
+        paused: parseInt(s.paused, 10),
+        successRate: Math.round(successRate * 100) / 100,
+      };
+    });
+
+    return results;
+  }
+
+  async getTopTemplates(me: any, limit = 5, filters: any = {}) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const { finalStartDate, finalEndDate } =
+      this.getDashboardDateRange(filters);
+    const accountFilter = filters.accountId
+      ? `AND "accountId" = '${filters.accountId}'`
+      : "";
+
+    // Single optimized query using CTEs to get sent, read and click stats
+    const query = `
             WITH template_messages AS (
                 SELECT 
                     content->'template'->>'name' as name,
@@ -237,48 +314,57 @@ export class WhatsappService {
             LIMIT $2;
         `;
 
-        const stats = await this.messageRepo.query(query, [adminId, limit, finalStartDate, finalEndDate]);
+    const stats = await this.messageRepo.query(query, [
+      adminId,
+      limit,
+      finalStartDate,
+      finalEndDate,
+    ]);
 
-        // Merge with Template Entity data to get categories
-        const templates = await this.templateRepo.find({
-            where: {
-                adminId,
-                name: In(stats.map(s => s.name))
-            }
-        });
+    // Merge with Template Entity data to get categories
+    const templates = await this.templateRepo.find({
+      where: {
+        adminId,
+        name: In(stats.map((s) => s.name)),
+      },
+    });
 
-        return stats.map(s => {
-            const template = templates.find(t => t.name === s.name);
-            return {
-                ...s,
-                category: template?.category || 'UNKNOWN',
-                sentCount: parseInt(s.sentCount, 10),
-                readCount: parseInt(s.readCount, 10),
-                clickCount: parseInt(s.clickCount, 10),
-            };
-        });
+    return stats.map((s) => {
+      const template = templates.find((t) => t.name === s.name);
+      return {
+        ...s,
+        category: template?.category || "UNKNOWN",
+        sentCount: parseInt(s.sentCount, 10),
+        readCount: parseInt(s.readCount, 10),
+        clickCount: parseInt(s.clickCount, 10),
+      };
+    });
+  }
+
+  public async getActivityHeatmap(me: any, filters: any = {}) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
     }
 
-    public async getActivityHeatmap(me: any, filters: any = {}) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    // 1. Calculate a strict 7-day window (today + 6 previous days)
+    const finalEndDate = new Date(); // Current date and time
+    const finalStartDate = new Date();
+    finalStartDate.setDate(finalStartDate.getDate() - 6);
+    finalStartDate.setHours(0, 0, 0, 0); // Start at midnight 6 days ago
 
-        // 1. Calculate a strict 7-day window (today + 6 previous days)
-        const finalEndDate = new Date(); // Current date and time
-        const finalStartDate = new Date();
-        finalStartDate.setDate(finalStartDate.getDate() - 6);
-        finalStartDate.setHours(0, 0, 0, 0); // Start at midnight 6 days ago
+    // 2. Safely parameterize the account filter to prevent SQL injection
+    const queryParams: any[] = [adminId, finalStartDate, finalEndDate];
+    let accountFilter = "";
 
-        // 2. Safely parameterize the account filter to prevent SQL injection
-        const queryParams: any[] = [adminId, finalStartDate, finalEndDate];
-        let accountFilter = '';
+    if (filters.accountId) {
+      queryParams.push(filters.accountId);
+      accountFilter = `AND "accountId" = $${queryParams.length}`;
+    }
 
-        if (filters.accountId) {
-            queryParams.push(filters.accountId);
-            accountFilter = `AND "accountId" = $${queryParams.length}`;
-        }
-
-        const query = `
+    const query = `
         SELECT 
             EXTRACT(ISODOW FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS "day_of_week", 
             EXTRACT(HOUR FROM timezone('Africa/Cairo', COALESCE("sentAt", "createdAt"))) AS hour, 
@@ -293,30 +379,37 @@ export class WhatsappService {
         ORDER BY 1, 2;
     `;
 
-        return this.messageRepo.query(query, queryParams);
+    return this.messageRepo.query(query, queryParams);
+  }
+
+  async getWhatsappTrends(
+    me: any,
+    filters: {
+      startDate?: string;
+      endDate?: string;
+      range?: string;
+      points?: number;
+      accountId?: string;
+    },
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
     }
 
-    async getWhatsappTrends(
-        me: any,
-        filters: {
-            startDate?: string;
-            endDate?: string;
-            range?: string;
-            points?: number;
-            accountId?: string;
-        },
-    ) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    const points = filters.points || 12;
+    const { finalStartDate, finalEndDate } =
+      this.getDashboardDateRange(filters);
+    const accountFilter = filters.accountId
+      ? `AND m."accountId" = '${filters.accountId}'`
+      : "";
 
-        const points = filters.points || 12;
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
-        const accountFilter = filters.accountId ? `AND m."accountId" = '${filters.accountId}'` : '';
-
-        if (isLessThanOneDay(finalStartDate, finalEndDate)) {
-            return [];
-        }
-        const query = `
+    if (isLessThanOneDay(finalStartDate, finalEndDate)) {
+      return [];
+    }
+    const query = `
             WITH params AS (
                 SELECT
                     $1::timestamptz AS start_date,
@@ -369,2158 +462,2647 @@ export class WhatsappService {
             ORDER BY s.seg_start ASC;
         `;
 
-        const result = await this.messageRepo.query(query, [finalStartDate, finalEndDate, points, adminId]);
+    const result = await this.messageRepo.query(query, [
+      finalStartDate,
+      finalEndDate,
+      points,
+      adminId,
+    ]);
 
-        return result.map((row) => ({
-            date: row.date,
-            sent: parseInt(row.sent),
-            delivered: parseInt(row.delivered),
-            read: parseInt(row.read),
-            clicked: parseInt(row.clicked),
+    return result.map((row) => ({
+      date: row.date,
+      sent: parseInt(row.sent),
+      delivered: parseInt(row.delivered),
+      read: parseInt(row.read),
+      clicked: parseInt(row.clicked),
+    }));
+  }
+
+  async getDashboardStats(me: any, filters: any = {}) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const { finalStartDate, finalEndDate } =
+      this.getDashboardDateRange(filters);
+
+    const [messageStatsRaw, accountStats, templateStats, upsellStats] =
+      await Promise.all([
+        // 1. All time outbound message stats
+        this.messageRepo
+          .createQueryBuilder("m")
+          .select("m.status", "status")
+          .addSelect("m.messageType", "type")
+          .addSelect("COUNT(*)", "count")
+          .where("m.adminId = :adminId", { adminId })
+          .andWhere("m.direction = :direction", {
+            direction: MessageDirection.OUTBOUND,
+          })
+          .andWhere("m.createdAt >= :finalStartDate", { finalStartDate })
+          .andWhere("m.createdAt <= :finalEndDate", { finalEndDate })
+          .andWhere(filters.accountId ? "m.accountId = :accountId" : "1=1", {
+            accountId: filters.accountId,
+          })
+          .groupBy("m.status")
+          .addGroupBy("m.messageType")
+          .getRawMany(),
+
+        // 2. Account stats
+        this.accountRepo.count({ where: { adminId } }),
+
+        // 3. Template stats
+        this.templateRepo
+          .createQueryBuilder("t")
+          .select("t.status", "status")
+          .addSelect("t.quality", "quality")
+          .addSelect("COUNT(*)", "count")
+          .where("t.adminId = :adminId", { adminId })
+          .andWhere(filters.accountId ? "t.accountId = :accountId" : "1=1", {
+            accountId: filters.accountId,
+          })
+          .groupBy("t.status")
+          .addGroupBy("t.quality")
+          .getRawMany(),
+
+        // 4. Upsell stats
+        this.upsellsService.stats(me, filters),
+      ]);
+
+    const stats = {
+      messages: {
+        totalSent: 0,
+        delivered: 0,
+        read: 0,
+        failed: 0,
+        buttonClicks: 0,
+      },
+      accounts: accountStats,
+      templates: {
+        total: 0,
+        approved: 0,
+        rejected: 0,
+        lowQuality: 0,
+      },
+      upsells: upsellStats,
+    };
+
+    // Process Message Stats
+    messageStatsRaw.forEach((s) => {
+      const count = parseInt(s.count, 10);
+      stats.messages.totalSent += count;
+      if (
+        s.status === MessageStatus.DELIVERED ||
+        s.status === MessageStatus.READ ||
+        s.status === MessageStatus.PLAYED
+      ) {
+        stats.messages.delivered += count;
+      }
+      if (
+        s.status === MessageStatus.READ ||
+        s.status === MessageStatus.PLAYED
+      ) {
+        stats.messages.read += count;
+      }
+      if (s.status === MessageStatus.FAILED) stats.messages.failed += count;
+    });
+
+    // To get actual button clicks, we need a separate query for inbound interactive messages
+    const buttonClicksQuery = this.messageRepo
+      .createQueryBuilder("m")
+      .where("m.adminId = :adminId", { adminId })
+      .andWhere("m.direction = :direction", {
+        direction: MessageDirection.INBOUND,
+      })
+      .andWhere("m.messageType IN (:...types)", {
+        types: [WhatsappMessageType.BUTTON, WhatsappMessageType.INTERACTIVE],
+      })
+      .andWhere("m.createdAt >= :finalStartDate", { finalStartDate })
+      .andWhere("m.createdAt <= :finalEndDate", { finalEndDate });
+
+    if (filters.accountId) {
+      buttonClicksQuery.andWhere("m.accountId = :accountId", {
+        accountId: filters.accountId,
+      });
+    }
+
+    stats.messages.buttonClicks = await buttonClicksQuery.getCount();
+
+    // Process Template Stats
+    templateStats.forEach((s) => {
+      const count = parseInt(s.count, 10);
+      stats.templates.total += count;
+      if (s.status === TemplateStatus.APPROVED) {
+        stats.templates.approved += count;
+      }
+      if (s.status === TemplateStatus.REJECTED) {
+        stats.templates.rejected += count;
+      }
+      if (s.quality === TemplateQuality.LOW) {
+        stats.templates.lowQuality += count;
+      }
+    });
+
+    return stats;
+  }
+
+  private getDashboardDateRange(filters: {
+    startDate?: string;
+    endDate?: string;
+    range?: string;
+  }) {
+    const { start, end } = calculateRange(filters.range);
+    const finalStartDate =
+      start ||
+      (filters.startDate
+        ? new Date(filters.startDate)
+        : subDays(new Date(), 30));
+    const finalEndDate =
+      end || (filters.endDate ? new Date(filters.endDate) : new Date());
+    return { finalStartDate, finalEndDate };
+  }
+
+  async getDefaultAccountId(
+    adminId: string,
+    accountId?: string,
+  ): Promise<string> {
+    if (!accountId) {
+      const settings =
+        await this.clientSettingsService.getCachedSettings(adminId);
+      accountId = settings?.defaultWhatsAppAccountId;
+      // this.logger.debug(`Default accountId for adminId ${adminId} is ${accountId}`);
+      if (!accountId) {
+        // get first active account
+        const activeAccount = await this.accountRepo.findOne({
+          where: { adminId, isActive: true },
+          order: { createdAt: "DESC" },
+        });
+        accountId = activeAccount?.id;
+      }
+    }
+
+    if (!accountId) {
+      throw new BadRequestException("Missing accountId");
+    }
+    // this.logger.debug(`Resolved accountId for adminId ${adminId} is ${accountId}`);
+    return accountId;
+  }
+
+  async uploadMedia(
+    me: any,
+    payload: WhatsappUploadMediaPayload,
+    accountId?: string,
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    const url = imageSrc(payload.url);
+    if (!payload.file && !url) {
+      throw new BadRequestException(
+        this.translations.t("domains.whatsapp.either_file_or_url_required"),
+      );
+    }
+
+    const resolvedAccountId = await this.getDefaultAccountId(
+      adminId,
+      accountId,
+    );
+
+    let filename = payload.filename;
+    // Check cache if it's a URL
+    if (url && !payload.file) {
+      const cacheKey = `whatsapp_media:${resolvedAccountId}:${url}`;
+      const cacheValue = await this.redisService.get(cacheKey);
+      if (cacheValue) {
+        if (typeof cacheValue === "object") {
+          return { ...cacheValue, filename: payload.filename };
+        } else {
+          return { id: cacheValue };
+        }
+      }
+
+      try {
+        const response = await axios.get(url, { responseType: "arraybuffer" });
+        const buffer = Buffer.from(response.data, "binary");
+        const contentType = String(
+          response.headers["content-type"] ?? "",
+        ).split(";")[0];
+
+        // Clean filename: remove query params and hash
+        const urlPath = url.split("?")[0].split("#")[0];
+        filename = urlPath.split("/").pop() || "file";
+
+        // If filename doesn't have an extension, try to add one from contentType
+        if (!filename.includes(".") && contentType) {
+          const extension = contentType.split("/")[1];
+          if (extension) {
+            // Handle common cleanups (e.g., jpeg -> jpg)
+            const cleanExt = extension === "jpeg" ? "jpg" : extension;
+            filename += `.${cleanExt}`;
+          }
+        }
+
+        payload.file = {
+          buffer,
+          mimetype: contentType,
+          originalname: filename,
+          size: buffer.length,
+          fieldname: "file",
+          encoding: "7bit",
+        } as Express.Multer.File;
+        payload.mimeType = contentType;
+      } catch (error) {
+        this.logger.error(
+          `Failed to download media from URL: ${payload.url}`,
+          error.stack,
+        );
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.whatsapp.failed_to_download_media_from_url",
+            { args: { error: getErrorMessage(error) } },
+          ),
+        );
+      }
+    }
+
+    // WhatsApp only accepts JPEG/PNG for images. If the media is an image in any other format
+    // (webp, gif, svg, ...) it gets rejected by Meta, so convert it to PNG before uploading.
+    const normalizedFilename = await normalizeWhatsappImageFile(
+      payload,
+      filename,
+    );
+    if (normalizedFilename) filename = normalizedFilename;
+
+    const response = await this.whatsappApi.uploadMessageMedia(
+      resolvedAccountId,
+      payload,
+    );
+
+    // Cache the result if it was a URL upload
+    if (payload.url && response?.id) {
+      const cacheKey = `whatsapp_media:${resolvedAccountId}:${payload.url}`;
+      await this.redisService.set(
+        cacheKey,
+        { id: response.id, filename: payload.filename },
+        3600 * 24 * 15,
+      ); // Cache for 15 days
+    }
+
+    return { ...response, filename: filename };
+  }
+
+  async downloadMedia(
+    me: any,
+    mediaId: string,
+    accountId?: string,
+    headers?: Record<string, string>,
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    if (!mediaId) {
+      throw new BadRequestException(
+        this.translations.t("domains.whatsapp.media_Id_is_required"),
+      );
+    }
+
+    const resolvedAccountId = await this.getDefaultAccountId(
+      adminId,
+      accountId,
+    );
+
+    // STEP 1: get Meta URL
+    const mediaInfo = await this.whatsappApi.getMediaUrl(
+      resolvedAccountId,
+      mediaId,
+    );
+
+    if (!mediaInfo.url) {
+      throw new BadRequestException(
+        this.translations.t("domains.whatsapp.media_url_is_required"),
+      );
+    }
+    // STEP 2: download stream directly (NOT Graph API)
+    return this.whatsappApi.streamMedia(
+      resolvedAccountId,
+      mediaInfo.url,
+      headers,
+    );
+  }
+
+  async streamMedia(
+    me: any,
+    mediaUrl: string,
+    accountId?: string,
+    headers?: Record<string, string>,
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    if (!mediaUrl) {
+      throw new BadRequestException(
+        this.translations.t("domains.whatsapp.media_url_is_required"),
+      );
+    }
+
+    const resolvedAccountId = await this.getDefaultAccountId(
+      adminId,
+      accountId,
+    );
+
+    return this.whatsappApi.streamMedia(resolvedAccountId, mediaUrl, headers);
+  }
+
+  async sendMessage(
+    me: any,
+    payload: WhatsappSendMessagePayload & { metadata?: Record<string, any> },
+    accountId?: string,
+    localId?: string,
+    actionIntent?: MessageActionIntent,
+    orderId?: string,
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const resolvedAccountId = await this.getDefaultAccountId(
+      adminId,
+      accountId,
+    );
+
+    // Normalize phone number and manage customer/conversation
+    const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.to);
+    payload.to = normalizedPhoneNumber;
+
+    await this.conversationService.getOrCreateConversation(me, {
+      phoneNumber: normalizedPhoneNumber,
+      name: payload.to,
+    });
+
+    // Extract metadata if present (sent from frontend)
+    const { metadata, ...metaPayload } = payload;
+
+    const response = await this.whatsappApi.sendMessage(
+      resolvedAccountId,
+      metaPayload,
+    );
+
+    // Attach localId and metadata to the response so processOutboundMessage can use it
+    if (localId) {
+      (response as any).localId = localId;
+    }
+
+    await this.processOutboundMessage(
+      adminId,
+      resolvedAccountId,
+      normalizedPhoneNumber,
+      response,
+      metadata,
+      actionIntent,
+      orderId,
+    );
+
+    return response;
+  }
+
+  async sendTemplate(
+    me: any,
+    input: {
+      to: string;
+      templateId: string;
+      headerVariables?: Record<string, any>;
+      bodyVariables?: Record<string, any>;
+      buttonVariables?: Record<string, any>;
+      locationData: {
+        latitude: string;
+        longitude: string;
+        address: any;
+        name: any;
+      };
+      headerUrl?: string; // Optional URL for media headers if not already in variables
+    },
+    accountId?: string,
+    localId?: string,
+    metadata?: Record<string, any>,
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const template = await this.templateRepo.findOne({
+      where: { id: input.templateId, adminId },
+    });
+
+    if (!template) {
+      throw new NotFoundException(
+        this.translations.t("domains.whatsapp.template_not_found"),
+      );
+    }
+
+    const components: any[] = [];
+
+    // 1. Build Header
+    if (template.templateConfig?.headerType) {
+      const hType = template.templateConfig.headerType;
+      const parameters: any[] = [];
+
+      if (hType === "TEXT" && input.headerVariables) {
+        if (template.templateConfig.parameterFormat === "named") {
+          Object.entries(input.headerVariables).forEach(([key, val]) => {
+            parameters.push({
+              type: "text",
+              parameter_name: key,
+              text: String(val?.value ?? val),
+            });
+          });
+        } else {
+          Object.values(input.headerVariables).forEach((val) => {
+            parameters.push({ type: "text", text: String(val?.value ?? val) });
+          });
+        }
+      } else if (["IMAGE", "VIDEO", "DOCUMENT"].includes(hType)) {
+        const mediaUrl = input.headerUrl || template.templateConfig.headerUrl;
+        if (mediaUrl) {
+          const media = await this.uploadMedia(
+            me,
+            { url: mediaUrl },
+            template.accountId,
+          );
+          if (!media?.id) {
+            throw new BadRequestException(
+              this.translations.t("domains.whatsapp.media_upload_failed"),
+            );
+          }
+          parameters.push({
+            type: hType.toLowerCase(),
+            [hType.toLowerCase()]: {
+              id: media.id,
+              ...(hType === "DOCUMENT" ? { filename: media?.filename } : {}),
+            },
+          });
+        }
+      } else if (hType === "LOCATION") {
+        parameters.push({
+          type: "location",
+          location: {
+            latitude: input.locationData.latitude,
+            longitude: input.locationData.longitude,
+            address: input.locationData.address,
+            name: input.locationData.name,
+          },
+        });
+      }
+
+      if (parameters.length > 0) {
+        components.push({ type: "header", parameters });
+      }
+    }
+
+    // 2. Build Body
+    if (input.bodyVariables) {
+      let parameters: any[] = [];
+      if (template.templateConfig.parameterFormat === "named") {
+        parameters = Object.entries(input.bodyVariables).map(([key, val]) => ({
+          type: "text",
+          parameter_name: key,
+          text: String(val?.value ?? val),
         }));
+      } else {
+        parameters = Object.values(input.bodyVariables).map((val) => ({
+          type: "text",
+          text: String(val?.value ?? val),
+        }));
+      }
+      if (parameters.length > 0) {
+        components.push({ type: "body", parameters });
+      }
     }
 
-    async getDashboardStats(me: any, filters: any = {}) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(filters);
-
-        const [messageStatsRaw, accountStats, templateStats, upsellStats] = await Promise.all([
-            // 1. All time outbound message stats
-            this.messageRepo
-                .createQueryBuilder('m')
-                .select('m.status', 'status')
-                .addSelect('m.messageType', 'type')
-                .addSelect('COUNT(*)', 'count')
-                .where('m.adminId = :adminId', { adminId })
-                .andWhere('m.direction = :direction', { direction: MessageDirection.OUTBOUND })
-                .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
-                .andWhere('m.createdAt <= :finalEndDate', { finalEndDate })
-                .andWhere(filters.accountId ? 'm.accountId = :accountId' : '1=1', { accountId: filters.accountId })
-                .groupBy('m.status')
-                .addGroupBy('m.messageType')
-                .getRawMany(),
-
-            // 2. Account stats
-            this.accountRepo.count({ where: { adminId } }),
-
-            // 3. Template stats
-            this.templateRepo
-                .createQueryBuilder('t')
-                .select('t.status', 'status')
-                .addSelect('t.quality', 'quality')
-                .addSelect('COUNT(*)', 'count')
-                .where('t.adminId = :adminId', { adminId })
-                .andWhere(filters.accountId ? 't.accountId = :accountId' : '1=1', { accountId: filters.accountId })
-                .groupBy('t.status')
-                .addGroupBy('t.quality')
-                .getRawMany(),
-
-            // 4. Upsell stats
-            this.upsellsService.stats(me, filters),
-        ]);
-
-        const stats = {
-            messages: {
-                totalSent: 0,
-                delivered: 0,
-                read: 0,
-                failed: 0,
-                buttonClicks: 0,
-            },
-            accounts: accountStats,
-            templates: {
-                total: 0,
-                approved: 0,
-                rejected: 0,
-                lowQuality: 0,
-            },
-            upsells: upsellStats,
-        };
-
-        // Process Message Stats
-        messageStatsRaw.forEach(s => {
-            const count = parseInt(s.count, 10);
-            stats.messages.totalSent += count;
-            if (s.status === MessageStatus.DELIVERED || s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) stats.messages.delivered += count;
-            if (s.status === MessageStatus.READ || s.status === MessageStatus.PLAYED) stats.messages.read += count;
-            if (s.status === MessageStatus.FAILED) stats.messages.failed += count;
-        });
-
-        // To get actual button clicks, we need a separate query for inbound interactive messages
-        const buttonClicksQuery = this.messageRepo
-            .createQueryBuilder('m')
-            .where('m.adminId = :adminId', { adminId })
-            .andWhere('m.direction = :direction', { direction: MessageDirection.INBOUND })
-            .andWhere('m.messageType IN (:...types)', { types: [WhatsappMessageType.BUTTON, WhatsappMessageType.INTERACTIVE] })
-            .andWhere('m.createdAt >= :finalStartDate', { finalStartDate })
-            .andWhere('m.createdAt <= :finalEndDate', { finalEndDate });
-
-        if (filters.accountId) {
-            buttonClicksQuery.andWhere('m.accountId = :accountId', { accountId: filters.accountId });
-        }
-
-        stats.messages.buttonClicks = await buttonClicksQuery.getCount();
-
-        // Process Template Stats
-        templateStats.forEach(s => {
-            const count = parseInt(s.count, 10);
-            stats.templates.total += count;
-            if (s.status === TemplateStatus.APPROVED) stats.templates.approved += count;
-            if (s.status === TemplateStatus.REJECTED) stats.templates.rejected += count;
-            if (s.quality === TemplateQuality.LOW) stats.templates.lowQuality += count;
-        });
-
-        return stats;
-    }
-
-    private getDashboardDateRange(filters: { startDate?: string; endDate?: string; range?: string }) {
-        let { start, end } = calculateRange(filters.range);
-        const finalStartDate = start || (filters.startDate ? new Date(filters.startDate) : subDays(new Date(), 30));
-        const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
-        return { finalStartDate, finalEndDate };
-    }
-
-    async getDefaultAccountId(adminId: string, accountId?: string): Promise<string> {
-        if (!accountId) {
-            const settings = await this.clientSettingsService.getCachedSettings(adminId);
-            accountId = settings?.defaultWhatsAppAccountId;
-            // this.logger.debug(`Default accountId for adminId ${adminId} is ${accountId}`);
-            if (!accountId) {
-                // get first active account
-                const activeAccount = await this.accountRepo.findOne({
-                    where: { adminId, isActive: true },
-                    order: { createdAt: 'DESC' },
-                });
-                accountId = activeAccount?.id;
-            }
-        }
-
-        if (!accountId) {
-            throw new BadRequestException('Missing accountId');
-        }
-        // this.logger.debug(`Resolved accountId for adminId ${adminId} is ${accountId}`);
-        return accountId;
-    }
-
-    async uploadMedia(me: any, payload: WhatsappUploadMediaPayload, accountId?: string) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-        const url = imageSrc(payload.url);
-        if (!payload.file && !url) {
-            throw new BadRequestException(this.translations.t("domains.whatsapp.either_file_or_url_required"));
-        }
-
-        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
-
-        let filename = payload.filename;
-        // Check cache if it's a URL
-        if (url && !payload.file) {
-            const cacheKey = `whatsapp_media:${resolvedAccountId}:${url}`;
-            const cacheValue = await this.redisService.get(cacheKey);
-            if (cacheValue) {
-                if (typeof cacheValue === 'object') {
-                    return { ...cacheValue, filename: payload.filename };
-                } else {
-                    return { id: cacheValue };
-                }
-            }
-
-            try {
-                const response = await axios.get(url, { responseType: 'arraybuffer' });
-                const buffer = Buffer.from(response.data, 'binary');
-                const contentType = String(response.headers["content-type"] ?? "").split(";")[0];
-
-                // Clean filename: remove query params and hash
-                const urlPath = url.split('?')[0].split('#')[0];
-                filename = urlPath.split('/').pop() || 'file';
-
-                // If filename doesn't have an extension, try to add one from contentType
-                if (!filename.includes('.') && contentType) {
-                    const extension = contentType.split('/')[1];
-                    if (extension) {
-                        // Handle common cleanups (e.g., jpeg -> jpg)
-                        const cleanExt = extension === 'jpeg' ? 'jpg' : extension;
-                        filename += `.${cleanExt}`;
-                    }
-                }
-
-                payload.file = {
-                    buffer,
-                    mimetype: contentType,
-                    originalname: filename,
-                    size: buffer.length,
-                    fieldname: 'file',
-                    encoding: '7bit',
-                } as Express.Multer.File;
-                payload.mimeType = contentType;
-            } catch (error) {
-                this.logger.error(`Failed to download media from URL: ${payload.url}`, error.stack);
-                throw new BadRequestException(this.translations.t("domains.whatsapp.failed_to_download_media_from_url", { args: { error: getErrorMessage(error) } }));
-            }
-        }
-
-        // WhatsApp only accepts JPEG/PNG for images. If the media is an image in any other format
-        // (webp, gif, svg, ...) it gets rejected by Meta, so convert it to PNG before uploading.
-        const normalizedFilename = await normalizeWhatsappImageFile(payload, filename);
-        if (normalizedFilename) filename = normalizedFilename;
-
-        const response = await this.whatsappApi.uploadMessageMedia(resolvedAccountId, payload);
-
-        // Cache the result if it was a URL upload
-        if (payload.url && response?.id) {
-            const cacheKey = `whatsapp_media:${resolvedAccountId}:${payload.url}`;
-            await this.redisService.set(cacheKey, { id: response.id, filename: payload.filename }, 3600 * 24 * 15); // Cache for 15 days
-        }
-
-        return { ...response, filename: filename };
-    }
-
-    async downloadMedia(me: any, mediaId: string, accountId?: string, headers?: Record<string, string>) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-        if (!mediaId) {
-            throw new BadRequestException(this.translations.t("domains.whatsapp.media_Id_is_required"));
-        }
-
-        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
-
-        // STEP 1: get Meta URL
-        const mediaInfo = await this.whatsappApi.getMediaUrl(resolvedAccountId, mediaId);
-
-        if (!mediaInfo.url) {
-            throw new BadRequestException(this.translations.t("domains.whatsapp.media_url_is_required"));
-        }
-        // STEP 2: download stream directly (NOT Graph API)
-        return this.whatsappApi.streamMedia(resolvedAccountId, mediaInfo.url, headers);
-    }
-
-    async streamMedia(me: any, mediaUrl: string, accountId?: string, headers?: Record<string, string>) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-        if (!mediaUrl) {
-            throw new BadRequestException(this.translations.t("domains.whatsapp.media_url_is_required"));
-        }
-
-        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
-
-        return this.whatsappApi.streamMedia(resolvedAccountId, mediaUrl, headers);
-    }
-
-    async sendMessage(me: any, payload: WhatsappSendMessagePayload & { metadata?: Record<string, any>; }, accountId?: string, localId?: string, actionIntent?: MessageActionIntent, orderId?: string,) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-
-        const resolvedAccountId = await this.getDefaultAccountId(adminId, accountId);
-
-        // Normalize phone number and manage customer/conversation
-        const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(payload.to);
-        payload.to = normalizedPhoneNumber;
-
-        await this.conversationService.getOrCreateConversation(me, {
-            phoneNumber: normalizedPhoneNumber,
-            name: payload.to,
-        });
-
-        // Extract metadata if present (sent from frontend)
-        const { metadata, ...metaPayload } = payload;
-
-        const response = await this.whatsappApi.sendMessage(resolvedAccountId, metaPayload);
-
-        // Attach localId and metadata to the response so processOutboundMessage can use it
-        if (localId) {
-            (response as any).localId = localId;
-        }
-
-        await this.processOutboundMessage(adminId, resolvedAccountId, normalizedPhoneNumber, response, metadata, actionIntent, orderId);
-
-        return response;
-    }
-
-    async sendTemplate(
-        me: any,
-        input: {
-            to: string;
-            templateId: string;
-            headerVariables?: Record<string, any>;
-            bodyVariables?: Record<string, any>;
-            buttonVariables?: Record<string, any>;
-            locationData: {
-                latitude: string;
-                longitude: string;
-                address: any,
-                name: any,
-            }
-            headerUrl?: string; // Optional URL for media headers if not already in variables
+    // 3. Build Buttons
+    if (input.buttonVariables) {
+      Object.entries(input.buttonVariables).forEach(
+        ([index, val]: [string, any]) => {
+          const button = template.templateConfig.buttons?.[Number(index)];
+          if (button?.type === "COPY_CODE") {
+            components.push({
+              type: "button",
+              sub_type: "copy_code",
+              index: String(index),
+              parameters: [
+                {
+                  type: "coupon_code",
+                  coupon_code: String(val?.value ?? val),
+                },
+              ],
+            });
+          } else {
+            components.push({
+              type: "button",
+              sub_type: "url",
+              index: String(index),
+              parameters: [
+                {
+                  type: "text",
+                  text: String(val?.value ?? val),
+                },
+              ],
+            });
+          }
         },
-        accountId?: string,
-        localId?: string,
-        metadata?: Record<string, any>
-    ) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+      );
+    }
 
+    const payload: WhatsappSendMessagePayload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: input.to,
+      type: "template",
+      template: {
+        name: template.name,
+        language: { code: template.language || "en_US" },
+        components,
+      },
+    };
+
+    const templateMetadata = {
+      template: {
+        templateConfig: template.templateConfig,
+        language: template.language,
+        category: template.category,
+        subCategory: template.subCategory,
+      },
+    };
+    return this.sendMessage(
+      me,
+      { ...payload, metadata: { ...metadata, ...templateMetadata } },
+      accountId,
+      localId,
+    );
+  }
+
+  async processOutboundMessage(
+    adminId: string,
+    accountId: string,
+    contactNumber: string,
+    response: WhatsappMessageResponsePayload,
+    metadata?: Record<string, any>,
+    actionIntent?: MessageActionIntent,
+    orderId?: string,
+  ) {
+    try {
+      const messageId = response.messages?.[0]?.id;
+      if (!messageId) return;
+
+      // Ensure conversation exists
+      const conversation =
+        await this.conversationService.getOrCreateConversation(
+          { id: adminId, adminId },
+          {
+            phoneNumber: contactNumber,
+            name: contactNumber,
+          },
+        );
+      const payload = response.payload;
+
+      // Handle Outbound Reactions and Replies (Context)
+      let reactionToId: string = null;
+      let replyToId: string = null;
+
+      if (
+        payload.type === "reaction" &&
+        (payload as any).reaction?.message_id
+      ) {
+        const parent = await this.messageRepo.findOne({
+          where: { messageId: (payload as any).reaction.message_id, adminId },
+        });
+        if (parent) reactionToId = parent.id;
+      }
+
+      if ((payload as any).context?.message_id) {
+        const parent = await this.messageRepo.findOne({
+          where: { messageId: (payload as any).context.message_id, adminId },
+        });
+        if (parent) replyToId = parent.id;
+      }
+
+      // Handle Template Metadata for Frontend Preview
+      let templateMetadata = null;
+      if (payload.type === "template" && payload.template?.name) {
+        const templateAccount = await this.accountRepo.findOne({
+          where: { id: accountId },
+          select: { wabaId: true },
+        });
         const template = await this.templateRepo.findOne({
-            where: { id: input.templateId, adminId }
+          where: {
+            name: payload.template.name,
+            adminId,
+            ...(templateAccount?.wabaId
+              ? { account: { wabaId: templateAccount.wabaId } }
+              : { accountId }),
+          },
+        });
+        if (template) {
+          templateMetadata = {
+            templateConfig: template.templateConfig,
+            language: template.language,
+            category: template.category,
+            subCategory: template.subCategory,
+          };
+        }
+      }
+
+      const message = this.messageRepo.create({
+        adminId,
+        accountId,
+        messageId,
+        contactNumber,
+        direction: MessageDirection.OUTBOUND,
+        status: MessageStatus.ACCEPTED,
+        messageType: payload.type as any,
+        content: payload,
+        customerId: conversation.customerId,
+        conversationId: conversation.id,
+        actionIntent,
+        actionStatus: actionIntent
+          ? MessageActionStatus.PENDING
+          : MessageActionStatus.NOT_APPLICABLE,
+        orderId,
+        metadata: {
+          ...(response.localId ? { localId: response.localId } : {}),
+          ...(metadata ? metadata : {}),
+          ...(templateMetadata ? { template: templateMetadata } : {}),
+        },
+        reactionToId,
+        replyToId,
+      });
+      const savedMsg = await this.messageRepo.save(message);
+
+      // Fetch with relations
+      const finalMsg = await this.messageRepo.findOne({
+        where: { id: savedMsg.id },
+        relations: ["replyTo", "reactionTo"],
+      });
+
+      // Update conversation metadata
+      let preview = `[${(payload.type || "MESSAGE").toUpperCase()}]`;
+      if (payload.type === "text") {
+        preview = payload.text?.body;
+      } else if (payload.type === "reaction") {
+        preview = `Reaction: ${(payload as any).reaction?.emoji}`;
+      } else if (payload.type === "template") {
+        preview = `[TEMPLATE: ${payload.template?.name}]`;
+      } else if (payload.type === "interactive") {
+        preview = `[INTERACTIVE: ${payload.interactive?.type}]`;
+      }
+
+      conversation.lastMessageId = savedMsg.id;
+      conversation.lastMessageDirection = MessageDirection.OUTBOUND;
+      conversation.lastMessageType = savedMsg.messageType;
+      conversation.lastMessagePreview = preview;
+      conversation.lastMessageAt = new Date();
+      conversation.lastOutgoingMessageAt = new Date();
+      await this.conversationService.save(conversation);
+
+      // Emit notifications
+      this.appGateway.emitNewMessage(adminId, finalMsg);
+
+      return finalMsg;
+    } catch (e) {
+      this.logger.error(
+        `Failed to process outbound message: ${e.message}`,
+        e.stack,
+      );
+    }
+  }
+
+  /**
+   * Checks if an incoming message resolves a pending outbound action (like requesting a location)
+   * or carries a business ready-message command (postpone date / discount offer / ...).
+   */
+  private async processMessageActions(
+    adminId: string,
+    payload: any,
+  ): Promise<void> {
+    try {
+      // 1. Check if the incoming message has a context (replying to another message)
+      const parentMessageWamid = payload.context?.id;
+
+      if (!parentMessageWamid) return;
+
+      // 2. Find the parent message. Business ready-messages carry
+      // metadata.businessCommand; regular intents rely on actionStatus = PENDING.
+      const parentMessage = await this.messageRepo.findOne({
+        where: {
+          messageId: parentMessageWamid,
+          adminId,
+        },
+        relations: {
+          order: true,
+        },
+        select: {
+          id: true,
+          orderId: true,
+          actionIntent: true,
+          actionStatus: true,
+          metadata: true,
+          order: {
+            id: true,
+            orderNumber: true,
+          },
+        },
+      });
+
+      if (!parentMessage || !parentMessage.orderId) {
+        return; // Parent message doesn't require an action or isn't linked to an order
+      }
+
+      // 3. Business ready-message command (order.set_postponed_date, order.apply_discount, ...)
+      const businessCommand = parentMessage.metadata?.businessCommand;
+      if (businessCommand) {
+        await this.processBusinessAction(
+          adminId,
+          parentMessage,
+          payload,
+          businessCommand,
+        );
+      }
+
+      // Regular intents require a pending action
+      if (parentMessage.actionStatus !== MessageActionStatus.PENDING) {
+        return;
+      }
+      this.logger.debug(
+        "Handle pending action for message:",
+        parentMessage.id,
+        "with intent:",
+        parentMessage.actionIntent,
+        "payload: ",
+        JSON.stringify(payload),
+      );
+      // 4. Handle REQUEST_LOCATION
+      if (
+        parentMessage.actionIntent === MessageActionIntent.LOCATION_REQUEST &&
+        payload.type === "location" &&
+        payload.location
+      ) {
+        const { latitude, longitude, name, address } = payload.location;
+
+        // Update the order repository directly
+        await this.orderRepo.update(parentMessage.orderId, {
+          latitude: latitude ?? null,
+          longitude: longitude ?? null,
+          locationName: name ?? null,
+          locationAddress: address ?? null,
         });
 
-        if (!template) {
-            throw new NotFoundException(this.translations.t("domains.whatsapp.template_not_found"));
-        }
+        // Mark the action on the parent message as COMPLETED
+        await this.messageRepo.update(parentMessage.id, {
+          actionStatus: MessageActionStatus.COMPLETED,
+          actionCompletedAt: new Date(),
+        });
 
-        const components: any[] = [];
-
-        // 1. Build Header
-        if (template.templateConfig?.headerType) {
-            const hType = template.templateConfig.headerType;
-            const parameters: any[] = [];
-
-            if (hType === 'TEXT' && input.headerVariables) {
-                if (template.templateConfig.parameterFormat === 'named') {
-                    Object.entries(input.headerVariables).forEach(([key, val]) => {
-                        parameters.push({
-                            type: 'text',
-                            parameter_name: key,
-                            text: String(val?.value ?? val)
-                        });
-                    });
-                } else {
-                    Object.values(input.headerVariables).forEach(val => {
-                        parameters.push({ type: 'text', text: String(val?.value ?? val) });
-                    });
-                }
-            } else if (['IMAGE', 'VIDEO', 'DOCUMENT'].includes(hType)) {
-                const mediaUrl = input.headerUrl || template.templateConfig.headerUrl;
-                if (mediaUrl) {
-
-                    const media = await this.uploadMedia(me, { url: mediaUrl }, template.accountId);
-                    if (!media?.id) {
-                        throw new BadRequestException(this.translations.t("domains.whatsapp.media_upload_failed"));
-                    }
-                    parameters.push({
-                        type: hType.toLowerCase(),
-                        [hType.toLowerCase()]: { id: media.id, ...(hType === 'DOCUMENT' ? { filename: media?.filename } : {}) }
-                    });
-                }
-            } else if (hType === 'LOCATION') {
-                parameters.push({
-                    type: 'location',
-                    "location": {
-                        latitude: input.locationData.latitude,
-                        longitude: input.locationData.longitude,
-                        address: input.locationData.address,
-                        name: input.locationData.name
-                    }
-                });
-            }
-
-            if (parameters.length > 0) {
-                components.push({ type: 'header', parameters });
-            }
-        }
-
-        // 2. Build Body
-        if (input.bodyVariables) {
-            let parameters: any[] = [];
-            if (template.templateConfig.parameterFormat === 'named') {
-                parameters = Object.entries(input.bodyVariables).map(([key, val]) => ({
-                    type: 'text',
-                    parameter_name: key,
-                    text: String(val?.value ?? val)
-                }));
-            } else {
-                parameters = Object.values(input.bodyVariables).map(val => ({
-                    type: 'text',
-                    text: String(val?.value ?? val)
-                }));
-            }
-            if (parameters.length > 0) {
-                components.push({ type: 'body', parameters });
-            }
-        }
-
-        // 3. Build Buttons
-        if (input.buttonVariables) {
-            Object.entries(input.buttonVariables).forEach(([index, val]: [string, any]) => {
-                const button = template.templateConfig.buttons?.[Number(index)];
-                if (button?.type === 'COPY_CODE') {
-                    components.push({
-                        type: 'button',
-                        sub_type: 'copy_code',
-                        index: String(index),
-                        parameters: [{
-                            type: 'coupon_code',
-                            coupon_code: String(val?.value ?? val)
-                        }]
-                    });
-                } else {
-                    components.push({
-                        type: 'button',
-                        sub_type: 'url',
-                        index: String(index),
-                        parameters: [{
-                            type: 'text',
-                            text: String(val?.value ?? val)
-                        }]
-                    });
-                }
-            });
-        }
-
-        const payload: WhatsappSendMessagePayload = {
-            messaging_product: 'whatsapp',
-            recipient_type: 'individual',
-            to: input.to,
-            type: 'template',
-            template: {
-                name: template.name,
-                language: { code: template.language || 'en_US' },
-                components
-            }
-        };
-
-        const templateMetadata = {
-            template: {
-                templateConfig: template.templateConfig,
-                language: template.language,
-                category: template.category,
-                subCategory: template.subCategory
+        await this.notificationService.create({
+          userId: adminId,
+          type: NotificationType.ORDER_LOCATION_UPDATED,
+          title: await this.requestTranslations.tAsync(
+            "domains.whatsapp.order_location_updated",
+            adminId,
+          ),
+          message: await this.requestTranslations.tAsync(
+            "domains.whatsapp.order_location_updated_message",
+            adminId,
+            {
+              args: {
+                orderNumber: parentMessage.order.orderNumber,
+              },
             },
-        }
-        return this.sendMessage(me, { ...payload, metadata: { ...metadata, ...templateMetadata } }, accountId, localId);
-    }
-
-    async processOutboundMessage(
-        adminId: string,
-        accountId: string,
-        contactNumber: string,
-        response: WhatsappMessageResponsePayload,
-        metadata?: Record<string, any>,
-        actionIntent?: MessageActionIntent,
-        orderId?: string,
-    ) {
-        try {
-            const messageId = response.messages?.[0]?.id;
-            if (!messageId) return;
-
-            // Ensure conversation exists
-            const conversation = await this.conversationService.getOrCreateConversation({ id: adminId, adminId }, {
-                phoneNumber: contactNumber,
-                name: contactNumber,
-            });
-            const payload = response.payload;
-
-            // Handle Outbound Reactions and Replies (Context)
-            let reactionToId: string = null;
-            let replyToId: string = null;
-
-            if (payload.type === 'reaction' && (payload as any).reaction?.message_id) {
-                const parent = await this.messageRepo.findOne({ where: { messageId: (payload as any).reaction.message_id, adminId } });
-                if (parent) reactionToId = parent.id;
-            }
-
-            if ((payload as any).context?.message_id) {
-                const parent = await this.messageRepo.findOne({ where: { messageId: (payload as any).context.message_id, adminId } });
-                if (parent) replyToId = parent.id;
-            }
-
-            // Handle Template Metadata for Frontend Preview
-            let templateMetadata = null;
-            if (payload.type === 'template' && payload.template?.name) {
-                const templateAccount = await this.accountRepo.findOne({
-                    where: { id: accountId },
-                    select: { wabaId: true },
-                });
-                const template = await this.templateRepo.findOne({
-                    where: {
-                        name: payload.template.name,
-                        adminId,
-                        ...(templateAccount?.wabaId
-                            ? { account: { wabaId: templateAccount.wabaId } }
-                            : { accountId }),
-                    },
-                });
-                if (template) {
-                    templateMetadata = {
-                        templateConfig: template.templateConfig,
-                        language: template.language,
-                        category: template.category,
-                        subCategory: template.subCategory,
-                    };
-                }
-            }
-
-            const message = this.messageRepo.create({
-                adminId,
-                accountId,
-                messageId,
-                contactNumber,
-                direction: MessageDirection.OUTBOUND,
-                status: MessageStatus.ACCEPTED,
-                messageType: payload.type as any,
-                content: payload,
-                customerId: conversation.customerId,
-                conversationId: conversation.id,
-                actionIntent,
-                actionStatus: actionIntent ? MessageActionStatus.PENDING : MessageActionStatus.NOT_APPLICABLE,
-                orderId,
-                metadata: {
-                    ...(response.localId ? { localId: response.localId } : {}),
-                    ...(metadata ? metadata : {}),
-                    ...(templateMetadata ? { template: templateMetadata } : {})
-                },
-                reactionToId,
-                replyToId,
-            });
-            const savedMsg = await this.messageRepo.save(message);
-
-            // Fetch with relations
-            const finalMsg = await this.messageRepo.findOne({
-                where: { id: savedMsg.id },
-                relations: ['replyTo', 'reactionTo']
-            });
-
-            // Update conversation metadata
-            let preview = `[${(payload.type || 'MESSAGE').toUpperCase()}]`;
-            if (payload.type === 'text') {
-                preview = payload.text?.body;
-            } else if (payload.type === 'reaction') {
-                preview = `Reaction: ${(payload as any).reaction?.emoji}`;
-            } else if (payload.type === 'template') {
-                preview = `[TEMPLATE: ${payload.template?.name}]`;
-            } else if (payload.type === 'interactive') {
-                preview = `[INTERACTIVE: ${payload.interactive?.type}]`;
-            }
-
-            conversation.lastMessageId = savedMsg.id;
-            conversation.lastMessageDirection = MessageDirection.OUTBOUND;
-            conversation.lastMessageType = savedMsg.messageType;
-            conversation.lastMessagePreview = preview;
-            conversation.lastMessageAt = new Date();
-            conversation.lastOutgoingMessageAt = new Date();
-            await this.conversationService.save(conversation);
-
-            // Emit notifications
-            this.appGateway.emitNewMessage(adminId, finalMsg);
-
-            return finalMsg;
-        } catch (e) {
-            this.logger.error(`Failed to process outbound message: ${e.message}`, e.stack);
-        }
-    }
-
-    /**
-     * Checks if an incoming message resolves a pending outbound action (like requesting a location)
-     * or carries a business ready-message command (postpone date / discount offer / ...).
-     */
-    private async processMessageActions(
-        adminId: string,
-        payload: any,
-    ): Promise<void> {
-        try {
-
-            // 1. Check if the incoming message has a context (replying to another message)
-            const parentMessageWamid = payload.context?.id;
-
-            if (!parentMessageWamid) return;
-
-            // 2. Find the parent message. Business ready-messages carry
-            // metadata.businessCommand; regular intents rely on actionStatus = PENDING.
-            const parentMessage = await this.messageRepo.findOne({
-                where: {
-                    messageId: parentMessageWamid,
-                    adminId,
-                },
-                relations: {
-                    order: true,
-                },
-                select: {
-                    id: true,
-                    orderId: true,
-                    actionIntent: true,
-                    actionStatus: true,
-                    metadata: true,
-                    order: {
-                        id: true,
-                        orderNumber: true,
-                    },
-                },
-            });
-
-            if (!parentMessage || !parentMessage.orderId) {
-                return; // Parent message doesn't require an action or isn't linked to an order
-            }
-
-            // 3. Business ready-message command (order.set_postponed_date, order.apply_discount, ...)
-            const businessCommand = parentMessage.metadata?.businessCommand;
-            if (businessCommand) {
-                await this.processBusinessAction(adminId, parentMessage, payload, businessCommand);
-            }
-
-            // Regular intents require a pending action
-            if (parentMessage.actionStatus !== MessageActionStatus.PENDING) {
-                return;
-            }
-            this.logger.debug("Handle pending action for message:", parentMessage.id, "with intent:", parentMessage.actionIntent, "payload: ", JSON.stringify(payload));
-            // 4. Handle REQUEST_LOCATION
-            if (
-                parentMessage.actionIntent === MessageActionIntent.LOCATION_REQUEST &&
-                payload.type === 'location' &&
-                payload.location
-            ) {
-                const { latitude, longitude, name, address } = payload.location;
-
-                // Update the order repository directly
-                await this.orderRepo.update(parentMessage.orderId, {
-                    latitude: latitude ?? null,
-                    longitude: longitude ?? null,
-                    locationName: name ?? null,
-                    locationAddress: address ?? null,
-                });
-
-                // Mark the action on the parent message as COMPLETED
-                await this.messageRepo.update(parentMessage.id, {
-                    actionStatus: MessageActionStatus.COMPLETED,
-                    actionCompletedAt: new Date(),
-                });
-
-                await this.notificationService.create({
-                    userId: adminId,
-                    type: NotificationType.ORDER_LOCATION_UPDATED,
-                    title: await this.requestTranslations.tAsync(
-                        "domains.whatsapp.order_location_updated",
-                        adminId
-                    ),
-                    message: await this.requestTranslations.tAsync(
-                        "domains.whatsapp.order_location_updated_message",
-                        adminId,
-                        {
-                            args: {
-                                orderNumber: parentMessage.order.orderNumber,
-                            },
-                        },
-                    ),
-                    relatedEntityType: "order",
-                    relatedEntityId: String(parentMessage.orderId),
-                });
-
-                this.logger.log(
-                    `Successfully updated location for Order ID: ${parentMessage.orderId} via WhatsApp Action.`
-                );
-            }
-
-            // Future: Add `else if` blocks here for more pending intents
-        } catch (error) {
-            this.logger.error(`Failed to process message action: ${error.message}`, error.stack);
-        }
-    }
-
-    /**
-     * Executes the business logic tied to a business ready-message command
-     * stored on the outbound message the customer replied to.
-     */
-    private async processBusinessAction(
-        adminId: string,
-        parentMessage: WhatsappMessageEntity,
-        payload: any,
-        businessCommand: string,
-    ): Promise<void> {
-        switch (businessCommand) {
-            case 'order.set_postponed_date':
-                await this.handlePostponeDateAction(adminId, parentMessage, payload);
-                break;
-            case 'order.apply_discount':
-                await this.handleDiscountOfferAction(adminId, parentMessage, payload);
-                break;
-            case 'order.set_payment_method':
-                await this.handlePaymentMethodAction(adminId, parentMessage, payload);
-                break;
-            default:
-                this.logger.warn(`Unknown business command: ${businessCommand}`);
-        }
-    }
-
-    /**
-     * order.set_postponed_date: the customer picked a row from the postpone list.
-     * The reply id carries the chosen date (row id = __date_DD-MM-YYYY__ after the
-     * {{global.date.N.DD-MM-YYYY}} token was replaced). Applies it as the order's
-     * postponed date, unless it is today or earlier.
-     */
-    private async handlePostponeDateAction(
-        adminId: string,
-        parentMessage: WhatsappMessageEntity,
-        payload: any,
-    ): Promise<void> {
-        const orderId = parentMessage.orderId;
-        const orderNumber = parentMessage.order?.orderNumber || '';
-        const notify = (titleKey: I18nKey, messageKey: I18nKey, args: Record<string, any>, type: NotificationType) =>
-            this.notifyBusinessResult(adminId, orderId, titleKey, messageKey, args, type);
-
-        try {
-            const replyId = payload?.interactive?.list_reply?.id || '';
-            const match = replyId.match(/^__date_(\d{2})-(\d{2})-(\d{4})__$/);
-            const date = match ? `${match[1]}-${match[2]}-${match[3]}` : replyId;
-
-            if (!match) {
-                this.logger.warn(`Invalid postpone reply id for order ${orderId}: ${replyId}`);
-                await notify(
-                    "domains.whatsapp.postpone_not_applied_title",
-                    "domains.whatsapp.postpone_not_applied_message",
-                    { orderNumber, date },
-                    NotificationType.SYSTEM_ALERT,
-                );
-                return;
-            }
-
-            const postponedDate = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
-
-            // Do not apply if the chosen date is today or earlier.
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-            if (postponedDate <= today) {
-                await notify(
-                    "domains.whatsapp.postpone_not_applied_title",
-                    "domains.whatsapp.postpone_not_applied_message",
-                    { orderNumber, date },
-                    NotificationType.SYSTEM_ALERT,
-                );
-                return;
-            }
-
-            const status = await this.orderService.findStatusByCode(OrderStatus.POSTPONED, adminId);
-            await this.orderService.changeStatus(
-                { id: adminId, adminId },
-                orderId,
-                { statusId: status.id, postponedDate: postponedDate.toISOString() },
-            );
-
-            await this.markActionCompleted(parentMessage.id);
-            await notify(
-                "domains.whatsapp.postpone_accepted_title",
-                "domains.whatsapp.postpone_accepted_message",
-                { orderNumber, date },
-                NotificationType.ORDER_UPDATED,
-            );
-            this.logger.log(`Order ${orderId} postponed to ${date} via WhatsApp business action.`);
-        } catch (error) {
-            this.logger.error(`Failed to postpone order ${orderId}: ${error.message}`, error.stack);
-            await notify(
-                "domains.whatsapp.postpone_failed_title",
-                "domains.whatsapp.postpone_failed_message",
-                { orderNumber, error: error.message },
-                NotificationType.SYSTEM_ALERT,
-            );
-        }
-    }
-
-    /**
-     * order.apply_discount: the customer pressed one of the offer buttons.
-     * btn_0 = accept, btn_1 = not now. On accept, reads the discount value/type
-     * from the businessConfig stored in the message metadata and applies it to the order.
-     */
-    private async handleDiscountOfferAction(
-        adminId: string,
-        parentMessage: WhatsappMessageEntity,
-        payload: any,
-    ): Promise<void> {
-        const orderId = parentMessage.orderId;
-        const orderNumber = parentMessage.order?.orderNumber || '';
-        const notify = (titleKey: I18nKey, messageKey: I18nKey, args: Record<string, any>, type: NotificationType) =>
-            this.notifyBusinessResult(adminId, orderId, titleKey, messageKey, args, type);
-
-        try {
-            const buttonReply = payload?.interactive?.button_reply;
-            const replyId = buttonReply?.id || '';
-
-            // Buttons are sent with reply.id = btn_<idx>; the first button is the accept action.
-            if (replyId !== 'btn_0') {
-                await notify(
-                    "domains.whatsapp.discount_not_accepted_title",
-                    "domains.whatsapp.discount_not_accepted_message",
-                    { orderNumber },
-                    NotificationType.SYSTEM_ALERT,
-                );
-                return;
-            }
-
-            const order = await this.orderRepo.findOne({ where: { id: orderId, adminId } });
-            if (!order) {
-                throw new Error('Order not found');
-            }
-
-            const businessConfig = parentMessage.metadata?.businessConfig || {};
-            const discountValue = Number(businessConfig.discountValue) || 0;
-            const discountType = businessConfig.discountType === 'fixed' ? 'fixed' : 'percentage';
-
-            const discount = discountType === 'fixed'
-                ? discountValue
-                : Math.round(((Number(order.productsTotal) || 0) * discountValue) / 100);
-
-            await this.orderService.update({ id: adminId, adminId }, orderId, { discount });
-
-            await this.markActionCompleted(parentMessage.id);
-            await notify(
-                "domains.whatsapp.discount_accepted_title",
-                "domains.whatsapp.discount_accepted_message",
-                { orderNumber, amount: discount },
-                NotificationType.ORDER_UPDATED,
-            );
-            this.logger.log(`Discount ${discount} applied to order ${orderId} via WhatsApp business action.`);
-        } catch (error) {
-            this.logger.error(`Failed to apply discount to order ${orderId}: ${error.message}`, error.stack);
-            await notify(
-                "domains.whatsapp.discount_failed_title",
-                "domains.whatsapp.discount_failed_message",
-                { orderNumber, error: error.message },
-                NotificationType.SYSTEM_ALERT,
-            );
-        }
-    }
-
-    /**
-     * order.set_payment_method: the customer pressed one of the payment buttons.
-     * Buttons are sent with reply.id = btn_<idx> (0 = Cash on delivery,
-     * 1 = E-Wallet, 2 = Credit Card). Saves the chosen method on the order.
-     */
-    private async handlePaymentMethodAction(
-        adminId: string,
-        parentMessage: WhatsappMessageEntity,
-        payload: any,
-    ): Promise<void> {
-        const orderId = parentMessage.orderId;
-        const orderNumber = parentMessage.order?.orderNumber || '';
-        const notify = (titleKey: I18nKey, messageKey: I18nKey, args: Record<string, any>, type: NotificationType) =>
-            this.notifyBusinessResult(adminId, orderId, titleKey, messageKey, args, type);
-
-        const PAYMENT_METHODS_BY_BUTTON_INDEX: Record<string, PaymentMethod> = {
-            btn_0: PaymentMethod.CASH_ON_DELIVERY,
-            btn_1: PaymentMethod.WALLET,
-            btn_2: PaymentMethod.CARD,
-        };
-
-        try {
-            const buttonReply = payload?.interactive?.button_reply;
-            const replyId = buttonReply?.id || '';
-            const paymentMethod = PAYMENT_METHODS_BY_BUTTON_INDEX[replyId];
-
-            if (!paymentMethod) {
-                this.logger.warn(`Invalid payment method reply for order ${orderId}: ${replyId}`);
-                await notify(
-                    "domains.whatsapp.payment_method_not_applied_title",
-                    "domains.whatsapp.payment_method_not_applied_message",
-                    { orderNumber },
-                    NotificationType.SYSTEM_ALERT,
-                );
-                return;
-            }
-
-            await this.orderRepo.update(orderId, { paymentMethod });
-
-            await this.markActionCompleted(parentMessage.id);
-            await notify(
-                "domains.whatsapp.payment_method_accepted_title",
-                "domains.whatsapp.payment_method_accepted_message",
-                { orderNumber, paymentMethod },
-                NotificationType.ORDER_UPDATED,
-            );
-            this.logger.log(`Payment method ${paymentMethod} set for order ${orderId} via WhatsApp business action.`);
-        } catch (error) {
-            this.logger.error(`Failed to set payment method for order ${orderId}: ${error.message}`, error.stack);
-            await notify(
-                "domains.whatsapp.payment_method_failed_title",
-                "domains.whatsapp.payment_method_failed_message",
-                { orderNumber, error: error.message },
-                NotificationType.SYSTEM_ALERT,
-            );
-        }
-    }
-
-    /**
-     * Creates a notification for the admin about a business ready-message action result.
-     */
-    private async notifyBusinessResult(
-        adminId: string,
-        orderId: string,
-        titleKey: I18nKey,
-        messageKey: I18nKey,
-        args: Record<string, any>,
-        type: NotificationType,
-    ): Promise<void> {
-        try {
-            await this.notificationService.create({
-                userId: adminId,
-                type,
-                title: await this.requestTranslations.tAsync(titleKey, adminId),
-                message: await this.requestTranslations.tAsync(messageKey, adminId, { args }),
-                relatedEntityType: "order",
-                relatedEntityId: String(orderId),
-            });
-        } catch (error) {
-            this.logger.error(`Failed to create business action notification: ${error.message}`, error.stack);
-        }
-    }
-
-    private async markActionCompleted(messageId: string): Promise<void> {
-        await this.messageRepo.update(messageId, {
-            actionStatus: MessageActionStatus.COMPLETED,
-            actionCompletedAt: new Date(),
+          ),
+          relatedEntityType: "order",
+          relatedEntityId: String(parentMessage.orderId),
         });
+
+        this.logger.log(
+          `Successfully updated location for Order ID: ${parentMessage.orderId} via WhatsApp Action.`,
+        );
+      }
+
+      // Future: Add `else if` blocks here for more pending intents
+    } catch (error) {
+      this.logger.error(
+        `Failed to process message action: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  /**
+   * Executes the business logic tied to a business ready-message command
+   * stored on the outbound message the customer replied to.
+   */
+  private async processBusinessAction(
+    adminId: string,
+    parentMessage: WhatsappMessageEntity,
+    payload: any,
+    businessCommand: string,
+  ): Promise<void> {
+    switch (businessCommand) {
+      case "order.set_postponed_date":
+        await this.handlePostponeDateAction(adminId, parentMessage, payload);
+        break;
+      case "order.apply_discount":
+        await this.handleDiscountOfferAction(adminId, parentMessage, payload);
+        break;
+      case "order.set_payment_method":
+        await this.handlePaymentMethodAction(adminId, parentMessage, payload);
+        break;
+      default:
+        this.logger.warn(`Unknown business command: ${businessCommand}`);
+    }
+  }
+
+  /**
+   * order.set_postponed_date: the customer picked a row from the postpone list.
+   * The reply id carries the chosen date (row id = __date_DD-MM-YYYY__ after the
+   * {{global.date.N.DD-MM-YYYY}} token was replaced). Applies it as the order's
+   * postponed date, unless it is today or earlier.
+   */
+  private async handlePostponeDateAction(
+    adminId: string,
+    parentMessage: WhatsappMessageEntity,
+    payload: any,
+  ): Promise<void> {
+    const orderId = parentMessage.orderId;
+    const orderNumber = parentMessage.order?.orderNumber || "";
+    const notify = (
+      titleKey: I18nKey,
+      messageKey: I18nKey,
+      args: Record<string, any>,
+      type: NotificationType,
+    ) =>
+      this.notifyBusinessResult(
+        adminId,
+        orderId,
+        titleKey,
+        messageKey,
+        args,
+        type,
+      );
+
+    try {
+      const replyId = payload?.interactive?.list_reply?.id || "";
+      const match = replyId.match(/^__date_(\d{2})-(\d{2})-(\d{4})__$/);
+      const date = match ? `${match[1]}-${match[2]}-${match[3]}` : replyId;
+
+      if (!match) {
+        this.logger.warn(
+          `Invalid postpone reply id for order ${orderId}: ${replyId}`,
+        );
+        await notify(
+          "domains.whatsapp.postpone_not_applied_title",
+          "domains.whatsapp.postpone_not_applied_message",
+          { orderNumber, date },
+          NotificationType.SYSTEM_ALERT,
+        );
+        return;
+      }
+
+      const postponedDate = new Date(
+        Number(match[3]),
+        Number(match[2]) - 1,
+        Number(match[1]),
+      );
+
+      // Do not apply if the chosen date is today or earlier.
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (postponedDate <= today) {
+        await notify(
+          "domains.whatsapp.postpone_not_applied_title",
+          "domains.whatsapp.postpone_not_applied_message",
+          { orderNumber, date },
+          NotificationType.SYSTEM_ALERT,
+        );
+        return;
+      }
+
+      const status = await this.orderService.findStatusByCode(
+        OrderStatus.POSTPONED,
+        adminId,
+      );
+      await this.orderService.changeStatus({ id: adminId, adminId }, orderId, {
+        statusId: status.id,
+        postponedDate: postponedDate.toISOString(),
+      });
+
+      await this.markActionCompleted(parentMessage.id);
+      await notify(
+        "domains.whatsapp.postpone_accepted_title",
+        "domains.whatsapp.postpone_accepted_message",
+        { orderNumber, date },
+        NotificationType.ORDER_UPDATED,
+      );
+      this.logger.log(
+        `Order ${orderId} postponed to ${date} via WhatsApp business action.`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to postpone order ${orderId}: ${error.message}`,
+        error.stack,
+      );
+      await notify(
+        "domains.whatsapp.postpone_failed_title",
+        "domains.whatsapp.postpone_failed_message",
+        { orderNumber, error: error.message },
+        NotificationType.SYSTEM_ALERT,
+      );
+    }
+  }
+
+  /**
+   * order.apply_discount: the customer pressed one of the offer buttons.
+   * btn_0 = accept, btn_1 = not now. On accept, reads the discount value/type
+   * from the businessConfig stored in the message metadata and applies it to the order.
+   */
+  private async handleDiscountOfferAction(
+    adminId: string,
+    parentMessage: WhatsappMessageEntity,
+    payload: any,
+  ): Promise<void> {
+    const orderId = parentMessage.orderId;
+    const orderNumber = parentMessage.order?.orderNumber || "";
+    const notify = (
+      titleKey: I18nKey,
+      messageKey: I18nKey,
+      args: Record<string, any>,
+      type: NotificationType,
+    ) =>
+      this.notifyBusinessResult(
+        adminId,
+        orderId,
+        titleKey,
+        messageKey,
+        args,
+        type,
+      );
+
+    try {
+      const buttonReply = payload?.interactive?.button_reply;
+      const replyId = buttonReply?.id || "";
+
+      // Buttons are sent with reply.id = btn_<idx>; the first button is the accept action.
+      if (replyId !== "btn_0") {
+        await notify(
+          "domains.whatsapp.discount_not_accepted_title",
+          "domains.whatsapp.discount_not_accepted_message",
+          { orderNumber },
+          NotificationType.SYSTEM_ALERT,
+        );
+        return;
+      }
+
+      const order = await this.orderRepo.findOne({
+        where: { id: orderId, adminId },
+      });
+      if (!order) {
+        throw new Error("Order not found");
+      }
+
+      const businessConfig = parentMessage.metadata?.businessConfig || {};
+      const discountValue = Number(businessConfig.discountValue) || 0;
+      const discountType =
+        businessConfig.discountType === "fixed" ? "fixed" : "percentage";
+
+      const discount =
+        discountType === "fixed"
+          ? discountValue
+          : Math.round(
+              ((Number(order.productsTotal) || 0) * discountValue) / 100,
+            );
+
+      await this.orderService.update({ id: adminId, adminId }, orderId, {
+        discount,
+      });
+
+      await this.markActionCompleted(parentMessage.id);
+      await notify(
+        "domains.whatsapp.discount_accepted_title",
+        "domains.whatsapp.discount_accepted_message",
+        { orderNumber, amount: discount },
+        NotificationType.ORDER_UPDATED,
+      );
+      this.logger.log(
+        `Discount ${discount} applied to order ${orderId} via WhatsApp business action.`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to apply discount to order ${orderId}: ${error.message}`,
+        error.stack,
+      );
+      await notify(
+        "domains.whatsapp.discount_failed_title",
+        "domains.whatsapp.discount_failed_message",
+        { orderNumber, error: error.message },
+        NotificationType.SYSTEM_ALERT,
+      );
+    }
+  }
+
+  /**
+   * order.set_payment_method: the customer pressed one of the payment buttons.
+   * Buttons are sent with reply.id = btn_<idx> (0 = Cash on delivery,
+   * 1 = E-Wallet, 2 = Credit Card). Saves the chosen method on the order.
+   */
+  private async handlePaymentMethodAction(
+    adminId: string,
+    parentMessage: WhatsappMessageEntity,
+    payload: any,
+  ): Promise<void> {
+    const orderId = parentMessage.orderId;
+    const orderNumber = parentMessage.order?.orderNumber || "";
+    const notify = (
+      titleKey: I18nKey,
+      messageKey: I18nKey,
+      args: Record<string, any>,
+      type: NotificationType,
+    ) =>
+      this.notifyBusinessResult(
+        adminId,
+        orderId,
+        titleKey,
+        messageKey,
+        args,
+        type,
+      );
+
+    const PAYMENT_METHODS_BY_BUTTON_INDEX: Record<string, PaymentMethod> = {
+      btn_0: PaymentMethod.CASH_ON_DELIVERY,
+      btn_1: PaymentMethod.WALLET,
+      btn_2: PaymentMethod.CARD,
+    };
+
+    try {
+      const buttonReply = payload?.interactive?.button_reply;
+      const replyId = buttonReply?.id || "";
+      const paymentMethod = PAYMENT_METHODS_BY_BUTTON_INDEX[replyId];
+
+      if (!paymentMethod) {
+        this.logger.warn(
+          `Invalid payment method reply for order ${orderId}: ${replyId}`,
+        );
+        await notify(
+          "domains.whatsapp.payment_method_not_applied_title",
+          "domains.whatsapp.payment_method_not_applied_message",
+          { orderNumber },
+          NotificationType.SYSTEM_ALERT,
+        );
+        return;
+      }
+
+      await this.orderRepo.update(orderId, { paymentMethod });
+
+      await this.markActionCompleted(parentMessage.id);
+      await notify(
+        "domains.whatsapp.payment_method_accepted_title",
+        "domains.whatsapp.payment_method_accepted_message",
+        { orderNumber, paymentMethod },
+        NotificationType.ORDER_UPDATED,
+      );
+      this.logger.log(
+        `Payment method ${paymentMethod} set for order ${orderId} via WhatsApp business action.`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to set payment method for order ${orderId}: ${error.message}`,
+        error.stack,
+      );
+      await notify(
+        "domains.whatsapp.payment_method_failed_title",
+        "domains.whatsapp.payment_method_failed_message",
+        { orderNumber, error: error.message },
+        NotificationType.SYSTEM_ALERT,
+      );
+    }
+  }
+
+  /**
+   * Creates a notification for the admin about a business ready-message action result.
+   */
+  private async notifyBusinessResult(
+    adminId: string,
+    orderId: string,
+    titleKey: I18nKey,
+    messageKey: I18nKey,
+    args: Record<string, any>,
+    type: NotificationType,
+  ): Promise<void> {
+    try {
+      await this.notificationService.create({
+        userId: adminId,
+        type,
+        title: await this.requestTranslations.tAsync(titleKey, adminId),
+        message: await this.requestTranslations.tAsync(messageKey, adminId, {
+          args,
+        }),
+        relatedEntityType: "order",
+        relatedEntityId: String(orderId),
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to create business action notification: ${error.message}`,
+        error.stack,
+      );
+    }
+  }
+
+  private async markActionCompleted(messageId: string): Promise<void> {
+    await this.messageRepo.update(messageId, {
+      actionStatus: MessageActionStatus.COMPLETED,
+      actionCompletedAt: new Date(),
+    });
+  }
+
+  async markAsRead(
+    me: any,
+    payload: { messageId?: string; conversationId?: string },
+  ) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
     }
 
-    async markAsRead(me: any, payload: { messageId?: string, conversationId?: string }) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-
-        if (payload.messageId) {
-            const message = await this.messageRepo.findOne({ where: { messageId: payload.messageId, adminId } });
-            if (message && message.direction === MessageDirection.INBOUND) {
-                // 1. Call Meta API
-                try {
-                    await this.whatsappApi.markMessageAsRead(message.accountId, message.messageId);
-                    message.status = MessageStatus.READ;
-                    message.readAt = new Date();
-                    await this.messageRepo.save(message);
-                } catch (e) {
-                    this.logger.error(`Failed to mark message ${message.messageId} as read on Meta: ${e.message}`, e.stack);
-                }
-
-                // 2. Sync locally
-                await this.syncMessageReadStatus(message);
-
-                // 3. Emit update notification
-                this.appGateway.emitUpdateMessage(adminId, message);
-            }
-        } else if (payload.conversationId) {
-            const conversation = await this.conversationRepo.findOne({ where: { id: payload.conversationId, adminId } });
-            if (conversation) {
-                // Find latest inbound message to mark as read on Meta
-                const latestInbound = await this.messageRepo.findOne({
-                    where: { conversationId: conversation.id, direction: MessageDirection.INBOUND },
-                    order: { createdAt: 'DESC' }
-                });
-
-                if (latestInbound) {
-                    try {
-                        await this.whatsappApi.markMessageAsRead(latestInbound.accountId, latestInbound.messageId);
-                    } catch (e) {
-                        this.logger.error(`Failed to mark conversation ${conversation.id} as read on Meta: ${e.message}`, e.stack);
-                    }
-                    // Sync all locally using the latest message as reference
-                    await this.syncMessageReadStatus(latestInbound);
-                    // We don't emit for every message for performance, frontend should refresh or we could emit a specific event
-                }
-            }
+    if (payload.messageId) {
+      const message = await this.messageRepo.findOne({
+        where: { messageId: payload.messageId, adminId },
+      });
+      if (message && message.direction === MessageDirection.INBOUND) {
+        // 1. Call Meta API
+        try {
+          await this.whatsappApi.markMessageAsRead(
+            message.accountId,
+            message.messageId,
+          );
+          message.status = MessageStatus.READ;
+          message.readAt = new Date();
+          await this.messageRepo.save(message);
+        } catch (e) {
+          this.logger.error(
+            `Failed to mark message ${message.messageId} as read on Meta: ${e.message}`,
+            e.stack,
+          );
         }
 
-        return { success: true };
+        // 2. Sync locally
+        await this.syncMessageReadStatus(message);
+
+        // 3. Emit update notification
+        this.appGateway.emitUpdateMessage(adminId, message);
+      }
+    } else if (payload.conversationId) {
+      const conversation = await this.conversationRepo.findOne({
+        where: { id: payload.conversationId, adminId },
+      });
+      if (conversation) {
+        // Find latest inbound message to mark as read on Meta
+        const latestInbound = await this.messageRepo.findOne({
+          where: {
+            conversationId: conversation.id,
+            direction: MessageDirection.INBOUND,
+          },
+          order: { createdAt: "DESC" },
+        });
+
+        if (latestInbound) {
+          try {
+            await this.whatsappApi.markMessageAsRead(
+              latestInbound.accountId,
+              latestInbound.messageId,
+            );
+          } catch (e) {
+            this.logger.error(
+              `Failed to mark conversation ${conversation.id} as read on Meta: ${e.message}`,
+              e.stack,
+            );
+          }
+          // Sync all locally using the latest message as reference
+          await this.syncMessageReadStatus(latestInbound);
+          // We don't emit for every message for performance, frontend should refresh or we could emit a specific event
+        }
+      }
     }
 
-    private async syncMessageReadStatus(message: WhatsappMessageEntity, readAt: Date = new Date()) {
-        if (!message.conversationId) return;
+    return { success: true };
+  }
 
-        // Mark this and all earlier messages of the SAME direction as READ in local DB
-        const result = await this.messageRepo
-            .createQueryBuilder()
-            .update()
-            .set({
-                status: MessageStatus.READ,
-                readAt,
-            })
-            .where('conversationId = :conversationId', {
-                conversationId: message.conversationId,
-            })
-            .andWhere('direction = :direction', {
-                direction: message.direction,
-            })
-            .andWhere('status != :status', {
-                status: MessageStatus.READ,
-            })
-            .andWhere(`
+  private async syncMessageReadStatus(
+    message: WhatsappMessageEntity,
+    readAt: Date = new Date(),
+  ) {
+    if (!message.conversationId) return;
+
+    // Mark this and all earlier messages of the SAME direction as READ in local DB
+    const result = await this.messageRepo
+      .createQueryBuilder()
+      .update()
+      .set({
+        status: MessageStatus.READ,
+        readAt,
+      })
+      .where("conversationId = :conversationId", {
+        conversationId: message.conversationId,
+      })
+      .andWhere("direction = :direction", {
+        direction: message.direction,
+      })
+      .andWhere("status != :status", {
+        status: MessageStatus.READ,
+      })
+      .andWhere(
+        `
                 DATE_TRUNC('second', "createdAt")
                 <= DATE_TRUNC('second', :createdAt::timestamp)
-            `, {
-                createdAt: message.createdAt,
-            })
-            .execute();
+            `,
+        {
+          createdAt: message.createdAt,
+        },
+      )
+      .execute();
 
-        // If it's an inbound message, we must recalculate the unread count for the conversation
-        if (message.direction === MessageDirection.INBOUND) {
-            const unreadCount = await this.messageRepo.count({
-                where: {
-                    conversationId: message.conversationId,
-                    direction: MessageDirection.INBOUND,
-                    status: MessageStatus.RECEIVED
-                }
-            });
-            await this.conversationRepo.update(message.conversationId, { unreadCount });
-        }
+    // If it's an inbound message, we must recalculate the unread count for the conversation
+    if (message.direction === MessageDirection.INBOUND) {
+      const unreadCount = await this.messageRepo.count({
+        where: {
+          conversationId: message.conversationId,
+          direction: MessageDirection.INBOUND,
+          status: MessageStatus.RECEIVED,
+        },
+      });
+      await this.conversationRepo.update(message.conversationId, {
+        unreadCount,
+      });
+    }
+  }
+
+  async exchangeCodeForToken(code: string, state?: string) {
+    const params = new URLSearchParams({
+      client_id: process.env.META_APP_ID!,
+      client_secret: process.env.META_APP_SECRET!,
+      redirect_uri: process.env.META_REDIRECT_URI!,
+      code,
+    });
+
+    const response = await fetch(
+      `https://graph.facebook.com/v22.0/oauth/access_token?${params.toString()}`,
+      {
+        method: "GET",
+      },
+    );
+    const data = await response.json();
+    console.log(data);
+
+    return response.json();
+  }
+
+  /**
+   * Subscribe WABA to app webhooks
+   *
+   * Meta endpoint:
+   * POST /{WABA_ID}/subscribed_apps
+   */
+
+  async subscribeAppToWebhook(accountId: string) {
+    const response = await this.whatsappApi.request({
+      method: "POST",
+      accountId,
+      endpoint: "subscribed_apps",
+      data: {},
+    });
+
+    return response;
+  }
+
+  async unSubscribeAppToWebhook(accountId: string) {
+    const response = await this.whatsappApi.request({
+      method: "DELETE",
+      accountId,
+      endpoint: "subscribed_apps",
+      data: {},
+    });
+
+    return response;
+  }
+
+  private validateSignature(
+    rawBody: Buffer,
+    signatureHeader?: string,
+    accountAppSecret?: string,
+  ) {
+    if (!signatureHeader) {
+      throw new BadRequestException("Missing X-Hub-Signature-256 header");
     }
 
-    async exchangeCodeForToken(code: string, state?: string) {
-        const params = new URLSearchParams({
-            client_id: process.env.META_APP_ID!,
-            client_secret: process.env.META_APP_SECRET!,
-            redirect_uri: process.env.META_REDIRECT_URI!,
-            code,
+    const appSecret = accountAppSecret || process.env.META_APP_SECRET;
+    // this.logger.log(`WhatsApp Webhook Received - appSecret: ${appSecret} - accountAppSecret: ${accountAppSecret}`);
+
+    if (!appSecret) {
+      throw new Error("META_APP_SECRET is not configured");
+    }
+
+    const receivedSignature = signatureHeader.replace("sha256=", "");
+
+    const expectedSignature = crypto
+      .createHmac("sha256", appSecret)
+      .update(rawBody)
+      .digest("hex");
+
+    const isValid = crypto.timingSafeEqual(
+      Buffer.from(receivedSignature, "hex"),
+      Buffer.from(expectedSignature, "hex"),
+    );
+    // this.logger.log(`WhatsApp Webhook Received - receivedSignature: ${receivedSignature} - expectedSignature: ${expectedSignature} - isValid: ${isValid}`);
+
+    if (!isValid) {
+      throw new BadRequestException("Invalid webhook signature");
+    }
+
+    return true;
+  }
+
+  //Unacknowledged responses will be dropped after 7 days.
+  async handleEvents(
+    body: any,
+    rawBody: Buffer,
+    headers: Record<string, string>,
+  ) {
+    // this.logger.log(`WhatsApp Webhook Received - Headers: ${JSON.stringify(headers)}`);
+    // this.logger.log(`WhatsApp Webhook Received - Body: ${JSON.stringify(body)}`);
+    // Header can arrive lowercase in Node/Nest
+    // 🔥 request-scoped cache (ONLY THIS REQUEST)
+    const accountCache = new Map<string, WhatsappAccountEntity>();
+
+    const resolveAccount = async (opts: {
+      phoneNumberId?: string;
+      wabaId?: string;
+    }) => {
+      const { phoneNumberId, wabaId } = opts;
+      if (!phoneNumberId && !wabaId) {
+        throw new BadRequestException("Missing WABA ID or phone_number_id");
+      }
+
+      // A single WABA can host multiple phone numbers, each mapped to its own
+      // account record. Prefer resolving by metadata.phone_number_id so the
+      // webhook event and its messages are stored against the correct number.
+      const cacheKey = phoneNumberId
+        ? `phone:${phoneNumberId}`
+        : `waba:${wabaId}`;
+
+      // 1. check request cache
+      if (accountCache.has(cacheKey)) {
+        return accountCache.get(cacheKey)!;
+      }
+
+      // 2. DB lookup (phone_number_id preferred, wabaId as fallback)
+      const where: any = {};
+      if (phoneNumberId) where.phoneNumberId = phoneNumberId;
+      if (wabaId) where.wabaId = wabaId;
+
+      const account = await this.accountRepo.findOne({
+        where,
+        select: {
+          accessToken: true,
+          adminId: true,
+          appId: true,
+          appSecret: true,
+          businessId: true,
+          createdAt: true,
+          id: true,
+          isActive: true,
+          isCreatedManual: true,
+          mobileNumber: true,
+          name: true,
+          phoneNumberId: true,
+          wabaId: true,
+        },
+      });
+
+      if (!account) {
+        throw new BadRequestException("Account not found");
+      }
+
+      if (!account.isActive) {
+        throw new BadRequestException("Account is not active");
+      }
+
+      if (!account.wabaId) {
+        throw new BadRequestException("Account not linked to WhatsApp");
+      }
+
+      // 3. store in request cache
+      accountCache.set(cacheKey, account);
+
+      return account;
+    };
+
+    const signature =
+      headers["x-hub-signature-256"] || headers["X-Hub-Signature-256"];
+    const entries = body?.entry || [];
+    const mainWabaId = entries?.[0]?.id;
+    const mainAccount = await resolveAccount({ wabaId: mainWabaId });
+    // this.logger.log(`WhatsApp Webhook Received - mainWabaId: ${mainWabaId} -  Main Account: ${JSON.stringify(mainAccount)}`);
+
+    // Step 1: Validate request
+    this.validateSignature(rawBody, signature, mainAccount.appSecret);
+
+    for (const entry of entries) {
+      const changes = entry?.changes || [];
+
+      for (const change of changes) {
+        const field = change?.field as WebhookEventType;
+        const value = change?.value;
+
+        // Resolve the account by phone_number_id (preferred) falling back to wabaId.
+        // This ensures the rawPayload webhook event and any inbound messages are
+        // stored against the specific WhatsApp number/account that received them.
+        const account = await resolveAccount({
+          phoneNumberId: value?.metadata?.phone_number_id,
+          wabaId: entry?.id,
         });
 
-        const response = await fetch(
-            `https://graph.facebook.com/v22.0/oauth/access_token?${params.toString()}`,
-            {
-                method: 'GET',
-            },
-        );
-        const data = await response.json();
-        console.log(data);
-
-
-        return response.json();
-    }
-
-    /**
- * Subscribe WABA to app webhooks
- *
- * Meta endpoint:
- * POST /{WABA_ID}/subscribed_apps
- */
-
-    async subscribeAppToWebhook(accountId: string) {
-
-        const response = await this.whatsappApi.request({
-            method: "POST",
-            accountId,
-            endpoint: "subscribed_apps",
-            data: {},
+        // Save raw webhook event
+        const webhookEvent = this.webhookRepo.create({
+          adminId: account.adminId,
+          accountId: account.id,
+          wabaId: entry.id,
+          eventType: field,
+          rawPayload: change,
+          processingStatus: WebhookEventStatus.PENDING,
         });
+        await this.webhookRepo.save(webhookEvent);
 
-        return response;
-
-    }
-
-    async unSubscribeAppToWebhook(accountId: string) {
-
-        const response = await this.whatsappApi.request({
-            method: "DELETE",
-            accountId,
-            endpoint: "subscribed_apps",
-            data: {},
-        });
-
-        return response;
-
-    }
-
-    private validateSignature(
-        rawBody: Buffer,
-        signatureHeader?: string,
-        accountAppSecret?: string,
-    ) {
-        if (!signatureHeader) {
-            throw new BadRequestException(
-                'Missing X-Hub-Signature-256 header',
-            );
-        }
-
-        const appSecret = accountAppSecret || process.env.META_APP_SECRET;
-        // this.logger.log(`WhatsApp Webhook Received - appSecret: ${appSecret} - accountAppSecret: ${accountAppSecret}`);
-
-        if (!appSecret) {
-            throw new Error('META_APP_SECRET is not configured');
-        }
-
-        const receivedSignature = signatureHeader.replace(
-            'sha256=',
-            '',
-        );
-
-        const expectedSignature = crypto
-            .createHmac('sha256', appSecret)
-            .update(rawBody)
-            .digest('hex');
-
-        const isValid = crypto.timingSafeEqual(
-            Buffer.from(receivedSignature, 'hex'),
-            Buffer.from(expectedSignature, 'hex'),
-        );
-        // this.logger.log(`WhatsApp Webhook Received - receivedSignature: ${receivedSignature} - expectedSignature: ${expectedSignature} - isValid: ${isValid}`);
-
-        if (!isValid) {
-            throw new BadRequestException(
-                'Invalid webhook signature',
-            );
-        }
-
-        return true;
-    }
-
-    //Unacknowledged responses will be dropped after 7 days.
-    async handleEvents(
-        body: any,
-        rawBody: Buffer,
-        headers: Record<string, string>,
-    ) {
-        // this.logger.log(`WhatsApp Webhook Received - Headers: ${JSON.stringify(headers)}`);
-        // this.logger.log(`WhatsApp Webhook Received - Body: ${JSON.stringify(body)}`);
-        // Header can arrive lowercase in Node/Nest
-        // 🔥 request-scoped cache (ONLY THIS REQUEST)
-        const accountCache = new Map<string, WhatsappAccountEntity>();
-
-        const resolveAccount = async (opts: { phoneNumberId?: string; wabaId?: string }) => {
-            const { phoneNumberId, wabaId } = opts;
-            if (!phoneNumberId && !wabaId) {
-                throw new BadRequestException("Missing WABA ID or phone_number_id");
-            }
-
-            // A single WABA can host multiple phone numbers, each mapped to its own
-            // account record. Prefer resolving by metadata.phone_number_id so the
-            // webhook event and its messages are stored against the correct number.
-            const cacheKey = phoneNumberId ? `phone:${phoneNumberId}` : `waba:${wabaId}`;
-
-            // 1. check request cache
-            if (accountCache.has(cacheKey)) {
-                return accountCache.get(cacheKey)!;
-            }
-
-            // 2. DB lookup (phone_number_id preferred, wabaId as fallback)
-            const where: any = {};
-            if (phoneNumberId) where.phoneNumberId = phoneNumberId;
-            if (wabaId) where.wabaId = wabaId;
-
-            const account = await this.accountRepo.findOne({
-                where,
-                select: {
-                    accessToken: true,
-                    adminId: true,
-                    appId: true,
-                    appSecret: true,
-                    businessId: true,
-                    createdAt: true,
-                    id: true,
-                    isActive: true,
-                    isCreatedManual: true,
-                    mobileNumber: true,
-                    name: true,
-                    phoneNumberId: true,
-                    wabaId: true,
-                },
-            });
-
-            if (!account) {
-                throw new BadRequestException("Account not found");
-            }
-
-            if (!account.isActive) {
-                throw new BadRequestException("Account is not active");
-            }
-
-            if (!account.wabaId) {
-                throw new BadRequestException("Account not linked to WhatsApp");
-            }
-
-            // 3. store in request cache
-            accountCache.set(cacheKey, account);
-
-            return account;
-        };
-
-        const signature =
-            headers["x-hub-signature-256"] ||
-            headers["X-Hub-Signature-256"];
-        const entries = body?.entry || [];
-        const mainWabaId = entries?.[0]?.id;
-        const mainAccount = await resolveAccount({ wabaId: mainWabaId });
-        // this.logger.log(`WhatsApp Webhook Received - mainWabaId: ${mainWabaId} -  Main Account: ${JSON.stringify(mainAccount)}`);
-
-        // Step 1: Validate request
-        this.validateSignature(rawBody, signature, mainAccount.appSecret);
-
-
-        for (const entry of entries) {
-            const changes = entry?.changes || [];
-
-            for (const change of changes) {
-                const field = change?.field as WebhookEventType;
-                const value = change?.value;
-
-                // Resolve the account by phone_number_id (preferred) falling back to wabaId.
-                // This ensures the rawPayload webhook event and any inbound messages are
-                // stored against the specific WhatsApp number/account that received them.
-                const account = await resolveAccount({
-                    phoneNumberId: value?.metadata?.phone_number_id,
-                    wabaId: entry?.id,
-                });
-
-                // Save raw webhook event
-                const webhookEvent = this.webhookRepo.create({
-                    adminId: account.adminId,
-                    accountId: account.id,
-                    wabaId: entry.id,
-                    eventType: field,
-                    rawPayload: change,
-                    processingStatus: WebhookEventStatus.PENDING,
-                });
-                await this.webhookRepo.save(webhookEvent);
-
-                try {
-                    switch (field) {
-
-                        case WebhookEventType.ACCOUNT_ALERTS:
-                            await this.handleAccountAlerts(value, account)
-                            break;
-                        case WebhookEventType.MESSAGES:
-                            await this.handleMessages(value, account)
-                            break;
-                        case WebhookEventType.CALLS:
-                            await this.handleCalls(value, account)
-                            break;
-                        case WebhookEventType.CONSUMER_PROFILE:
-                            await this.handleConsumerProfile(value, account)
-                            break;
-                        case WebhookEventType.MESSAGING_HANDOVERS:
-                            await this.handleMessagingHandovers(value, account)
-                            break;
-                        case WebhookEventType.GROUP_LIFECYCLE_UPDATE:
-                            await this.handleGroupLifecycleUpdate(value, account)
-                            break;
-                        case WebhookEventType.GROUP_PARTICIPANTS_UPDATE:
-                            await this.handleGroupParticipantsUpdate(value, account)
-                            break;
-                        case WebhookEventType.GROUP_SETTINGS_UPDATE:
-                            await this.handleGroupSettingsUpdate(value, account)
-                            break;
-                        case WebhookEventType.GROUP_STATUS_UPDATE:
-                            await this.handleGroupStatusUpdate(value, account)
-                            break;
-                        case WebhookEventType.SMB_MESSAGE_ECHOES:
-                            await this.handleSmbMessageEchoes(value, account)
-                            break;
-                        case WebhookEventType.SMB_APP_STATE_SYNC:
-                            await this.handleSmbAppStateSync(value, account)
-                            break;
-                        case WebhookEventType.HISTORY:
-                            await this.handleHistory(value, account)
-                            break;
-                        case WebhookEventType.ACCOUNT_SETTINGS_UPDATE:
-                            await this.handleAccountSettingsUpdate(value, account)
-                            break;
-                        case WebhookEventType.MESSAGE_TEMPLATE_STATUS_UPDATE:
-                            await this.handleTemplateStatusUpdate(value, account)
-                            break;
-                        case WebhookEventType.MESSAGE_TEMPLATE_QUALITY_UPDATE:
-                            await this.handleTemplateQualityUpdate(value, account)
-                            break;
-                        case WebhookEventType.MESSAGE_TEMPLATE_COMPONENTS_UPDATE:
-                            await this.handleTemplateComponentsUpdate(value, account)
-                            break;
-                        case WebhookEventType.TEMPLATE_CATEGORY_UPDATE:
-                            await this.handleTemplateCategoryUpdate(value, account)
-                            break;
-                        case WebhookEventType.ACCOUNT_UPDATE:
-                            await this.handleAccountUpdate(value, account)
-                            break;
-                        case WebhookEventType.ACCOUNT_REVIEW_UPDATE:
-                            await this.handleAccountReviewUpdate(value, account)
-                            break;
-                        default:
-                            this.logger.warn(
-                                `Unhandled webhook field: ${field}`,
-                            );
-                    }
-
-                    // Mark as processed
-                    webhookEvent.processingStatus = WebhookEventStatus.PROCESSED;
-                    await this.webhookRepo.save(webhookEvent);
-
-                } catch (error) {
-                    this.logger.error(
-                        `Error processing webhook field: ${field}`,
-                        error,
-                    );
-                    webhookEvent.processingStatus = WebhookEventStatus.FAILED;
-                    webhookEvent.processingError = getErrorMessage(error);
-                    await this.webhookRepo.save(webhookEvent);
-                }
-            }
-        }
-
-        return "OK";
-    }
-
-    private async handleTemplateStatusUpdate(value: any, account: WhatsappAccountEntity) {
-        await this.templateService.updateStatus(
-            value.message_template_id,
-            value.event,
-        );
-    }
-
-    private async handleTemplateQualityUpdate(value: any, account: WhatsappAccountEntity) {
-        await this.templateService.updateQuality(
-            value.message_template_id,
-            value.new_quality_score,
-        );
-    }
-
-
-    private async handleMessages(value: any, account: WhatsappAccountEntity) {
-
-        const messages = value?.messages || [];
-        const statuses = value?.statuses || [];
-        if (messages.length === 0 && statuses.length === 0) return;
         try {
-            await this.handleStatuses(value, account)
+          switch (field) {
+            case WebhookEventType.ACCOUNT_ALERTS:
+              await this.handleAccountAlerts(value, account);
+              break;
+            case WebhookEventType.MESSAGES:
+              await this.handleMessages(value, account);
+              break;
+            case WebhookEventType.CALLS:
+              await this.handleCalls(value, account);
+              break;
+            case WebhookEventType.CONSUMER_PROFILE:
+              await this.handleConsumerProfile(value, account);
+              break;
+            case WebhookEventType.MESSAGING_HANDOVERS:
+              await this.handleMessagingHandovers(value, account);
+              break;
+            case WebhookEventType.GROUP_LIFECYCLE_UPDATE:
+              await this.handleGroupLifecycleUpdate(value, account);
+              break;
+            case WebhookEventType.GROUP_PARTICIPANTS_UPDATE:
+              await this.handleGroupParticipantsUpdate(value, account);
+              break;
+            case WebhookEventType.GROUP_SETTINGS_UPDATE:
+              await this.handleGroupSettingsUpdate(value, account);
+              break;
+            case WebhookEventType.GROUP_STATUS_UPDATE:
+              await this.handleGroupStatusUpdate(value, account);
+              break;
+            case WebhookEventType.SMB_MESSAGE_ECHOES:
+              await this.handleSmbMessageEchoes(value, account);
+              break;
+            case WebhookEventType.SMB_APP_STATE_SYNC:
+              await this.handleSmbAppStateSync(value, account);
+              break;
+            case WebhookEventType.HISTORY:
+              await this.handleHistory(value, account);
+              break;
+            case WebhookEventType.ACCOUNT_SETTINGS_UPDATE:
+              await this.handleAccountSettingsUpdate(value, account);
+              break;
+            case WebhookEventType.MESSAGE_TEMPLATE_STATUS_UPDATE:
+              await this.handleTemplateStatusUpdate(value, account);
+              break;
+            case WebhookEventType.MESSAGE_TEMPLATE_QUALITY_UPDATE:
+              await this.handleTemplateQualityUpdate(value, account);
+              break;
+            case WebhookEventType.MESSAGE_TEMPLATE_COMPONENTS_UPDATE:
+              await this.handleTemplateComponentsUpdate(value, account);
+              break;
+            case WebhookEventType.TEMPLATE_CATEGORY_UPDATE:
+              await this.handleTemplateCategoryUpdate(value, account);
+              break;
+            case WebhookEventType.ACCOUNT_UPDATE:
+              await this.handleAccountUpdate(value, account);
+              break;
+            case WebhookEventType.ACCOUNT_REVIEW_UPDATE:
+              await this.handleAccountReviewUpdate(value, account);
+              break;
+            default:
+              this.logger.warn(`Unhandled webhook field: ${field}`);
+          }
+
+          // Mark as processed
+          webhookEvent.processingStatus = WebhookEventStatus.PROCESSED;
+          await this.webhookRepo.save(webhookEvent);
         } catch (error) {
-            this.logger.error(`Error processing statuses: ${getErrorMessage(error)}`, error);
+          this.logger.error(`Error processing webhook field: ${field}`, error);
+          webhookEvent.processingStatus = WebhookEventStatus.FAILED;
+          webhookEvent.processingError = getErrorMessage(error);
+          await this.webhookRepo.save(webhookEvent);
         }
-        for (const metaMsg of messages) {
-            try {
-                await this.receivedMessage(metaMsg, account);
-            } catch (error) {
-                this.logger.error(`Error processing message: ${getErrorMessage(error)}`, error);
-            }
-
-        }
+      }
     }
 
-    private async receivedMessage(metaMsg: any, account: WhatsappAccountEntity) {
-        const messageId = metaMsg.id;
-        const from = metaMsg.from;
-        const type = metaMsg.type as WhatsappMessageType;
+    return "OK";
+  }
 
-        const existing = await this.messageRepo.findOne({ where: { messageId } });
-        if (existing) return;
+  private async handleTemplateStatusUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    await this.templateService.updateStatus(
+      value.message_template_id,
+      value.event,
+    );
+  }
 
-        // Manage customer and conversation
-        const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(from);
-        const customer = await this.customerService.getOrCreateCustomer({ id: account.adminId, adminId: account.adminId }, {
-            phoneNumber: normalizedPhoneNumber,
-            name: metaMsg.contacts?.[0]?.profile?.name || normalizedPhoneNumber,
-        });
+  private async handleTemplateQualityUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    await this.templateService.updateQuality(
+      value.message_template_id,
+      value.new_quality_score,
+    );
+  }
 
-        const conversation = await this.conversationService.getOrCreateConversation({ id: account.adminId, adminId: account.adminId }, {
-            phoneNumber: normalizedPhoneNumber,
-            name: customer.name,
-        });
-
-        // Handle Reactions and Replies (Context)
-        let reactionToId: string = null;
-        let replyToId: string = null;
-
-        if (type === WhatsappMessageType.REACTION && metaMsg.reaction?.message_id) {
-            const parent = await this.messageRepo.findOne({ where: { messageId: metaMsg.reaction.message_id, adminId: account.adminId } });
-            if (parent) reactionToId = parent.id;
-        }
-
-        if (metaMsg.context?.id) {
-            const parent = await this.messageRepo.findOne({ where: { messageId: metaMsg.context.id, adminId: account.adminId } });
-            if (parent) replyToId = parent.id;
-        }
-
-        const message = this.messageRepo.create({
-            adminId: account.adminId,
-            accountId: account.id,
-            messageId,
-            contactNumber: from,
-            direction: MessageDirection.INBOUND,
-            status: MessageStatus.RECEIVED,
-            messageType: type,
-            content: metaMsg,
-            customerId: customer.id,
-            conversationId: conversation.id,
-            reactionToId,
-            replyToId,
-        });
-
-        const savedMsg = await this.messageRepo.save(message);
-
-        // Fetch with relations to emit to frontend
-        const finalMsg = await this.messageRepo.findOne({
-            where: { id: savedMsg.id },
-            relations: ['replyTo', 'reactionTo']
-        });
-
-        // Update conversation metadata and increment unread count
-        // Reactions usually don't count as unread messages in many chat apps, 
-        // but user requested "handle its remaing loigc as unread count normally"
-        conversation.unreadCount = (conversation.unreadCount || 0) + 1;
-        conversation.lastMessageId = savedMsg.id;
-        conversation.lastMessageDirection = MessageDirection.INBOUND;
-        conversation.lastMessageType = savedMsg.messageType;
-        conversation.lastMessagePreview = type === 'text' ? metaMsg.text?.body : (type === 'reaction' ? `Reaction: ${metaMsg.reaction?.emoji}` : `[${type.toUpperCase()}]`);
-        conversation.lastMessageAt = new Date();
-        conversation.lastIncomingMessageAt = new Date();
-        await this.conversationService.save(conversation);
-
-        // Update customer
-        customer.lastMessageAt = new Date();
-        await this.customerRepo.save(customer);
-
-        // Emit notifications
-        this.appGateway.emitNewMessage(account.adminId, finalMsg);
-
-        const replyData = this.extractReplyData(metaMsg);
-        if (replyData) {
-            const originalMessageId = metaMsg.context?.id;
-            if (originalMessageId) {
-                // Push resume job to queue instead of direct execution
-                await this.automationQueueService.enqueueResumeFlow(
-                    account.adminId,
-                    {
-                        originalMessageId,
-                        buttonText: replyData.text,
-                        buttonId: replyData.id
-                    }
-                );
-            }
-        }
-
-        await this.processMessageActions(account.adminId, metaMsg);
+  private async handleMessages(value: any, account: WhatsappAccountEntity) {
+    const messages = value?.messages || [];
+    const statuses = value?.statuses || [];
+    if (messages.length === 0 && statuses.length === 0) return;
+    try {
+      await this.handleStatuses(value, account);
+    } catch (error) {
+      this.logger.error(
+        `Error processing statuses: ${getErrorMessage(error)}`,
+        error,
+      );
     }
-
-    private extractReplyData(metaMsg: any): { id?: string; text: string } | null {
-        const type = metaMsg.type;
-
-        // 1. Interactive Button Reply
-        if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'button_reply') {
-            const buttonReply = metaMsg.interactive.button_reply;
-            return { id: buttonReply.id, text: buttonReply.title };
-        }
-
-        // 2. Quick Reply Button (from templates)
-        if (type === WhatsappMessageType.BUTTON && metaMsg.button?.text) {
-            return { id: metaMsg.button.payload || null, text: metaMsg.button.text };
-        }
-
-        // 3. Interactive List Reply
-        if (type === WhatsappMessageType.INTERACTIVE && metaMsg.interactive?.type === 'list_reply') {
-            const listReply = metaMsg.interactive.list_reply;
-            return { id: listReply.id, text: listReply.title };
-        }
-
-        // 4. Location Reply (response to a location_request message)
-        if (type === WhatsappMessageType.LOCATION && metaMsg.location) {
-            return { id: 'any_option', text: metaMsg.location?.name || 'location' };
-        }
-
-        return null;
-    }
-
-    private async handleStatuses(value: any, account: WhatsappAccountEntity) {
-        const statuses = value?.statuses || [];
-
-        for (const statusUpdate of statuses) {
-            const messageId = statusUpdate.id;
-            const status = statusUpdate.status as MessageStatus;
-            const timestamp = statusUpdate.timestamp;
-            const date = new Date(parseInt(timestamp) * 1000);
-
-            const message = await this.messageRepo.findOne({ where: { messageId } });
-            if (!message) {
-                this.logger.warn(`Received status update for unknown message: ${messageId}`);
-                continue;
-            }
-
-            message.metaTimestamp = parseInt(timestamp);
-
-            // Update Metadata (Pricing, Conversation, etc.)
-            message.metadata = {
-                ...(message.metadata || {}),
-                conversation: statusUpdate.conversation,
-                pricing: statusUpdate.pricing,
-                biz_opaque_callback_data: statusUpdate.biz_opaque_callback_data,
-                recipient_id: statusUpdate.recipient_id
-            };
-
-            if (status === MessageStatus.SENT) {
-                message.status = status;
-                message.sentAt = date;
-            } else if (status === MessageStatus.DELIVERED) {
-                message.deliveredAt = date;
-                message.status = MessageStatus.DELIVERED;
-            } else if (status === MessageStatus.READ) {
-                message.status = status;
-                message.readAt = date;
-            } else if (status === MessageStatus.PLAYED) {
-                message.status = status;
-                message.playedAt = date;
-            } else if (status === MessageStatus.FAILED) {
-                message.status = status;
-                message.failedAt = date;
-                const error = statusUpdate.errors?.[0] || {};
-                message.errorCode = String(error.code || '');
-                message.error = error.error_data?.details || error.message || error.title || JSON.stringify(error);
-            } else {
-                message.status = status;
-            }
-
-            // Sync all previous messages as read if READ
-            if (status === MessageStatus.READ) {
-                await this.syncMessageReadStatus(message, date);
-            }
-
-            await this.messageRepo.save(message);
-
-            // Emit notification for message status update
-            this.appGateway.emitUpdateMessage(account.adminId, message);
-        }
-    }
-
-
-    private async handleAccountAlerts(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("reactions event");
-    }
-
-    private async handleCalls(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("calls event");
-    }
-
-    private async handleConsumerProfile(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("consumer_profile event");
-    }
-
-    private async handleMessagingHandovers(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("messaging_handovers event");
-    }
-
-    private async handleGroupLifecycleUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("group_lifecycle_update event");
-    }
-
-    private async handleGroupParticipantsUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("group_participants_update event");
-    }
-
-    private async handleGroupSettingsUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("group_settings_update event");
-    }
-
-    private async handleGroupStatusUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("group_status_update event");
-    }
-
-    private async handleSmbMessageEchoes(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("smb_message_echoes event");
-    }
-
-    private async handleSmbAppStateSync(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("smb_app_state_sync event");
-    }
-
-    private async handleHistory(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("history event");
-    }
-
-    private async handleAccountSettingsUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("account_settings_update event");
-    }
-
-    private async handleTemplateComponentsUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log(
-            "message_template_components_update event",
+    for (const metaMsg of messages) {
+      try {
+        await this.receivedMessage(metaMsg, account);
+      } catch (error) {
+        this.logger.error(
+          `Error processing message: ${getErrorMessage(error)}`,
+          error,
         );
+      }
+    }
+  }
+
+  private async receivedMessage(metaMsg: any, account: WhatsappAccountEntity) {
+    const messageId = metaMsg.id;
+    const from = metaMsg.from;
+    const type = metaMsg.type as WhatsappMessageType;
+
+    const existing = await this.messageRepo.findOne({ where: { messageId } });
+    if (existing) return;
+
+    // Manage customer and conversation
+    const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(from);
+    const customer = await this.customerService.getOrCreateCustomer(
+      { id: account.adminId, adminId: account.adminId },
+      {
+        phoneNumber: normalizedPhoneNumber,
+        name: metaMsg.contacts?.[0]?.profile?.name || normalizedPhoneNumber,
+      },
+    );
+
+    const conversation = await this.conversationService.getOrCreateConversation(
+      { id: account.adminId, adminId: account.adminId },
+      {
+        phoneNumber: normalizedPhoneNumber,
+        name: customer.name,
+      },
+    );
+
+    // Handle Reactions and Replies (Context)
+    let reactionToId: string = null;
+    let replyToId: string = null;
+
+    if (type === WhatsappMessageType.REACTION && metaMsg.reaction?.message_id) {
+      const parent = await this.messageRepo.findOne({
+        where: {
+          messageId: metaMsg.reaction.message_id,
+          adminId: account.adminId,
+        },
+      });
+      if (parent) reactionToId = parent.id;
     }
 
-    private async handleTemplateCategoryUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log(
-            "template_category_update event",
-        );
+    if (metaMsg.context?.id) {
+      const parent = await this.messageRepo.findOne({
+        where: { messageId: metaMsg.context.id, adminId: account.adminId },
+      });
+      if (parent) replyToId = parent.id;
     }
 
-    private async handleAccountUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("account_update event");
-    }
+    const message = this.messageRepo.create({
+      adminId: account.adminId,
+      accountId: account.id,
+      messageId,
+      contactNumber: from,
+      direction: MessageDirection.INBOUND,
+      status: MessageStatus.RECEIVED,
+      messageType: type,
+      content: metaMsg,
+      customerId: customer.id,
+      conversationId: conversation.id,
+      reactionToId,
+      replyToId,
+    });
 
-    private async handleAccountReviewUpdate(value: any, account: WhatsappAccountEntity) {
-        this.logger.log("account_review_update event");
-    }
+    const savedMsg = await this.messageRepo.save(message);
 
-    async retryMessage(me: any, messageId: string) {
-        const adminId = tenantId(me);
-        const message = await this.messageRepo.findOne({
-            where: { messageId, adminId },
-            relations: ['account']
+    // Fetch with relations to emit to frontend
+    const finalMsg = await this.messageRepo.findOne({
+      where: { id: savedMsg.id },
+      relations: ["replyTo", "reactionTo"],
+    });
+
+    // Update conversation metadata and increment unread count
+    // Reactions usually don't count as unread messages in many chat apps,
+    // but user requested "handle its remaing loigc as unread count normally"
+    conversation.unreadCount = (conversation.unreadCount || 0) + 1;
+    conversation.lastMessageId = savedMsg.id;
+    conversation.lastMessageDirection = MessageDirection.INBOUND;
+    conversation.lastMessageType = savedMsg.messageType;
+    conversation.lastMessagePreview =
+      type === "text"
+        ? metaMsg.text?.body
+        : type === "reaction"
+          ? `Reaction: ${metaMsg.reaction?.emoji}`
+          : `[${type.toUpperCase()}]`;
+    conversation.lastMessageAt = new Date();
+    conversation.lastIncomingMessageAt = new Date();
+    await this.conversationService.save(conversation);
+
+    // Update customer
+    customer.lastMessageAt = new Date();
+    await this.customerRepo.save(customer);
+
+    // Emit notifications
+    this.appGateway.emitNewMessage(account.adminId, finalMsg);
+
+    const replyData = this.extractReplyData(metaMsg);
+    if (replyData) {
+      const originalMessageId = metaMsg.context?.id;
+      if (originalMessageId) {
+        // Push resume job to queue instead of direct execution
+        await this.automationQueueService.enqueueResumeFlow(account.adminId, {
+          originalMessageId,
+          buttonText: replyData.text,
+          buttonId: replyData.id,
         });
-
-        if (!message) throw new NotFoundException('Message not found');
-        if (message.direction !== MessageDirection.OUTBOUND) throw new BadRequestException('Can only retry outbound messages');
-
-        // Increment retry count
-        message.retryCount = (message.retryCount || 0) + 1;
-        await this.messageRepo.save(message);
-
-        // Re-send using the original content
-        return this.sendMessage(me, message.content, message.accountId);
+      }
     }
 
-    async findAllMessages(me: any, q?: any) {
-        const adminId = tenantId(me); // Basic tenant resolving
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    await this.processMessageActions(account.adminId, metaMsg);
+  }
 
-        const limit = Number(q?.limit ?? 50);
-        const search = String(q?.search ?? "").trim();
-        const sortBy = String(q?.sortBy ?? "createdAt");
-        const sortDir: "ASC" | "DESC" =
-            String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+  private extractReplyData(metaMsg: any): { id?: string; text: string } | null {
+    const type = metaMsg.type;
 
-        const cursor = q?.cursor;
-
-        const { finalStartDate, finalEndDate } = this.getDashboardDateRange(q || {});
-
-        const qb = this.messageRepo
-            .createQueryBuilder("message")
-            .leftJoinAndSelect('message.account', 'account')
-            .leftJoinAndSelect('message.replyTo', 'replyTo')
-            .leftJoinAndSelect('message.reactions', 'reactions', 'reactions.id IN (' +
-                'SELECT r.id FROM whatsapp_messages r ' +
-                'WHERE r."reactionToId" = message.id ' +
-                'AND r.direction = \'inbound\' ' +
-                'ORDER BY r."createdAt" DESC LIMIT 1' +
-                ') OR reactions.id IN (' +
-                'SELECT r.id FROM whatsapp_messages r ' +
-                'WHERE r."reactionToId" = message.id ' +
-                'AND r.direction = \'outbound\' ' +
-                'ORDER BY r."createdAt" DESC LIMIT 1' +
-                ')')
-            .where("message.adminId = :adminId", { adminId })
-            .andWhere("message.messageType != :reactionType", { reactionType: WhatsappMessageType.REACTION })
-            .andWhere("COALESCE(message.sentAt, message.createdAt) >= :finalStartDate", { finalStartDate })
-            .andWhere("COALESCE(message.sentAt, message.createdAt) <= :finalEndDate", { finalEndDate });
-
-        // Filters
-        if (q?.status) {
-            qb.andWhere("message.status = :status", { status: q.status });
-        }
-
-        if (q?.accountId) {
-            qb.andWhere("message.accountId = :accountId", { accountId: q.accountId });
-        }
-
-        if (q?.conversationId) {
-            qb.andWhere("message.conversationId = :conversationId", { conversationId: q.conversationId });
-        }
-
-        if (q?.direction) {
-            qb.andWhere("message.direction = :direction", { direction: q.direction });
-        }
-
-        // Search (by contactNumber, messageId, or body text)
-        if (search) {
-            qb.andWhere(
-                new Brackets((sq) => {
-                    sq.where("message.contactNumber ILIKE :s", { s: `%${search}%` })
-                        .orWhere("message.messageId ILIKE :s", { s: `%${search}%` })
-                        .orWhere("message.content->'text'->>'body' ILIKE :s", { s: `%${search}%` });
-                }),
-            );
-        }
-
-        // Sorting
-        const sortColumns: Record<string, string> = {
-            createdAt: "message.createdAt",
-            status: "message.status",
-        };
-
-        const sortCol = sortColumns[sortBy] || "message.createdAt";
-
-        if (cursor) {
-            const operator = sortDir === "DESC" ? "<" : ">";
-
-            qb.andWhere(
-                `(${sortCol}, message.id) ${operator} (:cursorValue, :cursorId)`,
-                {
-                    cursorValue: cursor.value,
-                    cursorId: cursor.id,
-                },
-            );
-        }
-
-        qb.orderBy(sortCol, sortDir);
-        qb.addOrderBy("message.id", sortDir);
-
-        const recordsWithExtra = await qb.take(limit + 1).getMany();
-        const hasMore = recordsWithExtra.length > limit;
-        const records = hasMore ? recordsWithExtra.slice(0, limit) : recordsWithExtra;
-
-        return {
-            records,
-            hasMore,
-            limit,
-            nextCursor: hasMore ? { "value": records?.[records.length - 1]?.[sortBy], "id": records?.[records.length - 1]?.id } : undefined,
-            sortBy,
-            sortDir,
-        };
-    }
-
-    async findOneMessage(me: any, id: string) {
-        const adminId = tenantId(me);
-
-        const message = await this.messageRepo.findOne({
-            where: { id, adminId },
-            relations: ['account']
-        });
-
-        if (!message) {
-            throw new NotFoundException(this.translations.t("domains.whatsapp.message_not_found"));
-        }
-
-        return message;
-    }
-
-    async handleEmbeddedSignup(me: any, payload: EmbeddedSignupDto) {
-        this.logger.log(`handleEmbeddedSignup: ${JSON.stringify(payload)}`);
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
-
-        const { code, wabaId, phoneNumberId, businessId } = payload;
-
-        try {
-            // 1. Exchange code for permanent token
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'EXCHANGING_TOKEN', status: 'in_progress' });
-            const tokenResponse = await this.whatsappApi.exchangeCodeForToken(code);
-            const accessToken = tokenResponse.access_token;
-            this.logger.log(`handleEmbeddedSignup: Exchanged code for access token: ${accessToken}`);
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'EXCHANGING_TOKEN', status: 'completed' });
-
-            // 2. Fetch Phone Number details
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'FETCHING_PHONE_DATA', status: 'in_progress' });
-            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(wabaId, accessToken);
-            const phoneData = phoneNumbers.data.find(p => p.id === phoneNumberId);
-            this.logger.log(`handleEmbeddedSignup: Fetched phone data: ${JSON.stringify(phoneData)}`);
-            if (!phoneData) {
-                throw new BadRequestException(this.translations.t("domains.whatsapp.phone_number_id_not_found"));
-            }
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'FETCHING_PHONE_DATA', status: 'completed' });
-
-            // 3. Check if account already exists
-            let existing = await this.accountRepo.findOne({
-                where: [
-                    { wabaId, adminId, phoneNumberId },
-                ]
-            });
-            // If exists, we will update it later; no throw.
-
-            // 4. Subscribe App to WABA
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'in_progress' });
-            try {
-                await this.whatsappApi.subscribeAppToWaba(wabaId, accessToken);
-            } catch (subError) {
-                this.logger.error(`Failed to subscribe app to WABA: ${subError.message}`, subError.stack);
-            }
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SUBSCRIBING_APP', status: 'completed' });
-
-            // 5. Register Phone Number
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'REGISTERING_PHONE', status: 'in_progress' });
-            const pin = Math.floor(100000 + Math.random() * 900000).toString();
-            try {
-                await this.whatsappApi.registerPhoneNumber(phoneNumberId, accessToken, pin);
-            } catch (regError) {
-                this.logger.error(`Failed to register phone number: ${regError.message}`, regError.stack);
-            }
-            this.logger.log(`handleEmbeddedSignup: Registered phone number: ${phoneNumberId}`);
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'REGISTERING_PHONE', status: 'completed' });
-
-            // 6. Create or Update Account Record
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'in_progress' });
-            let savedAccount;
-            if (existing) {
-                // Update existing account with new integration data
-                existing.accessToken = accessToken;
-                existing.name = phoneData.verified_name || phoneData.display_phone_number;
-                existing.pinCode = pin;
-                // Optionally update other fields (businessId, etc.) if needed
-                savedAccount = await this.accountRepo.save(existing);
-            } else {
-                const account = this.accountRepo.create({
-                    adminId,
-                    name: phoneData.verified_name || phoneData.display_phone_number,
-                    wabaId,
-                    phoneNumberId,
-                    businessId,
-                    accessToken,
-                    mobileNumber: phoneData.display_phone_number,
-                    isActive: true,
-                    pinCode: pin,
-                });
-                savedAccount = await this.accountRepo.save(account);
-            }
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'CREATING_ACCOUNT', status: 'completed' });
-
-            // Check if it's the first account and set as default
-            const accountCount = await this.accountRepo.count({ where: { adminId } });
-            if (accountCount === 1) {
-                await this.clientSettingsService.upsertSettings(
-                    { id: adminId, adminId },
-                    { defaultWhatsAppAccountId: savedAccount.id }
-                );
-            }
-
-            // 7. Sync Templates (Using transaction manager only here)
-            this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'in_progress' });
-            try {
-                await this.accountRepo.manager.transaction(async (manager) => {
-                    await this.templateService.syncTemplatesFromMeta(
-                        adminId,
-                        savedAccount.id,
-                        wabaId,
-                        accessToken,
-                        manager
-                    );
-                });
-                this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'SYNCING_TEMPLATES', status: 'completed' });
-                this.appGateway.emitWhatsappSignupStatus(adminId, { step: 'COMPLETED', status: 'completed', accountId: savedAccount.id });
-            } catch (tplError) {
-                this.logger.error(`Failed to sync templates during signup: ${tplError.message}`, tplError.stack);
-                this.appGateway.emitWhatsappSignupStatus(adminId, {
-                    step: 'SYNCING_TEMPLATES',
-                    status: 'warning',
-                    message: this.translations.t(
-                        "domains.whatsapp.templates_sync_failed_after_integration",
-                    ),
-                    error: getErrorMessage(tplError)
-                });
-            }
-
-            this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.WHATSAPP_CONNECTED);
-
-            return savedAccount;
-        } catch (e) {
-            this.logger.error(`Failed to handle embedded signup: ${e.message}`, e.stack);
-            this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: 'FAILED',
-                status: 'failed',
-                error: getErrorMessage(e)
-            });
-            throw new BadRequestException(getErrorMessage(e));
-        }
-    }
-
-    async handleManualAddAccount(me: any, payload: any) {
-        const adminId = tenantId(me);
-        const { name, phoneNumber, phoneNumberId, businessId, accessToken, wabaId, appId, appSecret } = payload;
-
-        try {
-            // Check if account already exists
-            const existing = await this.accountRepo.findOne({
-                where: [
-                    { wabaId, adminId },
-                    { phoneNumberId, adminId }
-                ]
-            });
-            if (existing) {
-                throw new BadRequestException(this.translations.t("domains.whatsapp.whatsapp_account_already_integrated"));
-            }
-
-
-            // test connection to whatsapp api
-            const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(wabaId, accessToken);
-            const phoneData = phoneNumbers.data.find(p => p.id === phoneNumberId);
-            if (!phoneData) {
-                throw new BadRequestException(
-                    "Failed to connect to WhatsApp. Please verify your Access Token, WABA ID, and Phone Number ID."
-                );
-            }
-
-            // Create Account Record
-            const account = this.accountRepo.create({
-                adminId,
-                name,
-                wabaId,
-                phoneNumberId,
-                businessId,
-                accessToken,
-                mobileNumber: phoneNumber,
-                appId,
-                appSecret,
-                isActive: true,
-                isCreatedManual: true,
-            });
-
-            await this.whatsappApi.subscribeAppToWaba(account.wabaId, account.accessToken);
-            const pin = Math.floor(100000 + Math.random() * 900000).toString();
-            try {
-                await this.whatsappApi.registerPhoneNumber(account.phoneNumberId, account.accessToken, pin);
-            } catch (regError) {
-                this.logger.error(`Failed to register phone number: ${regError.message}`, regError.stack);
-            }
-            const savedAccount = await this.accountRepo.save(account);
-
-            // Check if it's the first account and set as default
-            const accountCount = await this.accountRepo.count({ where: { adminId } });
-            if (accountCount === 1) {
-                await this.clientSettingsService.upsertSettings(
-                    { id: adminId, adminId }, // me object
-                    { defaultWhatsAppAccountId: savedAccount.id }
-                );
-            }
-
-            // Sync Templates
-            try {
-                await this.accountRepo.manager.transaction(async (manager) => {
-                    await this.templateService.syncTemplatesFromMeta(
-                        adminId,
-                        savedAccount.id,
-                        wabaId,
-                        accessToken,
-                        manager
-                    );
-                });
-            } catch (tplError) {
-                this.logger.error(`Failed to sync templates during manual add: ${tplError.message}`, tplError.stack);
-            }
-
-            return savedAccount;
-        } catch (e) {
-            this.logger.error(`Failed to handle manual add account: ${e.message}`, e.stack);
-            throw new BadRequestException(getErrorMessage(e));
-        }
-    }
-
-    async updateManualAccount(
-        me: any,
-        accountId: string,
-        payload: UpdateManualAccountDto,
+    // 1. Interactive Button Reply
+    if (
+      type === WhatsappMessageType.INTERACTIVE &&
+      metaMsg.interactive?.type === "button_reply"
     ) {
-        const adminId = tenantId(me);
-
-        try {
-            const account = await this.accountRepo
-                .createQueryBuilder("account")
-                .addSelect(["account.accessToken", "account.appSecret"])
-                .where("account.id = :accountId", { accountId })
-                .andWhere("account.adminId = :adminId", { adminId })
-                .getOne();
-
-            if (!account) {
-                throw new NotFoundException(
-                    this.translations.t(
-                        "domains.whatsapp.whatsapp_account_not_found",
-                    ),
-                );
-            }
-
-            if (!account.isCreatedManual) {
-                throw new BadRequestException(
-                    this.translations.t(
-                        "domains.whatsapp.only_manual_accounts_can_be_updated",
-                    ),
-                );
-            }
-
-            const newWabaId = payload.wabaId ?? account.wabaId;
-            const newPhoneNumberId =
-                payload.phoneNumberId ?? account.phoneNumberId;
-
-            const existing = await this.accountRepo
-                .createQueryBuilder("account")
-                .where("account.adminId = :adminId", { adminId })
-                .andWhere("account.id != :accountId", { accountId })
-                .andWhere(
-                    "(account.wabaId = :wabaId OR account.phoneNumberId = :phoneNumberId)",
-                    {
-                        wabaId: newWabaId,
-                        phoneNumberId: newPhoneNumberId,
-                    },
-                )
-                .getOne();
-
-            if (existing) {
-                throw new BadRequestException(
-                    this.translations.t(
-                        "domains.whatsapp.whatsapp_account_already_integrated",
-                    ),
-                );
-            }
-
-            if (payload.name !== undefined) {
-                account.name = payload.name;
-            }
-
-            if (payload.phoneNumber !== undefined) {
-                account.mobileNumber = payload.phoneNumber;
-            }
-
-            if (payload.phoneNumberId !== undefined) {
-                account.phoneNumberId = payload.phoneNumberId;
-            }
-
-            if (payload.businessId !== undefined) {
-                account.businessId = payload.businessId;
-            }
-
-            if (payload.accessToken !== undefined) {
-                account.accessToken = payload.accessToken;
-            }
-
-            if (payload.wabaId !== undefined) {
-                account.wabaId = payload.wabaId;
-            }
-
-            if (payload.appId !== undefined) {
-                account.appId = payload.appId;
-            }
-
-            if (payload.appSecret !== undefined) {
-                account.appSecret = payload.appSecret;
-            }
-
-            try {
-
-                const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
-                    account.wabaId,
-                    account.accessToken,
-                );
-
-                const phoneData = phoneNumbers.data.find(
-                    (p) => p.id === account.phoneNumberId,
-                );
-
-                if (!phoneData) {
-                    throw new BadRequestException(
-                        this.translations.t(
-                            "domains.whatsapp.failed_to_connect_whatsapp",
-                        ),
-                    );
-                }
-            } catch {
-
-            }
-
-            return await this.accountRepo.save(account);
-        } catch (e) {
-            this.logger.error(
-                `Failed to update manual account: ${e.message}`,
-                e.stack,
-            );
-
-            throw new BadRequestException(getErrorMessage(e));
-        }
+      const buttonReply = metaMsg.interactive.button_reply;
+      return { id: buttonReply.id, text: buttonReply.title };
     }
 
-    async replaceAccessToken(me: any, payload: ReplaceAccessTokenDto) {
-        const adminId = tenantId(me);
-
-        if (!adminId) {
-            throw new BadRequestException(
-                this.translations.t("common.missing_admin_id"),
-            );
-        }
-
-        const account = await this.accountRepo
-            .createQueryBuilder("account")
-            .addSelect("account.accessToken")
-            .where("account.id = :accountId", {
-                accountId: payload.accountId,
-            })
-            .andWhere("account.adminId = :adminId", { adminId })
-            .getOne();
-
-        if (!account) {
-            throw new NotFoundException(
-                this.translations.t(
-                    "domains.whatsapp.whatsapp_account_not_found",
-                ),
-            );
-        }
-
-        try {
-            await this.whatsappApi.fetchWabaPhoneNumbers(
-                account.wabaId,
-                payload.accessToken,
-            );
-        } catch (e) {
-            this.logger.error(
-                `Failed to validate new WhatsApp access token for account ${account.id}: ${e.message}`,
-                e.stack,
-            );
-
-            throw new BadRequestException(
-                this.translations.t(
-                    "domains.whatsapp.failed_to_connect_whatsapp",
-                ),
-            );
-        }
-
-        account.accessToken = payload.accessToken;
-
-        const saved = await this.accountRepo.save(account);
-
-        return {
-            message: this.translations.t(
-                "domains.whatsapp.access_token_updated",
-            ),
-            account: saved,
-        };
+    // 2. Quick Reply Button (from templates)
+    if (type === WhatsappMessageType.BUTTON && metaMsg.button?.text) {
+      return { id: metaMsg.button.payload || null, text: metaMsg.button.text };
     }
 
-    async syncTemplates(me: any, accountId: string) {
-        const adminId = tenantId(me);
+    // 3. Interactive List Reply
+    if (
+      type === WhatsappMessageType.INTERACTIVE &&
+      metaMsg.interactive?.type === "list_reply"
+    ) {
+      const listReply = metaMsg.interactive.list_reply;
+      return { id: listReply.id, text: listReply.title };
+    }
 
-        if (!adminId) {
-            throw new BadRequestException(
-                this.translations.t("common.missing_admin_id"),
-            );
-        }
+    // 4. Location Reply (response to a location_request message)
+    if (type === WhatsappMessageType.LOCATION && metaMsg.location) {
+      return { id: "any_option", text: metaMsg.location?.name || "location" };
+    }
 
-        const account = await this.accountRepo.findOne({
-            where: { id: accountId, adminId },
-            select: {
-                accessToken: true,
-                id: true,
-                wabaId: true,
-                phoneNumberId: true,
-            },
+    return null;
+  }
+
+  private async handleStatuses(value: any, account: WhatsappAccountEntity) {
+    const statuses = value?.statuses || [];
+
+    for (const statusUpdate of statuses) {
+      const messageId = statusUpdate.id;
+      const status = statusUpdate.status as MessageStatus;
+      const timestamp = statusUpdate.timestamp;
+      const date = new Date(parseInt(timestamp) * 1000);
+
+      const message = await this.messageRepo.findOne({ where: { messageId } });
+      if (!message) {
+        this.logger.warn(
+          `Received status update for unknown message: ${messageId}`,
+        );
+        continue;
+      }
+
+      message.metaTimestamp = parseInt(timestamp);
+
+      // Update Metadata (Pricing, Conversation, etc.)
+      message.metadata = {
+        ...(message.metadata || {}),
+        conversation: statusUpdate.conversation,
+        pricing: statusUpdate.pricing,
+        biz_opaque_callback_data: statusUpdate.biz_opaque_callback_data,
+        recipient_id: statusUpdate.recipient_id,
+      };
+
+      if (status === MessageStatus.SENT) {
+        message.status = status;
+        message.sentAt = date;
+      } else if (status === MessageStatus.DELIVERED) {
+        message.deliveredAt = date;
+        message.status = MessageStatus.DELIVERED;
+      } else if (status === MessageStatus.READ) {
+        message.status = status;
+        message.readAt = date;
+      } else if (status === MessageStatus.PLAYED) {
+        message.status = status;
+        message.playedAt = date;
+      } else if (status === MessageStatus.FAILED) {
+        message.status = status;
+        message.failedAt = date;
+        const error = statusUpdate.errors?.[0] || {};
+        message.errorCode = String(error.code || "");
+        message.error =
+          error.error_data?.details ||
+          error.message ||
+          error.title ||
+          JSON.stringify(error);
+      } else {
+        message.status = status;
+      }
+
+      // Sync all previous messages as read if READ
+      if (status === MessageStatus.READ) {
+        await this.syncMessageReadStatus(message, date);
+      }
+
+      await this.messageRepo.save(message);
+
+      // Emit notification for message status update
+      this.appGateway.emitUpdateMessage(account.adminId, message);
+    }
+  }
+
+  private async handleAccountAlerts(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("reactions event");
+  }
+
+  private async handleCalls(value: any, account: WhatsappAccountEntity) {
+    this.logger.log("calls event");
+  }
+
+  private async handleConsumerProfile(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("consumer_profile event");
+  }
+
+  private async handleMessagingHandovers(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("messaging_handovers event");
+  }
+
+  private async handleGroupLifecycleUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("group_lifecycle_update event");
+  }
+
+  private async handleGroupParticipantsUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("group_participants_update event");
+  }
+
+  private async handleGroupSettingsUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("group_settings_update event");
+  }
+
+  private async handleGroupStatusUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("group_status_update event");
+  }
+
+  private async handleSmbMessageEchoes(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("smb_message_echoes event");
+  }
+
+  private async handleSmbAppStateSync(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("smb_app_state_sync event");
+  }
+
+  private async handleHistory(value: any, account: WhatsappAccountEntity) {
+    this.logger.log("history event");
+  }
+
+  private async handleAccountSettingsUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("account_settings_update event");
+  }
+
+  private async handleTemplateComponentsUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("message_template_components_update event");
+  }
+
+  private async handleTemplateCategoryUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("template_category_update event");
+  }
+
+  private async handleAccountUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("account_update event");
+  }
+
+  private async handleAccountReviewUpdate(
+    value: any,
+    account: WhatsappAccountEntity,
+  ) {
+    this.logger.log("account_review_update event");
+  }
+
+  async retryMessage(me: any, messageId: string) {
+    const adminId = tenantId(me);
+    const message = await this.messageRepo.findOne({
+      where: { messageId, adminId },
+      relations: ["account"],
+    });
+
+    if (!message) throw new NotFoundException("Message not found");
+    if (message.direction !== MessageDirection.OUTBOUND) {
+      throw new BadRequestException("Can only retry outbound messages");
+    }
+
+    // Increment retry count
+    message.retryCount = (message.retryCount || 0) + 1;
+    await this.messageRepo.save(message);
+
+    // Re-send using the original content
+    return this.sendMessage(me, message.content, message.accountId);
+  }
+
+  async findAllMessages(me: any, q?: any) {
+    const adminId = tenantId(me); // Basic tenant resolving
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const limit = Number(q?.limit ?? 50);
+    const search = String(q?.search ?? "").trim();
+    const sortBy = String(q?.sortBy ?? "createdAt");
+    const sortDir: "ASC" | "DESC" =
+      String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+
+    const cursor = q?.cursor;
+
+    const { finalStartDate, finalEndDate } = this.getDashboardDateRange(
+      q || {},
+    );
+
+    const qb = this.messageRepo
+      .createQueryBuilder("message")
+      .leftJoinAndSelect("message.account", "account")
+      .leftJoinAndSelect("message.replyTo", "replyTo")
+      .leftJoinAndSelect(
+        "message.reactions",
+        "reactions",
+        "reactions.id IN (" +
+          "SELECT r.id FROM whatsapp_messages r " +
+          'WHERE r."reactionToId" = message.id ' +
+          "AND r.direction = 'inbound' " +
+          'ORDER BY r."createdAt" DESC LIMIT 1' +
+          ") OR reactions.id IN (" +
+          "SELECT r.id FROM whatsapp_messages r " +
+          'WHERE r."reactionToId" = message.id ' +
+          "AND r.direction = 'outbound' " +
+          'ORDER BY r."createdAt" DESC LIMIT 1' +
+          ")",
+      )
+      .where("message.adminId = :adminId", { adminId })
+      .andWhere("message.messageType != :reactionType", {
+        reactionType: WhatsappMessageType.REACTION,
+      })
+      .andWhere(
+        "COALESCE(message.sentAt, message.createdAt) >= :finalStartDate",
+        { finalStartDate },
+      )
+      .andWhere(
+        "COALESCE(message.sentAt, message.createdAt) <= :finalEndDate",
+        { finalEndDate },
+      );
+
+    // Filters
+    if (q?.status) {
+      qb.andWhere("message.status = :status", { status: q.status });
+    }
+
+    if (q?.accountId) {
+      qb.andWhere("message.accountId = :accountId", { accountId: q.accountId });
+    }
+
+    if (q?.conversationId) {
+      qb.andWhere("message.conversationId = :conversationId", {
+        conversationId: q.conversationId,
+      });
+    }
+
+    if (q?.direction) {
+      qb.andWhere("message.direction = :direction", { direction: q.direction });
+    }
+
+    // Search (by contactNumber, messageId, or body text)
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("message.contactNumber ILIKE :s", { s: `%${search}%` })
+            .orWhere("message.messageId ILIKE :s", { s: `%${search}%` })
+            .orWhere("message.content->'text'->>'body' ILIKE :s", {
+              s: `%${search}%`,
+            });
+        }),
+      );
+    }
+
+    // Sorting
+    const sortColumns: Record<string, string> = {
+      createdAt: "message.createdAt",
+      status: "message.status",
+    };
+
+    const sortCol = sortColumns[sortBy] || "message.createdAt";
+
+    if (cursor) {
+      const operator = sortDir === "DESC" ? "<" : ">";
+
+      qb.andWhere(
+        `(${sortCol}, message.id) ${operator} (:cursorValue, :cursorId)`,
+        {
+          cursorValue: cursor.value,
+          cursorId: cursor.id,
+        },
+      );
+    }
+
+    qb.orderBy(sortCol, sortDir);
+    qb.addOrderBy("message.id", sortDir);
+
+    const recordsWithExtra = await qb.take(limit + 1).getMany();
+    const hasMore = recordsWithExtra.length > limit;
+    const records = hasMore
+      ? recordsWithExtra.slice(0, limit)
+      : recordsWithExtra;
+
+    return {
+      records,
+      hasMore,
+      limit,
+      nextCursor: hasMore
+        ? {
+            value: records?.[records.length - 1]?.[sortBy],
+            id: records?.[records.length - 1]?.id,
+          }
+        : undefined,
+      sortBy,
+      sortDir,
+    };
+  }
+
+  async findOneMessage(me: any, id: string) {
+    const adminId = tenantId(me);
+
+    const message = await this.messageRepo.findOne({
+      where: { id, adminId },
+      relations: ["account"],
+    });
+
+    if (!message) {
+      throw new NotFoundException(
+        this.translations.t("domains.whatsapp.message_not_found"),
+      );
+    }
+
+    return message;
+  }
+
+  async handleEmbeddedSignup(me: any, payload: EmbeddedSignupDto) {
+    this.logger.log(`handleEmbeddedSignup: ${JSON.stringify(payload)}`);
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const { code, wabaId, phoneNumberId, businessId } = payload;
+
+    try {
+      // 1. Exchange code for permanent token
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "EXCHANGING_TOKEN",
+        status: "in_progress",
+      });
+      const tokenResponse = await this.whatsappApi.exchangeCodeForToken(code);
+      const accessToken = tokenResponse.access_token;
+      this.logger.log(
+        `handleEmbeddedSignup: Exchanged code for access token: ${accessToken}`,
+      );
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "EXCHANGING_TOKEN",
+        status: "completed",
+      });
+
+      // 2. Fetch Phone Number details
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "FETCHING_PHONE_DATA",
+        status: "in_progress",
+      });
+      const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
+        wabaId,
+        accessToken,
+      );
+      const phoneData = phoneNumbers.data.find((p) => p.id === phoneNumberId);
+      this.logger.log(
+        `handleEmbeddedSignup: Fetched phone data: ${JSON.stringify(phoneData)}`,
+      );
+      if (!phoneData) {
+        throw new BadRequestException(
+          this.translations.t("domains.whatsapp.phone_number_id_not_found"),
+        );
+      }
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "FETCHING_PHONE_DATA",
+        status: "completed",
+      });
+
+      // 3. Check if account already exists
+      const existing = await this.accountRepo.findOne({
+        where: [{ wabaId, adminId, phoneNumberId }],
+      });
+      // If exists, we will update it later; no throw.
+
+      // 4. Subscribe App to WABA
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "SUBSCRIBING_APP",
+        status: "in_progress",
+      });
+      try {
+        await this.whatsappApi.subscribeAppToWaba(wabaId, accessToken);
+      } catch (subError) {
+        this.logger.error(
+          `Failed to subscribe app to WABA: ${subError.message}`,
+          subError.stack,
+        );
+      }
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "SUBSCRIBING_APP",
+        status: "completed",
+      });
+
+      // 5. Register Phone Number
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "REGISTERING_PHONE",
+        status: "in_progress",
+      });
+      const pin = Math.floor(100000 + Math.random() * 900000).toString();
+      try {
+        await this.whatsappApi.registerPhoneNumber(
+          phoneNumberId,
+          accessToken,
+          pin,
+        );
+      } catch (regError) {
+        this.logger.error(
+          `Failed to register phone number: ${regError.message}`,
+          regError.stack,
+        );
+      }
+      this.logger.log(
+        `handleEmbeddedSignup: Registered phone number: ${phoneNumberId}`,
+      );
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "REGISTERING_PHONE",
+        status: "completed",
+      });
+
+      // 6. Create or Update Account Record
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "CREATING_ACCOUNT",
+        status: "in_progress",
+      });
+      let savedAccount;
+      if (existing) {
+        // Update existing account with new integration data
+        existing.accessToken = accessToken;
+        existing.name =
+          phoneData.verified_name || phoneData.display_phone_number;
+        existing.pinCode = pin;
+        // Optionally update other fields (businessId, etc.) if needed
+        savedAccount = await this.accountRepo.save(existing);
+      } else {
+        const account = this.accountRepo.create({
+          adminId,
+          name: phoneData.verified_name || phoneData.display_phone_number,
+          wabaId,
+          phoneNumberId,
+          businessId,
+          accessToken,
+          mobileNumber: phoneData.display_phone_number,
+          isActive: true,
+          pinCode: pin,
         });
+        savedAccount = await this.accountRepo.save(account);
+      }
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "CREATING_ACCOUNT",
+        status: "completed",
+      });
 
-        if (!account) {
-            throw new NotFoundException(
-                this.translations.t(
-                    "domains.whatsapp.whatsapp_account_not_found",
-                ),
-            );
-        }
+      // Check if it's the first account and set as default
+      const accountCount = await this.accountRepo.count({ where: { adminId } });
+      if (accountCount === 1) {
+        await this.clientSettingsService.upsertSettings(
+          { id: adminId, adminId },
+          { defaultWhatsAppAccountId: savedAccount.id },
+        );
+      }
 
-        try {
-            this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: "SYNCING_TEMPLATES",
-                status: "in_progress",
-            });
+      // 7. Sync Templates (Using transaction manager only here)
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "SYNCING_TEMPLATES",
+        status: "in_progress",
+      });
+      try {
+        await this.accountRepo.manager.transaction(async (manager) => {
+          await this.templateService.syncTemplatesFromMeta(
+            adminId,
+            savedAccount.id,
+            wabaId,
+            accessToken,
+            manager,
+          );
+        });
+        this.appGateway.emitWhatsappSignupStatus(adminId, {
+          step: "SYNCING_TEMPLATES",
+          status: "completed",
+        });
+        this.appGateway.emitWhatsappSignupStatus(adminId, {
+          step: "COMPLETED",
+          status: "completed",
+          accountId: savedAccount.id,
+        });
+      } catch (tplError) {
+        this.logger.error(
+          `Failed to sync templates during signup: ${tplError.message}`,
+          tplError.stack,
+        );
+        this.appGateway.emitWhatsappSignupStatus(adminId, {
+          step: "SYNCING_TEMPLATES",
+          status: "warning",
+          message: this.translations.t(
+            "domains.whatsapp.templates_sync_failed_after_integration",
+          ),
+          error: getErrorMessage(tplError),
+        });
+      }
 
-            await this.templateService.syncTemplatesFromMeta(
-                adminId,
-                account.id,
-                account.wabaId,
-                account.accessToken,
-            );
+      this.onboardingAchievementService.enqueueAchievement(
+        adminId,
+        GettingStartedAchievementType.WHATSAPP_CONNECTED,
+      );
 
-            this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: "SYNCING_TEMPLATES",
-                status: "completed",
-            });
-
-            this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: "COMPLETED",
-                status: "completed",
-            });
-
-            return { success: true };
-        } catch (e) {
-            this.logger.error(
-                `Failed to sync templates for account ${accountId}: ${e.message}`,
-                e.stack,
-            );
-
-            this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: "SYNCING_TEMPLATES",
-                status: "failed",
-            });
-
-            this.appGateway.emitWhatsappSignupStatus(adminId, {
-                step: "FAILED",
-                status: "failed",
-                error: getErrorMessage(e),
-            });
-
-            throw new BadRequestException(getErrorMessage(e));
-        }
+      return savedAccount;
+    } catch (e) {
+      this.logger.error(
+        `Failed to handle embedded signup: ${e.message}`,
+        e.stack,
+      );
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "FAILED",
+        status: "failed",
+        error: getErrorMessage(e),
+      });
+      throw new BadRequestException(getErrorMessage(e));
     }
+  }
+
+  async handleManualAddAccount(me: any, payload: any) {
+    const adminId = tenantId(me);
+    const {
+      name,
+      phoneNumber,
+      phoneNumberId,
+      businessId,
+      accessToken,
+      wabaId,
+      appId,
+      appSecret,
+    } = payload;
+
+    try {
+      // Check if account already exists
+      const existing = await this.accountRepo.findOne({
+        where: [
+          { wabaId, adminId },
+          { phoneNumberId, adminId },
+        ],
+      });
+      if (existing) {
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.whatsapp.whatsapp_account_already_integrated",
+          ),
+        );
+      }
+
+      // test connection to whatsapp api
+      const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
+        wabaId,
+        accessToken,
+      );
+      const phoneData = phoneNumbers.data.find((p) => p.id === phoneNumberId);
+      if (!phoneData) {
+        throw new BadRequestException(
+          "Failed to connect to WhatsApp. Please verify your Access Token, WABA ID, and Phone Number ID.",
+        );
+      }
+
+      // Create Account Record
+      const account = this.accountRepo.create({
+        adminId,
+        name,
+        wabaId,
+        phoneNumberId,
+        businessId,
+        accessToken,
+        mobileNumber: phoneNumber,
+        appId,
+        appSecret,
+        isActive: true,
+        isCreatedManual: true,
+      });
+
+      await this.whatsappApi.subscribeAppToWaba(
+        account.wabaId,
+        account.accessToken,
+      );
+      const pin = Math.floor(100000 + Math.random() * 900000).toString();
+      try {
+        await this.whatsappApi.registerPhoneNumber(
+          account.phoneNumberId,
+          account.accessToken,
+          pin,
+        );
+      } catch (regError) {
+        this.logger.error(
+          `Failed to register phone number: ${regError.message}`,
+          regError.stack,
+        );
+      }
+      const savedAccount = await this.accountRepo.save(account);
+
+      // Check if it's the first account and set as default
+      const accountCount = await this.accountRepo.count({ where: { adminId } });
+      if (accountCount === 1) {
+        await this.clientSettingsService.upsertSettings(
+          { id: adminId, adminId }, // me object
+          { defaultWhatsAppAccountId: savedAccount.id },
+        );
+      }
+
+      // Sync Templates
+      try {
+        await this.accountRepo.manager.transaction(async (manager) => {
+          await this.templateService.syncTemplatesFromMeta(
+            adminId,
+            savedAccount.id,
+            wabaId,
+            accessToken,
+            manager,
+          );
+        });
+      } catch (tplError) {
+        this.logger.error(
+          `Failed to sync templates during manual add: ${tplError.message}`,
+          tplError.stack,
+        );
+      }
+
+      return savedAccount;
+    } catch (e) {
+      this.logger.error(
+        `Failed to handle manual add account: ${e.message}`,
+        e.stack,
+      );
+      throw new BadRequestException(getErrorMessage(e));
+    }
+  }
+
+  async updateManualAccount(
+    me: any,
+    accountId: string,
+    payload: UpdateManualAccountDto,
+  ) {
+    const adminId = tenantId(me);
+
+    try {
+      const account = await this.accountRepo
+        .createQueryBuilder("account")
+        .addSelect(["account.accessToken", "account.appSecret"])
+        .where("account.id = :accountId", { accountId })
+        .andWhere("account.adminId = :adminId", { adminId })
+        .getOne();
+
+      if (!account) {
+        throw new NotFoundException(
+          this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+        );
+      }
+
+      if (!account.isCreatedManual) {
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.whatsapp.only_manual_accounts_can_be_updated",
+          ),
+        );
+      }
+
+      const newWabaId = payload.wabaId ?? account.wabaId;
+      const newPhoneNumberId = payload.phoneNumberId ?? account.phoneNumberId;
+
+      const existing = await this.accountRepo
+        .createQueryBuilder("account")
+        .where("account.adminId = :adminId", { adminId })
+        .andWhere("account.id != :accountId", { accountId })
+        .andWhere(
+          "(account.wabaId = :wabaId OR account.phoneNumberId = :phoneNumberId)",
+          {
+            wabaId: newWabaId,
+            phoneNumberId: newPhoneNumberId,
+          },
+        )
+        .getOne();
+
+      if (existing) {
+        throw new BadRequestException(
+          this.translations.t(
+            "domains.whatsapp.whatsapp_account_already_integrated",
+          ),
+        );
+      }
+
+      if (payload.name !== undefined) {
+        account.name = payload.name;
+      }
+
+      if (payload.phoneNumber !== undefined) {
+        account.mobileNumber = payload.phoneNumber;
+      }
+
+      if (payload.phoneNumberId !== undefined) {
+        account.phoneNumberId = payload.phoneNumberId;
+      }
+
+      if (payload.businessId !== undefined) {
+        account.businessId = payload.businessId;
+      }
+
+      if (payload.accessToken !== undefined) {
+        account.accessToken = payload.accessToken;
+      }
+
+      if (payload.wabaId !== undefined) {
+        account.wabaId = payload.wabaId;
+      }
+
+      if (payload.appId !== undefined) {
+        account.appId = payload.appId;
+      }
+
+      if (payload.appSecret !== undefined) {
+        account.appSecret = payload.appSecret;
+      }
+
+      try {
+        const phoneNumbers = await this.whatsappApi.fetchWabaPhoneNumbers(
+          account.wabaId,
+          account.accessToken,
+        );
+
+        const phoneData = phoneNumbers.data.find(
+          (p) => p.id === account.phoneNumberId,
+        );
+
+        if (!phoneData) {
+          throw new BadRequestException(
+            this.translations.t("domains.whatsapp.failed_to_connect_whatsapp"),
+          );
+        }
+      } catch {}
+
+      return await this.accountRepo.save(account);
+    } catch (e) {
+      this.logger.error(
+        `Failed to update manual account: ${e.message}`,
+        e.stack,
+      );
+
+      throw new BadRequestException(getErrorMessage(e));
+    }
+  }
+
+  async replaceAccessToken(me: any, payload: ReplaceAccessTokenDto) {
+    const adminId = tenantId(me);
+
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const account = await this.accountRepo
+      .createQueryBuilder("account")
+      .addSelect("account.accessToken")
+      .where("account.id = :accountId", {
+        accountId: payload.accountId,
+      })
+      .andWhere("account.adminId = :adminId", { adminId })
+      .getOne();
+
+    if (!account) {
+      throw new NotFoundException(
+        this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+      );
+    }
+
+    try {
+      await this.whatsappApi.fetchWabaPhoneNumbers(
+        account.wabaId,
+        payload.accessToken,
+      );
+    } catch (e) {
+      this.logger.error(
+        `Failed to validate new WhatsApp access token for account ${account.id}: ${e.message}`,
+        e.stack,
+      );
+
+      throw new BadRequestException(
+        this.translations.t("domains.whatsapp.failed_to_connect_whatsapp"),
+      );
+    }
+
+    account.accessToken = payload.accessToken;
+
+    const saved = await this.accountRepo.save(account);
+
+    return {
+      message: this.translations.t("domains.whatsapp.access_token_updated"),
+      account: saved,
+    };
+  }
+
+  async syncTemplates(me: any, accountId: string) {
+    const adminId = tenantId(me);
+
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const account = await this.accountRepo.findOne({
+      where: { id: accountId, adminId },
+      select: {
+        accessToken: true,
+        id: true,
+        wabaId: true,
+        phoneNumberId: true,
+      },
+    });
+
+    if (!account) {
+      throw new NotFoundException(
+        this.translations.t("domains.whatsapp.whatsapp_account_not_found"),
+      );
+    }
+
+    try {
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "SYNCING_TEMPLATES",
+        status: "in_progress",
+      });
+
+      await this.templateService.syncTemplatesFromMeta(
+        adminId,
+        account.id,
+        account.wabaId,
+        account.accessToken,
+      );
+
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "SYNCING_TEMPLATES",
+        status: "completed",
+      });
+
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "COMPLETED",
+        status: "completed",
+      });
+
+      return { success: true };
+    } catch (e) {
+      this.logger.error(
+        `Failed to sync templates for account ${accountId}: ${e.message}`,
+        e.stack,
+      );
+
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "SYNCING_TEMPLATES",
+        status: "failed",
+      });
+
+      this.appGateway.emitWhatsappSignupStatus(adminId, {
+        step: "FAILED",
+        status: "failed",
+        error: getErrorMessage(e),
+      });
+
+      throw new BadRequestException(getErrorMessage(e));
+    }
+  }
 }

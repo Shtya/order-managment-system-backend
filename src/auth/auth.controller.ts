@@ -1,5 +1,15 @@
-import { Body, Controller, ForbiddenException, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
-import { AuthService } from './auth.service';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import { AuthService } from "./auth.service";
 import {
   CheckEmailDto,
   ForgotPasswordDto,
@@ -9,154 +19,178 @@ import {
   ResetPasswordDto,
   SuperAdminLoginDto,
   VerifyOtpDto,
-} from 'dto/auth.dto';
-import axios from 'axios';
-import { Response } from 'express';
-import { JwtAuthGuard } from './jwt-auth.guard';
-import { PermissionsGuard } from 'common/permissions.guard';
-import { ChangePasswordDto, RequestEmailChangeDto, SetPasswordDto, VerifyEmailChangeDto } from 'dto/user.dto';
-import { minutes, SkipThrottle, Throttle } from '@nestjs/throttler';
-import { SystemRole } from 'entities/user.entity';
+} from "dto/auth.dto";
+import axios from "axios";
+import { Response } from "express";
+import { JwtAuthGuard } from "./jwt-auth.guard";
+import { PermissionsGuard } from "common/permissions.guard";
+import {
+  ChangePasswordDto,
+  RequestEmailChangeDto,
+  SetPasswordDto,
+  VerifyEmailChangeDto,
+} from "dto/user.dto";
+import { minutes, SkipThrottle, Throttle } from "@nestjs/throttler";
+import { SystemRole } from "entities/user.entity";
 
-
-
-@Controller('auth')
+@Controller("auth")
 export class AuthController {
-  constructor(private auth: AuthService,
-
-  ) { }
+  constructor(private auth: AuthService) {}
 
   @SkipThrottle({ default: true })
-  @Post('register')
+  @Post("register")
   register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
   @SkipThrottle({ default: true })
-  @Post('check-email')
+  @Post("check-email")
   async checkEmail(@Body() dto: CheckEmailDto) {
     const exists = await this.auth.isEmailExists(dto.email);
 
     return {
       exists,
-      message: exists ? 'Email is already registered' : 'Email is available'
+      message: exists ? "Email is already registered" : "Email is available",
     };
   }
 
   @SkipThrottle({ default: true })
-  @Post('verify-registration')
+  @Post("verify-registration")
   async verifyRegistration(@Body() dto: VerifyOtpDto) {
     return await this.auth.verifyRegisterOtp(dto.email, dto.otp);
   }
 
   @SkipThrottle({ default: true })
-  @Post('resend-registration-otp')
+  @Post("resend-registration-otp")
   async resendOtp(@Body() dto: { email: string }) {
     return await this.auth.resendRegisterOtp(dto.email);
   }
 
-  @Throttle({ default: { limit: 10, ttl: minutes(1) } }) 
-  @Post('login')
+  @Throttle({ default: { limit: 10, ttl: minutes(1) } })
+  @Post("login")
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);
   }
 
-  @Post('super-admin-login')
+  @Post("super-admin-login")
   @UseGuards(JwtAuthGuard)
   async superAdminLogin(@Req() req: any, @Body() dto: SuperAdminLoginDto) {
     if (req.user?.role?.name !== SystemRole.SUPER_ADMIN) {
-      throw new ForbiddenException('Only super admins can use this endpoint');
+      throw new ForbiddenException("Only super admins can use this endpoint");
     }
     return this.auth.superAdminLogin(dto.email);
   }
 
   @SkipThrottle({ default: true })
-  @Get('google')
-  googleAuth(@Query('redirect') redirect?: string) {
+  @Get("google")
+  googleAuth(@Query("redirect") redirect?: string) {
     const backendRedirectUri = `${process.env.BACKEND_URL}/auth/google/callback`;
-    const state = this.auth.createOAuthState(redirect || process.env.FRONTEND_URL);
+    const state = this.auth.createOAuthState(
+      redirect || process.env.FRONTEND_URL,
+    );
     const url = `https://accounts.google.com/o/oauth2/v2/auth?redirect_uri=${encodeURIComponent(backendRedirectUri)}&response_type=code&client_id=${process.env.GOOGLE_CLIENT_ID}&scope=email%20profile&state=${encodeURIComponent(state)}&access_type=offline`;
-    return { redirectUrl: url.replace(/\s+/g, '') };
+    return { redirectUrl: url.replace(/\s+/g, "") };
   }
 
   @SkipThrottle({ default: true })
-  @Get('google/callback')
-  async googleCallback(@Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
+  @Get("google/callback")
+  async googleCallback(
+    @Query("code") code: string,
+    @Query("state") state: string,
+    @Res() res: Response,
+  ) {
     try {
-      const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
-        code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: `${process.env.BACKEND_URL}/auth/google/callback`,
-        grant_type: 'authorization_code',
-      });
+      const tokenResponse = await axios.post(
+        "https://oauth2.googleapis.com/token",
+        {
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET,
+          redirect_uri: `${process.env.BACKEND_URL}/auth/google/callback`,
+          grant_type: "authorization_code",
+        },
+      );
 
-      const userInfoResponse = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
-        headers: { Authorization: `Bearer ${tokenResponse.data.access_token}` },
-      });
+      const userInfoResponse = await axios.get(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        {
+          headers: {
+            Authorization: `Bearer ${tokenResponse.data.access_token}`,
+          },
+        },
+      );
 
-      const result = await this.auth.handleGoogleCallback(userInfoResponse.data, state);
+      const result = await this.auth.handleGoogleCallback(
+        userInfoResponse.data,
+        state,
+      );
 
-      return res.redirect(`${process.env.FRONTEND_URL}/auth/success?accessToken=${result?.accessToken}&${result?.redirectPath ? 'redirect=' + encodeURIComponent(result.redirectPath) : ''}`);
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/auth/success?accessToken=${result?.accessToken}&${result?.redirectPath ? "redirect=" + encodeURIComponent(result.redirectPath) : ""}`,
+      );
     } catch (e) {
-      return res.redirect(`${process.env.FRONTEND_URL}/auth?tab=login&error=google_failed`);
+      return res.redirect(
+        `${process.env.FRONTEND_URL}/auth?tab=login&error=google_failed`,
+      );
     }
   }
 
-
   // Step 1: send OTP
-  @Get('sign')
+  @Get("sign")
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   sign(@Req() req: any) {
     return this.auth.signUser(req.user?.id);
   }
 
   @SkipThrottle({ default: true })
-  @Post('forgot-password')
+  @Post("forgot-password")
   forgot(@Body() dto: ForgotPasswordDto) {
     return this.auth.sendResetOtp(dto.email);
   }
 
   @SkipThrottle({ default: true })
   // Step 2: verify OTP
-  @Post('verify-otp')
+  @Post("verify-otp")
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.auth.verifyResetOtp(dto.email, dto.otp);
   }
 
   @SkipThrottle({ default: true })
   // Step 3: reset password
-  @Post('reset-password')
+  @Post("reset-password")
   reset(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPasswordByOtp(dto.email, dto.newPassword);
   }
 
-
-  @Post('change-password')
+  @Post("change-password")
   @UseGuards(JwtAuthGuard)
   changePassword(@Req() req: any, @Body() dto: ChangePasswordDto) {
-    return this.auth.changePasswordByOldPassword(req.user.id, dto.oldPassword, dto.newPassword);
+    return this.auth.changePasswordByOldPassword(
+      req.user.id,
+      dto.oldPassword,
+      dto.newPassword,
+    );
   }
 
-  @Post('set-password')
+  @Post("set-password")
   @UseGuards(JwtAuthGuard)
   setPassword(@Req() req: any, @Body() dto: SetPasswordDto) {
     return this.auth.setPassword(req.user.id, dto.newPassword);
   }
 
-  @Post('request-email-change')
+  @Post("request-email-change")
   @UseGuards(JwtAuthGuard)
   requestEmailChange(@Req() req: any, @Body() dto: RequestEmailChangeDto) {
     return this.auth.requestEmailChange(req.user.id, dto.newEmail);
   }
 
-  @Post('resend-email-request')
+  @Post("resend-email-request")
   @UseGuards(JwtAuthGuard)
   async resendEmailRequest(@Req() req: any) {
     return await this.auth.resendEmailChangeOtp(req.user.id);
   }
 
-  @Post('verify-email-change')
+  @Post("verify-email-change")
   @UseGuards(JwtAuthGuard)
   verifyEmailChange(@Req() req: any, @Body() dto: VerifyEmailChangeDto) {
     return this.auth.verifyEmailChange(req.user.id, dto.otp);

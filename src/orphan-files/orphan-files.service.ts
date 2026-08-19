@@ -10,16 +10,14 @@ export class OrphanFilesService {
   constructor(
     @InjectRepository(OrphanFileEntity)
     private readonly orphanRepo: Repository<OrphanFileEntity>,
-    private readonly translations: TranslationService
-  ) { }
-
+    private readonly translations: TranslationService,
+  ) {}
 
   async resolveOrphanUrlsOrThrow(
     mgr: EntityManager,
     adminId: string,
     ids: string[],
   ) {
-
     const repo = mgr.getRepository(OrphanFileEntity);
     const rows = await repo.find({
       where: { adminId, id: In(ids) } as any,
@@ -27,15 +25,18 @@ export class OrphanFilesService {
     });
 
     if (rows.length !== ids.length) {
-      throw new BadRequestException(this.translations.t("domains.orphan_files.some_not_found"));
+      throw new BadRequestException(
+        this.translations.t("domains.orphan_files.some_not_found"),
+      );
     }
 
     return rows.map((r) => ({ id: r.id, url: r.url }));
   }
 
   async deleteOrphansByIds(mgr: EntityManager, adminId: string, ids: string[]) {
-    const cleanIds = (ids ?? [])
-      .filter((x) => typeof x === 'string' && x.length > 0);
+    const cleanIds = (ids ?? []).filter(
+      (x) => typeof x === "string" && x.length > 0,
+    );
     if (!cleanIds.length) return;
 
     const repo = mgr.getRepository(OrphanFileEntity);
@@ -46,7 +47,7 @@ export class OrphanFilesService {
 
     await repo.delete({ adminId, id: In(cleanIds) } as any);
   }
-  
+
   async create(adminId: string, url: string) {
     const row = this.orphanRepo.create({ adminId, url });
     return this.orphanRepo.save(row);
@@ -55,17 +56,17 @@ export class OrphanFilesService {
   async deleteOne(adminId: string, id: string, mgr?: EntityManager) {
     if (!id) return;
 
-
     const repo = mgr ? mgr.getRepository(OrphanFileEntity) : this.orphanRepo;
     const file = await repo.findOne({ where: { adminId, id } as any });
     if (!file) {
-      throw new BadRequestException(this.translations.t("domains.orphan_files.not_found"));
+      throw new BadRequestException(
+        this.translations.t("domains.orphan_files.not_found"),
+      );
     }
     const result = await repo.delete({
       adminId,
-      id
+      id,
     } as any);
     return result;
   }
 }
-

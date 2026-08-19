@@ -1,98 +1,141 @@
 // --- File: backend/src/shipping/providers/shipping-provider.interface.ts ---
-import { OrderEntity } from 'entities/order.entity';
-import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
-import { CreateShipmentDto } from 'dto/shipping.dto';
+import { OrderEntity } from "entities/order.entity";
+import {
+  ShippingIntegrationEntity,
+  UnifiedShippingStatus,
+} from "../../../entities/shipping.entity";
+import { CreateShipmentDto } from "dto/shipping.dto";
 
-export type ProviderCode = 'bosta' | 'jt' | 'turbo' | 'aramex' | 'dhl' | 'SMSA';
+export type ProviderCode = "bosta" | "jt" | "turbo" | "aramex" | "dhl" | "SMSA";
 
 export interface UnifiedGeography {
-	id: string;
-	nameEn: string;
-	nameAr: string;
-	dropOff: boolean
-	pickup: boolean
-	parentId?: string // as zoneid for distinct
+  id: string;
+  nameEn: string;
+  nameAr: string;
+  dropOff: boolean;
+  pickup: boolean;
+  parentId?: string; // as zoneid for distinct
 }
 
 export interface UnifiedPickupLocation {
-	id: string;
-	nameAr: string;
-	nameEn: string;
-	isDefault: boolean;
+  id: string;
+  nameAr: string;
+  nameEn: string;
+  isDefault: boolean;
 }
 
 export type ProviderCreateResult = {
-	providerShipmentId?: string | null;
-	trackingNumber?: string | null;
-	providerRaw?: any;
+  providerShipmentId?: string | null;
+  trackingNumber?: string | null;
+  providerRaw?: any;
 };
 
 export type ProviderWebhookResult = {
-	unifiedStatus: UnifiedShippingStatus;
-	rawState?: any;
-	trackingNumber?: string | null;
-	providerShipmentId?: string | null;
-	notes?: string | null;
+  unifiedStatus: UnifiedShippingStatus;
+  rawState?: any;
+  trackingNumber?: string | null;
+  providerShipmentId?: string | null;
+  notes?: string | null;
 };
 
 export type ProviderCapability<T = any> = {
-	available: boolean;
-	data?: T;
-	reason?: string;
+  available: boolean;
+  data?: T;
+  reason?: string;
 };
 
 export type ProviderCapabilitiesResponse = {
-	provider: ProviderCode;
-	services: ProviderCapability<string[]>;
-	coverage: ProviderCapability<any>;
-	pricing: ProviderCapability<any>;
-	limits: ProviderCapability<any>;
-	quote: ProviderCapability<any>;
-	raw?: any;
+  provider: ProviderCode;
+  services: ProviderCapability<string[]>;
+  coverage: ProviderCapability<any>;
+  pricing: ProviderCapability<any>;
+  limits: ProviderCapability<any>;
+  quote: ProviderCapability<any>;
+  raw?: any;
 };
 
 export interface IMassAWBProvider {
-	printMassAWB(apiKey: string, trackingNumbers: string[], options: { requestedAwbType?: 'A4' | 'A6'; lang?: 'ar' | 'en' }): Promise<{ success: boolean; data?: string; error?: string }>;
+  printMassAWB(
+    apiKey: string,
+    trackingNumbers: string[],
+    options: { requestedAwbType?: "A4" | "A6"; lang?: "ar" | "en" },
+  ): Promise<{ success: boolean; data?: string; error?: string }>;
 }
 
 export abstract class ShippingProvider {
-	abstract readonly code: ProviderCode;
-	abstract readonly displayName: string;
-	protected getErrorMessage(error: any): string {
-		return error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
-	}
-	// Geography & Capabilities
-	// abstract getAreas(countryId: string): Promise<UnifiedGeography[]>;
+  abstract readonly code: ProviderCode;
+  abstract readonly displayName: string;
+  protected getErrorMessage(error: any): string {
+    return (
+      error?.response?.data?.message ||
+      error?.response?.message ||
+      error?.message ||
+      "Unknown error"
+    );
+  }
+  // Geography & Capabilities
+  // abstract getAreas(countryId: string): Promise<UnifiedGeography[]>;
 
-	abstract getCities(apiKey: string): Promise<UnifiedGeography[]>;
-	abstract getDistricts(apiKey: string, cityId: string): Promise<UnifiedGeography[]>;
-	abstract getZones(apiKey: string, districtId: string): Promise<UnifiedGeography[]>;
-	abstract getPickupLocations(apiKey: string): Promise<UnifiedPickupLocation[]>;
+  abstract getCities(apiKey: string): Promise<UnifiedGeography[]>;
+  abstract getDistricts(
+    apiKey: string,
+    cityId: string,
+  ): Promise<UnifiedGeography[]>;
+  abstract getZones(
+    apiKey: string,
+    districtId: string,
+  ): Promise<UnifiedGeography[]>;
+  abstract getPickupLocations(apiKey: string): Promise<UnifiedPickupLocation[]>;
 
-	abstract getCapabilities(apiKey: string): Promise<ProviderCapabilitiesResponse>;
-	abstract getServices(apiKey: string): Promise<string[]>;
+  abstract getCapabilities(
+    apiKey: string,
+  ): Promise<ProviderCapabilitiesResponse>;
+  abstract getServices(apiKey: string): Promise<string[]>;
 
-	abstract verifyCredentials(apiKey: string, accountId?: string): Promise<{ valid: boolean, message: string }>;
+  abstract verifyCredentials(
+    apiKey: string,
+    accountId?: string,
+  ): Promise<{ valid: boolean; message: string }>;
 
-	// Shipment Creation
-	abstract createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult>;
-	abstract buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<{ success: boolean; data?: any; error?: string }>;
+  // Shipment Creation
+  abstract createShipment(
+    apiKey: string,
+    payload: any,
+  ): Promise<ProviderCreateResult>;
+  abstract buildDeliveryPayload(
+    order: OrderEntity,
+    dto: CreateShipmentDto,
+    integartion?: ShippingIntegrationEntity,
+  ): Promise<{ success: boolean; data?: any; error?: string }>;
 
-	// Webhooks
-	abstract mapWebhookToUnified(body: any): ProviderWebhookResult;
-	abstract verifyWebhookAuth(headers: any, body: any, secret: string, headerName?: string): boolean;
-	/**
-	 * Common helper to format display names or clean strings
-	 */
-	abstract cancelShipment(apiKey: string, providerShipmentId: string, accountId?: string): Promise<boolean>;
-	abstract getShipmentStatus(apiKey: string, trackingNumber: string, accountId?: string): Promise<ProviderWebhookResult>;
+  // Webhooks
+  abstract mapWebhookToUnified(body: any): ProviderWebhookResult;
+  abstract verifyWebhookAuth(
+    headers: any,
+    body: any,
+    secret: string,
+    headerName?: string,
+  ): boolean;
+  /**
+   * Common helper to format display names or clean strings
+   */
+  abstract cancelShipment(
+    apiKey: string,
+    providerShipmentId: string,
+    accountId?: string,
+  ): Promise<boolean>;
+  abstract getShipmentStatus(
+    apiKey: string,
+    trackingNumber: string,
+    accountId?: string,
+  ): Promise<ProviderWebhookResult>;
 
-	protected buildPublicWebhookUrl(provider: string) {
-		const base = process.env.BACKEND_URL || 'http://localhost:3000';
-		return `${base.replace(/\/$/, '')}/shipping/webhooks/${provider}`;
-	}
+  protected buildPublicWebhookUrl(provider: string) {
+    const base = process.env.BACKEND_URL || "http://localhost:3000";
+    return `${base.replace(/\/$/, "")}/shipping/webhooks/${provider}`;
+  }
 
-	protected formatName(first: string, last?: string): string {
-		return `${first} ${last || '.'}`.trim();
-	}
+  protected formatName(first: string, last?: string): string {
+    return `${first} ${last || "."}`.trim();
+  }
 }

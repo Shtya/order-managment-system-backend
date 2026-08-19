@@ -20,13 +20,12 @@ import { PermissionsGuard } from "common/permissions.guard";
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @RequireSubscription()
 export class NotificationController {
-  constructor(private readonly svc: NotificationService) { }
+  constructor(private readonly svc: NotificationService) {}
 
   @Get()
   async getMyNotifications(@Req() req: any, @Query() q: any) {
     return this.svc.list(req.user, q);
   }
-
 
   @Patch(":id/read")
   async markAsRead(@Req() req: any, @Param("id") id: string) {
@@ -34,7 +33,7 @@ export class NotificationController {
   }
 
   @Post("read-all")
-  async markAllRead(@Req() req: any,) {
+  async markAllRead(@Req() req: any) {
     return this.svc.markAllAsRead(req.user?.id);
   }
 

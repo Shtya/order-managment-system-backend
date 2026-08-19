@@ -15,8 +15,14 @@
 // 3) Call touchPreview() from a socket heartbeat every ~30s.
 // 4) Call resumeFromWhatsappInteraction() when a mock WhatsApp button is clicked in preview mode.
 
-import { forwardRef, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import {
+  forwardRef,
+  Inject,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from "@nestjs/common";
+import { randomUUID } from "crypto";
 import {
   ActionType,
   AutomationFlowVersionEntity,
@@ -35,10 +41,10 @@ import {
   TriggerType,
   UpdateOrderStatusConfig,
   VariableDetails,
-} from 'entities/automation.entity';
-import { OrderEntity } from 'entities/order.entity';
-import { evaluateCondition, findNextNodeId } from './automation-helpers';
-import { PreviewAutomationAdapter } from './adapters/preview.adapters';
+} from "entities/automation.entity";
+import { OrderEntity } from "entities/order.entity";
+import { evaluateCondition, findNextNodeId } from "./automation-helpers";
+import { PreviewAutomationAdapter } from "./adapters/preview.adapters";
 import {
   ConditionQuickOrderStatusHandler,
   ConditionOrderCheckHandler,
@@ -50,24 +56,30 @@ import {
   ActionSendSmsHandler,
   ActionCreateIssueHandler,
   ActionWaitHandler,
-} from './nodeHandlers.registry';
-import { OrdersService } from 'src/orders/services/orders.service';
-import { InjectRepository } from '@nestjs/typeorm';
-import { WhatsappAccountEntity, WhatsappMessageEntity, WhatsappTemplateEntity } from 'entities/whatsapp.entity';
-import { DataSource, Repository } from 'typeorm';
-import { AppGateway } from 'common/app.gateway';
-import { RedisService } from 'common/redis/RedisService';
-import { User } from 'entities/user.entity';
-import { Upsell, UpsellHistory } from 'entities/upsells.entity';
-import { OrderAssignmentEntity } from 'entities/assignment.entity';
-import { OrderAssignmentService } from 'src/order-assignment/order-assignment.service';
-import { UpsellsService } from 'src/upsells/upsells.service';
+} from "./nodeHandlers.registry";
+import { OrdersService } from "src/orders/services/orders.service";
+import { InjectRepository } from "@nestjs/typeorm";
+import {
+  WhatsappAccountEntity,
+  WhatsappMessageEntity,
+  WhatsappTemplateEntity,
+} from "entities/whatsapp.entity";
+import { DataSource, Repository } from "typeorm";
+import { AppGateway } from "common/app.gateway";
+import { RedisService } from "common/redis/RedisService";
+import { User } from "entities/user.entity";
+import { Upsell, UpsellHistory } from "entities/upsells.entity";
+import { OrderAssignmentEntity } from "entities/assignment.entity";
+import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
+import { UpsellsService } from "src/upsells/upsells.service";
 
 export interface CreatePreviewInput {
   adminId: string;
   automationFlowId: string;
-  name: string,
-  version: AutomationFlowVersionEntity | { id: string; versionString?: string; flow: FlowDefinition };
+  name: string;
+  version:
+    | AutomationFlowVersionEntity
+    | { id: string; versionString?: string; flow: FlowDefinition };
   trigger: {
     nodeId: string;
     type: TriggerType;
@@ -109,7 +121,7 @@ export interface PreviewRunStep {
 export interface PreviewResumeState {
   nodeId: string;
   messageId: string;
-  branches: SendWhatsappTemplateConfig['branches'];
+  branches: SendWhatsappTemplateConfig["branches"];
   createdAt: string;
 }
 
@@ -140,7 +152,7 @@ export interface PreviewRunDocument {
   waitingForInteraction?: PreviewResumeState | null;
   triggerEntityType: TriggerEntityType;
   triggerEntityId: string;
-  startedAt: string
+  startedAt: string;
   createdAt: string;
   updatedAt: string;
   lastHeartbeatAt: string;
@@ -149,10 +161,13 @@ export interface PreviewRunDocument {
 @Injectable()
 export class AutomationPreviewService {
   private readonly logger = new Logger(AutomationPreviewService.name);
-  private readonly keyPrefix = 'automation:preview';
+  private readonly keyPrefix = "automation:preview";
   private readonly ttlSeconds = 60;
-  
-  private readonly TRIGGER_TYPE_TO_ENTITY_MAP: Record<TriggerType, TriggerEntityType> = {
+
+  private readonly TRIGGER_TYPE_TO_ENTITY_MAP: Record<
+    TriggerType,
+    TriggerEntityType
+  > = {
     [TriggerType.ORDER_CREATED]: TriggerEntityType.ORDER,
     [TriggerType.ORDER_UPDATED]: TriggerEntityType.ORDER,
     [TriggerType.SHIPMENT_CREATED]: TriggerEntityType.ORDER,
@@ -185,13 +200,16 @@ export class AutomationPreviewService {
     private readonly upsellsService: UpsellsService,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
-  ) { }
+  ) {}
 
   /**
    * Create a new preview run in Redis and immediately execute it.
    * The whole preview is ephemeral and expires after 60 seconds unless heartbeated.
    */
-  async createPreview(user: User, input: CreatePreviewInput): Promise<PreviewRunDocument> {
+  async createPreview(
+    user: User,
+    input: CreatePreviewInput,
+  ): Promise<PreviewRunDocument> {
     const previewId = randomUUID();
     const now = new Date().toISOString();
 
@@ -218,7 +236,9 @@ export class AutomationPreviewService {
         steps: {},
       },
       triggerEntityType: this.TRIGGER_TYPE_TO_ENTITY_MAP[input.trigger.type],
-      triggerEntityId: input.trigger.output?.__mock ? null : input.trigger.output?.id,
+      triggerEntityId: input.trigger.output?.__mock
+        ? null
+        : input.trigger.output?.id,
       waitingForInteraction: null,
       startedAt: now,
       createdAt: now,
@@ -257,7 +277,7 @@ export class AutomationPreviewService {
     await this.savePreview(preview);
 
     const ttlRaw = await this.redis.ttl(this.key(previewId));
-    const ttlSeconds = typeof ttlRaw === 'number' ? ttlRaw : this.ttlSeconds;
+    const ttlSeconds = typeof ttlRaw === "number" ? ttlRaw : this.ttlSeconds;
 
     return {
       previewId,
@@ -269,29 +289,36 @@ export class AutomationPreviewService {
   /**
    * Resume preview execution after a mock interaction (WhatsApp button, etc).
    */
-  async resumePreview(input: PreviewResumeInput): Promise<PreviewRunDocument | null> {
+  async resumePreview(
+    input: PreviewResumeInput,
+  ): Promise<PreviewRunDocument | null> {
     const preview = await this.getPreview(input.previewId);
     if (!preview) return null;
 
     if (preview.status !== RunStatus.PAUSED || !preview.waitingForInteraction) {
-      this.logger.warn(`Preview ${input.previewId} is not paused or is missing a waiting interaction state.`);
+      this.logger.warn(
+        `Preview ${input.previewId} is not paused or is missing a waiting interaction state.`,
+      );
       await this.emitPreviewUpdate(preview);
       return preview;
     }
 
     const waiting = preview.waitingForInteraction;
     if (!waiting.branches?.length) {
-      await this.failPreview(preview, 'Preview cannot resume because no branches are configured for the WhatsApp node.');
+      await this.failPreview(
+        preview,
+        "Preview cannot resume because no branches are configured for the WhatsApp node.",
+      );
       return preview;
     }
 
     const chosenBranch =
-      waiting.branches.find((branch: any) =>
-        branch?.id === input.buttonId ||
-        branch?.text === input.buttonText ||
-        branch?.label === input.buttonText,
-      ) ||
-      waiting.branches.find((branch: any) => branch?.isCatchAll === true);
+      waiting.branches.find(
+        (branch: any) =>
+          branch?.id === input.buttonId ||
+          branch?.text === input.buttonText ||
+          branch?.label === input.buttonText,
+      ) || waiting.branches.find((branch: any) => branch?.isCatchAll === true);
 
     if (!chosenBranch) {
       await this.failPreview(
@@ -311,7 +338,9 @@ export class AutomationPreviewService {
       chosenBranch: chosenBranch.id,
       success: true,
       executedAt: new Date().toISOString(),
-      type: preview.executionState.steps[waiting.nodeId]?.type ?? ActionType.SEND_WHATSAPP_TEMPLATE,
+      type:
+        preview.executionState.steps[waiting.nodeId]?.type ??
+        ActionType.SEND_WHATSAPP_TEMPLATE,
     } as PreviewRunStep;
 
     preview.waitingForInteraction = null;
@@ -328,14 +357,22 @@ export class AutomationPreviewService {
    * Continue executing the preview from a given node.
    * This method mirrors the production EngineRunnerService traversal.
    */
-  async runPreview(previewId: string, resumedNodeId?: string, chosenBranchId?: string): Promise<void> {
+  async runPreview(
+    previewId: string,
+    resumedNodeId?: string,
+    chosenBranchId?: string,
+  ): Promise<void> {
     const preview = await this.getPreview(previewId);
     if (!preview) return;
 
     if (resumedNodeId) {
       // When resumed, keep the same traversal semantics as production:
       // continue from the node after the paused WhatsApp node.
-      const nextNodeId = findNextNodeId(preview.flow.edges, resumedNodeId, chosenBranchId);
+      const nextNodeId = findNextNodeId(
+        preview.flow.edges,
+        resumedNodeId,
+        chosenBranchId,
+      );
       if (!nextNodeId) {
         preview.status = RunStatus.COMPLETED;
         preview.currentNodeId = null;
@@ -349,8 +386,10 @@ export class AutomationPreviewService {
       return;
     }
 
-
-    const firstNodeId = findNextNodeId(preview.flow.edges, preview.trigger.nodeId);
+    const firstNodeId = findNextNodeId(
+      preview.flow.edges,
+      preview.trigger.nodeId,
+    );
     if (!firstNodeId) {
       preview.status = RunStatus.COMPLETED;
       preview.currentNodeId = null;
@@ -366,13 +405,17 @@ export class AutomationPreviewService {
   /**
    * حلقة التحكم بالتنفيذ (The Traversal Loop)
    */
-  private async runLoop(preview: PreviewRunDocument, flow: FlowDefinition, startNodeId: string): Promise<void> {
+  private async runLoop(
+    preview: PreviewRunDocument,
+    flow: FlowDefinition,
+    startNodeId: string,
+  ): Promise<void> {
     let currentNodeId = startNodeId;
     const completedNodeIds = [];
     if (preview.status === RunStatus.COMPLETED) return;
 
     while (currentNodeId) {
-      const node = flow.nodes.find(n => n.id === currentNodeId);
+      const node = flow.nodes.find((n) => n.id === currentNodeId);
       if (!node) {
         await this.failPreview(
           preview,
@@ -396,12 +439,18 @@ export class AutomationPreviewService {
         // 3. Skip if already finished successfully
         const savedStep = preview.executionState.steps[currentNodeId];
         if (savedStep && savedStep.success) {
-          this.logger.log(`Node ${currentNodeId} already completed successfully. Skipping to next.`);
-          currentNodeId = findNextNodeId(flow.edges, currentNodeId, savedStep.chosenBranch);
+          this.logger.log(
+            `Node ${currentNodeId} already completed successfully. Skipping to next.`,
+          );
+          currentNodeId = findNextNodeId(
+            flow.edges,
+            currentNodeId,
+            savedStep.chosenBranch,
+          );
           continue;
         }
         //add delay 1000ms to simulate real-time execution
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
         // 2. Track current node
         preview.currentNodeId = currentNodeId;
         await this.savePreview(preview);
@@ -428,7 +477,9 @@ export class AutomationPreviewService {
           };
           await this.savePreview(preview);
           await this.emitPreviewUpdate(preview);
-          this.logger.log(`Preview ${preview.previewId} is now PAUSED at node ${currentNodeId}`);
+          this.logger.log(
+            `Preview ${preview.previewId} is now PAUSED at node ${currentNodeId}`,
+          );
           return; // كسر الحلقة تماماً وفك الـ Thread
         }
 
@@ -436,14 +487,17 @@ export class AutomationPreviewService {
           await this.failPreview(
             preview,
             result.error ||
-            `The automation stopped because the step "${node.data.label}" could not be completed successfully.`,
+              `The automation stopped because the step "${node.data.label}" could not be completed successfully.`,
           );
           return;
         }
 
         // 7. الانتقال للعقدة التالية بناءً على الـ edges والـ chosenBranch (إن وجد في حالات الشروط)
-        currentNodeId = findNextNodeId(flow.edges, currentNodeId, result.chosenBranch);
-
+        currentNodeId = findNextNodeId(
+          flow.edges,
+          currentNodeId,
+          result.chosenBranch,
+        );
       } catch (error) {
         await this.failPreview(
           preview,
@@ -464,7 +518,12 @@ export class AutomationPreviewService {
     // Do not send notifications in preview mode
   }
 
-  private async saveStepResult(preview: PreviewRunDocument, node: FlowNode, result: PreviewNodeHandlerResponse, input?: any) {
+  private async saveStepResult(
+    preview: PreviewRunDocument,
+    node: FlowNode,
+    result: PreviewNodeHandlerResponse,
+    input?: any,
+  ) {
     preview.executionState.steps[node.id] = {
       type: node.data.type,
       executedAt: new Date().toISOString(),
@@ -485,22 +544,27 @@ export class AutomationPreviewService {
 
   private async emitPreviewUpdate(preview: PreviewRunDocument): Promise<void> {
     try {
-      this.gateway.server.to(`user_${preview.adminId || preview.userId}`).emit('automation:preview:update', {
-        previewId: preview.previewId,
-        status: preview.status,
-        automationFlowId: preview.automationFlowId,
-        currentNodeId: preview.currentNodeId,
-        completedNodeIds: preview.completedNodeIds,
-        executionState: preview.executionState,
-        waitingForInteraction: preview.waitingForInteraction,
-        updatedAt: preview.updatedAt,
-      });
+      this.gateway.server
+        .to(`user_${preview.adminId || preview.userId}`)
+        .emit("automation:preview:update", {
+          previewId: preview.previewId,
+          status: preview.status,
+          automationFlowId: preview.automationFlowId,
+          currentNodeId: preview.currentNodeId,
+          completedNodeIds: preview.completedNodeIds,
+          executionState: preview.executionState,
+          waitingForInteraction: preview.waitingForInteraction,
+          updatedAt: preview.updatedAt,
+        });
     } catch (error) {
       this.logger.error(`Failed to emit preview update: ${error.message}`);
     }
   }
 
-  private async failPreview(preview: PreviewRunDocument, errorMessage: string): Promise<void> {
+  private async failPreview(
+    preview: PreviewRunDocument,
+    errorMessage: string,
+  ): Promise<void> {
     preview.status = RunStatus.FAILED;
     preview.errorMessage = errorMessage;
     preview.updatedAt = new Date().toISOString();
@@ -509,12 +573,13 @@ export class AutomationPreviewService {
     this.logger.error(`Preview ${preview.previewId} failed: ${errorMessage}`);
   }
 
-
   private key(previewId: string): string {
     return `${this.keyPrefix}:${previewId}`;
   }
 
-  private async savePreview(preview: PreviewRunDocument): Promise<PreviewRunDocument> {
+  private async savePreview(
+    preview: PreviewRunDocument,
+  ): Promise<PreviewRunDocument> {
     preview.updatedAt = new Date().toISOString();
     const key = this.key(preview.previewId);
     const value = JSON.stringify(preview);
@@ -524,8 +589,18 @@ export class AutomationPreviewService {
   }
 
   private registry = new PreviewNodeHandlersRegistry(
-    new PreviewAutomationAdapter(this.templateRepo, this.accountRepo, this.upsellRepo, this.upsellHistoryRepo,this.userRepo, this.ordersService, this.orderAssignmentService, this.dataSource, this.upsellsService),
-    this.orderRepo, 
+    new PreviewAutomationAdapter(
+      this.templateRepo,
+      this.accountRepo,
+      this.upsellRepo,
+      this.upsellHistoryRepo,
+      this.userRepo,
+      this.ordersService,
+      this.orderAssignmentService,
+      this.dataSource,
+      this.upsellsService,
+    ),
+    this.orderRepo,
     this.messageRepo,
     this.orderAssignmentRepo,
     this.ordersService,
@@ -547,29 +622,52 @@ class PreviewNodeHandlersRegistry {
     private readonly ordersService: OrdersService,
   ) {
     // Use production handlers with preview adapter injected
-    this.handlers.set(ConditionType.QUICK_ORDER_STATUS, new ConditionQuickOrderStatusHandler(orderRepo));
-    this.handlers.set(ConditionType.ORDER_CHECK, new ConditionOrderCheckHandler(orderRepo));
+    this.handlers.set(
+      ConditionType.QUICK_ORDER_STATUS,
+      new ConditionQuickOrderStatusHandler(orderRepo),
+    );
+    this.handlers.set(
+      ConditionType.ORDER_CHECK,
+      new ConditionOrderCheckHandler(orderRepo),
+    );
     this.handlers.set(
       ActionType.UPDATE_ORDER_STATUS,
-      new ActionUpdateOrderStatusHandler(this.adapter,orderRepo),
+      new ActionUpdateOrderStatusHandler(this.adapter, orderRepo),
     );
     this.handlers.set(
       ActionType.SEND_WHATSAPP_TEMPLATE,
-      new ActionSendWhatsappTemplateMessageHandler(this.adapter,orderRepo, this.messageRepo),
+      new ActionSendWhatsappTemplateMessageHandler(
+        this.adapter,
+        orderRepo,
+        this.messageRepo,
+      ),
     );
 
     this.handlers.set(
       ActionType.SEND_WHATSAPP_MESSAGE,
-      new ActionSendWhatsappMessageHandler(this.adapter,orderRepo, this.messageRepo),
+      new ActionSendWhatsappMessageHandler(
+        this.adapter,
+        orderRepo,
+        this.messageRepo,
+      ),
     );
 
     this.handlers.set(
       ActionType.SEND_UPSELL,
-      new ActionSendUpsellHandler(this.adapter, this.orderRepo, this.messageRepo),
+      new ActionSendUpsellHandler(
+        this.adapter,
+        this.orderRepo,
+        this.messageRepo,
+      ),
     );
     this.handlers.set(
       ActionType.ASSIGN_ORDER_TO_EMPLOYEE,
-      new ActionAssignOrderToEmployeeHandler(this.adapter, this.orderRepo, this.orderAssignmentRepo, this.ordersService),
+      new ActionAssignOrderToEmployeeHandler(
+        this.adapter,
+        this.orderRepo,
+        this.orderAssignmentRepo,
+        this.ordersService,
+      ),
     );
     this.handlers.set(
       ActionType.SEND_SMS,
@@ -579,16 +677,15 @@ class PreviewNodeHandlersRegistry {
       ActionType.CREATE_ISSUE,
       new ActionCreateIssueHandler(this.adapter, this.orderRepo),
     );
-    this.handlers.set(
-      ActionType.WAIT,
-      new ActionWaitHandler(this.orderRepo),
-    );
+    this.handlers.set(ActionType.WAIT, new ActionWaitHandler(this.orderRepo));
   }
 
   getHandler(nodeType: FlowNodeDataType): any {
     const handler = this.handlers.get(nodeType);
     if (!handler) {
-      throw new NotFoundException(`No preview handler registered for node type: ${nodeType}`);
+      throw new NotFoundException(
+        `No preview handler registered for node type: ${nodeType}`,
+      );
     }
     return handler;
   }

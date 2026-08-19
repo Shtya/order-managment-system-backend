@@ -1,17 +1,27 @@
-import { Controller, Get, Param, Query, Req, Res, UseGuards } from '@nestjs/common';
-import { ProductSyncStateService } from './product-sync-state.service';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { PermissionsGuard } from 'common/permissions.guard';
-import { SubscriptionGuard } from 'common/subscription.guard';
-import { RequireSubscription } from 'common/require-subscription.decorator';
-import { Permissions } from 'common/permissions.decorator';
-import { Response } from 'express';
+import {
+  Controller,
+  Get,
+  Param,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import { ProductSyncStateService } from "./product-sync-state.service";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { PermissionsGuard } from "common/permissions.guard";
+import { SubscriptionGuard } from "common/subscription.guard";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { Permissions } from "common/permissions.decorator";
+import { Response } from "express";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-@Controller('product-sync-state')
+@Controller("product-sync-state")
 @RequireSubscription()
 export class ProductSyncStateController {
-  constructor(private readonly productSyncStateService: ProductSyncStateService) { }
+  constructor(
+    private readonly productSyncStateService: ProductSyncStateService,
+  ) {}
 
   @Permissions("stores.read")
   @Get()

@@ -23,10 +23,17 @@ import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
-import { calculateRange, calculatePreviousRange, isLessThanOneDay } from "common/healpers";
+import {
+  calculateRange,
+  calculatePreviousRange,
+  isLessThanOneDay,
+} from "common/healpers";
 import { User } from "entities/user.entity";
 import { DateFilterUtil } from "common/date-filter.util";
-import { OrderFailStatus, WebhookOrderFailureEntity } from "entities/stores.entity";
+import {
+  OrderFailStatus,
+  WebhookOrderFailureEntity,
+} from "entities/stores.entity";
 import { TranslationService } from "common/translation.service";
 
 @Injectable()
@@ -45,7 +52,7 @@ export class DashboardService {
     @InjectRepository(WebhookOrderFailureEntity)
     private webhookOrderFailureRepo: Repository<WebhookOrderFailureEntity>,
     private readonly translations: TranslationService,
-  ) { }
+  ) {}
 
   async getSummary(
     user,
@@ -68,20 +75,29 @@ export class DashboardService {
     const prevRange = calculatePreviousRange(
       filters.range,
       finalStartDate ? new Date(finalStartDate) : undefined,
-      finalEndDate ? new Date(finalEndDate) : undefined
+      finalEndDate ? new Date(finalEndDate) : undefined,
     );
 
     // Function to fetch data for a specific range
-    const fetchData = async (startDate: Date | string, endDate: Date | string) => {
+    const fetchData = async (
+      startDate: Date | string,
+      endDate: Date | string,
+    ) => {
       const query = this.orderRepo
         .createQueryBuilder("o")
         .leftJoin("o.status", "s")
         .where("o.adminId = :adminId", { adminId });
 
-      if (filters.storeId)
+      if (filters.storeId) {
         query.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+      }
 
-      DateFilterUtil.applyToQueryBuilder(query, "o.created_at", startDate, endDate);
+      DateFilterUtil.applyToQueryBuilder(
+        query,
+        "o.created_at",
+        startDate,
+        endDate,
+      );
 
       if (filters.search) {
         query.andWhere(
@@ -141,7 +157,10 @@ export class DashboardService {
         cancelled: totalOrders > 0 ? (cancelled / totalOrders) * 100 : 0,
         inDelivery: Number(rawData.indelivery) || 0,
         newOrders: Number(rawData.neworders) || 0,
-        returned: totalOrders > 0 ? ((returned + partiallyReturned) / totalOrders) * 100 : 0,
+        returned:
+          totalOrders > 0
+            ? ((returned + partiallyReturned) / totalOrders) * 100
+            : 0,
         totalCollected,
       };
     };
@@ -175,13 +194,14 @@ export class DashboardService {
     const points = filters.points || 12; // عدد النقاط على الرسم البياني
 
     // 1. حساب الفترة الزمنية (نفس منطق الـ Summary)
-    let { start, end } = calculateRange(filters.range);
+    const { start, end } = calculateRange(filters.range);
     const finalStartDate =
       start ||
       (filters.startDate
         ? new Date(filters.startDate)
         : subDays(new Date(), 30));
-    const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
+    const finalEndDate =
+      end || (filters.endDate ? new Date(filters.endDate) : new Date());
 
     // 2. بناء بارامترات الاستعلام الخام (Raw Query)
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
@@ -279,18 +299,19 @@ export class DashboardService {
       range?: string;
       search?: string;
       limit?: number;
-    },) {
+    },
+  ) {
     const adminId = tenantId(user);
     const limit = filters.limit || 5;
 
-    let { start, end } = calculateRange(filters.range);
+    const { start, end } = calculateRange(filters.range);
     const finalStartDate =
       start ||
       (filters.startDate
         ? new Date(filters.startDate)
         : subDays(new Date(), 30));
-    const finalEndDate = end || (filters.endDate ? new Date(filters.endDate) : new Date());
-
+    const finalEndDate =
+      end || (filters.endDate ? new Date(filters.endDate) : new Date());
 
     // 1️⃣ بناء الاستعلام الأساسي المشترك
     const baseQuery = this.orderRepo.manager
@@ -302,16 +323,19 @@ export class DashboardService {
         deliveredStatus: OrderStatus.DELIVERED,
       });
 
-    if (filters.storeId)
+    if (filters.storeId) {
       baseQuery.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
-    if (finalStartDate)
+    }
+    if (finalStartDate) {
       baseQuery.andWhere("o.created_at  >= :startDate", {
         startDate: finalStartDate,
       });
-    if (finalEndDate)
+    }
+    if (finalEndDate) {
       baseQuery.andWhere("o.created_at  <= :endDate", {
         endDate: finalEndDate,
       });
+    }
 
     // 2️⃣ تنفيذ الاستعلامين معاً باستخدام Promise.all
     const [totalSumResult, rawData] = await Promise.all([
@@ -371,7 +395,7 @@ export class DashboardService {
     const points = 4; // تقسيم الشهر إلى 4 فترات زمنية (أسابيع تقريباً)
 
     // حساب الفترة (الافتراضي الشهر الحالي إذا لم يحدد المستخدم)
-    let { start, end } = calculateRange(filters.range || "thisMonth");
+    const { start, end } = calculateRange(filters.range || "thisMonth");
     const finalStartDate =
       start ||
       (filters.startDate
@@ -392,7 +416,6 @@ export class DashboardService {
     if (isLessThanOneDay(finalStartDate, finalEndDate)) {
       return [];
     }
-
 
     const query = `
         WITH params AS (
@@ -499,15 +522,37 @@ export class DashboardService {
     const reportData = await this.getProfitReport(user, q);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_profit_report_sheet'));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.dashboard.export_profit_report_sheet"),
+    );
 
     // 2. تعريف الأعمدة (تطابق profitCols في الفرونت إند)
     worksheet.columns = [
-      { header: this.translations.t('domains.dashboard.export_time_period'), key: "period", width: 25 },
-      { header: this.translations.t('domains.dashboard.export_total_sales'), key: "sales", width: 20 },
-      { header: this.translations.t('domains.dashboard.export_cost_of_goods'), key: "costs", width: 20 },
-      { header: this.translations.t('domains.dashboard.export_total_profit'), key: "profit", width: 20 },
-      { header: this.translations.t('domains.dashboard.export_profit_margin'), key: "margin", width: 15 },
+      {
+        header: this.translations.t("domains.dashboard.export_time_period"),
+        key: "period",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_total_sales"),
+        key: "sales",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_cost_of_goods"),
+        key: "costs",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_total_profit"),
+        key: "profit",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_profit_margin"),
+        key: "margin",
+        width: 15,
+      },
     ];
 
     // 3. تنسيق الهيدر (استخدام ألوان هويتك البرتقالية)
@@ -547,7 +592,7 @@ export class DashboardService {
     const totalProfit = reportData.reduce((sum, r) => sum + r.profit, 0);
 
     const footerRow = worksheet.addRow({
-      period: this.translations.t('domains.dashboard.export_total_period'),
+      period: this.translations.t("domains.dashboard.export_total_period"),
       sales: totalSales,
       profit: totalProfit,
       margin:
@@ -567,10 +612,14 @@ export class DashboardService {
 
   async getOrderAnalysisStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     // 1. حساب النطاق الزمني
-    let { start, end } = calculateRange(filters.range);
+    const { start, end } = calculateRange(filters.range);
     const finalStartDate =
       start || (filters.startDate ? new Date(filters.startDate) : null);
     const finalEndDate =
@@ -653,7 +702,7 @@ export class DashboardService {
     const adminId = tenantId(user);
     const points = filters.points || 12;
 
-    let { start, end } = calculateRange(filters.range);
+    const { start, end } = calculateRange(filters.range);
 
     const finalStartDate =
       start ||
@@ -662,7 +711,6 @@ export class DashboardService {
         : subDays(new Date(), 30));
     const finalEndDate =
       end || (filters.endDate ? new Date(filters.endDate) : new Date());
-
 
     const params: any[] = [finalStartDate, finalEndDate, points, adminId];
     let paramIndex = 5;
@@ -681,7 +729,6 @@ export class DashboardService {
     if (isLessThanOneDay(finalStartDate, finalEndDate)) {
       return [];
     }
-
 
     const query = `
     WITH params AS (
@@ -769,7 +816,7 @@ export class DashboardService {
     const adminId = tenantId(user);
     const limit = filters.limit || 5; // افتراضياً أعلى 5 مناطق
 
-    let { start, end } = calculateRange(filters.range || "thisMonth");
+    const { start, end } = calculateRange(filters.range || "thisMonth");
     const finalStartDate =
       start ||
       (filters.startDate
@@ -837,17 +884,51 @@ export class DashboardService {
     const reportData = await this.getTopCitiesStats(user, filters);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_top_areas_sheet'));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.dashboard.export_top_areas_sheet"),
+    );
 
     // 2. Define columns matching the frontend table
     worksheet.columns = [
-      { header: this.translations.t('domains.dashboard.export_city_area'), key: "cityArea", width: 25 },
-      { header: this.translations.t('domains.dashboard.export_total_orders'), key: "totalOrders", width: 15 },
-      { header: this.translations.t('domains.dashboard.export_corrected_orders'), key: "correctedOrders", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_confirmed_count'), key: "confirmedCount", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_shipped_orders'), key: "shippedOrders", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_delivered_total'), key: "deliveredTotal", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_delivered_from_confirmed'), key: "deliveredFromConfirmed", width: 22 },
+      {
+        header: this.translations.t("domains.dashboard.export_city_area"),
+        key: "cityArea",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_total_orders"),
+        key: "totalOrders",
+        width: 15,
+      },
+      {
+        header: this.translations.t(
+          "domains.dashboard.export_corrected_orders",
+        ),
+        key: "correctedOrders",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_confirmed_count"),
+        key: "confirmedCount",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_shipped_orders"),
+        key: "shippedOrders",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_delivered_total"),
+        key: "deliveredTotal",
+        width: 18,
+      },
+      {
+        header: this.translations.t(
+          "domains.dashboard.export_delivered_from_confirmed",
+        ),
+        key: "deliveredFromConfirmed",
+        width: 22,
+      },
     ];
 
     // 3. Format header
@@ -865,7 +946,7 @@ export class DashboardService {
     // 4. Add data and format rows
     reportData.forEach((row) => {
       const newRow = worksheet.addRow({
-        cityArea: row.nameEn || row.nameAr || '',
+        cityArea: row.nameEn || row.nameAr || "",
         totalOrders: row.totalOrders,
         correctedOrders: row.correctedOrders,
         confirmedCount: row.confirmedCount,
@@ -884,17 +965,51 @@ export class DashboardService {
     const reportData = await this.getTopProductsStats(user, filters);
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_top_products_sheet'));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.dashboard.export_top_products_sheet"),
+    );
 
     // 2. Define columns matching the frontend table
     worksheet.columns = [
-      { header: this.translations.t('domains.dashboard.export_product_name'), key: "name", width: 30 },
-      { header: this.translations.t('domains.dashboard.export_total_orders'), key: "totalOrders", width: 15 },
-      { header: this.translations.t('domains.dashboard.export_corrected_orders'), key: "correctedOrders", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_confirmed_count'), key: "confirmedCount", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_shipped_orders'), key: "shippedOrders", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_delivered_total'), key: "deliveredTotal", width: 18 },
-      { header: this.translations.t('domains.dashboard.export_delivered_from_confirmed'), key: "deliveredFromConfirmed", width: 22 },
+      {
+        header: this.translations.t("domains.dashboard.export_product_name"),
+        key: "name",
+        width: 30,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_total_orders"),
+        key: "totalOrders",
+        width: 15,
+      },
+      {
+        header: this.translations.t(
+          "domains.dashboard.export_corrected_orders",
+        ),
+        key: "correctedOrders",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_confirmed_count"),
+        key: "confirmedCount",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_shipped_orders"),
+        key: "shippedOrders",
+        width: 18,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_delivered_total"),
+        key: "deliveredTotal",
+        width: 18,
+      },
+      {
+        header: this.translations.t(
+          "domains.dashboard.export_delivered_from_confirmed",
+        ),
+        key: "deliveredFromConfirmed",
+        width: 22,
+      },
     ];
 
     // 3. Format header
@@ -928,12 +1043,19 @@ export class DashboardService {
 
   async getEmployeePerformance(user: any, q: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
-    const { start, end } = DateFilterUtil.getBoundaries(q?.startDate, q?.endDate);
+    const { start, end } = DateFilterUtil.getBoundaries(
+      q?.startDate,
+      q?.endDate,
+    );
 
     const qb = this.usersRepo.createQueryBuilder("u");
 
@@ -941,7 +1063,8 @@ export class DashboardService {
     const oaRangeParts: string[] = [];
     if (start) oaRangeParts.push(`oa."lastActionAt" >= :empPerfRangeStart`);
     if (end) oaRangeParts.push(`oa."lastActionAt" <= :empPerfRangeEnd`);
-    const oaJoinOn = oaRangeParts.length > 0 ? oaRangeParts.join(" AND ") : "1=1";
+    const oaJoinOn =
+      oaRangeParts.length > 0 ? oaRangeParts.join(" AND ") : "1=1";
 
     qb.leftJoin("u.assignments", "oa", oaJoinOn)
       .leftJoin("oa.lastStatus", "la")
@@ -969,11 +1092,13 @@ export class DashboardService {
       qb.andWhere("o.storeId = :storeId", { storeId: q.storeId });
     }
 
-    qb.select(["u.id AS id", "u.name AS name", "u.avatarUrl AS avatarUrl", "u.isActive AS isActive"])
-      .addSelect(
-        "COUNT(DISTINCT oa.id)",
-        "totalAssigned"
-      )
+    qb.select([
+      "u.id AS id",
+      "u.name AS name",
+      "u.avatarUrl AS avatarUrl",
+      "u.isActive AS isActive",
+    ])
+      .addSelect("COUNT(DISTINCT oa.id)", "totalAssigned")
       .addSelect(
         `COUNT(DISTINCT CASE WHEN la.code = '${OrderStatus.CONFIRMED}' THEN oa.id END)`,
         "confirmedCount",
@@ -1005,11 +1130,13 @@ export class DashboardService {
           .select("COUNT(sl.id)", "prepFailedCount")
           .from(OrderScanLogEntity, "sl")
           .where("sl.userId = u.id")
-          .andWhere("sl.phase = :prepPhase", { prepPhase: ScanLogType.PREPARATION });
-        if (q?.startDate && start)
+          .andWhere("sl.phase = :prepPhase", {
+            prepPhase: ScanLogType.PREPARATION,
+          });
+        if (q?.startDate && start) {
           s.andWhere("sl.createdAt >= :empPerfRangeStart");
-        if (q?.endDate && end)
-          s.andWhere("sl.createdAt <= :empPerfRangeEnd");
+        }
+        if (q?.endDate && end) s.andWhere("sl.createdAt <= :empPerfRangeEnd");
         return s;
       }, "preparationFailedCount")
       .addSelect((sub) => {
@@ -1017,16 +1144,21 @@ export class DashboardService {
           .select("COUNT(sl.id)", "outFailedCount")
           .from(OrderScanLogEntity, "sl")
           .where("sl.userId = u.id")
-          .andWhere("sl.phase = :shipPhase", { shipPhase: ScanLogType.SHIPPING });
-        if (q?.startDate && start)
+          .andWhere("sl.phase = :shipPhase", {
+            shipPhase: ScanLogType.SHIPPING,
+          });
+        if (q?.startDate && start) {
           s.andWhere("sl.createdAt >= :empPerfRangeStart");
-        if (q?.endDate && end)
-          s.andWhere("sl.createdAt <= :empPerfRangeEnd");
+        }
+        if (q?.endDate && end) s.andWhere("sl.createdAt <= :empPerfRangeEnd");
         return s;
       }, "outgoingFailedCount");
 
     // Grouping
-    qb.groupBy("u.id").addGroupBy("u.name").addGroupBy("u.avatarUrl").addGroupBy("u.isActive");
+    qb.groupBy("u.id")
+      .addGroupBy("u.name")
+      .addGroupBy("u.avatarUrl")
+      .addGroupBy("u.isActive");
 
     const [totalRecordsResult, stats] = await Promise.all([
       // استعلام العدد (Count Query)
@@ -1056,15 +1188,9 @@ export class DashboardService {
       const activeCount = Number(row?.activeAssignments) || 0;
       const lockedCount = Number(row?.lockedAssignments) || 0;
       const prepFailedCount =
-        Number(
-          row?.preparationfailedcount ??
-          row?.preparationFailedRate,
-        ) || 0;
+        Number(row?.preparationfailedcount ?? row?.preparationFailedRate) || 0;
       const outFailedCount =
-        Number(
-          row?.outgoingfailedcount ??
-          row?.outgoingFailedRate,
-        ) || 0;
+        Number(row?.outgoingfailedcount ?? row?.outgoingFailedRate) || 0;
 
       return {
         id: row?.id,
@@ -1110,16 +1236,52 @@ export class DashboardService {
 
     // --- إنشاء ملف ExcelJS ---
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t('domains.dashboard.export_employee_performance_sheet'));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t(
+        "domains.dashboard.export_employee_performance_sheet",
+      ),
+    );
 
     worksheet.columns = [
-      { header: this.translations.t('domains.dashboard.export_employee_name'), key: "name", width: 25 },
-      { header: this.translations.t('domains.dashboard.export_total_assignments'), key: "totalAssigned", width: 15 },
-      { header: this.translations.t('domains.dashboard.export_confirmed'), key: "confirmedCount", width: 12 },
-      { header: this.translations.t('domains.dashboard.export_confirmation_rate'), key: "confirmedPercent", width: 15 },
-      { header: this.translations.t('domains.dashboard.export_shipped'), key: "shippedCount", width: 12 },
-      { header: this.translations.t('domains.dashboard.export_delivered'), key: "deliveredCount", width: 15 },
-      { header: this.translations.t('domains.dashboard.export_success_rate'), key: "deliveryRate", width: 15 },
+      {
+        header: this.translations.t("domains.dashboard.export_employee_name"),
+        key: "name",
+        width: 25,
+      },
+      {
+        header: this.translations.t(
+          "domains.dashboard.export_total_assignments",
+        ),
+        key: "totalAssigned",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_confirmed"),
+        key: "confirmedCount",
+        width: 12,
+      },
+      {
+        header: this.translations.t(
+          "domains.dashboard.export_confirmation_rate",
+        ),
+        key: "confirmedPercent",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_shipped"),
+        key: "shippedCount",
+        width: 12,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_delivered"),
+        key: "deliveredCount",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.dashboard.export_success_rate"),
+        key: "deliveryRate",
+        width: 15,
+      },
     ];
 
     // تنسيق الهيدر (اللون البرتقالي)
@@ -1165,7 +1327,11 @@ export class DashboardService {
 
   async getEmployeeAnalysisStats(user: any, q: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const targetCodes = [
       OrderStatus.NEW,
@@ -1179,9 +1345,11 @@ export class DashboardService {
     const exceptCodes: string[] = Array.isArray(rawExcept)
       ? rawExcept.map((c) => String(c).trim().toLowerCase()).filter(Boolean)
       : typeof rawExcept === "string" && rawExcept.length > 0
-        ? rawExcept.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
+        ? rawExcept
+            .split(",")
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean)
         : [];
-
 
     const { start, end } = DateFilterUtil.getBoundaries(q.startDate, q.endDate);
     const startDate = start;
@@ -1193,7 +1361,6 @@ export class DashboardService {
       exceptCodes.length > 0
         ? `COUNT(DISTINCT CASE WHEN status.code IN (:...exceptCodes) THEN oa.id WHEN ${dateMatchedAssignments} THEN oa.id END)`
         : `COUNT(DISTINCT CASE WHEN ${dateMatchedAssignments} THEN oa.id END)`;
-
 
     const qb = this.statusRepo
       .createQueryBuilder("status")
@@ -1234,15 +1401,17 @@ export class DashboardService {
       .where("oa.assignedByAdminId = :adminId", { adminId: adminId })
       .select(assignmentCountExpr, "totalCount");
 
-    if (exceptCodes.length > 0)
+    if (exceptCodes.length > 0) {
       totalCountQb.setParameter("exceptCodes", exceptCodes);
+    }
 
     totalCountQb
       .setParameter("adminId", adminId)
       .setParameter("startDate", startDate)
       .setParameter("endDate", endDate);
 
-    const scanStatsQb = this.dataSource.getRepository(OrderScanLogEntity)
+    const scanStatsQb = this.dataSource
+      .getRepository(OrderScanLogEntity)
       .createQueryBuilder("sl")
       .where("sl.adminId = :adminId", { adminId })
       .andWhere(startDate ? "sl.createdAt >= :startDate" : "1=1", { startDate })
@@ -1323,11 +1492,18 @@ export class DashboardService {
 
   async getAdvancedStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     // Calculate Date Boundaries
-    let { start: startRange, end: endRange } = calculateRange(filters.range);
-    const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
+    const { start: startRange, end: endRange } = calculateRange(filters.range);
+    const { start, end } = DateFilterUtil.getBoundaries(
+      filters.startDate,
+      filters.endDate,
+    );
     const startDate = startRange ? startRange : start;
     const endDate = endRange ? endRange : end;
 
@@ -1335,36 +1511,54 @@ export class DashboardService {
     const prevRange = calculatePreviousRange(
       filters.range,
       startDate ? new Date(startDate) : undefined,
-      endDate ? new Date(endDate) : undefined
+      endDate ? new Date(endDate) : undefined,
     );
 
     // Function to fetch data for a specific range
-    const fetchData = async (rangeStart: Date | string, rangeEnd: Date | string) => {
-      const mainQb = this.orderRepo.createQueryBuilder("o")
+    const fetchData = async (
+      rangeStart: Date | string,
+      rangeEnd: Date | string,
+    ) => {
+      const mainQb = this.orderRepo
+        .createQueryBuilder("o")
         .leftJoin("o.status", "st")
         .leftJoin("o.oldStatus", "oldSt")
         .where("o.adminId = :adminId", { adminId });
 
       // Apply Filters to Main Query
-      if (filters.storeId) mainQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
-      if (filters.cityId) mainQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
-      if (filters.shippingCompanyId) {
-        mainQb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+      if (filters.storeId) {
+        mainQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
       }
-      if (rangeStart) mainQb.andWhere("o.created_at >= :rangeStart", { rangeStart });
+      if (filters.cityId) {
+        mainQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+      }
+      if (filters.shippingCompanyId) {
+        mainQb.andWhere("o.shippingCompanyId = :shippingCompanyId", {
+          shippingCompanyId: filters.shippingCompanyId,
+        });
+      }
+      if (rangeStart) {
+        mainQb.andWhere("o.created_at >= :rangeStart", { rangeStart });
+      }
       if (rangeEnd) mainQb.andWhere("o.created_at <= :rangeEnd", { rangeEnd });
 
       if (filters.productIds && filters.productIds.length > 0) {
-        const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
-        mainQb.andWhere(`EXISTS (
+        const pIds = Array.isArray(filters.productIds)
+          ? filters.productIds
+          : filters.productIds.split(",");
+        mainQb.andWhere(
+          `EXISTS (
           SELECT 1 FROM order_items oi
           INNER JOIN product_variants pv ON oi."variantId" = pv.id
           WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
-        )`, { pIds });
+        )`,
+          { pIds },
+        );
       }
 
       if (filters.assignedUserId) {
-        mainQb.andWhere(`
+        mainQb.andWhere(
+          `
           :assignedUserId = (
             SELECT oa."employeeId"
             FROM order_assignments oa
@@ -1372,7 +1566,9 @@ export class DashboardService {
             ORDER BY oa."assignedAt" DESC
             LIMIT 1
           )
-        `, { assignedUserId: filters.assignedUserId });
+        `,
+          { assignedUserId: filters.assignedUserId },
+        );
       }
 
       mainQb.select([
@@ -1395,33 +1591,47 @@ export class DashboardService {
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END) AS "statusDeliveredOrders"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.CANCELLED_FOLLOW_UP}' THEN o.id END) AS "canceledAndUnderReview"`,
         `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.NO_ANSWER_FOLLOW_UP}' THEN o.id END) AS "noAnswerFollowUp"`,
-        `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`
+        `COUNT(DISTINCT CASE WHEN st.code IN ('${OrderStatus.DISTRIBUTED}', '${OrderStatus.PRINTED}', '${OrderStatus.PREPARING}', '${OrderStatus.READY}', '${OrderStatus.SHIPPED}') THEN o.id END) AS "inWarehouseOrders"`,
       ]);
 
       // QUERY 2: Pending/Failed Webhook Orders
       const pendingQb = this.webhookOrderFailureRepo
         .createQueryBuilder("wf")
         .where("wf.adminId = :adminId", { adminId })
-        .andWhere("wf.status != :successStatus", { successStatus: OrderFailStatus.SUCCESS });
+        .andWhere("wf.status != :successStatus", {
+          successStatus: OrderFailStatus.SUCCESS,
+        });
 
-      if (filters.storeId) pendingQb.andWhere("wf.storeId = :storeId", { storeId: filters.storeId });
-      if (rangeStart) pendingQb.andWhere("wf.created_at >= :rangeStart", { rangeStart });
-      if (rangeEnd) pendingQb.andWhere("wf.created_at <= :rangeEnd", { rangeEnd });
+      if (filters.storeId) {
+        pendingQb.andWhere("wf.storeId = :storeId", {
+          storeId: filters.storeId,
+        });
+      }
+      if (rangeStart) {
+        pendingQb.andWhere("wf.created_at >= :rangeStart", { rangeStart });
+      }
+      if (rangeEnd) {
+        pendingQb.andWhere("wf.created_at <= :rangeEnd", { rangeEnd });
+      }
 
       pendingQb.select("COUNT(DISTINCT wf.id)", "count");
 
       const [mainStats, pendingStats] = await Promise.all([
         mainQb.getRawOne(),
-        pendingQb.getRawOne()
+        pendingQb.getRawOne(),
       ]);
 
-      const getVal = (key1: string, key2: string) => Number(mainStats[key1] ?? mainStats[key2]) || 0;
+      const getVal = (key1: string, key2: string) =>
+        Number(mainStats[key1] ?? mainStats[key2]) || 0;
 
       return {
         totalOrders: getVal("totalOrders", "totalorders"),
         correctedOrders: getVal("correctedOrders", "correctedorders"),
         confirmedCount: getVal("confirmedCount", "confirmedcount"),
-        deliveredFromConfirmed: getVal("deliveredFromConfirmed", "deliveredfromconfirmed"),
+        deliveredFromConfirmed: getVal(
+          "deliveredFromConfirmed",
+          "deliveredfromconfirmed",
+        ),
         deliveredFromTotal: getVal("deliveredFromTotal", "deliveredfromtotal"),
         totalSales: getVal("totalSales", "totalsales"),
         deliveredSales: getVal("deliveredSales", "deliveredsales"),
@@ -1437,7 +1647,10 @@ export class DashboardService {
           shipped: getVal("shippedOrders", "shippedorders"),
           delivered: getVal("statusDeliveredOrders", "statusdeliveredorders"),
         },
-        canceledAndUnderReview: getVal("canceledAndUnderReview", "canceledandunderreview"),
+        canceledAndUnderReview: getVal(
+          "canceledAndUnderReview",
+          "canceledandunderreview",
+        ),
         noAnswerFollowUp: getVal("noAnswerFollowUp", "noanswerfollowup"),
         pendingOrders: Number(pendingStats?.count || 0),
         inWarehouseOrders: getVal("inWarehouseOrders", "inwarehouseorders"),
@@ -1445,29 +1658,44 @@ export class DashboardService {
     };
 
     // Fetch current range status breakdown separately
-    const statusQb = this.orderRepo.createQueryBuilder("o")
+    const statusQb = this.orderRepo
+      .createQueryBuilder("o")
       .leftJoin("o.status", "st")
       .where("o.adminId = :adminId", { adminId });
 
-    if (filters.storeId) statusQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
-    if (filters.cityId) statusQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
-    if (filters.shippingCompanyId) {
-      statusQb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+    if (filters.storeId) {
+      statusQb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
     }
-    if (startDate) statusQb.andWhere("o.created_at >= :startDate", { startDate });
+    if (filters.cityId) {
+      statusQb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    }
+    if (filters.shippingCompanyId) {
+      statusQb.andWhere("o.shippingCompanyId = :shippingCompanyId", {
+        shippingCompanyId: filters.shippingCompanyId,
+      });
+    }
+    if (startDate) {
+      statusQb.andWhere("o.created_at >= :startDate", { startDate });
+    }
     if (endDate) statusQb.andWhere("o.created_at <= :endDate", { endDate });
 
     if (filters.productIds && filters.productIds.length > 0) {
-      const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
-      statusQb.andWhere(`EXISTS (
+      const pIds = Array.isArray(filters.productIds)
+        ? filters.productIds
+        : filters.productIds.split(",");
+      statusQb.andWhere(
+        `EXISTS (
         SELECT 1 FROM order_items oi
         INNER JOIN product_variants pv ON oi."variantId" = pv.id
         WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
-      )`, { pIds });
+      )`,
+        { pIds },
+      );
     }
 
     if (filters.assignedUserId) {
-      statusQb.andWhere(`
+      statusQb.andWhere(
+        `
         :assignedUserId = (
           SELECT oa."employeeId"
           FROM order_assignments oa
@@ -1475,21 +1703,26 @@ export class DashboardService {
           ORDER BY oa."assignedAt" DESC
           LIMIT 1
         )
-      `, { assignedUserId: filters.assignedUserId });
+      `,
+        { assignedUserId: filters.assignedUserId },
+      );
     }
 
-    statusQb.select([
-      `st.id AS "statusId"`,
-      `st.name AS "name"`,
-      `st.system AS "system"`,
-      `st.code AS "code"`,
-      `COUNT(DISTINCT o.id) AS "count"`
-    ])
-      .groupBy('st.id, st.name, st.system, st.code');
+    statusQb
+      .select([
+        `st.id AS "statusId"`,
+        `st.name AS "name"`,
+        `st.system AS "system"`,
+        `st.code AS "code"`,
+        `COUNT(DISTINCT o.id) AS "count"`,
+      ])
+      .groupBy("st.id, st.name, st.system, st.code");
 
     const [currentStats, comparisonStats, statusBreakdown] = await Promise.all([
       fetchData(startDate, endDate),
-      prevRange.start && prevRange.end ? fetchData(prevRange.start, prevRange.end) : Promise.resolve(null),
+      prevRange.start && prevRange.end
+        ? fetchData(prevRange.start, prevRange.end)
+        : Promise.resolve(null),
       statusQb.getRawMany(),
     ]);
 
@@ -1502,7 +1735,11 @@ export class DashboardService {
 
   async getWeeklyTrend(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     // Calculate exact timeframe: Last 7 days including today
     const endDate = new Date();
@@ -1511,30 +1748,45 @@ export class DashboardService {
     const startDate = subDays(new Date(), 6);
     startDate.setHours(0, 0, 0, 0);
 
-    const qb = this.orderRepo.createQueryBuilder("o")
+    const qb = this.orderRepo
+      .createQueryBuilder("o")
       .leftJoin("o.status", "st")
       .where("o.adminId = :adminId", { adminId })
-      .andWhere("TO_CHAR(o.created_at, 'YYYY-MM-DD') >= :startDate", { startDate })
+      .andWhere("TO_CHAR(o.created_at, 'YYYY-MM-DD') >= :startDate", {
+        startDate,
+      })
       .andWhere("TO_CHAR(o.created_at, 'YYYY-MM-DD') <= :endDate", { endDate });
 
     // Apply exact same filters as advanced-stats
-    if (filters.storeId) qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
-    if (filters.cityId) qb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    if (filters.storeId) {
+      qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    }
+    if (filters.cityId) {
+      qb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    }
     if (filters.shippingCompanyId) {
-      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", {
+        shippingCompanyId: filters.shippingCompanyId,
+      });
     }
 
     if (filters.productIds && filters.productIds.length > 0) {
-      const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
-      qb.andWhere(`EXISTS (
+      const pIds = Array.isArray(filters.productIds)
+        ? filters.productIds
+        : filters.productIds.split(",");
+      qb.andWhere(
+        `EXISTS (
         SELECT 1 FROM order_items oi
         INNER JOIN product_variants pv ON oi."variantId" = pv.id
         WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
-      )`, { pIds });
+      )`,
+        { pIds },
+      );
     }
 
     if (filters.assignedUserId) {
-      qb.andWhere(`
+      qb.andWhere(
+        `
         :assignedUserId = (
           SELECT oa."employeeId"
           FROM order_assignments oa
@@ -1542,14 +1794,19 @@ export class DashboardService {
           ORDER BY oa."assignedAt" DESC
           LIMIT 1
         )
-      `, { assignedUserId: filters.assignedUserId });
+      `,
+        { assignedUserId: filters.assignedUserId },
+      );
     }
 
     // Group by the date of creation
     // Replace the select and groupBy lines with this:
-    qb.select(`TO_CHAR(o.created_at, 'YYYY-MM-DD')`, 'date')
-      .addSelect(`COUNT(DISTINCT o.id)`, 'created')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`, 'delivered')
+    qb.select(`TO_CHAR(o.created_at, 'YYYY-MM-DD')`, "date")
+      .addSelect(`COUNT(DISTINCT o.id)`, "created")
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`,
+        "delivered",
+      )
       .groupBy(`TO_CHAR(o.created_at, 'YYYY-MM-DD')`);
 
     const rawResults = await qb.getRawMany();
@@ -1562,9 +1819,11 @@ export class DashboardService {
       const targetDate = subDays(new Date(), i);
 
       // Use date-fns format to safely get the local YYYY-MM-DD without UTC shifts
-      const dateString = format(targetDate, 'yyyy-MM-dd');
+      const dateString = format(targetDate, "yyyy-MM-dd");
 
-      const dayOfWeek = targetDate.toLocaleDateString('en-US', { weekday: 'long' });
+      const dayOfWeek = targetDate.toLocaleDateString("en-US", {
+        weekday: "long",
+      });
 
       // Now we just strictly match the string from Postgres
       const foundData = rawResults.find((row) => row.date === dateString);
@@ -1573,7 +1832,7 @@ export class DashboardService {
         date: dateString,
         day_of_week: dayOfWeek,
         created: Number(foundData?.created || 0),
-        delivered: Number(foundData?.delivered || 0)
+        delivered: Number(foundData?.delivered || 0),
       });
     }
 
@@ -1582,36 +1841,54 @@ export class DashboardService {
 
   async getTopCitiesStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-    const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
+    const { start, end } = DateFilterUtil.getBoundaries(
+      filters.startDate,
+      filters.endDate,
+    );
     const limit = filters.limit ? Number(filters.limit) : 5;
 
-    const qb = this.orderRepo.createQueryBuilder("o")
+    const qb = this.orderRepo
+      .createQueryBuilder("o")
       .leftJoin("o.status", "st")
       .leftJoin("o.cityDetails", "cityDetails") // Join using the requested relation
       .where("o.adminId = :adminId", { adminId })
       .andWhere("cityDetails.id IS NOT NULL");
 
     // Apply Filters
-    if (filters.storeId) qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    if (filters.storeId) {
+      qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    }
     if (filters.shippingCompanyId) {
-      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", {
+        shippingCompanyId: filters.shippingCompanyId,
+      });
     }
     if (start) qb.andWhere("o.created_at >= :start", { start });
     if (end) qb.andWhere("o.created_at <= :end", { end });
 
     if (filters.productIds && filters.productIds.length > 0) {
-      const pIds = Array.isArray(filters.productIds) ? filters.productIds : filters.productIds.split(',');
-      qb.andWhere(`EXISTS (
+      const pIds = Array.isArray(filters.productIds)
+        ? filters.productIds
+        : filters.productIds.split(",");
+      qb.andWhere(
+        `EXISTS (
         SELECT 1 FROM order_items oi
         INNER JOIN product_variants pv ON oi."variantId" = pv.id
         WHERE oi."orderId" = o.id AND pv."productId" IN (:...pIds)
-      )`, { pIds });
+      )`,
+        { pIds },
+      );
     }
 
     if (filters.assignedUserId) {
-      qb.andWhere(`
+      qb.andWhere(
+        `
         :assignedUserId = (
           SELECT oa."employeeId"
           FROM order_assignments oa
@@ -1619,30 +1896,47 @@ export class DashboardService {
           ORDER BY oa."assignedAt" DESC
           LIMIT 1
         )
-      `, { assignedUserId: filters.assignedUserId });
+      `,
+        { assignedUserId: filters.assignedUserId },
+      );
     }
 
     // Selects and Aggregations grouped by City Entity Details
-    qb.select('cityDetails.id', 'id')
-      .addSelect('cityDetails.nameEn', 'nameEn')
-      .addSelect('cityDetails.nameAr', 'nameAr')
-      .addSelect(`COUNT(DISTINCT o.id)`, 'totalOrders')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END)`, 'correctedOrders')
-      .addSelect(`COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END)`, 'confirmedCount')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END)`, 'shippedOrders')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`, 'deliveredTotal')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END)`, 'deliveredFromConfirmed')
-      .groupBy('cityDetails.id')
-      .addGroupBy('cityDetails.nameEn')
-      .addGroupBy('cityDetails.nameAr')
-      .orderBy('"deliveredTotal"', 'DESC')
-      .addOrderBy('"totalOrders"', 'DESC')
+    qb.select("cityDetails.id", "id")
+      .addSelect("cityDetails.nameEn", "nameEn")
+      .addSelect("cityDetails.nameAr", "nameAr")
+      .addSelect(`COUNT(DISTINCT o.id)`, "totalOrders")
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END)`,
+        "correctedOrders",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END)`,
+        "confirmedCount",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END)`,
+        "shippedOrders",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`,
+        "deliveredTotal",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END)`,
+        "deliveredFromConfirmed",
+      )
+      .groupBy("cityDetails.id")
+      .addGroupBy("cityDetails.nameEn")
+      .addGroupBy("cityDetails.nameAr")
+      .orderBy('"deliveredTotal"', "DESC")
+      .addOrderBy('"totalOrders"', "DESC")
       .limit(limit);
 
     const rawResults = await qb.getRawMany();
 
     // Map results while safely handling case flattening variations across DB drivers
-    return rawResults.map(row => ({
+    return rawResults.map((row) => ({
       id: row.id,
       nameEn: row.nameEn || row.nameen,
       nameAr: row.nameAr || row.namear,
@@ -1651,19 +1945,29 @@ export class DashboardService {
       confirmedCount: Number(row.confirmedCount || row.confirmedcount || 0),
       shippedOrders: Number(row.shippedOrders || row.shippedorders || 0),
       deliveredTotal: Number(row.deliveredTotal || row.deliveredtotal || 0),
-      deliveredFromConfirmed: Number(row.deliveredFromConfirmed || row.deliveredfromconfirmed || 0),
+      deliveredFromConfirmed: Number(
+        row.deliveredFromConfirmed || row.deliveredfromconfirmed || 0,
+      ),
     }));
   }
 
   async getTopProductsStats(user: any, filters: any) {
     const adminId = tenantId(user);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-    const { start, end } = DateFilterUtil.getBoundaries(filters.startDate, filters.endDate);
+    const { start, end } = DateFilterUtil.getBoundaries(
+      filters.startDate,
+      filters.endDate,
+    );
     const limit = filters.limit ? Number(filters.limit) : 5;
 
     // Use OrderItems as the base to join products properly, then join back to Order
-    const qb = this.orderRepo.createQueryBuilder("o")
+    const qb = this.orderRepo
+      .createQueryBuilder("o")
       .innerJoin("o.items", "oi")
       .innerJoin("oi.variant", "pv")
       .innerJoin("pv.product", "p")
@@ -1671,16 +1975,23 @@ export class DashboardService {
       .where("o.adminId = :adminId", { adminId });
 
     // Apply Filters
-    if (filters.storeId) qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
-    if (filters.cityId) qb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    if (filters.storeId) {
+      qb.andWhere("o.storeId = :storeId", { storeId: filters.storeId });
+    }
+    if (filters.cityId) {
+      qb.andWhere("o.cityId = :cityId", { cityId: filters.cityId });
+    }
     if (filters.shippingCompanyId) {
-      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", { shippingCompanyId: filters.shippingCompanyId });
+      qb.andWhere("o.shippingCompanyId = :shippingCompanyId", {
+        shippingCompanyId: filters.shippingCompanyId,
+      });
     }
     if (start) qb.andWhere("o.created_at >= :start", { start });
     if (end) qb.andWhere("o.created_at <= :end", { end });
 
     if (filters.assignedUserId) {
-      qb.andWhere(`
+      qb.andWhere(
+        `
         :assignedUserId = (
           SELECT oa."employeeId"
           FROM order_assignments oa
@@ -1688,30 +1999,47 @@ export class DashboardService {
           ORDER BY oa."assignedAt" DESC
           LIMIT 1
         )
-      `, { assignedUserId: filters.assignedUserId });
+      `,
+        { assignedUserId: filters.assignedUserId },
+      );
     }
 
     // Selects and Aggregations grouped by Product
-    qb.select('p.id', 'id')
-      .addSelect('p.name', 'name')
-      .addSelect('p.mainImage', 'image')
-      .addSelect(`COUNT(DISTINCT o.id)`, 'totalOrders') // Distinct ensures 1 order = 1 count even if multiple items
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END)`, 'correctedOrders')
-      .addSelect(`COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END)`, 'confirmedCount')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END)`, 'shippedOrders')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`, 'deliveredTotal')
-      .addSelect(`COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END)`, 'deliveredFromConfirmed')
-      .groupBy('p.id')
-      .addGroupBy('p.name')
-      .addGroupBy('p.mainImage')
-      .orderBy('"deliveredTotal"', 'DESC')
-      .addOrderBy('"totalOrders"', 'DESC')
+    qb.select("p.id", "id")
+      .addSelect("p.name", "name")
+      .addSelect("p.mainImage", "image")
+      .addSelect(`COUNT(DISTINCT o.id)`, "totalOrders") // Distinct ensures 1 order = 1 count even if multiple items
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code NOT IN ('${OrderStatus.DUPLICATE}', '${OrderStatus.OUT_OF_DELIVERY_AREA}', '${OrderStatus.WRONG_NUMBER}') THEN o.id END)`,
+        "correctedOrders",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN o."isConfirmed" = true THEN o.id END)`,
+        "confirmedCount",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.SHIPPED}' THEN o.id END)`,
+        "shippedOrders",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' THEN o.id END)`,
+        "deliveredTotal",
+      )
+      .addSelect(
+        `COUNT(DISTINCT CASE WHEN st.code = '${OrderStatus.DELIVERED}' AND o."isConfirmed" = true THEN o.id END)`,
+        "deliveredFromConfirmed",
+      )
+      .groupBy("p.id")
+      .addGroupBy("p.name")
+      .addGroupBy("p.mainImage")
+      .orderBy('"deliveredTotal"', "DESC")
+      .addOrderBy('"totalOrders"', "DESC")
       .limit(limit);
 
     const rawResults = await qb.getRawMany();
 
     // Map results safely handling PostgreSQL lowercase aliases
-    return rawResults.map(row => ({
+    return rawResults.map((row) => ({
       id: row.id,
       name: row.name,
       image: row.image,
@@ -1720,7 +2048,9 @@ export class DashboardService {
       confirmedCount: Number(row.confirmedCount || row.confirmedcount || 0),
       shippedOrders: Number(row.shippedOrders || row.shippedorders || 0),
       deliveredTotal: Number(row.deliveredTotal || row.deliveredtotal || 0),
-      deliveredFromConfirmed: Number(row.deliveredFromConfirmed || row.deliveredfromconfirmed || 0),
+      deliveredFromConfirmed: Number(
+        row.deliveredFromConfirmed || row.deliveredfromconfirmed || 0,
+      ),
     }));
   }
 }

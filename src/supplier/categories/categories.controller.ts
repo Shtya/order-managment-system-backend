@@ -1,16 +1,30 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from "@nestjs/common";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
 import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { SupplierCategoriesService } from "./categories.service";
 import { JwtAuthGuard } from "../../auth/jwt-auth.guard";
-import { CreateSupplierCategoryDto, UpdateSupplierCategoryDto } from "../../../dto/supplier.dto";
+import {
+  CreateSupplierCategoryDto,
+  UpdateSupplierCategoryDto,
+} from "../../../dto/supplier.dto";
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("supplier-categories")
 @RequireSubscription()
 export class SupplierCategoriesController {
-  constructor(private categoriesService: SupplierCategoriesService) { }
+  constructor(private categoriesService: SupplierCategoriesService) {}
 
   @Permissions("suppliers.read")
   @Get()
@@ -32,7 +46,11 @@ export class SupplierCategoriesController {
 
   @Permissions("suppliers.update")
   @Patch(":id")
-  update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateSupplierCategoryDto) {
+  update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateSupplierCategoryDto,
+  ) {
     return this.categoriesService.update(req.user, id, dto);
   }
 

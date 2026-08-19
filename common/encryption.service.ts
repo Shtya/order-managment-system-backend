@@ -6,7 +6,7 @@ export class EncryptionService {
     private readonly algorithm = 'aes-256-gcm';
     private readonly masterKey = process.env.MASTER_ENCRYPTION_KEY;
 
-    async encrypt(data: string): Promise<{ ciphertext: string; iv: string; tag: string }> {
+    encrypt(data: string): { ciphertext: string; iv: string; tag: string } {
         if (this.masterKey.length !== 32) {
             throw new InternalServerErrorException('MASTER_ENCRYPTION_KEY must be 32 characters.');
         }
@@ -27,7 +27,7 @@ export class EncryptionService {
         };
     }
 
-    async decrypt(ciphertext: string, iv: string, tag: string): Promise<string> {
+    decrypt(ciphertext: string, iv: string, tag: string): string {
         const decipher = createDecipheriv(
             this.algorithm,
             Buffer.from(this.masterKey),

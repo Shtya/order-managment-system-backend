@@ -1,6 +1,6 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { HttpService } from '@nestjs/axios';
-import { firstValueFrom } from 'rxjs';
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { HttpService } from "@nestjs/axios";
+import { firstValueFrom } from "rxjs";
 import {
   ProviderCapabilitiesResponse,
   ProviderCode,
@@ -10,17 +10,19 @@ import {
   UnifiedGeography,
   UnifiedPickupLocation,
   IMassAWBProvider,
-} from './shipping-provider.interface';
-import { ShippingIntegrationEntity, UnifiedShippingStatus } from '../../../entities/shipping.entity';
-import { OrderEntity, PaymentMethod } from 'entities/order.entity';
-import { CreateShipmentDto } from 'dto/shipping.dto';
-import { TranslationService } from 'common/translation.service';
+} from "./shipping-provider.interface";
+import {
+  ShippingIntegrationEntity,
+  UnifiedShippingStatus,
+} from "../../../entities/shipping.entity";
+import { OrderEntity, PaymentMethod } from "entities/order.entity";
+import { CreateShipmentDto } from "dto/shipping.dto";
+import { TranslationService } from "common/translation.service";
 
-
-type BostaEnv = 'stg' | 'prod';
+type BostaEnv = "stg" | "prod";
 
 function getBostaBaseUrl(env: BostaEnv) {
-  if (env === 'stg') return 'https://stg-app.bosta.co/api/v2';
+  if (env === "stg") return "https://stg-app.bosta.co/api/v2";
   return process.env.BOSTA_API_URL;
 }
 
@@ -31,12 +33,13 @@ export enum BostaDeliveryType {
   Exchange = 30,
 }
 
-
 @Injectable()
-export class BostaProvider extends ShippingProvider implements IMassAWBProvider {
-
-  code: ProviderCode = 'bosta';
-  displayName = 'Bosta';
+export class BostaProvider
+  extends ShippingProvider
+  implements IMassAWBProvider
+{
+  code: ProviderCode = "bosta";
+  displayName = "Bosta";
 
   private baseUrl: string;
   private EGYPT_ID: string;
@@ -45,39 +48,43 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     private translations: TranslationService,
   ) {
     super();
-    const env = (process.env.BOSTA_ENV as BostaEnv) || 'prod';
+    const env = (process.env.BOSTA_ENV as BostaEnv) || "prod";
     this.baseUrl = getBostaBaseUrl(env);
-    this.EGYPT_ID = (process.env.EGYPT_ID_ENV as BostaEnv) || '60e4482c7cb7d4bc4849c4d5';
+    this.EGYPT_ID =
+      (process.env.EGYPT_ID_ENV as BostaEnv) || "60e4482c7cb7d4bc4849c4d5";
   }
 
-  async getCities(apiKey: string, countryId: string = this.EGYPT_ID): Promise<UnifiedGeography[]> {
+  async getCities(
+    apiKey: string,
+    countryId: string = this.EGYPT_ID,
+  ): Promise<UnifiedGeography[]> {
     const url = `${this.baseUrl}/cities`;
 
-
     try {
-
       const { data } = await firstValueFrom(
         this.http.get(url, {
           params: { countryId },
-          headers: { Authorization: apiKey }
-        })
+          headers: { Authorization: apiKey },
+        }),
       );
 
-      const res = data.data.list.map(city => ({
+      const res = data.data.list.map((city) => ({
         id: city._id,
         nameEn: city.name,
         nameAr: city.nameAr,
         dropOff: city.dropOffAvailability,
-        pickup: city.pickupAvailability
+        pickup: city.pickupAvailability,
       }));
 
       return res;
     } catch (error) {
       return [];
     }
-
   }
-  async cancelShipment(apiKey: string, trackingNumber: string): Promise<boolean> {
+  async cancelShipment(
+    apiKey: string,
+    trackingNumber: string,
+  ): Promise<boolean> {
     // Use the dynamic baseUrl which handles stg/prod environments
     const url = `${this.baseUrl}/deliveries/business/${trackingNumber}/terminate`;
 
@@ -86,11 +93,10 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         this.http.delete(url, {
           headers: {
             Authorization: apiKey,
-            'Content-Type': 'application/json'
+            "Content-Type": "application/json",
           },
         }),
       );
-
 
       return !!data;
     } catch (error) {
@@ -100,21 +106,23 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
   /**
    * Fetch zones for a specific city code
    */
-  async getZones(apiKey: string, cityCode: string): Promise<UnifiedGeography[]> {
+  async getZones(
+    apiKey: string,
+    cityCode: string,
+  ): Promise<UnifiedGeography[]> {
     try {
-
       const url = `${this.baseUrl}/cities/${cityCode}/zones`;
       const { data } = await firstValueFrom(
         this.http.get(url, {
-          headers: { Authorization: apiKey }
-        })
+          headers: { Authorization: apiKey },
+        }),
       );
-      return data.data.map(z => ({
+      return data.data.map((z) => ({
         id: z._id,
         nameEn: z.name,
         nameAr: z.nameAr,
         dropOff: z.dropOffAvailability,
-        pickup: z.pickupAvailability
+        pickup: z.pickupAvailability,
       }));
     } catch (error) {
       return [];
@@ -124,27 +132,29 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
   /**
    * Fetch districts for a specific city code
    */
-  async getDistricts(apiKey: string, cityCode: string): Promise<UnifiedGeography[]> {
+  async getDistricts(
+    apiKey: string,
+    cityCode: string,
+  ): Promise<UnifiedGeography[]> {
     try {
       const url = `${this.baseUrl}/cities/${cityCode}/districts`;
       const { data } = await firstValueFrom(
         this.http.get(url, {
-          headers: { Authorization: apiKey }
-        })
+          headers: { Authorization: apiKey },
+        }),
       );
-      return data.data.map(area => ({
+      return data.data.map((area) => ({
         id: area.districtId,
         nameAr: area.districtOtherName,
         nameEn: area.districtName,
         parentId: area.zoneId,
         dropOff: area.dropOffAvailability,
-        pickup: area.pickupAvailability
+        pickup: area.pickupAvailability,
       }));
     } catch (error) {
       return [];
     }
   }
-
 
   // backend/src/shipping/providers/bosta.provider.ts
 
@@ -154,10 +164,10 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
 
       const { data } = await firstValueFrom(
         this.http.get(url, {
-          headers: { Authorization: apiKey }
-        })
+          headers: { Authorization: apiKey },
+        }),
       );
-      return data.data.list.map(l => ({
+      return data.data.list.map((l) => ({
         id: l._id,
         nameAr: l.locationName,
         namEn: l.locationName,
@@ -166,22 +176,24 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       return [];
     }
   }
-  async createShipment(apiKey: string, payload: any): Promise<ProviderCreateResult> {
-
+  async createShipment(
+    apiKey: string,
+    payload: any,
+  ): Promise<ProviderCreateResult> {
     const url = `${this.baseUrl}/deliveries?apiVersion=1`;
-
 
     try {
       const { data } = await firstValueFrom(
         this.http.post(url, payload, {
           headers: {
             Authorization: apiKey,
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
         }),
       );
 
-      const trackingNumber = data?.trackingNumber || data?.data?.trackingNumber || null;
+      const trackingNumber =
+        data?.trackingNumber || data?.data?.trackingNumber || null;
       const providerShipmentId = data?._id || data?.data?._id || null;
       const providerRaw = data?.data || data || null;
 
@@ -190,62 +202,71 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         providerShipmentId,
         providerRaw,
       };
-
     } catch (error) {
       throw error;
     }
   }
 
-
-  async buildDeliveryPayload(order: OrderEntity, dto: CreateShipmentDto, integartion?: ShippingIntegrationEntity): Promise<any> {
-    const itemsCount = order.items.reduce((sum, item) => sum + item.quantity, 0);
+  async buildDeliveryPayload(
+    order: OrderEntity,
+    dto: CreateShipmentDto,
+    integartion?: ShippingIntegrationEntity,
+  ): Promise<any> {
+    const itemsCount = order.items.reduce(
+      (sum, item) => sum + item.quantity,
+      0,
+    );
     // ✅ Check if this order is a replacement for another order
     const isExchange = order.isReplacement;
 
-    const headerName = integartion.credentials?.webhookHeaderName || 'Authorization';
-    const secretValue = integartion.credentials?.webhookSecret || '';
-    const webhookUrl = this.buildPublicWebhookUrl(this.code)
+    const headerName =
+      integartion.credentials?.webhookHeaderName || "Authorization";
+    const secretValue = integartion.credentials?.webhookSecret || "";
+    const webhookUrl = this.buildPublicWebhookUrl(this.code);
 
     const webhookCustomHeaders: Record<string, string> = {
-      [headerName]: secretValue
+      [headerName]: secretValue,
     };
     const meta = order.shippingMetadata;
 
     if (!meta?.cityId) {
       return {
         success: false,
-        error: this.translations.t('domains.shipping.bosta_city_required'),
+        error: this.translations.t("domains.shipping.bosta_city_required"),
       };
     }
 
     if (!meta?.districtId) {
       return {
         success: false,
-        error: this.translations.t('domains.shipping.bosta_district_required'),
+        error: this.translations.t("domains.shipping.bosta_district_required"),
       };
     }
-
 
     const payload = {
       type: isExchange ? BostaDeliveryType.Exchange : BostaDeliveryType.Deliver,
       businessReference: order.orderNumber,
       uniqueBusinessReference: order.orderNumber,
       notes: order.customerNotes || "",
-      cod: order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY ? (
-        isExchange
-          ? (order.finalTotal - order.deposit)
-          : Math.max(0, order.finalTotal - order.deposit)
-      ) : 0,
+      cod:
+        order.paymentMethod === PaymentMethod.CASH_ON_DELIVERY
+          ? isExchange
+            ? order.finalTotal - order.deposit
+            : Math.max(0, order.finalTotal - order.deposit)
+          : 0,
       specs: {
         packageType: "Parcel",
         size: order.shippingMetadata?.orderSize || "MEDIUM",
         packageDetails: {
           itemsCount: itemsCount,
-          description: order.items.map(item => `${item.quantity}x ${item.variant?.product?.name}`).join(" - ") || "",
+          description:
+            order.items
+              .map((item) => `${item.quantity}x ${item.variant?.product?.name}`)
+              .join(" - ") || "",
         },
       },
       goodsInfo: {
-        amount: (order.productsTotal) || 0,
+        amount: order.productsTotal || 0,
       },
       dropOffAddress: {
         cityId: order.shippingMetadata?.cityId,
@@ -270,14 +291,13 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
       // businessLocationId: order?.shippingMetadata?.locationId
     };
 
-
     if (isExchange) {
       let returnItemsCount = 0;
       let returnInstructions = "The Package details:\n";
 
       if (order?.replacementResult?.items?.length) {
-        const itemLines = order?.replacementResult?.items.map(ri => {
-          returnItemsCount += ri.returnQuantity;//Error
+        const itemLines = order?.replacementResult?.items.map((ri) => {
+          returnItemsCount += ri.returnQuantity; //Error
           const originalItem = ri?.originalOrderItem;
 
           const productName = originalItem?.variant?.product?.name || "Product";
@@ -296,21 +316,23 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         size: dto.size || "MEDIUM",
         packageDetails: {
           itemsCount: returnItemsCount,
-          description: returnInstructions
-
-        }
+          description: returnInstructions,
+        },
       };
     }
 
     return { success: true, data: payload };
   }
 
-
   mapWebhookToUnified(body: any): ProviderWebhookResult {
     const providerShipmentId = body?._id ?? null;
-    const trackingNumber = body?.trackingNumber ? String(body.trackingNumber) : null;
+    const trackingNumber = body?.trackingNumber
+      ? String(body.trackingNumber)
+      : null;
     const state = body?.state;
-    const unified = body?.isConfirmedDelivery ? UnifiedShippingStatus?.DELIVERED : this.mapBostaStateToUnified(state, body?.exceptionCode);
+    const unified = body?.isConfirmedDelivery
+      ? UnifiedShippingStatus?.DELIVERED
+      : this.mapBostaStateToUnified(state, body?.exceptionCode);
 
     return {
       unifiedStatus: unified,
@@ -323,9 +345,14 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
 
   // --- File: backend/src/shipping/providers/bosta.provider.ts ---
 
-  verifyWebhookAuth(headers: any, _body: any, secret: string, headerName?: string): boolean {
+  verifyWebhookAuth(
+    headers: any,
+    _body: any,
+    secret: string,
+    headerName?: string,
+  ): boolean {
     // Fallback to 'x-bosta-signature' if no custom name is provided in credentials
-    const key = (headerName || 'Authorization').toLowerCase();
+    const key = (headerName || "Authorization").toLowerCase();
 
     // Look up the header (case-insensitive check)
     const incomingSecret = headers?.[key] ?? headers?.[key.toLowerCase()];
@@ -341,16 +368,14 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
    */
   async getServices(_apiKey: string): Promise<string[]> {
     return [
-      'create_shipment',
-      'webhook_status',
-      'areas',
-      'tracking_number',
-      'label_url',
+      "create_shipment",
+      "webhook_status",
+      "areas",
+      "tracking_number",
+      "label_url",
       // later you can add: 'cancel_shipment', 'pickup_request', ...
     ];
   }
-
-
 
   /**
    * ✅ Dynamic capabilities endpoint.
@@ -362,32 +387,40 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     const services = await this.getServices(apiKey);
 
     return {
-      provider: 'bosta',
+      provider: "bosta",
       services: { available: true, data: services },
 
       // “coverage/pricing/limits/quote” depend on provider official endpoints.
       // You asked: don’t hardcode; so return unavailable until you provide endpoints.
       coverage: {
         available: false,
-        reason: 'Provider does not expose coverage configuration API (not implemented).',
+        reason:
+          "Provider does not expose coverage configuration API (not implemented).",
       },
       pricing: {
         available: false,
-        reason: 'Provider does not expose pricing API (not implemented).',
+        reason: "Provider does not expose pricing API (not implemented).",
       },
       limits: {
         available: false,
-        reason: 'Provider does not expose limits API (not implemented).',
+        reason: "Provider does not expose limits API (not implemented).",
       },
       quote: {
         available: false,
-        reason: 'Provider does not expose quote API (not implemented).',
+        reason: "Provider does not expose quote API (not implemented).",
       },
     };
   }
 
-  async verifyCredentials(apiKey: string, accountId?: string): Promise<{ valid: boolean, message: string }> {
-    if (!apiKey) throw new BadRequestException(this.translations.t('domains.shipping.missing_api_key'));
+  async verifyCredentials(
+    apiKey: string,
+    accountId?: string,
+  ): Promise<{ valid: boolean; message: string }> {
+    if (!apiKey) {
+      throw new BadRequestException(
+        this.translations.t("domains.shipping.missing_api_key"),
+      );
+    }
 
     try {
       // We call a profile endpoint to check if the key is authorized.
@@ -396,11 +429,14 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
         this.http.get(url, {
           headers: {
             Authorization: apiKey,
-            'Content-Type': 'application/json'
+            "Content-Type": "application/json",
           },
         }),
       );
-      return { valid: true, message: this.translations.t('domains.shipping.credentials_verified') };
+      return {
+        valid: true,
+        message: this.translations.t("domains.shipping.credentials_verified"),
+      };
     } catch (error) {
       const errorMessage = this.getErrorMessage(error);
       // If the status is 401 (Unauthorized), the key is definitely wrong
@@ -408,18 +444,23 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     }
   }
 
-  async getShipmentStatus(apiKey: string, trackingNumber: string): Promise<ProviderWebhookResult> {
+  async getShipmentStatus(
+    apiKey: string,
+    trackingNumber: string,
+  ): Promise<ProviderWebhookResult> {
     const url = `${this.baseUrl}/deliveries/business/${trackingNumber}`;
 
     try {
       const { data } = await firstValueFrom(
         this.http.get(url, {
-          headers: { Authorization: apiKey }
-        })
+          headers: { Authorization: apiKey },
+        }),
       );
 
       if (!data.success || !data.data) {
-        throw new Error(this.translations.t('domains.shipping.bosta_shipment_not_found'));
+        throw new Error(
+          this.translations.t("domains.shipping.bosta_shipment_not_found"),
+        );
       }
 
       const shipment = data.data;
@@ -435,34 +476,55 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
     }
   }
 
-  async printMassAWB(apiKey: string, trackingNumbers: string[], options: { requestedAwbType?: 'A4' | 'A6'; lang?: 'ar' | 'en' }): Promise<{ success: boolean; data?: string; error?: string }> {
+  async printMassAWB(
+    apiKey: string,
+    trackingNumbers: string[],
+    options: { requestedAwbType?: "A4" | "A6"; lang?: "ar" | "en" },
+  ): Promise<{ success: boolean; data?: string; error?: string }> {
     const url = `${this.baseUrl}/deliveries/mass-awb`;
     try {
       const { data } = await firstValueFrom(
-        this.http.post(url, {
-          trackingNumbers: trackingNumbers.join(','),
-          requestedAwbType: options.requestedAwbType || 'A4',
-          lang: options.lang || 'ar'
-        }, {
-          headers: { Authorization: apiKey }
-        })
+        this.http.post(
+          url,
+          {
+            trackingNumbers: trackingNumbers.join(","),
+            requestedAwbType: options.requestedAwbType || "A4",
+            lang: options.lang || "ar",
+          },
+          {
+            headers: { Authorization: apiKey },
+          },
+        ),
       );
 
       if (data.success) {
         return { success: true, data: data.data };
       }
 
-      return { success: false, error: data.message || this.translations.t('domains.shipping.bosta_failed_waybill_fallback') };
+      return {
+        success: false,
+        error:
+          data.message ||
+          this.translations.t("domains.shipping.bosta_failed_waybill_fallback"),
+      };
     } catch (error: any) {
-      return { success: false, error: error.response?.data?.message || error.message };
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message,
+      };
     }
   }
 
-  private mapBostaStateToUnified(state: number, exceptionCode?: number): UnifiedShippingStatus {
+  private mapBostaStateToUnified(
+    state: number,
+    exceptionCode?: number,
+  ): UnifiedShippingStatus {
     if (state == null) return UnifiedShippingStatus.IN_PROGRESS;
 
     if ([10, 11].includes(state)) return UnifiedShippingStatus.NEW;
-    if ([20, 24, 25, 30, 102].includes(state)) return UnifiedShippingStatus.IN_PROGRESS;
+    if ([20, 24, 25, 30, 102].includes(state)) {
+      return UnifiedShippingStatus.IN_PROGRESS;
+    }
 
     if ([21, 23].includes(state)) return UnifiedShippingStatus.PICKED_UP;
     if ([22, 40, 41].includes(state)) return UnifiedShippingStatus.IN_TRANSIT;
@@ -472,8 +534,12 @@ export class BostaProvider extends ShippingProvider implements IMassAWBProvider 
 
     if (state === 47) {
       if (exceptionCode === 8) return UnifiedShippingStatus.CUSTOMER_REFUSED;
-      if ([5, 13, 14].includes(exceptionCode)) return UnifiedShippingStatus.CUSTOMER_DATA_WRONG;
-      if (exceptionCode === 7) return UnifiedShippingStatus.CUSTOMER_NOT_RESPOND;
+      if ([5, 13, 14].includes(exceptionCode)) {
+        return UnifiedShippingStatus.CUSTOMER_DATA_WRONG;
+      }
+      if (exceptionCode === 7) {
+        return UnifiedShippingStatus.CUSTOMER_NOT_RESPOND;
+      }
       return UnifiedShippingStatus.CANCELLED;
     }
 

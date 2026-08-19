@@ -33,7 +33,10 @@ import {
 
 import { diskStorage } from "multer";
 import { extname } from "path";
-import { FileFieldsInterceptor, NoFilesInterceptor } from "@nestjs/platform-express";
+import {
+  FileFieldsInterceptor,
+  NoFilesInterceptor,
+} from "@nestjs/platform-express";
 import { Response } from "express";
 
 const productsStorage = diskStorage({
@@ -44,14 +47,16 @@ const productsStorage = diskStorage({
   },
 });
 
-
 export const multerOptions = {
   storage: productsStorage,
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
+    if (!file.mimetype.startsWith("image/")) {
       // Note: This is a temporary hardcoded message since we can't inject TranslationService here
       // In a real app, we might handle this differently or move the validation to the controller/service
-      return cb(new BadRequestException('Only image files are allowed!'), false);
+      return cb(
+        new BadRequestException("Only image files are allowed!"),
+        false,
+      );
     }
     cb(null, true);
   },
@@ -88,7 +93,10 @@ function parseNumber(val: any): number | null | undefined {
 @Controller("products")
 @RequireSubscription()
 export class ProductsController {
-  constructor(private products: ProductsService, private translations: TranslationService) { }
+  constructor(
+    private products: ProductsService,
+    private translations: TranslationService,
+  ) {}
 
   @Permissions("products.read")
   @Get()
@@ -98,20 +106,16 @@ export class ProductsController {
 
   @Permissions("products.read")
   @Get("export")
-  async exportProducts(
-    @Req() req: any,
-    @Query() q: any,
-    @Res() res: Response
-  ) {
+  async exportProducts(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.products.exportProducts(req.user, q);
 
     res.setHeader(
       "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename=Products_export_${Date.now()}.xlsx`
+      `attachment; filename=Products_export_${Date.now()}.xlsx`,
     );
 
     return res.send(buffer);
@@ -131,7 +135,6 @@ export class ProductsController {
 
     @Query("productId") productId?: string, // يأتي كـ string من الـ URL
   ) {
-
     return this.products.checkSlug(req.user, slug, productId);
   }
 
@@ -143,18 +146,17 @@ export class ProductsController {
 
     @Query("productId") productId?: string, // يأتي كـ string من الـ URL
   ) {
-
-
     return this.products.checkSku(req.user, sku, productId);
   }
 
   @Permissions("products.read")
   @Post("check-skus")
-  checkSkus(
-    @Req() req: any,
-    @Body() body: CheckSkusDto
-  ) {
-    return this.products.checkSkusAvailability(req.user, body.skus, body.productId);
+  checkSkus(@Req() req: any, @Body() body: CheckSkusDto) {
+    return this.products.checkSkusAvailability(
+      req.user,
+      body.skus,
+      body.productId,
+    );
   }
 
   @Permissions("products.delete")
@@ -209,25 +211,18 @@ export class ProductsController {
     @Req() req: any,
     @Param("id") id: string,
     @Param("variantId") variantId: string,
-    @Body() body: AdjustVariantStockDto
+    @Body() body: AdjustVariantStockDto,
   ) {
-    return this.products.adjustVariantStock(
-      req.user,
-      id,
-      variantId,
-      body
-    );
+    return this.products.adjustVariantStock(req.user, id, variantId, body);
   }
 
   @Permissions("products.create")
   @Post()
   @UseInterceptors(
     FileFieldsInterceptor(
-      [
-        { name: "purchaseReceiptAsset", maxCount: 1 },
-      ],
-      multerOptions
-    )
+      [{ name: "purchaseReceiptAsset", maxCount: 1 }],
+      multerOptions,
+    ),
   )
   create(
     @Req() req: any,
@@ -235,7 +230,7 @@ export class ProductsController {
     files: {
       purchaseReceiptAsset?: Express.Multer.File[];
     },
-    @Body() body: any
+    @Body() body: any,
   ) {
     const dto: CreateProductDto = {
       name: body.name,
@@ -243,7 +238,10 @@ export class ProductsController {
       type: body.type,
 
       sku: body.sku,
-      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ? parseNumber(body.wholesalePrice || 0) as any : null,
+      wholesalePrice:
+        body.wholesalePrice != null && body.wholesalePrice != undefined
+          ? (parseNumber(body.wholesalePrice || 0) as any)
+          : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageLocationId: body.storageLocationId ?? null,
@@ -272,8 +270,10 @@ export class ProductsController {
     const purchaseReceipt = files?.purchaseReceiptAsset?.[0];
 
     if (!dto.mainImageOrphanId && !dto.mainImage) {
-        throw new BadRequestException(this.translations.t("domains.products.main_image_orphan_id_required"));
-      }
+      throw new BadRequestException(
+        this.translations.t("domains.products.main_image_orphan_id_required"),
+      );
+    }
 
     if (purchaseReceipt && dto.purchase) {
       dto.purchase.receiptAsset = `/uploads/products/${purchaseReceipt.filename}`;
@@ -285,29 +285,23 @@ export class ProductsController {
   @Permissions("products.update")
   @UseInterceptors(NoFilesInterceptor())
   @Patch(":id")
-  update(
-    @Req() req: any,
-    @Param("id") id: string,
-    @Body() body: any
-  ) {
+  update(@Req() req: any, @Param("id") id: string, @Body() body: any) {
     const dto: UpdateProductDto = {
       name: body.name,
       slug: body.slug,
-      wholesalePrice: body.wholesalePrice != null && body.wholesalePrice != undefined ? parseNumber(body.wholesalePrice || 0) as any : null,
+      wholesalePrice:
+        body.wholesalePrice != null && body.wholesalePrice != undefined
+          ? (parseNumber(body.wholesalePrice || 0) as any)
+          : null,
       salePrice: parseNumber(body.salePrice) as any,
       lowestPrice: parseNumber(body.lowestPrice) as any,
       storageLocationId: body.storageLocationId ?? null,
 
       categoryId:
-        body.categoryId !== undefined
-          ? (body.categoryId as any)
-          : undefined,
-      storeId:
-        body.storeId !== undefined ? (body.storeId as any) : undefined,
+        body.categoryId !== undefined ? (body.categoryId as any) : undefined,
+      storeId: body.storeId !== undefined ? (body.storeId as any) : undefined,
       warehouseId:
-        body.warehouseId !== undefined
-          ? (body.warehouseId as any)
-          : undefined,
+        body.warehouseId !== undefined ? (body.warehouseId as any) : undefined,
 
       description: body.description,
       isActive: body.isActive,
@@ -342,12 +336,10 @@ export class ProductsController {
 
       // ✅ NEW
       removeImgs:
-        body.
-          removedImages !== undefined ? parseJsonField(body.
-            removedImages, []) : undefined,
+        body.removedImages !== undefined
+          ? parseJsonField(body.removedImages, [])
+          : undefined,
     } as any;
     return this.products.update(req.user, id, dto);
   }
-
-
 }

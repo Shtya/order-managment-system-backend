@@ -1,84 +1,101 @@
-import { Controller, Post, Body, Headers, HttpCode, HttpStatus, Get, Param, Query, Res, UseGuards, ParseIntPipe, Req } from '@nestjs/common';
-import { PaymentsService } from './payments.service';
-import { PaymentProviderEnum, PaymentSessionStatusEnum } from 'entities/payments.entity';
-import { Response } from 'express';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { PermissionsGuard } from 'common/permissions.guard';
-import { Permissions } from 'common/permissions.decorator';
-import { SkipThrottle } from '@nestjs/throttler';
-import { CurrencyConverterService } from 'common/crrency-converter-service';
+import {
+  Controller,
+  Post,
+  Body,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Get,
+  Param,
+  Query,
+  Res,
+  UseGuards,
+  ParseIntPipe,
+  Req,
+} from "@nestjs/common";
+import { PaymentsService } from "./payments.service";
+import {
+  PaymentProviderEnum,
+  PaymentSessionStatusEnum,
+} from "entities/payments.entity";
+import { Response } from "express";
+import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
+import { PermissionsGuard } from "common/permissions.guard";
+import { Permissions } from "common/permissions.decorator";
+import { SkipThrottle } from "@nestjs/throttler";
+import { CurrencyConverterService } from "common/crrency-converter-service";
 
-
-@Controller('payments')
+@Controller("payments")
 export class PaymentsController {
   constructor(
     private readonly paymentsService: PaymentsService,
-    private readonly currencyService: CurrencyConverterService
-  ) { }
+    private readonly currencyService: CurrencyConverterService,
+  ) {}
 
-  @Get('currency/rate')
+  @Get("currency/rate")
   @UseGuards(JwtAuthGuard)
   async getCurrencyRate(
-    @Query('from') from: string = 'USD',
-    @Query('to') to: string = 'EGP',
-    @Query('provider') provider: string,
-    @Query('amount') amount: number = 1,
+    @Query("from") from: string = "USD",
+    @Query("to") to: string = "EGP",
+    @Query("provider") provider: string,
+    @Query("amount") amount: number = 1,
   ) {
     return this.currencyService.convert(from, to, amount, provider);
   }
- 
-  @Post('webhook/:provider')
+
+  @Post("webhook/:provider")
   @HttpCode(HttpStatus.OK) // Always return 200 OK to notify kashir that we receive event
   async handleKashierWebhook(
-    @Param('provider') providerName: PaymentProviderEnum,
+    @Param("provider") providerName: PaymentProviderEnum,
     @Headers() headers: any,
-    @Body() body: any
+    @Body() body: any,
   ) {
     try {
-      this.paymentsService.processWebhook(providerName, headers, body)
+      this.paymentsService.processWebhook(providerName, headers, body);
     } catch (err) {
-      console.error('Unexpected webhook error:', err);
+      console.error("Unexpected webhook error:", err);
     }
 
     // Always respond 200 immediately
     return { received: true };
   }
 
-
-  @Get('redirect/:provider')
+  @Get("redirect/:provider")
   @SkipThrottle({ default: true })
   async handlePaymentRedirect(
-    @Param('provider') providerName: PaymentProviderEnum,
+    @Param("provider") providerName: PaymentProviderEnum,
     @Query() query: any,
-    @Res() res: Response
+    @Res() res: Response,
   ) {
     try {
-      const { status, sessionId, amount, currency, purpose, planName } = await this.paymentsService.processRedirect(providerName, query);
-      const frontendUrl = process.env.FRONTEND_URL?.trim() || 'http://localhost:3000';
+      const { status, sessionId, amount, currency, purpose, planName } =
+        await this.paymentsService.processRedirect(providerName, query);
+      const frontendUrl =
+        process.env.FRONTEND_URL?.trim() || "http://localhost:3000";
 
       // Route the user based on the payment status
       if (status === PaymentSessionStatusEnum.SUCCESS) {
-        return res.redirect(`${frontendUrl}/ar/payment/success?session_id=${sessionId}&amount=${amount}&currency=${currency}&purpose=${purpose}${planName ? `&plan_name=${encodeURIComponent(planName)}` : ''}`);
+        return res.redirect(
+          `${frontendUrl}/ar/payment/success?session_id=${sessionId}&amount=${amount}&currency=${currency}&purpose=${purpose}${planName ? `&plan_name=${encodeURIComponent(planName)}` : ""}`,
+        );
       } else {
-        return res.redirect(`${frontendUrl}/ar/payment/fail?session_id=${sessionId}&amount=${amount}&currency=${currency}&purpose=${purpose}`);
+        return res.redirect(
+          `${frontendUrl}/ar/payment/fail?session_id=${sessionId}&amount=${amount}&currency=${currency}&purpose=${purpose}`,
+        );
       }
-
     } catch (err) {
-      console.error('Redirect processing error:', err);
-      const frontendUrl = process.env.FRONTEND_URL?.trim() || 'http://localhost:3000';
+      console.error("Redirect processing error:", err);
+      const frontendUrl =
+        process.env.FRONTEND_URL?.trim() || "http://localhost:3000";
       // Default to failure page if something goes wrong during redirect parsing
       return res.redirect(`${frontendUrl}/ar/payment/fail`);
     }
   }
 
-  @Get('sessions/:id')
+  @Get("sessions/:id")
   @UseGuards(JwtAuthGuard, PermissionsGuard)
   @Permissions("payments.read")
-  async getPaymentSession(
-    @Param('id') sessionId: string,
-    @Req() req: any,
-  ) {
-
-    return this.paymentsService.getPaymentSessionById(req.user, sessionId);;
+  async getPaymentSession(@Param("id") sessionId: string, @Req() req: any) {
+    return this.paymentsService.getPaymentSessionById(req.user, sessionId);
   }
 }

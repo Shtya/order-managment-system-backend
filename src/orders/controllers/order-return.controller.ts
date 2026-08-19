@@ -11,11 +11,11 @@ import { SubscriptionGuard } from "common/subscription.guard";
 @Controller("order-returns")
 @RequireSubscription()
 export class OrderReturnsController {
-    constructor(private svc: OrderReturnService) { }
+  constructor(private svc: OrderReturnService) {}
 
-    @Post('return-request')
-    @Permissions("return-request.create")
-    async create(@Body() createReturnDto: CreateReturnDto, @Req() req) {
-        return this.svc.createReturnRequest(createReturnDto, req.user);
-    }
+  @Post("return-request")
+  @Permissions("return-request.create")
+  async create(@Body() createReturnDto: CreateReturnDto, @Req() req) {
+    return this.svc.createReturnRequest(createReturnDto, req.user);
+  }
 }

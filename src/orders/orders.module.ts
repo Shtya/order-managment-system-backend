@@ -85,4 +85,4 @@ import { OrderReplacemetsController } from "./controllers/order-replacements.con
   ],
   exports: [OrdersService],
 })
-export class OrdersModule { }
+export class OrdersModule {}

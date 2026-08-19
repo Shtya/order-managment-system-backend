@@ -1,7 +1,14 @@
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { CreateSupplierCategoryDto, UpdateSupplierCategoryDto } from "dto/supplier.dto";
+import {
+  CreateSupplierCategoryDto,
+  UpdateSupplierCategoryDto,
+} from "dto/supplier.dto";
 import { SupplierCategoryEntity } from "../../../entities/supplier.entity";
 import { CRUD } from "../../../common/crud.service";
 import { tenantId } from "../../category/category.service";
@@ -10,9 +17,10 @@ import { TranslationService } from "common/translation.service";
 @Injectable()
 export class SupplierCategoriesService {
   constructor(
-    @InjectRepository(SupplierCategoryEntity) private categoryRepo: Repository<SupplierCategoryEntity>,
+    @InjectRepository(SupplierCategoryEntity)
+    private categoryRepo: Repository<SupplierCategoryEntity>,
     private translations: TranslationService,
-  ) { }
+  ) {}
 
   async list(me: any, q?: any) {
     return CRUD.findAll(
@@ -31,27 +39,38 @@ export class SupplierCategoriesService {
           userId: me?.id,
           adminId: me?.adminId,
         },
-      } as any
+      } as any,
     );
   }
 
   async get(me: any, id: string) {
     const adminId = tenantId(me);
-    const entity = await CRUD.findOne(this.categoryRepo, "supplier_categories", id, []);
+    const entity = await CRUD.findOne(
+      this.categoryRepo,
+      "supplier_categories",
+      id,
+      [],
+    );
     return entity;
   }
 
   async create(me: any, dto: CreateSupplierCategoryDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     // Check if name already exists for this admin
     const existing = await this.categoryRepo.findOne({
-      where: { adminId, name: dto.name }
+      where: { adminId, name: dto.name },
     });
 
     if (existing) {
-      throw new BadRequestException(this.translations.t("common.category_name_already_exists"));
+      throw new BadRequestException(
+        this.translations.t("common.category_name_already_exists"),
+      );
     }
 
     const category = this.categoryRepo.create({
@@ -70,11 +89,13 @@ export class SupplierCategoriesService {
     // If name is being changed, check if the new name is taken by ANOTHER record
     if (dto.name !== undefined && dto.name !== category.name) {
       const existing = await this.categoryRepo.findOne({
-        where: { adminId, name: dto.name }
+        where: { adminId, name: dto.name },
       });
 
       if (existing) {
-        throw new BadRequestException(this.translations.t("common.category_name_already_exists"));
+        throw new BadRequestException(
+          this.translations.t("common.category_name_already_exists"),
+        );
       }
       category.name = dto.name;
     }

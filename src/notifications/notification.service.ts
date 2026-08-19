@@ -23,7 +23,7 @@ export class NotificationService {
     private userRepo: Repository<User>,
     private redisService: RedisService,
     private readonly translations: TranslationService,
-  ) { }
+  ) {}
   async list(me: any, q?: any) {
     const userId = me?.id; // Notifications are personal to the logged-in user
 
@@ -76,11 +76,15 @@ export class NotificationService {
     });
 
     if (!notification) {
-      throw new NotFoundException(this.translations.t('domains.notifications.not_found_or_access_denied'));
+      throw new NotFoundException(
+        this.translations.t("domains.notifications.not_found_or_access_denied"),
+      );
     }
 
     if (notification.isRead) {
-      throw new BadRequestException(this.translations.t('domains.notifications.already_marked_read'));
+      throw new BadRequestException(
+        this.translations.t("domains.notifications.already_marked_read"),
+      );
     }
 
     return this.notificationRepo.update(id, { isRead: true });
@@ -92,7 +96,6 @@ export class NotificationService {
       { isRead: true }, // Action: mark as read
     );
   }
-
 
   async getUnreadCount(userId: string) {
     // Fetch the user directly to get the cached count
@@ -107,7 +110,9 @@ export class NotificationService {
 
   private async getUserSettings(userId: string, manager: EntityManager = null) {
     const userCacheKey = `user_admin_id:${userId}`;
-    const clientSettingsRepo = manager ? manager.getRepository(ClientSettingsEntity) : this.clientSettingsRepo;
+    const clientSettingsRepo = manager
+      ? manager.getRepository(ClientSettingsEntity)
+      : this.clientSettingsRepo;
     const userRepo = manager ? manager.getRepository(User) : this.userRepo;
     // 1. Get Admin ID (from cache or DB)
     let adminId = await this.redisService.get<string>(userCacheKey);
@@ -135,7 +140,8 @@ export class NotificationService {
 
     // 2. Get Settings (from cache or DB)
     const settingsCacheKey = `admin_notification_settings:${adminId}`;
-    let settings = await this.redisService.get<ClientSettingsEntity>(settingsCacheKey);
+    let settings =
+      await this.redisService.get<ClientSettingsEntity>(settingsCacheKey);
 
     if (!settings) {
       settings = await clientSettingsRepo.findOneBy({ adminId });
@@ -175,16 +181,21 @@ export class NotificationService {
     }
   }
 
-  async create(data: {
-    userId: string;
-    type: NotificationType;
-    title: string;
-    message: string;
-    relatedEntityType?: string;
-    relatedEntityId?: string;
-  }, manager: EntityManager = null) {
+  async create(
+    data: {
+      userId: string;
+      type: NotificationType;
+      title: string;
+      message: string;
+      relatedEntityType?: string;
+      relatedEntityId?: string;
+    },
+    manager: EntityManager = null,
+  ) {
     // Check user preferences
-    const notificationRepo = manager ? manager.getRepository(Notification) : this.notificationRepo;
+    const notificationRepo = manager
+      ? manager.getRepository(Notification)
+      : this.notificationRepo;
     const settings = await this.getUserSettings(data.userId, manager);
     if (settings) {
       const field = this.getSettingField(data.type);

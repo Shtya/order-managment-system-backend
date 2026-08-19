@@ -35,7 +35,6 @@ export const DEFAULT_SHIPPING_COMPANIES = [
   },
 ] as const;
 
-
 @Injectable()
 export class ShippingSeedService implements OnModuleInit {
   private readonly logger = new Logger(ShippingSeedService.name);
@@ -43,7 +42,7 @@ export class ShippingSeedService implements OnModuleInit {
   constructor(
     @InjectRepository(ShippingCompanyEntity)
     private companiesRepo: Repository<ShippingCompanyEntity>,
-  ) { }
+  ) {}
 
   async onModuleInit() {
     // ✅ Runs once when module initializes
@@ -52,7 +51,9 @@ export class ShippingSeedService implements OnModuleInit {
 
   private async seedCompaniesOnce() {
     for (const def of DEFAULT_SHIPPING_COMPANIES) {
-      const existing = await this.companiesRepo.findOne({ where: { code: def.code } });
+      const existing = await this.companiesRepo.findOne({
+        where: { code: def.code },
+      });
 
       if (!existing) {
         await this.companiesRepo.save(this.companiesRepo.create(def as any));

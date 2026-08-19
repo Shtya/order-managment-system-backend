@@ -22,7 +22,7 @@ import { IssueService } from "./issue.service";
 @RequireSubscription()
 @Controller("issues")
 export class IssueController {
-  constructor(private readonly issueService: IssueService) { }
+  constructor(private readonly issueService: IssueService) {}
 
   @Permissions("issues.create")
   @Post()
@@ -49,11 +49,7 @@ export class IssueController {
     @Param("statusId") statusId: string,
     @Query() q: any,
   ) {
-    return this.issueService.boardColumn(
-      req.user,
-      statusId,
-      q,
-    );
+    return this.issueService.boardColumn(req.user, statusId, q);
   }
 
   @Permissions("issues.read")
@@ -77,7 +73,7 @@ export class IssueController {
     );
     res.send(buffer);
   }
-  
+
   @Permissions("issues.read", "issues.getOnly")
   @Get("statuses")
   statuses(@Req() req: any, @Query() q: any) {
@@ -170,11 +166,7 @@ export class IssueController {
 
   @Permissions("issues.update")
   @Patch(":issueId")
-  update(
-    @Req() req: any,
-    @Param("issueId") issueId: string,
-    @Body() dto: any,
-  ) {
+  update(@Req() req: any, @Param("issueId") issueId: string, @Body() dto: any) {
     return this.issueService.update(req.user, issueId, dto);
   }
 
@@ -186,17 +178,17 @@ export class IssueController {
 
   @Permissions("issues.read")
   @Get(":issueId/messages")
-  messages(@Req() req: any, @Param("issueId") issueId: string, @Query() q: any) {
+  messages(
+    @Req() req: any,
+    @Param("issueId") issueId: string,
+    @Query() q: any,
+  ) {
     return this.issueService.getMessages(req.user, issueId, q);
   }
 
   @Permissions("issues.reply")
   @Post(":issueId/messages")
-  reply(
-    @Req() req: any,
-    @Param("issueId") issueId: string,
-    @Body() dto: any,
-  ) {
+  reply(@Req() req: any, @Param("issueId") issueId: string, @Body() dto: any) {
     return this.issueService.reply(req.user, issueId, dto);
   }
 
@@ -249,11 +241,7 @@ export class IssueController {
 
   @Permissions("issues.assign")
   @Post(":issueId/assign")
-  assign(
-    @Req() req: any,
-    @Param("issueId") issueId: string,
-    @Body() dto: any,
-  ) {
+  assign(@Req() req: any, @Param("issueId") issueId: string, @Body() dto: any) {
     return this.issueService.assign(req.user, issueId, dto);
   }
 

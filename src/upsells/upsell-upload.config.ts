@@ -13,7 +13,10 @@ export const upsellMediaStorage = diskStorage({
   destination: UPLOAD_DIR,
   filename: (_req, file, cb) => {
     const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-    cb(null, `upsell-media-${uniqueSuffix}${extname(file.originalname).toLowerCase()}`);
+    cb(
+      null,
+      `upsell-media-${uniqueSuffix}${extname(file.originalname).toLowerCase()}`,
+    );
   },
 });
 

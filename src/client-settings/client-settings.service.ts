@@ -1,20 +1,19 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { RedisService } from 'common/redis/RedisService';
-import { UpsertClientSettingsDto } from 'dto/client-settings.dto';
-import { ClientSettingsEntity } from 'entities/clientSettings.entity';
-import { OrderStatus } from 'entities/order.entity';
-import { tenantId } from 'src/category/category.service';
-import { EntityManager, Repository } from 'typeorm';
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { RedisService } from "common/redis/RedisService";
+import { UpsertClientSettingsDto } from "dto/client-settings.dto";
+import { ClientSettingsEntity } from "entities/clientSettings.entity";
+import { OrderStatus } from "entities/order.entity";
+import { tenantId } from "src/category/category.service";
+import { EntityManager, Repository } from "typeorm";
 
 @Injectable()
 export class ClientSettingsService {
   constructor(
-     @InjectRepository(ClientSettingsEntity)
+    @InjectRepository(ClientSettingsEntity)
     private readonly settingsRepo: Repository<ClientSettingsEntity>,
     private readonly redisService: RedisService,
-  ) {
-  }
+  ) {}
 
   async upsertSettings(
     me: any,
@@ -29,7 +28,10 @@ export class ClientSettingsService {
       // Update existing record
       settings = this.settingsRepo.merge(settings, {
         ...dto,
-        defaultWhatsAppAccountId: dto.defaultWhatsAppAccountId || settings.defaultWhatsAppAccountId || null,
+        defaultWhatsAppAccountId:
+          dto.defaultWhatsAppAccountId ||
+          settings.defaultWhatsAppAccountId ||
+          null,
         notificationSettings: {
           ...(settings.notificationSettings ?? {}),
           ...(dto.notificationSettings ?? {}),
@@ -54,9 +56,14 @@ export class ClientSettingsService {
 
     return saved;
   }
-  async getSettings(me: any, manager?: EntityManager): Promise<ClientSettingsEntity> {
+  async getSettings(
+    me: any,
+    manager?: EntityManager,
+  ): Promise<ClientSettingsEntity> {
     const adminId = tenantId(me);
-    const repo = manager ? manager.getRepository(ClientSettingsEntity) : this.settingsRepo;
+    const repo = manager
+      ? manager.getRepository(ClientSettingsEntity)
+      : this.settingsRepo;
     let settings = await repo.findOneBy({ adminId: adminId });
 
     if (!settings) {
@@ -72,14 +79,15 @@ export class ClientSettingsService {
           OrderStatus.UNDER_REVIEW,
         ],
         autoMoveStatus: OrderStatus.CANCELLED,
-        retryStatuses: [
-          OrderStatus.WRONG_NUMBER,
-          OrderStatus.UNDER_REVIEW,
-        ],
+        retryStatuses: [OrderStatus.WRONG_NUMBER, OrderStatus.UNDER_REVIEW],
         reservedEnabled: false, // by default false
       });
     }
-    await this.redisService.set(`admin_settings:${adminId}`, settings, 3600 * 24);
+    await this.redisService.set(
+      `admin_settings:${adminId}`,
+      settings,
+      3600 * 24,
+    );
     // Return existing or a default object to keep frontend stable
     return settings;
   }
@@ -106,9 +114,12 @@ export class ClientSettingsService {
     const cacheKey = `admin_settings:${adminId}`;
     let settings = await this.redisService.get<ClientSettingsEntity>(cacheKey);
 
-    if (!settings || typeof settings === 'string') {
+    if (!settings || typeof settings === "string") {
       // Use getSettings logic which also handles creation of default settings
-      settings = await this.getSettings({ id: adminId, role: { name: 'admin' } });
+      settings = await this.getSettings({
+        id: adminId,
+        role: { name: "admin" },
+      });
     }
 
     // Update local cache

@@ -1,505 +1,529 @@
-import { Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Permission, Role, SystemRole, User } from 'entities/user.entity';
-import { Brackets, Repository } from 'typeorm';
-import { CategoryEntity } from 'entities/categories.entity';
-import { StoreEntity } from 'entities/stores.entity';
-import { WarehouseEntity } from 'entities/warehouses.entity';
-import { ProductEntity, ProductVariantEntity } from '../../entities/sku.entity';
-import { SupplierEntity } from '../../entities/supplier.entity';
-import { CityEntity } from 'entities/cities.entity';
-import { OrdersService } from 'src/orders/services/orders.service';
-import { tenantId } from 'src/category/category.service';
+import { Injectable } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Permission, Role, SystemRole, User } from "entities/user.entity";
+import { Brackets, Repository } from "typeorm";
+import { CategoryEntity } from "entities/categories.entity";
+import { StoreEntity } from "entities/stores.entity";
+import { WarehouseEntity } from "entities/warehouses.entity";
+import { ProductEntity, ProductVariantEntity } from "../../entities/sku.entity";
+import { SupplierEntity } from "../../entities/supplier.entity";
+import { CityEntity } from "entities/cities.entity";
+import { OrdersService } from "src/orders/services/orders.service";
+import { tenantId } from "src/category/category.service";
 
 type UsersLookupParams = {
-	q?: string;
-	roleId?: string;
-	isActive?: boolean;
-	limit: number;
+  q?: string;
+  roleId?: string;
+  isActive?: boolean;
+  limit: number;
 };
 
 type SimpleLookupParams = {
-	q?: string;
-	limit: number;
+  q?: string;
+  limit: number;
 };
 
-
-
 type ActiveLookupParams = {
-	q?: string;
-	isActive?: boolean;
-	limit: number;
+  q?: string;
+  isActive?: boolean;
+  limit: number;
 };
 
 type SkusLookupParams = {
-	q?: string;
-	productId?: string;
-	limit: number;
-	cursor?: number;
+  q?: string;
+  productId?: string;
+  limit: number;
+  cursor?: number;
 };
-
 
 @Injectable()
 export class LookupsService {
-	constructor(
-		@InjectRepository(User) private readonly usersRepo: Repository<User>,
-		@InjectRepository(Role) private readonly rolesRepo: Repository<Role>,
-		@InjectRepository(Permission) private readonly permsRepo: Repository<Permission>,
-
-		@InjectRepository(CategoryEntity) private readonly categoriesRepo: Repository<CategoryEntity>,
-		@InjectRepository(StoreEntity) private readonly storesRepo: Repository<StoreEntity>,
-		@InjectRepository(WarehouseEntity) private readonly warehousesRepo: Repository<WarehouseEntity>,
-
-		@InjectRepository(ProductEntity) private readonly productsRepo: Repository<ProductEntity>,
-		@InjectRepository(ProductVariantEntity) private readonly variantsRepo: Repository<ProductVariantEntity>,
-		@InjectRepository(SupplierEntity) private readonly suppliersRepo: Repository<SupplierEntity>,
-		@InjectRepository(CityEntity) private readonly citiesRepo: Repository<CityEntity>,
-		private readonly ordersService: OrdersService,
-	) { }
-
-	private isSuperAdmin(me: User) {
-		return me.role?.name === SystemRole.SUPER_ADMIN;
-	}
-
-
-	async suppliers(me: User, params: SimpleLookupParams) {
-		const qb = this.suppliersRepo
-			.createQueryBuilder('s')
-			.select([
-				's.id AS id',
-				's.name AS name',
-				's.phone AS phone',
-				's.email AS email',
-				's.address AS address',
-				's."dueBalance" AS "dueBalance"',
-			])
-			.orderBy('s.id', 'DESC')
-			.limit(params.limit);
-
-		this.applyTenantScope(qb, 's', me);
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere(
-				new Brackets((b) => {
-					b.where('LOWER(s.name) LIKE :q', { q })
-						.orWhere('LOWER(s.phone) LIKE :q', { q })
-						.orWhere('LOWER(s.email) LIKE :q', { q });
-				}),
-			);
-		}
-
-		const rows = await qb.getRawMany();
-		return rows.map((x) => ({
-			id: x.id,
-			label: x.phone ? `${x.name} (${x.phone})` : x.name,
-			name: x.name,
-			phone: x.phone ?? null,
-			email: x.email ?? null,
-			address: x.address ?? null,
-			dueBalance: x.dueBalance ?? 0,
-		}));
-	}
-
-
-	async skus(me: User, params: SkusLookupParams & { skus?: string[] }) {
-		const adminId = tenantId(me)
-		const fetchLimit = Number(params.limit) || 20;
-		const qb = this.variantsRepo
-			.createQueryBuilder('v')
-			.leftJoin('v.product', 'p')
-			.select([
-				'v.id AS id',
-				'v.productId AS "productId"',
-				'v.sku AS sku',
-				'v.key AS "key"',
-				'v.stockOnHand AS "stockOnHand"',
-				'p.wholesalePrice AS "wholesalePrice"',
-				'v.unitCost AS "unitCost"',
-				'v.reserved AS reserved',
-				'v.price AS price',
-				'p.name AS "productName"'
-			])
-			.orderBy('v.id', 'DESC')
-			.andWhere("v.isActive = :isActive", { isActive: true });
-
-		this.applyTenantScope(qb, 'v', me);
-
-		// ⚡ Added: If specific IDs are requested, filter by them
-		if (params.skus && params.skus.length > 0) {
-			qb.andWhere('v.sku IN (:...skus)', { skus: params.skus });
-			qb.limit(params.skus.length); // Get all requested IDs, bypass normal limits
-		} else {
-			// Apply standard limits and cursor ONLY if we are not fetching by exact IDs
-			qb.limit(fetchLimit + 1);
-
-			if (params.cursor) {
-				qb.andWhere('v.id < :cursor', { cursor: Number(params.cursor) });
-			}
-		}
-
-		if (params.productId) {
-			qb.andWhere('v.productId = :productId', { productId: params.productId });
-		}
-
-		const search = params.q?.trim().toLowerCase();
-
-		if (search) {
-			const likeParam = `%${search}%`;
-
-			qb.andWhere(
-				new Brackets((b) => {
-					b.where('LOWER(v.sku) LIKE :search', { search: likeParam })
-						.orWhere('LOWER(v.key) LIKE :search', { search: likeParam })
-						.orWhere('LOWER(p.name) LIKE :search', { search: likeParam });
-				}),
-			);
-		}
-
-		const rows = await qb.getRawMany();
-
-		// Handle pagination logic carefully depending on whether 'ids' was used
-		let hasMore = false;
-		if (!params.skus || params.skus.length === 0) {
-			hasMore = rows.length > fetchLimit;
-			if (hasMore) rows.pop();
-		}
-
-		const data = await Promise.all(rows.map(async (x) => ({
-			id: x.id,
-			productId: x.productId,
-			label: x.sku ? x.sku : `#${x.id}`,
-			sku: x.sku ?? null,
-			key: x.key ?? null,
-			stockOnHand: Number(x.stockOnHand ?? 0),
-			reserved: Number(x.reserved ?? 0),
-			price: Number(x.price ?? 0),
-			wholesalePrice: Number(x.wholesalePrice ?? 0),
-			unitCost: Number(x.unitCost ?? 0),
-			available: await this.ordersService.calculateAvailableStock(
-				Number(x.stockOnHand ?? 0),
-				Number(x.reserved ?? 0),
-				adminId,
-			),
-			name: x.productName ?? null,
-		})));
-
-		return {
-			data,
-			hasMore,
-			nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
-		};
-	}
-
-
-	async products(me: User, params: SimpleLookupParams) {
-		const qb = this.productsRepo
-			.createQueryBuilder('p')
-			.select([
-				'p.id AS id',
-				'p.name AS name',
-				'p.mainImage AS "mainImage"',
-				'p.wholesalePrice AS "wholesalePrice"',
-				'p.lowestPrice AS "lowestPrice"',
-			])
-			.orderBy('p.id', 'DESC')
-			.limit(params.limit);
-
-		this.applyTenantScope(qb, 'p', me);
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere('LOWER(p.name) LIKE :q', { q });
-		}
-
-		const rows = await qb.getRawMany();
-		return rows.map((x) => ({
-			id: x.id,
-			label: x.name,
-			name: x.name,
-			mainImage: x.mainImage ?? null,
-			wholesalePrice: x.wholesalePrice ?? null,
-			lowestPrice: x.lowestPrice ?? null,
-		}));
-	}
-
-
-	private applyTenantScope(qb: any, alias: string, me: User) {
-		if (this.isSuperAdmin(me)) {
-			qb.andWhere(`${alias}.adminId IS NULL`);
-			return;
-		}
-
-		if (me.role?.name === SystemRole.ADMIN) {
-			qb.andWhere(`(${alias}.adminId IS NULL OR ${alias}.adminId = :meId)`, { meId: me.id });
-			return;
-		}
-
-		if (me.adminId) {
-			qb.andWhere(`(${alias}.adminId IS NULL OR ${alias}.adminId = :ownerAdminId)`, {
-				ownerAdminId: me.adminId,
-			});
-			return;
-		}
-
-		qb.andWhere(`${alias}.adminId IS NULL`);
-	}
-
-	async users(me: User, params: UsersLookupParams) {
-		const qb = this.usersRepo
-			.createQueryBuilder('u')
-			.leftJoin('u.role', 'r')
-			// fields صغيرة للـ dropdown
-			.select([
-				'u.id AS id',
-				'u.name AS name',
-				'u.email AS email',
-				'u.isActive AS "isActive"',
-				'u.roleId AS "roleId"',
-				'r.name AS "roleName"',
-			])
-			.orderBy('u.id', 'DESC')
-			.limit(params.limit);
-
-		// نفس policy الموجودة في UsersService.list:
-		// super_admin => كل المستخدمين
-		// admin => فقط users اللي adminId = me.id
-		// user => نفسه فقط
-		if (this.isSuperAdmin(me)) {
-			// no extra filter
-		} else if (me.role?.name === SystemRole.ADMIN) {
-			qb.andWhere('u.adminId = :adminId', { adminId: me.id });
-		} else {
-			qb.andWhere('u.id = :meId', { meId: me.id });
-		}
-
-		if (typeof params.isActive === 'boolean') {
-			qb.andWhere('u.isActive = :isActive', { isActive: params.isActive });
-		}
-
-		if (params.roleId) {
-			qb.andWhere('u.roleId = :roleId', { roleId: params.roleId });
-		}
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere(
-				new Brackets((w) => {
-					w.where('LOWER(u.name) LIKE :q', { q }).orWhere('LOWER(u.email) LIKE :q', { q });
-				}),
-			);
-		}
-
-		const rows = await qb.getRawMany();
-
-		// صيغة مناسبة للدروب داون + معلومات إضافية للبحث/العرض
-		return rows.map((x) => ({
-			id: x.id,
-			label: `${x.name} (${x.email})`,
-			name: x.name,
-			email: x.email,
-			isActive: x.isActive,
-			roleId: x.roleId,
-			roleName: x.roleName,
-		}));
-	}
-
-	async roles(me: User, params: SimpleLookupParams) {
-		const qb = this.rolesRepo
-			.createQueryBuilder('r')
-			.select([
-				'r.id AS id',
-				'r.name AS name',
-				'r.description AS description',
-				'r.adminId AS adminId',
-			])
-			.orderBy('r.id', 'DESC')
-			.limit(params.limit);
-
-		// نفس list/get
-		if (this.isSuperAdmin(me)) {
-			// super admin: only adminId null
-			qb.where('r.adminId IS NULL');
-		} else {
-			// everyone except super admin: block super_admin/admin roles
-			qb.where('r.name NOT IN (:...blocked)', {
-				blocked: [SystemRole.SUPER_ADMIN, SystemRole.ADMIN],
-			});
-
-			if (me.role?.name === SystemRole.ADMIN) {
-				// Admin: global OR owned by him
-				qb.andWhere('(r.adminId IS NULL OR r.adminId = :meId)', { meId: me.id });
-			} else if (me.adminId) {
-				// User under admin: global OR owned by his owner admin
-				qb.andWhere('(r.adminId IS NULL OR r.adminId = :ownerAdminId)', {
-					ownerAdminId: me.adminId,
-				});
-			} else {
-				// User without adminId: global only
-				qb.andWhere('r.adminId IS NULL');
-			}
-		}
-
-		// search q
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere('(LOWER(r.name) LIKE :q OR LOWER(r.description) LIKE :q)', { q });
-		}
-
-		const rows = await qb.getRawMany();
-
-		return rows.map((x) => ({
-			id: x.id,
-			label: x.name,
-			name: x.name,
-			description: x.description,
-		}));
-	}
-
-	async permissions(params: SimpleLookupParams) {
-		const qb = this.permsRepo
-			.createQueryBuilder('p')
-			.select(['p.id AS id', 'p.name AS name'])
-			.orderBy('p.id', 'DESC')
-			.limit(params.limit);
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.where('LOWER(p.name) LIKE :q', { q });
-		}
-
-		const rows = await qb.getRawMany();
-		return rows.map((x) => ({
-			id: x.id,
-			label: x.name,
-			name: x.name,
-		}));
-	}
-
-
-	async categories(me: User, params: SimpleLookupParams) {
-		const qb = this.categoriesRepo
-			.createQueryBuilder('c')
-			.select(['c.id AS id', 'c.name AS name', 'c.slug AS slug', 'c.image AS image'])
-			.orderBy('c.id', 'DESC')
-			.limit(params.limit);
-
-		this.applyTenantScope(qb, 'c', me);
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere('(LOWER(c.name) LIKE :q OR LOWER(c.slug) LIKE :q)', { q });
-		}
-
-		const rows = await qb.getRawMany();
-		return rows.map((x) => ({
-			id: x.id,
-			label: x.name,
-			name: x.name,
-			slug: x.slug,
-			image: x.image,
-		}));
-	}
-
-	async stores(me: User, params: ActiveLookupParams) {
-		const qb = this.storesRepo
-			.createQueryBuilder('s')
-			.select(['s.id AS id', 's.name AS name', 's.isActive AS "isActive"', 's.provider AS provider'
-				, 's."adminId"',
-				's."syncStatus"', 's."localSyncStatus"',
-			])
-			.orderBy('s.id', 'DESC')
-			.limit(params.limit);
-
-		this.applyTenantScope(qb, 's', me);
-
-		if (typeof params.isActive === 'boolean') qb.andWhere('s.isActive = :isActive', { isActive: params.isActive });
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere('(LOWER(s.name) LIKE :q', { q });
-		}
-
-		const rows = await qb.getRawMany();
-		return rows.map((x) => ({
-			id: x.id,
-			label: `${x.name}`,
-			name: x.name,
-			code: x.code,
-			provider: x.provider,
-			isActive: x.isActive,
-			adminId: x.adminId,
-			syncStatus: x.syncStatus,
-			localSyncStatus: x.localSyncStatus,
-
-		}));
-	}
-
-	async warehouses(me: User, params: ActiveLookupParams) {
-		const adminId = tenantId(me);
-	
-		const qb = this.warehousesRepo
-			.createQueryBuilder('w')
-			.select([
-				'w.id AS id',
-				'w.name AS name',
-				'w.address AS address',
-				'w.isActive AS "isActive"',
-			])
-			.where('w."adminId" = :adminId', { adminId })
-			.orderBy('w.id', 'DESC')
-			.limit(params.limit);
-
-		this.applyTenantScope(qb, 'w', me);
-
-		if (typeof params.isActive === 'boolean') qb.andWhere('w.isActive = :isActive', { isActive: params.isActive });
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			qb.andWhere(
-				new Brackets((b) => {
-					b.where('LOWER(w.name) LIKE :q', { q })
-						.orWhere('LOWER(w.address) LIKE :q', { q });
-				}),
-			);
-		}
-
-		const rows = await qb.getRawMany();
-		return rows.map((x) => ({
-			id: x.id,
-			label: x.address ? `${x.name} - ${x.address}` : x.name,
-			name: x.name,
-			address: x.address,
-			isActive: x.isActive,
-		}));
-	}
-
-
-	async cities(params: SimpleLookupParams) {
-		const qb = this.citiesRepo
-			.createQueryBuilder('city')
-			.select([
-				'city.id AS id',
-				'city."nameEn"',
-				'city."nameAr"'
-			])
-			.orderBy('city.nameEn', 'ASC') // Cities are usually better sorted alphabetically
-			.limit(params.limit || 50);
-
-		if (params.q?.trim()) {
-			const q = `%${params.q.trim().toLowerCase()}%`;
-			// Search in both English and Arabic names
-			qb.andWhere('(LOWER(city.nameEn) LIKE :q OR city.nameAr LIKE :q)', { q });
-		}	
-
-		qb.andWhere('city."isActive" = true');
-
-		const rows = await qb.getRawMany();
-
-		return rows.map((x) => ({
-			id: x.id,
-			nameEn: x.nameEn,
-			nameAr: x.nameAr,
-		}));
-	}
+  constructor(
+    @InjectRepository(User) private readonly usersRepo: Repository<User>,
+    @InjectRepository(Role) private readonly rolesRepo: Repository<Role>,
+    @InjectRepository(Permission)
+    private readonly permsRepo: Repository<Permission>,
+
+    @InjectRepository(CategoryEntity)
+    private readonly categoriesRepo: Repository<CategoryEntity>,
+    @InjectRepository(StoreEntity)
+    private readonly storesRepo: Repository<StoreEntity>,
+    @InjectRepository(WarehouseEntity)
+    private readonly warehousesRepo: Repository<WarehouseEntity>,
+
+    @InjectRepository(ProductEntity)
+    private readonly productsRepo: Repository<ProductEntity>,
+    @InjectRepository(ProductVariantEntity)
+    private readonly variantsRepo: Repository<ProductVariantEntity>,
+    @InjectRepository(SupplierEntity)
+    private readonly suppliersRepo: Repository<SupplierEntity>,
+    @InjectRepository(CityEntity)
+    private readonly citiesRepo: Repository<CityEntity>,
+    private readonly ordersService: OrdersService,
+  ) {}
+
+  private isSuperAdmin(me: User) {
+    return me.role?.name === SystemRole.SUPER_ADMIN;
+  }
+
+  async suppliers(me: User, params: SimpleLookupParams) {
+    const qb = this.suppliersRepo
+      .createQueryBuilder("s")
+      .select([
+        "s.id AS id",
+        "s.name AS name",
+        "s.phone AS phone",
+        "s.email AS email",
+        "s.address AS address",
+        's."dueBalance" AS "dueBalance"',
+      ])
+      .orderBy("s.id", "DESC")
+      .limit(params.limit);
+
+    this.applyTenantScope(qb, "s", me);
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.andWhere(
+        new Brackets((b) => {
+          b.where("LOWER(s.name) LIKE :q", { q })
+            .orWhere("LOWER(s.phone) LIKE :q", { q })
+            .orWhere("LOWER(s.email) LIKE :q", { q });
+        }),
+      );
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((x) => ({
+      id: x.id,
+      label: x.phone ? `${x.name} (${x.phone})` : x.name,
+      name: x.name,
+      phone: x.phone ?? null,
+      email: x.email ?? null,
+      address: x.address ?? null,
+      dueBalance: x.dueBalance ?? 0,
+    }));
+  }
+
+  async skus(me: User, params: SkusLookupParams & { skus?: string[] }) {
+    const adminId = tenantId(me);
+    const fetchLimit = Number(params.limit) || 20;
+    const qb = this.variantsRepo
+      .createQueryBuilder("v")
+      .leftJoin("v.product", "p")
+      .select([
+        "v.id AS id",
+        'v.productId AS "productId"',
+        "v.sku AS sku",
+        'v.key AS "key"',
+        'v.stockOnHand AS "stockOnHand"',
+        'p.wholesalePrice AS "wholesalePrice"',
+        'v.unitCost AS "unitCost"',
+        "v.reserved AS reserved",
+        "v.price AS price",
+        'p.name AS "productName"',
+      ])
+      .orderBy("v.id", "DESC")
+      .andWhere("v.isActive = :isActive", { isActive: true });
+
+    this.applyTenantScope(qb, "v", me);
+
+    // ⚡ Added: If specific IDs are requested, filter by them
+    if (params.skus && params.skus.length > 0) {
+      qb.andWhere("v.sku IN (:...skus)", { skus: params.skus });
+      qb.limit(params.skus.length); // Get all requested IDs, bypass normal limits
+    } else {
+      // Apply standard limits and cursor ONLY if we are not fetching by exact IDs
+      qb.limit(fetchLimit + 1);
+
+      if (params.cursor) {
+        qb.andWhere("v.id < :cursor", { cursor: Number(params.cursor) });
+      }
+    }
+
+    if (params.productId) {
+      qb.andWhere("v.productId = :productId", { productId: params.productId });
+    }
+
+    const search = params.q?.trim().toLowerCase();
+
+    if (search) {
+      const likeParam = `%${search}%`;
+
+      qb.andWhere(
+        new Brackets((b) => {
+          b.where("LOWER(v.sku) LIKE :search", { search: likeParam })
+            .orWhere("LOWER(v.key) LIKE :search", { search: likeParam })
+            .orWhere("LOWER(p.name) LIKE :search", { search: likeParam });
+        }),
+      );
+    }
+
+    const rows = await qb.getRawMany();
+
+    // Handle pagination logic carefully depending on whether 'ids' was used
+    let hasMore = false;
+    if (!params.skus || params.skus.length === 0) {
+      hasMore = rows.length > fetchLimit;
+      if (hasMore) rows.pop();
+    }
+
+    const data = await Promise.all(
+      rows.map(async (x) => ({
+        id: x.id,
+        productId: x.productId,
+        label: x.sku ? x.sku : `#${x.id}`,
+        sku: x.sku ?? null,
+        key: x.key ?? null,
+        stockOnHand: Number(x.stockOnHand ?? 0),
+        reserved: Number(x.reserved ?? 0),
+        price: Number(x.price ?? 0),
+        wholesalePrice: Number(x.wholesalePrice ?? 0),
+        unitCost: Number(x.unitCost ?? 0),
+        available: await this.ordersService.calculateAvailableStock(
+          Number(x.stockOnHand ?? 0),
+          Number(x.reserved ?? 0),
+          adminId,
+        ),
+        name: x.productName ?? null,
+      })),
+    );
+
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
+    };
+  }
+
+  async products(me: User, params: SimpleLookupParams) {
+    const qb = this.productsRepo
+      .createQueryBuilder("p")
+      .select([
+        "p.id AS id",
+        "p.name AS name",
+        'p.mainImage AS "mainImage"',
+        'p.wholesalePrice AS "wholesalePrice"',
+        'p.lowestPrice AS "lowestPrice"',
+      ])
+      .orderBy("p.id", "DESC")
+      .limit(params.limit);
+
+    this.applyTenantScope(qb, "p", me);
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.andWhere("LOWER(p.name) LIKE :q", { q });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((x) => ({
+      id: x.id,
+      label: x.name,
+      name: x.name,
+      mainImage: x.mainImage ?? null,
+      wholesalePrice: x.wholesalePrice ?? null,
+      lowestPrice: x.lowestPrice ?? null,
+    }));
+  }
+
+  private applyTenantScope(qb: any, alias: string, me: User) {
+    if (this.isSuperAdmin(me)) {
+      qb.andWhere(`${alias}.adminId IS NULL`);
+      return;
+    }
+
+    if (me.role?.name === SystemRole.ADMIN) {
+      qb.andWhere(`(${alias}.adminId IS NULL OR ${alias}.adminId = :meId)`, {
+        meId: me.id,
+      });
+      return;
+    }
+
+    if (me.adminId) {
+      qb.andWhere(
+        `(${alias}.adminId IS NULL OR ${alias}.adminId = :ownerAdminId)`,
+        {
+          ownerAdminId: me.adminId,
+        },
+      );
+      return;
+    }
+
+    qb.andWhere(`${alias}.adminId IS NULL`);
+  }
+
+  async users(me: User, params: UsersLookupParams) {
+    const qb = this.usersRepo
+      .createQueryBuilder("u")
+      .leftJoin("u.role", "r")
+      // fields صغيرة للـ dropdown
+      .select([
+        "u.id AS id",
+        "u.name AS name",
+        "u.email AS email",
+        'u.isActive AS "isActive"',
+        'u.roleId AS "roleId"',
+        'r.name AS "roleName"',
+      ])
+      .orderBy("u.id", "DESC")
+      .limit(params.limit);
+
+    // نفس policy الموجودة في UsersService.list:
+    // super_admin => كل المستخدمين
+    // admin => فقط users اللي adminId = me.id
+    // user => نفسه فقط
+    if (this.isSuperAdmin(me)) {
+      // no extra filter
+    } else if (me.role?.name === SystemRole.ADMIN) {
+      qb.andWhere("u.adminId = :adminId", { adminId: me.id });
+    } else {
+      qb.andWhere("u.id = :meId", { meId: me.id });
+    }
+
+    if (typeof params.isActive === "boolean") {
+      qb.andWhere("u.isActive = :isActive", { isActive: params.isActive });
+    }
+
+    if (params.roleId) {
+      qb.andWhere("u.roleId = :roleId", { roleId: params.roleId });
+    }
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.andWhere(
+        new Brackets((w) => {
+          w.where("LOWER(u.name) LIKE :q", { q }).orWhere(
+            "LOWER(u.email) LIKE :q",
+            { q },
+          );
+        }),
+      );
+    }
+
+    const rows = await qb.getRawMany();
+
+    // صيغة مناسبة للدروب داون + معلومات إضافية للبحث/العرض
+    return rows.map((x) => ({
+      id: x.id,
+      label: `${x.name} (${x.email})`,
+      name: x.name,
+      email: x.email,
+      isActive: x.isActive,
+      roleId: x.roleId,
+      roleName: x.roleName,
+    }));
+  }
+
+  async roles(me: User, params: SimpleLookupParams) {
+    const qb = this.rolesRepo
+      .createQueryBuilder("r")
+      .select([
+        "r.id AS id",
+        "r.name AS name",
+        "r.description AS description",
+        "r.adminId AS adminId",
+      ])
+      .orderBy("r.id", "DESC")
+      .limit(params.limit);
+
+    // نفس list/get
+    if (this.isSuperAdmin(me)) {
+      // super admin: only adminId null
+      qb.where("r.adminId IS NULL");
+    } else {
+      // everyone except super admin: block super_admin/admin roles
+      qb.where("r.name NOT IN (:...blocked)", {
+        blocked: [SystemRole.SUPER_ADMIN, SystemRole.ADMIN],
+      });
+
+      if (me.role?.name === SystemRole.ADMIN) {
+        // Admin: global OR owned by him
+        qb.andWhere("(r.adminId IS NULL OR r.adminId = :meId)", {
+          meId: me.id,
+        });
+      } else if (me.adminId) {
+        // User under admin: global OR owned by his owner admin
+        qb.andWhere("(r.adminId IS NULL OR r.adminId = :ownerAdminId)", {
+          ownerAdminId: me.adminId,
+        });
+      } else {
+        // User without adminId: global only
+        qb.andWhere("r.adminId IS NULL");
+      }
+    }
+
+    // search q
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.andWhere("(LOWER(r.name) LIKE :q OR LOWER(r.description) LIKE :q)", {
+        q,
+      });
+    }
+
+    const rows = await qb.getRawMany();
+
+    return rows.map((x) => ({
+      id: x.id,
+      label: x.name,
+      name: x.name,
+      description: x.description,
+    }));
+  }
+
+  async permissions(params: SimpleLookupParams) {
+    const qb = this.permsRepo
+      .createQueryBuilder("p")
+      .select(["p.id AS id", "p.name AS name"])
+      .orderBy("p.id", "DESC")
+      .limit(params.limit);
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.where("LOWER(p.name) LIKE :q", { q });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((x) => ({
+      id: x.id,
+      label: x.name,
+      name: x.name,
+    }));
+  }
+
+  async categories(me: User, params: SimpleLookupParams) {
+    const qb = this.categoriesRepo
+      .createQueryBuilder("c")
+      .select([
+        "c.id AS id",
+        "c.name AS name",
+        "c.slug AS slug",
+        "c.image AS image",
+      ])
+      .orderBy("c.id", "DESC")
+      .limit(params.limit);
+
+    this.applyTenantScope(qb, "c", me);
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.andWhere("(LOWER(c.name) LIKE :q OR LOWER(c.slug) LIKE :q)", { q });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((x) => ({
+      id: x.id,
+      label: x.name,
+      name: x.name,
+      slug: x.slug,
+      image: x.image,
+    }));
+  }
+
+  async stores(me: User, params: ActiveLookupParams) {
+    const qb = this.storesRepo
+      .createQueryBuilder("s")
+      .select([
+        "s.id AS id",
+        "s.name AS name",
+        's.isActive AS "isActive"',
+        "s.provider AS provider",
+        's."adminId"',
+        's."syncStatus"',
+        's."localSyncStatus"',
+      ])
+      .orderBy("s.id", "DESC")
+      .limit(params.limit);
+
+    this.applyTenantScope(qb, "s", me);
+
+    if (typeof params.isActive === "boolean") {
+      qb.andWhere("s.isActive = :isActive", { isActive: params.isActive });
+    }
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.andWhere("(LOWER(s.name) LIKE :q", { q });
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((x) => ({
+      id: x.id,
+      label: `${x.name}`,
+      name: x.name,
+      code: x.code,
+      provider: x.provider,
+      isActive: x.isActive,
+      adminId: x.adminId,
+      syncStatus: x.syncStatus,
+      localSyncStatus: x.localSyncStatus,
+    }));
+  }
+
+  async warehouses(me: User, params: ActiveLookupParams) {
+    const adminId = tenantId(me);
+
+    const qb = this.warehousesRepo
+      .createQueryBuilder("w")
+      .select([
+        "w.id AS id",
+        "w.name AS name",
+        "w.address AS address",
+        'w.isActive AS "isActive"',
+      ])
+      .where('w."adminId" = :adminId', { adminId })
+      .orderBy("w.id", "DESC")
+      .limit(params.limit);
+
+    this.applyTenantScope(qb, "w", me);
+
+    if (typeof params.isActive === "boolean") {
+      qb.andWhere("w.isActive = :isActive", { isActive: params.isActive });
+    }
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      qb.andWhere(
+        new Brackets((b) => {
+          b.where("LOWER(w.name) LIKE :q", { q }).orWhere(
+            "LOWER(w.address) LIKE :q",
+            { q },
+          );
+        }),
+      );
+    }
+
+    const rows = await qb.getRawMany();
+    return rows.map((x) => ({
+      id: x.id,
+      label: x.address ? `${x.name} - ${x.address}` : x.name,
+      name: x.name,
+      address: x.address,
+      isActive: x.isActive,
+    }));
+  }
+
+  async cities(params: SimpleLookupParams) {
+    const qb = this.citiesRepo
+      .createQueryBuilder("city")
+      .select(["city.id AS id", 'city."nameEn"', 'city."nameAr"'])
+      .orderBy("city.nameEn", "ASC") // Cities are usually better sorted alphabetically
+      .limit(params.limit || 50);
+
+    if (params.q?.trim()) {
+      const q = `%${params.q.trim().toLowerCase()}%`;
+      // Search in both English and Arabic names
+      qb.andWhere("(LOWER(city.nameEn) LIKE :q OR city.nameAr LIKE :q)", { q });
+    }
+
+    qb.andWhere('city."isActive" = true');
+
+    const rows = await qb.getRawMany();
+
+    return rows.map((x) => ({
+      id: x.id,
+      nameEn: x.nameEn,
+      nameAr: x.nameAr,
+    }));
+  }
 }

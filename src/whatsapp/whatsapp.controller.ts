@@ -1,119 +1,157 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpException, HttpStatus, Param, Post, Put, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { WhatsappService } from './whatsapp.service';
-import { Request, Response } from 'express';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { PermissionsGuard } from 'common/permissions.guard';
-import { SubscriptionGuard } from 'common/subscription.guard';
-import { Permissions } from 'common/permissions.decorator';
-import { WhatsappSendMessagePayload } from './services/WhatsappApi.service';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { EmbeddedSignupDto, ManualAddAccountDto, ReplaceAccessTokenDto, UpdateManualAccountDto } from 'dto/whatsapp.dto';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpException,
+  HttpStatus,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from "@nestjs/common";
+import { WhatsappService } from "./whatsapp.service";
+import { Request, Response } from "express";
+import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
+import { PermissionsGuard } from "common/permissions.guard";
+import { SubscriptionGuard } from "common/subscription.guard";
+import { Permissions } from "common/permissions.decorator";
+import { WhatsappSendMessagePayload } from "./services/WhatsappApi.service";
+import { FileInterceptor } from "@nestjs/platform-express";
+import {
+  EmbeddedSignupDto,
+  ManualAddAccountDto,
+  ReplaceAccessTokenDto,
+  UpdateManualAccountDto,
+} from "dto/whatsapp.dto";
 
-@Controller('whatsapp')
+@Controller("whatsapp")
 export class WhatsappController {
-  constructor(private readonly whatsappService: WhatsappService) {
-
-  }
+  constructor(private readonly whatsappService: WhatsappService) {}
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('dashboard/stats')
-  @Permissions('whatsapp.read')
+  @Get("dashboard/stats")
+  @Permissions("whatsapp.read")
   async getDashboardStats(@Req() req: any, @Query() q: any) {
     return this.whatsappService.getDashboardStats(req.user, q);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('dashboard/messages-by-type')
-  @Permissions('whatsapp.read')
+  @Get("dashboard/messages-by-type")
+  @Permissions("whatsapp.read")
   async getMessagesByTypeStats(@Req() req: any, @Query() q: any) {
     return this.whatsappService.getMessagesByTypeStats(req.user, q);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('dashboard/top-clicked-buttons')
-  @Permissions('whatsapp.read')
+  @Get("dashboard/top-clicked-buttons")
+  @Permissions("whatsapp.read")
   async getTopClickedButtons(@Req() req: any, @Query() q: any) {
     const { limit, ...filters } = q;
-    return this.whatsappService.getTopClickedButtons(req.user, limit || 5, filters);
+    return this.whatsappService.getTopClickedButtons(
+      req.user,
+      limit || 5,
+      filters,
+    );
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('dashboard/top-automations')
-  @Permissions('whatsapp.read')
+  @Get("dashboard/top-automations")
+  @Permissions("whatsapp.read")
   async getTopAutomations(@Req() req: any, @Query() q: any) {
     const { limit, ...filters } = q;
-    return this.whatsappService.getTopAutomations(req.user, limit || 5, filters);
+    return this.whatsappService.getTopAutomations(
+      req.user,
+      limit || 5,
+      filters,
+    );
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('dashboard/top-templates')
-  @Permissions('whatsapp.read')
+  @Get("dashboard/top-templates")
+  @Permissions("whatsapp.read")
   async getTopTemplates(@Req() req: any, @Query() q: any) {
     const { limit, ...filters } = q;
     return this.whatsappService.getTopTemplates(req.user, limit || 5, filters);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('dashboard/activity-heatmap')
-  @Permissions('whatsapp.read')
+  @Get("dashboard/activity-heatmap")
+  @Permissions("whatsapp.read")
   async getActivityHeatmap(@Req() req: any, @Query() q: any) {
     return this.whatsappService.getActivityHeatmap(req.user, q);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('dashboard/trends')
-  @Permissions('whatsapp.read')
+  @Get("dashboard/trends")
+  @Permissions("whatsapp.read")
   async getWhatsappTrends(@Req() req: any, @Query() q: any) {
     return this.whatsappService.getWhatsappTrends(req.user, q);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('messages')
-  @Permissions('whatsapp.read')
+  @Get("messages")
+  @Permissions("whatsapp.read")
   findAllMessages(@Req() req: any, @Query() q: any) {
     return this.whatsappService.findAllMessages(req.user, q);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('messages/:id')
-  @Permissions('whatsapp.read')
-  findOneMessage(@Req() req: any, @Param('id') id: string) {
+  @Get("messages/:id")
+  @Permissions("whatsapp.read")
+  findOneMessage(@Req() req: any, @Param("id") id: string) {
     return this.whatsappService.findOneMessage(req.user, id);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Get('media')
-  @Permissions('whatsapp.read')
+  @Get("media")
+  @Permissions("whatsapp.read")
   async downloadMedia(
     @Req() req: any,
     @Res() res: Response,
-    @Query('mediaId') mediaId?: string,
-    @Query('url') url?: string,
-    @Query('accountId') accountId?: string,
+    @Query("mediaId") mediaId?: string,
+    @Query("url") url?: string,
+    @Query("accountId") accountId?: string,
   ) {
     if (!mediaId && !url) {
-      throw new BadRequestException('Media id or url is required');
+      throw new BadRequestException("Media id or url is required");
     }
 
     const headers: Record<string, string> = {};
     if (req.headers.range) {
-      headers['Range'] = req.headers.range;
+      headers["Range"] = req.headers.range;
     }
 
     const response = url
-      ? await this.whatsappService.streamMedia(req.user, url, accountId, headers)
-      : await this.whatsappService.downloadMedia(req.user, mediaId, accountId, headers);
+      ? await this.whatsappService.streamMedia(
+          req.user,
+          url,
+          accountId,
+          headers,
+        )
+      : await this.whatsappService.downloadMedia(
+          req.user,
+          mediaId,
+          accountId,
+          headers,
+        );
 
-    const contentType = response?.headers?.['content-type'];
-    const contentLength = response?.headers?.['content-length'];
-    const contentRange = response?.headers?.['content-range'];
-    const acceptRanges = response?.headers?.['accept-ranges'];
+    const contentType = response?.headers?.["content-type"];
+    const contentLength = response?.headers?.["content-length"];
+    const contentRange = response?.headers?.["content-range"];
+    const acceptRanges = response?.headers?.["accept-ranges"];
 
-    if (contentType) res.setHeader('Content-Type', contentType);
-    if (contentLength) res.setHeader('Content-Length', contentLength);
-    if (contentRange) res.setHeader('Content-Range', contentRange);
-    if (acceptRanges) res.setHeader('Accept-Ranges', acceptRanges);
-    else res.setHeader('Accept-Ranges', 'bytes'); // Always signal support for bytes if proxying
+    if (contentType) res.setHeader("Content-Type", contentType);
+    if (contentLength) res.setHeader("Content-Length", contentLength);
+    if (contentRange) res.setHeader("Content-Range", contentRange);
+    if (acceptRanges) res.setHeader("Accept-Ranges", acceptRanges);
+    else res.setHeader("Accept-Ranges", "bytes"); // Always signal support for bytes if proxying
 
     if (req.headers.range && response.status === 206) {
       res.status(206);
@@ -123,102 +161,106 @@ export class WhatsappController {
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('messages/send')
-  @Permissions('whatsapp.send')
+  @Post("messages/send")
+  @Permissions("whatsapp.send")
   sendMessage(
     @Req() req: any,
     @Body() payload: WhatsappSendMessagePayload,
-    @Query('accountId') accountId?: string,
-    @Query('localId') localId?: string
+    @Query("accountId") accountId?: string,
+    @Query("localId") localId?: string,
   ) {
-    return this.whatsappService.sendMessage(req.user, payload, accountId, localId);
+    return this.whatsappService.sendMessage(
+      req.user,
+      payload,
+      accountId,
+      localId,
+    );
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('messages/:messageId/retry')
-  @Permissions('whatsapp.send')
-  retryMessage(@Req() req: any, @Param('messageId') messageId: string) {
+  @Post("messages/:messageId/retry")
+  @Permissions("whatsapp.send")
+  retryMessage(@Req() req: any, @Param("messageId") messageId: string) {
     return this.whatsappService.retryMessage(req.user, messageId);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('messages/mark-as-read')
-  @Permissions('whatsapp.send')
-  markMessageAsRead(@Req() req: any, @Body() payload: { messageId?: string, conversationId?: string }) {
+  @Post("messages/mark-as-read")
+  @Permissions("whatsapp.send")
+  markMessageAsRead(
+    @Req() req: any,
+    @Body() payload: { messageId?: string; conversationId?: string },
+  ) {
     return this.whatsappService.markAsRead(req.user, payload);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('messages/upload-media')
-  @Permissions('whatsapp.send')
-  @UseInterceptors(FileInterceptor('file'))
+  @Post("messages/upload-media")
+  @Permissions("whatsapp.send")
+  @UseInterceptors(FileInterceptor("file"))
   async uploadMediaFile(
     @Req() req: any,
     @UploadedFile() file?: Express.Multer.File,
-    @Body('url') url?: string,
-    @Query('accountId') accountId?: string,
+    @Body("url") url?: string,
+    @Query("accountId") accountId?: string,
   ) {
     if (!file && !url) {
-      throw new BadRequestException('File or URL is required');
+      throw new BadRequestException("File or URL is required");
     }
 
-    return this.whatsappService.uploadMedia(req.user, {
-      file,
-      url,
-      mimeType: file?.mimetype,
-      filename: file?.originalname,
-    }, accountId);
+    return this.whatsappService.uploadMedia(
+      req.user,
+      {
+        file,
+        url,
+        mimeType: file?.mimetype,
+        filename: file?.originalname,
+      },
+      accountId,
+    );
   }
 
-
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('embedded-signup')
-  @Permissions('whatsapp.manage')
+  @Post("embedded-signup")
+  @Permissions("whatsapp.manage")
   async handleEmbeddedSignup(
     @Req() req: any,
-    @Body() payload: EmbeddedSignupDto
+    @Body() payload: EmbeddedSignupDto,
   ) {
     return this.whatsappService.handleEmbeddedSignup(req.user, payload);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('manual-add-account')
-  @Permissions('whatsapp.manage')
+  @Post("manual-add-account")
+  @Permissions("whatsapp.manage")
   async handleManualAddAccount(
     @Req() req: any,
-    @Body() payload: ManualAddAccountDto
+    @Body() payload: ManualAddAccountDto,
   ) {
     return this.whatsappService.handleManualAddAccount(req.user, payload);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Put(':id/manual-account')
-  @Permissions('whatsapp.manage')
+  @Put(":id/manual-account")
+  @Permissions("whatsapp.manage")
   async updateManualAccount(
     @Req() req: any,
-    @Param('id') id: string,
+    @Param("id") id: string,
     @Body() payload: UpdateManualAccountDto,
   ) {
-    return this.whatsappService.updateManualAccount(
-      req.user,
-      id,
-      payload,
-    );
+    return this.whatsappService.updateManualAccount(req.user, id, payload);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('accounts/:id/sync-templates')
-  @Permissions('whatsapp.manage')
-  async syncTemplates(
-    @Req() req: any,
-    @Param('id') id: string
-  ) {
+  @Post("accounts/:id/sync-templates")
+  @Permissions("whatsapp.manage")
+  async syncTemplates(@Req() req: any, @Param("id") id: string) {
     return this.whatsappService.syncTemplates(req.user, id);
   }
 
   @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-  @Post('replace-access-token')
-  @Permissions('whatsapp.manage')
+  @Post("replace-access-token")
+  @Permissions("whatsapp.manage")
   async replaceAccessToken(
     @Req() req: any,
     @Body() payload: ReplaceAccessTokenDto,
@@ -231,17 +273,17 @@ export class WhatsappController {
    *
    * GET /whatsapp/callback?code=xxx
    */
-  @Get('callback')
+  @Get("callback")
   async embeddedSignupCallback(
-    @Query('code') code: string,
-    @Query('state') state: string,
+    @Query("code") code: string,
+    @Query("state") state: string,
   ) {
-    console.log("code", code)
-    console.log("state", state)
+    console.log("code", code);
+    console.log("state", state);
 
     if (!code) {
       throw new HttpException(
-        'Missing authorization code',
+        "Missing authorization code",
         HttpStatus.BAD_REQUEST,
       );
     }
@@ -249,21 +291,32 @@ export class WhatsappController {
     return this.whatsappService.exchangeCodeForToken(code, state);
   }
 
-  @Get('webhook')
+  @Get("webhook")
   verifyWebhook(@Query() query: any) {
-    const mode = query['hub.mode'];
-    const token = query['hub.verify_token'];
-    const challenge = query['hub.challenge'];
+    const mode = query["hub.mode"];
+    const token = query["hub.verify_token"];
+    const challenge = query["hub.challenge"];
 
-    if (mode === 'subscribe' && token === process.env.META_WEBHOOK_VERIFY_TOKEN) {
+    if (
+      mode === "subscribe" &&
+      token === process.env.META_WEBHOOK_VERIFY_TOKEN
+    ) {
       return challenge;
     }
 
-    return 'Forbidden';
+    return "Forbidden";
   }
-  
-  @Post('webhook')
-  handleEvents(@Body() body: any, @Headers() headers: Record<string, string>, @Req() req: Request) {
-    return this.whatsappService.handleEvents(body, (req as any).rawBody as any, headers);
+
+  @Post("webhook")
+  handleEvents(
+    @Body() body: any,
+    @Headers() headers: Record<string, string>,
+    @Req() req: Request,
+  ) {
+    return this.whatsappService.handleEvents(
+      body,
+      (req as any).rawBody as any,
+      headers,
+    );
   }
 }

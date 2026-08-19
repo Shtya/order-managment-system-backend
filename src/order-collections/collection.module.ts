@@ -9,12 +9,16 @@ import { ShippingIntegrationEntity } from "entities/shipping.entity";
 
 // collection.module.ts
 @Module({
-    imports: [
-        TypeOrmModule.forFeature([OrderCollectionEntity, OrderEntity, ShippingIntegrationEntity]),
-        forwardRef(() => OrdersModule), // To access OrdersService
-    ],
-    controllers: [CollectionController],
-    providers: [CollectionService],
-    exports: [CollectionService],
+  imports: [
+    TypeOrmModule.forFeature([
+      OrderCollectionEntity,
+      OrderEntity,
+      ShippingIntegrationEntity,
+    ]),
+    forwardRef(() => OrdersModule), // To access OrdersService
+  ],
+  controllers: [CollectionController],
+  providers: [CollectionService],
+  exports: [CollectionService],
 })
-export class CollectionModule { }
+export class CollectionModule {}

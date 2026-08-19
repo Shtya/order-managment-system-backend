@@ -1,22 +1,32 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { DataSource, Repository } from "typeorm";
 import {
   SmsIntegrationEntity,
   SmsProviderEntity,
   SmsSenderEntity,
   SmsSendLogEntity,
   SmsSendStatus,
-} from 'entities/sms.entity';
-import { SmsegProvider } from './providers/smseg.provider';
-import { SmsProvider } from './providers/sms-provider.interface';
-import { SmsProviderType } from 'entities/sms.entity';
-import { CreateIntegrationDto, CreateSenderDto, SendSmsDto, UpdateIntegrationDto, UpdateSenderDto } from 'dto/sms.dto';
-import { tenantId } from 'src/category/category.service';
-import { DateFilterUtil } from 'common/date-filter.util';
-import * as ExcelJS from 'exceljs';
-import { TranslationService } from 'common/translation.service';
-import { normalizeEgyptianPhoneNumber } from 'common/whatsapp';
+} from "entities/sms.entity";
+import { SmsegProvider } from "./providers/smseg.provider";
+import { SmsProvider } from "./providers/sms-provider.interface";
+import { SmsProviderType } from "entities/sms.entity";
+import {
+  CreateIntegrationDto,
+  CreateSenderDto,
+  SendSmsDto,
+  UpdateIntegrationDto,
+  UpdateSenderDto,
+} from "dto/sms.dto";
+import { tenantId } from "src/category/category.service";
+import { DateFilterUtil } from "common/date-filter.util";
+import * as ExcelJS from "exceljs";
+import { TranslationService } from "common/translation.service";
+import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 @Injectable()
 export class SmsService {
@@ -42,7 +52,11 @@ export class SmsService {
 
   private getProvider(code: SmsProviderType): SmsProvider {
     const p = this.providers[code];
-    if (!p) throw new BadRequestException(this.translations.t('domains.sms_provider_not_supported'));
+    if (!p) {
+      throw new BadRequestException(
+        this.translations.t("domains.sms_provider_not_supported"),
+      );
+    }
     return p;
   }
 
@@ -50,34 +64,45 @@ export class SmsService {
     if (!credentials) return null;
 
     const masked = { ...credentials };
-    const sensitiveKeys = ['password'];
+    const sensitiveKeys = ["password"];
 
     sensitiveKeys.forEach((key) => {
       const value = masked[key];
-      if (value && typeof value === 'string') {
-        masked[key] = value.length > 8
-          ? `${value.substring(0, 4)}****************${value.slice(-4)}`
-          : "****************";
+      if (value && typeof value === "string") {
+        masked[key] =
+          value.length > 8
+            ? `${value.substring(0, 4)}****************${value.slice(-4)}`
+            : "****************";
       }
     });
 
     return masked;
   }
 
-  private withMaskedCredentials<T extends { credentials?: any }>(obj: T | null) {
+  private withMaskedCredentials<T extends { credentials?: any }>(
+    obj: T | null,
+  ) {
     if (!obj) return obj;
-    return { ...(obj as any), credentials: this.maskCredentials((obj as any).credentials) } as any;
+    return {
+      ...(obj as any),
+      credentials: this.maskCredentials((obj as any).credentials),
+    } as any;
   }
 
-  private withMaskedIntegration<T extends { integration?: any }>(obj: T | null) {
+  private withMaskedIntegration<T extends { integration?: any }>(
+    obj: T | null,
+  ) {
     if (!obj) return obj;
-    return { ...(obj as any), integration: this.withMaskedCredentials((obj as any).integration) } as any;
+    return {
+      ...(obj as any),
+      integration: this.withMaskedCredentials((obj as any).integration),
+    } as any;
   }
 
   // ─── Providers ───────────────────────────────────────────────
 
   async listProviders() {
-    return this.providersRepo.find({ order: { name: 'ASC' } });
+    return this.providersRepo.find({ order: { name: "ASC" } });
   }
 
   // ─── Integrations ────────────────────────────────────────────
@@ -86,8 +111,8 @@ export class SmsService {
     const adminId = tenantId(me);
     const integrations = await this.integrationsRepo.find({
       where: { adminId } as any,
-      relations: ['provider'],
-      order: { created_at: 'DESC' },
+      relations: ["provider"],
+      order: { created_at: "DESC" },
     });
     return integrations.map((i) => this.withMaskedCredentials(i as any) as any);
   }
@@ -96,8 +121,8 @@ export class SmsService {
     const adminId = tenantId(me);
     const integrations = await this.integrationsRepo.find({
       where: { adminId, isActive: true } as any,
-      relations: ['provider'],
-      order: { created_at: 'DESC' },
+      relations: ["provider"],
+      order: { created_at: "DESC" },
     });
     return integrations.map((i) => this.withMaskedCredentials(i as any) as any);
   }
@@ -106,9 +131,13 @@ export class SmsService {
     const adminId = tenantId(me);
     const integration = await this.integrationsRepo.findOne({
       where: { providerCode: provider, adminId } as any,
-      relations: ['provider'],
+      relations: ["provider"],
     });
-    if (!integration) throw new NotFoundException(this.translations.t('domains.sms_integration_not_found'));
+    if (!integration) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_integration_not_found"),
+      );
+    }
     return this.withMaskedCredentials(integration as any) as any;
   }
 
@@ -116,7 +145,7 @@ export class SmsService {
     const adminId = tenantId(me);
     if (!adminId) {
       throw new BadRequestException(
-        this.translations.t('common.missing_admin_id'),
+        this.translations.t("common.missing_admin_id"),
       );
     }
 
@@ -125,7 +154,7 @@ export class SmsService {
     });
     if (!provider) {
       throw new BadRequestException(
-        this.translations.t('domains.sms_provider_not_found'),
+        this.translations.t("domains.sms_provider_not_found"),
       );
     }
 
@@ -165,15 +194,26 @@ export class SmsService {
     return this.withMaskedCredentials(integration as any) as any;
   }
 
-  async updateIntegration(me: any, provider: string, dto: UpdateIntegrationDto) {
+  async updateIntegration(
+    me: any,
+    provider: string,
+    dto: UpdateIntegrationDto,
+  ) {
     const adminId = tenantId(me);
     const integration = await this.integrationsRepo.findOne({
       where: { providerCode: provider, adminId } as any,
-      relations: ['provider'],
+      relations: ["provider"],
     });
-    if (!integration) throw new NotFoundException(this.translations.t('domains.sms_integration_not_found'));
+    if (!integration) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_integration_not_found"),
+      );
+    }
 
-    const credentials = integration.credentials || { username: '', password: '' };
+    const credentials = integration.credentials || {
+      username: "",
+      password: "",
+    };
     if (dto.username !== undefined) credentials.username = dto.username;
     if (dto.password !== undefined) credentials.password = dto.password;
     (integration as any).credentials = credentials;
@@ -187,7 +227,11 @@ export class SmsService {
     const integration = await this.integrationsRepo.findOne({
       where: { providerCode: provider, adminId } as any,
     });
-    if (!integration) throw new NotFoundException(this.translations.t('domains.sms_integration_not_found'));
+    if (!integration) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_integration_not_found"),
+      );
+    }
 
     (integration as any).isActive = !(integration as any).isActive;
     const saved = await this.integrationsRepo.save(integration as any);
@@ -196,16 +240,24 @@ export class SmsService {
 
   async getDefaultSenderForIntegration(me: any, integrationId: string) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const integration = await this.integrationsRepo.findOne({
       where: { id: integrationId, adminId } as any,
     });
-    if (!integration) throw new NotFoundException(this.translations.t('domains.sms_integration_not_found'));
+    if (!integration) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_integration_not_found"),
+      );
+    }
 
     const sender = await this.sendersRepo.findOne({
       where: { adminId, integrationId, isActive: true, isDefault: true } as any,
-      relations: ['integration'],
+      relations: ["integration"],
     });
     return this.withMaskedIntegration(sender as any) as any;
   }
@@ -215,10 +267,10 @@ export class SmsService {
   async senderStats(me: any) {
     const adminId = tenantId(me);
     const result = await this.sendersRepo
-      .createQueryBuilder('s')
-      .select('COUNT(*)', 'total')
-      .addSelect(`SUM(CASE WHEN s.isActive = true THEN 1 ELSE 0 END)`, 'active')
-      .where('s.adminId = :adminId', { adminId })
+      .createQueryBuilder("s")
+      .select("COUNT(*)", "total")
+      .addSelect(`SUM(CASE WHEN s.isActive = true THEN 1 ELSE 0 END)`, "active")
+      .where("s.adminId = :adminId", { adminId })
       .getRawOne();
 
     return {
@@ -235,23 +287,30 @@ export class SmsService {
     const limit = q?.limit ?? 10;
 
     const qb = this.sendersRepo
-      .createQueryBuilder('s')
-      .leftJoinAndSelect('s.integration', 'integration')
-      .where('s.adminId = :adminId', { adminId })
-      .orderBy('s.isDefault', 'DESC')
-      .addOrderBy('s.created_at', 'DESC');
+      .createQueryBuilder("s")
+      .leftJoinAndSelect("s.integration", "integration")
+      .where("s.adminId = :adminId", { adminId })
+      .orderBy("s.isDefault", "DESC")
+      .addOrderBy("s.created_at", "DESC");
 
     if (q?.search?.trim()) {
       const search = `%${String(q.search).trim().toLowerCase()}%`;
-      qb.andWhere('(LOWER(s.name) LIKE :search OR LOWER(s.identifier) LIKE :search)', { search });
+      qb.andWhere(
+        "(LOWER(s.name) LIKE :search OR LOWER(s.identifier) LIKE :search)",
+        { search },
+      );
     }
 
     if (q?.integrationId) {
-      qb.andWhere('s.integrationId = :integrationId', { integrationId: q.integrationId });
+      qb.andWhere("s.integrationId = :integrationId", {
+        integrationId: q.integrationId,
+      });
     }
 
     if (q?.isActive !== undefined) {
-      qb.andWhere('s.isActive = :isActive', { isActive: q.isActive === 'true' });
+      qb.andWhere("s.isActive = :isActive", {
+        isActive: q.isActive === "true",
+      });
     }
 
     const [records, total] = await qb
@@ -259,7 +318,12 @@ export class SmsService {
       .take(limit)
       .getManyAndCount();
 
-    return { total_records: total, current_page: page, per_page: limit, records: records.map((r) => this.withMaskedIntegration(r as any) as any) };
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records: records.map((r) => this.withMaskedIntegration(r as any) as any),
+    };
   }
 
   async exportSenders(me: any, q: any) {
@@ -271,26 +335,53 @@ export class SmsService {
     });
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t('domains.sms.senders'));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.sms.senders"),
+    );
 
     worksheet.columns = [
-      { header: this.translations.t('common.name'), key: 'name', width: 25 },
-      { header: this.translations.t('domains.sms.identifier'), key: 'identifier', width: 25 },
-      { header: this.translations.t('domains.sms.isDefault'), key: 'isDefault', width: 15 },
-      { header: this.translations.t('common.status'), key: 'status', width: 15 },
-      { header: this.translations.t('common.description'), key: 'description', width: 35 },
+      { header: this.translations.t("common.name"), key: "name", width: 25 },
+      {
+        header: this.translations.t("domains.sms.identifier"),
+        key: "identifier",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.sms.isDefault"),
+        key: "isDefault",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.status"),
+        key: "status",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.description"),
+        key: "description",
+        width: 35,
+      },
     ];
 
     worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
 
     records.forEach((s) => {
       worksheet.addRow({
         name: s.name,
         identifier: s.identifier,
-        isDefault: s.isDefault ? this.translations.t('common.yes') : this.translations.t('common.no'),
-        status: s.isActive ? this.translations.t('common.active') : this.translations.t('common.inactive'),
-        description: s.description || this.translations.t('common.not_available_symbol'),
+        isDefault: s.isDefault
+          ? this.translations.t("common.yes")
+          : this.translations.t("common.no"),
+        status: s.isActive
+          ? this.translations.t("common.active")
+          : this.translations.t("common.inactive"),
+        description:
+          s.description || this.translations.t("common.not_available_symbol"),
       });
     });
 
@@ -299,11 +390,21 @@ export class SmsService {
 
   async createSender(me: any, dto: CreateSenderDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     if (dto.integrationId) {
-      const integration = await this.integrationsRepo.findOne({ where: { id: dto.integrationId, adminId } as any });
-      if (!integration) throw new BadRequestException(this.translations.t('domains.sms_integration_not_found'));
+      const integration = await this.integrationsRepo.findOne({
+        where: { id: dto.integrationId, adminId } as any,
+      });
+      if (!integration) {
+        throw new BadRequestException(
+          this.translations.t("domains.sms_integration_not_found"),
+        );
+      }
     }
 
     const existing = await this.sendersRepo.findOne({
@@ -324,13 +425,13 @@ export class SmsService {
     if (existing) {
       if (existing.name === dto.name) {
         throw new BadRequestException(
-          this.translations.t('domains.sms_sender_name_exists'),
+          this.translations.t("domains.sms_sender_name_exists"),
         );
       }
 
       if (existing.identifier === dto.identifier) {
         throw new BadRequestException(
-          this.translations.t('domains.sms_sender_identifier_exists'),
+          this.translations.t("domains.sms_sender_identifier_exists"),
         );
       }
     }
@@ -359,7 +460,7 @@ export class SmsService {
     });
     if (!sender) {
       throw new NotFoundException(
-        this.translations.t('domains.sms_sender_not_found'),
+        this.translations.t("domains.sms_sender_not_found"),
       );
     }
 
@@ -382,13 +483,13 @@ export class SmsService {
       if (existing && existing.id !== sender.id) {
         if (existing.name === (dto.name ?? sender.name)) {
           throw new BadRequestException(
-            this.translations.t('domains.sms_sender_name_exists'),
+            this.translations.t("domains.sms_sender_name_exists"),
           );
         }
 
         if (existing.identifier === (dto.identifier ?? sender.identifier)) {
           throw new BadRequestException(
-            this.translations.t('domains.sms_sender_identifier_exists'),
+            this.translations.t("domains.sms_sender_identifier_exists"),
           );
         }
       }
@@ -410,11 +511,17 @@ export class SmsService {
 
   async deleteSender(me: any, id: string) {
     const adminId = tenantId(me);
-    const sender = await this.sendersRepo.findOne({ where: { id, adminId } as any });
-    if (!sender) throw new NotFoundException(this.translations.t('domains.sms_sender_not_found'));
+    const sender = await this.sendersRepo.findOne({
+      where: { id, adminId } as any,
+    });
+    if (!sender) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_sender_not_found"),
+      );
+    }
 
     await this.sendersRepo.delete({ id } as any);
-    return { message: this.translations.t('domains.sms.sender_deleted') };
+    return { message: this.translations.t("domains.sms.sender_deleted") };
   }
 
   async setSenderDefault(me: any, id: string) {
@@ -427,7 +534,7 @@ export class SmsService {
 
       if (!sender) {
         throw new NotFoundException(
-          this.translations.t('domains.sms_sender_not_found'),
+          this.translations.t("domains.sms_sender_not_found"),
         );
       }
 
@@ -449,8 +556,14 @@ export class SmsService {
 
   async toggleSenderActive(me: any, id: string) {
     const adminId = tenantId(me);
-    const sender = await this.sendersRepo.findOne({ where: { id, adminId } as any });
-    if (!sender) throw new NotFoundException(this.translations.t('domains.sms_sender_not_found'));
+    const sender = await this.sendersRepo.findOne({
+      where: { id, adminId } as any,
+    });
+    if (!sender) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_sender_not_found"),
+      );
+    }
 
     (sender as any).isActive = !(sender as any).isActive;
     return this.sendersRepo.save(sender as any);
@@ -460,29 +573,52 @@ export class SmsService {
 
   async sendSms(me: any, providerCode: string, dto: SendSmsDto) {
     const adminId = tenantId(me);
-    if (!adminId) throw new BadRequestException(this.translations.t('common.missing_admin_id'));
-
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
     const integration = await this.integrationsRepo.findOne({
       where: { providerCode: providerCode, adminId, isActive: true } as any,
-      relations: ['provider'],
+      relations: ["provider"],
     });
-    if (!integration) throw new BadRequestException(this.translations.t('domains.sms_integration_not_found_or_inactive'));
+    if (!integration) {
+      throw new BadRequestException(
+        this.translations.t("domains.sms_integration_not_found_or_inactive"),
+      );
+    }
 
     let sender: SmsSenderEntity | null = null;
     if (dto.senderId) {
-      sender = await this.sendersRepo.findOne({ where: { id: dto.senderId, adminId, isActive: true } as any });
-      if (!sender) throw new BadRequestException(this.translations.t('domains.sms_sender_not_found_or_inactive'));
+      sender = await this.sendersRepo.findOne({
+        where: { id: dto.senderId, adminId, isActive: true } as any,
+      });
+      if (!sender) {
+        throw new BadRequestException(
+          this.translations.t("domains.sms_sender_not_found_or_inactive"),
+        );
+      }
     } else {
       sender = await this.sendersRepo.findOne({
-        where: { adminId, integrationId: integration.id, isActive: true, isDefault: true } as any,
-        order: { isDefault: 'DESC' },
+        where: {
+          adminId,
+          integrationId: integration.id,
+          isActive: true,
+          isDefault: true,
+        } as any,
+        order: { isDefault: "DESC" },
       });
     }
 
-    const credentials = integration.credentials || { username: '', password: '' };
-    const senderIdentifier = sender?.identifier || '';
-    const provider = this.getProvider(integration.providerCode as SmsProviderType);
+    const credentials = integration.credentials || {
+      username: "",
+      password: "",
+    };
+    const senderIdentifier = sender?.identifier || "";
+    const provider = this.getProvider(
+      integration.providerCode as SmsProviderType,
+    );
 
     const phoneNumber = normalizeEgyptianPhoneNumber(dto.toNumber);
     const result = await provider.sendSms(
@@ -514,11 +650,17 @@ export class SmsService {
   async logStats(me: any) {
     const adminId = tenantId(me);
     const result = await this.logsRepo
-      .createQueryBuilder('l')
-      .select('COUNT(*)', 'total')
-      .addSelect(`SUM(CASE WHEN l.status = 'failed' THEN 1 ELSE 0 END)`, 'failed')
-      .addSelect(`SUM(CASE WHEN l.status IN ('sent') THEN 1 ELSE 0 END)`, 'success')
-      .where('l.adminId = :adminId', { adminId })
+      .createQueryBuilder("l")
+      .select("COUNT(*)", "total")
+      .addSelect(
+        `SUM(CASE WHEN l.status = 'failed' THEN 1 ELSE 0 END)`,
+        "failed",
+      )
+      .addSelect(
+        `SUM(CASE WHEN l.status IN ('sent') THEN 1 ELSE 0 END)`,
+        "success",
+      )
+      .where("l.adminId = :adminId", { adminId })
       .getRawOne();
 
     const total = Number(result.total);
@@ -537,25 +679,35 @@ export class SmsService {
     const limit = q?.limit ?? 10;
 
     const qb = this.logsRepo
-      .createQueryBuilder('l')
-      .leftJoinAndSelect('l.provider', 'provider')
-      .leftJoinAndSelect('l.sender', 'sender')
-      .where('l.adminId = :adminId', { adminId })
-      .orderBy('l.created_at', 'DESC');
+      .createQueryBuilder("l")
+      .leftJoinAndSelect("l.provider", "provider")
+      .leftJoinAndSelect("l.sender", "sender")
+      .where("l.adminId = :adminId", { adminId })
+      .orderBy("l.created_at", "DESC");
 
-    DateFilterUtil.applyToQueryBuilder(qb, 'l.created_at', q?.startDate, q?.endDate);
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "l.created_at",
+      q?.startDate,
+      q?.endDate,
+    );
 
     if (q?.status) {
-      qb.andWhere('l.status = :status', { status: q.status });
+      qb.andWhere("l.status = :status", { status: q.status });
     }
 
     if (q?.providerCode) {
-      qb.andWhere('l.providerCode = :providerCode', { providerCode: q.providerCode });
+      qb.andWhere("l.providerCode = :providerCode", {
+        providerCode: q.providerCode,
+      });
     }
 
     if (q?.search?.trim()) {
       const search = `%${String(q.search).trim().toLowerCase()}%`;
-      qb.andWhere('(LOWER(l.toNumber) LIKE :search OR LOWER(l.message) LIKE :search)', { search });
+      qb.andWhere(
+        "(LOWER(l.toNumber) LIKE :search OR LOWER(l.message) LIKE :search)",
+        { search },
+      );
     }
 
     const [records, total] = await qb
@@ -563,16 +715,25 @@ export class SmsService {
       .take(limit)
       .getManyAndCount();
 
-    return { total_records: total, current_page: page, per_page: limit, records };
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
   }
 
   async getLog(me: any, id: string) {
     const adminId = tenantId(me);
     const log = await this.logsRepo.findOne({
       where: { id, adminId } as any,
-      relations: ['provider', 'sender', 'integration'],
+      relations: ["provider", "sender", "integration"],
     });
-    if (!log) throw new NotFoundException(this.translations.t('domains.sms_log_not_found'));
+    if (!log) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_log_not_found"),
+      );
+    }
     return this.withMaskedIntegration(log as any) as any;
   }
 
@@ -580,37 +741,56 @@ export class SmsService {
     const adminId = tenantId(me);
     const log = await this.logsRepo.findOne({
       where: { id, adminId } as any,
-      relations: ['provider'],
+      relations: ["provider"],
     });
-    if (!log) throw new NotFoundException(this.translations.t('domains.sms_log_not_found'));
+    if (!log) {
+      throw new NotFoundException(
+        this.translations.t("domains.sms_log_not_found"),
+      );
+    }
 
     if (log.status === SmsSendStatus.SENT) {
-      throw new BadRequestException(this.translations.t('domains.sms_log_already_sent'));
+      throw new BadRequestException(
+        this.translations.t("domains.sms_log_already_sent"),
+      );
     }
 
     const integration = await this.integrationsRepo.findOne({
       where: { id: log.integrationId, adminId } as any,
     });
-    if (!integration) throw new BadRequestException(this.translations.t('domains.sms_integration_not_found'));
+    if (!integration) {
+      throw new BadRequestException(
+        this.translations.t("domains.sms_integration_not_found"),
+      );
+    }
 
-    const credentials = integration.credentials || { username: '', password: '' };
+    const credentials = integration.credentials || {
+      username: "",
+      password: "",
+    };
     const provider = this.getProvider(log.providerCode as SmsProviderType);
 
-    let senderIdentifier = '';
+    let senderIdentifier = "";
     if (log.senderId) {
-      const sender = await this.sendersRepo.findOne({ where: { id: log.senderId } as any });
+      const sender = await this.sendersRepo.findOne({
+        where: { id: log.senderId } as any,
+      });
       if (sender) senderIdentifier = sender.identifier;
     }
 
     if (!senderIdentifier) {
       throw new BadRequestException(
-        this.translations.t('domains.sms_sender_identifier_not_found'),
+        this.translations.t("domains.sms_sender_identifier_not_found"),
       );
     }
 
     const result = await provider.sendSms(
       { username: credentials.username, password: credentials.password },
-      { toNumber: log.toNumber, message: log.message, sender: senderIdentifier },
+      {
+        toNumber: log.toNumber,
+        message: log.message,
+        sender: senderIdentifier,
+      },
     );
 
     log.status = result.success ? SmsSendStatus.SENT : SmsSendStatus.FAILED;
@@ -629,32 +809,64 @@ export class SmsService {
       page: 1,
     });
 
-
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet(this.translations.t('domains.sms.logs'));
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.sms.logs"),
+    );
 
     worksheet.columns = [
-      { header: this.translations.t('domains.sms.toNumber'), key: 'toNumber', width: 20 },
-      { header: this.translations.t('domains.sms.message'), key: 'message', width: 40 },
-      { header: this.translations.t('domains.sms.sender'), key: 'sender', width: 20 },
-      { header: this.translations.t('domains.sms.status'), key: 'status', width: 15 },
-      { header: this.translations.t('domains.sms.providerMessageId'), key: 'providerMessageId', width: 25 },
-      { header: this.translations.t('common.error'), key: 'error', width: 30 },
-      { header: this.translations.t('common.sent_at'), key: 'sent_at', width: 25 },
+      {
+        header: this.translations.t("domains.sms.toNumber"),
+        key: "toNumber",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.sms.message"),
+        key: "message",
+        width: 40,
+      },
+      {
+        header: this.translations.t("domains.sms.sender"),
+        key: "sender",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.sms.status"),
+        key: "status",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.sms.providerMessageId"),
+        key: "providerMessageId",
+        width: 25,
+      },
+      { header: this.translations.t("common.error"), key: "error", width: 30 },
+      {
+        header: this.translations.t("common.sent_at"),
+        key: "sent_at",
+        width: 25,
+      },
     ];
 
     worksheet.getRow(1).font = { bold: true };
-    worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E0E0' } };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
 
     records.forEach((l) => {
       worksheet.addRow({
         toNumber: l.toNumber,
         message: l.message,
-        sender: l.sender?.name || this.translations.t('common.not_available_symbol'),
+        sender:
+          l.sender?.name || this.translations.t("common.not_available_symbol"),
         status: l.status,
-        providerMessageId: l.providerMessageId || this.translations.t('common.not_available_symbol'),
-        error: l.error || '',
-        sent_at: l.sent_at ? l.sent_at.toISOString() : '',
+        providerMessageId:
+          l.providerMessageId ||
+          this.translations.t("common.not_available_symbol"),
+        error: l.error || "",
+        sent_at: l.sent_at ? l.sent_at.toISOString() : "",
       });
     });
 

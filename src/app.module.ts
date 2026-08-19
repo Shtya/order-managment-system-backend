@@ -1,68 +1,82 @@
 import { ExecutionContext, Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { GlobalExceptionFilter, QueryExceptionFilter } from "common/GlobalExceptionFilter";
+import {
+  GlobalExceptionFilter,
+  QueryExceptionFilter,
+} from "common/GlobalExceptionFilter";
 import { AuthModule } from "./auth/auth.module";
 import { UsersModule } from "./users/users.module";
 import { PermissionsModule } from "./permissions/permissions.module";
 import { RolesModule } from "./roles/roles.module";
-import { LookupsModule } from './lookups/lookups.module';
-import { PlansModule } from './plans/plans.module';
-import { TransactionsModule } from './transactions/transactions.module';
-import { StoresModule } from './stores/stores.module';
-import { WarehousesModule } from './warehouse/warehouse.module';
-import { CategoryModule } from './category/category.module';
-import { ProductsModule } from './products/products.module';
+import { LookupsModule } from "./lookups/lookups.module";
+import { PlansModule } from "./plans/plans.module";
+import { TransactionsModule } from "./transactions/transactions.module";
+import { StoresModule } from "./stores/stores.module";
+import { WarehousesModule } from "./warehouse/warehouse.module";
+import { CategoryModule } from "./category/category.module";
+import { ProductsModule } from "./products/products.module";
 import { AssetModule } from "./asset/asset.module";
 import { SuppliersModule } from "./supplier/supplier.module";
 import { SupplierCategoriesModule } from "./supplier/categories/categories.module";
-import { PurchasesModule } from './purchases/purchases.module';
-import { PurchasesReturnModule } from './purchases-return/purchases-return.module';
-import { OrdersModule } from './orders/orders.module';
-import { BundlesModule } from './bundles/bundles.module';
+import { PurchasesModule } from "./purchases/purchases.module";
+import { PurchasesReturnModule } from "./purchases-return/purchases-return.module";
+import { OrdersModule } from "./orders/orders.module";
+import { BundlesModule } from "./bundles/bundles.module";
 import { EncryptionService } from "common/encryption.service";
 import { ShippingModule } from "./shipping/shipping.module";
-import { ShipmentEntity, ShipmentEventEntity, ShippingIntegrationEntity } from "../entities/shipping.entity";
+import {
+  ShipmentEntity,
+  ShipmentEventEntity,
+  ShippingIntegrationEntity,
+} from "../entities/shipping.entity";
 import { NotificationModule } from "./notifications/notification.module";
 import { WebSocketModule } from "common/websocket.module";
 import { CollectionModule } from "./order-collections/collection.module";
-import { DashboardModule } from './dashboard/dashboard.module';
+import { DashboardModule } from "./dashboard/dashboard.module";
 import { SubscriptionsModule } from "./subscription/subscription.module";
-import { PaymentsModule } from './payments/payments.module';
+import { PaymentsModule } from "./payments/payments.module";
 import kashierConfig from "./payments/configs/kashier.config";
 import redisConfig from "common/redis/redis.config";
 import { ScheduleModule } from "@nestjs/schedule";
-import { WalletModule } from './wallet/wallet.module';
-import { CronModule } from './cron/cron.module';
-import { ExtraFeaturesModule } from './extra-features/extra-features.module';
+import { WalletModule } from "./wallet/wallet.module";
+import { CronModule } from "./cron/cron.module";
+import { ExtraFeaturesModule } from "./extra-features/extra-features.module";
 import { RedisModule } from "common/redis/redis.module";
-import { AdminSettingsModule } from './admin-settings/admin-settings.module';
-import { AccountingModule } from './accounting/accounting.module';
+import { AdminSettingsModule } from "./admin-settings/admin-settings.module";
+import { AccountingModule } from "./accounting/accounting.module";
 import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
-import { ProductSyncStateModule } from './product-sync-state/product-sync-state.module';
-import { days, hours, minutes, seconds, ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
-import { APP_GUARD } from '@nestjs/core';
-import { SafesModule } from './safes/safes.module';
-import { SupplierPaymentsModule } from './supplier-payments/supplier-payments.module';
-import { WhatsappModule } from './whatsapp/whatsapp.module';
-import { AutomationModule } from './automation/automation.module';
-import { SystemErorrsModule } from './system-erorrs/system-erorrs.module';
-import { UpsellsModule } from './upsells/upsells.module';
-import { ConversationModule } from './conversation/conversation.module';
-import { CustomerModule } from './customer/customer.module';
-import { CitiesModule } from './cities/cities.module';
-import { OrderAssignmentModule } from './order-assignment/order-assignment.module';
+import { ProductSyncStateModule } from "./product-sync-state/product-sync-state.module";
+import {
+  days,
+  hours,
+  minutes,
+  seconds,
+  ThrottlerGuard,
+  ThrottlerModule,
+} from "@nestjs/throttler";
+import { APP_GUARD } from "@nestjs/core";
+import { SafesModule } from "./safes/safes.module";
+import { SupplierPaymentsModule } from "./supplier-payments/supplier-payments.module";
+import { WhatsappModule } from "./whatsapp/whatsapp.module";
+import { AutomationModule } from "./automation/automation.module";
+import { SystemErorrsModule } from "./system-erorrs/system-erorrs.module";
+import { UpsellsModule } from "./upsells/upsells.module";
+import { ConversationModule } from "./conversation/conversation.module";
+import { CustomerModule } from "./customer/customer.module";
+import { CitiesModule } from "./cities/cities.module";
+import { OrderAssignmentModule } from "./order-assignment/order-assignment.module";
 import { QueueModule } from "./queue/queue.module";
 import { UserThrottlerGuard } from "common/userThrottlerGuard";
-import { createHash } from 'crypto';
+import { createHash } from "crypto";
 import { TranslationModule } from "common/translation.service";
-import { ClientSettingsModule } from './client-settings/client-settings.module';
-import { SmsModule } from './sms/sms.module';
-import { SupportTicketModule } from './support_ticket/support_ticket.module';
-import { IssueModule } from './issue/issue.module';
-import { GettingStartedModule } from './getting-started/getting-started.module';
-import { AiModule } from './ai/ai.module';
-import { config as loadEnvFile } from 'dotenv';
+import { ClientSettingsModule } from "./client-settings/client-settings.module";
+import { SmsModule } from "./sms/sms.module";
+import { SupportTicketModule } from "./support_ticket/support_ticket.module";
+import { IssueModule } from "./issue/issue.module";
+import { GettingStartedModule } from "./getting-started/getting-started.module";
+import { AiModule } from "./ai/ai.module";
+import { config as loadEnvFile } from "dotenv";
 
 // Load env files BEFORE the module decorator is evaluated so that
 // process.env checks at module-definition time (e.g. AI_MODULE_ENABLED)
@@ -72,104 +86,111 @@ import { config as loadEnvFile } from 'dotenv';
 
 // const aiEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.AI_MODULE_ENABLED ?? '').toLowerCase());
 @Module({
-	imports: [
-		ScheduleModule.forRoot(),
-		ConfigModule.forRoot({
-			isGlobal: true,
-			envFilePath: ['.env', `.env.${process.env.NODE_ENV || 'production'}`],
-			load: [kashierConfig, redisConfig],
-		}),
-		ThrottlerModule.forRoot({
-			throttlers: [
-				{
-					name: 'default',
-					ttl: minutes(1),
-					limit: 300
-				}
-			],
-			errorMessage: "Too many attempts. Please wait before trying again.",
-			generateKey: (
-				context: ExecutionContext,
-				trackerString: string,
-				throttlerName: string,
-			) => {
-				return createHash('sha256')
-					.update(`${throttlerName}:${trackerString}`)
-					.digest('hex');
-			}
-		}),
-		TypeOrmModule.forRoot({
-			type: "postgres",
-			host: process.env.DATABASE_HOST,
-			port: parseInt(process.env.DATABASE_PORT, 10),
-			username: process.env.DATABASE_USER,
-			password: process.env.DATABASE_PASSWORD,
-			database: process.env.DATABASE_NAME,
-			entities: [__dirname + '/../**/*.entity{.ts,.js}', ShippingIntegrationEntity, ShipmentEntity, ShipmentEventEntity],
-			synchronize: process.env.NODE_ENV === "development",
-			logging: false
-		}),
-		AuthModule,
-		CitiesModule,
-		ClientSettingsModule,
-		TranslationModule,
-		QueueModule,
-		RolesModule,
-		PermissionsModule,
-		UsersModule,
-		LookupsModule,
-		PlansModule,
-		TransactionsModule,
-		StoresModule,
-		WarehousesModule,
-		CategoryModule,
-		ProductsModule,
-		AssetModule,
-		SuppliersModule,
-		SupplierCategoriesModule,
-		PurchasesModule,
-		PurchasesReturnModule,
-		OrdersModule,
-		BundlesModule,
-		// ShippingCompaniesModule
-		WebSocketModule,
-		ShippingModule,
-		NotificationModule,
-		CollectionModule,
-		DashboardModule,
-		SubscriptionsModule,
-		PaymentsModule,
-		WalletModule,
-		CronModule,
-		OrphanFilesModule,
-		ExtraFeaturesModule,
-		RedisModule,
-		AdminSettingsModule,
-		AccountingModule,
-		ProductSyncStateModule,
-		SafesModule,
-		SupplierPaymentsModule,
-		WhatsappModule,
-		AutomationModule,
-		SystemErorrsModule,
-		UpsellsModule,
-		ConversationModule,
-		CustomerModule,
-		OrderAssignmentModule,
-		ClientSettingsModule,
-		SmsModule,
-		SupportTicketModule,
-		IssueModule,
-		GettingStartedModule,
-		AiModule,
-	],
-	providers: [
-		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,
-		{
-			provide: APP_GUARD,
-			useClass: UserThrottlerGuard
-		}
-	],
-	exports: [],
+  imports: [
+    ScheduleModule.forRoot(),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: [".env", `.env.${process.env.NODE_ENV || "production"}`],
+      load: [kashierConfig, redisConfig],
+    }),
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          name: "default",
+          ttl: minutes(1),
+          limit: 300,
+        },
+      ],
+      errorMessage: "Too many attempts. Please wait before trying again.",
+      generateKey: (
+        context: ExecutionContext,
+        trackerString: string,
+        throttlerName: string,
+      ) => {
+        return createHash("sha256")
+          .update(`${throttlerName}:${trackerString}`)
+          .digest("hex");
+      },
+    }),
+    TypeOrmModule.forRoot({
+      type: "postgres",
+      host: process.env.DATABASE_HOST,
+      port: parseInt(process.env.DATABASE_PORT, 10),
+      username: process.env.DATABASE_USER,
+      password: process.env.DATABASE_PASSWORD,
+      database: process.env.DATABASE_NAME,
+      entities: [
+        __dirname + "/../**/*.entity{.ts,.js}",
+        ShippingIntegrationEntity,
+        ShipmentEntity,
+        ShipmentEventEntity,
+      ],
+      synchronize: process.env.NODE_ENV === "development",
+      logging: false,
+    }),
+    AuthModule,
+    CitiesModule,
+    ClientSettingsModule,
+    TranslationModule,
+    QueueModule,
+    RolesModule,
+    PermissionsModule,
+    UsersModule,
+    LookupsModule,
+    PlansModule,
+    TransactionsModule,
+    StoresModule,
+    WarehousesModule,
+    CategoryModule,
+    ProductsModule,
+    AssetModule,
+    SuppliersModule,
+    SupplierCategoriesModule,
+    PurchasesModule,
+    PurchasesReturnModule,
+    OrdersModule,
+    BundlesModule,
+    // ShippingCompaniesModule
+    WebSocketModule,
+    ShippingModule,
+    NotificationModule,
+    CollectionModule,
+    DashboardModule,
+    SubscriptionsModule,
+    PaymentsModule,
+    WalletModule,
+    CronModule,
+    OrphanFilesModule,
+    ExtraFeaturesModule,
+    RedisModule,
+    AdminSettingsModule,
+    AccountingModule,
+    ProductSyncStateModule,
+    SafesModule,
+    SupplierPaymentsModule,
+    WhatsappModule,
+    AutomationModule,
+    SystemErorrsModule,
+    UpsellsModule,
+    ConversationModule,
+    CustomerModule,
+    OrderAssignmentModule,
+    ClientSettingsModule,
+    SmsModule,
+    SupportTicketModule,
+    IssueModule,
+    GettingStartedModule,
+    AiModule,
+  ],
+  providers: [
+    GlobalExceptionFilter,
+    QueryExceptionFilter,
+    EncryptionService,
+    {
+      provide: APP_GUARD,
+      useClass: UserThrottlerGuard,
+    },
+  ],
+  exports: [],
 })
-export class AppModule { }
+export class AppModule {}

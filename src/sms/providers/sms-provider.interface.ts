@@ -27,6 +27,9 @@ export abstract class SmsProvider {
   abstract readonly code: SmsProviderType;
   abstract readonly displayName: string;
 
-  abstract sendSms(credentials: SmsCredentials, payload: SendSmsPayload): Promise<SendSmsResult>;
+  abstract sendSms(
+    credentials: SmsCredentials,
+    payload: SendSmsPayload,
+  ): Promise<SendSmsResult>;
   // abstract verifyCredentials(credentials: SmsCredentials): Promise<VerifyCredentialsResult>;
 }

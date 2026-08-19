@@ -1,56 +1,86 @@
-import { Body, Controller, Delete, Get, MaxFileSizeValidator, Param, ParseFilePipe, ParseIntPipe, Patch, Post, Query, Req, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
-import { ExpensesService } from '../services/expenses.service';
-import { CreateManualExpenseDto, UpdateManualExpenseDto } from 'dto/accounting.dto';
-import { SubscriptionGuard } from 'common/subscription.guard';
-import { PermissionsGuard } from 'common/permissions.guard';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { Response } from 'express';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { Permissions } from 'common/permissions.decorator';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  MaxFileSizeValidator,
+  Param,
+  ParseFilePipe,
+  ParseIntPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from "@nestjs/common";
+import { ExpensesService } from "../services/expenses.service";
+import {
+  CreateManualExpenseDto,
+  UpdateManualExpenseDto,
+} from "dto/accounting.dto";
+import { SubscriptionGuard } from "common/subscription.guard";
+import { PermissionsGuard } from "common/permissions.guard";
+import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
+import { Response } from "express";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { diskStorage } from "multer";
+import { extname } from "path";
+import { Permissions } from "common/permissions.decorator";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-@Controller('expenses')
+@Controller("expenses")
 export class ExpensesController {
-  constructor(private readonly expensesService: ExpensesService) { }
+  constructor(private readonly expensesService: ExpensesService) {}
 
-  @Get('export')
-  @Permissions('accounting.read')
+  @Get("export")
+  @Permissions("accounting.read")
   async export(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.expensesService.exportExpenses(req.user, q);
 
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename=expenses_export_${Date.now()}.xlsx`);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=expenses_export_${Date.now()}.xlsx`,
+    );
 
     return res.send(buffer);
   }
 
   @Get()
-  @Permissions('accounting.read')
+  @Permissions("accounting.read")
   async listExpenses(@Req() req: any, @Query() q: any) {
     return await this.expensesService.listExpenses(req.user, q);
   }
 
-  @Get(':id')
-  @Permissions('accounting.read')
-  async getExpense(@Req() req: any, @Param('id') id: string) {
+  @Get(":id")
+  @Permissions("accounting.read")
+  async getExpense(@Req() req: any, @Param("id") id: string) {
     return await this.expensesService.getExpense(req.user, id);
   }
 
-
-
   @Post()
-  @Permissions('accounting.update')
-  @UseInterceptors(FileInterceptor('attachment', {
-    storage: diskStorage({
-      destination: './uploads/expenses',
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`);
-      },
+  @Permissions("accounting.update")
+  @UseInterceptors(
+    FileInterceptor("attachment", {
+      storage: diskStorage({
+        destination: "./uploads/expenses",
+        filename: (req, file, cb) => {
+          const uniqueSuffix =
+            Date.now() + "-" + Math.round(Math.random() * 1e9);
+          cb(
+            null,
+            `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`,
+          );
+        },
+      }),
     }),
-  }))
+  )
   async createExpense(
     @Req() req: any,
     @Body() dto: CreateManualExpenseDto,
@@ -61,7 +91,8 @@ export class ExpensesController {
         ],
         fileIsRequired: false,
       }),
-    ) file?: Express.Multer.File,
+    )
+    file?: Express.Multer.File,
   ) {
     if (file) {
       dto.attachment = `/uploads/expenses/${file.filename}`;
@@ -69,29 +100,34 @@ export class ExpensesController {
     return await this.expensesService.createExpense(req.user, dto);
   }
 
-  @Patch(':id')
-  @Permissions('accounting.update')
-  @UseInterceptors(FileInterceptor('attachment', {
-    storage: diskStorage({
-      destination: './uploads/expenses',
-      filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-        cb(null, `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`);
-      },
+  @Patch(":id")
+  @Permissions("accounting.update")
+  @UseInterceptors(
+    FileInterceptor("attachment", {
+      storage: diskStorage({
+        destination: "./uploads/expenses",
+        filename: (req, file, cb) => {
+          const uniqueSuffix =
+            Date.now() + "-" + Math.round(Math.random() * 1e9);
+          cb(
+            null,
+            `${file.fieldname}-${uniqueSuffix}${extname(file.originalname)}`,
+          );
+        },
+      }),
     }),
-  }))
+  )
   async update(
     @Req() req: any,
-    @Param('id') id: string,
+    @Param("id") id: string,
     @Body() dto: UpdateManualExpenseDto,
     @UploadedFile(
       new ParseFilePipe({
-        validators: [
-          new MaxFileSizeValidator({ maxSize: 20 * 1024 * 1024 }),
-        ],
+        validators: [new MaxFileSizeValidator({ maxSize: 20 * 1024 * 1024 })],
         fileIsRequired: false,
       }),
-    ) file?: Express.Multer.File,
+    )
+    file?: Express.Multer.File,
   ) {
     if (file) {
       dto.attachment = `/uploads/expenses/${file.filename}`;
@@ -99,12 +135,9 @@ export class ExpensesController {
     return await this.expensesService.updateExpense(req.user, id, dto);
   }
 
-  @Delete(':id')
-  @Permissions('accounting.update')
-  async remove(
-    @Req() req: any,
-    @Param('id') id: string
-  ) {
+  @Delete(":id")
+  @Permissions("accounting.update")
+  async remove(@Req() req: any, @Param("id") id: string) {
     return await this.expensesService.deleteExpense(req.user, id);
   }
 }

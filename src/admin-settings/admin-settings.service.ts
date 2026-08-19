@@ -11,7 +11,7 @@ export class AdminSettingsService {
   constructor(
     @InjectRepository(AdminSettingsEntity)
     private readonly settingsRepo: Repository<AdminSettingsEntity>,
-    private readonly translations: TranslationService
+    private readonly translations: TranslationService,
   ) {}
   private isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;

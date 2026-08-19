@@ -1,44 +1,46 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
-import { AI_TOOL_NAMESPACE_TOKEN } from '../ai.constants';
-import { AiTool } from './ai-tool.abstract';
-import { AiToolContext } from './ai-tool-context';
-import { AiToolSpec } from '../interfaces/ai-types';
+import { Inject, Injectable, OnModuleInit } from "@nestjs/common";
+import { AI_TOOL_NAMESPACE_TOKEN } from "../ai.constants";
+import { AiTool } from "./ai-tool.abstract";
+import { AiToolContext } from "./ai-tool-context";
+import { AiToolSpec } from "../interfaces/ai-types";
 
 export interface AiToolNamespace {
-	getTools(): AiTool[];
+  getTools(): AiTool[];
 }
 
 @Injectable()
 export class AiToolRegistryService implements OnModuleInit {
-	private readonly tools = new Map<string, AiTool>();
+  private readonly tools = new Map<string, AiTool>();
 
-	constructor(
-		@Inject(AI_TOOL_NAMESPACE_TOKEN)
-		private readonly namespaces: AiToolNamespace[],
-	) {}
+  constructor(
+    @Inject(AI_TOOL_NAMESPACE_TOKEN)
+    private readonly namespaces: AiToolNamespace[],
+  ) {}
 
-	onModuleInit() {
-		for (const namespace of this.namespaces ?? []) {
-			for (const tool of namespace.getTools() ?? []) {
-				if (this.tools.has(tool.name)) {
-					throw new Error(`Duplicate AI tool name '${tool.name}' registered across namespaces`);
-				}
-				this.tools.set(tool.name, tool);
-			}
-		}
-	}
+  onModuleInit() {
+    for (const namespace of this.namespaces ?? []) {
+      for (const tool of namespace.getTools() ?? []) {
+        if (this.tools.has(tool.name)) {
+          throw new Error(
+            `Duplicate AI tool name '${tool.name}' registered across namespaces`,
+          );
+        }
+        this.tools.set(tool.name, tool);
+      }
+    }
+  }
 
-	getTool(name: string): AiTool | undefined {
-		return this.tools.get(name);
-	}
+  getTool(name: string): AiTool | undefined {
+    return this.tools.get(name);
+  }
 
-	getAllTools(): AiTool[] {
-		return Array.from(this.tools.values());
-	}
+  getAllTools(): AiTool[] {
+    return Array.from(this.tools.values());
+  }
 
-	getToolSpecs(ctx: AiToolContext): AiToolSpec[] {
-		return this.getAllTools()
-			.filter((tool) => tool.canRunFor(ctx))
-			.map((tool) => tool.toSpec());
-	}
+  getToolSpecs(ctx: AiToolContext): AiToolSpec[] {
+    return this.getAllTools()
+      .filter((tool) => tool.canRunFor(ctx))
+      .map((tool) => tool.toSpec());
+  }
 }

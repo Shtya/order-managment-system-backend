@@ -42,17 +42,15 @@ import {
 import { ScanLogType, ScanReason } from "entities/order.entity";
 import { tenantId } from "src/category/category.service";
 
-
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("orders")
 @RequireSubscription()
 export class OrdersController {
-  constructor(private svc: OrdersService) { }
+  constructor(private svc: OrdersService) {}
 
   // ✅ Get order statistics
   @Get("stats")
   @Permissions("orders.read")
-
   stats(@Req() req: any, @Query() q: any) {
     return this.svc.getStats(req.user, q);
   }
@@ -69,12 +67,9 @@ export class OrdersController {
     return this.svc.getReturnPreparingStatsByCompany(req.user, q);
   }
 
-  @Get(':id/history')
+  @Get(":id/history")
   @Permissions("orders.read")
-  async getHistory(
-    @Param("id") orderId: string,
-    @Req() req: any
-  ) {
+  async getHistory(@Param("id") orderId: string, @Req() req: any) {
     return await this.svc.getOrderHistory(orderId, req.user);
   }
 
@@ -90,29 +85,32 @@ export class OrdersController {
     return this.svc.getStatus(req.user, id);
   }
 
-
-  @Post(':id/scan-preparation/:sku')
+  @Post(":id/scan-preparation/:sku")
   @Permissions("warehouses.scan-preparation")
   async scanPreparation(
     @Param("id") id: string,
-    @Param('sku') sku: string,
-    @Body('itemId') itemId: string,
+    @Param("sku") sku: string,
+    @Body("itemId") itemId: string,
     @Req() req: any,
   ) {
     return await this.svc.scanItem(id, sku, req.user, itemId);
   }
 
-
-  @Post(':id/log-failed-scan')
+  @Post(":id/log-failed-scan")
   @Permissions("warehouses.scan-preparation")
   async logFailedScan(
-    @Param('id') orderId: string,
+    @Param("id") orderId: string,
     @Body() body: { sku: string; reasonCode: ScanReason },
     @Req() req: any,
   ) {
-
-
-    return await this.svc.logError(orderId, body.sku, req.user, body.reasonCode, ScanLogType.PREPARATION, '');
+    return await this.svc.logError(
+      orderId,
+      body.sku,
+      req.user,
+      body.reasonCode,
+      ScanLogType.PREPARATION,
+      "",
+    );
   }
 
   // @Post(':id/scan-shipping/:sku')
@@ -126,143 +124,124 @@ export class OrdersController {
   // }
 
   @Permissions("warehouses.scan-preparation")
-  @Get(':id/scan-logs/:phase')
+  @Get(":id/scan-logs/:phase")
   async getScanLogs(
     @Param("id") id: string,
-    @Param('phase') phase: ScanLogType,
-    @Req() req) {
+    @Param("phase") phase: ScanLogType,
+    @Req() req,
+  ) {
     return await this.svc.getOrderScanLogs(id, phase, req.user);
   }
 
-
   @Permissions("orders.read")
-  @Get('manifests')
-  async listManifests(
-    @Query() q: any,
-    @Req() req: any,
-  ) {
+  @Get("manifests")
+  async listManifests(@Query() q: any, @Req() req: any) {
     return await this.svc.listManifests(req.user, q);
   }
 
   @Permissions("orders.read")
-  @Get('logs')
-  async logs(
-    @Query() q: any,
-    @Req() req: any,
-  ) {
+  @Get("logs")
+  async logs(@Query() q: any, @Req() req: any) {
     return await this.svc.listLogs(req.user, q);
   }
 
   @Permissions("orders.read")
-  @Get('logs/export')
-  async logsExport(
-    @Query() q: any,
-    @Req() req: any,
-    @Res() res: Response
-  ) {
+  @Get("logs/export")
+  async logsExport(@Query() q: any, @Req() req: any, @Res() res: Response) {
     const buffer = await this.svc.exportLogs(req.user, q);
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename=orders_export_${Date.now()}.xlsx`);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=orders_export_${Date.now()}.xlsx`,
+    );
 
     return res.send(buffer);
   }
 
   @Permissions("orders.create")
   @Post("manifests")
-  async createManifest(
-    @Body() dto: CreateManifestDto,
-    @Req() req: any
-  ) {
+  async createManifest(@Body() dto: CreateManifestDto, @Req() req: any) {
     // req.user is passed as 'me' to the service
     return await this.svc.createManifest(dto, req.user);
   }
 
   @Permissions("orders.create")
   @Post("manifests/return")
-  async createManifestReturn(
-    @Body() dto: CreateManifestDto,
-    @Req() req: any
-  ) {
+  async createManifestReturn(@Body() dto: CreateManifestDto, @Req() req: any) {
     // req.user is passed as 'me' to the service
     return await this.svc.createReturnManifest(dto, req.user);
   }
 
   @Permissions("orders.read")
-  @Get(':id/manifests/scan-logs')
-  async getManifestLogs(
-    @Param("id") id: string,
-    @Req() req: any,
-  ) {
+  @Get(":id/manifests/scan-logs")
+  async getManifestLogs(@Param("id") id: string, @Req() req: any) {
     return await this.svc.getManifestScanLogs(id, req.user);
   }
 
   @Permissions("orders.update")
-  @Patch(':id/mark-manifest-printed')
-  async markPrinted(
-    @Param("id") id: string,
-    @Req() req: any,
-  ) {
+  @Patch(":id/mark-manifest-printed")
+  async markPrinted(@Param("id") id: string, @Req() req: any) {
     return await this.svc.markAsPrinted(id, req.user);
   }
 
   @Permissions("orders.read")
-  @Get('manifests/:id')
-  async getDetail(
-    @Param("id") id: string,
-    @Req() req: any,
-  ) {
+  @Get("manifests/:id")
+  async getDetail(@Param("id") id: string, @Req() req: any) {
     return await this.svc.getManifestDetail(id, req.user);
   }
 
   @Permissions("orders.read")
-  @Get('stats/returns-summary')
-  async getReturnsSummary(@Req() req: any,) {
+  @Get("stats/returns-summary")
+  async getReturnsSummary(@Req() req: any) {
     return await this.svc.getReturnsSummaryStats(req?.user);
   }
 
   @Permissions("orders.read")
-  @Get('stats/shipping-summary')
+  @Get("stats/shipping-summary")
   async getShippingSummary(@Req() req: any) {
     return await this.svc.getShippingSummary(req.user);
   }
 
   @Permissions("orders.read")
-  @Get('stats/rejected-orders')
+  @Get("stats/rejected-orders")
   async getRejectedOrdersStats(@Req() req: any) {
     return await this.svc.getRejectedOrdersStats(req.user);
   }
 
   @Permissions("orders.read")
-  @Get('stats/logs')
+  @Get("stats/logs")
   async getLogOperationalStats(@Req() req: any) {
     return await this.svc.getLogOperationalStats(req.user);
   }
 
   @Permissions("orders.read")
-  @Get('stats/print-lifecycle-summary')
+  @Get("stats/print-lifecycle-summary")
   async getPrintLifecycleSummary(@Req() req: any) {
     return await this.svc.getPrintLifecycleStats(req.user);
   }
 
   @Permissions("orders.read")
-  @Get('stats/preparation-summary')
+  @Get("stats/preparation-summary")
   async getPreparationSummary(@Req() req: any) {
     return await this.svc.getPreparationStats(req.user);
   }
 
   @Permissions("orders.update")
-  @Post('bulk-print')
+  @Post("bulk-print")
   async bulkPrint(@Req() req: any, @Body() body: { orderNumbers: string[] }) {
     return this.svc.bulkPrint(req.user, body.orderNumbers);
   }
 
   @Permissions("orders.update")
-  @Put(':id/confirm-status')
+  @Put(":id/confirm-status")
   changeConfirmationStatus(
     @Req() req: any,
     @Param("id") id: string,
     @Body() dto: ChangeOrderStatusDto,
-    @Ip() ipAddress: string
+    @Ip() ipAddress: string,
   ) {
     return this.svc.changeConfirmationStatus(req.user, id, dto, ipAddress);
   }
@@ -280,27 +259,40 @@ export class OrdersController {
   async export(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.svc.exportOrders(req.user, q);
 
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", `attachment; filename=orders_export_${Date.now()}.xlsx`);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=orders_export_${Date.now()}.xlsx`,
+    );
 
     return res.send(buffer);
   }
-
 
   // ✅ Bulk upload: download template (matches CreateOrderDto, no IDs)
   @Permissions("orders.read")
   @Get("bulk/template")
   async bulkTemplate(@Req() req: any, @Res() res: Response) {
     const buffer = await this.svc.getBulkTemplate(req.user);
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", "attachment; filename=orders_bulk_template.xlsx");
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=orders_bulk_template.xlsx",
+    );
     return res.send(buffer);
   }
 
   // ✅ Bulk create orders from Excel file
   @Post("bulk")
   @Permissions("orders.create")
-  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor("file", { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
   async bulkCreate(
     @Req() req: any,
     @Res() res: Response,
@@ -327,7 +319,6 @@ export class OrdersController {
         failed: result.failed,
         skuErrors: result.skuErrors,
       });
-
     } catch (err: any) {
       return res.status(400).json({
         type: "validation_error",
@@ -337,13 +328,13 @@ export class OrdersController {
   }
 
   @Permissions("orders.read", "orders.confirm-incoming")
-  @Get('allowed-confirmation')
+  @Get("allowed-confirmation")
   async getAllowedConfirmation(@Req() req: any) {
     return this.svc.getAllowedConfirmationStatuses(req.user);
   }
 
   @Permissions("orders.confirm-incoming")
-  @Get('confirmation-counts')
+  @Get("confirmation-counts")
   async getCounts(@Req() req: any) {
     return this.svc.getConfirmationStatusCounts(req.user);
   }
@@ -383,21 +374,32 @@ export class OrdersController {
   // ✅ Update order
   @Permissions("orders.update")
   @Patch(":id")
-  update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateOrderDto) {
+  update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateOrderDto,
+  ) {
     return this.svc.update(req.user, id, dto, req.ip);
   }
-
 
   // ✅ Change order status
   @Permissions("orders.update")
   @Patch(":id/status")
-  changeStatus(@Req() req: any, @Param("id") id: string, @Body() dto: ChangeOrderStatusDto) {
+  changeStatus(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: ChangeOrderStatusDto,
+  ) {
     return this.svc.changeStatus(req.user, id, dto, req.ip);
   }
 
   @Permissions("orders.update")
   @Patch(":id/reject")
-  rejectOrder(@Req() req: any, @Param("id") id: string, @Body() dto: { notes?: string }) {
+  rejectOrder(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: { notes?: string },
+  ) {
     return this.svc.rejectOrder(req.user, id, dto, req.ip);
   }
 
@@ -413,7 +415,7 @@ export class OrdersController {
   updatePaymentStatus(
     @Req() req: any,
     @Param("id") id: string,
-    @Body() dto: UpdatePaymentStatusDto
+    @Body() dto: UpdatePaymentStatusDto,
   ) {
     return this.svc.updatePaymentStatus(req.user, id, dto);
   }
@@ -424,20 +426,22 @@ export class OrdersController {
     return this.svc.getMessages(req.user, id);
   }
 
-
   @Permissions("orders.update")
   @Post(":id/messages")
-  addMessage(@Req() req: any, @Param("id") id: string, @Body() dto: AddOrderMessageDto) {
+  addMessage(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: AddOrderMessageDto,
+  ) {
     return this.svc.addMessage(req.user, id, dto);
   }
-
 
   @Permissions("orders.update")
   @Patch(":id/messages/read")
   markMessagesRead(
     @Req() req: any,
     @Param("id") id: string,
-    @Body() dto: MarkMessagesReadDto
+    @Body() dto: MarkMessagesReadDto,
   ) {
     return this.svc.markMessagesRead(req.user, id, dto);
   }
@@ -462,7 +466,7 @@ export class OrdersController {
   updateStatus(
     @Req() req: any,
     @Param("id") id: string,
-    @Body() dto: UpdateStatusDto
+    @Body() dto: UpdateStatusDto,
   ) {
     return this.svc.updateStatus(req.user, id, dto);
   }
@@ -473,7 +477,4 @@ export class OrdersController {
   removeStatus(@Req() req: any, @Param("id") id: string) {
     return this.svc.removeStatus(req.user, id);
   }
-
-
-
 }

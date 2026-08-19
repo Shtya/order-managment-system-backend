@@ -61,9 +61,7 @@ export const SUPPORT_TICKET_STATUS_TRANSITIONS: Record<
     SupportTicketStatus.CLOSED,
     SupportTicketStatus.CANCELED,
   ],
-  [SupportTicketStatus.RESOLVED]: [
-    SupportTicketStatus.CLOSED,
-  ],
+  [SupportTicketStatus.RESOLVED]: [SupportTicketStatus.CLOSED],
   [SupportTicketStatus.CLOSED]: [SupportTicketStatus.REOPENED],
   [SupportTicketStatus.REOPENED]: [
     SupportTicketStatus.IN_PROGRESS,

@@ -1,4 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { tenantId } from "../category/category.service";
@@ -104,9 +108,7 @@ export class GettingStartedService {
       !dto.stepKey
     ) {
       throw new BadRequestException(
-        this.translations.t(
-          "domains.getting_started.step_id_or_key_required",
-        ),
+        this.translations.t("domains.getting_started.step_id_or_key_required"),
       );
     }
 
@@ -156,14 +158,17 @@ export class GettingStartedService {
     const achieved = await this.achievedTypes(adminId);
 
     const total = items.length;
-    const completed = items.filter((item) => achieved.has(item.completionType))
-      .length;
+    const completed = items.filter((item) =>
+      achieved.has(item.completionType),
+    ).length;
     const percentage = total === 0 ? 0 : Math.round((completed / total) * 100);
 
     return { total, completed, percentage };
   }
 
-  private async achievedTypes(adminId: string): Promise<Set<GettingStartedAchievementType>> {
+  private async achievedTypes(
+    adminId: string,
+  ): Promise<Set<GettingStartedAchievementType>> {
     const achievements = await this.achievementRepo.find({
       where: { adminId },
       select: ["type"],

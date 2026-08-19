@@ -1,215 +1,287 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
-import { SupplierPaymentEntity, SupplierPaymentAllocationEntity } from 'entities/supplier_payments.entity';
-import { SupplierEntity } from 'entities/supplier.entity';
-import { PurchaseInvoiceEntity } from 'entities/purchase.entity';
-import { Account, TransactionReferenceType } from 'entities/safe.entity';
-import { CreateSupplierPaymentDto, SupplierPaymentFilterDto } from 'dto/supplier_payments.dto';
-import { SafesService } from '../safes/safes.service';
-import { tenantId } from 'src/category/category.service';
-import * as ExcelJS from 'exceljs';
-import { ApprovalStatus } from 'common/enums';
-import { RequestTranslationService, TranslationService } from 'common/translation.service';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { DataSource, EntityManager, Repository } from "typeorm";
+import {
+  SupplierPaymentEntity,
+  SupplierPaymentAllocationEntity,
+} from "entities/supplier_payments.entity";
+import { SupplierEntity } from "entities/supplier.entity";
+import { PurchaseInvoiceEntity } from "entities/purchase.entity";
+import { Account, TransactionReferenceType } from "entities/safe.entity";
+import {
+  CreateSupplierPaymentDto,
+  SupplierPaymentFilterDto,
+} from "dto/supplier_payments.dto";
+import { SafesService } from "../safes/safes.service";
+import { tenantId } from "src/category/category.service";
+import * as ExcelJS from "exceljs";
+import { ApprovalStatus } from "common/enums";
+import {
+  RequestTranslationService,
+  TranslationService,
+} from "common/translation.service";
 
 @Injectable()
 export class SupplierPaymentsService {
-    constructor(
-        @InjectRepository(SupplierPaymentEntity)
-        private paymentRepo: Repository<SupplierPaymentEntity>,
-        @InjectRepository(SupplierEntity)
-        private supplierRepo: Repository<SupplierEntity>,
-        @InjectRepository(PurchaseInvoiceEntity)
-        private invoiceRepo: Repository<PurchaseInvoiceEntity>,
-        @InjectRepository(Account)
-        private accountRepo: Repository<Account>,
-        private safesService: SafesService,
-        private dataSource: DataSource,
-        private translations: TranslationService,
-        private requestTranslations: RequestTranslationService,
-    ) { }
+  constructor(
+    @InjectRepository(SupplierPaymentEntity)
+    private paymentRepo: Repository<SupplierPaymentEntity>,
+    @InjectRepository(SupplierEntity)
+    private supplierRepo: Repository<SupplierEntity>,
+    @InjectRepository(PurchaseInvoiceEntity)
+    private invoiceRepo: Repository<PurchaseInvoiceEntity>,
+    @InjectRepository(Account)
+    private accountRepo: Repository<Account>,
+    private safesService: SafesService,
+    private dataSource: DataSource,
+    private translations: TranslationService,
+    private requestTranslations: RequestTranslationService,
+  ) {}
 
-    async create(me: any, dto: CreateSupplierPaymentDto) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(await this.requestTranslations.tAsync('common.missing_admin_id', adminId));
+  async create(me: any, dto: CreateSupplierPaymentDto) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        await this.requestTranslations.tAsync(
+          "common.missing_admin_id",
+          adminId,
+        ),
+      );
+    }
 
-        return await this.dataSource.transaction(async (manager) => {
-            const supplier = await manager.findOne(SupplierEntity, { where: { id: dto.supplierId, adminId } });
-            if (!supplier) throw new NotFoundException(this.translations.t('domains.suppliers.supplier_not_found'));
+    return await this.dataSource.transaction(async (manager) => {
+      const supplier = await manager.findOne(SupplierEntity, {
+        where: { id: dto.supplierId, adminId },
+      });
+      if (!supplier) {
+        throw new NotFoundException(
+          this.translations.t("domains.suppliers.supplier_not_found"),
+        );
+      }
 
-            const safe = await manager.findOne(Account, { where: { id: dto.safeId, adminId } });
-            if (!safe) throw new NotFoundException(this.translations.t('domains.safe.account_not_found'));
+      const safe = await manager.findOne(Account, {
+        where: { id: dto.safeId, adminId },
+      });
+      if (!safe) {
+        throw new NotFoundException(
+          this.translations.t("domains.safe.account_not_found"),
+        );
+      }
 
-            let remainingToAllocate = dto.amount;
-            const allocations: SupplierPaymentAllocationEntity[] = [];
-            const invoicesToUpdate: PurchaseInvoiceEntity[] = [];
+      let remainingToAllocate = dto.amount;
+      const allocations: SupplierPaymentAllocationEntity[] = [];
+      const invoicesToUpdate: PurchaseInvoiceEntity[] = [];
 
-            // 1. Create the base payment entity first (to get ID for reference)
-            const payment = manager.create(SupplierPaymentEntity, {
-                adminId,
-                supplierId: supplier.id,
-                safeId: safe.id,
-                amount: dto.amount,
-                currency: safe.currency,
-                paymentDate: dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
-                notes: dto.notes,
-                createdByUserId: me.id,
-                supplierBalanceAfterPay: 0, // Will update below
-                allocations: []
-            });
+      // 1. Create the base payment entity first (to get ID for reference)
+      const payment = manager.create(SupplierPaymentEntity, {
+        adminId,
+        supplierId: supplier.id,
+        safeId: safe.id,
+        amount: dto.amount,
+        currency: safe.currency,
+        paymentDate: dto.paymentDate ? new Date(dto.paymentDate) : new Date(),
+        notes: dto.notes,
+        createdByUserId: me.id,
+        supplierBalanceAfterPay: 0, // Will update below
+        allocations: [],
+      });
 
-            // We need to save it to get the ID for safesService.withdraw
-            const savedPayment = await manager.save(payment);
+      // We need to save it to get the ID for safesService.withdraw
+      const savedPayment = await manager.save(payment);
 
-            if (dto.invoiceId) {
-                // Case A: Specific invoice
-                const invoice = await manager.findOne(PurchaseInvoiceEntity, {
-                    where: { id: dto.invoiceId, supplierId: dto.supplierId, adminId }
-                });
-                if (!invoice) {
-                    throw new NotFoundException(
-                        this.translations.t(
-                            "domains.suppliers.invoice_not_found_for_supplier"
-                        )
-                    );
-                }
+      if (dto.invoiceId) {
+        // Case A: Specific invoice
+        const invoice = await manager.findOne(PurchaseInvoiceEntity, {
+          where: { id: dto.invoiceId, supplierId: dto.supplierId, adminId },
+        });
+        if (!invoice) {
+          throw new NotFoundException(
+            this.translations.t(
+              "domains.suppliers.invoice_not_found_for_supplier",
+            ),
+          );
+        }
 
+        const payable = Math.min(
+          remainingToAllocate,
+          Number(invoice.remainingAmount),
+        );
+        if (payable <= 0) {
+          throw new BadRequestException(
+            this.translations.t("domains.suppliers.invoice_already_paid"),
+          );
+        }
 
+        const alloc = this.prepareAllocation(manager, invoice, payable);
+        allocations.push(alloc);
+        invoicesToUpdate.push(invoice);
+        remainingToAllocate -= payable;
+      } else {
+        // Case B: FIFO Payment - Optimized query
+        const invoices = await manager
+          .createQueryBuilder(PurchaseInvoiceEntity, "inv")
+          .where("inv.supplierId = :supplierId", { supplierId: dto.supplierId })
+          .andWhere("inv.adminId = :adminId", { adminId })
+          .andWhere("inv.remainingAmount > 0")
+          .andWhere("inv.status = :accepted", {
+            accepted: ApprovalStatus.ACCEPTED,
+          })
+          .andWhere("inv.closingId IS NULL")
+          .orderBy("inv.created_at", "ASC")
+          .getMany();
 
-                const payable = Math.min(remainingToAllocate, Number(invoice.remainingAmount));
-                if (payable <= 0) throw new BadRequestException(this.translations.t('domains.suppliers.invoice_already_paid'));
+        for (const invoice of invoices) {
+          const rem = Number(invoice.remainingAmount);
+          const payable = Math.min(remainingToAllocate, rem);
+          if (payable <= 0) break;
 
-                const alloc = this.prepareAllocation(manager, invoice, payable);
-                allocations.push(alloc);
-                invoicesToUpdate.push(invoice);
-                remainingToAllocate -= payable;
-            } else {
-                // Case B: FIFO Payment - Optimized query
-                const invoices = await manager.createQueryBuilder(PurchaseInvoiceEntity, 'inv')
-                    .where('inv.supplierId = :supplierId', { supplierId: dto.supplierId })
-                    .andWhere('inv.adminId = :adminId', { adminId })
-                    .andWhere('inv.remainingAmount > 0')
-                    .andWhere('inv.status = :accepted', { accepted: ApprovalStatus.ACCEPTED })
-                    .andWhere('inv.closingId IS NULL')
-                    .orderBy('inv.created_at', 'ASC')
-                    .getMany();
+          const alloc = this.prepareAllocation(manager, invoice, payable);
+          allocations.push(alloc);
+          invoicesToUpdate.push(invoice);
+          remainingToAllocate -= payable;
 
-                for (const invoice of invoices) {
-                    const rem = Number(invoice.remainingAmount);
-                    const payable = Math.min(remainingToAllocate, rem);
-                    if (payable <= 0) break;
+          if (remainingToAllocate <= 0) break;
+        }
+      }
 
-                    const alloc = this.prepareAllocation(manager, invoice, payable);
-                    allocations.push(alloc);
-                    invoicesToUpdate.push(invoice);
-                    remainingToAllocate -= payable;
+      // Handle unallocated amount
+      if (remainingToAllocate > 0) {
+        const unallocated = manager.create(SupplierPaymentAllocationEntity, {
+          invoiceId: null,
+          amount: remainingToAllocate,
+          invoiceRemainingAfterPay: null,
+        });
+        allocations.push(unallocated);
+      }
 
-                    if (remainingToAllocate <= 0) break;
-                }
-            }
+      // 2. Update Supplier Balance
+      supplier.dueBalance = Number(supplier.dueBalance) - dto.amount;
+      await manager.save(supplier);
 
-            // Handle unallocated amount
-            if (remainingToAllocate > 0) {
-                const unallocated = manager.create(SupplierPaymentAllocationEntity, {
-                    invoiceId: null,
-                    amount: remainingToAllocate,
-                    invoiceRemainingAfterPay: null
-                });
-                allocations.push(unallocated);
-            }
+      // 3. Update Invoices
+      if (invoicesToUpdate.length > 0) {
+        await manager.save(invoicesToUpdate);
+      }
 
-            // 2. Update Supplier Balance
-            supplier.dueBalance = Number(supplier.dueBalance) - dto.amount;
-            await manager.save(supplier);
+      // 4. Update Payment with allocations and final balance
+      savedPayment.allocations = allocations;
+      savedPayment.supplierBalanceAfterPay = supplier.dueBalance;
+      await manager.save(savedPayment);
 
-            // 3. Update Invoices
-            if (invoicesToUpdate.length > 0) {
-                await manager.save(invoicesToUpdate);
-            }
-
-            // 4. Update Payment with allocations and final balance
-            savedPayment.allocations = allocations;
-            savedPayment.supplierBalanceAfterPay = supplier.dueBalance;
-            await manager.save(savedPayment);
-
-            // 5. Log Financial Transaction (Withdraw from Safe)
-            await this.safesService.withdraw(me, {
-                accountId: safe.id,
-                amount: dto.amount,
-                referenceType: TransactionReferenceType.VENDOR_PAYMENT,
-                referenceId: savedPayment.id,
-                referenceMeta: {
-                    supplierName: supplier.name,
-                    invoicesCount: invoicesToUpdate.length,
-                    ...(invoicesToUpdate.length === 1 ? { invoicesNumber: invoicesToUpdate[0].receiptNumber } : {}),
-                    ...(remainingToAllocate > 0 ? { unallocatedAmount: remainingToAllocate } : {})
+      // 5. Log Financial Transaction (Withdraw from Safe)
+      await this.safesService.withdraw(
+        me,
+        {
+          accountId: safe.id,
+          amount: dto.amount,
+          referenceType: TransactionReferenceType.VENDOR_PAYMENT,
+          referenceId: savedPayment.id,
+          referenceMeta: {
+            supplierName: supplier.name,
+            invoicesCount: invoicesToUpdate.length,
+            ...(invoicesToUpdate.length === 1
+              ? { invoicesNumber: invoicesToUpdate[0].receiptNumber }
+              : {}),
+            ...(remainingToAllocate > 0
+              ? { unallocatedAmount: remainingToAllocate }
+              : {}),
+          },
+          notes:
+            dto.notes ||
+            (await this.requestTranslations.tAsync(
+              "domains.suppliers.payment_to_supplier",
+              adminId,
+              {
+                args: {
+                  supplierName: supplier.name,
                 },
-                notes:
-                    dto.notes ||
-                    await this.requestTranslations.tAsync(
-                        "domains.suppliers.payment_to_supplier",
-                        adminId,
-                        {
-                            args: {
-                                supplierName: supplier.name,
-                            },
-                        }
-                    ),
-                transactionDate: savedPayment.paymentDate
-            }, manager);
+              },
+            )),
+          transactionDate: savedPayment.paymentDate,
+        },
+        manager,
+      );
 
-            return savedPayment;
-        });
+      return savedPayment;
+    });
+  }
+
+  private prepareAllocation(
+    manager: EntityManager,
+    invoice: PurchaseInvoiceEntity,
+    amount: number,
+  ): SupplierPaymentAllocationEntity {
+    invoice.paidAmount = Number(invoice.paidAmount) + amount;
+    invoice.remainingAmount = Number(invoice.remainingAmount) - amount;
+
+    return manager.create(SupplierPaymentAllocationEntity, {
+      invoiceId: invoice.id,
+      amount: amount,
+      invoiceRemainingAfterPay: invoice.remainingAmount,
+    });
+  }
+
+  async getStats(me: any) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        await this.requestTranslations.tAsync(
+          "common.missing_admin_id",
+          adminId,
+        ),
+      );
     }
 
-    private prepareAllocation(manager: EntityManager, invoice: PurchaseInvoiceEntity, amount: number): SupplierPaymentAllocationEntity {
-        invoice.paidAmount = Number(invoice.paidAmount) + amount;
-        invoice.remainingAmount = Number(invoice.remainingAmount) - amount;
+    const stats = await this.supplierRepo
+      .createQueryBuilder("s")
+      .select("COUNT(s.id)", "totalSuppliers")
+      .addSelect(
+        "SUM(CASE WHEN s.dueBalance > 0 THEN s.dueBalance ELSE 0 END)",
+        "totalShouldPay",
+      )
+      .addSelect(
+        "SUM(CASE WHEN s.dueBalance < 0 THEN ABS(s.dueBalance) ELSE 0 END)",
+        "totalShouldCollect",
+      )
+      .where("s.adminId = :adminId", { adminId })
+      .getRawOne();
 
-        return manager.create(SupplierPaymentAllocationEntity, {
-            invoiceId: invoice.id,
-            amount: amount,
-            invoiceRemainingAfterPay: invoice.remainingAmount
-        });
+    return {
+      totalSuppliers: Number(stats.totalSuppliers || 0),
+      totalShouldPay: Number(stats.totalShouldPay || 0),
+      totalShouldCollect: Number(stats.totalShouldCollect || 0),
+    };
+  }
+
+  async findAll(me: any, q: SupplierPaymentFilterDto) {
+    const adminId = tenantId(me);
+    const page = Number(q.page || 1);
+    const limit = Number(q.limit || 10);
+
+    const qb = this.paymentRepo
+      .createQueryBuilder("p")
+      .leftJoinAndSelect("p.supplier", "s")
+      .leftJoinAndSelect("p.safe", "safe")
+      .leftJoinAndSelect("p.createdByUser", "u")
+      .leftJoinAndSelect("p.allocations", "alloc")
+      .leftJoinAndSelect("alloc.invoice", "inv")
+      .where("p.adminId = :adminId", { adminId });
+
+    if (q.supplierId) {
+      qb.andWhere("p.supplierId = :supplierId", { supplierId: q.supplierId });
     }
-
-    async getStats(me: any) {
-        const adminId = tenantId(me);
-        if (!adminId) throw new BadRequestException(await this.requestTranslations.tAsync('common.missing_admin_id', adminId));
-
-        const stats = await this.supplierRepo.createQueryBuilder('s')
-            .select('COUNT(s.id)', 'totalSuppliers')
-            .addSelect('SUM(CASE WHEN s.dueBalance > 0 THEN s.dueBalance ELSE 0 END)', 'totalShouldPay')
-            .addSelect('SUM(CASE WHEN s.dueBalance < 0 THEN ABS(s.dueBalance) ELSE 0 END)', 'totalShouldCollect')
-            .where('s.adminId = :adminId', { adminId })
-            .getRawOne();
-
-        return {
-            totalSuppliers: Number(stats.totalSuppliers || 0),
-            totalShouldPay: Number(stats.totalShouldPay || 0),
-            totalShouldCollect: Number(stats.totalShouldCollect || 0),
-        };
+    if (q.startDate) {
+      qb.andWhere("p.paymentDate >= :start", { start: q.startDate });
     }
+    if (q.endDate) qb.andWhere("p.paymentDate <= :end", { end: q.endDate });
 
-    async findAll(me: any, q: SupplierPaymentFilterDto) {
-        const adminId = tenantId(me);
-        const page = Number(q.page || 1);
-        const limit = Number(q.limit || 10);
-
-        const qb = this.paymentRepo.createQueryBuilder('p')
-            .leftJoinAndSelect('p.supplier', 's')
-            .leftJoinAndSelect('p.safe', 'safe')
-            .leftJoinAndSelect('p.createdByUser', 'u')
-            .leftJoinAndSelect('p.allocations', 'alloc')
-            .leftJoinAndSelect('alloc.invoice', 'inv')
-            .where('p.adminId = :adminId', { adminId });
-
-        if (q.supplierId) qb.andWhere('p.supplierId = :supplierId', { supplierId: q.supplierId });
-        if (q.startDate) qb.andWhere('p.paymentDate >= :start', { start: q.startDate });
-        if (q.endDate) qb.andWhere('p.paymentDate <= :end', { end: q.endDate });
-
-        if (q.search) {
-            qb.andWhere(`
+    if (q.search) {
+      qb.andWhere(
+        `
         (
             s.name ILIKE :search
             OR EXISTS (
@@ -220,74 +292,126 @@ export class SupplierPaymentsService {
                 AND i."receiptNumber" ILIKE :search
             )
         )
-    `, { search: `%${q.search}%` });
-        }
-
-        qb.orderBy('p.paymentDate', 'DESC')
-            .addOrderBy('p.createdAt', 'DESC');
-
-        const [records, total] = await qb
-            .skip((page - 1) * limit)
-            .take(limit)
-            .getManyAndCount();
-
-        return {
-            total_records: total,
-            current_page: page,
-            per_page: limit,
-            records,
-        };
+    `,
+        { search: `%${q.search}%` },
+      );
     }
 
-    async findOne(me: any, id: string) {
-        const adminId = tenantId(me);
-        const payment = await this.paymentRepo.findOne({
-            where: { id, adminId },
-            relations: ['supplier', 'safe', 'createdByUser', 'allocations', 'allocations.invoice']
-        });
+    qb.orderBy("p.paymentDate", "DESC").addOrderBy("p.createdAt", "DESC");
 
-        if (!payment) throw new NotFoundException(await this.requestTranslations.tAsync('common.payment_not_found', adminId));
-        return payment;
+    const [records, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
+
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
+
+  async findOne(me: any, id: string) {
+    const adminId = tenantId(me);
+    const payment = await this.paymentRepo.findOne({
+      where: { id, adminId },
+      relations: [
+        "supplier",
+        "safe",
+        "createdByUser",
+        "allocations",
+        "allocations.invoice",
+      ],
+    });
+
+    if (!payment) {
+      throw new NotFoundException(
+        await this.requestTranslations.tAsync(
+          "common.payment_not_found",
+          adminId,
+        ),
+      );
     }
+    return payment;
+  }
 
-    async export(me: any, q: SupplierPaymentFilterDto) {
-        const { records } = await this.findAll(me, { ...q, limit: '10000' });
+  async export(me: any, q: SupplierPaymentFilterDto) {
+    const { records } = await this.findAll(me, { ...q, limit: "10000" });
 
-        const workbook = new ExcelJS.Workbook();
-       const sheet = workbook.addWorksheet(
-        this.translations.t("domains.suppliers.supplier_payments_sheet")
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet(
+      this.translations.t("domains.suppliers.supplier_payments_sheet"),
     );
 
     sheet.columns = [
-        { header: this.translations.t("common.date"), key: "paymentDate", width: 20 },
-        { header: this.translations.t("domains.suppliers.supplier"), key: "supplier", width: 25 },
-        { header: this.translations.t("common.invoices"), key: "invoices", width: 30 },
-        { header: this.translations.t("domains.suppliers.safe_account"), key: "safe", width: 20 },
-        { header: this.translations.t("common.total_amount"), key: "amount", width: 15 },
-        { header: this.translations.t("common.currency"), key: "currency", width: 10 },
-        { header: this.translations.t("common.notes"), key: "notes", width: 35 },
-        { header: this.translations.t("domains.suppliers.supplier_balance_after_payment"), key: "balanceAfter", width: 20 },
-        { header: this.translations.t("common.created_by"), key: "createdBy", width: 20 },
+      {
+        header: this.translations.t("common.date"),
+        key: "paymentDate",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.suppliers.supplier"),
+        key: "supplier",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.invoices"),
+        key: "invoices",
+        width: 30,
+      },
+      {
+        header: this.translations.t("domains.suppliers.safe_account"),
+        key: "safe",
+        width: 20,
+      },
+      {
+        header: this.translations.t("common.total_amount"),
+        key: "amount",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.currency"),
+        key: "currency",
+        width: 10,
+      },
+      { header: this.translations.t("common.notes"), key: "notes", width: 35 },
+      {
+        header: this.translations.t(
+          "domains.suppliers.supplier_balance_after_payment",
+        ),
+        key: "balanceAfter",
+        width: 20,
+      },
+      {
+        header: this.translations.t("common.created_by"),
+        key: "createdBy",
+        width: 20,
+      },
     ];
 
-        records.forEach(p => {
-            const invoiceDetails = p.allocations
-                .map(a => a.invoice ? `#${a.invoice.receiptNumber} (${Number(a.amount).toLocaleString()})` : `Unallocated (${Number(a.amount).toLocaleString()})`)
-                .join(', ');
+    records.forEach((p) => {
+      const invoiceDetails = p.allocations
+        .map((a) =>
+          a.invoice
+            ? `#${a.invoice.receiptNumber} (${Number(a.amount).toLocaleString()})`
+            : `Unallocated (${Number(a.amount).toLocaleString()})`,
+        )
+        .join(", ");
 
-            sheet.addRow({
-                paymentDate: new Date(p.paymentDate).toLocaleString(),
-                supplier: p.supplier?.name,
-                invoices: invoiceDetails,
-                safe: p.safe?.name,
-                amount: Number(p.amount),
-                currency: p.currency,
-                notes: p.notes,
-                balanceAfter: Number(p.supplierBalanceAfterPay),
-                createdBy: p.createdByUser?.name,
-            });
-        });
+      sheet.addRow({
+        paymentDate: new Date(p.paymentDate).toLocaleString(),
+        supplier: p.supplier?.name,
+        invoices: invoiceDetails,
+        safe: p.safe?.name,
+        amount: Number(p.amount),
+        currency: p.currency,
+        notes: p.notes,
+        balanceAfter: Number(p.supplierBalanceAfterPay),
+        createdBy: p.createdByUser?.name,
+      });
+    });
 
-        return await workbook.xlsx.writeBuffer();
-    }
+    return await workbook.xlsx.writeBuffer();
+  }
 }

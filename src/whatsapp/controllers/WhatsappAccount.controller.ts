@@ -1,18 +1,28 @@
-import { Controller, Get, Patch, Param, Query, Req, Res, UseGuards, Delete } from '@nestjs/common';
-import { Response } from 'express';
-import { WhatsappAccountService } from '../services/WhatsappAccount.service';
-import { Permissions } from 'common/permissions.decorator';
-import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-import { PermissionsGuard } from 'common/permissions.guard';
-import { SubscriptionGuard } from 'common/subscription.guard';
+import {
+  Controller,
+  Get,
+  Patch,
+  Param,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+  Delete,
+} from "@nestjs/common";
+import { Response } from "express";
+import { WhatsappAccountService } from "../services/WhatsappAccount.service";
+import { Permissions } from "common/permissions.decorator";
+import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
+import { PermissionsGuard } from "common/permissions.guard";
+import { SubscriptionGuard } from "common/subscription.guard";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
-@Controller('whatsapp-accounts')
+@Controller("whatsapp-accounts")
 export class WhatsappAccountController {
-  constructor(private readonly svc: WhatsappAccountService) { }
+  constructor(private readonly svc: WhatsappAccountService) {}
 
   @Permissions("whatsapp.read")
-  @Get('stats')
+  @Get("stats")
   async getStats(@Req() req: any) {
     return await this.svc.getStats(req.user);
   }

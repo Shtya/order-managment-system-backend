@@ -229,6 +229,7 @@ export class ProviderResponseDto {
 	protocol?: AiProviderProtocol;
 	adminId?: string;
 	models?: AiProviderModelSummaryDto[];
+	integration?: { id: string; baseUrl?: string; credentials?: Record<string, any>; adminId?: string };
 	created_at: Date;
 	updated_at: Date;
 }
@@ -335,6 +336,10 @@ export class ListModelsQueryDto {
 	@IsOptional()
 	@IsEnum({ ...AiEntityScope, ALL: 'all' })
 	scope?: AiEntityScope | "all";
+
+	@IsOptional()
+	@IsString()
+	search?: string;
 
 	@IsOptional()
 	@Type(() => Number)
@@ -492,6 +497,7 @@ export class ModelResponseDto {
 	modalities?: Record<string, any>;
 	contextWindow?: Record<string, any>;
 	provider?: ProviderResponseDto;
+	
 	created_t: Date;
 	updated_at: Date;
 }
@@ -579,6 +585,7 @@ export class IntegrationResponseDto {
 	scope: AiIntegrationScope;
 	authType: AiAuthType;
 	baseUrl?: string;
+	credentials?: Record<string, any>;
 	lastValidatedAt?: Date;
 	lastError?: string;
 	provider?: ProviderResponseDto;

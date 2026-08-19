@@ -1,14 +1,28 @@
-import { Injectable, forwardRef, Inject, Logger, OnModuleInit } from "@nestjs/common";
+import {
+  Injectable,
+  forwardRef,
+  Inject,
+  Logger,
+  OnModuleInit,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
-import { ProductSyncStatus, ProductSyncStateEntity } from "entities/product_sync_error.entity";
+import {
+  ProductSyncStatus,
+  ProductSyncStateEntity,
+} from "entities/product_sync_error.entity";
 import { EncryptionService } from "common/encryption.service";
 import { StoresService } from "../stores.service";
 import { CategoryEntity } from "entities/categories.entity";
 import axios, { AxiosInstance, AxiosRequestConfig } from "axios";
 import Bottleneck from "bottleneck";
-import { OrderEntity, OrderStatus, PaymentMethod, PaymentStatus } from "entities/order.entity";
+import {
+  OrderEntity,
+  OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
+} from "entities/order.entity";
 import { BundleEntity } from "entities/bundle.entity";
 import { ProductEntity, ProductType } from "entities/sku.entity";
 import { NotificationService } from "src/notifications/notification.service";
@@ -21,125 +35,125 @@ import { OrdersService } from "src/orders/services/orders.service";
 // }
 
 export interface ISkuFetch {
-    getProductBySku(store: StoreEntity, sku: string, retry?: boolean): Promise<{ id }>
+  getProductBySku(
+    store: StoreEntity,
+    sku: string,
+    retry?: boolean,
+  ): Promise<{ id }>;
 }
 
 export type ShopifyAction =
-    | "FULFILL"
-    | "PARTIAL_FULFILL"
-    | "CANCEL"
-    | "HOLD"
-    | "RELEASE_HOLD"
-    | "NONE"
-    | "PROGRESS"
-    | "DELIVERED"
-    | "RETURN_DECLINE"
-    | "RETURN_APPROVE"
-    | "RETURN_REQUEST";
-
+  | "FULFILL"
+  | "PARTIAL_FULFILL"
+  | "CANCEL"
+  | "HOLD"
+  | "RELEASE_HOLD"
+  | "NONE"
+  | "PROGRESS"
+  | "DELIVERED"
+  | "RETURN_DECLINE"
+  | "RETURN_APPROVE"
+  | "RETURN_REQUEST";
 
 export interface MappedProductDto {
+  id: string;
+  name: string;
+  price: number;
+  expense?: number;
+  description?: string;
+  slug: string;
+  sku: string;
+  thumb: string;
+  images: string[];
+  upsellings: { id; name; mainImage }[];
+  type: ProductType;
+  categories: { id: string; slug: string; name?: string }[];
+  quantity: number;
+  variations?: {
     id: string;
     name: string;
+    props: {
+      id: string;
+      name: string;
+      value: string;
+    }[];
+  }[];
+  variants: {
     price: number;
     expense?: number;
-    description?: string;
-    slug: string;
-    sku: string;
-    thumb: string;
-    images: string[];
-    upsellings: { id, name, mainImage }[];
-    type: ProductType;
-    categories: { id: string; slug: string; name?: string }[];
     quantity: number;
-    variations?: {
-        id: string;
-        name: string;
-        props: {
-            id: string;
-            name: string;
-            value: string;
-        }[];
+    sku: string;
+    variation_props: {
+      variation: string;
+      variation_prop: string;
     }[];
-    variants: {
-        price: number;
-        expense?: number;
-        quantity: number;
-        sku: string;
-        variation_props: {
-            variation: string;
-            variation_prop: string;
-        }[];
-    }[];
+  }[];
 }
-
 
 export interface WebhookOrderPayload {
-    externalOrderId: string;
-    fullName: string;
-    phone: string;
-    email?: string;
-    address: string;
-    government?: string;
-    paymentMethod: PaymentMethod;
-    paymentStatus: PaymentStatus;
-    shippingCost?: number;
-    totalCost?: number;
-    status?: string;
-    cartItems: {
-        name: string,
-        productSlug: string;
-        quantity: number;
-        remoteProductId: string;
-        price: number;
-        variant?: {
-            key?: string;
-            sku?: string,
-            variation_props?: { name: string; value: string }[];
-        };
-    }[];
+  externalOrderId: string;
+  fullName: string;
+  phone: string;
+  email?: string;
+  address: string;
+  government?: string;
+  paymentMethod: PaymentMethod;
+  paymentStatus: PaymentStatus;
+  shippingCost?: number;
+  totalCost?: number;
+  status?: string;
+  cartItems: {
+    name: string;
+    productSlug: string;
+    quantity: number;
+    remoteProductId: string;
+    price: number;
+    variant?: {
+      key?: string;
+      sku?: string;
+      variation_props?: { name: string; value: string }[];
+    };
+  }[];
 }
 
-
 export interface WebhookOrderUpdatePayload {
-    // externalId: string;
-    // remoteStatus: string;
-    mappedStatus: OrderStatus;
-    mappedPaymentStatus: PaymentStatus;
-    note?: string;
-    postponedDate?: string;
-
+  // externalId: string;
+  // remoteStatus: string;
+  mappedStatus: OrderStatus;
+  mappedPaymentStatus: PaymentStatus;
+  note?: string;
+  postponedDate?: string;
 }
 
 export interface UnifiedProductVariantDto {
-    sku: string | null;
-    price: number;
-    stockOnHand: number;
-    attributes: Record<string, string>;
-    key?: string;
+  sku: string | null;
+  price: number;
+  stockOnHand: number;
+  attributes: Record<string, string>;
+  key?: string;
 }
 
 export interface UnifiedProductCategoryDto {
-    slug: string;
-    name: string;
-    thumb?: string | null;
+  slug: string;
+  name: string;
+  thumb?: string | null;
 }
 
 export interface UnifiedProductDto {
-    externalId?: string;
-    name: string;
-    slug: string;
-    description?: string | null;
-    basePrice: number;
-    mainImage?: string | null;
-    images: string[];
-    category?: UnifiedProductCategoryDto | null;
-    variants: UnifiedProductVariantDto[];
+  externalId?: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  basePrice: number;
+  mainImage?: string | null;
+  images: string[];
+  category?: UnifiedProductCategoryDto | null;
+  variants: UnifiedProductVariantDto[];
 }
 
 export interface oldBundleDataDto {
-    oldStoreId: string,
-    adminId: string
+  oldStoreId: string;
+  adminId: string;
 }
 
 export enum FullStoreSyncType {
@@ -150,357 +164,471 @@ export enum FullStoreSyncType {
 
 @Injectable()
 export abstract class BaseStoreProvider implements OnModuleInit {
-    abstract readonly code: StoreProvider;
-    abstract readonly displayName: string;
-    abstract readonly supportBundle: boolean;
-    abstract readonly maxBundleItems?: number;
-    abstract readonly baseUrl: string;
+  abstract readonly code: StoreProvider;
+  abstract readonly displayName: string;
+  abstract readonly supportBundle: boolean;
+  abstract readonly maxBundleItems?: number;
+  abstract readonly baseUrl: string;
 
-    protected readonly logger = new Logger(this.constructor.name);
-    protected limiters: Map<string, Bottleneck> = new Map();
-    protected axiosInstance: AxiosInstance;
-    protected readonly limit: number;
-    protected readonly storeProvider: StoreProvider;
-    protected readonly baseImg = process.env.IMAGE_BASE_URL;
+  protected readonly logger = new Logger(this.constructor.name);
+  protected limiters: Map<string, Bottleneck> = new Map();
+  protected axiosInstance: AxiosInstance;
+  protected readonly limit: number;
+  protected readonly storeProvider: StoreProvider;
+  protected readonly baseImg = process.env.IMAGE_BASE_URL;
 
-    public customWebhookName = 'secret';
-    constructor(
-        @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
-        @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
-        @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
-        protected readonly encryptionService: EncryptionService,
-        @Inject(forwardRef(() => StoresService))
-        protected readonly mainStoresService: StoresService,
-        @Inject(forwardRef(() => OrdersService))
-        protected readonly ordersService: OrdersService,
-        protected readonly notificationService: NotificationService,
-        limit,
-        storeProvider
-    ) {
-        this.limit = limit;
-        this.storeProvider = storeProvider;
+  public customWebhookName = "secret";
+  constructor(
+    @InjectRepository(StoreEntity)
+    protected readonly storesRepo: Repository<StoreEntity>,
+    @InjectRepository(CategoryEntity)
+    protected readonly categoryRepo: Repository<CategoryEntity>,
+    @InjectRepository(ProductSyncStateEntity)
+    protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    protected readonly encryptionService: EncryptionService,
+    @Inject(forwardRef(() => StoresService))
+    protected readonly mainStoresService: StoresService,
+    @Inject(forwardRef(() => OrdersService))
+    protected readonly ordersService: OrdersService,
+    protected readonly notificationService: NotificationService,
+    limit,
+    storeProvider,
+  ) {
+    this.limit = limit;
+    this.storeProvider = storeProvider;
+  }
+  onModuleInit() {
+    this.axiosInstance = axios.create({
+      baseURL: this.baseUrl, // Safe to access now
+      timeout: 10000,
+    });
+
+    this.recoverStuckSyncs();
+  }
+  /* Centralized Error Handling for Axios
+   */
+  protected handleError(error: any, context: string) {
+    // If we exhausted retries and still got a 429
+    if (error.response?.status === 429) {
+      this.logger.error(
+        `Permanent Rate Limit block for ${context}. Please check dashboard.`,
+      );
     }
-    onModuleInit() {
-        this.axiosInstance = axios.create({
-            baseURL: this.baseUrl, // Safe to access now
-            timeout: 10000,
-        });
+    throw error;
+  }
 
-        this.recoverStuckSyncs()
+  protected getErrorMessage(error: any): string {
+    return (
+      error?.response?.data?.message ||
+      error?.response?.message ||
+      error?.message ||
+      "Unknown error"
+    );
+  }
+
+  /**
+   * ==========================================
+   * CONTEXTUAL LOGGING HELPERS
+   * ==========================================
+   * These methods automatically include Store ID and Admin ID in log messages
+   * for better traceability and debugging
+   */
+  protected getCtxString(
+    store?: StoreEntity,
+    adminId?: string | number,
+  ): string {
+    const parts: string[] = [];
+    if (store) {
+      parts.push(`StoreID:${store.id}`);
+      parts.push(`AdminID:${store.adminId}`);
+    } else if (adminId) {
+      parts.push(`AdminID:${adminId}`);
     }
-    /* Centralized Error Handling for Axios
-       */
-    protected handleError(error: any, context: string) {
-        // If we exhausted retries and still got a 429
-        if (error.response?.status === 429) {
-            this.logger.error(`Permanent Rate Limit block for ${context}. Please check dashboard.`);
-        }
-        throw error;
+    return parts.length > 0 ? `[${parts.join("|")}]` : "";
+  }
+
+  protected logCtx(
+    message: string,
+    store?: StoreEntity,
+    adminId?: string | number,
+  ): void {
+    const ctx = this.getCtxString(store, adminId);
+    this.logger.log(`${ctx} ${message}`);
+  }
+
+  protected logCtxDebug(
+    message: string,
+    store?: StoreEntity,
+    adminId?: string | number,
+  ): void {
+    const ctx = this.getCtxString(store, adminId);
+    this.logger.debug(`${ctx} ${message}`);
+  }
+
+  protected logCtxWarn(
+    message: string,
+    store?: StoreEntity,
+    adminId?: string | number,
+  ): void {
+    const ctx = this.getCtxString(store, adminId);
+    this.logger.warn(`${ctx} ${message}`);
+  }
+
+  protected logCtxError(
+    message: string,
+    store?: StoreEntity,
+    adminId?: string | number,
+  ): void {
+    const ctx = this.getCtxString(store, adminId);
+    this.logger.error(`${ctx} ${message}`);
+  }
+  protected getLimiter(adminId: string): Bottleneck {
+    let limiter = this.limiters.get(adminId);
+    const calculatedMinTime = Math.ceil(60000 / this.limit);
+    if (!limiter) {
+      limiter = new Bottleneck({
+        id: `limiter_${adminId}`,
+        reservoir: this.limit,
+        reservoirRefreshAmount: this.limit,
+        reservoirRefreshInterval: 60 * 1000,
+        // SOLUTION: Use maxConcurrent 1 and 1500ms minTime to strictly obey 40 req/min
+        maxConcurrent: 150,
+        minTime: calculatedMinTime,
+      });
+
+      limiter.on("idle", () => {
+        this.limiters.delete(adminId);
+        // this.logger.debug(`Cleaned up idle limiter for admin: ${adminId}`);
+      });
+
+      this.limiters.set(adminId, limiter);
     }
+    return limiter;
+  }
 
+  /**
+   * Centralized limiter + retry/backoff executor.
+   * - `fn` should perform the actual network call and throw on errors.
+   * - `backoffBase` in ms (used to multiply attempt index)
+   */
+  protected async executeWithLimiter(
+    adminId: string,
+    fn: () => Promise<any>,
+    attempt = 0,
+    backoffBase = 10000,
+    context?: string,
+    retry = true,
+  ): Promise<any> {
+    const cleanAdminId = String(adminId || "global");
+    const limiter = this.getLimiter(cleanAdminId);
 
-    protected getErrorMessage(error: any): string {
-        return error?.response?.data?.message || error?.response?.message || error?.message || 'Unknown error';
-    }
+    try {
+      return await limiter.schedule(async () => {
+        return await fn();
+      });
+    } catch (error: any) {
+      const status = error.response?.status;
+      const code = error.code || error.cause?.code; // Catch system errors like ETIMEDOUT
 
-    /**
-     * ==========================================
-     * CONTEXTUAL LOGGING HELPERS
-     * ==========================================
-     * These methods automatically include Store ID and Admin ID in log messages
-     * for better traceability and debugging
-     */
-    protected getCtxString(store?: StoreEntity, adminId?: string | number): string {
-        const parts: string[] = [];
-        if (store) {
-            parts.push(`StoreID:${store.id}`);
-            parts.push(`AdminID:${store.adminId}`);
-        } else if (adminId) {
-            parts.push(`AdminID:${adminId}`);
-        }
-        return parts.length > 0 ? `[${parts.join('|')}]` : '';
-    }
+      // Define what constitutes a "Retryable Error"
+      const isRateLimit = status === 429;
+      const isNetworkError = [
+        "ETIMEDOUT",
+        "ECONNRESET",
+        "ECONNABORTED",
+        "EAI_AGAIN",
+      ].includes(code);
+      // Handle throttling centrally
+      if (retry && (isRateLimit || isNetworkError) && attempt < 5) {
+        const waitTime = (attempt + 1) * backoffBase;
 
-    protected logCtx(message: string, store?: StoreEntity, adminId?: string | number): void {
-        const ctx = this.getCtxString(store, adminId);
-        this.logger.log(`${ctx} ${message}`);
-    }
-
-    protected logCtxDebug(message: string, store?: StoreEntity, adminId?: string | number): void {
-        const ctx = this.getCtxString(store, adminId);
-        this.logger.debug(`${ctx} ${message}`);
-    }
-
-    protected logCtxWarn(message: string, store?: StoreEntity, adminId?: string | number): void {
-        const ctx = this.getCtxString(store, adminId);
-        this.logger.warn(`${ctx} ${message}`);
-    }
-
-    protected logCtxError(message: string, store?: StoreEntity, adminId?: string | number): void {
-        const ctx = this.getCtxString(store, adminId);
-        this.logger.error(`${ctx} ${message}`);
-    }
-    protected getLimiter(adminId: string): Bottleneck {
-        let limiter = this.limiters.get(adminId);
-        const calculatedMinTime = Math.ceil(60000 / this.limit);
-        if (!limiter) {
-            limiter = new Bottleneck({
-                id: `limiter_${adminId}`,
-                reservoir: this.limit,
-                reservoirRefreshAmount: this.limit,
-                reservoirRefreshInterval: 60 * 1000,
-                // SOLUTION: Use maxConcurrent 1 and 1500ms minTime to strictly obey 40 req/min
-                maxConcurrent: 150,
-                minTime: calculatedMinTime,
-            });
-
-            limiter.on('idle', () => {
-                this.limiters.delete(adminId);
-                // this.logger.debug(`Cleaned up idle limiter for admin: ${adminId}`);
-            });
-
-            this.limiters.set(adminId, limiter);
-        }
-        return limiter;
-    }
-
-    /**
-     * Centralized limiter + retry/backoff executor.
-     * - `fn` should perform the actual network call and throw on errors.
-     * - `backoffBase` in ms (used to multiply attempt index)
-     */
-    protected async executeWithLimiter(adminId: string, fn: () => Promise<any>, attempt = 0, backoffBase = 10000, context?: string, retry = true): Promise<any> {
-        const cleanAdminId = String(adminId || 'global');
-        const limiter = this.getLimiter(cleanAdminId);
-
+        // Stop all other outgoing requests for this admin immediately
         try {
-            return await limiter.schedule(async () => {
-                return await fn();
-            });
-        } catch (error: any) {
-            const status = error.response?.status;
-            const code = error.code || error.cause?.code; // Catch system errors like ETIMEDOUT
-
-            // Define what constitutes a "Retryable Error"
-            const isRateLimit = status === 429;
-            const isNetworkError = ['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'EAI_AGAIN'].includes(code);
-            // Handle throttling centrally
-            if (retry && (isRateLimit || isNetworkError) && attempt < 5) {
-                const waitTime = (attempt + 1) * backoffBase;
-
-                // Stop all other outgoing requests for this admin immediately
-                try {
-                    const currentRes = await limiter.currentReservoir();
-                    if (currentRes > 0) {
-                        await limiter.incrementReservoir(-currentRes);
-                    }
-                } catch (e: any) {
-                    this.logger.debug(`Failed to clear reservoir for ${cleanAdminId}: ${e?.message}`);
-                }
-                const errorType = isRateLimit ? 'Rate Limit (429)' : `Network Error (${code || 'ETIMEDOUT'})`;
-                if (isRateLimit) {
-                    this.logger.warn(
-                        `${context ?? '[Limiter]'} ${errorType} hit for Admin ${cleanAdminId}. ` +
-                        `Reservoir cleared. Cooling down for ${waitTime}ms (Attempt ${attempt + 1}/5)...`
-                    );
-                } else {
-                    this.logger.warn(
-                        `${context ?? '[Limiter]'} ${errorType} detected for Admin ${cleanAdminId}. ` +
-                        `Retrying in ${waitTime}ms (Attempt ${attempt + 1}/5)...`
-                    );
-                }
-
-                await new Promise((resolve) => setTimeout(resolve, waitTime));
-
-                // Refill only 1 slot to allow the retry attempt to proceed
-                try {
-                    await limiter.incrementReservoir(1);
-                } catch (e: any) {
-                    this.logger.debug(`Failed to increment reservoir for ${cleanAdminId}: ${e?.message}`);
-                }
-
-                return this.executeWithLimiter(adminId, fn, attempt + 1, backoffBase, context);
-            }
-
-            // Re-throw for upstream handling
-            throw error;
+          const currentRes = await limiter.currentReservoir();
+          if (currentRes > 0) {
+            await limiter.incrementReservoir(-currentRes);
+          }
+        } catch (e: any) {
+          this.logger.debug(
+            `Failed to clear reservoir for ${cleanAdminId}: ${e?.message}`,
+          );
         }
-    }
-
-    /**
-     * Reusable axios call that leverages the centralized limiter/retry logic.
-     */
-    protected async sendRequest(store: StoreEntity, config: AxiosRequestConfig, attempt = 0, retry = true): Promise<any> {
-        const cleanAdminId = String(store?.adminId || 'global');
-        const method = (config.method || 'GET').toUpperCase();
-        const url = config.url || config.baseURL || '';
-
-        return this.executeWithLimiter(cleanAdminId, async () => {
-            if (!store) {
-                this.logger.warn(`Sync skipped for Admin ${cleanAdminId}: No active store found is disabled.`);
-                return null;
-            }
-
-            const response = await this.axiosInstance.request({ ...config });
-            return response.data;
-        }, attempt, 10000, `${method} ${url}`, retry);
-    }
-
-    getImageUrl = (url) => {
-        if (url.startsWith('http')) {
-            return url;
+        const errorType = isRateLimit
+          ? "Rate Limit (429)"
+          : `Network Error (${code || "ETIMEDOUT"})`;
+        if (isRateLimit) {
+          this.logger.warn(
+            `${context ?? "[Limiter]"} ${errorType} hit for Admin ${cleanAdminId}. ` +
+              `Reservoir cleared. Cooling down for ${waitTime}ms (Attempt ${attempt + 1}/5)...`,
+          );
+        } else {
+          this.logger.warn(
+            `${context ?? "[Limiter]"} ${errorType} detected for Admin ${cleanAdminId}. ` +
+              `Retrying in ${waitTime}ms (Attempt ${attempt + 1}/5)...`,
+          );
         }
 
-        const base = this.baseImg.endsWith('/')
-            ? this.baseImg.slice(0, -1)
-            : this.baseImg;
+        await new Promise((resolve) => setTimeout(resolve, waitTime));
 
-        const path = url.startsWith('/')
-            ? url
-            : `/${url}`;
+        // Refill only 1 slot to allow the retry attempt to proceed
+        try {
+          await limiter.incrementReservoir(1);
+        } catch (e: any) {
+          this.logger.debug(
+            `Failed to increment reservoir for ${cleanAdminId}: ${e?.message}`,
+          );
+        }
 
-        return base + path;
+        return this.executeWithLimiter(
+          adminId,
+          fn,
+          attempt + 1,
+          backoffBase,
+          context,
+        );
+      }
+
+      // Re-throw for upstream handling
+      throw error;
+    }
+  }
+
+  /**
+   * Reusable axios call that leverages the centralized limiter/retry logic.
+   */
+  protected async sendRequest(
+    store: StoreEntity,
+    config: AxiosRequestConfig,
+    attempt = 0,
+    retry = true,
+  ): Promise<any> {
+    const cleanAdminId = String(store?.adminId || "global");
+    const method = (config.method || "GET").toUpperCase();
+    const url = config.url || config.baseURL || "";
+
+    return this.executeWithLimiter(
+      cleanAdminId,
+      async () => {
+        if (!store) {
+          this.logger.warn(
+            `Sync skipped for Admin ${cleanAdminId}: No active store found is disabled.`,
+          );
+          return null;
+        }
+
+        const response = await this.axiosInstance.request({ ...config });
+        return response.data;
+      },
+      attempt,
+      10000,
+      `${method} ${url}`,
+      retry,
+    );
+  }
+
+  getImageUrl = (url) => {
+    if (url.startsWith("http")) {
+      return url;
+    }
+
+    const base = this.baseImg.endsWith("/")
+      ? this.baseImg.slice(0, -1)
+      : this.baseImg;
+
+    const path = url.startsWith("/") ? url : `/${url}`;
+
+    return base + path;
+  };
+
+  /**
+   * RECOVERY: Clean up stores stuck in SYNCING status (useful when app crashes)
+   * Should be called on app startup to prevent indefinite locks
+   */
+  public async recoverStuckSyncs(): Promise<number> {
+    this.logger.warn(
+      `[Recovery] Scanning for stores stuck in SYNCING status...`,
+    );
+
+    try {
+      const stuckStores = await this.storesRepo.find({
+        where: [
+          {
+            provider: this.storeProvider,
+            syncStatus: SyncStatus.SYNCING,
+          },
+          {
+            provider: this.storeProvider,
+            localSyncStatus: SyncStatus.SYNCING,
+          },
+        ],
+      });
+
+      if (stuckStores.length === 0) {
+        this.logger.log(`[Recovery] ✓ No stores stuck in SYNCING status`);
+        return 0;
+      }
+
+      for (const store of stuckStores) {
+        this.logCtxWarn(
+          `[Recovery] Found store "${store.name}" stuck  in SYNCING. Resetting to FAILED status...`,
+          store,
+        );
+        if (store.syncStatus === SyncStatus.SYNCING) {
+          await this.storesRepo.update(store.id, {
+            syncStatus: SyncStatus.FAILED,
+          });
+        } else {
+          await this.storesRepo.update(store.id, {
+            localSyncStatus: SyncStatus.FAILED,
+          });
+        }
+      }
+
+      this.logger.log(
+        `[Recovery] ✓ Successfully recovered ${stuckStores.length} stuck store(s)`,
+      );
+      return stuckStores.length;
+    } catch (error: any) {
+      this.logger.error(
+        `[Recovery] ✗ Failed to recover stuck syncs: ${error.message}`,
+      );
+      return 0;
+    }
+  }
+
+  protected async sendSyncSuccessNotification(params: {
+    adminId: string;
+    entityId: string;
+    entityName: string;
+    storeName: string;
+    isProduct: boolean;
+    action: "CREATE" | "UPDATE" | "SYNC";
+  }) {
+    const { adminId, entityId, entityName, storeName, isProduct, action } =
+      params;
+
+    const entityText = isProduct ? "Product" : "Bundle";
+
+    const actionText =
+      action === "CREATE" ? "created" : action === "UPDATE" ? "updated" : "";
+
+    // ✅ Title with quoted name + action
+    const title = `"${entityName}" synced successfully to ${storeName} ${actionText && `(${actionText})`}`;
+
+    // ✅ Keep your original message style (slightly improved consistency)
+    const message = `${entityText} "${entityName}" has been successfully ${actionText === "created" ? "synced to" : "synced to"} ${storeName}.`;
+
+    return await this.notificationService.create({
+      userId: adminId,
+      type: NotificationType.PRODUCT_SYNC_SUCCESS,
+      title,
+      message,
+      relatedEntityType: isProduct ? "product" : "bundle",
+      relatedEntityId: String(entityId),
+    });
+  }
+
+  protected async calculateBundleInventory(
+    bundle: BundleEntity,
+  ): Promise<{ quantity: number; expense: number }> {
+    if (!bundle.items?.length) return { quantity: 0, expense: 0 };
+
+    const items = bundle.items.filter((item) => item.variant && item.isActive);
+    if (items.length === 0) return { quantity: 0, expense: 0 };
+
+    const results = await Promise.all(
+      items.map(async (item) => {
+        const available = await this.ordersService.calculateAvailableStock(
+          item.variant.stockOnHand,
+          item.variant.reserved,
+          item.variant.adminId || bundle.adminId,
+        );
+        const possibleBundles = Math.floor(available / item.qty);
+        const unitExpense =
+          Number(item.variant.unitCost) ??
+          Number((item.variant as any).product?.wholesalePrice) ??
+          0;
+        const itemExpense = Number(unitExpense) * Number(item.qty);
+        return { possibleBundles, itemExpense };
+      }),
+    );
+
+    const minQuantity = results.reduce(
+      (min, r) => (r.possibleBundles < min ? r.possibleBundles : min),
+      Infinity,
+    );
+    const totalExpense = results.reduce((sum, r) => sum + r.itemExpense, 0);
+
+    return {
+      quantity: minQuantity === Infinity ? 0 : Math.max(0, minQuantity),
+      expense: Math.max(0, Number(totalExpense) || 0),
     };
+  }
 
-
-    /**
-          * RECOVERY: Clean up stores stuck in SYNCING status (useful when app crashes)
-          * Should be called on app startup to prevent indefinite locks
-          */
-    public async recoverStuckSyncs(): Promise<number> {
-        this.logger.warn(`[Recovery] Scanning for stores stuck in SYNCING status...`);
-
-        try {
-            const stuckStores = await this.storesRepo.find({
-                where: [
-                    {
-                        provider: this.storeProvider,
-                        syncStatus: SyncStatus.SYNCING
-                    },
-                    {
-                        provider: this.storeProvider,
-                        localSyncStatus: SyncStatus.SYNCING
-                    }
-                ]
-            });
-
-            if (stuckStores.length === 0) {
-                this.logger.log(`[Recovery] ✓ No stores stuck in SYNCING status`);
-                return 0;
-            }
-
-            for (const store of stuckStores) {
-                this.logCtxWarn(
-                    `[Recovery] Found store "${store.name}" stuck  in SYNCING. Resetting to FAILED status...`,
-                    store
-                );
-                if (store.syncStatus === SyncStatus.SYNCING) {
-
-                    await this.storesRepo.update(store.id, {
-                        syncStatus: SyncStatus.FAILED,
-                    });
-                } else {
-
-                    await this.storesRepo.update(store.id, {
-                        localSyncStatus: SyncStatus.FAILED,
-                    });
-                }
-            }
-
-            this.logger.log(`[Recovery] ✓ Successfully recovered ${stuckStores.length} stuck store(s)`);
-            return stuckStores.length;
-        } catch (error: any) {
-            this.logger.error(`[Recovery] ✗ Failed to recover stuck syncs: ${error.message}`);
-            return 0;
-        }
-    }
-
-
-    protected async sendSyncSuccessNotification(params: {
-        adminId: string;
-        entityId: string;
-        entityName: string;
-        storeName: string;
-        isProduct: boolean;
-        action: 'CREATE' | 'UPDATE' | 'SYNC';
-    }) {
-        const { adminId, entityId, entityName, storeName, isProduct, action } = params;
-
-        const entityText = isProduct ? 'Product' : 'Bundle';
-
-        const actionText = action === 'CREATE' ? 'created' : action === 'UPDATE' ? 'updated' : '';
-
-        // ✅ Title with quoted name + action
-        const title = `"${entityName}" synced successfully to ${storeName} ${actionText && `(${actionText})`}`;
-
-        // ✅ Keep your original message style (slightly improved consistency)
-        const message = `${entityText} "${entityName}" has been successfully ${actionText === 'created' ? 'synced to' : 'synced to'} ${storeName}.`;
-
-        return await this.notificationService.create({
-            userId: adminId,
-            type: NotificationType.PRODUCT_SYNC_SUCCESS,
-            title,
-            message,
-            relatedEntityType: isProduct ? "product" : "bundle",
-            relatedEntityId: String(entityId),
-        });
-    }
-
-    protected async calculateBundleInventory(
-        bundle: BundleEntity
-    ): Promise<{ quantity: number; expense: number }> {
-        if (!bundle.items?.length) return { quantity: 0, expense: 0 };
-
-        const items = bundle.items.filter((item) => item.variant && item.isActive);
-        if (items.length === 0) return { quantity: 0, expense: 0 };
-
-        const results = await Promise.all(
-            items.map(async (item) => {
-                const available = await this.ordersService.calculateAvailableStock(
-                    item.variant.stockOnHand,
-                    item.variant.reserved,
-                    item.variant.adminId || bundle.adminId,
-                );
-                const possibleBundles = Math.floor(available / item.qty);
-                const unitExpense =
-                    Number(item.variant.unitCost) ??
-                    Number((item.variant as any).product?.wholesalePrice) ??
-                    0;
-                const itemExpense = Number(unitExpense) * Number(item.qty);
-                return { possibleBundles, itemExpense };
-            }),
-        );
-
-        const minQuantity = results.reduce(
-            (min, r) => (r.possibleBundles < min ? r.possibleBundles : min),
-            Infinity,
-        );
-        const totalExpense = results.reduce((sum, r) => sum + r.itemExpense, 0);
-
-        return {
-            quantity: minQuantity === Infinity ? 0 : Math.max(0, minQuantity),
-            expense: Math.max(0, Number(totalExpense) || 0),
-        };
-    }
-
-    // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
-    // usage of the `@shopify/shopify-api` client and provider-specific behavior.
-    public abstract syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string })
-    public abstract syncProduct({ productId }: { productId: string }): Promise<any>;
-    public abstract syncOrderStatus(order: OrderEntity, newStatusId: string, oldStatusId?: string)
-    public abstract syncFullStore(store: StoreEntity, productIds?: string[], type?: FullStoreSyncType)
-    public abstract getProductBySlug(store: StoreEntity, slug: string, retry?: boolean): Promise<{ id }>
-    public abstract getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto>;
-    public abstract getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]>;
-    public abstract verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean;
-    public abstract mapWebhookUpdate(body: any, localOrderStatus: OrderStatus, headers: Record<string, any>): WebhookOrderUpdatePayload;
-    public abstract mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload>;
-    public abstract validateProviderConnection(store: StoreEntity): Promise<boolean>
-    public abstract processExternalOrderId(body: any, headers: Record<string, any>): Promise<string | null>;
-    public abstract cancelIntegration(adminId: string): Promise<boolean>
-    public abstract syncBundle(bundle: BundleEntity): Promise<void>;
-    public normalizeOrderId(externalOrderId: string): string {
-        return externalOrderId;
-    }
-
+  // Shopify-specific GraphQL helper was moved into `ShopifyService` to allow
+  // usage of the `@shopify/shopify-api` client and provider-specific behavior.
+  public abstract syncCategory({
+    category,
+    relatedAdminId,
+    slug,
+  }: {
+    category: CategoryEntity;
+    relatedAdminId?: string;
+    slug?: string;
+  });
+  public abstract syncProduct({
+    productId,
+  }: {
+    productId: string;
+  }): Promise<any>;
+  public abstract syncOrderStatus(
+    order: OrderEntity,
+    newStatusId: string,
+    oldStatusId?: string,
+  );
+  public abstract syncFullStore(
+    store: StoreEntity,
+    productIds?: string[],
+    type?: FullStoreSyncType,
+  );
+  public abstract getProductBySlug(
+    store: StoreEntity,
+    slug: string,
+    retry?: boolean,
+  ): Promise<{ id }>;
+  public abstract getFullProductById(
+    store: StoreEntity,
+    id: string,
+  ): Promise<MappedProductDto>;
+  public abstract getAllMappedProducts(
+    store: StoreEntity,
+  ): Promise<MappedProductDto[]>;
+  public abstract verifyWebhookAuth(
+    headers: Record<string, any>,
+    body: any,
+    store: StoreEntity,
+    req?: any,
+    action?: "create" | "update",
+  ): boolean;
+  public abstract mapWebhookUpdate(
+    body: any,
+    localOrderStatus: OrderStatus,
+    headers: Record<string, any>,
+  ): WebhookOrderUpdatePayload;
+  public abstract mapWebhookCreate(
+    body: any,
+    store: StoreEntity,
+  ): Promise<WebhookOrderPayload>;
+  public abstract validateProviderConnection(
+    store: StoreEntity,
+  ): Promise<boolean>;
+  public abstract processExternalOrderId(
+    body: any,
+    headers: Record<string, any>,
+  ): Promise<string | null>;
+  public abstract cancelIntegration(adminId: string): Promise<boolean>;
+  public abstract syncBundle(bundle: BundleEntity): Promise<void>;
+  public normalizeOrderId(externalOrderId: string): string {
+    return externalOrderId;
+  }
 }

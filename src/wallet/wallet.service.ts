@@ -21,7 +21,10 @@ import { PaymentFactoryService } from "src/payments/providers/PaymentFactoryServ
 import { SubscriptionsService } from "src/subscription/subscription.service";
 import { TransactionsService } from "src/transactions/transactions.service";
 import { DataSource, EntityManager, Repository } from "typeorm";
-import { RequestTranslationService, TranslationService } from "common/translation.service";
+import {
+  RequestTranslationService,
+  TranslationService,
+} from "common/translation.service";
 import { tenantId } from "src/category/category.service";
 
 @Injectable()
@@ -39,7 +42,7 @@ export class WalletService {
     private notificationService: NotificationService,
     private translations: TranslationService,
     private requestTranslations: RequestTranslationService,
-  ) { }
+  ) {}
 
   private isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;
@@ -69,7 +72,9 @@ export class WalletService {
   // 1️⃣ Get or Create Wallet (For Specific User ID)
   async getOrCreateWalletSuper(me: any, userId: string) {
     if (!this.isSuperAdmin(me)) {
-      throw new ForbiddenException(this.translations.t("common.permission_denied"));
+      throw new ForbiddenException(
+        this.translations.t("common.permission_denied"),
+      );
     }
 
     const wallet = await this.getOrCreateWallet(userId);
@@ -81,7 +86,11 @@ export class WalletService {
   async topUp(user: User, amount: number) {
     // Check minimum amount
     if (amount < 50) {
-      throw new BadRequestException(this.translations.t("domains.payments.min_amount_required", {args: {amount:50} }));
+      throw new BadRequestException(
+        this.translations.t("domains.payments.min_amount_required", {
+          args: { amount: 50 },
+        }),
+      );
     }
     // Check whole number
     // if (!Number.isInteger(Number(amount))) {
@@ -100,7 +109,11 @@ export class WalletService {
   }
 
   // 2️⃣ Apply Wallet Top Up (Shared logic)
-  async applyWalletTopUp(userId: string, amount: number, manager: EntityManager) {
+  async applyWalletTopUp(
+    userId: string,
+    amount: number,
+    manager: EntityManager,
+  ) {
     const wallet = await this.getOrCreateWallet(userId, manager);
 
     wallet.currentBalance = Number(wallet.currentBalance) + amount;
@@ -128,15 +141,19 @@ export class WalletService {
 
       // Update logic
       const newBalance = Number(wallet.currentBalance) + amount;
-      if (newBalance < 0)
-        throw new BadRequestException(this.translations.t("common.resulting_balance_cannot_be_negative"));
+      if (newBalance < 0) {
+        throw new BadRequestException(
+          this.translations.t("common.resulting_balance_cannot_be_negative"),
+        );
+      }
 
       wallet.currentBalance = newBalance;
-      if (amount > 0)
+      if (amount > 0) {
         wallet.totalCharged = Number(wallet.totalCharged) + amount;
-      else
+      } else {
         wallet.totalWithdrawn =
           Number(wallet.totalWithdrawn) + Math.abs(amount);
+      }
 
       await manager.save(wallet);
 
@@ -148,7 +165,10 @@ export class WalletService {
         userId: targetUserId,
         amount: amount,
         amountInDollars: amount,
-        purpose: amount > 0 ? PaymentPurposeEnum.WALLET_TOP_UP : PaymentPurposeEnum.WALLET_WITHDRAWAL,
+        purpose:
+          amount > 0
+            ? PaymentPurposeEnum.WALLET_TOP_UP
+            : PaymentPurposeEnum.WALLET_WITHDRAWAL,
         status: TransactionStatus.SUCCESS,
         paymentMethod: TransactionPaymentMethod.MANUAL_ADJUSTMENT,
         number: number,
@@ -215,8 +235,7 @@ export class WalletService {
               );
             }
 
-            const cost =
-              extraOrders * Number(activeSubscription.extraOrderFee);
+            const cost = extraOrders * Number(activeSubscription.extraOrderFee);
             const currentBalance = Number(wallet.currentBalance);
 
             if (currentBalance < cost) {
@@ -228,15 +247,13 @@ export class WalletService {
             }
 
             wallet.currentBalance = currentBalance - cost;
-            wallet.totalWithdrawn =
-              Number(wallet.totalWithdrawn) + cost;
+            wallet.totalWithdrawn = Number(wallet.totalWithdrawn) + cost;
 
             const number =
               await this.transactionsService.generateTransactionNumber(
                 wallet.userId?.toString(),
               );
-              
-        
+
             transaction = m.create(TransactionEntity, {
               userId: me.id,
               amount: cost,

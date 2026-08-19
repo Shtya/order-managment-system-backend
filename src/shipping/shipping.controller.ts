@@ -1,212 +1,255 @@
 // --- File: backend/src/shipping/shipping.controller.ts ---
-import { Body, Controller, Get, Param, Patch, Post, Query, Req,Res, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { ShippingService } from './shipping.service';
-import { AssignOrderDto, BulkAssignOrderDto, CreateShipmentDto, ManualUpdateShipmentStatusDto, PrintMassAWBDto, SetActiveDto, SetProviderCredentialsDto } from 'dto/shipping.dto';
-import { tenantId } from 'src/category/category.service';
-import { ProviderCode } from './providers/shipping-provider.interface';
-import { Response } from 'express';
-import { PermissionsGuard } from 'common/permissions.guard';
-import { Permissions } from 'common/permissions.decorator';
-import { RequireSubscription } from 'common/require-subscription.decorator';
-import { SubscriptionGuard } from 'common/subscription.guard';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { ShippingService } from "./shipping.service";
+import {
+  AssignOrderDto,
+  BulkAssignOrderDto,
+  CreateShipmentDto,
+  ManualUpdateShipmentStatusDto,
+  PrintMassAWBDto,
+  SetActiveDto,
+  SetProviderCredentialsDto,
+} from "dto/shipping.dto";
+import { tenantId } from "src/category/category.service";
+import { ProviderCode } from "./providers/shipping-provider.interface";
+import { Response } from "express";
+import { PermissionsGuard } from "common/permissions.guard";
+import { Permissions } from "common/permissions.decorator";
+import { RequireSubscription } from "common/require-subscription.decorator";
+import { SubscriptionGuard } from "common/subscription.guard";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
-@Controller('shipping')
+@Controller("shipping")
 @RequireSubscription()
 export class ShippingController {
-	constructor(private shipping: ShippingService) { }
+  constructor(private shipping: ShippingService) {}
 
-	@Permissions("shipping-companies.read")
-	@Get('providers')
-	providers() {
-		return this.shipping.listProviders();
-	}
+  @Permissions("shipping-companies.read")
+  @Get("providers")
+  providers() {
+    return this.shipping.listProviders();
+  }
 
-	@Permissions("shipping-companies.read")
-	@Get('statuses')
-	statuses() {
-		return this.shipping.getUnifiedStatuses();
-	}
+  @Permissions("shipping-companies.read")
+  @Get("statuses")
+  statuses() {
+    return this.shipping.getUnifiedStatuses();
+  }
 
-	@Permissions("shipping-companies.update")
-	@Post('providers/:provider/credentials')
-	setCredentials(@Req() req: any, @Param('provider') provider: string, @Body() dto: SetProviderCredentialsDto) {
-		return this.shipping.setCredentials(req.user.id, provider, dto.credentials);
-	}
+  @Permissions("shipping-companies.update")
+  @Post("providers/:provider/credentials")
+  setCredentials(
+    @Req() req: any,
+    @Param("provider") provider: string,
+    @Body() dto: SetProviderCredentialsDto,
+  ) {
+    return this.shipping.setCredentials(req.user.id, provider, dto.credentials);
+  }
 
-	@Permissions("shipping-companies.update")
-	@Post('providers/:provider/active')
-	setActive(@Req() req: any, @Param('provider') provider: string, @Body() dto: SetActiveDto) {
-		return this.shipping.setActive(req.user.id, provider, dto.isActive);
-	}
+  @Permissions("shipping-companies.update")
+  @Post("providers/:provider/active")
+  setActive(
+    @Req() req: any,
+    @Param("provider") provider: string,
+    @Body() dto: SetActiveDto,
+  ) {
+    return this.shipping.setActive(req.user.id, provider, dto.isActive);
+  }
 
-	@Permissions("shipping-companies.read")
-	@Get('providers/:provider/services')
-	services(@Req() req: any, @Param('provider') provider: string) {
-		return this.shipping.getServices(req.user.id, provider);
-	}
+  @Permissions("shipping-companies.read")
+  @Get("providers/:provider/services")
+  services(@Req() req: any, @Param("provider") provider: string) {
+    return this.shipping.getServices(req.user.id, provider);
+  }
 
-	@Permissions("shipping-companies.read")
-	@Get('providers/:provider/capabilities')
-	capabilities(@Req() req: any, @Param('provider') provider: string) {
-		return this.shipping.getCapabilities(req.user.id, provider);
-	}
+  @Permissions("shipping-companies.read")
+  @Get("providers/:provider/capabilities")
+  capabilities(@Req() req: any, @Param("provider") provider: string) {
+    return this.shipping.getCapabilities(req.user.id, provider);
+  }
 
-	@Permissions("shipping-companies.read")
-	@Get('stats/companies-workload')
-	async getCompanyWorkload(@Req() req: any) {
-		return await this.shipping.getCompanyDistribution(req.user);
-	}
+  @Permissions("shipping-companies.read")
+  @Get("stats/companies-workload")
+  async getCompanyWorkload(@Req() req: any) {
+    return await this.shipping.getCompanyDistribution(req.user);
+  }
 
-	/**
-	 * Endpoint 2: Lifecycle Totals
-	 * Returns: { confirmed: 100, distributed: 50, distributedNotPrinted: 10 }
-	*/
-	@Permissions("shipping-companies.read")
-	@Get('stats/lifecycle-summary')
-	async getLifecycleSummary(@Req() req: any) {
-		return await this.shipping.getShipmentLifecycleStats(req.user);
-	}
+  /**
+   * Endpoint 2: Lifecycle Totals
+   * Returns: { confirmed: 100, distributed: 50, distributedNotPrinted: 10 }
+   */
+  @Permissions("shipping-companies.read")
+  @Get("stats/lifecycle-summary")
+  async getLifecycleSummary(@Req() req: any) {
+    return await this.shipping.getShipmentLifecycleStats(req.user);
+  }
 
+  // @UseGuards(JwtAuthGuard)
+  // @Get('providers/:provider/areas')
+  // areas(@Req() req: any, @Param('provider') provider: string, @Query('countryId') countryId?: string) {
+  // 	const cid = countryId ? Number(countryId) : 1;
+  // 	return this.shipping.getAreas(req.user.id, provider, cid);
+  // }
 
-	// @UseGuards(JwtAuthGuard)
-	// @Get('providers/:provider/areas')
-	// areas(@Req() req: any, @Param('provider') provider: string, @Query('countryId') countryId?: string) {
-	// 	const cid = countryId ? Number(countryId) : 1;
-	// 	return this.shipping.getAreas(req.user.id, provider, cid);
-	// }
+  @Permissions("shipping-companies.update")
+  @Post("providers/:provider/orders/:orderId/assign")
+  assign(
+    @Req() req: any,
+    @Param("orderId") orderId: string,
+    @Body() dto: AssignOrderDto,
+    @Param("provider") provider?: ProviderCode | "none",
+  ) {
+    return this.shipping.assignOrder(req.user, orderId, dto, provider);
+  }
 
+  @Permissions("shipping-companies.update")
+  @Post("providers/:provider/orders/bulk-assign")
+  bulkAssign(
+    @Req() req: any,
+    @Param("provider") provider: ProviderCode,
+    @Body() dto: BulkAssignOrderDto,
+  ) {
+    return this.shipping.bulkAssignOrders(req.user, provider, dto);
+  }
 
-	@Permissions("shipping-companies.update")
-	@Post('providers/:provider/orders/:orderId/assign')
-	assign(@Req() req: any, @Param('orderId') orderId: string, @Body() dto: AssignOrderDto, @Param('provider') provider?: ProviderCode | 'none',) {
-		return this.shipping.assignOrder(req.user, orderId, dto, provider);
-	}
+  @Permissions("shipping-companies.read")
+  @Get("shipments")
+  list(@Req() req: any) {
+    return this.shipping.listShipments(req.user.id);
+  }
 
-	@Permissions("shipping-companies.update")
-	@Post('providers/:provider/orders/bulk-assign')
-	bulkAssign(
-		@Req() req: any,
-		@Param('provider') provider: ProviderCode,
-		@Body() dto: BulkAssignOrderDto
-	) {
-		return this.shipping.bulkAssignOrders(req.user, provider, dto);
-	}
+  @Permissions("shipping-companies.read")
+  @Get("shipments/:id")
+  get(@Req() req: any, @Param("id") id: string) {
+    return this.shipping.getShipment(req.user.id, id);
+  }
 
-	@Permissions("shipping-companies.read")
-	@Get('shipments')
-	list(@Req() req: any) {
-		return this.shipping.listShipments(req.user.id);
-	}
+  @UseGuards(JwtAuthGuard)
+  @Get("shipments/:id/events")
+  events(@Req() req: any, @Param("id") id: string) {
+    return this.shipping.getShipmentEvents(req.user.id, id);
+  }
 
-	@Permissions("shipping-companies.read")
-	@Get('shipments/:id')
-	get(@Req() req: any, @Param('id') id: string) {
-		return this.shipping.getShipment(req.user.id, id);
-	}
+  @UseGuards(JwtAuthGuard)
+  @Get("integrations/status")
+  integrationsStatus(@Req() req: any) {
+    return this.shipping.getIntegrationsStatus(req.user.id);
+  }
 
+  @UseGuards(JwtAuthGuard)
+  @Get("integrations/active")
+  activeIntegrations(@Req() req: any) {
+    return this.shipping.activeIntegrations(req.user);
+  }
 
-	@UseGuards(JwtAuthGuard)
-	@Get('shipments/:id/events')
-	events(@Req() req: any, @Param('id') id: string) {
-		return this.shipping.getShipmentEvents(req.user.id, id);
-	}
+  // NEW: Webhook setup
+  @UseGuards(JwtAuthGuard)
+  @Get("providers/:provider/webhook-setup")
+  webhookSetup(@Req() req: any, @Param("provider") provider: string) {
+    return this.shipping.getWebhookSetup(req.user.id, provider);
+  }
 
-	@UseGuards(JwtAuthGuard)
-	@Get('integrations/status')
-	integrationsStatus(@Req() req: any) {
-		return this.shipping.getIntegrationsStatus(req.user.id);
-	}
+  @UseGuards(JwtAuthGuard)
+  @Post("providers/:provider/webhook-setup/rotate-secret")
+  rotateWebhook(@Req() req: any, @Param("provider") provider: string) {
+    return this.shipping.rotateWebhookSecret(req.user.id, provider);
+  }
 
-	@UseGuards(JwtAuthGuard)
-	@Get('integrations/active')
-	activeIntegrations(@Req() req: any) {
-		return this.shipping.activeIntegrations(req.user);
-	}
+  // backend/src/shipping/shipping.controller.ts
 
-	// NEW: Webhook setup
-	@UseGuards(JwtAuthGuard)
-	@Get('providers/:provider/webhook-setup')
-	webhookSetup(@Req() req: any, @Param('provider') provider: string) {
-		return this.shipping.getWebhookSetup(req.user.id, provider);
-	}
+  @Get("cities/:provider")
+  async getCities(@Req() req: any, @Param("provider") provider: string) {
+    return this.shipping.getCities(tenantId(req.user), provider);
+  }
 
-	@UseGuards(JwtAuthGuard)
-	@Post('providers/:provider/webhook-setup/rotate-secret')
-	rotateWebhook(@Req() req: any, @Param('provider') provider: string) {
-		return this.shipping.rotateWebhookSecret(req.user.id, provider);
-	}
+  @Get("districts/:provider/:cityId")
+  async getDistricts(
+    @Req() req: any,
+    @Param("provider") provider: string,
+    @Param("cityId") cityId: string,
+  ) {
+    return this.shipping.getDistricts(tenantId(req.user), provider, cityId);
+  }
 
-	// backend/src/shipping/shipping.controller.ts
+  @Get("zones/:provider/:cityId")
+  async getZones(
+    @Req() req: any,
+    @Param("provider") provider: string,
+    @Param("cityId") cityId: string,
+  ) {
+    return this.shipping.getZones(tenantId(req.user), provider, cityId);
+  }
 
-	@Get('cities/:provider')
-	async getCities(@Req() req: any, @Param('provider') provider: string) {
-		return this.shipping.getCities(tenantId(req.user), provider);
-	}
+  @Get("pickup-locations/:provider")
+  async getPickupLocations(
+    @Req() req: any,
+    @Param("provider") provider: string,
+  ) {
+    // tenantId هو helper لجلب الـ adminId من التوكن
+    const adminId = tenantId(req.user);
+    return this.shipping.getPickupLocations(adminId, provider);
+  }
 
-	@Get('districts/:provider/:cityId')
-	async getDistricts(
-		@Req() req: any,
-		@Param('provider') provider: string,
-		@Param('cityId') cityId: string
-	) {
-		return this.shipping.getDistricts(tenantId(req.user), provider, cityId);
-	}
+  // @Permissions("shipping-companies.update")
+  // @Patch('shipments/:id/status')
+  // updateShipmentStatus(@Req() req: any, @Param('id') id: string, @Body() dto: ManualUpdateShipmentStatusDto) {
+  // 	return this.shipping.updateShipmentStatusManually(req.user, id, dto);
+  // }
 
-	@Get('zones/:provider/:cityId')
-	async getZones(
-		@Req() req: any,
-		@Param('provider') provider: string,
-		@Param('cityId') cityId: string
-	) {
-		return this.shipping.getZones(tenantId(req.user), provider, cityId);
-	}
+  @Permissions("shipping-companies.read")
+  @Get("shipments/:trackingNumber/track")
+  trackShipment(
+    @Req() req: any,
+    @Param("trackingNumber") trackingNumber: string,
+  ) {
+    const adminId = tenantId(req.user);
+    return this.shipping.getShipmentByTrackingNumber(adminId, trackingNumber);
+  }
 
-	@Get('pickup-locations/:provider')
-	async getPickupLocations(
-		@Req() req: any,
-		@Param('provider') provider: string
-	) {
-		// tenantId هو helper لجلب الـ adminId من التوكن
-		const adminId = tenantId(req.user);
-		return this.shipping.getPickupLocations(adminId, provider);
-	}
+  @Permissions("shipping-companies.read")
+  @Post("providers/:provider/mass-awb")
+  printMassAWB(
+    @Req() req: any,
+    @Param("provider") provider: string,
+    @Body() dto: PrintMassAWBDto,
+  ) {
+    return this.shipping.printMassAWB(req.user, provider, dto);
+  }
 
+  @Permissions("shipping-companies.read")
+  @Get("external-logs")
+  listExternalLogs(@Req() req: any, @Query() q: any) {
+    return this.shipping.listExternalShipmentLogs(req.user, q);
+  }
 
-	// @Permissions("shipping-companies.update")
-	// @Patch('shipments/:id/status')
-	// updateShipmentStatus(@Req() req: any, @Param('id') id: string, @Body() dto: ManualUpdateShipmentStatusDto) {
-	// 	return this.shipping.updateShipmentStatusManually(req.user, id, dto);
-	// }
-
-	@Permissions("shipping-companies.read")
-	@Get('shipments/:trackingNumber/track')
-	trackShipment(@Req() req: any, @Param('trackingNumber') trackingNumber: string) {
-		const adminId = tenantId(req.user);
-		return this.shipping.getShipmentByTrackingNumber(adminId, trackingNumber);
-	}
-
-	@Permissions("shipping-companies.read")
-	@Post('providers/:provider/mass-awb')
-	printMassAWB(@Req() req: any, @Param('provider') provider: string, @Body() dto: PrintMassAWBDto) {
-		return this.shipping.printMassAWB(req.user, provider, dto);
-	}
-
-	@Permissions("shipping-companies.read")
-	@Get('external-logs')
-	listExternalLogs(@Req() req: any, @Query() q: any) {
-		return this.shipping.listExternalShipmentLogs(req.user, q);
-	}
-
-	@Permissions("shipping-companies.read")
-	@Get('external-logs/export')
-	async exportExternalLogs(@Req() req: any, @Res() res: Response, @Query() q: any) {
-		const buffer = await this.shipping.exportExternalShipmentLogs(req.user, q);
-		res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-		res.setHeader('Content-Disposition', 'attachment; filename=shipment-logs.xlsx');
-		res.send(buffer);
-
-	}
-
+  @Permissions("shipping-companies.read")
+  @Get("external-logs/export")
+  async exportExternalLogs(
+    @Req() req: any,
+    @Res() res: Response,
+    @Query() q: any,
+  ) {
+    const buffer = await this.shipping.exportExternalShipmentLogs(req.user, q);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=shipment-logs.xlsx",
+    );
+    res.send(buffer);
+  }
 }

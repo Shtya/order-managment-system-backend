@@ -18,7 +18,7 @@ export class SmsSeedService implements OnModuleInit {
   constructor(
     @InjectRepository(SmsProviderEntity)
     private providersRepo: Repository<SmsProviderEntity>,
-  ) { }
+  ) {}
 
   async onModuleInit() {
     await this.seedProvidersOnce();
@@ -26,7 +26,9 @@ export class SmsSeedService implements OnModuleInit {
 
   private async seedProvidersOnce() {
     for (const def of DEFAULT_SMS_PROVIDERS) {
-      const existing = await this.providersRepo.findOne({ where: { code: def.code } });
+      const existing = await this.providersRepo.findOne({
+        where: { code: def.code },
+      });
 
       if (!existing) {
         await this.providersRepo.save(this.providersRepo.create(def as any));

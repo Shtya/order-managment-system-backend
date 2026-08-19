@@ -1,352 +1,371 @@
 import {
-	BadRequestException,
-	ForbiddenException,
-	Injectable,
-	NotFoundException,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { SystemRole, User } from 'entities/user.entity';
-import { Repository } from 'typeorm';
-import { DateFilterUtil } from 'common/date-filter.util';
-import { generateRandomAlphanumeric, imageSrc } from 'common/healpers';
-import { TransactionEntity, TransactionStatus } from 'entities/payments.entity';
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { SystemRole, User } from "entities/user.entity";
+import { Repository } from "typeorm";
+import { DateFilterUtil } from "common/date-filter.util";
+import { generateRandomAlphanumeric, imageSrc } from "common/healpers";
+import { TransactionEntity, TransactionStatus } from "entities/payments.entity";
 import * as ExcelJS from "exceljs";
-import { TranslationService } from 'common/translation.service';
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class TransactionsService {
-	constructor(
-		@InjectRepository(TransactionEntity) private transactionsRepo: Repository<TransactionEntity>,
-		private translations: TranslationService,
-	) { }
+  constructor(
+    @InjectRepository(TransactionEntity)
+    private transactionsRepo: Repository<TransactionEntity>,
+    private translations: TranslationService,
+  ) {}
 
-	// ✅ Check if user is super admin
-	private isSuperAdmin(me: User) {
-		return me.role?.name === SystemRole.SUPER_ADMIN;
-	}
+  // ✅ Check if user is super admin
+  private isSuperAdmin(me: User) {
+    return me.role?.name === SystemRole.SUPER_ADMIN;
+  }
 
-	// ✅ Check if user is admin
-	private isAdmin(me: User) {
-		return me.role?.name === SystemRole.ADMIN;
-	}
+  // ✅ Check if user is admin
+  private isAdmin(me: User) {
+    return me.role?.name === SystemRole.ADMIN;
+  }
 
-	public async generateTransactionNumber(adminId: string): Promise<string> {
-		const prefix = "TRX-";
-		const totalLength = 16; // Length of the entire string
-		const randomPartLength = totalLength - prefix.length;
+  public async generateTransactionNumber(adminId: string): Promise<string> {
+    const prefix = "TRX-";
+    const totalLength = 16; // Length of the entire string
+    const randomPartLength = totalLength - prefix.length;
 
-		for (let attempt = 0; attempt < 10; attempt++) {
-			// Generates something like: TRX-7K9W2X
-			const transactionNumber = `${prefix}${generateRandomAlphanumeric(randomPartLength)}`.toUpperCase();
+    for (let attempt = 0; attempt < 10; attempt++) {
+      // Generates something like: TRX-7K9W2X
+      const transactionNumber =
+        `${prefix}${generateRandomAlphanumeric(randomPartLength)}`.toUpperCase();
 
-			const existingTransaction = await this.transactionsRepo.findOne({
-				where: {
-					userId: adminId, // Matches your schema's userId field
-					number: transactionNumber,
-				},
-			});
+      const existingTransaction = await this.transactionsRepo.findOne({
+        where: {
+          userId: adminId, // Matches your schema's userId field
+          number: transactionNumber,
+        },
+      });
 
-			if (!existingTransaction) {
-				return transactionNumber;
-			}
-		}
+      if (!existingTransaction) {
+        return transactionNumber;
+      }
+    }
 
-		throw new Error(this.translations.t("domains.transactions.failed_to_generate_unique_transaction_number", { args: { attempts: 10 } }));
-	}
+    throw new Error(
+      this.translations.t(
+        "domains.transactions.failed_to_generate_unique_transaction_number",
+        { args: { attempts: 10 } },
+      ),
+    );
+  }
 
-	async list(me: User, q?: any) {
-		const page = Number(q?.page ?? 1);
-		const limit = Number(q?.limit ?? 10);
-		const search = String(q?.search ?? '').trim();
+  async list(me: User, q?: any) {
+    const page = Number(q?.page ?? 1);
+    const limit = Number(q?.limit ?? 10);
+    const search = String(q?.search ?? "").trim();
 
-		const sortBy = String(q?.sortBy ?? 'createdAt');
-		const sortDir: 'ASC' | 'DESC' =
-			String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const sortBy = String(q?.sortBy ?? "createdAt");
+    const sortDir: "ASC" | "DESC" =
+      String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-		const qb = this.transactionsRepo
-			.createQueryBuilder('t')
-			.leftJoinAndSelect('t.user', 'user')
-			.leftJoinAndSelect('t.subscription', 'sub')
-			.leftJoinAndSelect('sub.plan', 'plan')
-			.leftJoinAndSelect('t.order', 'order')
-			.leftJoinAndSelect('t.userFeature', 'userFeature')
-			.leftJoinAndSelect('userFeature.feature', 'feature');
+    const qb = this.transactionsRepo
+      .createQueryBuilder("t")
+      .leftJoinAndSelect("t.user", "user")
+      .leftJoinAndSelect("t.subscription", "sub")
+      .leftJoinAndSelect("sub.plan", "plan")
+      .leftJoinAndSelect("t.order", "order")
+      .leftJoinAndSelect("t.userFeature", "userFeature")
+      .leftJoinAndSelect("userFeature.feature", "feature");
 
+    if (!this.isSuperAdmin(me)) {
+      qb.where("t.userId = :meId", { meId: me.id });
+    }
+    const allowedPurposes = q?.allowedPurposes;
+    if (
+      allowedPurposes &&
+      Array.isArray(allowedPurposes) &&
+      allowedPurposes.length > 0
+    ) {
+      qb.andWhere("t.purpose IN (:...allowedPurposes)", { allowedPurposes });
+    }
 
-		if (!this.isSuperAdmin(me)) {
-			qb.where('t.userId = :meId', { meId: me.id });
-		}
-		const allowedPurposes = q?.allowedPurposes;
-		if (allowedPurposes && Array.isArray(allowedPurposes) && allowedPurposes.length > 0) {
-			qb.andWhere('t.purpose IN (:...allowedPurposes)', { allowedPurposes });
-		}
+    // --- Filters ---
+    if (q?.status) qb.andWhere("t.status = :status", { status: q.status });
+    if (q?.userId) qb.andWhere("t.userId = :userId", { userId: q.userId });
+    if (q?.planId) qb.andWhere("sub.planId = :planId", { planId: q.planId });
 
-		// --- Filters ---
-		if (q?.status) qb.andWhere('t.status = :status', { status: q.status });
-		if (q?.userId) qb.andWhere('t.userId = :userId', { userId: q.userId });
-		if (q?.planId) qb.andWhere('sub.planId = :planId', { planId: q.planId });
+    if (q?.purpose) qb.andWhere("t.purpose = :purpose", { purpose: q.purpose });
 
-		if (q?.purpose) qb.andWhere('t.purpose = :purpose', { purpose: q.purpose });
+    // Search by user name/email or plan name
+    if (search) {
+      qb.andWhere(
+        `(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s OR t.number ILIKE :s)`,
+        { s: `%${search}%` },
+      );
+    }
 
+    // Date filters on transaction creation
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "t.createdAt",
+      q?.startDate,
+      q?.endDate,
+    );
 
-		// Search by user name/email or plan name
-		if (search) {
-			qb.andWhere(
-				`(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s OR t.number ILIKE :s)`,
-				{ s: `%${search}%` },
-			);
-		}
+    if (q?.subscriptionId) {
+      qb.andWhere("t.subscriptionId = :subscriptionId", {
+        subscriptionId: q?.subscriptionId,
+      });
+    }
 
-		// Date filters on transaction creation
-		DateFilterUtil.applyToQueryBuilder(qb, 't.createdAt', q?.startDate, q?.endDate);
+    // --- Sorting ---
+    qb.orderBy(`t.${sortBy}`, sortDir);
 
-		if (q?.subscriptionId) {
-			qb.andWhere('t.subscriptionId = :subscriptionId', {
-				subscriptionId: q?.subscriptionId,
-			});
-		}
+    // --- Pagination ---
+    const [transactions, total] = await qb
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getManyAndCount();
 
-		// --- Sorting ---
-		qb.orderBy(`t.${sortBy}`, sortDir);
+    // Return as-is with relations
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records: transactions,
+    };
+  }
 
-		// --- Pagination ---
-		const [transactions, total] = await qb
-			.skip((page - 1) * limit)
-			.take(limit)
-			.getManyAndCount();
+  async get(me: User, id: string) {
+    const transaction = await this.transactionsRepo.findOne({
+      where: { id },
+      relations: ["user", "subscription", "subscription.plan"],
+    });
 
-		// Return as-is with relations
-		return {
-			total_records: total,
-			current_page: page,
-			per_page: limit,
-			records: transactions,
-		};
-	}
+    if (!transaction) {
+      throw new NotFoundException(
+        this.translations.t("common.transaction_not_found"),
+      );
+    }
 
-	async get(me: User, id: string) {
-		const transaction = await this.transactionsRepo.findOne({
-			where: { id },
-			relations: ['user', 'subscription', 'subscription.plan'],
-		});
+    // Super admin: can see all
+    if (this.isSuperAdmin(me)) {
+      return transaction;
+    }
 
-		if (!transaction) throw new NotFoundException(this.translations.t('common.transaction_not_found'));
+    // Regular user: only their own transactions
+    if (transaction.userId === me.id) return transaction;
 
-		// Super admin: can see all
-		if (this.isSuperAdmin(me)) {
-			return transaction;
-		}
+    throw new ForbiddenException(this.translations.t("common.not_allowed"));
+  }
 
+  // ✅ Get Transaction Statistics (for admin)
+  // ✅ Get Transaction Statistics
+  async getStatistics(me: User) {
+    // 1. Authorization Check
+    if (!this.isSuperAdmin(me) && !this.isAdmin(me)) {
+      throw new ForbiddenException(this.translations.t("common.not_allowed"));
+    }
 
-		// Regular user: only their own transactions
-		if (transaction.userId === me.id) return transaction;
+    const qb = this.transactionsRepo.createQueryBuilder("t");
 
-		throw new ForbiddenException(this.translations.t('common.not_allowed'));
-	}
+    // 2. Ownership Filter
+    if (!this.isSuperAdmin(me)) {
+      // Super admin sees global platform revenue/transactions
+      qb.where("t.userId = :meId", { meId: me.id });
+    }
+    // 3. Aggregation with new Statuses
+    const result = await qb
+      .select([
+        "COUNT(*) as total",
+        "COUNT(CASE WHEN t.status = :success THEN 1 END) as success",
+        "COUNT(CASE WHEN t.status = :pending THEN 1 END) as pending",
+        "COUNT(CASE WHEN t.status = :failed THEN 1 END) as failed",
+        "COUNT(CASE WHEN t.status = :cancelled THEN 1 END) as cancelled",
+        "COUNT(CASE WHEN t.status = :refunded THEN 1 END) as refunded",
+        "COALESCE(SUM(CASE WHEN t.status = :success THEN t.amount ELSE 0 END), 0) as totalRevenue",
+        "COALESCE(SUM(CASE WHEN t.status = :success THEN t.amountInDollars ELSE 0 END), 0) as totalRevenueInDollars",
+      ])
+      .setParameters({
+        success: TransactionStatus.SUCCESS,
+        pending: TransactionStatus.PENDING,
+        failed: TransactionStatus.FAILED,
+        cancelled: TransactionStatus.CANCELLED,
+        refunded: TransactionStatus.REFUNDED,
+      })
+      .getRawOne();
 
-	// ✅ Get Transaction Statistics (for admin)
-	// ✅ Get Transaction Statistics
-	async getStatistics(me: User) {
-		// 1. Authorization Check
-		if (!this.isSuperAdmin(me) && !this.isAdmin(me)) {
-			throw new ForbiddenException(this.translations.t('common.not_allowed'));
-		}
+    // 4. Return formatted numbers
+    return {
+      total: Number(result.total || 0),
+      success: Number(result.success || 0),
+      pending: Number(result.pending || 0),
+      failed: Number(result.failed || 0),
+      cancelled: Number(result.cancelled || 0),
+      refunded: Number(result.refunded || 0),
+      totalRevenue: Number(result.totalRevenue || 0),
+    };
+  }
+  // ✅ Cancel Transaction (by user or admin)
+  async cancel(me: User, id: string) {
+    const transaction = await this.get(me, id);
 
-		const qb = this.transactionsRepo.createQueryBuilder('t');
+    // Can only cancel if processing
+    if (transaction.status !== TransactionStatus.PENDING) {
+      throw new BadRequestException(
+        this.translations.t(
+          "domains.transactions.cannot_cancel_transaction_status",
+          {
+            args: {
+              status: transaction.status,
+            },
+          },
+        ),
+      );
+    }
+    transaction.status = TransactionStatus.CANCELLED;
 
-		// 2. Ownership Filter
-		if (!this.isSuperAdmin(me)) {
-			// Super admin sees global platform revenue/transactions
-			qb.where('t.userId = :meId', { meId: me.id });
-		}
-		// 3. Aggregation with new Statuses
-		const result = await qb
-			.select([
-				'COUNT(*) as total',
-				'COUNT(CASE WHEN t.status = :success THEN 1 END) as success',
-				'COUNT(CASE WHEN t.status = :pending THEN 1 END) as pending',
-				'COUNT(CASE WHEN t.status = :failed THEN 1 END) as failed',
-				'COUNT(CASE WHEN t.status = :cancelled THEN 1 END) as cancelled',
-				'COUNT(CASE WHEN t.status = :refunded THEN 1 END) as refunded',
-				'COALESCE(SUM(CASE WHEN t.status = :success THEN t.amount ELSE 0 END), 0) as totalRevenue',
-				'COALESCE(SUM(CASE WHEN t.status = :success THEN t.amountInDollars ELSE 0 END), 0) as totalRevenueInDollars',
-			])
-			.setParameters({
-				success: TransactionStatus.SUCCESS,
-				pending: TransactionStatus.PENDING,
-				failed: TransactionStatus.FAILED,
-				cancelled: TransactionStatus.CANCELLED,
-				refunded: TransactionStatus.REFUNDED,
-			})
-			.getRawOne();
+    return this.transactionsRepo.save(transaction);
+  }
 
-		// 4. Return formatted numbers
-		return {
-			total: Number(result.total || 0),
-			success: Number(result.success || 0),
-			pending: Number(result.pending || 0),
-			failed: Number(result.failed || 0),
-			cancelled: Number(result.cancelled || 0),
-			refunded: Number(result.refunded || 0),
-			totalRevenue: Number(result.totalRevenue || 0),
-		};
-	}
-	// ✅ Cancel Transaction (by user or admin)
-	async cancel(me: User, id: string) {
-		const transaction = await this.get(me, id);
+  async exportTransactions(me: User, q?: any) {
+    const search = String(q?.search ?? "").trim();
+    const sortBy = String(q?.sortBy ?? "createdAt");
+    const sortDir: "ASC" | "DESC" =
+      String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-		// Can only cancel if processing
-		if (transaction.status !== TransactionStatus.PENDING) {
-			throw new BadRequestException(
-				this.translations.t(
-					"domains.transactions.cannot_cancel_transaction_status",
-					{
-						args: {
-							status: transaction.status,
-						},
-					},
-				),
-			);
-		}
-		transaction.status = TransactionStatus.CANCELLED;
+    const qb = this.transactionsRepo
+      .createQueryBuilder("t")
+      .leftJoinAndSelect("t.user", "user")
+      .leftJoinAndSelect("t.subscription", "sub")
+      .leftJoinAndSelect("sub.plan", "plan")
+      .leftJoinAndSelect("t.order", "order")
+      .leftJoinAndSelect("t.userFeature", "userFeature")
+      .leftJoinAndSelect("userFeature.feature", "feature");
 
-		return this.transactionsRepo.save(transaction);
-	}
+    // --- منطق الصلاحيات (Role-based access) ---
+    if (!this.isSuperAdmin(me)) {
+      qb.where("sub.userId = :meId", { meId: me.id });
+    }
 
+    // --- الفلاتر ---
+    if (q?.status) qb.andWhere("t.status = :status", { status: q.status });
+    if (q?.userId) qb.andWhere("t.userId = :userId", { userId: q.userId });
+    if (q?.planId) qb.andWhere("sub.planId = :planId", { planId: q.planId });
 
-	async exportTransactions(me: User, q?: any) {
-		const search = String(q?.search ?? '').trim();
-		const sortBy = String(q?.sortBy ?? 'createdAt');
-		const sortDir: 'ASC' | 'DESC' = String(q?.sortDir ?? 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    if (q?.purpose) qb.andWhere("t.purpose = :purpose", { purpose: q.purpose });
 
-		const qb = this.transactionsRepo
-			.createQueryBuilder('t')
-			.leftJoinAndSelect('t.user', 'user')
-			.leftJoinAndSelect('t.subscription', 'sub')
-			.leftJoinAndSelect('sub.plan', 'plan')
-			.leftJoinAndSelect('t.order', 'order')
-			.leftJoinAndSelect('t.userFeature', 'userFeature')
-			.leftJoinAndSelect('userFeature.feature', 'feature');
+    if (search) {
+      qb.andWhere(
+        `(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s OR t.number ILIKE :s)`,
+        { s: `%${search}%` },
+      );
+    }
 
-		// --- منطق الصلاحيات (Role-based access) ---
-		if (!this.isSuperAdmin(me)) {
-			qb.where('sub.userId = :meId', { meId: me.id });
-		}
+    const transactions = await qb.orderBy(`t.${sortBy}`, sortDir).getMany();
 
-		// --- الفلاتر ---
-		if (q?.status) qb.andWhere('t.status = :status', { status: q.status });
-		if (q?.userId) qb.andWhere('t.userId = :userId', { userId: q.userId });
-		if (q?.planId) qb.andWhere('sub.planId = :planId', { planId: q.planId });
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(
+      this.translations.t("domains.transactions.transactions_sheet"),
+    );
+    // 1. تحديد الأعمدة بنفس ترتيب الـ Front-end
+    worksheet.columns = [
+      {
+        header: this.translations.t("domains.transactions.transaction_id"),
+        key: "number",
+        width: 20,
+      },
+      {
+        header: this.translations.t("common.user_name"),
+        key: "userName",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.user_email"),
+        key: "userEmail",
+        width: 25,
+      },
+      {
+        header: this.translations.t("domains.transactions.purpose"),
+        key: "purpose",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.transactions.subscription"),
+        key: "planName",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.transactions.feature"),
+        key: "featureName",
+        width: 25,
+      },
+      {
+        header: this.translations.t("common.amount"),
+        key: "amount",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.transactions.amount_in_dollars"),
+        key: "amountInDollars",
+        width: 15,
+      },
+      {
+        header: this.translations.t("common.status"),
+        key: "status",
+        width: 15,
+      },
+      {
+        header: this.translations.t("domains.transactions.payment_method"),
+        key: "paymentMethod",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.transactions.payment_proof_url"),
+        key: "paymentProof",
+        width: 40,
+      },
+      {
+        header: this.translations.t("common.created_at"),
+        key: "createdAt",
+        width: 20,
+      },
+      {
+        header: this.translations.t("domains.transactions.last_update"),
+        key: "updatedAt",
+        width: 20,
+      },
+    ];
 
-		if (q?.purpose) qb.andWhere('t.purpose = :purpose', { purpose: q.purpose });
+    // 2. تحويل البيانات وتجهيزها (Transform)
+    const rows = transactions.map((t) => {
+      return {
+        number: t.number?.trim() || "—",
+        userName: t.user?.name?.trim() || "—",
+        userEmail: t.user?.email?.trim() || "—",
+        purpose: t.purpose?.replace(/_/g, " ").toUpperCase() || "—", // تنسيق النص (مثلاً: WALLET TOP UP)
+        planName: t.subscription?.plan?.name?.trim() || "—",
+        featureName: t.userFeature?.feature?.name?.trim() || "—",
+        amount: Number(t.amount || 0),
+        amountInDollars: Number(t.amountInDollars || 0),
+        status: t.status?.toUpperCase() || "—",
+        paymentMethod: t.paymentMethod?.toUpperCase() || "—",
+        paymentProof: t.paymentProof ? imageSrc(t.paymentProof) : "—",
+        createdAt: t.createdAt ? new Date(t.createdAt).toLocaleString() : "—", // استخدام Time أيضاً في الإكسل
+        updatedAt: t.updatedAt ? new Date(t.updatedAt).toLocaleString() : "—",
+      };
+    });
+    worksheet.addRows(rows);
 
+    // تنسيق الصف الأول (Header)
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).alignment = {
+      vertical: "middle",
+      horizontal: "center",
+    };
 
-		if (search) {
-			qb.andWhere(
-				`(user.name ILIKE :s OR user.email ILIKE :s OR plan.name ILIKE :s OR t.number ILIKE :s)`,
-				{ s: `%${search}%` },
-			);
-		}
-
-		const transactions = await qb.orderBy(`t.${sortBy}`, sortDir).getMany();
-
-		const workbook = new ExcelJS.Workbook();
-		const worksheet = workbook.addWorksheet(
-			this.translations.t("domains.transactions.transactions_sheet")
-		);
-		// 1. تحديد الأعمدة بنفس ترتيب الـ Front-end
-		worksheet.columns = [
-			{
-				header: this.translations.t("domains.transactions.transaction_id"),
-				key: "number",
-				width: 20,
-			},
-			{
-				header: this.translations.t("common.user_name"),
-				key: "userName",
-				width: 25,
-			},
-			{
-				header: this.translations.t("common.user_email"),
-				key: "userEmail",
-				width: 25,
-			},
-			{
-				header: this.translations.t("domains.transactions.purpose"),
-				key: "purpose",
-				width: 20,
-			},
-			{
-				header: this.translations.t("domains.transactions.subscription"),
-				key: "planName",
-				width: 20,
-			},
-			{
-				header: this.translations.t("domains.transactions.feature"),
-				key: "featureName",
-				width: 25,
-			},
-			{
-				header: this.translations.t("common.amount"),
-				key: "amount",
-				width: 15,
-			},
-			{
-				header: this.translations.t("domains.transactions.amount_in_dollars"),
-				key: "amountInDollars",
-				width: 15,
-			},
-			{
-				header: this.translations.t("common.status"),
-				key: "status",
-				width: 15,
-			},
-			{
-				header: this.translations.t("domains.transactions.payment_method"),
-				key: "paymentMethod",
-				width: 20,
-			},
-			{
-				header: this.translations.t("domains.transactions.payment_proof_url"),
-				key: "paymentProof",
-				width: 40,
-			},
-			{
-				header: this.translations.t("common.created_at"),
-				key: "createdAt",
-				width: 20,
-			},
-			{
-				header: this.translations.t("domains.transactions.last_update"),
-				key: "updatedAt",
-				width: 20,
-			},
-		];
-
-		// 2. تحويل البيانات وتجهيزها (Transform)
-		const rows = transactions.map(t => {
-			return {
-				number: t.number?.trim() || '—',
-				userName: t.user?.name?.trim() || '—',
-				userEmail: t.user?.email?.trim() || '—',
-				purpose: t.purpose?.replace(/_/g, ' ').toUpperCase() || '—', // تنسيق النص (مثلاً: WALLET TOP UP)
-				planName: t.subscription?.plan?.name?.trim() || '—',
-				featureName: t.userFeature?.feature?.name?.trim() || '—',
-				amount: Number(t.amount || 0),
-				amountInDollars: Number(t.amountInDollars || 0),
-				status: t.status?.toUpperCase() || '—',
-				paymentMethod: t.paymentMethod?.toUpperCase() || '—',
-				paymentProof: t.paymentProof ? imageSrc(t.paymentProof) : '—',
-				createdAt: t.createdAt ? new Date(t.createdAt).toLocaleString() : '—', // استخدام Time أيضاً في الإكسل
-				updatedAt: t.updatedAt ? new Date(t.updatedAt).toLocaleString() : '—',
-			};
-		});
-		worksheet.addRows(rows);
-
-		// تنسيق الصف الأول (Header)
-		worksheet.getRow(1).font = { bold: true };
-		worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
-
-		return await workbook.xlsx.writeBuffer();
-	}
+    return await workbook.xlsx.writeBuffer();
+  }
 }

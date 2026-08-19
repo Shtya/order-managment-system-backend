@@ -47,11 +47,18 @@ import { ClientSettingsEntity } from "entities/clientSettings.entity";
       PurchaseReturnInvoiceItemEntity,
     ]),
   ],
-  providers: [ProductsService, ProductSubscriber, VariantSubscriber, LowStockService, RemoteImageHelper, {
-    provide: 'PUBLIC_BASE_URL',
-    useValue: '/uploads/products', // القيمة التي تريدها
-  },],
+  providers: [
+    ProductsService,
+    ProductSubscriber,
+    VariantSubscriber,
+    LowStockService,
+    RemoteImageHelper,
+    {
+      provide: "PUBLIC_BASE_URL",
+      useValue: "/uploads/products", // القيمة التي تريدها
+    },
+  ],
   controllers: [ProductsController],
   exports: [ProductsService],
 })
-export class ProductsModule { }
+export class ProductsModule {}

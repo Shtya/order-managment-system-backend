@@ -21,7 +21,9 @@ export function getMissingDeductionQuantity(item: {
   return Math.max(0, qty - deducted);
 }
 
-export function resolveRestockQuantity(returnedQuantity: number, restockQuantity?: number) {
+export function resolveRestockQuantity(
+  returnedQuantity: number,
+  restockQuantity?: number,
+) {
   return typeof restockQuantity === "number" ? restockQuantity : 0;
 }
-

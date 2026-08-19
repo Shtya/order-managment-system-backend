@@ -1,4 +1,16 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req, Res, UploadedFiles, UseGuards, UseInterceptors } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
+} from "@nestjs/common";
 import { PermissionsGuard } from "common/permissions.guard";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 import { OrderReplacementService } from "../services/order-replacements.service";
@@ -12,88 +24,102 @@ import { CreateReplacementDto } from "dto/order.dto";
 import { Response } from "express";
 import { parseJsonField, parseNumber } from "common/healpers";
 
-
-
 const replacementsStorage = diskStorage({
-    destination: "./uploads/replacement",
-    filename: (req, file, cb) => {
-        const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-        cb(null, `product-${uniqueSuffix}${extname(file.originalname)}`);
-    },
+  destination: "./uploads/replacement",
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `product-${uniqueSuffix}${extname(file.originalname)}`);
+  },
 });
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("order-replacements")
 @RequireSubscription()
 export class OrderReplacemetsController {
-    constructor(private svc: OrderReplacementService) { }
+  constructor(private svc: OrderReplacementService) {}
 
-    @Permissions("orders.readReplace")
-    @Get("list")
-    listReplacements(@Req() req: any, @Query() q: any) {
-        return this.svc.listReplacements(req.user, q);
-    }
+  @Permissions("orders.readReplace")
+  @Get("list")
+  listReplacements(@Req() req: any, @Query() q: any) {
+    return this.svc.listReplacements(req.user, q);
+  }
 
-    @Permissions("orders.readReplace")
-    @Get("stats")
-    getStats(@Req() req: any) {
-        return this.svc.getStats(req.user);
-    }
+  @Permissions("orders.readReplace")
+  @Get("stats")
+  getStats(@Req() req: any) {
+    return this.svc.getStats(req.user);
+  }
 
-    // ✅ Export orders to Excel
-    @Permissions("orders.read")
-    @Get("export")
-    async exportReplacements(@Req() req: any, @Query() q: any, @Res() res: Response) {
-        const buffer = await this.svc.exportReplacements(req.user, q);
+  // ✅ Export orders to Excel
+  @Permissions("orders.read")
+  @Get("export")
+  async exportReplacements(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.svc.exportReplacements(req.user, q);
 
-        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-        res.setHeader("Content-Disposition", `attachment; filename=Replacement_orders_export_${Date.now()}.xlsx`);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=Replacement_orders_export_${Date.now()}.xlsx`,
+    );
 
-        return res.send(buffer);
-    }
+    return res.send(buffer);
+  }
 
-    @Permissions('orders.replace')
-    @UseInterceptors(
-        FileFieldsInterceptor(
-            [
-                { name: "images", maxCount: 20 },
-            ],
-            { storage: replacementsStorage }
-        )
-    )
-    @Post('replace')
-    async replace(@Req() req: any, @UploadedFiles()
+  @Permissions("orders.replace")
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: "images", maxCount: 20 }], {
+      storage: replacementsStorage,
+    }),
+  )
+  @Post("replace")
+  async replace(
+    @Req() req: any,
+    @UploadedFiles()
     files: {
-        images?: Express.Multer.File[];
-    }, @Body() body: any) {
-        const imgs = files?.images ?? [];
+      images?: Express.Multer.File[];
+    },
+    @Body() body: any,
+  ) {
+    const imgs = files?.images ?? [];
 
-        const dto: CreateReplacementDto = {
-            reason: body.reason,
-            anotherReason: body.anotherReason || undefined,
-            originalOrderId: body.originalOrderId,
-            internalNotes: body.internalNotes || undefined,
-            customerNotes: body.customerNotes || undefined,
-            shippingCompanyId: body.shippingCompanyId || undefined,
-            discount: body.discount != null ? Number(parseNumber(body.discount)) : undefined,
-            additionalFees: body.additionalFees != null ? Number(parseNumber(body.additionalFees)) : undefined,
-            deposit: body.deposit != null ? Number(parseNumber(body.deposit)) : undefined,
-            paymentMethod: body.paymentMethod,
-            shippingCost: body.shippingCost != null ? Number(parseNumber(body.shippingCost)) : undefined,
-            items: parseJsonField(body.items, []),
-        } as any;
+    const dto: CreateReplacementDto = {
+      reason: body.reason,
+      anotherReason: body.anotherReason || undefined,
+      originalOrderId: body.originalOrderId,
+      internalNotes: body.internalNotes || undefined,
+      customerNotes: body.customerNotes || undefined,
+      shippingCompanyId: body.shippingCompanyId || undefined,
+      discount:
+        body.discount != null ? Number(parseNumber(body.discount)) : undefined,
+      additionalFees:
+        body.additionalFees != null
+          ? Number(parseNumber(body.additionalFees))
+          : undefined,
+      deposit:
+        body.deposit != null ? Number(parseNumber(body.deposit)) : undefined,
+      paymentMethod: body.paymentMethod,
+      shippingCost:
+        body.shippingCost != null
+          ? Number(parseNumber(body.shippingCost))
+          : undefined,
+      items: parseJsonField(body.items, []),
+    } as any;
 
-        if (imgs.length) {
-            const uploaded = imgs.map((f) => `/uploads/replacement/${f.filename}`);
-            dto.returnImages = [...(dto.returnImages ?? []), ...uploaded];
-        } 
-        // else {
-        //     throw new BadRequestException("At least one image is required");
-        // }
-
-        return this.svc.replaceOrder(req.user, dto, req.ip);
+    if (imgs.length) {
+      const uploaded = imgs.map((f) => `/uploads/replacement/${f.filename}`);
+      dto.returnImages = [...(dto.returnImages ?? []), ...uploaded];
     }
+    // else {
+    //     throw new BadRequestException("At least one image is required");
+    // }
 
-
-
+    return this.svc.replaceOrder(req.user, dto, req.ip);
+  }
 }

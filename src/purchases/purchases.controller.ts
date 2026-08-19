@@ -1,19 +1,19 @@
 // purchases/purchases.controller.ts
 import {
-	BadRequestException,
-	Body,
-	Controller,
-	Delete,
-	Get,
-	Param,
-	Patch,
-	Post,
-	Query,
-	Req,
-	Res,
-	UploadedFiles,
-	UseGuards,
-	UseInterceptors,
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFiles,
+  UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
 import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -23,10 +23,10 @@ import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { PurchasesService } from "./purchases.service";
 import {
-	CreatePurchaseDto,
-	UpdatePurchaseDto,
-	UpdatePurchaseStatusDto,
-	UpdatePaidAmountDto,
+  CreatePurchaseDto,
+  UpdatePurchaseDto,
+  UpdatePurchaseStatusDto,
+  UpdatePaidAmountDto,
 } from "dto/purchase.dto";
 
 import { FileFieldsInterceptor } from "@nestjs/platform-express";
@@ -35,158 +35,175 @@ import { extname } from "path";
 import { parseJsonField, parseNumber } from "common/healpers";
 
 const purchasesStorage = diskStorage({
-	destination: "./uploads/purchases",
-	filename: (req, file, cb) => {
-		const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-		cb(null, `purchase-${uniqueSuffix}${extname(file.originalname)}`);
-	},
+  destination: "./uploads/purchases",
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, `purchase-${uniqueSuffix}${extname(file.originalname)}`);
+  },
 });
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("purchases")
 @RequireSubscription()
 export class PurchasesController {
-	constructor(private svc: PurchasesService) { }
+  constructor(private svc: PurchasesService) {}
 
-	@Permissions("purchases.read")
-	@Get("stats")
-	stats(@Req() req: any) {
-		return this.svc.stats(req.user);
-	}
+  @Permissions("purchases.read")
+  @Get("stats")
+  stats(@Req() req: any) {
+    return this.svc.stats(req.user);
+  }
 
-	@Permissions("purchases.read")
-	@Get()
-	list(@Req() req: any, @Query() q: any) {
-		return this.svc.list(req.user, q);
-	}
+  @Permissions("purchases.read")
+  @Get()
+  list(@Req() req: any, @Query() q: any) {
+    return this.svc.list(req.user, q);
+  }
 
-	@Permissions("purchases.read")
-	@Get("export")
-	async exportPurchases(
-		@Req() req: any,
-		@Query() q: any,
-		@Res() res: Response
-	) {
-		const buffer = await this.svc.exportPurchases(req.user, q);
+  @Permissions("purchases.read")
+  @Get("export")
+  async exportPurchases(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.svc.exportPurchases(req.user, q);
 
-		res.setHeader(
-			"Content-Type",
-			"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-		);
-		res.setHeader(
-			"Content-Disposition",
-			`attachment; filename=Purchases_export_${Date.now()}.xlsx`
-		);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=Purchases_export_${Date.now()}.xlsx`,
+    );
 
-		return res.send(buffer);
-	}
+    return res.send(buffer);
+  }
 
-	@Permissions("purchases.read")
-	@Get(":id")
-	get(@Req() req: any, @Param("id") id: string) {
-		return this.svc.get(req.user, id);
-	}
+  @Permissions("purchases.read")
+  @Get(":id")
+  get(@Req() req: any, @Param("id") id: string) {
+    return this.svc.get(req.user, id);
+  }
 
-	// ✅ NEW: Audit logs for invoice
-	@Permissions("purchases.read")
-	@Get(":id/audit-logs")
-	auditLogs(@Req() req: any, @Param("id") id: string) {
-		return this.svc.getAuditLogs(req.user, id);
-	}
+  // ✅ NEW: Audit logs for invoice
+  @Permissions("purchases.read")
+  @Get(":id/audit-logs")
+  auditLogs(@Req() req: any, @Param("id") id: string) {
+    return this.svc.getAuditLogs(req.user, id);
+  }
 
-	// ✅ NEW: Accept preview (what will happen on accept)
-	@Permissions("purchases.read")
-	@Get(":id/accept-preview")
-	acceptPreview(@Req() req: any, @Param("id") id: string) {
-		return this.svc.acceptPreview(req.user, id);
-	}
+  // ✅ NEW: Accept preview (what will happen on accept)
+  @Permissions("purchases.read")
+  @Get(":id/accept-preview")
+  acceptPreview(@Req() req: any, @Param("id") id: string) {
+    return this.svc.acceptPreview(req.user, id);
+  }
 
-	@Permissions("purchases.create")
-	@Post()
-	@UseInterceptors(
-		FileFieldsInterceptor([{ name: "receiptAsset", maxCount: 1 }], {
-			storage: purchasesStorage,
-		})
-	)
-	create(
-		@Req() req: any,
-		@UploadedFiles()
-		files: { receiptAsset?: Express.Multer.File[] },
-		@Body() body: any
-	) {
-		const dto: CreatePurchaseDto = {
-			supplierId: body.supplierId,
-			receiptNumber: body.receiptNumber,
-			safeId: body.safeId,
-			paidAmount:
-				body.paidAmount !== undefined ? Number(parseNumber(body.paidAmount)) : undefined,
-			notes: body.notes ?? undefined,
-			items: parseJsonField(body.items, []),
-			receiptAsset: body.receiptAsset ?? undefined,
-			saveAsDraft: body.saveAsDraft ?? false,
-		} as any;
+  @Permissions("purchases.create")
+  @Post()
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: "receiptAsset", maxCount: 1 }], {
+      storage: purchasesStorage,
+    }),
+  )
+  create(
+    @Req() req: any,
+    @UploadedFiles()
+    files: { receiptAsset?: Express.Multer.File[] },
+    @Body() body: any,
+  ) {
+    const dto: CreatePurchaseDto = {
+      supplierId: body.supplierId,
+      receiptNumber: body.receiptNumber,
+      safeId: body.safeId,
+      paidAmount:
+        body.paidAmount !== undefined
+          ? Number(parseNumber(body.paidAmount))
+          : undefined,
+      notes: body.notes ?? undefined,
+      items: parseJsonField(body.items, []),
+      receiptAsset: body.receiptAsset ?? undefined,
+      saveAsDraft: body.saveAsDraft ?? false,
+    } as any;
 
-		if (!dto.receiptNumber) throw new BadRequestException("receiptNumber is required");
-		if (!Array.isArray(dto.items) || !dto.items.length)
-			throw new BadRequestException("Items are required");
+    if (!dto.receiptNumber) {
+      throw new BadRequestException("receiptNumber is required");
+    }
+    if (!Array.isArray(dto.items) || !dto.items.length) {
+      throw new BadRequestException("Items are required");
+    }
 
-		const receiptFile = files?.receiptAsset?.[0];
-		if (receiptFile) {
-			dto.receiptAsset = `/uploads/purchases/${receiptFile.filename}`;
-		}
+    const receiptFile = files?.receiptAsset?.[0];
+    if (receiptFile) {
+      dto.receiptAsset = `/uploads/purchases/${receiptFile.filename}`;
+    }
 
-		return this.svc.create(req.user, dto, req.ip);
-	}
+    return this.svc.create(req.user, dto, req.ip);
+  }
 
-	@Permissions("purchases.update")
-	@Patch(":id")
-	@UseInterceptors(
-		FileFieldsInterceptor([{ name: "receiptAsset", maxCount: 1 }], {
-			storage: purchasesStorage,
-		})
-	)
-	update(
-		@Req() req: any,
-		@Param("id") id: string,
-		@UploadedFiles()
-		files: { receiptAsset?: Express.Multer.File[] },
-		@Body() body: any
-	) {
-		const dto: UpdatePurchaseDto = {
-			supplierId:
-				body.supplierId !== undefined ? body.supplierId : undefined,
-			receiptNumber: body.receiptNumber !== undefined ? body.receiptNumber : undefined,
-			safeId: body.safeId !== undefined ? body.safeId : undefined,
-			paidAmount:
-				body.paidAmount !== undefined ? Number(parseNumber(body.paidAmount)) : undefined,
-			notes: body.notes !== undefined ? body.notes : undefined,
-			items: body.items !== undefined ? parseJsonField(body.items, []) : undefined,
-			receiptAsset: body.receiptAsset !== undefined ? body.receiptAsset : undefined,
-		} as any;
+  @Permissions("purchases.update")
+  @Patch(":id")
+  @UseInterceptors(
+    FileFieldsInterceptor([{ name: "receiptAsset", maxCount: 1 }], {
+      storage: purchasesStorage,
+    }),
+  )
+  update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @UploadedFiles()
+    files: { receiptAsset?: Express.Multer.File[] },
+    @Body() body: any,
+  ) {
+    const dto: UpdatePurchaseDto = {
+      supplierId: body.supplierId !== undefined ? body.supplierId : undefined,
+      receiptNumber:
+        body.receiptNumber !== undefined ? body.receiptNumber : undefined,
+      safeId: body.safeId !== undefined ? body.safeId : undefined,
+      paidAmount:
+        body.paidAmount !== undefined
+          ? Number(parseNumber(body.paidAmount))
+          : undefined,
+      notes: body.notes !== undefined ? body.notes : undefined,
+      items:
+        body.items !== undefined ? parseJsonField(body.items, []) : undefined,
+      receiptAsset:
+        body.receiptAsset !== undefined ? body.receiptAsset : undefined,
+    } as any;
 
-		const receiptFile = files?.receiptAsset?.[0];
-		if (receiptFile) {
-			dto.receiptAsset = `/uploads/purchases/${receiptFile.filename}`;
-		}
+    const receiptFile = files?.receiptAsset?.[0];
+    if (receiptFile) {
+      dto.receiptAsset = `/uploads/purchases/${receiptFile.filename}`;
+    }
 
-		return this.svc.update(req.user, id, dto, req.ip);
-	}
+    return this.svc.update(req.user, id, dto, req.ip);
+  }
 
-	@Permissions("purchases.update")
-	@Patch(":id/status")
-	updateStatus(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePurchaseStatusDto) {
-		return this.svc.updateStatus(req.user, id, dto.status, req.ip);
-	}
+  @Permissions("purchases.update")
+  @Patch(":id/status")
+  updateStatus(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdatePurchaseStatusDto,
+  ) {
+    return this.svc.updateStatus(req.user, id, dto.status, req.ip);
+  }
 
-	@Permissions("purchases.update")
-	@Patch(":id/paid-amount")
-	updatePaidAmount(@Req() req: any, @Param("id") id: string, @Body() dto: UpdatePaidAmountDto) {
-		return this.svc.updatePaidAmount(req.user, id, dto, req.ip);
-	}
+  @Permissions("purchases.update")
+  @Patch(":id/paid-amount")
+  updatePaidAmount(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdatePaidAmountDto,
+  ) {
+    return this.svc.updatePaidAmount(req.user, id, dto, req.ip);
+  }
 
-	@Permissions("purchases.delete")
-	@Delete(":id")
-	remove(@Req() req: any, @Param("id") id: string) {
-		return this.svc.remove(req.user, id, req.ip);
-	}
+  @Permissions("purchases.delete")
+  @Delete(":id")
+  remove(@Req() req: any, @Param("id") id: string) {
+    return this.svc.remove(req.user, id, req.ip);
+  }
 }

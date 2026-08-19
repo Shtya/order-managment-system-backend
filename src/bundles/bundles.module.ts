@@ -17,8 +17,15 @@ import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
   imports: [
     forwardRef(() => OrphanFilesModule),
     forwardRef(() => StoresModule),
-     OrdersModule, 
-    TypeOrmModule.forFeature([BundleEntity, BundleItemEntity, ProductVariantEntity, OrphanFileEntity, CategoryEntity])],
+    OrdersModule,
+    TypeOrmModule.forFeature([
+      BundleEntity,
+      BundleItemEntity,
+      ProductVariantEntity,
+      OrphanFileEntity,
+      CategoryEntity,
+    ]),
+  ],
   providers: [BundlesService, BundleSubscriber],
   controllers: [BundlesController],
   exports: [BundlesService],

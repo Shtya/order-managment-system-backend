@@ -7,9 +7,7 @@ import { GettingStartedStatsService } from "./getting-started-stats.service";
 @UseGuards(JwtAuthGuard)
 @Controller("getting-started/admin/stats")
 export class GettingStartedStatsController {
-  constructor(
-    private readonly statsService: GettingStartedStatsService,
-  ) { }
+  constructor(private readonly statsService: GettingStartedStatsService) {}
 
   @Permissions("getting-started.stats")
   @Get("overview")

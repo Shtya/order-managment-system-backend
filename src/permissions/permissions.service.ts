@@ -1,116 +1,251 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Permission } from 'entities/user.entity';
-import { Repository } from 'typeorm';
-import { CreatePermissionDto } from 'dto/permission.dto';
-import { TranslationService } from 'common/translation.service';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Permission } from "entities/user.entity";
+import { Repository } from "typeorm";
+import { CreatePermissionDto } from "dto/permission.dto";
+import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class PermissionsService implements OnModuleInit {
-	constructor(
-		@InjectRepository(Permission) private permsRepo: Repository<Permission>,
-		private readonly translations: TranslationService
-	) { }
+  constructor(
+    @InjectRepository(Permission) private permsRepo: Repository<Permission>,
+    private readonly translations: TranslationService,
+  ) {}
 
-	async onModuleInit() {
-		await this.seed();
-	}
+  async onModuleInit() {
+    await this.seed();
+  }
 
+  private async seed() {
+    const keys = [
+      "users.read",
+      "users.create",
+      "users.update",
+      "users.deactivate",
+      "users.create_admin",
+      "users.view_credentials",
+      "roles.read",
+      "roles.create",
+      "roles.update",
+      "roles.delete",
+      "permissions.read",
+      "permissions.create",
+      "permissions.delete",
 
-	private async seed() {
-		const keys = [
-			'users.read', 'users.create', 'users.update', 'users.deactivate', 'users.create_admin', 'users.view_credentials',
-			'roles.read', 'roles.create', 'roles.update', 'roles.delete',
-			'permissions.read', 'permissions.create', 'permissions.delete',
+      // ✅ NEW: Plan permissions
+      "plans.read",
+      "plans.create",
+      "plans.update",
+      "plans.delete",
 
-			// ✅ NEW: Plan permissions
-			'plans.read', 'plans.create', 'plans.update', 'plans.delete',
+      // ✅ NEW: Transaction permissions
+      "transactions.read",
+      "transactions.create",
+      "transactions.update",
+      "transactions.cancel",
 
-			// ✅ NEW: Transaction permissions
-			'transactions.read', 'transactions.create', 'transactions.update', 'transactions.cancel',
+      "stores.read",
+      "stores.create",
+      "stores.update",
+      "stores.delete",
+      "order.read",
+      "order.create",
+      "order.update",
+      "order.delete",
+      "order.updateSettings",
+      "orders.readSettings",
+      "order.assign",
+      "warehouses.read",
+      "warehouses.create",
+      "warehouses.update",
+      "warehouses.delete",
+      "warehouses.scan-shipping",
+      "warehouses.scan-preparation",
+      "warehouses.locations.read",
+      "warehouses.locations.create",
+      "warehouses.locations.update",
+      "warehouses.locations.delete",
+      "categories.read",
+      "categories.create",
+      "categories.update",
+      "categories.delete",
+      "orders.read",
+      "orders.create",
+      "orders.update",
+      "orders.delete",
+      "orders.replace",
+      "orders.readReplace",
+      "return-request.create",
+      "orders.distribution",
+      "orders.restoreFailed",
+      "orders.confirm-incoming",
+      "suppliers.read",
+      "suppliers.create",
+      "suppliers.update",
+      "suppliers.delete",
+      "orders-collect.read",
+      "orders-collect.create",
+      "products.read",
+      "products.create",
+      "products.update",
+      "products.delete",
+      "products.getonly",
+      "shipping-companies.create",
+      "shipping-companies.read",
+      "shipping-companies.update",
+      "shipping-companies.delete",
 
-			"stores.read", "stores.create", "stores.update", "stores.delete",
-			"order.read", "order.create", "order.update", "order.delete", "order.updateSettings", "orders.readSettings", "order.assign",
-			"warehouses.read", "warehouses.create", "warehouses.update", "warehouses.delete", "warehouses.scan-shipping", "warehouses.scan-preparation",
-			"warehouses.locations.read", "warehouses.locations.create", "warehouses.locations.update", "warehouses.locations.delete",
-			"categories.read", "categories.create", "categories.update", "categories.delete",
-			"orders.read", "orders.create", "orders.update", "orders.delete", "orders.replace", "orders.readReplace", "return-request.create", "orders.distribution", "orders.restoreFailed", "orders.confirm-incoming",
-			"suppliers.read", "suppliers.create", "suppliers.update", "suppliers.delete",
-			"orders-collect.read", "orders-collect.create",
-			"products.read", "products.create", "products.update", "products.delete", "products.getonly",
-			"shipping-companies.create", "shipping-companies.read", "shipping-companies.update", "shipping-companies.delete",
+      "notifications.read",
+      "notifications.update",
+      "subscriptions.read",
+      "subscriptions.create",
+      "subscriptions.update",
+      "admin-settings.read",
+      "admin-settings.update",
+      "wallet.read",
+      "wallet.update",
+      "payments.read",
+      "extra-features.read",
+      "extra-features.create",
+      "extra-features.update",
+      "dashboard.read",
+      "assets.read",
+      "assets.create",
+      "assets.update",
+      "assets.delete",
+      "purchase_returns.read",
+      "purchase_returns.create",
+      "purchase_returns.update",
+      "purchase_returns.delete",
+      "purchases.read",
+      "purchases.create",
+      "purchases.update",
+      "purchases.delete",
+      "sales_invoice.read",
+      "sales_invoice.create",
+      "sales_invoice.update",
+      "sales_invoice.delete",
 
-			"notifications.read", "notifications.update",
-			"subscriptions.read", "subscriptions.create", "subscriptions.update",
-			"admin-settings.read", "admin-settings.update",
-			"wallet.read", "wallet.update",
-			"payments.read",
-			"extra-features.read", "extra-features.create", "extra-features.update",
-			"dashboard.read",
-			"assets.read", "assets.create", "assets.update", "assets.delete",
-			"purchase_returns.read", "purchase_returns.create", "purchase_returns.update", "purchase_returns.delete",
-			"purchases.read", "purchases.create", "purchases.update", "purchases.delete",
-			"sales_invoice.read", "sales_invoice.create", "sales_invoice.update", "sales_invoice.delete",
-			
-			// ✅ NEW: Additional permissions
-			"upsells.read", "upsells.create", "upsells.update", "upsells.delete",
-			"whatsapp.read", "whatsapp.send", "whatsapp.update_account", "whatsapp.delete_account",
-			"whatsapp.templates.read", "whatsapp.templates.create", "whatsapp.templates.update", "whatsapp.templates.delete",
-			"customer.read", "customer.update", "customer.delete",
-			"conversation.read", "conversation.create", "conversation.update", "conversation.delete",
-			"accounting.read", "accounting.update",
-			"automation.read", "automation.create", "automation.update", "automation.delete",
-			"safes.read", "safes.update",
+      // ✅ NEW: Additional permissions
+      "upsells.read",
+      "upsells.create",
+      "upsells.update",
+      "upsells.delete",
+      "whatsapp.read",
+      "whatsapp.send",
+      "whatsapp.update_account",
+      "whatsapp.delete_account",
+      "whatsapp.templates.read",
+      "whatsapp.templates.create",
+      "whatsapp.templates.update",
+      "whatsapp.templates.delete",
+      "customer.read",
+      "customer.update",
+      "customer.delete",
+      "conversation.read",
+      "conversation.create",
+      "conversation.update",
+      "conversation.delete",
+      "accounting.read",
+      "accounting.update",
+      "automation.read",
+      "automation.create",
+      "automation.update",
+      "automation.delete",
+      "safes.read",
+      "safes.update",
 
-			"sms.providers.read",
-			"sms.integrations.read", "sms.integrations.create", "sms.integrations.update",
-			"sms.senders.read", "sms.senders.create", "sms.senders.update", "sms.senders.delete",
-			"sms.send",
-			"sms.logs.read", "sms.logs.resend", "sms.logs.export",
+      "sms.providers.read",
+      "sms.integrations.read",
+      "sms.integrations.create",
+      "sms.integrations.update",
+      "sms.senders.read",
+      "sms.senders.create",
+      "sms.senders.update",
+      "sms.senders.delete",
+      "sms.send",
+      "sms.logs.read",
+      "sms.logs.resend",
+      "sms.logs.export",
 
-			// ✅ NEW: Support ticket permissions
-			"support_tickets.create", "support_tickets.read", "support_tickets.reply", "support_tickets.close", "support_tickets.reopen", "support_tickets.export",
-			"support_tickets.manage", "support_tickets.assign", "support_tickets.change_status", "support_tickets.change_priority", "support_tickets.internal_notes", "support_tickets.delete", "support_tickets.export_all",
+      // ✅ NEW: Support ticket permissions
+      "support_tickets.create",
+      "support_tickets.read",
+      "support_tickets.reply",
+      "support_tickets.close",
+      "support_tickets.reopen",
+      "support_tickets.export",
+      "support_tickets.manage",
+      "support_tickets.assign",
+      "support_tickets.change_status",
+      "support_tickets.change_priority",
+      "support_tickets.internal_notes",
+      "support_tickets.delete",
+      "support_tickets.export_all",
 
-			// ✅ NEW: Issue permissions
-			"issues.create", "issues.read", "issues.update", "issues.delete",
-			"issues.reply", "issues.assign", "issues.change_status", "issues.change_priority",
-			"issues.export",
-			"issues.statuses.create", "issues.statuses.update", "issues.statuses.delete",
-			"issues.causes.create", "issues.causes.update", "issues.causes.delete",
+      // ✅ NEW: Issue permissions
+      "issues.create",
+      "issues.read",
+      "issues.update",
+      "issues.delete",
+      "issues.reply",
+      "issues.assign",
+      "issues.change_status",
+      "issues.change_priority",
+      "issues.export",
+      "issues.statuses.create",
+      "issues.statuses.update",
+      "issues.statuses.delete",
+      "issues.causes.create",
+      "issues.causes.update",
+      "issues.causes.delete",
 
-			// ✅ NEW: Getting started permissions
-			"getting-started.stats",
+      // ✅ NEW: Getting started permissions
+      "getting-started.stats",
 
-			// ✅ NEW: AI assistant permissions
-			"ai.chat",
-			"ai.tools.orders.read", "ai.tools.orders.write",
-			"ai.tools.shipping.read", "ai.tools.shipping.write",
-			"ai.tools.whatsapp.read", "ai.tools.whatsapp.write"
-		];
+      // ✅ NEW: AI assistant permissions
+      "ai.chat",
+      "ai.tools.orders.read",
+      "ai.tools.orders.write",
+      "ai.tools.shipping.read",
+      "ai.tools.shipping.write",
+      "ai.tools.whatsapp.read",
+      "ai.tools.whatsapp.write",
+    ];
 
-		for (const name of keys) {
-			const exists = await this.permsRepo.findOne({ where: { name } });
-			if (!exists) await this.permsRepo.save(this.permsRepo.create({ name }));
-		}
-	}
+    for (const name of keys) {
+      const exists = await this.permsRepo.findOne({ where: { name } });
+      if (!exists) await this.permsRepo.save(this.permsRepo.create({ name }));
+    }
+  }
 
+  list() {
+    return this.permsRepo.find();
+  }
 
+  async create(dto: CreatePermissionDto) {
+    const exists = await this.permsRepo.findOne({ where: { name: dto.name } });
+    if (exists) {
+      throw new BadRequestException(
+        this.translations.t("domains.permissions.already_exists"),
+      );
+    }
+    return this.permsRepo.save(this.permsRepo.create({ name: dto.name }));
+  }
 
-	list() {
-		return this.permsRepo.find();
-	}
-
-	async create(dto: CreatePermissionDto) {
-		const exists = await this.permsRepo.findOne({ where: { name: dto.name } });
-		if (exists) throw new BadRequestException(this.translations.t('domains.permissions.already_exists'));
-		return this.permsRepo.save(this.permsRepo.create({ name: dto.name }));
-	}
-
-	async remove(id: string) {
-		const p = await this.permsRepo.findOne({ where: { id } });
-		if (!p) throw new NotFoundException(this.translations.t('domains.permissions.not_found'));
-		await this.permsRepo.delete(id);
-		return { message: this.translations.t('domains.permissions.deleted') };
-	}
+  async remove(id: string) {
+    const p = await this.permsRepo.findOne({ where: { id } });
+    if (!p) {
+      throw new NotFoundException(
+        this.translations.t("domains.permissions.not_found"),
+      );
+    }
+    await this.permsRepo.delete(id);
+    return { message: this.translations.t("domains.permissions.deleted") };
+  }
 }

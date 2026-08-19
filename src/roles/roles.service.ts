@@ -1,374 +1,393 @@
 import {
-	BadRequestException,
-	ForbiddenException,
-	Injectable,
-	NotFoundException,
-	OnModuleInit,
-} from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { Permission, Role, SystemRole, User } from 'entities/user.entity';
-import { CreateRoleDto, UpdateRoleDto } from 'dto/role.dto';
-import { tenantId } from 'src/category/category.service';
-import { TranslationService } from 'common/translation.service';
-import { OnboardingAchievementService } from 'src/queue/queues/onboarding-achievement.queue';
-import { GettingStartedAchievementType } from 'entities/getting-started.entity';
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { DataSource, Repository } from "typeorm";
+import { Permission, Role, SystemRole, User } from "entities/user.entity";
+import { CreateRoleDto, UpdateRoleDto } from "dto/role.dto";
+import { tenantId } from "src/category/category.service";
+import { TranslationService } from "common/translation.service";
+import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
+import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
 @Injectable()
 export class RolesService implements OnModuleInit {
-	constructor(
-		@InjectRepository(Role) private rolesRepo: Repository<Role>,
-		@InjectRepository(Permission) private permsRepo: Repository<Permission>,
-		@InjectRepository(User) private usersRepo: Repository<User>,
-		private translations: TranslationService,
-		private dataSource: DataSource,
-		private onboardingAchievementService: OnboardingAchievementService,
-	) { }
+  constructor(
+    @InjectRepository(Role) private rolesRepo: Repository<Role>,
+    @InjectRepository(Permission) private permsRepo: Repository<Permission>,
+    @InjectRepository(User) private usersRepo: Repository<User>,
+    private translations: TranslationService,
+    private dataSource: DataSource,
+    private onboardingAchievementService: OnboardingAchievementService,
+  ) {}
 
-	async onModuleInit() {
-		await this.seedPermissions();
-		await this.seedPredefinedRoles();
-	}
+  async onModuleInit() {
+    await this.seedPermissions();
+    await this.seedPredefinedRoles();
+  }
 
-	// ✅ Seed Permissions
-	private async seedPermissions() {
-		const permissions = [
-			{ name: 'users.read', description: 'View users' },
-			{ name: 'users.create', description: 'Create users' },
-			{ name: 'users.create_admin', description: 'Admin create user with credentials' },
-			{ name: 'users.update', description: 'Update users' },
-			{ name: 'users.deactivate', description: 'Deactivate users' },
-			{ name: 'users.view_credentials', description: 'View user credentials' },
-			{ name: 'roles.read', description: 'View roles' },
-			{ name: 'roles.create', description: 'Create roles' },
-			{ name: 'roles.update', description: 'Update roles' },
-			{ name: 'roles.delete', description: 'Delete roles' },
-			{ name: 'permissions.read', description: 'View permissions' },
-		];
+  // ✅ Seed Permissions
+  private async seedPermissions() {
+    const permissions = [
+      { name: "users.read", description: "View users" },
+      { name: "users.create", description: "Create users" },
+      {
+        name: "users.create_admin",
+        description: "Admin create user with credentials",
+      },
+      { name: "users.update", description: "Update users" },
+      { name: "users.deactivate", description: "Deactivate users" },
+      { name: "users.view_credentials", description: "View user credentials" },
+      { name: "roles.read", description: "View roles" },
+      { name: "roles.create", description: "Create roles" },
+      { name: "roles.update", description: "Update roles" },
+      { name: "roles.delete", description: "Delete roles" },
+      { name: "permissions.read", description: "View permissions" },
+    ];
 
-		for (const p of permissions) {
-			const exists = await this.permsRepo.findOne({ where: { name: p.name } });
-			if (!exists) {
-				await this.permsRepo.save(this.permsRepo.create(p));
-			}
-		}
-	}
+    for (const p of permissions) {
+      const exists = await this.permsRepo.findOne({ where: { name: p.name } });
+      if (!exists) {
+        await this.permsRepo.save(this.permsRepo.create(p));
+      }
+    }
+  }
 
-	// ✅ Seed Global Roles
-	private async seedPredefinedRoles() {
-		const predefined: Array<{
-			name: string;
-			description: string;
-			permissionNames: string[];
-		}> = [
-				{
-					name: SystemRole.SUPER_ADMIN,
-					description: 'Owner of the system (full access)',
-					permissionNames: ['*'],
-				},
-				{
-					name: SystemRole.ADMIN,
-					description: 'Admin (manages his own users and roles)',
-					permissionNames: ['*'],
-				},
-				{
-					name: SystemRole.USER,
-					description: 'Regular user',
-					permissionNames: ['*'],
-				},
-				{
-					name: 'call center',
-					description: 'Can confirm orders',
-					permissionNames: ["orders.confirm-incoming", "orders.update", "orders.readSettings", "products.getonly", "issues.create", "issues.getOnly", "roles.getOnly", "users.getOnly"],
-				},
-				{
-					name: 'support',
-					description: 'Support team member (manages support tickets)',
-					permissionNames: [
-						"support_tickets.read",
-						"support_tickets.reply",
-						"support_tickets.close",
-						"support_tickets.reopen",
-						"support_tickets.manage",
-						"support_tickets.assign",
-						"support_tickets.change_status",
-						"support_tickets.change_priority",
-						"support_tickets.internal_notes",
-						"support_tickets.delete",
-						"support_tickets.export_all",
-					],
-				}
-			];
-		for (const r of predefined) {
-			const exists = await this.rolesRepo.findOne({
-				where: { name: r.name },
-			});
+  // ✅ Seed Global Roles
+  private async seedPredefinedRoles() {
+    const predefined: Array<{
+      name: string;
+      description: string;
+      permissionNames: string[];
+    }> = [
+      {
+        name: SystemRole.SUPER_ADMIN,
+        description: "Owner of the system (full access)",
+        permissionNames: ["*"],
+      },
+      {
+        name: SystemRole.ADMIN,
+        description: "Admin (manages his own users and roles)",
+        permissionNames: ["*"],
+      },
+      {
+        name: SystemRole.USER,
+        description: "Regular user",
+        permissionNames: ["*"],
+      },
+      {
+        name: "call center",
+        description: "Can confirm orders",
+        permissionNames: [
+          "orders.confirm-incoming",
+          "orders.update",
+          "orders.readSettings",
+          "products.getonly",
+          "issues.create",
+          "issues.getOnly",
+          "roles.getOnly",
+          "users.getOnly",
+        ],
+      },
+      {
+        name: "support",
+        description: "Support team member (manages support tickets)",
+        permissionNames: [
+          "support_tickets.read",
+          "support_tickets.reply",
+          "support_tickets.close",
+          "support_tickets.reopen",
+          "support_tickets.manage",
+          "support_tickets.assign",
+          "support_tickets.change_status",
+          "support_tickets.change_priority",
+          "support_tickets.internal_notes",
+          "support_tickets.delete",
+          "support_tickets.export_all",
+        ],
+      },
+    ];
+    for (const r of predefined) {
+      const exists = await this.rolesRepo.findOne({
+        where: { name: r.name },
+      });
 
-			if (exists) {
-				await this.rolesRepo.save({
-					...exists,
-					description: r.description,
-					permissionNames: r.permissionNames,
-					isGlobal: true,
-					adminId: null,
-				});
-			} else {
-				await this.rolesRepo.save(
-					this.rolesRepo.create({
-						name: r.name,
-						description: r.description,
-						permissionNames: r.permissionNames,
-						adminId: null,
-						isGlobal: true,
-					}),
-				);
-			}
-		}
-	}
+      if (exists) {
+        await this.rolesRepo.save({
+          ...exists,
+          description: r.description,
+          permissionNames: r.permissionNames,
+          isGlobal: true,
+          adminId: null,
+        });
+      } else {
+        await this.rolesRepo.save(
+          this.rolesRepo.create({
+            name: r.name,
+            description: r.description,
+            permissionNames: r.permissionNames,
+            adminId: null,
+            isGlobal: true,
+          }),
+        );
+      }
+    }
+  }
 
-	// ✅ Check if user is super admin
-	private isSuperAdmin(me: User) {
-		return me.role?.name === SystemRole.SUPER_ADMIN;
-	}
+  // ✅ Check if user is super admin
+  private isSuperAdmin(me: User) {
+    return me.role?.name === SystemRole.SUPER_ADMIN;
+  }
 
+  // ✅ Get Single Role
+  // async get(me: User, id: string) {
+  // 	const role = await this.rolesRepo.findOne({ where: { id } });
+  // 	if (!role) throw new NotFoundException('Role not found');
 
+  // 	// Super admin can see all
+  // 	if (this.isSuperAdmin(me)) return role;
 
-	// ✅ Get Single Role
-	// async get(me: User, id: string) {
-	// 	const role = await this.rolesRepo.findOne({ where: { id } });
-	// 	if (!role) throw new NotFoundException('Role not found');
+  // 	// Admin can see global + his own
+  // 	if (me.role?.name === SystemRole.ADMIN) {
+  // 		if (role.isGlobal || role.adminId === me.id) return role;
+  // 		throw new ForbiddenException('Not your role');
+  // 	}
 
-	// 	// Super admin can see all
-	// 	if (this.isSuperAdmin(me)) return role;
+  // 	// Normal user can only see global
+  // 	if (role.isGlobal) return role;
+  // 	throw new ForbiddenException('Not allowed');
+  // }
 
-	// 	// Admin can see global + his own
-	// 	if (me.role?.name === SystemRole.ADMIN) {
-	// 		if (role.isGlobal || role.adminId === me.id) return role;
-	// 		throw new ForbiddenException('Not your role');
-	// 	}
+  async get(me: User, id: string) {
+    const role = await this.rolesRepo.findOne({ where: { id } });
 
-	// 	// Normal user can only see global
-	// 	if (role.isGlobal) return role;
-	// 	throw new ForbiddenException('Not allowed');
-	// }
+    if (!role) {
+      throw new NotFoundException(
+        this.translations.t("domains.roles.role_not_found"),
+      );
+    }
 
-	async get(me: User, id: string) {
-		const role = await this.rolesRepo.findOne({ where: { id } });
+    // Super admin: only roles with adminId null
+    if (this.isSuperAdmin(me)) {
+      if (role.adminId === null) return role;
+      throw new ForbiddenException(
+        this.translations.t("domains.roles.not_allowed"),
+      );
+    }
 
-		if (!role) {
-			throw new NotFoundException(
-				this.translations.t("domains.roles.role_not_found")
-			);
-		}
+    // block viewing super_admin/admin roles for everyone else
+    if ([SystemRole.SUPER_ADMIN, SystemRole.ADMIN].includes(role.name as any)) {
+      throw new ForbiddenException(
+        this.translations.t("domains.roles.not_allowed"),
+      );
+    }
 
-		// Super admin: only roles with adminId null
-		if (this.isSuperAdmin(me)) {
-			if (role.adminId === null) return role;
-			throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
-		}
+    // Admin: global or owned by him
+    if (me.role?.name === SystemRole.ADMIN) {
+      if (role.adminId === null || role.adminId === me.id) return role;
 
-		// block viewing super_admin/admin roles for everyone else
-		if ([SystemRole.SUPER_ADMIN, SystemRole.ADMIN].includes(role.name as any)) {
-			throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
-		}
+      throw new ForbiddenException(
+        this.translations.t("domains.roles.not_your_role"),
+      );
+    }
 
-		// Admin: global or owned by him
-		if (me.role?.name === SystemRole.ADMIN) {
-			if (role.adminId === null || role.adminId === me.id) return role;
+    // Other roles: global or owned by his owner adminId
+    if (role.adminId === null) return role;
 
-			throw new ForbiddenException(
-				this.translations.t("domains.roles.not_your_role")
-			);
-		}
+    if (me.adminId && role.adminId === me.adminId) return role;
 
-		// Other roles: global or owned by his owner adminId
-		if (role.adminId === null) return role;
+    throw new ForbiddenException(
+      this.translations.t("domains.roles.not_allowed"),
+    );
+  }
 
-		if (me.adminId && role.adminId === me.adminId) return role;
+  // ✅ Create Role
+  async create(me: User, dto: CreateRoleDto) {
+    const adminId = tenantId(me);
 
-		throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
-	}
+    if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
+      throw new ForbiddenException(
+        this.translations.t("domains.roles.not_allowed"),
+      );
+    }
 
-	// ✅ Create Role
-	async create(me: User, dto: CreateRoleDto) {
-		const adminId = tenantId(me);
+    const exists = await this.rolesRepo.findOne({
+      where: { name: dto.name },
+    });
 
-		if (!(this.isSuperAdmin(me) || me.role?.name === SystemRole.ADMIN)) {
-			throw new ForbiddenException(this.translations.t("domains.roles.not_allowed"));
-		}
+    if (exists) {
+      throw new BadRequestException(
+        this.translations.t("domains.roles.role_name_already_exists"),
+      );
+    }
 
-		const exists = await this.rolesRepo.findOne({
-			where: { name: dto.name },
-		});
+    const role = this.rolesRepo.create({
+      name: dto.name,
+      description: dto.description,
+      permissionNames: dto.permissionNames || [],
+      adminId: !this.isSuperAdmin(me) ? adminId : null,
+      isGlobal: !!this.isSuperAdmin(me),
+    });
 
-		if (exists) {
-			throw new BadRequestException(
-				this.translations.t("domains.roles.role_name_already_exists")
-			);
-		}
+    const saved = await this.rolesRepo.save(role);
+    this.onboardingAchievementService.enqueueAchievement(
+      adminId,
+      GettingStartedAchievementType.FIRST_CUSTOM_ROLE_CREATED,
+    );
+    return saved;
+  }
 
-		const role = this.rolesRepo.create({
-			name: dto.name,
-			description: dto.description,
-			permissionNames: dto.permissionNames || [],
-			adminId: !this.isSuperAdmin(me) ? adminId : null,
-			isGlobal: !!this.isSuperAdmin(me),
-		});
+  // ✅ Update Role
+  async update(me: User, id: string, dto: UpdateRoleDto) {
+    const role = await this.get(me, id);
 
-		const saved = await this.rolesRepo.save(role);
-		this.onboardingAchievementService.enqueueAchievement(adminId, GettingStartedAchievementType.FIRST_CUSTOM_ROLE_CREATED);
-		return saved;
-	}
+    // Can't edit global roles unless super admin
+    if (role.isGlobal && !this.isSuperAdmin(me)) {
+      throw new ForbiddenException(
+        this.translations.t("domains.roles.cannot_edit_global_roles"),
+      );
+    }
 
-	// ✅ Update Role
-	async update(me: User, id: string, dto: UpdateRoleDto) {
-		const role = await this.get(me, id);
+    // Admin can only edit his own roles
+    if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
+      throw new ForbiddenException(
+        this.translations.t("domains.roles.not_your_role"),
+      );
+    }
 
-		// Can't edit global roles unless super admin
-		if (role.isGlobal && !this.isSuperAdmin(me)) {
-			throw new ForbiddenException(
-				this.translations.t("domains.roles.cannot_edit_global_roles")
-			);
-		}
+    if (dto.name && dto.name !== role.name) {
+      const exists = await this.rolesRepo.findOne({
+        where: { name: dto.name },
+      });
 
-		// Admin can only edit his own roles
-		if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
-			throw new ForbiddenException(
-				this.translations.t("domains.roles.not_your_role")
-			);
-		}
+      if (exists) {
+        throw new BadRequestException(
+          this.translations.t("domains.roles.role_name_already_exists"),
+        );
+      }
 
-		if (dto.name && dto.name !== role.name) {
-			const exists = await this.rolesRepo.findOne({
-				where: { name: dto.name },
-			});
+      role.name = dto.name;
+    }
 
-			if (exists) {
-				throw new BadRequestException(
-					this.translations.t("domains.roles.role_name_already_exists")
-				);
-			}
+    if (dto.description !== undefined) role.description = dto.description;
+    if (dto.permissionNames) role.permissionNames = dto.permissionNames;
 
-			role.name = dto.name;
-		}
+    return this.rolesRepo.save(role);
+  }
 
-		if (dto.description !== undefined) role.description = dto.description;
-		if (dto.permissionNames) role.permissionNames = dto.permissionNames;
+  // ✅ Delete Role
+  async remove(me: User, id: string) {
+    const role = await this.get(me, id);
 
-		return this.rolesRepo.save(role);
-	}
+    // Admin can only delete his own roles
+    if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
+      throw new ForbiddenException(
+        this.translations.t("domains.roles.not_your_role"),
+      );
+    }
 
-	// ✅ Delete Role
-	async remove(me: User, id: string) {
-		const role = await this.get(me, id);
+    return this.dataSource.transaction(async (manager) => {
+      const rolesRepo = manager.getRepository(Role);
+      const usersRepo = manager.getRepository(User);
 
-		// Admin can only delete his own roles
-		if (!this.isSuperAdmin(me) && role.adminId !== me.id) {
-			throw new ForbiddenException(
-				this.translations.t("domains.roles.not_your_role")
-			);
-		}
+      if (
+        role.name === SystemRole.SUPER_ADMIN ||
+        role.name === SystemRole.ADMIN ||
+        role.name === SystemRole.USER
+      ) {
+        throw new ForbiddenException(
+          this.translations.t("domains.roles.cannot_delete_global_roles"),
+        );
+      }
 
-		return this.dataSource.transaction(async (manager) => {
-			const rolesRepo = manager.getRepository(Role);
-			const usersRepo = manager.getRepository(User);
+      if (role.isGlobal && !this.isSuperAdmin(me)) {
+        throw new ForbiddenException(
+          this.translations.t("domains.roles.cannot_delete_global_roles"),
+        );
+      }
 
-			if (
-				role.name === SystemRole.SUPER_ADMIN ||
-				role.name === SystemRole.ADMIN ||
-				role.name === SystemRole.USER
-			) {
-				throw new ForbiddenException(
-					this.translations.t("domains.roles.cannot_delete_global_roles")
-				);
-			}
+      const users = await usersRepo.find({
+        where: { roleId: role.id },
+        select: ["id", "roleId"],
+      });
 
-			if (role.isGlobal && !this.isSuperAdmin(me)) {
-				throw new ForbiddenException(
-					this.translations.t("domains.roles.cannot_delete_global_roles")
-				);
-			}
+      if (users.length > 0) {
+        const defaultName = `default_${role.adminId}`;
 
-			const users = await usersRepo.find({
-				where: { roleId: role.id },
-				select: ["id", "roleId"],
-			});
+        let defaultRole = await rolesRepo.findOne({
+          where: {
+            name: defaultName,
+            adminId: role.adminId,
+          },
+        });
 
-			if (users.length > 0) {
-				const defaultName = `default_${role.adminId}`;
+        if (!defaultRole) {
+          defaultRole = await rolesRepo.save(
+            rolesRepo.create({
+              name: defaultName,
+              description: this.translations.t(
+                "domains.roles.default_role_description",
+              ),
+              permissionNames: [],
+              adminId: role.adminId,
+            }),
+          );
+        }
 
-				let defaultRole = await rolesRepo.findOne({
-					where: {
-						name: defaultName,
-						adminId: role.adminId,
-					},
-				});
+        await usersRepo
+          .createQueryBuilder()
+          .update(User)
+          .set({ roleId: defaultRole.id })
+          .where("roleId = :oldRoleId", {
+            oldRoleId: role.id,
+          })
+          .execute();
+      }
 
-				if (!defaultRole) {
-					defaultRole = await rolesRepo.save(
-						rolesRepo.create({
-							name: defaultName,
-							description: this.translations.t(
-								"domains.roles.default_role_description"
-							),
-							permissionNames: [],
-							adminId: role.adminId,
-						}),
-					);
-				}
+      await rolesRepo.delete(role.id);
 
-				await usersRepo
-					.createQueryBuilder()
-					.update(User)
-					.set({ roleId: defaultRole.id })
-					.where("roleId = :oldRoleId", {
-						oldRoleId: role.id,
-					})
-					.execute();
-			}
+      return {
+        message: this.translations.t("domains.roles.role_deleted"),
+        reassignedUsers: users.length,
+      };
+    });
+  }
 
-			await rolesRepo.delete(role.id);
+  async list(me: User) {
+    const qb = this.rolesRepo.createQueryBuilder("r").orderBy("r.id", "DESC");
 
-			return {
-				message: this.translations.t("domains.roles.role_deleted"),
-				reassignedUsers: users.length,
-			};
-		});
-	}
+    if (this.isSuperAdmin(me)) {
+      qb.where("r.adminId IS NULL");
+      return qb.getMany();
+    }
 
+    // everyone except super admin: block super_admin/admin
+    qb.andWhere("r.name NOT IN (:...blocked)", {
+      blocked: [SystemRole.SUPER_ADMIN, SystemRole.ADMIN],
+    });
 
-	async list(me: User) {
-		const qb = this.rolesRepo.createQueryBuilder('r')
-			.orderBy('r.id', 'DESC');
+    if (me.role?.name === SystemRole.ADMIN) {
+      qb.andWhere("(r.adminId IS NULL OR r.adminId = :meId)", { meId: me.id });
+      return qb.getMany();
+    }
 
-		if (this.isSuperAdmin(me)) {
-			qb.where('r.adminId IS NULL');
-			return qb.getMany();
-		}
+    if (me.adminId) {
+      qb.andWhere("(r.adminId IS NULL OR r.adminId = :ownerAdminId)", {
+        ownerAdminId: me.adminId,
+      });
+      return qb.getMany();
+    }
 
-		// everyone except super admin: block super_admin/admin
-		qb.andWhere('r.name NOT IN (:...blocked)', {
-			blocked: [SystemRole.SUPER_ADMIN, SystemRole.ADMIN],
-		});
+    qb.andWhere("r.adminId IS NULL");
+    return qb.getMany();
+  }
 
-		if (me.role?.name === SystemRole.ADMIN) {
-			qb.andWhere('(r.adminId IS NULL OR r.adminId = :meId)', { meId: me.id });
-			return qb.getMany();
-		}
-
-		if (me.adminId) {
-			qb.andWhere('(r.adminId IS NULL OR r.adminId = :ownerAdminId)', { ownerAdminId: me.adminId });
-			return qb.getMany();
-		}
-
-		qb.andWhere('r.adminId IS NULL');
-		return qb.getMany();
-	}
-
-
-
-	// ✅ Get All Permissions (for dropdown)
-	async getPermissions() {
-		return this.permsRepo.find({ order: { name: 'ASC' } });
-	}
+  // ✅ Get All Permissions (for dropdown)
+  async getPermissions() {
+    return this.permsRepo.find({ order: { name: "ASC" } });
+  }
 }

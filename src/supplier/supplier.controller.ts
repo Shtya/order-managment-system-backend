@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
 import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
@@ -6,14 +18,18 @@ import { Permissions } from "common/permissions.decorator";
 import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { SuppliersService } from "./supplier.service";
-import { CreateSupplierDto, UpdateSupplierDto, UpdateSupplierFinancialsDto } from "dto/supplier.dto";
+import {
+  CreateSupplierDto,
+  UpdateSupplierDto,
+  UpdateSupplierFinancialsDto,
+} from "dto/supplier.dto";
 import * as ExcelJS from "exceljs";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("suppliers")
 @RequireSubscription()
 export class SuppliersController {
-  constructor(private suppliersService: SuppliersService) { }
+  constructor(private suppliersService: SuppliersService) {}
 
   @Permissions("suppliers.read")
   @Get()
@@ -57,8 +73,14 @@ export class SuppliersController {
       column.width = 20;
     });
 
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-    res.setHeader("Content-Disposition", 'attachment; filename="suppliers.xlsx"');
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="suppliers.xlsx"',
+    );
 
     await workbook.xlsx.write(res);
     res.end();
@@ -78,13 +100,21 @@ export class SuppliersController {
 
   @Permissions("suppliers.update")
   @Patch(":id")
-  update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateSupplierDto) {
+  update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateSupplierDto,
+  ) {
     return this.suppliersService.update(req.user, id, dto);
   }
 
   @Permissions("suppliers.update")
   @Patch(":id/financials")
-  updateFinancials(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateSupplierFinancialsDto) {
+  updateFinancials(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateSupplierFinancialsDto,
+  ) {
     return this.suppliersService.updateFinancials(req.user, id, dto);
   }
 

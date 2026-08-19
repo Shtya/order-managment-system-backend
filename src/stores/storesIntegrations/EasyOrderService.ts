@@ -1,1931 +1,2379 @@
-import { Injectable, InternalServerErrorException, forwardRef, Inject, NotFoundException, UnauthorizedException, BadRequestException } from "@nestjs/common";
+import {
+  Injectable,
+  InternalServerErrorException,
+  forwardRef,
+  Inject,
+  NotFoundException,
+  UnauthorizedException,
+  BadRequestException,
+} from "@nestjs/common";
 import { StoreEntity, StoreProvider, SyncStatus } from "entities/stores.entity";
-import { ProductSyncStatus, ProductSyncStateEntity, ProductSyncAction, SyncEntityType } from "entities/product_sync_error.entity";
+import {
+  ProductSyncStatus,
+  ProductSyncStateEntity,
+  ProductSyncAction,
+  SyncEntityType,
+} from "entities/product_sync_error.entity";
 import { ProductSyncStateService } from "src/product-sync-state/product-sync-state.service";
 
 import axios, { AxiosRequestConfig } from "axios";
-import { BaseStoreProvider, WebhookOrderPayload, WebhookOrderUpdatePayload, UnifiedProductDto, UnifiedProductVariantDto, MappedProductDto, FullStoreSyncType } from "./BaseStoreProvider";
+import {
+  BaseStoreProvider,
+  WebhookOrderPayload,
+  WebhookOrderUpdatePayload,
+  UnifiedProductDto,
+  UnifiedProductVariantDto,
+  MappedProductDto,
+  FullStoreSyncType,
+} from "./BaseStoreProvider";
 import { CategoryEntity } from "entities/categories.entity";
 import { InjectRepository } from "@nestjs/typeorm";
 import { StoresService } from "../stores.service";
 import { EncryptionService } from "common/encryption.service";
 import { EntityManager, MoreThan, Repository } from "typeorm";
-import { ProductEntity, ProductType, ProductVariantEntity } from "entities/sku.entity";
+import {
+  ProductEntity,
+  ProductType,
+  ProductVariantEntity,
+} from "entities/sku.entity";
 import { BundleEntity } from "entities/bundle.entity";
-import { v4 as uuidv4 } from 'uuid'; // You might need to install uuid: npm i uuid @types/uuid
-import { OrderEntity, OrderStatus, OrderStatusEntity, PaymentMethod, PaymentStatus } from "entities/order.entity";
+import { v4 as uuidv4 } from "uuid"; // You might need to install uuid: npm i uuid @types/uuid
+import {
+  OrderEntity,
+  OrderStatus,
+  OrderStatusEntity,
+  PaymentMethod,
+  PaymentStatus,
+} from "entities/order.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 import { RedisService } from "common/redis/RedisService";
 import { ProductsService } from "src/products/products.service";
 import { CategoriesService } from "src/category/category.service";
-import { CreateProductDto, CreateSkuItemDto, UpsertProductSkusDto } from "dto/product.dto";
+import {
+  CreateProductDto,
+  CreateSkuItemDto,
+  UpsertProductSkusDto,
+} from "dto/product.dto";
 import { AppGateway } from "common/app.gateway";
 import { NotificationService } from "src/notifications/notification.service";
 import { imageSrc } from "common/healpers";
 
-
 @Injectable()
 export class EasyOrderService extends BaseStoreProvider {
+  maxBundleItems?: number;
 
-    maxBundleItems?: number;
+  supportBundle: boolean = false;
+  code: StoreProvider = StoreProvider.EASYORDER;
+  displayName: string = "EasyOrder";
+  baseUrl: string =
+    process.env.EASY_ORDER_BASE_URL ||
+    "https://api.easy-orders.net/api/v1/external-apps";
+  readonly baseImageUrl: string = "https://seller.easy-orders.net";
+  constructor(
+    @InjectRepository(StoreEntity)
+    protected readonly storesRepo: Repository<StoreEntity>,
+    @InjectRepository(OrderStatusEntity)
+    protected readonly statusRepo: Repository<OrderStatusEntity>,
+    @InjectRepository(CategoryEntity)
+    protected readonly categoryRepo: Repository<CategoryEntity>,
+    @InjectRepository(ProductEntity)
+    protected readonly productsRepo: Repository<ProductEntity>,
+    @InjectRepository(ProductVariantEntity)
+    protected readonly pvRepo: Repository<ProductVariantEntity>,
+    @InjectRepository(ProductSyncStateEntity)
+    protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
+    @InjectRepository(BundleEntity)
+    protected readonly bundlesRepo: Repository<BundleEntity>,
+    protected readonly notificationService: NotificationService,
+    @Inject(forwardRef(() => StoresService))
+    protected readonly mainStoresService: StoresService,
+    @Inject(forwardRef(() => OrdersService))
+    protected readonly ordersService: OrdersService,
+    @Inject(forwardRef(() => ProductsService))
+    private readonly productsService: ProductsService,
+    @Inject(forwardRef(() => CategoriesService))
+    private readonly categoriesService: CategoriesService,
+    private readonly productSyncStateService: ProductSyncStateService,
+    protected readonly redisService: RedisService,
+    protected readonly encryptionService: EncryptionService,
+    private readonly appGateway: AppGateway,
+  ) {
+    super(
+      storesRepo,
+      categoryRepo,
+      productSyncStateRepo,
+      encryptionService,
+      mainStoresService,
+      ordersService,
+      notificationService,
+      40,
+      StoreProvider.EASYORDER,
+    );
+  }
 
-    supportBundle: boolean = false;
-    code: StoreProvider = StoreProvider.EASYORDER;
-    displayName: string = "EasyOrder";
-    baseUrl: string = process.env.EASY_ORDER_BASE_URL || "https://api.easy-orders.net/api/v1/external-apps";
-    readonly baseImageUrl: string = "https://seller.easy-orders.net";
-    constructor(
-        @InjectRepository(StoreEntity) protected readonly storesRepo: Repository<StoreEntity>,
-        @InjectRepository(OrderStatusEntity) protected readonly statusRepo: Repository<OrderStatusEntity>,
-        @InjectRepository(CategoryEntity) protected readonly categoryRepo: Repository<CategoryEntity>,
-        @InjectRepository(ProductEntity) protected readonly productsRepo: Repository<ProductEntity>,
-        @InjectRepository(ProductVariantEntity) protected readonly pvRepo: Repository<ProductVariantEntity>,
-        @InjectRepository(ProductSyncStateEntity) protected readonly productSyncStateRepo: Repository<ProductSyncStateEntity>,
-        @InjectRepository(BundleEntity) protected readonly bundlesRepo: Repository<BundleEntity>,
-        protected readonly notificationService: NotificationService,
-        @Inject(forwardRef(() => StoresService))
-        protected readonly mainStoresService: StoresService,
-        @Inject(forwardRef(() => OrdersService))
-        protected readonly ordersService: OrdersService,
-        @Inject(forwardRef(() => ProductsService))
-        private readonly productsService: ProductsService,
-        @Inject(forwardRef(() => CategoriesService))
-        private readonly categoriesService: CategoriesService,
-        private readonly productSyncStateService: ProductSyncStateService,
-        protected readonly redisService: RedisService,
-        protected readonly encryptionService: EncryptionService,
-        private readonly appGateway: AppGateway,
-    ) {
-        super(storesRepo, categoryRepo, productSyncStateRepo, encryptionService, mainStoresService, ordersService, notificationService, 40, StoreProvider.EASYORDER)
+  /**
+   * Helpers
+   */
+  private async getHeaders(store: StoreEntity) {
+    // const cacheKey = `store_auth:${store.id}`;
+
+    // 1. Try to get from Redis
+    // let apiKey = await this.redisService.get(cacheKey);
+
+    // if (!apiKey) {
+    // 2. Cache miss: Decrypt and save to Redis with a TTL (e.g., 1 hour)
+    const keys = store?.credentials;
+
+    if (!keys.apiKey) {
+      throw new InternalServerErrorException(
+        `Missing API Key for store ${store.name}`,
+      );
     }
 
+    const apiKey = keys.apiKey?.trim(); // Applying your trim preference
 
-    /**
-     * Helpers
-     */
-    private async getHeaders(store: StoreEntity) {
-        // const cacheKey = `store_auth:${store.id}`;
+    // Save to Redis for 3600 seconds (1 hour)
+    //     await this.redisService.set(cacheKey, apiKey, 3600);
+    // }
 
-        // 1. Try to get from Redis
-        // let apiKey = await this.redisService.get(cacheKey);
+    return {
+      "Api-Key": apiKey,
+      "Content-Type": "application/json",
+    };
+  }
 
-        // if (!apiKey) {
-        // 2. Cache miss: Decrypt and save to Redis with a TTL (e.g., 1 hour)
-        const keys = store?.credentials;
+  protected async sendRequest(
+    store: StoreEntity,
+    config: AxiosRequestConfig,
+    attempt = 0,
+    retry = true,
+  ): Promise<any> {
+    const headers = await this.getHeaders(store); // ✅ await here
+    const baseConfig: AxiosRequestConfig = {
+      ...config,
+      headers: { ...headers, ...config.headers },
+    };
+    return await super.sendRequest(store, baseConfig, attempt, retry); // ✅ return + await
+  }
 
-        if (!keys.apiKey) {
-            throw new InternalServerErrorException(`Missing API Key for store ${store.name}`);
-        }
+  private async getStoreForSync(adminId: string): Promise<StoreEntity | null> {
+    const cleanAdminId = adminId; // Remember to trim
+    if (!cleanAdminId) return null;
 
-        const apiKey = keys.apiKey?.trim(); // Applying your trim preference
+    const store = await this.storesRepo.findOne({
+      where: {
+        adminId: cleanAdminId,
+        provider: StoreProvider.EASYORDER,
+        isActive: true, // Only sync to active store
+      },
+    });
+    return store;
+  }
 
-        // Save to Redis for 3600 seconds (1 hour)
-        //     await this.redisService.set(cacheKey, apiKey, 3600);
-        // }
+  // ===========================================================================
+  // SYNC CATEGORY METHODS
+  // ===========================================================================
+  private async createCategory(category: CategoryEntity, store: StoreEntity) {
+    const payload = {
+      name: category.name?.trim(), // Remember to trim
+      slug: category.slug,
+      thumb: this.getImageUrl(
+        category.image?.trim() || `/uploads/default-category.png`,
+      ),
+      show_in_header: false,
+      hidden: false,
+      position: 1,
+      parent_id: null,
+    };
 
-        return {
-            "Api-Key": apiKey,
-            "Content-Type": "application/json",
-        };
+    const response = await this.sendRequest(store, {
+      method: "POST",
+      url: "/categories",
+      data: payload,
+    });
+    return response.data;
+  }
+
+  private async updateCategory(
+    category: CategoryEntity,
+    store: StoreEntity,
+    externalId,
+  ) {
+    if (!externalId) {
+      throw new Error(`No external ID provided for category ${category.name}`);
     }
 
-    protected async sendRequest(
-        store: StoreEntity,
-        config: AxiosRequestConfig,
-        attempt = 0,
-        retry = true
-    ): Promise<any> {
-        const headers = await this.getHeaders(store); // ✅ await here
-        const baseConfig: AxiosRequestConfig = {
-            ...config,
-            headers: { ...headers, ...config.headers },
-        };
-        return await super.sendRequest(store, baseConfig, attempt, retry); // ✅ return + await
+    const payload = {
+      name: category.name?.trim(),
+      slug: category.slug,
+      thumb: this.getImageUrl(
+        category.image?.trim() || `/uploads/default-category.png`,
+      ),
+      show_in_header: false,
+      hidden: false,
+      position: 1,
+      parent_id: null,
+    };
+
+    const response = await this.sendRequest(store, {
+      method: "PATCH",
+      url: `/categories/${externalId}`,
+      data: payload,
+    });
+
+    return response;
+  }
+
+  private async getCategory(externalCategoryId: string, store: StoreEntity) {
+    try {
+      const response = await this.sendRequest(store, {
+        method: "GET",
+        url: `/categories/${externalCategoryId}`,
+      });
+
+      return response;
+    } catch {
+      return null;
+    }
+  }
+  /**
+   * Fetches all categories with optional filtering.
+   * * Operators:
+   * - eq      (Equal)               ['name||eq||iphone']
+   * - ne      (Not Equal)           ['quantity||ne||0']
+   * - gt/lt   (Greater/Less)        ['price||gt||100']
+   * - gte/lte (Greater/Less Equal)  ['price||lte||150']
+   * - $in     (In list)             ['status||$in||active,pending']
+   * - cont    (Contains)            ['name||cont||iphone']
+   * - isnull  (Is Null)             ['parent_id||isnull']
+   * - notnull (Is Not Null)         ['description||notnull']
+   * * Example: getAllCategories(store, ['parent_id||isnull', 'hidden||eq||false'])
+   */
+  private async getAllCategories(store: StoreEntity, filters: string[] = []) {
+    const filterStr =
+      filters.length > 0 ? ` with filters: [${filters.join(", ")}]` : "";
+
+    const response = await this.sendRequest(store, {
+      method: "GET",
+      url: "/categories/",
+      params: {
+        filter: filters,
+      },
+      // Custom serializer to ensure the format filter=val1&filter=val2
+      // instead of the default filter[]=val1
+      paramsSerializer: {
+        indexes: null, // removes the brackets [] from the query key
+      },
+    });
+
+    return response;
+  }
+
+  public async syncCategory({
+    category,
+    relatedAdminId,
+    slug,
+  }: {
+    category: CategoryEntity;
+    relatedAdminId?: string;
+    slug?: string;
+  }) {
+    const { adminId } = category;
+
+    const finalAdmin = relatedAdminId ? relatedAdminId : adminId;
+    // 1. Fetch only what we need
+    const activeStore = await this.getStoreForSync(finalAdmin);
+
+    if (!activeStore) {
+      throw new Error(`No active store enabled for admin (${finalAdmin})`);
     }
 
+    const checkSlug = slug ? slug : category.slug;
+    const existingCategories = await this.fetchBatchCategories(activeStore, [
+      { slug: checkSlug, name: category.name?.trim() },
+    ]);
+    const remoteCategory =
+      existingCategories?.length > 0 ? existingCategories[0] : null;
 
-    private async getStoreForSync(adminId: string): Promise<StoreEntity | null> {
-        const cleanAdminId = adminId; // Remember to trim
-        if (!cleanAdminId) return null;
+    if (remoteCategory) {
+      return await this.updateCategory(
+        category,
+        activeStore,
+        remoteCategory.id,
+      );
+    } else {
+      return await this.createCategory(category, activeStore);
+    }
+  }
 
-        const store = await this.storesRepo.findOne({
-            where: {
-                adminId: cleanAdminId,
-                provider: StoreProvider.EASYORDER,
-                isActive: true // Only sync to active store
-            },
-        });
-        return store;
+  private async fetchBatchCategories(
+    store: StoreEntity,
+    localBatch: { slug?: string; name?: string }[],
+  ): Promise<any[]> {
+    const slugs = localBatch
+      .map((c) => c.slug?.trim())
+      .filter(Boolean) as string[];
+
+    const names = localBatch
+      .map((c) => c.name?.trim())
+      .filter(Boolean) as string[];
+
+    const tasks: Promise<any>[] = [];
+
+    // Slug batch
+    tasks.push(
+      slugs.length
+        ? this.getAllCategories(store, [`slug||$in||${slugs.join(",")}`])
+        : Promise.resolve([]),
+    );
+
+    // Name batch
+    tasks.push(
+      names.length
+        ? this.getAllCategories(store, [`name||$in||${names.join(",")}`])
+        : Promise.resolve([]),
+    );
+
+    const [bySlug, byName] = await Promise.allSettled(tasks);
+
+    const remoteItems: any[] = [];
+
+    if (bySlug.status === "fulfilled") {
+      remoteItems.push(...bySlug.value);
     }
 
-    // ===========================================================================
-    // SYNC CATEGORY METHODS
-    // ===========================================================================
-    private async createCategory(category: CategoryEntity, store: StoreEntity) {
-
-        const payload = {
-            name: category.name?.trim(), // Remember to trim
-            slug: category.slug,
-            thumb: this.getImageUrl(category.image?.trim() || `/uploads/default-category.png`),
-            show_in_header: false,
-            hidden: false,
-            position: 1,
-            parent_id: null
-        };
-
-        const response = await this.sendRequest(store, {
-            method: 'POST',
-            url: '/categories',
-            data: payload
-        });
-        return response.data;
+    if (byName.status === "fulfilled") {
+      remoteItems.push(...byName.value);
     }
 
-    private async updateCategory(category: CategoryEntity, store: StoreEntity, externalId) {
-        if (!externalId) {
-            throw new Error(`No external ID provided for category ${category.name}`)
-        }
+    return remoteItems;
+  }
+  /**
+   * Sync Categories: Fetch 30 by 30 using ID as cursor
+   */
+  private async syncCategoriesCursor(store: StoreEntity): Promise<{
+    categoryMap: Map<string, string>;
+    report: {
+      processed: number;
+      created: number;
+      updated: number;
+      errors: number;
+    };
+  }> {
+    const categoryMap = new Map<string, string>();
+    let lastId = "";
+    let hasMore = true;
+    let totalProcessed = 0;
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalErrors = 0;
 
-        const payload = {
-            name: category.name?.trim(),
-            slug: category.slug,
-            thumb: this.getImageUrl(category.image?.trim() || `/uploads/default-category.png`),
-            show_in_header: false,
-            hidden: false,
-            position: 1,
-            parent_id: null
-        };
+    while (hasMore) {
+      const localBatch = await this.categoryRepo.find({
+        where: {
+          adminId: store.adminId,
+          ...(lastId ? { id: MoreThan(lastId) } : {}),
+        },
+        order: { id: "ASC" } as any,
+        take: 30,
+      });
 
+      if (localBatch.length === 0) {
+        hasMore = false;
+        break;
+      }
 
-        const response = await this.sendRequest(store, {
-            method: 'PATCH',
-            url: `/categories/${externalId}`,
-            data: payload
-        });
+      // Bulk check existence: Use names for categories as they are unique identifiers in EasyOrder
+      const remoteItems = await this.fetchBatchCategories(store, localBatch);
+      const remoteMap = new Map(
+        remoteItems.map((r: any) => [r.slug?.trim(), r.id]),
+      );
 
-        return response;
-    }
+      for (const cat of localBatch) {
+        const extId = remoteMap.get(cat.slug?.trim());
 
-    private async getCategory(externalCategoryId: string, store: StoreEntity) {
         try {
-
-            const response = await this.sendRequest(store, {
-                method: 'GET',
-                url: `/categories/${externalCategoryId}`,
-            });
-
-            return response;
-        } catch {
-            return null;
-        }
-
-    }
-    /**
-     * Fetches all categories with optional filtering.
-     * * Operators:
-     * - eq      (Equal)               ['name||eq||iphone']
-     * - ne      (Not Equal)           ['quantity||ne||0']
-     * - gt/lt   (Greater/Less)        ['price||gt||100']
-     * - gte/lte (Greater/Less Equal)  ['price||lte||150']
-     * - $in     (In list)             ['status||$in||active,pending']
-     * - cont    (Contains)            ['name||cont||iphone']
-     * - isnull  (Is Null)             ['parent_id||isnull']
-     * - notnull (Is Not Null)         ['description||notnull']
-     * * Example: getAllCategories(store, ['parent_id||isnull', 'hidden||eq||false'])
-     */
-    private async getAllCategories(store: StoreEntity, filters: string[] = []) {
-        const filterStr = filters.length > 0 ? ` with filters: [${filters.join(', ')}]` : '';
-
-
-        const response = await this.sendRequest(store, {
-            method: 'GET',
-            url: '/categories/',
-            params: {
-                filter: filters
-            },
-            // Custom serializer to ensure the format filter=val1&filter=val2 
-            // instead of the default filter[]=val1
-            paramsSerializer: {
-                indexes: null // removes the brackets [] from the query key
-            }
-        });
-
-        return response;
-
-    }
-
-    public async syncCategory({ category, relatedAdminId, slug }: { category: CategoryEntity, relatedAdminId?: string, slug?: string }) {
-        const { adminId } = category;
-
-        const finalAdmin = relatedAdminId ? relatedAdminId : adminId;
-        // 1. Fetch only what we need
-        const activeStore = await this.getStoreForSync(finalAdmin)
-
-        if (!activeStore) {
-            throw new Error(`No active store enabled for admin (${finalAdmin})`);
-        }
-
-        const checkSlug = slug ? slug : category.slug;
-        const existingCategories = await this.fetchBatchCategories(activeStore, [{ slug: checkSlug, name: category.name?.trim() }]);
-        const remoteCategory = existingCategories?.length > 0 ? existingCategories[0] : null;
-
-        if (remoteCategory) {
-            return await this.updateCategory(category, activeStore, remoteCategory.id);
-        }
-        else {
-            return await this.createCategory(category, activeStore);
-        }
-    }
-
-    private async fetchBatchCategories(
-        store: StoreEntity,
-        localBatch: { slug?: string; name?: string }[],
-    ): Promise<any[]> {
-        const slugs = localBatch
-            .map(c => c.slug?.trim())
-            .filter(Boolean) as string[];
-
-        const names = localBatch
-            .map(c => c.name?.trim())
-            .filter(Boolean) as string[];
-
-        const tasks: Promise<any>[] = [];
-
-        // Slug batch
-        tasks.push(
-            slugs.length
-                ? this.getAllCategories(store, [
-                    `slug||$in||${slugs.join(',')}`,
-                ])
-                : Promise.resolve([]),
-        );
-
-        // Name batch
-        tasks.push(
-            names.length
-                ? this.getAllCategories(store, [
-                    `name||$in||${names.join(',')}`,
-                ])
-                : Promise.resolve([]),
-        );
-
-        const [bySlug, byName] = await Promise.allSettled(tasks);
-
-        const remoteItems: any[] = [];
-
-        if (bySlug.status === 'fulfilled') {
-            remoteItems.push(...bySlug.value);
-        }
-
-        if (byName.status === 'fulfilled') {
-            remoteItems.push(...byName.value);
-        }
-
-        return remoteItems;
-    }
-    /**
- * Sync Categories: Fetch 30 by 30 using ID as cursor
- */
-    private async syncCategoriesCursor(store: StoreEntity): Promise<{ categoryMap: Map<string, string>; report: { processed: number; created: number; updated: number; errors: number } }> {
-
-        const categoryMap = new Map<string, string>();
-        let lastId = "";
-        let hasMore = true;
-        let totalProcessed = 0;
-        let totalCreated = 0;
-        let totalUpdated = 0;
-        let totalErrors = 0;
-
-        while (hasMore) {
-            const localBatch = await this.categoryRepo.find({
-                where: {
-                    adminId: store.adminId,
-                    ...(lastId ? { id: MoreThan(lastId) } : {})
-                },
-                order: { id: 'ASC' } as any,
-                take: 30
-            });
-
-            if (localBatch.length === 0) {
-                hasMore = false;
-                break;
-            }
-
-            // Bulk check existence: Use names for categories as they are unique identifiers in EasyOrder
-            const remoteItems = await this.fetchBatchCategories(store, localBatch);
-            const remoteMap = new Map(remoteItems.map((r: any) => [r.slug?.trim(), r.id]));
-
-            for (const cat of localBatch) {
-                let extId = remoteMap.get(cat.slug?.trim());
-
-                try {
-                    const response = extId
-                        ? await this.updateCategory(cat, store, extId)
-                        : await this.createCategory(cat, store);
-
-                    const finalId = extId ? String(extId) : String(response.id);
-                    categoryMap.set(cat.id, finalId);
-
-                    if (extId) {
-                        totalUpdated++;
-                    } else {
-                        totalCreated++;
-                    }
-                } catch (error) {
-                    const message = this.getErrorMessage(error);
-                    this.logCtxError(`[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${message}`, store);
-                    totalErrors++;
-                }
-
-                totalProcessed++;
-            }
-
-            lastId = localBatch[localBatch.length - 1].id;
-        }
-
-        this.logCtx(`[Sync] ✓ Category sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated}`, store);
-        return {
-            categoryMap,
-            report: {
-                processed: totalProcessed,
-                created: totalCreated,
-                updated: totalUpdated,
-                errors: totalErrors
-            }
-        };
-    }
-
-    public async syncExternalCategory(user: any, remoteCategory: any, manager?: EntityManager): Promise<string | null> {
-        if (!remoteCategory || !remoteCategory.slug) return null;
-
-        // Check if category exists locally by slug
-        const categoryRepo = manager ? manager.getRepository(CategoryEntity) : this.categoryRepo;
-        let category = await categoryRepo.findOne({
-            where: { adminId: user.adminId, slug: remoteCategory.slug }
-        });
-
-        if (!category) {
-            let newCategory = await this.categoriesService.create(user, {
-                name: remoteCategory.name || remoteCategory.slug,
-                slug: remoteCategory.slug,
-                image: remoteCategory.thumb || null
-            });
-
-            return newCategory?.[0].id
-        }
-        return category.id;
-    }
-
-
-    // ===========================================================================
-    // SYNC PRODUCT METHODS
-    // ===========================================================================
-    /**
-     * Maps your ProductEntity to the complex EasyOrder JSON format.
-     * Automatically extracts "variations" (definitions) from your variants.
-     */
-    private async mapProductToPayload(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externaCategoryId: string) {
-        let categoryPayload = [];
-        const isSingle = product.type === ProductType.SINGLE;
-        if (externaCategoryId) {
-            categoryPayload.push({ id: String(externaCategoryId)?.trim() })
-        }
-        const activeVariants = variants.filter(v => v.isActive);
-        const variationMap = new Map<string, Set<string>>();
-
-        activeVariants.forEach(v => {
-            if (v.attributes) {
-                Object.entries(v.attributes).forEach(([key, value]) => {
-                    if (!variationMap.has(key)) variationMap.set(key, new Set());
-                    variationMap.get(key)?.add(String(value));
-                });
-            }
-        });
-
-        const attrebutes = Array.from(variationMap.entries()).map(([name, values]) => {
-            const variationId = uuidv4();
-            return {
-                id: variationId,
-                name: name?.trim(),
-                product_id: null,
-                type: "dropdown",
-                props: Array.from(values).map(val => ({
-                    id: uuidv4(),
-                    name: val?.trim(),
-                    variation_id: variationId,
-                    value: val?.trim()
-                }))
-            };
-        });
-
-        let productQuantity = 0;
-        const variantsPayload = await Promise.all(activeVariants.map(async v => {
-            const available = await this.ordersService.calculateAvailableStock(
-                v.stockOnHand,
-                v.reserved,
-                v.adminId
-            );
-            productQuantity += available;
-            return {
-                price: Number(v.price) || Number(product.salePrice) || 0,
-                expense: Number(v.unitCost) || 0,
-                quantity: available,
-                taager_code: String(v.sku),
-                variation_props: Object.entries(v.attributes || {}).map(([key, val]) => ({
-                    variation: key?.trim(),
-                    variation_prop: String(val)?.trim()
-                }))
-            };
-        }));
-
-        return {
-            name: product.name?.trim(),
-            price: Number(product.salePrice) || 0,
-            expense: Number(product.wholesalePrice) || 0,
-            // sale_price: Number(product.salePrice) || 0,
-            description: product.description || "",
-            slug: product.slug.replace(/_/g, '-'),
-            sku: product.sku,
-            thumb: this.getImageUrl(product.mainImage?.trim() || ""),
-            images: product.images?.map(img => this.getImageUrl(img.url?.trim())) || [],
-            categories: categoryPayload,
-            quantity: productQuantity,
-            track_stock: true,
-            disable_orders_for_no_stock: true,
-            // buy_now_text: "اضغط هنا للشراء",
-            is_reviews_enabled: true,
-            taager_code: String(product.id),
-            // drop_shipping_provider: "MyStore",
-            variations: isSingle ? [] : attrebutes,
-            variants: isSingle ? [] : variantsPayload
-        };
-    }
-
-    private async mapBundleToPayload(bundle: BundleEntity, store: StoreEntity, externalCategoryId: string) {
-        let categoryPayload = [];
-        if (externalCategoryId) {
-            categoryPayload.push({ id: String(externalCategoryId)?.trim() })
-        }
-
-        const bundleInventory = await this.calculateBundleInventory(
-            bundle
-        );
-
-        return {
-            name: bundle.name?.trim(),
-            price: Number(bundle.price) || 0,
-            expense: bundleInventory.expense,
-            description: bundle.description || "",
-            slug: (bundle.slug || bundle.id).replace(/_/g, '-'),
-            sku: bundle.sku,
-            thumb: this.getImageUrl(bundle.mainImage?.trim() || ""),
-            images: bundle.images?.map(img => this.getImageUrl(img.url?.trim())) || [],
-            categories: categoryPayload,
-            quantity: bundleInventory.quantity,
-            track_stock: true,
-            disable_orders_for_no_stock: true,
-            is_reviews_enabled: true,
-            taager_code: String(bundle.id),
-            variations: [],
-            variants: []
-        };
-    }
-
-    private async syncVariantsBySku(
-        localVariants: ProductVariantEntity[],
-        remoteVariants: any[],
-        store: StoreEntity,
-    ): Promise<void> {
-        if (!remoteVariants?.length)
-            return;
-
-        // 1️⃣ Build local map by SKU
-        const localMap = new Map<string, ProductVariantEntity>();
-
-        for (const local of localVariants) {
-            if (!local.sku) continue;
-            localMap.set(local.sku?.trim(), local);
-        }
-
-        const variantsToSave: ProductVariantEntity[] = [];
-
-        // 2️⃣ Match remote → local
-        for (const remote of remoteVariants) {
-            const sku = remote.taager_code?.trim();
-
-            if (!sku) {
-                this.logCtxError(
-                    `[Variants Sync] Remote variant missing taager_code`,
-                    store,
-                );
-                continue;
-            }
-
-            const localVariant = localMap.get(sku);
-
-            if (!localVariant) {
-                this.logCtxError(
-                    `[Variants Sync] No local variant found for SKU ${sku}`,
-                    store,
-                );
-                continue;
-            }
-
-            // 3️⃣ Update external ID
-            localVariant.externalId = remote.id;
-
-            variantsToSave.push(localVariant);
-        }
-
-        // 4️⃣ Save in one DB call (important)
-        if (variantsToSave.length) {
-            await this.pvRepo.save(variantsToSave);
-        }
-    }
-
-
-    private async createProduct(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externalCategoryId: string) {
-
-        const payload = await this.mapProductToPayload(product, variants, store, externalCategoryId);
-
-        const response = await this.sendRequest(store, {
-            method: 'POST',
-            url: '/products',
-            data: payload
-        });
-        const externalId = response.data?.id;
-        const remoteVariants = response.variants;
-        await this.syncVariantsBySku(
-            variants,
-            remoteVariants,
-            store
-        );
-
-        await this.sendSyncSuccessNotification({
-            adminId: product.adminId,
-            entityId: product.id,
-            entityName: product.name,
-            storeName: store.name,
-            isProduct: true,
-            action: 'CREATE'
-        });
-
-        return { response, externalId, payload };
-    }
-
-    private async updateProduct(product: ProductEntity, variants: ProductVariantEntity[], store: StoreEntity, externalId: string, externalCategoryId: string) {
-
-        const payload = await this.mapProductToPayload(product, variants, store, externalCategoryId);
-
-        const response = await this.sendRequest(store, {
-            method: 'PATCH',
-            url: `/products/${externalId}`,
-            data: payload
-        });
-        const remoteVariants = response.variants;
-        await this.syncVariantsBySku(
-            variants,
-            remoteVariants,
-            store
-        );
-
-        const adminId = product.adminId;
-        const isProduct = true;
-
-        await this.sendSyncSuccessNotification({
-            adminId,
-            entityId: product.id,
-            entityName: product.name,
-            storeName: store.name,
-            isProduct: true,
-            action: 'UPDATE'
-        });
-
-        return { response, externalId, payload };
-    }
-
-    private async createBundle(bundle: BundleEntity, store: StoreEntity, externalCategoryId: string) {
-
-        const payload = await this.mapBundleToPayload(bundle, store, externalCategoryId);
-
-        const response = await this.sendRequest(store, {
-            method: 'POST',
-            url: '/products',
-            data: payload
-        });
-        const externalId = response.data?.id;
-
-        await this.sendSyncSuccessNotification({
-            adminId: bundle.adminId,
-            entityId: bundle.id,
-            entityName: bundle.name,
-            storeName: store.name,
-            isProduct: false,
-            action: 'CREATE'
-        });
-
-        return { response, externalId, payload };
-    }
-
-    private async updateBundle(bundle: BundleEntity, store: StoreEntity, externalId: string, externalCategoryId: string) {
-
-        const payload = await this.mapBundleToPayload(bundle, store, externalCategoryId);
-
-        const response = await this.sendRequest(store, {
-            method: 'PATCH',
-            url: `/products/${externalId}`,
-            data: payload
-        });
-
-        await this.sendSyncSuccessNotification({
-            adminId: bundle.adminId,
-            entityId: bundle.id,
-            entityName: bundle.name,
-            storeName: store.name,
-            isProduct: false,
-            action: 'UPDATE'
-        });
-
-        return { response, externalId, payload };
-    }
-
-    // SYNC STOCK ONLY (Efficient)
-    /**
-     * Updates the quantity of a specific variant.
-     */
-    async updateVariantStock(productInternalId: string, variantInternalId: string, quantity: number, store: StoreEntity) {
-        const safeQuantity = Math.max(0, quantity);
-        const url = `/products/variants/${productInternalId}/${variantInternalId}/quantity`;
-
-        await this.sendRequest(store, {
-            method: 'PATCH',
-            url: url,
-            data: { quantity: safeQuantity } // Ensure no negative stock
-        });
-
-
-    }
-
-    /**
-     * Fetches all categories with optional filtering.
-     * * Operators:
-     * - eq      (Equal)               ['name||eq||iphone']
-     * - ne      (Not Equal)           ['quantity||ne||0']
-     * - gt/lt   (Greater/Less)        ['price||gt||100']
-     * - gte/lte (Greater/Less Equal)  ['price||lte||150']
-     * - $in     (In list)             ['status||$in||active,pending']
-     * - cont    (Contains)            ['name||cont||iphone']
-     * - isnull  (Is Null)             ['parent_id||isnull']
-     * - notnull (Is Not Null)         ['description||notnull']
-     * * Example: getAllProducts(store, ['parent_id||isnull', 'hidden||eq||false'])
-     */
-    private async getAllProducts(store: StoreEntity, filters: string[] = [], page?: number, limit?: number, join: string = "", retry = true) {
-        const response = await this.sendRequest(store, {
-            method: 'GET',
-            url: '/products/',
-            params: {
-                filter: filters,
-                page,
-                limit,
-                join
-            },
-            // Custom serializer to ensure the format filter=val1&filter=val2 
-            // instead of the default filter[]=val1
-            paramsSerializer: {
-                indexes: null // removes the brackets [] from the query key
-            }
-        }, 0, retry);
-
-        return response;
-    }
-
-    private async getProduct(store: StoreEntity, remoteProductId: string) {
-        try {
-            return await this.sendRequest(store, {
-                method: 'GET',
-                url: `/products/${remoteProductId}`,
-            });
+          const response = extId
+            ? await this.updateCategory(cat, store, extId)
+            : await this.createCategory(cat, store);
+
+          const finalId = extId ? String(extId) : String(response.id);
+          categoryMap.set(cat.id, finalId);
+
+          if (extId) {
+            totalUpdated++;
+          } else {
+            totalCreated++;
+          }
         } catch (error) {
-            return null;
+          const message = this.getErrorMessage(error);
+          this.logCtxError(
+            `[Sync] Error processing category ${cat.name} (ID: ${cat.id}): ${message}`,
+            store,
+          );
+          totalErrors++;
         }
+
+        totalProcessed++;
+      }
+
+      lastId = localBatch[localBatch.length - 1].id;
     }
 
-    /**
-     * Sync Products: Fetch 20 by 20 with Variants
-     */
-    private async syncProductsCursor(store: StoreEntity, categoryMap: Map<string, string>, productIds?: string[]): Promise<{ processed: number; created: number; updated: number; errors: number }> {
-        let lastId = "";
-        let hasMore = true;
-        let totalProcessed = 0;
-        let totalCreated = 0;
-        let totalUpdated = 0;
-        let totalErrors = 0;
+    this.logCtx(
+      `[Sync] ✓ Category sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated}`,
+      store,
+    );
+    return {
+      categoryMap,
+      report: {
+        processed: totalProcessed,
+        created: totalCreated,
+        updated: totalUpdated,
+        errors: totalErrors,
+      },
+    };
+  }
 
-        while (hasMore) {
-            const qb = this.storesRepo.manager.createQueryBuilder(ProductEntity, "product")
-                .leftJoinAndSelect("product.variants", "variants")
-                .leftJoinAndSelect("product.category", "category")
-                .leftJoinAndMapOne(
-                    "product.syncState",
-                    ProductSyncStateEntity,
-                    "syncState",
-                    "syncState.productId = product.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
-                    { storeId: store.id, adminId: store.adminId, externalStoreId: store.externalStoreId }
-                )
-            if (productIds.length === 0) {
-                qb.where("product.storeId = :storeId", { storeId: store.id })
-            }
-            qb.andWhere("product.adminId = :adminId", { adminId: store.adminId })
-                .andWhere("product.isActive = :isActive", { isActive: true })
-                .orderBy("product.id", "ASC")
-                .take(20);
+  public async syncExternalCategory(
+    user: any,
+    remoteCategory: any,
+    manager?: EntityManager,
+  ): Promise<string | null> {
+    if (!remoteCategory || !remoteCategory.slug) return null;
 
-            if (productIds && productIds.length > 0) {
-                qb.andWhere("product.id IN (:...productIds)", { productIds });
-            }
+    // Check if category exists locally by slug
+    const categoryRepo = manager
+      ? manager.getRepository(CategoryEntity)
+      : this.categoryRepo;
+    const category = await categoryRepo.findOne({
+      where: { adminId: user.adminId, slug: remoteCategory.slug },
+    });
 
-            if (lastId) {
-                qb.andWhere("product.id > :lastId", { lastId });
-            }
+    if (!category) {
+      const newCategory = await this.categoriesService.create(user, {
+        name: remoteCategory.name || remoteCategory.slug,
+        slug: remoteCategory.slug,
+        image: remoteCategory.thumb || null,
+      });
 
-            const localBatch = await qb.getMany() as any[];
-
-            if (localBatch.length === 0) {
-                hasMore = false;
-                break;
-            }
-
-            // Bulk check existence: Use slug 
-            const ids = localBatch.map(p => p.syncState?.remoteProductId).filter(Boolean).join(',');
-            const remoteResponse = ids ? await this.getAllProducts(store, [`id||$in||${ids}`]) : { data: [] };
-            const remoteItems = Array.isArray(remoteResponse) ? remoteResponse || [] : remoteResponse?.data || [];
-            const remoteMap = new Map<string, any>(remoteItems.map((r: any) => [String(r.id), r]));
-
-            for (const product of localBatch) {
-                try {
-
-                    const remoteId = product?.syncState?.remoteProductId;
-                    const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
-
-                    let extCatId = product.categoryId ? categoryMap.get(product.categoryId) : null;
-
-                    if (!extCatId && product.category) {
-                        const remoteCategory = await this.syncCategory({ relatedAdminId: product.adminId, category: product.category });
-                        extCatId = remoteCategory?.id;
-                    }
-                    let syncedProduct: any;
-                    if (remote) {
-                        syncedProduct = await this.updateProduct(product, product.variants, store, remote.id, extCatId);
-                        totalUpdated++;
-                    } else {
-                        syncedProduct = await this.createProduct(product, product.variants, store, extCatId);
-
-                        // SUCCESS STATE UPDATE
-
-                        totalCreated++;
-                    }
-                    await this.productSyncStateService.upsertSyncState(
-                        { adminId: store.adminId, productId: product.id, storeId: store.id, externalStoreId: store.externalStoreId },
-                        {
-                            remoteProductId: syncedProduct?.externalId ?? remoteId ?? null,
-                            status: ProductSyncStatus.SYNCED,
-                            lastError: null,
-                            lastSynced_at: new Date(),
-                        },
-                    );
-                    totalProcessed++;
-                } catch (error: any) {
-                    const errorMessage = this.getErrorMessage(error);
-                    const remoteId = product?.syncState?.remoteProductId;
-                    const action = remoteId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
-
-                    // FAILURE STATE UPDATE
-                    await this.productSyncStateService.upsertSyncState(
-                        { adminId: store.adminId, productId: product.id, storeId: store.id, externalStoreId: store.externalStoreId },
-                        {
-                            remoteProductId: remoteId || null,
-                            status: ProductSyncStatus.FAILED,
-                            lastError: errorMessage,
-                            lastSynced_at: new Date(),
-                        },
-                    );
-
-                    // LOG THE ERROR
-                    await this.productSyncStateService.upsertSyncErrorLog(
-                        { adminId: store.adminId, productId: product.id, storeId: store.id },
-                        {
-                            remoteProductId: remoteId || null,
-                            action: action,
-                            errorMessage,
-                            userMessage: `Failed to sync product "${product.name}" to ${store.name}: ${errorMessage}`,
-                            responseStatus: error?.response?.status,
-                            requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
-                        }
-                    );
-
-                    this.logCtxError(`[Sync] Error processing product ${product.name} (ID: ${product.id}): ${errorMessage}`, store);
-                    totalErrors++;
-                }
-
-            }
-
-            lastId = localBatch[localBatch.length - 1].id;
-        }
-
-        this.logCtx(`[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
-        return {
-            processed: totalProcessed,
-            created: totalCreated,
-            updated: totalUpdated,
-            errors: totalErrors
-        };
+      return newCategory?.[0].id;
     }
+    return category.id;
+  }
 
-    private async syncBundleCursor(store: StoreEntity, categoryMap: Map<string, string>, bundleIds?: string[]): Promise<{ processed: number; created: number; updated: number; errors: number }> {
-        let lastId = "";
-        let hasMore = true;
-        let totalProcessed = 0;
-        let totalCreated = 0;
-        let totalUpdated = 0;
-        let totalErrors = 0;
-
-        while (hasMore) {
-            const qb = this.storesRepo.manager.createQueryBuilder(BundleEntity, "bundle")
-                .leftJoinAndSelect("bundle.items", "items")
-                .leftJoinAndSelect("items.variant", "variant")
-                .leftJoinAndSelect("variant.product", "product")
-                .leftJoinAndSelect("bundle.category", "category")
-                .leftJoinAndMapOne(
-                    "bundle.syncState",
-                    ProductSyncStateEntity,
-                    "syncState",
-                    "syncState.bundleId = bundle.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
-                    { storeId: store.id, adminId: store.adminId, externalStoreId: store.externalStoreId }
-                )
-            if (!bundleIds || bundleIds.length === 0) {
-                qb.where("bundle.storeId = :storeId", { storeId: store.id })
-            }
-            qb.andWhere("bundle.adminId = :adminId", { adminId: store.adminId })
-                .andWhere("bundle.isActive = :isActive", { isActive: true })
-                .orderBy("bundle.id", "ASC")
-                .take(20);
-
-            if (bundleIds && bundleIds.length > 0) {
-                qb.andWhere("bundle.id IN (:...bundleIds)", { bundleIds });
-            }
-
-            if (lastId) {
-                qb.andWhere("bundle.id > :lastId", { lastId });
-            }
-
-            const localBatch = await qb.getMany() as any[];
-
-            if (localBatch.length === 0) {
-                hasMore = false;
-                break;
-            }
-
-            const ids = localBatch.map(b => b.syncState?.remoteProductId).filter(Boolean).join(',');
-            const remoteResponse = ids ? await this.getAllProducts(store, [`id||$in||${ids}`]) : { data: [] };
-            const remoteItems = Array.isArray(remoteResponse) ? remoteResponse || [] : remoteResponse?.data || [];
-            const remoteMap = new Map<string, any>(remoteItems.map((r: any) => [String(r.id), r]));
-
-            for (const bundle of localBatch) {
-                try {
-
-                    const remoteId = bundle?.syncState?.remoteProductId;
-                    const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
-
-                    let extCatId = bundle.categoryId ? categoryMap.get(bundle.categoryId) : null;
-
-                    if (!extCatId && bundle.category) {
-                        const remoteCategory = await this.syncCategory({ relatedAdminId: bundle.adminId, category: bundle.category });
-                        extCatId = remoteCategory?.id;
-                    }
-                    let syncedBundleResult: any;
-                    if (remote) {
-                        syncedBundleResult = await this.updateBundle(bundle, store, remote.id, extCatId);
-                        totalUpdated++;
-                    } else {
-                        syncedBundleResult = await this.createBundle(bundle, store, extCatId);
-                        totalCreated++;
-                    }
-                    await this.productSyncStateService.upsertSyncState(
-                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, externalStoreId: store.externalStoreId, entityType: SyncEntityType.BUNDLE },
-                        {
-                            remoteProductId: syncedBundleResult?.externalId ?? remoteId ?? null,
-                            status: ProductSyncStatus.SYNCED,
-                            lastError: null,
-                            lastSynced_at: new Date(),
-                        },
-                    );
-                    totalProcessed++;
-                } catch (error: any) {
-                    const errorMessage = this.getErrorMessage(error);
-                    const remoteId = bundle?.syncState?.remoteProductId;
-                    const action = remoteId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
-
-                    await this.productSyncStateService.upsertSyncState(
-                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, externalStoreId: store.externalStoreId, entityType: SyncEntityType.BUNDLE },
-                        {
-                            remoteProductId: remoteId || null,
-                            status: ProductSyncStatus.FAILED,
-                            lastError: errorMessage,
-                            lastSynced_at: new Date(),
-                        },
-                    );
-
-                    await this.productSyncStateService.upsertSyncErrorLog(
-                        { adminId: store.adminId, bundleId: bundle.id, storeId: store.id, entityType: SyncEntityType.BUNDLE },
-                        {
-                            remoteProductId: remoteId || null,
-                            action: action,
-                            errorMessage,
-                            userMessage: `Failed to sync bundle "${bundle.name}" to ${store.name}: ${errorMessage}`,
-                            responseStatus: error?.response?.status,
-                            requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
-                        }
-                    );
-
-                    this.logCtxError(`[Sync] Error processing bundle ${bundle.name} (ID: ${bundle.id}): ${errorMessage}`, store);
-                    totalErrors++;
-                }
-
-            }
-
-            lastId = localBatch[localBatch.length - 1].id;
-        }
-
-        this.logCtx(`[Sync] ✓ Bundle sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`, store);
-        return {
-            processed: totalProcessed,
-            created: totalCreated,
-            updated: totalUpdated,
-            errors: totalErrors
-        };
+  // ===========================================================================
+  // SYNC PRODUCT METHODS
+  // ===========================================================================
+  /**
+   * Maps your ProductEntity to the complex EasyOrder JSON format.
+   * Automatically extracts "variations" (definitions) from your variants.
+   */
+  private async mapProductToPayload(
+    product: ProductEntity,
+    variants: ProductVariantEntity[],
+    store: StoreEntity,
+    externaCategoryId: string,
+  ) {
+    const categoryPayload = [];
+    const isSingle = product.type === ProductType.SINGLE;
+    if (externaCategoryId) {
+      categoryPayload.push({ id: String(externaCategoryId)?.trim() });
     }
+    const activeVariants = variants.filter((v) => v.isActive);
+    const variationMap = new Map<string, Set<string>>();
 
-    private async syncExternalProductToLocal(adminId: string, store: StoreEntity, remoteProduct: any, manager: EntityManager): Promise<ProductEntity> {
-
-        // A. Fetch Full Details from External API
-
-        const userContext = {
-            id: store.adminId, // Owner ID
-            adminId: store.adminId,
-            role: { name: 'admin' }
-        };
-
-        let combinations: CreateSkuItemDto[] = [];
-
-        if (remoteProduct.variants && remoteProduct.variants.length > 0) {
-            // Case A: Variable Product
-            combinations = remoteProduct.variants.map((v: any) => {
-                const atts = v.variation_props?.reduce((acc, p) => ({ ...acc, [p.variation]: p.variation_prop }), {}) || {};
-                const sku = v.sku || v.taager_code || null;
-                // Generate key from attributes; if empty, use SKU as fallback key
-                let key = this.productsService.canonicalKey(atts);
-                if (!key && sku) {
-                    key = sku;
-                } else if (!key) {
-                    key = `variant_${remoteProduct.id}_${remoteProduct.variants.indexOf(v)}`;
-                }
-                return {
-                    sku,
-                    price: v.price,
-                    stockOnHand: v.quantity || 0,
-                    attributes: atts,
-                    key
-
-                }
-            });
-        } else {
-            // Case B: Simple Product (No variants in EasyOrder)
-            // ✅ Create one variant using the main product's info
-            const sku = remoteProduct.sku || remoteProduct.taager_code || null;
-            // If no SKU, use product slug as key
-            const key = sku || `simple_${remoteProduct.id}`;
-            combinations = [{
-                sku,
-                price: remoteProduct.price,
-                stockOnHand: remoteProduct.quantity || 0,
-                attributes: {},
-                // key
-            }];
-        }
-
-        const localCategoryId = await this.syncExternalCategory(userContext, remoteProduct.category, manager);
-        // B. Map Remote Data to DTO
-        const productDto: CreateProductDto = {
-            name: remoteProduct.name,
-            slug: remoteProduct.slug, // Crucial for matching
-            sku: remoteProduct.sku,
-            description: remoteProduct.description,
-            wholesalePrice: remoteProduct.price,
-            salePrice: remoteProduct.sale_price || remoteProduct.price,
-            lowestPrice: remoteProduct.price || remoteProduct.price,
-            storeId: store.id,
-            categoryId: localCategoryId,
-            mainImage: remoteProduct.thumb || remoteProduct.images?.[0] || "",
-            images: (remoteProduct.images || []).map(url => ({ url })),
-            combinations,
-            upsellingEnabled: false,
-
-        };
-
-        const productsRepository = manager.getRepository(ProductEntity);
-        const existingProduct = await productsRepository.findOne({
-            where: { adminId, slug: productDto.slug }
+    activeVariants.forEach((v) => {
+      if (v.attributes) {
+        Object.entries(v.attributes).forEach(([key, value]) => {
+          if (!variationMap.has(key)) variationMap.set(key, new Set());
+          variationMap.get(key)?.add(String(value));
         });
+      }
+    });
 
-        let savedProduct: ProductEntity;
+    const attrebutes = Array.from(variationMap.entries()).map(
+      ([name, values]) => {
+        const variationId = uuidv4();
+        return {
+          id: variationId,
+          name: name?.trim(),
+          product_id: null,
+          type: "dropdown",
+          props: Array.from(values).map((val) => ({
+            id: uuidv4(),
+            name: val?.trim(),
+            variation_id: variationId,
+            value: val?.trim(),
+          })),
+        };
+      },
+    );
 
-        if (existingProduct) {
-            this.logger.log(`[Reverse Sync] Updating existing product: ${existingProduct.slug}`);
+    let productQuantity = 0;
+    const variantsPayload = await Promise.all(
+      activeVariants.map(async (v) => {
+        const available = await this.ordersService.calculateAvailableStock(
+          v.stockOnHand,
+          v.reserved,
+          v.adminId,
+        );
+        productQuantity += available;
+        return {
+          price: Number(v.price) || Number(product.salePrice) || 0,
+          expense: Number(v.unitCost) || 0,
+          quantity: available,
+          taager_code: String(v.sku),
+          variation_props: Object.entries(v.attributes || {}).map(
+            ([key, val]) => ({
+              variation: key?.trim(),
+              variation_prop: String(val)?.trim(),
+            }),
+          ),
+        };
+      }),
+    );
 
-            // Merge updated data using manager
-            manager.merge(ProductEntity, existingProduct, {
-                name: productDto.name,
-                slug: productDto.slug,
-                description: productDto.description,
-                wholesalePrice: productDto.wholesalePrice,
-                salePrice: productDto.salePrice,
-                lowestPrice: productDto.lowestPrice,
-                storeId: productDto.storeId,
-                categoryId: productDto.categoryId,
-                mainImage: productDto.mainImage
-            });
-            savedProduct = await productsRepository.save(existingProduct);
+    return {
+      name: product.name?.trim(),
+      price: Number(product.salePrice) || 0,
+      expense: Number(product.wholesalePrice) || 0,
+      // sale_price: Number(product.salePrice) || 0,
+      description: product.description || "",
+      slug: product.slug.replace(/_/g, "-"),
+      sku: product.sku,
+      thumb: this.getImageUrl(product.mainImage?.trim() || ""),
+      images:
+        product.images?.map((img) => this.getImageUrl(img.url?.trim())) || [],
+      categories: categoryPayload,
+      quantity: productQuantity,
+      track_stock: true,
+      disable_orders_for_no_stock: true,
+      // buy_now_text: "اضغط هنا للشراء",
+      is_reviews_enabled: true,
+      taager_code: String(product.id),
+      // drop_shipping_provider: "MyStore",
+      variations: isSingle ? [] : attrebutes,
+      variants: isSingle ? [] : variantsPayload,
+    };
+  }
 
-
-            if (productDto.combinations && productDto.combinations.length > 0) {
-                const upsertDto: UpsertProductSkusDto = {
-                    items: productDto.combinations.map(c => ({
-                        ...c,
-                        // key: c.key || this.productsService.canonicalKey(c.attributes || {}) // Access private helper or rely on logic
-                    })) as any
-                };
-
-                await this.productsService.upsertSkus(userContext, savedProduct.id, upsertDto);
-            }
-
-        } else {
-            this.logger.log(`[Reverse Sync] Creating new product: ${productDto.slug}`);
-            // Create product entity using manager
-            const newProduct = manager.create(ProductEntity, {
-                name: productDto.name,
-                slug: productDto.slug,
-                description: productDto.description,
-                wholesalePrice: productDto.wholesalePrice,
-                salePrice: productDto.salePrice,
-                lowestPrice: productDto.lowestPrice,
-                storeId: productDto.storeId,
-                categoryId: productDto.categoryId,
-                mainImage: productDto.mainImage,
-                adminId: adminId
-            });
-            savedProduct = await productsRepository.save(newProduct);
-        }
-
-        return savedProduct;
+  private async mapBundleToPayload(
+    bundle: BundleEntity,
+    store: StoreEntity,
+    externalCategoryId: string,
+  ) {
+    const categoryPayload = [];
+    if (externalCategoryId) {
+      categoryPayload.push({ id: String(externalCategoryId)?.trim() });
     }
 
-    private mapRemoteProductToUnified(remoteProduct: any): UnifiedProductDto {
-        let variants: UnifiedProductVariantDto[] = [];
+    const bundleInventory = await this.calculateBundleInventory(bundle);
 
-        if (remoteProduct.variants && remoteProduct.variants.length > 0) {
-            variants = remoteProduct.variants.map((v: any, index: number) => {
-                const attributes =
-                    v.variation_props?.reduce(
-                        (acc: Record<string, string>, p: any) => ({
-                            ...acc,
-                            [p.variation]: p.variation_prop,
-                        }),
-                        {},
-                    ) || {};
+    return {
+      name: bundle.name?.trim(),
+      price: Number(bundle.price) || 0,
+      expense: bundleInventory.expense,
+      description: bundle.description || "",
+      slug: (bundle.slug || bundle.id).replace(/_/g, "-"),
+      sku: bundle.sku,
+      thumb: this.getImageUrl(bundle.mainImage?.trim() || ""),
+      images:
+        bundle.images?.map((img) => this.getImageUrl(img.url?.trim())) || [],
+      categories: categoryPayload,
+      quantity: bundleInventory.quantity,
+      track_stock: true,
+      disable_orders_for_no_stock: true,
+      is_reviews_enabled: true,
+      taager_code: String(bundle.id),
+      variations: [],
+      variants: [],
+    };
+  }
 
-                const sku = v.sku || v.taager_code || null;
-                let key = this.productsService.canonicalKey(attributes);
-                if (!key && sku) {
-                    key = sku;
-                } else if (!key) {
-                    key = `variant_${remoteProduct.slug}_${index}`;
-                }
+  private async syncVariantsBySku(
+    localVariants: ProductVariantEntity[],
+    remoteVariants: any[],
+    store: StoreEntity,
+  ): Promise<void> {
+    if (!remoteVariants?.length) return;
 
-                return {
-                    sku,
-                    price: v.price,
-                    stockOnHand: v.quantity || 0,
-                    attributes,
-                    key,
-                };
-            });
-        } else {
-            const rawSku = remoteProduct.sku || remoteProduct.taager_code || null;
-            const cleanSlug = remoteProduct.slug?.trim();
-            const key = cleanSlug || `simple_${remoteProduct.slug}`;
+    // 1️⃣ Build local map by SKU
+    const localMap = new Map<string, ProductVariantEntity>();
 
-            variants = [
-                {
-                    sku: cleanSlug,
-                    price: remoteProduct.price,
-                    stockOnHand: remoteProduct.quantity || 0,
-                    attributes: {},
-                    key,
-                },
-            ];
-        }
+    for (const local of localVariants) {
+      if (!local.sku) continue;
+      localMap.set(local.sku?.trim(), local);
+    }
 
-        const images: string[] = (remoteProduct.images || []).map((url: string) => url);
+    const variantsToSave: ProductVariantEntity[] = [];
 
-        const category = remoteProduct.category
-            ? {
-                slug: remoteProduct.category?.slug,
-                name: remoteProduct.category?.name || remoteProduct.category?.slug,
-                thumb: remoteProduct.category?.thumb || null,
-            }
+    // 2️⃣ Match remote → local
+    for (const remote of remoteVariants) {
+      const sku = remote.taager_code?.trim();
+
+      if (!sku) {
+        this.logCtxError(
+          `[Variants Sync] Remote variant missing taager_code`,
+          store,
+        );
+        continue;
+      }
+
+      const localVariant = localMap.get(sku);
+
+      if (!localVariant) {
+        this.logCtxError(
+          `[Variants Sync] No local variant found for SKU ${sku}`,
+          store,
+        );
+        continue;
+      }
+
+      // 3️⃣ Update external ID
+      localVariant.externalId = remote.id;
+
+      variantsToSave.push(localVariant);
+    }
+
+    // 4️⃣ Save in one DB call (important)
+    if (variantsToSave.length) {
+      await this.pvRepo.save(variantsToSave);
+    }
+  }
+
+  private async createProduct(
+    product: ProductEntity,
+    variants: ProductVariantEntity[],
+    store: StoreEntity,
+    externalCategoryId: string,
+  ) {
+    const payload = await this.mapProductToPayload(
+      product,
+      variants,
+      store,
+      externalCategoryId,
+    );
+
+    const response = await this.sendRequest(store, {
+      method: "POST",
+      url: "/products",
+      data: payload,
+    });
+    const externalId = response.data?.id;
+    const remoteVariants = response.variants;
+    await this.syncVariantsBySku(variants, remoteVariants, store);
+
+    await this.sendSyncSuccessNotification({
+      adminId: product.adminId,
+      entityId: product.id,
+      entityName: product.name,
+      storeName: store.name,
+      isProduct: true,
+      action: "CREATE",
+    });
+
+    return { response, externalId, payload };
+  }
+
+  private async updateProduct(
+    product: ProductEntity,
+    variants: ProductVariantEntity[],
+    store: StoreEntity,
+    externalId: string,
+    externalCategoryId: string,
+  ) {
+    const payload = await this.mapProductToPayload(
+      product,
+      variants,
+      store,
+      externalCategoryId,
+    );
+
+    const response = await this.sendRequest(store, {
+      method: "PATCH",
+      url: `/products/${externalId}`,
+      data: payload,
+    });
+    const remoteVariants = response.variants;
+    await this.syncVariantsBySku(variants, remoteVariants, store);
+
+    const adminId = product.adminId;
+    const isProduct = true;
+
+    await this.sendSyncSuccessNotification({
+      adminId,
+      entityId: product.id,
+      entityName: product.name,
+      storeName: store.name,
+      isProduct: true,
+      action: "UPDATE",
+    });
+
+    return { response, externalId, payload };
+  }
+
+  private async createBundle(
+    bundle: BundleEntity,
+    store: StoreEntity,
+    externalCategoryId: string,
+  ) {
+    const payload = await this.mapBundleToPayload(
+      bundle,
+      store,
+      externalCategoryId,
+    );
+
+    const response = await this.sendRequest(store, {
+      method: "POST",
+      url: "/products",
+      data: payload,
+    });
+    const externalId = response.data?.id;
+
+    await this.sendSyncSuccessNotification({
+      adminId: bundle.adminId,
+      entityId: bundle.id,
+      entityName: bundle.name,
+      storeName: store.name,
+      isProduct: false,
+      action: "CREATE",
+    });
+
+    return { response, externalId, payload };
+  }
+
+  private async updateBundle(
+    bundle: BundleEntity,
+    store: StoreEntity,
+    externalId: string,
+    externalCategoryId: string,
+  ) {
+    const payload = await this.mapBundleToPayload(
+      bundle,
+      store,
+      externalCategoryId,
+    );
+
+    const response = await this.sendRequest(store, {
+      method: "PATCH",
+      url: `/products/${externalId}`,
+      data: payload,
+    });
+
+    await this.sendSyncSuccessNotification({
+      adminId: bundle.adminId,
+      entityId: bundle.id,
+      entityName: bundle.name,
+      storeName: store.name,
+      isProduct: false,
+      action: "UPDATE",
+    });
+
+    return { response, externalId, payload };
+  }
+
+  // SYNC STOCK ONLY (Efficient)
+  /**
+   * Updates the quantity of a specific variant.
+   */
+  async updateVariantStock(
+    productInternalId: string,
+    variantInternalId: string,
+    quantity: number,
+    store: StoreEntity,
+  ) {
+    const safeQuantity = Math.max(0, quantity);
+    const url = `/products/variants/${productInternalId}/${variantInternalId}/quantity`;
+
+    await this.sendRequest(store, {
+      method: "PATCH",
+      url: url,
+      data: { quantity: safeQuantity }, // Ensure no negative stock
+    });
+  }
+
+  /**
+   * Fetches all categories with optional filtering.
+   * * Operators:
+   * - eq      (Equal)               ['name||eq||iphone']
+   * - ne      (Not Equal)           ['quantity||ne||0']
+   * - gt/lt   (Greater/Less)        ['price||gt||100']
+   * - gte/lte (Greater/Less Equal)  ['price||lte||150']
+   * - $in     (In list)             ['status||$in||active,pending']
+   * - cont    (Contains)            ['name||cont||iphone']
+   * - isnull  (Is Null)             ['parent_id||isnull']
+   * - notnull (Is Not Null)         ['description||notnull']
+   * * Example: getAllProducts(store, ['parent_id||isnull', 'hidden||eq||false'])
+   */
+  private async getAllProducts(
+    store: StoreEntity,
+    filters: string[] = [],
+    page?: number,
+    limit?: number,
+    join: string = "",
+    retry = true,
+  ) {
+    const response = await this.sendRequest(
+      store,
+      {
+        method: "GET",
+        url: "/products/",
+        params: {
+          filter: filters,
+          page,
+          limit,
+          join,
+        },
+        // Custom serializer to ensure the format filter=val1&filter=val2
+        // instead of the default filter[]=val1
+        paramsSerializer: {
+          indexes: null, // removes the brackets [] from the query key
+        },
+      },
+      0,
+      retry,
+    );
+
+    return response;
+  }
+
+  private async getProduct(store: StoreEntity, remoteProductId: string) {
+    try {
+      return await this.sendRequest(store, {
+        method: "GET",
+        url: `/products/${remoteProductId}`,
+      });
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Sync Products: Fetch 20 by 20 with Variants
+   */
+  private async syncProductsCursor(
+    store: StoreEntity,
+    categoryMap: Map<string, string>,
+    productIds?: string[],
+  ): Promise<{
+    processed: number;
+    created: number;
+    updated: number;
+    errors: number;
+  }> {
+    let lastId = "";
+    let hasMore = true;
+    let totalProcessed = 0;
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalErrors = 0;
+
+    while (hasMore) {
+      const qb = this.storesRepo.manager
+        .createQueryBuilder(ProductEntity, "product")
+        .leftJoinAndSelect("product.variants", "variants")
+        .leftJoinAndSelect("product.category", "category")
+        .leftJoinAndMapOne(
+          "product.syncState",
+          ProductSyncStateEntity,
+          "syncState",
+          "syncState.productId = product.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
+          {
+            storeId: store.id,
+            adminId: store.adminId,
+            externalStoreId: store.externalStoreId,
+          },
+        );
+      if (productIds.length === 0) {
+        qb.where("product.storeId = :storeId", { storeId: store.id });
+      }
+      qb.andWhere("product.adminId = :adminId", { adminId: store.adminId })
+        .andWhere("product.isActive = :isActive", { isActive: true })
+        .orderBy("product.id", "ASC")
+        .take(20);
+
+      if (productIds && productIds.length > 0) {
+        qb.andWhere("product.id IN (:...productIds)", { productIds });
+      }
+
+      if (lastId) {
+        qb.andWhere("product.id > :lastId", { lastId });
+      }
+
+      const localBatch = (await qb.getMany()) as any[];
+
+      if (localBatch.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      // Bulk check existence: Use slug
+      const ids = localBatch
+        .map((p) => p.syncState?.remoteProductId)
+        .filter(Boolean)
+        .join(",");
+      const remoteResponse = ids
+        ? await this.getAllProducts(store, [`id||$in||${ids}`])
+        : { data: [] };
+      const remoteItems = Array.isArray(remoteResponse)
+        ? remoteResponse || []
+        : remoteResponse?.data || [];
+      const remoteMap = new Map<string, any>(
+        remoteItems.map((r: any) => [String(r.id), r]),
+      );
+
+      for (const product of localBatch) {
+        try {
+          const remoteId = product?.syncState?.remoteProductId;
+          const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
+
+          let extCatId = product.categoryId
+            ? categoryMap.get(product.categoryId)
             : null;
 
-        return {
-            externalId: remoteProduct.id ? String(remoteProduct.id) : undefined,
-            name: remoteProduct.name,
-            slug: remoteProduct.slug,
-            description: remoteProduct.description,
-            basePrice: remoteProduct.price,
-            mainImage: remoteProduct.thumb || images[0] || "",
-            images,
-            category,
-            variants,
-        };
-    }
+          if (!extCatId && product.category) {
+            const remoteCategory = await this.syncCategory({
+              relatedAdminId: product.adminId,
+              category: product.category,
+            });
+            extCatId = remoteCategory?.id;
+          }
+          let syncedProduct: any;
+          if (remote) {
+            syncedProduct = await this.updateProduct(
+              product,
+              product.variants,
+              store,
+              remote.id,
+              extCatId,
+            );
+            totalUpdated++;
+          } else {
+            syncedProduct = await this.createProduct(
+              product,
+              product.variants,
+              store,
+              extCatId,
+            );
 
-    // ===========================================================================
-    // SYNC ORDER METHODS
-    // ===========================================================================
-    /**
-    * Fetches order details from EasyOrder API
-    */
-    public async getOrderDetails(externalOrderId: string, store: StoreEntity) {
-        return await this.sendRequest(store, {
-            method: 'GET',
-            url: `/orders/${externalOrderId}`,
-        });
-    }
-
-    /**
-     * Updates the status of an order on EasyOrder
-     */
-    public async updateOrderStatus(order: OrderEntity, store: StoreEntity, newStatusId: string) {
-        if (!order.externalId) return;
-
-        const status = await this.ordersService.findStatusById(newStatusId, order.adminId);
-        if (!status) {
-            throw new Error(`No status found for order (${order.id}) `)
-        }
-
-        const remoteStatus = this.mapInternalStatusToExternal(status.code as OrderStatus);
-        if (!remoteStatus) {
-            throw new Error(`No status mapping found for order (${order.id})`)
-        }
-
-
-        return await this.sendRequest(store, {
-            method: 'PATCH',
-            url: `/orders/${order.externalId}/status`,
-            data: { status: remoteStatus }
-        });
-
-    }
-
-    // ===========================================================================
-    // MAIN ENTRY POINTS FOR SYNC
-    // ===========================================================================
-    public async syncProduct({ productId }: { productId: string }) {
-        const product = await this.productsRepo.findOne({
-            where: { id: productId },
-            relations: ['category', 'store']
-        });
-        if (!product) {
-            throw new Error(`Product with ID ${productId} not found`);
-        }
-
-        const activeStore = await this.getStoreForSync(product.adminId);
-
-
-        // 2️⃣ جلب الـ Variants الخاصة بالمنتج
-        const variants = await this.pvRepo.find({
-            where: { productId: product.id }
-        });
-
-        const productSyncState = await this.productSyncStateRepo.findOne({
-            where: {
-                productId: productId,
-                storeId: activeStore.id,
-                adminId: product.adminId,
-                externalStoreId: activeStore?.externalStoreId
-            }
-        });
-        let externalId = productSyncState?.remoteProductId;
-        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
-
-        if (!activeStore) {
-            throw new Error(`No active store enabled for admin (${product.adminId})`);
-        }
-
-        // 2. ⚡ RESOLVE CATEGORY ID ⚡
-        try {
-            let easyOrderCategory = null;
-            if (product.category) {
-                easyOrderCategory = await this.syncCategory({ category: product.category, slug: product.category.slug, relatedAdminId: product.adminId });
-            }
-
-            let result;
-            if (externalId) {
-                const remoteProduct = await this.getProduct(activeStore, externalId);
-                if (remoteProduct) {
-                    result = await this.updateProduct(product, variants, activeStore, externalId, easyOrderCategory?.id);
-                } else {
-                    result = await this.createProduct(product, variants, activeStore, easyOrderCategory?.id);
-                }
-            } else {
-                result = await this.createProduct(product, variants, activeStore, easyOrderCategory?.id);
-            }
-            externalId = result?.externalId;
             // SUCCESS STATE UPDATE
-            await this.productSyncStateService.upsertSyncState(
-                { adminId: activeStore.adminId, productId: product.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId },
-                {
-                    remoteProductId: externalId,
-                    status: ProductSyncStatus.SYNCED,
-                    lastError: null,
-                    lastSynced_at: new Date(),
-                },
-            );
 
-            return result.response;
-
+            totalCreated++;
+          }
+          await this.productSyncStateService.upsertSyncState(
+            {
+              adminId: store.adminId,
+              productId: product.id,
+              storeId: store.id,
+              externalStoreId: store.externalStoreId,
+            },
+            {
+              remoteProductId: syncedProduct?.externalId ?? remoteId ?? null,
+              status: ProductSyncStatus.SYNCED,
+              lastError: null,
+              lastSynced_at: new Date(),
+            },
+          );
+          totalProcessed++;
         } catch (error: any) {
-            const errorMessage = this.getErrorMessage(error);
+          const errorMessage = this.getErrorMessage(error);
+          const remoteId = product?.syncState?.remoteProductId;
+          const action = remoteId
+            ? ProductSyncAction.UPDATE
+            : ProductSyncAction.CREATE;
 
-            // FAILURE STATE UPDATE
-            await this.productSyncStateService.upsertSyncState(
-                { adminId: activeStore.adminId, productId: product.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId },
-                {
-                    remoteProductId: externalId || null,
-                    status: ProductSyncStatus.FAILED,
-                    lastError: errorMessage,
-                    lastSynced_at: new Date(),
-                },
-            );
+          // FAILURE STATE UPDATE
+          await this.productSyncStateService.upsertSyncState(
+            {
+              adminId: store.adminId,
+              productId: product.id,
+              storeId: store.id,
+              externalStoreId: store.externalStoreId,
+            },
+            {
+              remoteProductId: remoteId || null,
+              status: ProductSyncStatus.FAILED,
+              lastError: errorMessage,
+              lastSynced_at: new Date(),
+            },
+          );
 
-            // LOG THE ERROR
-            await this.productSyncStateService.upsertSyncErrorLog(
-                { adminId: activeStore.adminId, productId: product.id, storeId: activeStore.id },
-                {
-                    remoteProductId: externalId || null,
-                    action: action,
-                    errorMessage,
-                    userMessage: `Failed to sync product "${product.name}" to ${activeStore.name}: ${errorMessage}`,
-                    responseStatus: error?.response?.status,
-                    requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
-                }
-            );
+          // LOG THE ERROR
+          await this.productSyncStateService.upsertSyncErrorLog(
+            {
+              adminId: store.adminId,
+              productId: product.id,
+              storeId: store.id,
+            },
+            {
+              remoteProductId: remoteId || null,
+              action: action,
+              errorMessage,
+              userMessage: `Failed to sync product "${product.name}" to ${store.name}: ${errorMessage}`,
+              responseStatus: error?.response?.status,
+              requestPayload: error?.config?.data
+                ? JSON.parse(error.config.data)
+                : null,
+            },
+          );
 
-
-            throw error;
+          this.logCtxError(
+            `[Sync] Error processing product ${product.name} (ID: ${product.id}): ${errorMessage}`,
+            store,
+          );
+          totalErrors++;
         }
-    }
-    /**
-     * Reusable helper to fetch a single remote product from Easy Order using filters.
-     */
-    public async getProductBySlug(store: StoreEntity, slug: string, retry = true): Promise<any | null> {
-        const cleanSlug = slug?.trim();
-        const searchFilters = [`slug||eq||${cleanSlug}`];
+      }
 
-        const response = await this.getAllProducts(store, searchFilters, undefined, undefined, undefined, retry);
-        const existingProducts = response?.data || [];
-        return existingProducts?.length > 0 ? existingProducts[0] : null;
-    }
-
-    /**
-     * Main entry point for syncing order status to all applicable stores
-     */
-    public async syncOrderStatus(order: OrderEntity, newStatusId: string, oldStatusId?: string) {
-
-
-        const store = await this.getStoreForSync(order.adminId);
-        if (!store) {
-            throw new Error(`No active store enabled for admin (${order.adminId})`);
-        }
-
-        return await this.updateOrderStatus(order, store, newStatusId);
+      lastId = localBatch[localBatch.length - 1].id;
     }
 
-    /**
-    * Main entry point for full store synchronization using Cursor Pagination
-    */
-    public async syncFullStore(store: StoreEntity, ids?: string[], type: FullStoreSyncType = FullStoreSyncType.PRODUCT):  Promise<{ categoryReport: any; productReport: any; bundleReport: any }> {
-        if (!store || !store.isActive) {
-            throw new Error(`Store is inactive or null`);
-        }
-        const hasIds = ids?.length > 0;
-        if (store.localSyncStatus === SyncStatus.SYNCING) {
-            throw new Error(`Store is already syncing. Skipping.`);
-        }
-        
-        let categoryReport = { processed: 0, created: 0, updated: 0, errors: 0 };
-        let productReport = { processed: 0, created: 0, updated: 0, errors: 0 };
-        let bundleReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+    this.logCtx(
+      `[Sync] ✓ Product sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`,
+      store,
+    );
+    return {
+      processed: totalProcessed,
+      created: totalCreated,
+      updated: totalUpdated,
+      errors: totalErrors,
+    };
+  }
 
+  private async syncBundleCursor(
+    store: StoreEntity,
+    categoryMap: Map<string, string>,
+    bundleIds?: string[],
+  ): Promise<{
+    processed: number;
+    created: number;
+    updated: number;
+    errors: number;
+  }> {
+    let lastId = "";
+    let hasMore = true;
+    let totalProcessed = 0;
+    let totalCreated = 0;
+    let totalUpdated = 0;
+    let totalErrors = 0;
+
+    while (hasMore) {
+      const qb = this.storesRepo.manager
+        .createQueryBuilder(BundleEntity, "bundle")
+        .leftJoinAndSelect("bundle.items", "items")
+        .leftJoinAndSelect("items.variant", "variant")
+        .leftJoinAndSelect("variant.product", "product")
+        .leftJoinAndSelect("bundle.category", "category")
+        .leftJoinAndMapOne(
+          "bundle.syncState",
+          ProductSyncStateEntity,
+          "syncState",
+          "syncState.bundleId = bundle.id AND syncState.storeId = :storeId AND syncState.adminId = :adminId AND syncState.externalStoreId = :externalStoreId",
+          {
+            storeId: store.id,
+            adminId: store.adminId,
+            externalStoreId: store.externalStoreId,
+          },
+        );
+      if (!bundleIds || bundleIds.length === 0) {
+        qb.where("bundle.storeId = :storeId", { storeId: store.id });
+      }
+      qb.andWhere("bundle.adminId = :adminId", { adminId: store.adminId })
+        .andWhere("bundle.isActive = :isActive", { isActive: true })
+        .orderBy("bundle.id", "ASC")
+        .take(20);
+
+      if (bundleIds && bundleIds.length > 0) {
+        qb.andWhere("bundle.id IN (:...bundleIds)", { bundleIds });
+      }
+
+      if (lastId) {
+        qb.andWhere("bundle.id > :lastId", { lastId });
+      }
+
+      const localBatch = (await qb.getMany()) as any[];
+
+      if (localBatch.length === 0) {
+        hasMore = false;
+        break;
+      }
+
+      const ids = localBatch
+        .map((b) => b.syncState?.remoteProductId)
+        .filter(Boolean)
+        .join(",");
+      const remoteResponse = ids
+        ? await this.getAllProducts(store, [`id||$in||${ids}`])
+        : { data: [] };
+      const remoteItems = Array.isArray(remoteResponse)
+        ? remoteResponse || []
+        : remoteResponse?.data || [];
+      const remoteMap = new Map<string, any>(
+        remoteItems.map((r: any) => [String(r.id), r]),
+      );
+
+      for (const bundle of localBatch) {
         try {
+          const remoteId = bundle?.syncState?.remoteProductId;
+          const remote = remoteId ? remoteMap.get(String(remoteId)) : null;
 
-            await this.storesRepo.update(store.id, {
-                localSyncStatus: SyncStatus.SYNCING,
-                localSyncStatusAt: new Date()
+          let extCatId = bundle.categoryId
+            ? categoryMap.get(bundle.categoryId)
+            : null;
+
+          if (!extCatId && bundle.category) {
+            const remoteCategory = await this.syncCategory({
+              relatedAdminId: bundle.adminId,
+              category: bundle.category,
             });
+            extCatId = remoteCategory?.id;
+          }
+          let syncedBundleResult: any;
+          if (remote) {
+            syncedBundleResult = await this.updateBundle(
+              bundle,
+              store,
+              remote.id,
+              extCatId,
+            );
+            totalUpdated++;
+          } else {
+            syncedBundleResult = await this.createBundle(
+              bundle,
+              store,
+              extCatId,
+            );
+            totalCreated++;
+          }
+          await this.productSyncStateService.upsertSyncState(
+            {
+              adminId: store.adminId,
+              bundleId: bundle.id,
+              storeId: store.id,
+              externalStoreId: store.externalStoreId,
+              entityType: SyncEntityType.BUNDLE,
+            },
+            {
+              remoteProductId:
+                syncedBundleResult?.externalId ?? remoteId ?? null,
+              status: ProductSyncStatus.SYNCED,
+              lastError: null,
+              lastSynced_at: new Date(),
+            },
+          );
+          totalProcessed++;
+        } catch (error: any) {
+          const errorMessage = this.getErrorMessage(error);
+          const remoteId = bundle?.syncState?.remoteProductId;
+          const action = remoteId
+            ? ProductSyncAction.UPDATE
+            : ProductSyncAction.CREATE;
 
-            // 1. Sync Categories (Build ID mapping)
-            let categoryMap = new Map<string, string>();
-            if (!hasIds) {
-                const { categoryMap: map, report } = await this.syncCategoriesCursor(store);
-                categoryMap = map;
-                categoryReport = report;
-            }
+          await this.productSyncStateService.upsertSyncState(
+            {
+              adminId: store.adminId,
+              bundleId: bundle.id,
+              storeId: store.id,
+              externalStoreId: store.externalStoreId,
+              entityType: SyncEntityType.BUNDLE,
+            },
+            {
+              remoteProductId: remoteId || null,
+              status: ProductSyncStatus.FAILED,
+              lastError: errorMessage,
+              lastSynced_at: new Date(),
+            },
+          );
 
-            if(type === "product" || type === "all"){
-                productReport = await this.syncProductsCursor(store, categoryMap, ids);
-            }
+          await this.productSyncStateService.upsertSyncErrorLog(
+            {
+              adminId: store.adminId,
+              bundleId: bundle.id,
+              storeId: store.id,
+              entityType: SyncEntityType.BUNDLE,
+            },
+            {
+              remoteProductId: remoteId || null,
+              action: action,
+              errorMessage,
+              userMessage: `Failed to sync bundle "${bundle.name}" to ${store.name}: ${errorMessage}`,
+              responseStatus: error?.response?.status,
+              requestPayload: error?.config?.data
+                ? JSON.parse(error.config.data)
+                : null,
+            },
+          );
 
-            if(type === "bundle" || type === "all"){
-                bundleReport = await this.syncBundleCursor(store, categoryMap, ids);
-            }
-
-
-            // 2. Sync Products (Cursor based)
-
-            await this.storesRepo.update(store.id, {
-                localSyncStatus: SyncStatus.SYNCED,
-            });
-
-            // Notify admin via websocket about the new sync status
-            if (store.adminId) {
-                this.appGateway.emitStoreSyncStatus(String(store.adminId), {
-                    storeId: store.id,
-                    provider: store.provider,
-                    status: SyncStatus.SYNCED,
-                    type: "local",
-                });
-            }
-        } catch (error) {
-            await this.storesRepo.update(store.id, {
-                localSyncStatus: SyncStatus.FAILED,
-            });
-
-            if (store.adminId) {
-                this.appGateway.emitStoreSyncStatus(String(store.adminId), {
-                    storeId: store.id,
-                    provider: store.provider,
-                    status: SyncStatus.FAILED,
-                    type: "local",
-                });
-            }
-            throw error;
+          this.logCtxError(
+            `[Sync] Error processing bundle ${bundle.name} (ID: ${bundle.id}): ${errorMessage}`,
+            store,
+          );
+          totalErrors++;
         }
+      }
 
-        return { categoryReport, productReport, bundleReport };
+      lastId = localBatch[localBatch.length - 1].id;
     }
 
+    this.logCtx(
+      `[Sync] ✓ Bundle sync completed | Total: ${totalProcessed} | Created: ${totalCreated} | Updated: ${totalUpdated} | Errors: ${totalErrors}`,
+      store,
+    );
+    return {
+      processed: totalProcessed,
+      created: totalCreated,
+      updated: totalUpdated,
+      errors: totalErrors,
+    };
+  }
 
-    // ===========================================================================
-    // WEBHOOK
-    // ===========================================================================
-    private mapPaymentMethod(method: string): PaymentMethod {
-        switch (method?.toLowerCase()) {
-            case 'cod': return PaymentMethod.CASH_ON_DELIVERY;
-            case 'card': return PaymentMethod.CARD;
-            case 'cash': return PaymentMethod.CASH;
-            default: return PaymentMethod.UNKNOWN;
+  private async syncExternalProductToLocal(
+    adminId: string,
+    store: StoreEntity,
+    remoteProduct: any,
+    manager: EntityManager,
+  ): Promise<ProductEntity> {
+    // A. Fetch Full Details from External API
+
+    const userContext = {
+      id: store.adminId, // Owner ID
+      adminId: store.adminId,
+      role: { name: "admin" },
+    };
+
+    let combinations: CreateSkuItemDto[] = [];
+
+    if (remoteProduct.variants && remoteProduct.variants.length > 0) {
+      // Case A: Variable Product
+      combinations = remoteProduct.variants.map((v: any) => {
+        const atts =
+          v.variation_props?.reduce(
+            (acc, p) => ({ ...acc, [p.variation]: p.variation_prop }),
+            {},
+          ) || {};
+        const sku = v.sku || v.taager_code || null;
+        // Generate key from attributes; if empty, use SKU as fallback key
+        let key = this.productsService.canonicalKey(atts);
+        if (!key && sku) {
+          key = sku;
+        } else if (!key) {
+          key = `variant_${remoteProduct.id}_${remoteProduct.variants.indexOf(v)}`;
         }
+        return {
+          sku,
+          price: v.price,
+          stockOnHand: v.quantity || 0,
+          attributes: atts,
+          key,
+        };
+      });
+    } else {
+      // Case B: Simple Product (No variants in EasyOrder)
+      // ✅ Create one variant using the main product's info
+      const sku = remoteProduct.sku || remoteProduct.taager_code || null;
+      // If no SKU, use product slug as key
+      const key = sku || `simple_${remoteProduct.id}`;
+      combinations = [
+        {
+          sku,
+          price: remoteProduct.price,
+          stockOnHand: remoteProduct.quantity || 0,
+          attributes: {},
+          // key
+        },
+      ];
     }
 
+    const localCategoryId = await this.syncExternalCategory(
+      userContext,
+      remoteProduct.category,
+      manager,
+    );
+    // B. Map Remote Data to DTO
+    const productDto: CreateProductDto = {
+      name: remoteProduct.name,
+      slug: remoteProduct.slug, // Crucial for matching
+      sku: remoteProduct.sku,
+      description: remoteProduct.description,
+      wholesalePrice: remoteProduct.price,
+      salePrice: remoteProduct.sale_price || remoteProduct.price,
+      lowestPrice: remoteProduct.price || remoteProduct.price,
+      storeId: store.id,
+      categoryId: localCategoryId,
+      mainImage: remoteProduct.thumb || remoteProduct.images?.[0] || "",
+      images: (remoteProduct.images || []).map((url) => ({ url })),
+      combinations,
+      upsellingEnabled: false,
+    };
 
+    const productsRepository = manager.getRepository(ProductEntity);
+    const existingProduct = await productsRepository.findOne({
+      where: { adminId, slug: productDto.slug },
+    });
 
-    private mapExternalStatusToInternal(externalStatus: string, localStatus: OrderStatus): {
+    let savedProduct: ProductEntity;
+
+    if (existingProduct) {
+      this.logger.log(
+        `[Reverse Sync] Updating existing product: ${existingProduct.slug}`,
+      );
+
+      // Merge updated data using manager
+      manager.merge(ProductEntity, existingProduct, {
+        name: productDto.name,
+        slug: productDto.slug,
+        description: productDto.description,
+        wholesalePrice: productDto.wholesalePrice,
+        salePrice: productDto.salePrice,
+        lowestPrice: productDto.lowestPrice,
+        storeId: productDto.storeId,
+        categoryId: productDto.categoryId,
+        mainImage: productDto.mainImage,
+      });
+      savedProduct = await productsRepository.save(existingProduct);
+
+      if (productDto.combinations && productDto.combinations.length > 0) {
+        const upsertDto: UpsertProductSkusDto = {
+          items: productDto.combinations.map((c) => ({
+            ...c,
+            // key: c.key || this.productsService.canonicalKey(c.attributes || {}) // Access private helper or rely on logic
+          })) as any,
+        };
+
+        await this.productsService.upsertSkus(
+          userContext,
+          savedProduct.id,
+          upsertDto,
+        );
+      }
+    } else {
+      this.logger.log(
+        `[Reverse Sync] Creating new product: ${productDto.slug}`,
+      );
+      // Create product entity using manager
+      const newProduct = manager.create(ProductEntity, {
+        name: productDto.name,
+        slug: productDto.slug,
+        description: productDto.description,
+        wholesalePrice: productDto.wholesalePrice,
+        salePrice: productDto.salePrice,
+        lowestPrice: productDto.lowestPrice,
+        storeId: productDto.storeId,
+        categoryId: productDto.categoryId,
+        mainImage: productDto.mainImage,
+        adminId: adminId,
+      });
+      savedProduct = await productsRepository.save(newProduct);
+    }
+
+    return savedProduct;
+  }
+
+  private mapRemoteProductToUnified(remoteProduct: any): UnifiedProductDto {
+    let variants: UnifiedProductVariantDto[] = [];
+
+    if (remoteProduct.variants && remoteProduct.variants.length > 0) {
+      variants = remoteProduct.variants.map((v: any, index: number) => {
+        const attributes =
+          v.variation_props?.reduce(
+            (acc: Record<string, string>, p: any) => ({
+              ...acc,
+              [p.variation]: p.variation_prop,
+            }),
+            {},
+          ) || {};
+
+        const sku = v.sku || v.taager_code || null;
+        let key = this.productsService.canonicalKey(attributes);
+        if (!key && sku) {
+          key = sku;
+        } else if (!key) {
+          key = `variant_${remoteProduct.slug}_${index}`;
+        }
+
+        return {
+          sku,
+          price: v.price,
+          stockOnHand: v.quantity || 0,
+          attributes,
+          key,
+        };
+      });
+    } else {
+      const rawSku = remoteProduct.sku || remoteProduct.taager_code || null;
+      const cleanSlug = remoteProduct.slug?.trim();
+      const key = cleanSlug || `simple_${remoteProduct.slug}`;
+
+      variants = [
+        {
+          sku: cleanSlug,
+          price: remoteProduct.price,
+          stockOnHand: remoteProduct.quantity || 0,
+          attributes: {},
+          key,
+        },
+      ];
+    }
+
+    const images: string[] = (remoteProduct.images || []).map(
+      (url: string) => url,
+    );
+
+    const category = remoteProduct.category
+      ? {
+          slug: remoteProduct.category?.slug,
+          name: remoteProduct.category?.name || remoteProduct.category?.slug,
+          thumb: remoteProduct.category?.thumb || null,
+        }
+      : null;
+
+    return {
+      externalId: remoteProduct.id ? String(remoteProduct.id) : undefined,
+      name: remoteProduct.name,
+      slug: remoteProduct.slug,
+      description: remoteProduct.description,
+      basePrice: remoteProduct.price,
+      mainImage: remoteProduct.thumb || images[0] || "",
+      images,
+      category,
+      variants,
+    };
+  }
+
+  // ===========================================================================
+  // SYNC ORDER METHODS
+  // ===========================================================================
+  /**
+   * Fetches order details from EasyOrder API
+   */
+  public async getOrderDetails(externalOrderId: string, store: StoreEntity) {
+    return await this.sendRequest(store, {
+      method: "GET",
+      url: `/orders/${externalOrderId}`,
+    });
+  }
+
+  /**
+   * Updates the status of an order on EasyOrder
+   */
+  public async updateOrderStatus(
+    order: OrderEntity,
+    store: StoreEntity,
+    newStatusId: string,
+  ) {
+    if (!order.externalId) return;
+
+    const status = await this.ordersService.findStatusById(
+      newStatusId,
+      order.adminId,
+    );
+    if (!status) {
+      throw new Error(`No status found for order (${order.id}) `);
+    }
+
+    const remoteStatus = this.mapInternalStatusToExternal(
+      status.code as OrderStatus,
+    );
+    if (!remoteStatus) {
+      throw new Error(`No status mapping found for order (${order.id})`);
+    }
+
+    return await this.sendRequest(store, {
+      method: "PATCH",
+      url: `/orders/${order.externalId}/status`,
+      data: { status: remoteStatus },
+    });
+  }
+
+  // ===========================================================================
+  // MAIN ENTRY POINTS FOR SYNC
+  // ===========================================================================
+  public async syncProduct({ productId }: { productId: string }) {
+    const product = await this.productsRepo.findOne({
+      where: { id: productId },
+      relations: ["category", "store"],
+    });
+    if (!product) {
+      throw new Error(`Product with ID ${productId} not found`);
+    }
+
+    const activeStore = await this.getStoreForSync(product.adminId);
+
+    // 2️⃣ جلب الـ Variants الخاصة بالمنتج
+    const variants = await this.pvRepo.find({
+      where: { productId: product.id },
+    });
+
+    const productSyncState = await this.productSyncStateRepo.findOne({
+      where: {
+        productId: productId,
+        storeId: activeStore.id,
+        adminId: product.adminId,
+        externalStoreId: activeStore?.externalStoreId,
+      },
+    });
+    let externalId = productSyncState?.remoteProductId;
+    const action = externalId
+      ? ProductSyncAction.UPDATE
+      : ProductSyncAction.CREATE;
+
+    if (!activeStore) {
+      throw new Error(`No active store enabled for admin (${product.adminId})`);
+    }
+
+    // 2. ⚡ RESOLVE CATEGORY ID ⚡
+    try {
+      let easyOrderCategory = null;
+      if (product.category) {
+        easyOrderCategory = await this.syncCategory({
+          category: product.category,
+          slug: product.category.slug,
+          relatedAdminId: product.adminId,
+        });
+      }
+
+      let result;
+      if (externalId) {
+        const remoteProduct = await this.getProduct(activeStore, externalId);
+        if (remoteProduct) {
+          result = await this.updateProduct(
+            product,
+            variants,
+            activeStore,
+            externalId,
+            easyOrderCategory?.id,
+          );
+        } else {
+          result = await this.createProduct(
+            product,
+            variants,
+            activeStore,
+            easyOrderCategory?.id,
+          );
+        }
+      } else {
+        result = await this.createProduct(
+          product,
+          variants,
+          activeStore,
+          easyOrderCategory?.id,
+        );
+      }
+      externalId = result?.externalId;
+      // SUCCESS STATE UPDATE
+      await this.productSyncStateService.upsertSyncState(
+        {
+          adminId: activeStore.adminId,
+          productId: product.id,
+          storeId: activeStore.id,
+          externalStoreId: activeStore.externalStoreId,
+        },
+        {
+          remoteProductId: externalId,
+          status: ProductSyncStatus.SYNCED,
+          lastError: null,
+          lastSynced_at: new Date(),
+        },
+      );
+
+      return result.response;
+    } catch (error: any) {
+      const errorMessage = this.getErrorMessage(error);
+
+      // FAILURE STATE UPDATE
+      await this.productSyncStateService.upsertSyncState(
+        {
+          adminId: activeStore.adminId,
+          productId: product.id,
+          storeId: activeStore.id,
+          externalStoreId: activeStore.externalStoreId,
+        },
+        {
+          remoteProductId: externalId || null,
+          status: ProductSyncStatus.FAILED,
+          lastError: errorMessage,
+          lastSynced_at: new Date(),
+        },
+      );
+
+      // LOG THE ERROR
+      await this.productSyncStateService.upsertSyncErrorLog(
+        {
+          adminId: activeStore.adminId,
+          productId: product.id,
+          storeId: activeStore.id,
+        },
+        {
+          remoteProductId: externalId || null,
+          action: action,
+          errorMessage,
+          userMessage: `Failed to sync product "${product.name}" to ${activeStore.name}: ${errorMessage}`,
+          responseStatus: error?.response?.status,
+          requestPayload: error?.config?.data
+            ? JSON.parse(error.config.data)
+            : null,
+        },
+      );
+
+      throw error;
+    }
+  }
+  /**
+   * Reusable helper to fetch a single remote product from Easy Order using filters.
+   */
+  public async getProductBySlug(
+    store: StoreEntity,
+    slug: string,
+    retry = true,
+  ): Promise<any | null> {
+    const cleanSlug = slug?.trim();
+    const searchFilters = [`slug||eq||${cleanSlug}`];
+
+    const response = await this.getAllProducts(
+      store,
+      searchFilters,
+      undefined,
+      undefined,
+      undefined,
+      retry,
+    );
+    const existingProducts = response?.data || [];
+    return existingProducts?.length > 0 ? existingProducts[0] : null;
+  }
+
+  /**
+   * Main entry point for syncing order status to all applicable stores
+   */
+  public async syncOrderStatus(
+    order: OrderEntity,
+    newStatusId: string,
+    oldStatusId?: string,
+  ) {
+    const store = await this.getStoreForSync(order.adminId);
+    if (!store) {
+      throw new Error(`No active store enabled for admin (${order.adminId})`);
+    }
+
+    return await this.updateOrderStatus(order, store, newStatusId);
+  }
+
+  /**
+   * Main entry point for full store synchronization using Cursor Pagination
+   */
+  public async syncFullStore(
+    store: StoreEntity,
+    ids?: string[],
+    type: FullStoreSyncType = FullStoreSyncType.PRODUCT,
+  ): Promise<{ categoryReport: any; productReport: any; bundleReport: any }> {
+    if (!store || !store.isActive) {
+      throw new Error(`Store is inactive or null`);
+    }
+    const hasIds = ids?.length > 0;
+    if (store.localSyncStatus === SyncStatus.SYNCING) {
+      throw new Error(`Store is already syncing. Skipping.`);
+    }
+
+    let categoryReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+    let productReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+    let bundleReport = { processed: 0, created: 0, updated: 0, errors: 0 };
+
+    try {
+      await this.storesRepo.update(store.id, {
+        localSyncStatus: SyncStatus.SYNCING,
+        localSyncStatusAt: new Date(),
+      });
+
+      // 1. Sync Categories (Build ID mapping)
+      let categoryMap = new Map<string, string>();
+      if (!hasIds) {
+        const { categoryMap: map, report } =
+          await this.syncCategoriesCursor(store);
+        categoryMap = map;
+        categoryReport = report;
+      }
+
+      if (type === "product" || type === "all") {
+        productReport = await this.syncProductsCursor(store, categoryMap, ids);
+      }
+
+      if (type === "bundle" || type === "all") {
+        bundleReport = await this.syncBundleCursor(store, categoryMap, ids);
+      }
+
+      // 2. Sync Products (Cursor based)
+
+      await this.storesRepo.update(store.id, {
+        localSyncStatus: SyncStatus.SYNCED,
+      });
+
+      // Notify admin via websocket about the new sync status
+      if (store.adminId) {
+        this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+          storeId: store.id,
+          provider: store.provider,
+          status: SyncStatus.SYNCED,
+          type: "local",
+        });
+      }
+    } catch (error) {
+      await this.storesRepo.update(store.id, {
+        localSyncStatus: SyncStatus.FAILED,
+      });
+
+      if (store.adminId) {
+        this.appGateway.emitStoreSyncStatus(String(store.adminId), {
+          storeId: store.id,
+          provider: store.provider,
+          status: SyncStatus.FAILED,
+          type: "local",
+        });
+      }
+      throw error;
+    }
+
+    return { categoryReport, productReport, bundleReport };
+  }
+
+  // ===========================================================================
+  // WEBHOOK
+  // ===========================================================================
+  private mapPaymentMethod(method: string): PaymentMethod {
+    switch (method?.toLowerCase()) {
+      case "cod":
+        return PaymentMethod.CASH_ON_DELIVERY;
+      case "card":
+        return PaymentMethod.CARD;
+      case "cash":
+        return PaymentMethod.CASH;
+      default:
+        return PaymentMethod.UNKNOWN;
+    }
+  }
+
+  private mapExternalStatusToInternal(
+    externalStatus: string,
+    localStatus: OrderStatus,
+  ): {
+    orderStatus: OrderStatus | null;
+    paymentStatus: PaymentStatus | null;
+  } {
+    if (localStatus) {
+      const syncedRemoteStatus = this.mapInternalStatusToExternal(localStatus);
+      if (syncedRemoteStatus === externalStatus) {
+        return {
+          orderStatus: null,
+          paymentStatus: null,
+        };
+      }
+    }
+
+    const map: Record<
+      string,
+      {
         orderStatus: OrderStatus | null;
         paymentStatus: PaymentStatus | null;
-    } {
-        if (localStatus) {
-            const syncedRemoteStatus = this.mapInternalStatusToExternal(localStatus);
-            if (syncedRemoteStatus === externalStatus) {
-                return {
-                    orderStatus: null,
-                    paymentStatus: null,
-                }
-            }
-        }
+      }
+    > = {
+      // 🟡 Order lifecycle
+      // "pending": {
+      //     orderStatus: OrderStatus.NEW,
+      //     paymentStatus: null,
+      // },
+      // "confirmed": {
+      //     orderStatus: OrderStatus.CONFIRMED,
+      //     paymentStatus: null,
+      // },
+      // "processing": {
+      //     orderStatus: OrderStatus.PREPARING,
+      //     paymentStatus: null,
+      // },
+      // "waiting_for_pickup": {
+      //     orderStatus: OrderStatus.READY,
+      //     paymentStatus: null,
+      // },
+      // "in_delivery": {
+      //     orderStatus: OrderStatus.SHIPPED,
+      //     paymentStatus: null,
+      // },
+      // "delivered": {
+      //     orderStatus: OrderStatus.DELIVERED,
+      //     paymentStatus: null,
+      // },
+      canceled: {
+        orderStatus: OrderStatus.CANCELLED,
+        paymentStatus: null,
+      },
+      // "returning_from_delivery": {
+      //     orderStatus: OrderStatus.RETURNED,
+      //     paymentStatus: null,
+      // },
+      // "refunded": {
+      //     orderStatus: OrderStatus.RETURNED,
+      //     paymentStatus: PaymentStatus.REFUNDED,
+      // },
 
-        const map: Record<string, {
-            orderStatus: OrderStatus | null;
-            paymentStatus: PaymentStatus | null;
-        }> = {
+      // "request_refund": {
+      //     orderStatus: OrderStatus.RETURN_PREPARING,
+      //     paymentStatus: null,
+      // },
 
-            // 🟡 Order lifecycle
-            // "pending": {
-            //     orderStatus: OrderStatus.NEW,
-            //     paymentStatus: null,
-            // },
-            // "confirmed": {
-            //     orderStatus: OrderStatus.CONFIRMED,
-            //     paymentStatus: null,
-            // },
-            // "processing": {
-            //     orderStatus: OrderStatus.PREPARING,
-            //     paymentStatus: null,
-            // },
-            // "waiting_for_pickup": {
-            //     orderStatus: OrderStatus.READY,
-            //     paymentStatus: null,
-            // },
-            // "in_delivery": {
-            //     orderStatus: OrderStatus.SHIPPED,
-            //     paymentStatus: null,
-            // },
-            // "delivered": {
-            //     orderStatus: OrderStatus.DELIVERED,
-            //     paymentStatus: null,
-            // },
-            "canceled": {
-                orderStatus: OrderStatus.CANCELLED,
-                paymentStatus: null,
-            },
-            // "returning_from_delivery": {
-            //     orderStatus: OrderStatus.RETURNED,
-            //     paymentStatus: null,
-            // },
-            // "refunded": {
-            //     orderStatus: OrderStatus.RETURNED,
-            //     paymentStatus: PaymentStatus.REFUNDED,
-            // },
+      // "refund_in_progress": {
+      //     orderStatus: OrderStatus.RETURN_PREPARING,
+      //     paymentStatus: null,
+      // },
 
-            // "request_refund": {
-            //     orderStatus: OrderStatus.RETURN_PREPARING,
-            //     paymentStatus: null,
-            // },
+      // 💰 Payment states
+      paid: {
+        orderStatus: null,
+        paymentStatus: PaymentStatus.PAID,
+      },
+      unpaid: {
+        orderStatus: null,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+      paid_pending: {
+        orderStatus: null,
+        paymentStatus: PaymentStatus.PENDING,
+      },
 
-            // "refund_in_progress": {
-            //     orderStatus: OrderStatus.RETURN_PREPARING,
-            //     paymentStatus: null,
-            // },
+      // 🔴 Optional edge cases
+      paid_failed: {
+        orderStatus: null,
+        paymentStatus: PaymentStatus.PENDING,
+      },
+    };
 
-            // 💰 Payment states
-            "paid": {
-                orderStatus: null,
-                paymentStatus: PaymentStatus.PAID,
-            },
-            "unpaid": {
-                orderStatus: null,
-                paymentStatus: PaymentStatus.PENDING,
-            },
-            "paid_pending": {
-                orderStatus: null,
-                paymentStatus: PaymentStatus.PENDING,
-            },
+    return (
+      map[externalStatus] || {
+        orderStatus: null,
+        paymentStatus: null,
+      }
+    );
+  }
 
-            // 🔴 Optional edge cases
-            "paid_failed": {
-                orderStatus: null,
-                paymentStatus: PaymentStatus.PENDING,
-            },
-        };
+  /**
+   * Maps your Internal OrderStatus enum to EasyOrder (External) status strings.
+   */
+  private mapInternalStatusToExternal(
+    internalStatus: OrderStatus,
+  ): string | null {
+    const map: Record<OrderStatus, string> = {
+      // المرحلة الابتدائية والتدقيق (تعتبر pending خارجياً)
+      [OrderStatus.NEW]: "pending",
+      [OrderStatus.UNDER_REVIEW]: "pending",
+      [OrderStatus.POSTPONED]: "pending",
+      [OrderStatus.NO_ANSWER]: "pending",
+      [OrderStatus.NO_ANSWER_FOLLOW_UP]: "pending",
+      [OrderStatus.CANCELLED_FOLLOW_UP]: "pending",
+      // مرحلة النجاح في التأكيد
+      [OrderStatus.CONFIRMED]: "confirmed",
 
-        return map[externalStatus] || {
-            orderStatus: null,
-            paymentStatus: null,
-        };
+      // حالات الفشل في التأكيد (تعتبر إلغاء للطلب خارجياً)
+      [OrderStatus.WRONG_NUMBER]: "canceled",
+      [OrderStatus.OUT_OF_DELIVERY_AREA]: "canceled",
+      [OrderStatus.DUPLICATE]: "canceled",
+
+      // مرحلة التنفيذ والتوصيل
+      [OrderStatus.PREPARING]: "processing",
+      [OrderStatus.PRINTED]: "processing",
+      [OrderStatus.DISTRIBUTED]: "processing",
+      [OrderStatus.READY]: "waiting_for_pickup",
+
+      [OrderStatus.SHIPPED]: "in_delivery",
+      [OrderStatus.DELIVERED]: "delivered",
+
+      // حالات الإغلاق
+      [OrderStatus.FAILED_DELIVERY]: "canceled",
+      [OrderStatus.CANCELLED]: "canceled",
+      [OrderStatus.REJECTED]: "canceled",
+
+      [OrderStatus.RETURNED]: "returning_from_delivery",
+      [OrderStatus.PARTIALLY_RETURNED]: "returning_from_delivery",
+      [OrderStatus.RETURN_PREPARING]: "request_refund",
+    };
+    return map[internalStatus] || null;
+  }
+
+  public verifyWebhookAuth(
+    headers: Record<string, any>,
+    body: any,
+    store: StoreEntity,
+    req?: any,
+    action?: "create" | "update",
+  ): boolean {
+    const incomingSecret = headers["secret"];
+    const savedSecret =
+      action === "create"
+        ? store?.credentials?.webhookCreateOrderSecret
+        : store?.credentials?.webhookUpdateStatusSecret;
+    if (!savedSecret) {
+      return true;
     }
-
-    /**
-     * Maps your Internal OrderStatus enum to EasyOrder (External) status strings.
-     */
-    private mapInternalStatusToExternal(internalStatus: OrderStatus): string | null {
-        const map: Record<OrderStatus, string> = {
-            // المرحلة الابتدائية والتدقيق (تعتبر pending خارجياً)
-            [OrderStatus.NEW]: "pending",
-            [OrderStatus.UNDER_REVIEW]: "pending",
-            [OrderStatus.POSTPONED]: "pending",
-            [OrderStatus.NO_ANSWER]: "pending",
-            [OrderStatus.NO_ANSWER_FOLLOW_UP]: "pending",
-            [OrderStatus.CANCELLED_FOLLOW_UP]: "pending",
-            // مرحلة النجاح في التأكيد
-            [OrderStatus.CONFIRMED]: "confirmed",
-
-            // حالات الفشل في التأكيد (تعتبر إلغاء للطلب خارجياً)
-            [OrderStatus.WRONG_NUMBER]: "canceled",
-            [OrderStatus.OUT_OF_DELIVERY_AREA]: "canceled",
-            [OrderStatus.DUPLICATE]: "canceled",
-
-            // مرحلة التنفيذ والتوصيل
-            [OrderStatus.PREPARING]: "processing",
-            [OrderStatus.PRINTED]: "processing",
-            [OrderStatus.DISTRIBUTED]: "processing",
-            [OrderStatus.READY]: "waiting_for_pickup",
-
-            [OrderStatus.SHIPPED]: "in_delivery",
-            [OrderStatus.DELIVERED]: "delivered",
-
-            // حالات الإغلاق
-            [OrderStatus.FAILED_DELIVERY]: "canceled",
-            [OrderStatus.CANCELLED]: "canceled",
-            [OrderStatus.REJECTED]: "canceled",
-
-            [OrderStatus.RETURNED]: "returning_from_delivery",
-            [OrderStatus.PARTIALLY_RETURNED]: "returning_from_delivery",
-            [OrderStatus.RETURN_PREPARING]: "request_refund",
-        };
-        return map[internalStatus] || null;
+    if (!incomingSecret || incomingSecret !== savedSecret) {
+      return false;
     }
+    return true;
+  }
+  public mapWebhookUpdate(
+    body: any,
+    localOrderStatus: OrderStatus,
+    headers: Record<string, any>,
+  ): WebhookOrderUpdatePayload {
+    const externalStatus = body.new_status;
+    const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(
+      externalStatus,
+      localOrderStatus,
+    );
 
-    public verifyWebhookAuth(headers: Record<string, any>, body: any, store: StoreEntity, req?: any, action?: "create" | "update"): boolean {
-        const incomingSecret = headers['secret'];
-        const savedSecret = action === "create" ? store?.credentials?.webhookCreateOrderSecret : store?.credentials?.webhookUpdateStatusSecret;
-        if (!savedSecret) {
-            return true;
-        }
-        if (!incomingSecret || incomingSecret !== savedSecret) {
-            return false;
-        }
-        return true;
-    }
-    public mapWebhookUpdate(body: any, localOrderStatus: OrderStatus, headers: Record<string, any>): WebhookOrderUpdatePayload {
-        const externalStatus = body.new_status;
-        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(externalStatus, localOrderStatus);
+    return {
+      // externalId: body.order_id,
+      // remoteStatus: externalStatus,
+      mappedStatus: orderStatus,
+      mappedPaymentStatus: paymentStatus,
+    };
+  }
+  public async mapWebhookCreate(
+    body: any,
+    store: StoreEntity,
+  ): Promise<WebhookOrderPayload> {
+    const paymentMethod = body.payment_method
+      ? this.mapPaymentMethod(body.payment_method)
+      : PaymentMethod.CASH_ON_DELIVERY;
+    const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(
+      body.status,
+      null,
+    );
+    return {
+      externalOrderId: String(body.id),
+      fullName: body.full_name,
+      phone: body.phone,
+      email: body.email,
+      address: body.address,
+      government: body.government || "Unknown",
+      // Reuse your existing internal mapping logic for payment
+      paymentMethod: paymentMethod,
+      paymentStatus: paymentStatus || PaymentStatus.PENDING,
+      status: orderStatus || OrderStatus.NEW,
+      shippingCost: body.shipping_cost || 0,
+      totalCost: body.total_cost,
+      cartItems: (body.cart_items || []).map((item: any) => {
+        const variationProps = (item.variant?.variation_props || []).map(
+          (p: any) => ({
+            name: p.variation?.trim(),
+            value: String(p.variation_prop)?.trim(),
+          }),
+        );
 
-        return {
-            // externalId: body.order_id,
-            // remoteStatus: externalStatus,
-            mappedStatus: orderStatus,
-            mappedPaymentStatus: paymentStatus
-        };
-    }
-    public async mapWebhookCreate(body: any, store: StoreEntity): Promise<WebhookOrderPayload> {
-        const paymentMethod = body.payment_method ? this.mapPaymentMethod(body.payment_method) : PaymentMethod.CASH_ON_DELIVERY;
-        const { orderStatus, paymentStatus } = this.mapExternalStatusToInternal(body.status, null)
-        return {
-            externalOrderId: String(body.id),
-            fullName: body.full_name,
-            phone: body.phone,
-            email: body.email,
-            address: body.address,
-            government: body.government || "Unknown",
-            // Reuse your existing internal mapping logic for payment
-            paymentMethod: paymentMethod,
-            paymentStatus: paymentStatus || PaymentStatus.PENDING,
-            status: orderStatus || OrderStatus.NEW,
-            shippingCost: body.shipping_cost || 0,
-            totalCost: body.total_cost,
-            cartItems: (body.cart_items || []).map((item: any) => {
-                const variationProps = (item.variant?.variation_props || []).map((p: any) => ({
-                    name: p.variation?.trim(),
-                    value: String(p.variation_prop)?.trim()
-                }));
-
-                const payloadAttrs: Record<string, string> = {};
-                variationProps.forEach(prop => {
-                    payloadAttrs[prop.name] = prop.value;
-                });
-
-                const attrs = (item.variant?.variation_props || []).reduce((acc: Record<string, string>, vp: any) => {
-                    if (vp.variation && vp.variation_prop) {
-                        const key = this.productsService.slugifyKey(vp.variation);
-                        const value = String(vp.variation_prop);
-                        acc[key] = value;
-                    }
-                    return acc;
-                }, {});
-
-
-                const key = this.productsService.canonicalKey(attrs);
-
-                return {
-                    name: String(item.product?.name || item.product?.title),
-                    productSlug: String(item.product?.slug),
-                    quantity: Number(item.quantity),
-                    price: Number(item.price),
-                    remoteProductId: item.product_id,
-                    variant: item.variant ? {
-                        key: key || "default",
-                        sku: String(item.variant.taager_code || item.variant.sku || ""),
-                        variation_props: variationProps
-                    } : {
-                        key: "default",
-                        sku: item.product?.sku,
-                        variation_props: []
-                    }
-                };
-            })
-        };
-    }
-
-    async validateProviderConnection(store: StoreEntity): Promise<boolean> {
-        const apiKey = store?.credentials?.apiKey;
-        if (!apiKey) return false;
-
-        try {
-            const response = await axios.get(`${this.baseUrl}/categories/`, {
-                headers: {
-                    "Api-Key": apiKey,
-                    'Accept': 'application/json',
-                },
-                timeout: 5000, // 5 second timeout to keep the transaction fast
-            });
-
-            // If we get a 200-299 status, the key is valid
-            return response.status >= 200 && response.status < 300;
-        } catch (error: any) {
-            // If the error is 401 (Unauthorized) or 403 (Forbidden), the credentials are wrong
-            if (error.response?.status === 401 || error.response?.status === 403) {
-                return false;
-            }
-            const message = this.getErrorMessage(error);
-            // For other errors (network, 500), you might want to throw or log
-            this.logger.error(`EasyOrder connection check failed: ${message}`);
-            return false;
-        }
-    }
-
-
-    public async syncProductsFromProvider(store: StoreEntity, slugs?: string[], manager?: any): Promise<void> {
-        const adminId = store.adminId;
-
-        if (!slugs || slugs.length === 0) {
-            throw new Error("No slugs provided to sync for store.");
-        }
-
-        for (const slug of slugs) {
-            try {
-                // 1. Fetch one by one using our helper
-                const remoteProduct = await this.getProductBySlug(store, slug);
-
-                if (!remoteProduct) {
-                    continue;
-                }
-
-                // 2. Map to unified payload and delegate to shared sync logic
-                const unified = this.mapRemoteProductToUnified(remoteProduct);
-                await this.mainStoresService.syncExternalProductPayloadToLocal(adminId, store, unified, manager);
-            } catch (error) {
-                const message = this.getErrorMessage(error);
-                this.logger.error(`[Reverse Sync] Error syncing slug ${slug}: ${message}`);
-            }
-        }
-    }
-
-
-    public async cancelIntegration(adminId: string): Promise<boolean> {
-        const store = await this.storesRepo.findOne({
-            where: {
-                adminId,
-                provider: StoreProvider.EASYORDER,
-            }
+        const payloadAttrs: Record<string, string> = {};
+        variationProps.forEach((prop) => {
+          payloadAttrs[prop.name] = prop.value;
         });
 
-        // 1. Basic Validation
-        if (!store || !store?.credentials?.apiKey) {
-            // If no store or no API key, just remove local record if it exists
-            if (store) await this.storesRepo.remove(store);
-            return false;
-        }
-
-        const apiKey = store.credentials.apiKey;
-        const apiBase = process.env.BACKEND_URL;
-
-
-        const webhooksToDelete = [
-            `${apiBase}/stores/webhooks/${adminId}/${store?.id || "easyorder"}/orders/create`,
-            `${apiBase}/stores/webhooks/${adminId}/${store?.id || "easyorder"}/orders/status`
-        ];
-
-        try {
-            // 3. Call Easy Orders DELETE endpoint for each webhook
-            await Promise.all(
-                webhooksToDelete.map(url =>
-                    axios.delete(`${this.baseUrl}/webhooks/delete-by-url`, {
-                        headers: {
-                            "Api-Key": apiKey,
-                        },
-                        params: { url }
-                    })
-                )
-            );
-
-            return true;
-        } catch (error: any) {
-            const message = this.getErrorMessage(error)
-            this.logger.error(`Failed to cancel Easy Orders integration: ${message}`);
-            return false;
-        }
-    }
-
-    public async getFullProductById(store: StoreEntity, id: string): Promise<MappedProductDto> {
-        try {
-
-            const response = await this.sendRequest(store, {
-                method: 'GET',
-                url: `/products/${id}`,
-            }, 0, false);
-
-            return this.mapRemoteProductToDto(response);
-        } catch (error: any) {
-            const message = this.getErrorMessage(error)
-            this.logger.error(`[Product] Failed to fetch product by id ${id}: ${message}`);
-            throw error;
-        }
-    }
-
-    public async getAllMappedProducts(store: StoreEntity): Promise<MappedProductDto[]> {
-        let allProducts: MappedProductDto[] = [];
-        let currentPage = 1;
-        let hasNextPage = true;
-
-        while (hasNextPage) {
-            try {
-                // Fetch basic product list without joins to get IDs
-                const response = await this.getAllProducts(
-                    store,
-                    [],
-                    currentPage,
-                    50,
-                    ""
-                );
-
-                const remoteProducts = response.data || [];
-
-                // Process in chunks of 10 to get full details for each product
-                for (let i = 0; i < remoteProducts.length; i += 10) {
-                    const chunk = remoteProducts.slice(i, i + 10);
-                    const chunkPromises = chunk.map(p => this.getFullProductById(store, String(p.id)));
-                    const results = await Promise.allSettled(chunkPromises);
-                    const successfulProducts = results
-                        .filter(
-                            (r): r is PromiseFulfilledResult<MappedProductDto> =>
-                                r.status === 'fulfilled'
-                        )
-                        .map(r => r.value);
-                    allProducts.push(...successfulProducts);
-                }
-
-                if (response.next_page && response.page < response.totalPages) {
-                    currentPage++;
-                } else {
-                    hasNextPage = false;
-                }
-            } catch (error: any) {
-                const message = this.getErrorMessage(error);
-                this.logger.error(`[Product] Failed to fetch products page ${currentPage}: ${message}`);
-                hasNextPage = false; // Stop on error
+        const attrs = (item.variant?.variation_props || []).reduce(
+          (acc: Record<string, string>, vp: any) => {
+            if (vp.variation && vp.variation_prop) {
+              const key = this.productsService.slugifyKey(vp.variation);
+              const value = String(vp.variation_prop);
+              acc[key] = value;
             }
-        }
+            return acc;
+          },
+          {},
+        );
 
-        return allProducts;
-    }
-
-    private mapRemoteProductToDto(remote: any): MappedProductDto {
-        const variants = (remote.variants || []).map((v: any) => ({
-            price: Number(v.sale_price || v.price) || 0,
-            expense: Number(v.expense) || 0,
-            quantity: Number(v.quantity) || 0,
-            sku: String(v.taager_code || v.sku || ""),
-            variation_props: (v.variation_props || []).map((p: any) => ({
-                variation: p.variation?.trim(),
-                variation_prop: String(p.variation_prop)?.trim(),
-            })),
-        }));
-
-        // Detect if it's a single product: 0 variants, or 1 variant with no attributes
-        const isSingle = variants.length === 0 || (variants.length === 1 && (variants[0].variation_props?.length || 0) === 0);
-
-        const variations = (remote.variations || []).map((v: any) => ({
-            id: v.id,
-            name: v.name?.trim(),
-            props: (v.props || []).map((p: any) => ({
-                id: p.id,
-                name: p.name?.trim(),
-                value: p.value?.trim(),
-            })),
-        }));
+        const key = this.productsService.canonicalKey(attrs);
 
         return {
-            id: String(remote.id),
-            name: remote.name?.trim(),
-            price: Number(remote.sale_price || remote.price) || 0,
-            expense: Number(remote.expense) || 0,//
-            description: remote.description || "",//
-            slug: remote.slug,
-            type: isSingle ? ProductType.SINGLE : ProductType.VARIABLE,
-            sku: isSingle ? (variants[0]?.sku || remote.sku || "") : (remote.sku || ""),//
-            upsellings: [],
-            thumb: imageSrc(remote.thumb || "", this.baseImageUrl),
-            images: (remote.images || []).map((i: string) => imageSrc(i, this.baseImageUrl) || ""),
-            categories: (remote.categories || []).map((c: any) => ({
-                id: String(c.id),
-                name: c.name,
-                slug: c.slug,
-            })),
-            quantity: Number(remote.quantity) || 0,
-            variations: isSingle ? [] : variations,
-            variants: isSingle ? [] : variants,
+          name: String(item.product?.name || item.product?.title),
+          productSlug: String(item.product?.slug),
+          quantity: Number(item.quantity),
+          price: Number(item.price),
+          remoteProductId: item.product_id,
+          variant: item.variant
+            ? {
+                key: key || "default",
+                sku: String(item.variant.taager_code || item.variant.sku || ""),
+                variation_props: variationProps,
+              }
+            : {
+                key: "default",
+                sku: item.product?.sku,
+                variation_props: [],
+              },
         };
+      }),
+    };
+  }
+
+  async validateProviderConnection(store: StoreEntity): Promise<boolean> {
+    const apiKey = store?.credentials?.apiKey;
+    if (!apiKey) return false;
+
+    try {
+      const response = await axios.get(`${this.baseUrl}/categories/`, {
+        headers: {
+          "Api-Key": apiKey,
+          Accept: "application/json",
+        },
+        timeout: 5000, // 5 second timeout to keep the transaction fast
+      });
+
+      // If we get a 200-299 status, the key is valid
+      return response.status >= 200 && response.status < 300;
+    } catch (error: any) {
+      // If the error is 401 (Unauthorized) or 403 (Forbidden), the credentials are wrong
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        return false;
+      }
+      const message = this.getErrorMessage(error);
+      // For other errors (network, 500), you might want to throw or log
+      this.logger.error(`EasyOrder connection check failed: ${message}`);
+      return false;
+    }
+  }
+
+  public async syncProductsFromProvider(
+    store: StoreEntity,
+    slugs?: string[],
+    manager?: any,
+  ): Promise<void> {
+    const adminId = store.adminId;
+
+    if (!slugs || slugs.length === 0) {
+      throw new Error("No slugs provided to sync for store.");
     }
 
-    public async processExternalOrderId(body: any, headers: Record<string, any>): Promise<string> {
-        return body.id || body?.order_id || "";
+    for (const slug of slugs) {
+      try {
+        // 1. Fetch one by one using our helper
+        const remoteProduct = await this.getProductBySlug(store, slug);
+
+        if (!remoteProduct) {
+          continue;
+        }
+
+        // 2. Map to unified payload and delegate to shared sync logic
+        const unified = this.mapRemoteProductToUnified(remoteProduct);
+        await this.mainStoresService.syncExternalProductPayloadToLocal(
+          adminId,
+          store,
+          unified,
+          manager,
+        );
+      } catch (error) {
+        const message = this.getErrorMessage(error);
+        this.logger.error(
+          `[Reverse Sync] Error syncing slug ${slug}: ${message}`,
+        );
+      }
+    }
+  }
+
+  public async cancelIntegration(adminId: string): Promise<boolean> {
+    const store = await this.storesRepo.findOne({
+      where: {
+        adminId,
+        provider: StoreProvider.EASYORDER,
+      },
+    });
+
+    // 1. Basic Validation
+    if (!store || !store?.credentials?.apiKey) {
+      // If no store or no API key, just remove local record if it exists
+      if (store) await this.storesRepo.remove(store);
+      return false;
     }
 
-    public async syncBundle(bundle: BundleEntity): Promise<any> {
-        const loadedBundle = await this.bundlesRepo.findOne({
-            where: { id: bundle.id },
-            relations: ['category', 'store', 'items', 'items.variant']
+    const apiKey = store.credentials.apiKey;
+    const apiBase = process.env.BACKEND_URL;
+
+    const webhooksToDelete = [
+      `${apiBase}/stores/webhooks/${adminId}/${store?.id || "easyorder"}/orders/create`,
+      `${apiBase}/stores/webhooks/${adminId}/${store?.id || "easyorder"}/orders/status`,
+    ];
+
+    try {
+      // 3. Call Easy Orders DELETE endpoint for each webhook
+      await Promise.all(
+        webhooksToDelete.map((url) =>
+          axios.delete(`${this.baseUrl}/webhooks/delete-by-url`, {
+            headers: {
+              "Api-Key": apiKey,
+            },
+            params: { url },
+          }),
+        ),
+      );
+
+      return true;
+    } catch (error: any) {
+      const message = this.getErrorMessage(error);
+      this.logger.error(`Failed to cancel Easy Orders integration: ${message}`);
+      return false;
+    }
+  }
+
+  public async getFullProductById(
+    store: StoreEntity,
+    id: string,
+  ): Promise<MappedProductDto> {
+    try {
+      const response = await this.sendRequest(
+        store,
+        {
+          method: "GET",
+          url: `/products/${id}`,
+        },
+        0,
+        false,
+      );
+
+      return this.mapRemoteProductToDto(response);
+    } catch (error: any) {
+      const message = this.getErrorMessage(error);
+      this.logger.error(
+        `[Product] Failed to fetch product by id ${id}: ${message}`,
+      );
+      throw error;
+    }
+  }
+
+  public async getAllMappedProducts(
+    store: StoreEntity,
+  ): Promise<MappedProductDto[]> {
+    const allProducts: MappedProductDto[] = [];
+    let currentPage = 1;
+    let hasNextPage = true;
+
+    while (hasNextPage) {
+      try {
+        // Fetch basic product list without joins to get IDs
+        const response = await this.getAllProducts(
+          store,
+          [],
+          currentPage,
+          50,
+          "",
+        );
+
+        const remoteProducts = response.data || [];
+
+        // Process in chunks of 10 to get full details for each product
+        for (let i = 0; i < remoteProducts.length; i += 10) {
+          const chunk = remoteProducts.slice(i, i + 10);
+          const chunkPromises = chunk.map((p) =>
+            this.getFullProductById(store, String(p.id)),
+          );
+          const results = await Promise.allSettled(chunkPromises);
+          const successfulProducts = results
+            .filter(
+              (r): r is PromiseFulfilledResult<MappedProductDto> =>
+                r.status === "fulfilled",
+            )
+            .map((r) => r.value);
+          allProducts.push(...successfulProducts);
+        }
+
+        if (response.next_page && response.page < response.totalPages) {
+          currentPage++;
+        } else {
+          hasNextPage = false;
+        }
+      } catch (error: any) {
+        const message = this.getErrorMessage(error);
+        this.logger.error(
+          `[Product] Failed to fetch products page ${currentPage}: ${message}`,
+        );
+        hasNextPage = false; // Stop on error
+      }
+    }
+
+    return allProducts;
+  }
+
+  private mapRemoteProductToDto(remote: any): MappedProductDto {
+    const variants = (remote.variants || []).map((v: any) => ({
+      price: Number(v.sale_price || v.price) || 0,
+      expense: Number(v.expense) || 0,
+      quantity: Number(v.quantity) || 0,
+      sku: String(v.taager_code || v.sku || ""),
+      variation_props: (v.variation_props || []).map((p: any) => ({
+        variation: p.variation?.trim(),
+        variation_prop: String(p.variation_prop)?.trim(),
+      })),
+    }));
+
+    // Detect if it's a single product: 0 variants, or 1 variant with no attributes
+    const isSingle =
+      variants.length === 0 ||
+      (variants.length === 1 &&
+        (variants[0].variation_props?.length || 0) === 0);
+
+    const variations = (remote.variations || []).map((v: any) => ({
+      id: v.id,
+      name: v.name?.trim(),
+      props: (v.props || []).map((p: any) => ({
+        id: p.id,
+        name: p.name?.trim(),
+        value: p.value?.trim(),
+      })),
+    }));
+
+    return {
+      id: String(remote.id),
+      name: remote.name?.trim(),
+      price: Number(remote.sale_price || remote.price) || 0,
+      expense: Number(remote.expense) || 0, //
+      description: remote.description || "", //
+      slug: remote.slug,
+      type: isSingle ? ProductType.SINGLE : ProductType.VARIABLE,
+      sku: isSingle ? variants[0]?.sku || remote.sku || "" : remote.sku || "", //
+      upsellings: [],
+      thumb: imageSrc(remote.thumb || "", this.baseImageUrl),
+      images: (remote.images || []).map(
+        (i: string) => imageSrc(i, this.baseImageUrl) || "",
+      ),
+      categories: (remote.categories || []).map((c: any) => ({
+        id: String(c.id),
+        name: c.name,
+        slug: c.slug,
+      })),
+      quantity: Number(remote.quantity) || 0,
+      variations: isSingle ? [] : variations,
+      variants: isSingle ? [] : variants,
+    };
+  }
+
+  public async processExternalOrderId(
+    body: any,
+    headers: Record<string, any>,
+  ): Promise<string> {
+    return body.id || body?.order_id || "";
+  }
+
+  public async syncBundle(bundle: BundleEntity): Promise<any> {
+    const loadedBundle = await this.bundlesRepo.findOne({
+      where: { id: bundle.id },
+      relations: ["category", "store", "items", "items.variant"],
+    });
+
+    if (!loadedBundle) {
+      throw new Error(`Bundle with ID ${bundle.id} not found`);
+    }
+
+    const activeStore = await this.getStoreForSync(loadedBundle.adminId);
+
+    const productSyncState = await this.productSyncStateRepo.findOne({
+      where: {
+        bundleId: loadedBundle.id,
+        storeId: activeStore.id,
+        adminId: loadedBundle.adminId,
+        externalStoreId: activeStore?.externalStoreId,
+      },
+    });
+    let externalId = productSyncState?.remoteProductId;
+    const action = externalId
+      ? ProductSyncAction.UPDATE
+      : ProductSyncAction.CREATE;
+
+    if (!activeStore) {
+      throw new Error(
+        `No active store enabled for admin (${loadedBundle.adminId})`,
+      );
+    }
+
+    try {
+      let easyOrderCategory = null;
+      if (loadedBundle.category) {
+        easyOrderCategory = await this.syncCategory({
+          category: loadedBundle.category,
+          slug: loadedBundle.category.slug,
+          relatedAdminId: loadedBundle.adminId,
         });
+      }
 
-        if (!loadedBundle) {
-            throw new Error(`Bundle with ID ${bundle.id} not found`);
+      let result;
+      if (externalId) {
+        const remoteProduct = await this.getProduct(activeStore, externalId);
+        if (remoteProduct) {
+          result = await this.updateBundle(
+            loadedBundle,
+            activeStore,
+            externalId,
+            easyOrderCategory?.id,
+          );
+        } else {
+          result = await this.createBundle(
+            loadedBundle,
+            activeStore,
+            easyOrderCategory?.id,
+          );
         }
+      } else {
+        result = await this.createBundle(
+          loadedBundle,
+          activeStore,
+          easyOrderCategory?.id,
+        );
+      }
+      externalId = result?.externalId;
+      await this.productSyncStateService.upsertSyncState(
+        {
+          adminId: activeStore.adminId,
+          bundleId: loadedBundle.id,
+          storeId: activeStore.id,
+          externalStoreId: activeStore.externalStoreId,
+          entityType: SyncEntityType.BUNDLE,
+        },
+        {
+          remoteProductId: externalId,
+          status: ProductSyncStatus.SYNCED,
+          lastError: null,
+          lastSynced_at: new Date(),
+        },
+      );
 
-        const activeStore = await this.getStoreForSync(loadedBundle.adminId);
+      return result.response;
+    } catch (error: any) {
+      const errorMessage = this.getErrorMessage(error);
 
-        const productSyncState = await this.productSyncStateRepo.findOne({
-            where: {
-                bundleId: loadedBundle.id,
-                storeId: activeStore.id,
-                adminId: loadedBundle.adminId,
-                externalStoreId: activeStore?.externalStoreId
-            }
-        });
-        let externalId = productSyncState?.remoteProductId;
-        const action = externalId ? ProductSyncAction.UPDATE : ProductSyncAction.CREATE;
+      await this.productSyncStateService.upsertSyncState(
+        {
+          adminId: activeStore.adminId,
+          bundleId: loadedBundle.id,
+          storeId: activeStore.id,
+          externalStoreId: activeStore.externalStoreId,
+          entityType: SyncEntityType.BUNDLE,
+        },
+        {
+          remoteProductId: externalId || null,
+          status: ProductSyncStatus.FAILED,
+          lastError: errorMessage,
+          lastSynced_at: new Date(),
+        },
+      );
 
-        if (!activeStore) {
-            throw new Error(`No active store enabled for admin (${loadedBundle.adminId})`);
-        }
+      await this.productSyncStateService.upsertSyncErrorLog(
+        {
+          adminId: activeStore.adminId,
+          bundleId: loadedBundle.id,
+          storeId: activeStore.id,
+          entityType: SyncEntityType.BUNDLE,
+        },
+        {
+          remoteProductId: externalId || null,
+          action: action,
+          errorMessage,
+          userMessage: `Failed to sync bundle "${loadedBundle.name}" to ${activeStore.name}: ${errorMessage}`,
+          responseStatus: error?.response?.status,
+          requestPayload: error?.config?.data
+            ? JSON.parse(error.config.data)
+            : null,
+        },
+      );
 
-        try {
-            let easyOrderCategory = null;
-            if (loadedBundle.category) {
-                easyOrderCategory = await this.syncCategory({ category: loadedBundle.category, slug: loadedBundle.category.slug, relatedAdminId: loadedBundle.adminId });
-            }
-
-            let result;
-            if (externalId) {
-                const remoteProduct = await this.getProduct(activeStore, externalId);
-                if (remoteProduct) {
-                    result = await this.updateBundle(loadedBundle, activeStore, externalId, easyOrderCategory?.id);
-                } else {
-                    result = await this.createBundle(loadedBundle, activeStore, easyOrderCategory?.id);
-                }
-            } else {
-                result = await this.createBundle(loadedBundle, activeStore, easyOrderCategory?.id);
-            }
-            externalId = result?.externalId;
-            await this.productSyncStateService.upsertSyncState(
-                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
-                {
-                    remoteProductId: externalId,
-                    status: ProductSyncStatus.SYNCED,
-                    lastError: null,
-                    lastSynced_at: new Date(),
-                },
-            );
-
-            return result.response;
-
-        } catch (error: any) {
-            const errorMessage = this.getErrorMessage(error);
-
-            await this.productSyncStateService.upsertSyncState(
-                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, externalStoreId: activeStore.externalStoreId, entityType: SyncEntityType.BUNDLE },
-                {
-                    remoteProductId: externalId || null,
-                    status: ProductSyncStatus.FAILED,
-                    lastError: errorMessage,
-                    lastSynced_at: new Date(),
-                },
-            );
-
-            await this.productSyncStateService.upsertSyncErrorLog(
-                { adminId: activeStore.adminId, bundleId: loadedBundle.id, storeId: activeStore.id, entityType: SyncEntityType.BUNDLE },
-                {
-                    remoteProductId: externalId || null,
-                    action: action,
-                    errorMessage,
-                    userMessage: `Failed to sync bundle "${loadedBundle.name}" to ${activeStore.name}: ${errorMessage}`,
-                    responseStatus: error?.response?.status,
-                    requestPayload: error?.config?.data ? JSON.parse(error.config.data) : null
-                }
-            );
-
-
-            throw error;
-        }
+      throw error;
     }
+  }
 }
-
-

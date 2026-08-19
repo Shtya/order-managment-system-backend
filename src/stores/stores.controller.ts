@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from "@nestjs/common";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Permissions } from "common/permissions.decorator";
@@ -10,12 +22,11 @@ import { Response } from "express";
 import { minutes, Throttle } from "@nestjs/throttler";
 import { FullStoreSyncType } from "./storesIntegrations/BaseStoreProvider";
 
-
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("stores")
 @RequireSubscription()
 export class StoresController {
-  constructor(private storesService: StoresService) { }
+  constructor(private storesService: StoresService) {}
 
   // @Permissions("stores.update") // Requires update permissions
   // @Post(":id/sync")
@@ -23,7 +34,7 @@ export class StoresController {
   //   return this.storesService.manualSync(req.user, id);
   // }
   //sync from store endpoint
-  // @Throttle({ default: { limit: 20, ttl: minutes(1) } }) 
+  // @Throttle({ default: { limit: 20, ttl: minutes(1) } })
   @Permissions("stores.update") // Requires update permissions
   @Post(":id/sync")
   async syncFromStore(@Req() req: any, @Param("id") id: string) {
@@ -31,24 +42,27 @@ export class StoresController {
   }
 
   @Permissions("stores.update")
-  // @Throttle({ default: { limit: 60, ttl: minutes(1) } }) 
+  // @Throttle({ default: { limit: 60, ttl: minutes(1) } })
   @Post(":id/sync-store")
   async syncSpecificProducts(
     @Req() req: any,
     @Param("id") id: string,
     @Body("ids") ids: string[],
-    @Query("type") type?: FullStoreSyncType
+    @Query("type") type?: FullStoreSyncType,
   ) {
-    return this.storesService.manualSyncSpecificProducts(req.user, id, ids, type);
+    return this.storesService.manualSyncSpecificProducts(
+      req.user,
+      id,
+      ids,
+      type,
+    );
   }
 
-
   @Permissions("stores.read")
-  @Get('providers')
+  @Get("providers")
   providers() {
     return this.storesService.listProviders();
   }
-
 
   // List failed orders
   @Permissions("orders.read")
@@ -60,10 +74,7 @@ export class StoresController {
   // Retry failed order
   @Permissions("orders.restoreFailed")
   @Post("failed-orders/:id/retry")
-  async retryFailedOrder(
-    @Req() req: any,
-    @Param("id") id: string,
-  ) {
+  async retryFailedOrder(@Req() req: any, @Param("id") id: string) {
     return this.storesService.retryFailedOrder(req.user, id);
   }
 
@@ -92,10 +103,7 @@ export class StoresController {
     @Query() q: any,
     @Res() res: Response,
   ) {
-    const buffer = await this.storesService.exportFailedOrders(
-      req.user,
-      q,
-    );
+    const buffer = await this.storesService.exportFailedOrders(req.user, q);
 
     res.setHeader(
       "Content-Type",
@@ -124,11 +132,7 @@ export class StoresController {
 
   @Permissions("stores.read")
   @Get("export")
-  async exportStores(
-    @Req() req: any,
-    @Query() q: any,
-    @Res() res: Response,
-  ) {
+  async exportStores(@Req() req: any, @Query() q: any, @Res() res: Response) {
     const buffer = await this.storesService.exportStores(req.user, q);
 
     res.setHeader(
@@ -147,7 +151,11 @@ export class StoresController {
   // get external product by slug
   @Permissions("stores.read")
   @Get("external/:target")
-  async getExternalProductById(@Req() req: any, @Param("target") target: string, @Query("id") id: string) {
+  async getExternalProductById(
+    @Req() req: any,
+    @Param("target") target: string,
+    @Query("id") id: string,
+  ) {
     return this.storesService.getFullProductById(req.user, target, id);
   }
 
@@ -176,7 +184,11 @@ export class StoresController {
 
   @Permissions("stores.update")
   @Patch(":id")
-  async update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateStoreDto) {
+  async update(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateStoreDto,
+  ) {
     return this.storesService.update(req.user, id, dto);
   }
 
@@ -197,7 +209,6 @@ export class StoresController {
   async remove(@Req() req: any, @Param("id") id: string) {
     return this.storesService.remove(req.user, id);
   }
-
 
   // Get failed order details with diagnostics
   @Permissions("orders.read")
