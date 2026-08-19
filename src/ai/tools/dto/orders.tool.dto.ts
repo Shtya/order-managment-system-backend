@@ -165,12 +165,12 @@ export class GetOrderStatsToolArgsDto {
 	@SchemaProperty({ description: 'Start date of the range (YYYY-MM-DD).', example: '2026-07-01' })
 	@IsOptional()
 	@IsString()
-	dateFrom?: string;
+	startDate?: string;
 
 	@SchemaProperty({ description: 'End date of the range (YYYY-MM-DD).', example: '2026-07-31' })
 	@IsOptional()
 	@IsString()
-	dateTo?: string;
+	endDate?: string;
 
 	@SchemaProperty({ description: 'Filter statistics by a specific order status id (UUID).', example: '9c9f1a4e-2e8b-4b6f-9f1a-000000000000' })
 	@IsOptional()

@@ -1500,6 +1500,11 @@
     "export_col_dedup_key": "مفتاح الإزالة المكررة",
     "export_col_tool_call_id": "معرف استدعاء الأداة",
     "export_col_args_hash": "تلخيص المعاملات",
-    "export_col_completed_at": "تاريخ الإكمال"
+    "export_col_completed_at": "تاريخ الإكمال",
+    "model_provider_not_active": "مزود النموذج غير نشط",
+    "model_not_accessible": "النموذج غير متاح",
+    "provider_class_not_found": "لم يتم العثور على فئة المزود '{code}'",
+    "credentials_invalid_api_key": "مفتاح API غير صالح",
+    "credentials_test_error": "فشل الاختبار"
   }
 }

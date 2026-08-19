@@ -7,6 +7,7 @@ export class AiExecutionScope {
 	private round = 0;
 	private usage: AiUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
 	private readonly providersUsed: string[] = [];
+	private readonly modelsUsed: string[] = [];
 	private readonly events: AiProgressEvent[] = [];
 	private readonly startTime = Date.now();
 
@@ -28,8 +29,16 @@ export class AiExecutionScope {
 		if (!this.providersUsed.includes(provider)) this.providersUsed.push(provider);
 	}
 
+	trackModel(model: string) {
+		if (model && !this.modelsUsed.includes(model)) this.modelsUsed.push(model);
+	}
+
 	getProvidersUsed(): string[] {
 		return [...this.providersUsed];
+	}
+
+	getModelsUsed(): string[] {
+		return [...this.modelsUsed];
 	}
 
 	emit(event: AiProgressEvent) {

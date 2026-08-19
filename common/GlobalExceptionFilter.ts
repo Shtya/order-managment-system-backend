@@ -234,9 +234,23 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       ? exception.getStatus()
       : HttpStatus.INTERNAL_SERVER_ERROR;
 
-    const errorResponse = exception instanceof HttpException
+    const isDev = process.env.NODE_ENV === 'development';
+
+    let errorResponse = exception instanceof HttpException
       ? exception.getResponse()
       : { statusCode: status, message: 'Internal server error' };
+
+    if (isDev && typeof errorResponse === 'object') {
+      errorResponse = {
+        ...errorResponse,
+        message: (errorResponse as any).message || exception.message || 'Internal server error',
+        error: (errorResponse as any).error || exception.name || 'Error',
+        stack: exception.stack || null,
+        details: exception.driverError
+          ? { code: exception.driverError.code, detail: exception.driverError.detail }
+          : undefined,
+      };
+    }
 
     // If NestJS generated an object (standard behavior), return as JSON. 
     // If it generated a raw string, return it as a standard send().

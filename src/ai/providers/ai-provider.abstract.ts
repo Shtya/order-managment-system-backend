@@ -1,24 +1,88 @@
-import { AI_PROVIDER_TOKEN, PROVIDER_FUNCTION_CALLING_TIMEOUT_MS, PROVIDER_RETRY_BASE_DELAY_MS, PROVIDER_RETRY_MAX_DELAY_MS } from '../ai.constants';
-import { AiProviderConfig } from '../interfaces/provider-config.interface';
+import { AI_PROVIDER_TOKEN, PROVIDER_FUNCTION_CALLING_TIMEOUT_MS, PROVIDER_RETRY_BASE_DELAY_MS, PROVIDER_RETRY_MAX_DELAY_MS, AI_PROVIDER_DEFAULTS } from '../ai.constants';
+import { AiProviderCapabilities, AiProviderRole, AiProviderRuntimeConfig } from '../interfaces/provider-config.interface';
 import { AiChatMessage, AiProviderHealth, AiProviderRequest, AiProviderResult, AiToolSpec, AiUsage } from '../interfaces/ai-types';
 import { AiProviderError, AiProviderInvalidResponseError, toAiProviderError } from '../errors/provider.errors';
 
 export abstract class AiProviderAbstract {
 	abstract readonly kind: string;
+	abstract readonly displayName: string;
 
-	protected config: AiProviderConfig;
+	// Defaults from env (set by subclass in constructor).
+	// Can be overridden per-call via applyRuntimeConfig().
+	protected enabled: boolean;
+	protected priority: number;
+	protected retries: number;
+	protected maxTokens: number;
+	protected temperature: number;
+	protected systemRoleName: AiProviderRole;
+	protected capabilities: AiProviderCapabilities;
+	protected baseUrl: string;
+	protected apiKey: string;
+	protected model: string;
+	protected entityId?: string;
+
 	protected health: AiProviderHealth = { healthy: true, consecutiveFailures: 0 };
 
-	constructor(config: AiProviderConfig) {
-		this.config = config;
+	constructor() {
+		this.enabled = true;
+		this.priority = AI_PROVIDER_DEFAULTS.PRIORITY;
+		this.retries = AI_PROVIDER_DEFAULTS.RETRIES;
+		this.maxTokens = AI_PROVIDER_DEFAULTS.MAX_TOKENS;
+		this.temperature = AI_PROVIDER_DEFAULTS.TEMPERATURE;
+		this.systemRoleName = AI_PROVIDER_DEFAULTS.SYSTEM_ROLE_NAME;
+		this.capabilities = { functionCalling: true };
+		this.baseUrl = '';
+		this.apiKey = '';
+		this.model = '';
 	}
 
-	getConfig(): AiProviderConfig {
-		return this.config;
+	/**
+	 * Apply per-call overrides (from AiIntegrationEntity DB rows) on top
+	 * of the provider's env-based defaults. Caller passes integration
+	 * credentials resolved dynamically.
+	 */
+	applyRuntimeConfig(overrides: AiProviderRuntimeConfig): void {
+		if (overrides.baseUrl !== undefined) this.baseUrl = overrides.baseUrl;
+		if (overrides.apiKey !== undefined) this.apiKey = overrides.apiKey;
+		if (overrides.model !== undefined) this.model = overrides.model;
+		if (overrides.maxTokens !== undefined) this.maxTokens = overrides.maxTokens;
+		if (overrides.temperature !== undefined) this.temperature = overrides.temperature;
+		if (overrides.systemRoleName !== undefined) this.systemRoleName = overrides.systemRoleName;
+		if (overrides.capabilities !== undefined) this.capabilities = { ...this.capabilities, ...overrides.capabilities };
+		if (overrides.retries !== undefined) this.retries = overrides.retries;
+		if (overrides.entityId !== undefined) this.entityId = overrides.entityId;
+	}
+
+	/** Clone this provider instance with runtime config applied (for per-request isolation). */
+	cloneWithRuntime(overrides: AiProviderRuntimeConfig): this {
+		const clone = Object.create(Object.getPrototypeOf(this));
+		Object.assign(clone, this);
+		clone.capabilities = { ...this.capabilities };
+		clone.health = { ...this.health };
+		clone.applyRuntimeConfig(overrides);
+		return clone;
+	}
+
+	getConfig() {
+		return {
+			name: this.kind,
+			displayName: this.displayName,
+			enabled: this.enabled,
+			baseUrl: this.baseUrl,
+			apiKey: this.apiKey,
+			model: this.model,
+			maxTokens: this.maxTokens,
+			temperature: this.temperature,
+			systemRoleName: this.systemRoleName,
+			capabilities: this.capabilities,
+			priority: this.priority,
+			retries: this.retries,
+			entityId: this.entityId,
+		};
 	}
 
 	isEnabled(): boolean {
-		return this.config.enabled;
+		return this.enabled;
 	}
 
 	getHealth(): AiProviderHealth {
@@ -32,7 +96,7 @@ export abstract class AiProviderAbstract {
 	abstract supports(): boolean;
 
 	async callModel(request: AiProviderRequest): Promise<AiProviderResult> {
-		const retries = Math.max(0, this.config.retries ?? 0);
+		const retries = Math.max(0, this.retries ?? 0);
 		let lastError: unknown;
 
 		for (let attempt = 0; attempt <= retries; attempt++) {
@@ -42,17 +106,17 @@ export abstract class AiProviderAbstract {
 				return result;
 			} catch (error) {
 				lastError = error;
-				const providerError = toAiProviderError(error, this.config.name);
+				const providerError = toAiProviderError(error, this.kind);
 				this.markFailure(providerError);
 
-				const shouldRetry = attempt < retries && providerError.retryable && this.config.capabilities.functionCalling;
+				const shouldRetry = attempt < retries && providerError.retryable && this.capabilities.functionCalling;
 				if (!shouldRetry) throw providerError;
 
 				await this.delay(attempt);
 			}
 		}
 
-		throw toAiProviderError(lastError, this.config.name);
+		throw toAiProviderError(lastError, this.kind);
 	}
 
 	protected abstract chat(request: AiProviderRequest): Promise<AiProviderResult>;
@@ -137,6 +201,29 @@ export abstract class AiProviderAbstract {
 	}
 }
 
+// --- Helper env-reading utilities used by subclasses (like BostaProvider pattern) ---
+
+export function boolEnv(value: string | undefined, fallback: boolean): boolean {
+	if (value === undefined || value === '') return fallback;
+	return ['1', 'true', 'yes', 'on'].includes(String(value).toLowerCase());
+}
+
+export function intEnv(value: string | undefined, fallback: number): number {
+	if (value === undefined || value === '') return fallback;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function floatEnv(value: string | undefined, fallback: number): number {
+	if (value === undefined || value === '') return fallback;
+	const parsed = Number(value);
+	return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function strEnv(value: string | undefined, fallback: string = ''): string {
+	return value ?? fallback;
+}
+
 export function safeJsonParse(value: unknown): unknown {
 	if (typeof value !== 'string') return value;
 	try {
@@ -172,8 +259,8 @@ function toInt(value: unknown): number | undefined {
 
 export const AI_PROVIDER = AI_PROVIDER_TOKEN;
 
-export function createProviderHealth(config: AiProviderConfig): AiProviderHealth {
-	return { healthy: true, consecutiveFailures: 0, model: config.model };
+export function createProviderHealth(model?: string): AiProviderHealth {
+	return { healthy: true, consecutiveFailures: 0, model };
 }
 
 export { AiChatMessage, AiToolSpec, AiUsage };

@@ -30,10 +30,12 @@
     "seed": "ts-node -r tsconfig-paths/register src/seeder.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@apollo/client": "^4.1.4",
     "@bull-board/api": "^8.0.1",
     "@bull-board/express": "^8.0.1",
     "@bull-board/nestjs": "^8.0.1",
+    "@google/genai": "^2.17.1",
     "@nest-middlewares/helmet": "^10.0.0",
     "@nestjs/axios": "^4.0.1",
     "@nestjs/bullmq": "^11.0.4",
@@ -75,6 +77,7 @@
     "nest-commander": "^3.20.1",
     "nestjs-i18n": "^10.8.5",
     "nodemailer": "^6.9.16",
+    "openai": "^7.5.0",
     "passport-jwt": "^4.0.1",
     "pg": "^8.13.3",
     "query-string": "^9.3.1",

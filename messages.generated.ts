@@ -1642,6 +1642,11 @@ export type I18nTranslations = {
             "export_col_tool_call_id": string;
             "export_col_args_hash": string;
             "export_col_completed_at": string;
+            "model_provider_not_active": string;
+            "model_not_accessible": string;
+            "provider_class_not_found": string;
+            "credentials_invalid_api_key": string;
+            "credentials_test_error": string;
         };
     };
     "emails": {

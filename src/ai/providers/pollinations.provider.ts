@@ -1,5 +1,5 @@
-import { AiProviderAbstract, normalizeUsage, safeJsonParse } from './ai-provider.abstract';
-import { AiProviderConfig } from '../interfaces/provider-config.interface';
+import { Injectable } from '@nestjs/common';
+import { AiProviderAbstract, normalizeUsage, safeJsonParse, boolEnv, intEnv, floatEnv, strEnv } from './ai-provider.abstract';
 import { AiProviderRequest, AiProviderResult } from '../interfaces/ai-types';
 import { AiProviderError } from '../errors/provider.errors';
 
@@ -20,11 +20,23 @@ interface PollinationsChatCompletionResponse {
 	usage?: Record<string, unknown>;
 }
 
+@Injectable()
 export class PollinationsProvider extends AiProviderAbstract {
 	readonly kind = 'pollinations';
+	readonly displayName = 'Pollinations';
 
-	constructor(config: AiProviderConfig) {
-		super(config);
+	constructor() {
+		super();
+		const prefix = 'AI_POLLINATIONS';
+		this.baseUrl = strEnv(process.env[`${prefix}_BASE_URL`], 'https://text.pollinations.ai');
+		this.apiKey = strEnv(process.env[`${prefix}_API_KEY`], '');
+		this.model = strEnv(process.env[`${prefix}_MODEL`], 'openai');
+		this.maxTokens = intEnv(process.env[`${prefix}_MAX_TOKENS`], 2048);
+		this.temperature = floatEnv(process.env[`${prefix}_TEMPERATURE`], 0.4);
+		this.priority = intEnv(process.env[`${prefix}_PRIORITY`], 20);
+		this.retries = intEnv(process.env[`${prefix}_RETRIES`], 1);
+		// Pollinations doesn't support function calling
+		this.capabilities = { functionCalling: false };
 	}
 
 	supports(): boolean {
@@ -32,12 +44,12 @@ export class PollinationsProvider extends AiProviderAbstract {
 	}
 
 	protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {
-		const endpoint = `${this.config.baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
+		const endpoint = `${this.baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
 		const body: PollinationsChatCompletionRequest = {
-			model: this.config.model || 'openai',
+			model: this.model || 'openai',
 			messages: request.messages.map((m) => mapMessage(m)),
-			max_tokens: request.maxTokens ?? this.config.maxTokens,
-			temperature: request.temperature ?? this.config.temperature,
+			max_tokens: request.maxTokens ?? this.maxTokens,
+			temperature: request.temperature ?? this.temperature,
 			stream: false,
 		};
 
@@ -50,7 +62,7 @@ export class PollinationsProvider extends AiProviderAbstract {
 		}
 
 		const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-		if (this.config.apiKey) headers.Authorization = `Bearer ${this.config.apiKey}`;
+		if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
 
 		const controller = this.createAbortController();
 		const fetchPromise = fetch(endpoint, {
@@ -60,14 +72,14 @@ export class PollinationsProvider extends AiProviderAbstract {
 			signal: controller.signal,
 		});
 
-		const response = await this.withTimeout(fetchPromise, this.getTimeoutMs(), this.config.name);
+		const response = await this.withTimeout(fetchPromise, this.getTimeoutMs(), this.kind);
 		const data = (await response.json().catch(() => null)) as PollinationsChatCompletionResponse | null;
 
 		if (!response.ok) {
 			const message = (data as any)?.error?.message ?? `Provider returned HTTP ${response.status}`;
 			throw new AiProviderError(message, {
 				kind: response.status === 429 ? 'RATE_LIMITED' : response.status === 401 || response.status === 403 ? 'AUTH' : 'HTTP',
-				provider: this.config.name,
+				provider: this.kind,
 				status: response.status,
 				retryable: response.status === 429 || response.status >= 500,
 			});
@@ -76,9 +88,9 @@ export class PollinationsProvider extends AiProviderAbstract {
 		const normalized = this.normalizePollinations(data);
 		if (normalized) return normalized;
 
-		throw new AiProviderError(`Provider '${this.config.name}' returned an unparseable response`, {
+		throw new AiProviderError(`Provider '${this.kind}' returned an unparseable response`, {
 			kind: 'INVALID_RESPONSE',
-			provider: this.config.name,
+			provider: this.kind,
 		});
 	}
 
@@ -99,11 +111,11 @@ export class PollinationsProvider extends AiProviderAbstract {
 			.filter((tc) => tc.name);
 
 		if (toolCalls?.length) {
-			return { role: 'assistant', toolCalls, usage, providerModel: this.config.model };
+			return { role: 'assistant', toolCalls, usage, providerModel: this.model };
 		}
 
 		if (typeof message.content === 'string' && message.content.trim() !== '') {
-			return { role: 'assistant', content: message.content, usage, providerModel: this.config.model };
+			return { role: 'assistant', content: message.content, usage, providerModel: this.model };
 		}
 
 		return null;

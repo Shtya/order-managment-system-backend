@@ -5,19 +5,20 @@ export interface AiProviderCapabilities {
 	streaming?: boolean;
 }
 
-export interface AiProviderConfig {
-	name: string;
-	displayName: string;
-	enabled: boolean;
-	baseUrl: string;
-	apiKey: string;
-	model: string;
-	maxTokens: number;
-	temperature: number;
-	systemRoleName: AiProviderRole;
-	capabilities: AiProviderCapabilities;
-	priority: number;
-	retries: number;
+/**
+ * Runtime config overrides — resolved from AiIntegrationEntity per-call/per-provider.
+ * Applied on top of the provider's env-based defaults.
+ */
+export interface AiProviderRuntimeConfig {
+	baseUrl?: string;
+	apiKey?: string;
+	model?: string;
+	maxTokens?: number;
+	temperature?: number;
+	systemRoleName?: AiProviderRole;
+	capabilities?: AiProviderCapabilities;
+	retries?: number;
+	entityId?: string;
 }
 
 export interface AiCircuitBreakerConfig {
@@ -39,7 +40,6 @@ export interface AiConfig {
 	promptHashMaxBytes: number;
 	circuitBreaker: AiCircuitBreakerConfig;
 	writeToolDedup: AiWriteToolDedupConfig;
-	providers: AiProviderConfig[];
 	piiMaskingEnabled: boolean;
 	logRequests: boolean;
 	storeConversationSummaries: boolean;

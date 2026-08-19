@@ -67,7 +67,7 @@ import {
   SkuErrorRow,
 } from "dto/order.dto";
 import { User } from "entities/user.entity";
-
+import OpenAI from 'openai';
 import { NotificationType } from "entities/notifications.entity";
 import { StoreEntity } from "entities/stores.entity";
 import {
@@ -464,8 +464,11 @@ export class OrdersService {
         }),
       )
       .andWhere("status.isActive = :isActive", { isActive: true })
+
+      DateFilterUtil.applyToQueryBuilder(qb, "o.created_at", q?.startDate, q?.endDate);
+
       // GROUP BY every non-aggregated selected column (Postgres requires this)
-      .groupBy("status.id")
+      qb.groupBy("status.id")
       .addGroupBy("status.name")
       .addGroupBy("status.code")
       .addGroupBy("status.color")
@@ -474,6 +477,7 @@ export class OrdersService {
       .orderBy("status.sortOrder", "ASC")
       .getRawMany();
 
+      
     const stats = await qb.getRawMany();
     return stats.map((stat) => ({
       id: stat.id,

@@ -44,8 +44,12 @@ export class AiChatRequestDto {
 	allowedToolNames?: string[];
 
 	@IsOptional()
-	@IsIn(['llm7', 'pollinations'])
+	@IsString()
 	provider?: string;
+
+	@IsOptional()
+	@IsString()
+	model?: string;
 
 	@IsOptional()
 	@IsBoolean()

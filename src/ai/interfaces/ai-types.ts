@@ -1,4 +1,4 @@
-import { AiProviderConfig } from './provider-config.interface';
+import { IsOptional, IsString } from "class-validator";
 
 export type AiMessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -60,6 +60,7 @@ export interface AiExecutionSession {
 	userRoleName?: string;
 	userPermissionNames?: string[];
 	provider?: string;
+	model?: string;
 	metadata?: Record<string, unknown>;
 	allowedToolNames?: string[];
 	enforcePiiMasking: boolean;
@@ -109,7 +110,17 @@ export interface AiConversationSummary {
 	usage: AiUsage;
 	rounds: number;
 	providersUsed: string[];
+	modelsUsed: string[];
 	createdAt: Date;
+}
+
+export interface AiOrchestrationError {
+	name: string;
+	kind: string;
+	provider?: string;
+	retryable: boolean;
+	message: string;
+	status?: number;
 }
 
 export interface AiOrchestrationResult {
@@ -117,17 +128,17 @@ export interface AiOrchestrationResult {
 	requestId: string;
 	conversationId?: string;
 	ok: boolean;
-	final: boolean;
 	content?: string;
 	toolCalls?: AiToolCall[];
 	usage: AiUsage;
 	providersUsed: string[];
+	modelsUsed: string[];
 	rounds: number;
-	providerModel?: string;
 	progress: AiProgressEvent[];
 	conversationSummary?: AiConversationSummary;
 	error?: string;
 	errorCode?: string;
+	errorDetails?: AiOrchestrationError;
 }
 
 export interface AiProviderRequest {
@@ -153,10 +164,16 @@ export interface AiToolSpec {
 	parameters: Record<string, unknown>;
 }
 
+export class AiProviderCredentials {
+	
+    @IsString()
+    apiKey: string;
+}
+
 export interface AiToolRunOptions {
 	allowedToolNames?: string[];
 	toolCalls?: AiToolCall[];
 	progress: (event: AiProgressEvent) => void;
 }
 
-export type { AiProviderConfig };
+

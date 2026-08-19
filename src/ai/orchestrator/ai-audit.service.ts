@@ -1,15 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { AiRequestSummaryEntity, AiWriteToolCallEntity, AiWriteToolCallStatus } from '../../../entities/ai.entity';
+import { AiRequestSummaryEntity, AiRequestSummaryStatus, AiWriteToolCallEntity, AiWriteToolCallStatus } from '../../../entities/ai.entity';
 
 export interface RequestSummaryInput {
 	adminId: string;
 	sessionId: string;
 	conversationId?: string;
 	requestId: string;
-	provider: string;
-	model?: string;
+	providerId?: string;
+	modelId?: string;
 	status: 'ok' | 'error' | 'partial';
 	usagePromptTokens: number;
 	usageCompletionTokens: number;
@@ -19,7 +19,9 @@ export interface RequestSummaryInput {
 	errorCode?: string;
 	error?: string;
 	summary?: unknown;
+	progress?: unknown;
 	providersUsed?: string[];
+	modelsUsed?: string[];
 }
 
 @Injectable()
@@ -40,9 +42,9 @@ export class AiAuditService {
 				sessionId: input.sessionId,
 				conversationId: input.conversationId,
 				requestId: input.requestId,
-				provider: input.provider,
-				model: input.model,
-				status: input.status,
+				providerId: input.providerId,
+				modelId: input.modelId,
+				status: input.status as AiRequestSummaryStatus,
 				usagePromptTokens: input.usagePromptTokens,
 				usageCompletionTokens: input.usageCompletionTokens,
 				usageTotalTokens: input.usageTotalTokens,
@@ -51,9 +53,11 @@ export class AiAuditService {
 				errorCode: input.errorCode,
 				error: input.error,
 				summary: input.summary,
+				progress: input.progress,
 				providersUsed: input.providersUsed,
 			});
-			return await this.requestSummaryRepo.save(entity);
+			const saved = await this.requestSummaryRepo.save(entity);
+			return saved as any;
 		} catch (error) {
 			this.logger.error('Failed to persist AI request summary', error);
 			return null as any;
@@ -99,7 +103,7 @@ export class AiAuditService {
 					args: input.args as any,
 					requestId: input.requestId,
 					sessionId: input.sessionId,
-					status: 'PENDING',
+					status: AiWriteToolCallStatus.PENDING,
 				})
 				.orIgnore()
 				.execute();
@@ -110,7 +114,7 @@ export class AiAuditService {
 				.createQueryBuilder()
 				.update(AiWriteToolCallEntity)
 				.set({
-					status: 'PENDING',
+					status: AiWriteToolCallStatus.PENDING,
 					args: input.args as any,
 					argsHash: input.argsHash,
 					error: null,
@@ -145,7 +149,7 @@ export class AiAuditService {
 					status,
 					...(extra.result !== undefined ? { result: extra.result as any } : {}),
 					...(extra.error !== undefined ? { error: extra.error } : {}),
-					...(status === 'COMPLETED' ? { completedAt: new Date() } : {}),
+					...(status === AiWriteToolCallStatus.COMPLETED ? { completedAt: new Date() } : {}),
 				},
 			);
 		} catch (error) {
@@ -154,14 +158,14 @@ export class AiAuditService {
 	}
 
 	async completeWriteCall(adminId: string, toolName: string, toolCallId: string, result: unknown): Promise<void> {
-		return this.updateWriteCallStatus(adminId, toolName, toolCallId, 'COMPLETED', { result, completedAt: new Date() });
+		return this.updateWriteCallStatus(adminId, toolName, toolCallId, AiWriteToolCallStatus.COMPLETED, { result, completedAt: new Date() });
 	}
 
 	async failWriteCall(adminId: string, toolName: string, toolCallId: string, error: string): Promise<void> {
-		return this.updateWriteCallStatus(adminId, toolName, toolCallId, 'FAILED', { error });
+		return this.updateWriteCallStatus(adminId, toolName, toolCallId, AiWriteToolCallStatus.FAILED, { error });
 	}
 
 	async markStale(adminId: string, toolName: string, toolCallId: string): Promise<void> {
-		return this.updateWriteCallStatus(adminId, toolName, toolCallId, 'STALE');
+		return this.updateWriteCallStatus(adminId, toolName, toolCallId, AiWriteToolCallStatus.STALE);
 	}
 }

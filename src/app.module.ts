@@ -67,10 +67,10 @@ import { config as loadEnvFile } from 'dotenv';
 // Load env files BEFORE the module decorator is evaluated so that
 // process.env checks at module-definition time (e.g. AI_MODULE_ENABLED)
 // see the values from .env / .env.<NODE_ENV>.
-loadEnvFile({ path: `.env.${process.env.NODE_ENV || 'production'}` });
-loadEnvFile({ path: '.env' });
+// loadEnvFile({ path: `.env.${process.env.NODE_ENV || 'production'}` });
+// loadEnvFile({ path: '.env' });
 
-const aiEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.AI_MODULE_ENABLED ?? '').toLowerCase());
+// const aiEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.AI_MODULE_ENABLED ?? '').toLowerCase());
 @Module({
 	imports: [
 		ScheduleModule.forRoot(),
@@ -161,7 +161,7 @@ const aiEnabled = ['1', 'true', 'yes', 'on'].includes(String(process.env.AI_MODU
 		SupportTicketModule,
 		IssueModule,
 		GettingStartedModule,
-		...(aiEnabled ? [AiModule] : []),
+		AiModule,
 	],
 	providers: [
 		GlobalExceptionFilter, QueryExceptionFilter, EncryptionService,

@@ -1,5 +1,5 @@
-import { AiProviderAbstract, normalizeUsage, safeJsonParse } from './ai-provider.abstract';
-import { AiProviderConfig } from '../interfaces/provider-config.interface';
+import { Injectable } from '@nestjs/common';
+import { AiProviderAbstract, normalizeUsage, safeJsonParse, boolEnv, intEnv, floatEnv, strEnv } from './ai-provider.abstract';
 import { AiProviderRequest, AiProviderResult } from '../interfaces/ai-types';
 import { AiProviderError } from '../errors/provider.errors';
 
@@ -42,11 +42,21 @@ interface OpenAiChatCompletionResponse {
 	error?: { message?: string; type?: string; code?: string; status?: number };
 }
 
+@Injectable()
 export class Llm7Provider extends AiProviderAbstract {
 	readonly kind = 'llm7';
+	readonly displayName = 'LLM7';
 
-	constructor(config: AiProviderConfig) {
-		super(config);
+	constructor() {
+		super();
+		const prefix = 'AI_LLM7';
+		this.baseUrl = strEnv(process.env[`${prefix}_BASE_URL`], 'https://api.llm7.io/v1');
+		this.apiKey = strEnv(process.env[`${prefix}_API_KEY`], '');
+		this.model = strEnv(process.env[`${prefix}_MODEL`], 'openai');
+		this.maxTokens = intEnv(process.env[`${prefix}_MAX_TOKENS`], 2048);
+		this.temperature = floatEnv(process.env[`${prefix}_TEMPERATURE`], 0.4);
+		this.priority = intEnv(process.env[`${prefix}_PRIORITY`], 10);
+		this.retries = intEnv(process.env[`${prefix}_RETRIES`], 2);
 	}
 
 	supports(): boolean {
@@ -54,13 +64,13 @@ export class Llm7Provider extends AiProviderAbstract {
 	}
 
 	protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {
-		const endpoint = `${this.config.baseUrl.replace(/\/$/, '')}/chat/completions`;
+		const endpoint = `${this.baseUrl.replace(/\/$/, '')}/chat/completions`;
 		const body: OpenAiChatCompletionRequest = {
-			model: this.config.model,
+			model: this.model,
 			messages: request.messages.map((m) => mapMessage(m)),
 			tool_choice: request.toolChoice,
-			max_tokens: request.maxTokens ?? this.config.maxTokens,
-			temperature: request.temperature ?? this.config.temperature,
+			max_tokens: request.maxTokens ?? this.maxTokens,
+			temperature: request.temperature ?? this.temperature,
 			stream: false,
 		};
 
@@ -79,19 +89,19 @@ export class Llm7Provider extends AiProviderAbstract {
 		}
 
 		const controller = this.createAbortController();
-		const timeoutMs = request.signal ? this.config.maxTokens * 0 : this.getTimeoutMs();
+		const timeoutMs = request.signal ? 0 : this.getTimeoutMs();
 
 		const fetchPromise = fetch(endpoint, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				...(this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {}),
+				...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
 			},
 			body: JSON.stringify(body),
 			signal: controller.signal,
 		});
 
-		const response = await this.withTimeout(fetchPromise, timeoutMs || this.getTimeoutMs(), this.config.name);
+		const response = await this.withTimeout(fetchPromise, timeoutMs || this.getTimeoutMs(), this.kind);
 
 		const data = (await response.json().catch(() => null)) as OpenAiChatCompletionResponse | null;
 
@@ -99,7 +109,7 @@ export class Llm7Provider extends AiProviderAbstract {
 			const message = data?.error?.message ?? `Provider returned HTTP ${response.status}`;
 			throw new AiProviderError(message, {
 				kind: response.status === 429 ? 'RATE_LIMITED' : response.status === 401 || response.status === 403 ? 'AUTH' : 'HTTP',
-				provider: this.config.name,
+				provider: this.kind,
 				status: response.status,
 				retryable: response.status === 429 || response.status >= 500,
 			});
@@ -108,9 +118,9 @@ export class Llm7Provider extends AiProviderAbstract {
 		const normalized = this.normalizeOpenAi(data);
 		if (normalized) return normalized;
 
-		throw new AiProviderError(`Provider '${this.config.name}' returned an unparseable response`, {
+		throw new AiProviderError(`Provider '${this.kind}' returned an unparseable response`, {
 			kind: 'INVALID_RESPONSE',
-			provider: this.config.name,
+			provider: this.kind,
 		});
 	}
 
@@ -135,7 +145,7 @@ export class Llm7Provider extends AiProviderAbstract {
 				role: 'assistant',
 				toolCalls,
 				usage,
-				providerModel: this.config.model,
+				providerModel: this.model,
 			};
 		}
 
@@ -144,7 +154,7 @@ export class Llm7Provider extends AiProviderAbstract {
 				role: 'assistant',
 				content: message.content,
 				usage,
-				providerModel: this.config.model,
+				providerModel: this.model,
 			};
 		}
 

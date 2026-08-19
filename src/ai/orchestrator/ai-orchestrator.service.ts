@@ -5,6 +5,7 @@ import { AiConfig } from '../interfaces/provider-config.interface';
 import {
 	AiChatMessage,
 	AiExecutionSession,
+	AiOrchestrationError,
 	AiOrchestrationResult,
 	AiProgressEvent,
 	AiToolCall,
@@ -21,13 +22,14 @@ import { AiSystemPromptService } from './ai-system-prompt.service';
 import { AiLoggerService } from './ai-logger.service';
 import { AiAuditService } from './ai-audit.service';
 import { AiPiiMaskerService } from '../security/ai-pii-masker.service';
+import { AiWriteToolCallStatus } from 'entities/ai.entity';
+import { isAiProviderError } from '../errors/provider.errors';
 
 export interface AiChatOptions {
 	conversationId?: string;
 	history?: AiChatMessage[];
-	allowedToolNames?: string[];
 	provider?: string;
-	enforcePiiMasking?: boolean;
+	model?: string;
 	acceptWriteOperations?: boolean;
 	metadata?: Record<string, unknown>;
 }
@@ -45,7 +47,7 @@ export class AiOrchestratorService {
 		private readonly logger: AiLoggerService,
 		private readonly auditService: AiAuditService,
 		private readonly piiMasker: AiPiiMaskerService,
-	) {}
+	) { }
 
 	async chat(me: any, userMessage: string, options: AiChatOptions = {}): Promise<AiOrchestrationResult> {
 		const requestId = randomUUID();
@@ -60,9 +62,10 @@ export class AiOrchestratorService {
 			userName: me?.name,
 			userRoleName: me?.role?.name,
 			userPermissionNames: me?.role?.permissionNames ?? [],
+			provider: options.provider,
+			model: options.model,
 			metadata: options.metadata,
-			allowedToolNames: options.allowedToolNames?.length ? options.allowedToolNames : undefined,
-			enforcePiiMasking: options.enforcePiiMasking ?? this.config.piiMaskingEnabled,
+			enforcePiiMasking: false,
 			acceptWriteOperations: options.acceptWriteOperations ?? false,
 		};
 
@@ -83,8 +86,23 @@ export class AiOrchestratorService {
 		try {
 			const result = await this.runLoop(ctx, execution, messages);
 			return this.finalize(ctx, execution, result, masked.pairs);
-		} catch (error) {
-			return this.finalize(ctx, execution, { error }, masked.pairs);
+		} catch (error: any) {
+			let errorDetails: AiOrchestrationError | undefined;
+			if (isAiProviderError(error)) {
+				errorDetails = {
+					name: error.name,
+					kind: error.kind,
+					provider: error.provider,
+					retryable: error.retryable,
+					message: error.message,
+					status: error.status,
+				};
+			}
+			return this.finalize(ctx, execution, {
+				error: error.message ?? String(error),
+				errorCode: errorDetails?.kind,
+				errorDetails,
+			}, masked.pairs);
 		}
 	}
 
@@ -95,53 +113,58 @@ export class AiOrchestratorService {
 	): Promise<{ content?: string; error?: string; errorCode?: string }> {
 		const toolSpecs = this.toolRegistry.getToolSpecs(ctx);
 		const seenToolCalls = new Set<string>();
-		let forceAnswer = false;
-		let forceNoteInjected = false;
+		const { candidates, userExplicitChoice } = await this.resolveProviders(ctx);
 
 		for (let round = 1; round <= this.config.maxProviderRoundtrips; round++) {
 			execution.beginRound();
 
 			const { provider, result } = await this.callProviderWithFailover(
-				ctx,
 				execution,
 				messages,
 				toolSpecs,
 				round,
-				forceAnswer ? 'none' : undefined,
+				candidates,
+				userExplicitChoice,
 			);
 
 			execution.trackProvider(provider.kind);
+			execution.trackModel(result.providerModel ?? provider.getConfig().model ?? '');
 			execution.recordUsage(result.usage);
 
 			if (result.role === 'assistant' && result.toolCalls?.length) {
+				const newToolCalls: AiToolCall[] = [];
 				for (const toolCall of result.toolCalls) {
 					const signature = `${toolCall.name}:${stableJson(toolCall.arguments)}`;
 					if (seenToolCalls.has(signature)) {
-						forceAnswer = true;
-					} else {
-						seenToolCalls.add(signature);
+						execution.emit({
+							type: 'tool_skipped_dedup',
+							provider: provider.getConfig().name,
+							toolName: toolCall.name,
+							toolCallId: toolCall.id,
+							result: { ok: true, code: 'TOOL_DEDUP_SKIPPED', deduplicated: true },
+						});
+						continue;
 					}
+					seenToolCalls.add(signature);
+					newToolCalls.push(toolCall);
 				}
 
 				execution.emit({
 					type: 'provider_tool_calls',
 					round,
 					provider: provider.kind,
-					toolNames: result.toolCalls.map((t) => t.name),
-					toolCalls: result.toolCalls.map((t) => ({ id: t.id, name: t.name, arguments: t.arguments })),
+					toolNames: newToolCalls.map((t) => t.name),
+					toolCalls: newToolCalls.map((t) => ({ id: t.id, name: t.name, arguments: t.arguments })),
 				});
 
-				messages.push({ role: 'assistant', content: null, toolCalls: result.toolCalls });
 
-				for (const toolCall of result.toolCalls) {
+				messages.push({ role: 'assistant', content: null, toolCalls: newToolCalls });
+
+				for (const toolCall of newToolCalls) {
 					const toolMessage = await this.executeToolCall(ctx, execution, provider, toolCall, round);
 					messages.push(toolMessage);
 				}
 
-				if (forceAnswer && !forceNoteInjected) {
-					forceNoteInjected = true;
-					messages.push({ role: 'system', content: FORCE_ANSWER_NOTE });
-				}
 				continue;
 			}
 
@@ -164,19 +187,56 @@ export class AiOrchestratorService {
 		};
 	}
 
+	private async resolveProviders(ctx: AiToolContext): Promise<{ primary: AiProviderAbstract; candidates: AiProviderAbstract[]; userExplicitChoice: boolean }> {
+		const userExplicitChoice = !!(ctx.session.provider || ctx.session.model);
+		let requested = ctx.session.provider ?? this.config.defaultProvider;
+		const requestedModel = ctx.session.model;
+
+		if (!ctx.session.provider && !requestedModel) {
+			const resolved = await this.providerSelector.resolveDefaultModel(ctx.session.tenantId);
+			if (resolved) {
+				requested = resolved.providerEntityId;
+				(ctx.session as any).model = resolved.modelCode;
+			}
+		}
+
+		if (!ctx.session.provider && requestedModel) {
+			const providerByModel = await this.providerSelector.resolveProviderByModelId(requestedModel, ctx.session.tenantId);
+			if (providerByModel) {
+				requested = providerByModel;
+			}
+		}
+
+		let primary: AiProviderAbstract;
+		if (requested && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requested)) {
+			primary = await this.providerSelector.selectCustom(requested, ctx.session.tenantId);
+		} else {
+			primary = await this.providerSelector.select(requested, ctx.session.tenantId);
+		}
+
+		if (requestedModel) {
+			primary = primary.cloneWithRuntime({ model: requestedModel });
+		}
+
+		if (userExplicitChoice) {
+			return { primary, candidates: [primary], userExplicitChoice: true };
+		}
+
+		const failovers = await this.providerSelector.failoverCandidates(primary.getConfig().name, ctx.session.tenantId);
+		return { primary, candidates: [primary, ...failovers], userExplicitChoice: false };
+	}
+
 	private async callProviderWithFailover(
-		ctx: AiToolContext,
 		execution: AiExecutionScope,
 		messages: AiChatMessage[],
 		toolSpecs: ReturnType<AiToolRegistryService['getToolSpecs']>,
 		round: number,
-		forcedToolChoice?: 'auto' | 'none',
-	): Promise<{ provider: AiProviderAbstract; result: { role: 'assistant'; content?: string; toolCalls?: AiToolCall[]; usage?: AiUsage } }> {
-		const primary = this.providerSelector.select(ctx.session.provider ?? this.config.defaultProvider);
-		const candidates = [primary, ...this.providerSelector.failoverCandidates(primary.getConfig().name)];
-		const toolChoice = forcedToolChoice ?? (toolSpecs.length > 0 ? 'auto' : 'none');
-
+		candidates: AiProviderAbstract[],
+		userExplicitChoice?: boolean,
+	): Promise<{ provider: AiProviderAbstract; result: { role: 'assistant'; content?: string; toolCalls?: AiToolCall[]; usage?: AiUsage; providerModel?: string } }> {
+		const toolChoice = toolSpecs.length > 0 ? 'auto' : 'none';
 		let lastError: unknown;
+
 		for (const candidate of candidates) {
 			execution.emit({ type: 'provider_start', round, provider: candidate.getConfig().name });
 
@@ -196,6 +256,9 @@ export class AiOrchestratorService {
 					provider: candidate.getConfig().name,
 					error: message.slice(0, 500),
 				});
+				if (userExplicitChoice) {
+					throw lastError;
+				}
 			}
 		}
 
@@ -267,7 +330,7 @@ export class AiOrchestratorService {
 		const pending = await this.auditService.findWriteCall(adminId, tool.name, toolCallId);
 		if (pending) {
 			switch (pending.status) {
-				case 'COMPLETED':
+				case AiWriteToolCallStatus.COMPLETED:
 					execution.emit({
 						type: 'tool_skipped_dedup',
 						provider: undefined,
@@ -277,7 +340,7 @@ export class AiOrchestratorService {
 					});
 					return { ok: true, code: 'TOOL_RESULT_DEDUPLICATED', data: pending.result, deduplicated: true };
 
-				case 'PENDING': {
+				case AiWriteToolCallStatus.PENDING: {
 					const ageMs = Date.now() - new Date(pending.createdAt).getTime();
 					if (ageMs <= this.config.writeToolDedup.pendingTtlMs) {
 						return {
@@ -297,8 +360,8 @@ export class AiOrchestratorService {
 					break;
 				}
 
-				case 'STALE':
-				case 'FAILED':
+				case AiWriteToolCallStatus.STALE:
+				case AiWriteToolCallStatus.FAILED:
 					if (tool.staleRecovery === 'manual_review') {
 						return {
 							ok: false,
@@ -350,7 +413,7 @@ export class AiOrchestratorService {
 	private finalize(
 		ctx: AiToolContext,
 		execution: AiExecutionScope,
-		result: { content?: string; error?: string; errorCode?: string },
+		result: { content?: string; error?: string; errorCode?: string; errorDetails?: AiOrchestrationError },
 		pairs: Array<{ token: string; original: string }>,
 	): AiOrchestrationResult {
 		const usage = execution.getUsage();
@@ -367,14 +430,15 @@ export class AiOrchestratorService {
 			requestId: execution.requestId,
 			conversationId: execution.session.conversationId,
 			ok,
-			final: ok,
 			content,
 			usage,
 			providersUsed: execution.getProvidersUsed(),
+			modelsUsed: execution.getModelsUsed(),
 			rounds: execution.currentRound,
 			progress,
 			error: result.error,
 			errorCode: result.errorCode,
+			errorDetails: result.errorDetails,
 		};
 
 		this.persistSummary(ctx, execution, result, usage, ok);
@@ -382,43 +446,43 @@ export class AiOrchestratorService {
 		return finalResult;
 	}
 
-	private persistSummary(
+	private async persistSummary(
 		ctx: AiToolContext,
 		execution: AiExecutionScope,
 		result: { error?: string; errorCode?: string },
 		usage: AiUsage,
 		ok: boolean,
 	) {
-		const adminId = ctx.session.tenantId ?? ctx.session.userId;
-		this.auditService
-			.createRequestSummary({
-				adminId,
-				sessionId: execution.session.sessionId,
-				conversationId: execution.session.conversationId,
-				requestId: execution.requestId,
-				provider: execution.getProvidersUsed()[0] ?? 'none',
-				model: undefined,
-				status: ok ? 'ok' : 'error',
-				usagePromptTokens: usage.promptTokens,
-				usageCompletionTokens: usage.completionTokens,
-				usageTotalTokens: usage.totalTokens,
-				rounds: execution.currentRound,
-				durationMs: execution.getDurationMs(),
-				errorCode: result.errorCode,
-				error: result.error,
-				summary: this.config.storeConversationSummaries
-					? {
-							conversationId: execution.session.conversationId,
-							lastError: result.error ?? null,
-							lastToolNames: extractToolNames(execution.getEvents()),
-							usage,
-							rounds: execution.currentRound,
-							providersUsed: execution.getProvidersUsed(),
-						}
-					: undefined,
-				providersUsed: execution.getProvidersUsed(),
-			})
-			.catch(() => undefined);
+		const adminId = ctx.session.tenantId ?? ctx.session.userId	;
+
+		await this.auditService.createRequestSummary({
+			adminId,
+			sessionId: execution.session.sessionId,
+			conversationId: execution.session.conversationId,
+			requestId: execution.requestId,
+			status: ok ? 'ok' : 'error',
+			usagePromptTokens: usage.promptTokens,
+			usageCompletionTokens: usage.completionTokens,
+			usageTotalTokens: usage.totalTokens,
+			rounds: execution.currentRound,
+			durationMs: execution.getDurationMs(),
+			errorCode: result.errorCode,
+			error: result.error,
+			summary: this.config.storeConversationSummaries
+				? {
+					conversationId: execution.session.conversationId,
+					lastError: result.error ?? null,
+					lastToolNames: extractToolNames(execution.getEvents()),
+					usage,
+					rounds: execution.currentRound,
+					providersUsed: execution.getProvidersUsed(),
+					modelsUsed: execution.getModelsUsed(),
+				}
+				: undefined,
+			progress: execution.getEvents(),
+			providersUsed: execution.getProvidersUsed(),
+			modelsUsed: execution.getModelsUsed(),
+		});
 	}
 
 	private resolveTenantId(me: any): string | null {

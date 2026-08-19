@@ -1497,6 +1497,11 @@
     "export_col_dedup_key": "Dedup Key",
     "export_col_tool_call_id": "Tool Call ID",
     "export_col_args_hash": "Args Hash",
-    "export_col_completed_at": "Completed At"
+    "export_col_completed_at": "Completed At",
+    "model_provider_not_active": "Model provider is not active",
+    "model_not_accessible": "Model is not accessible",
+    "provider_class_not_found": "No provider class found for '{code}'",
+    "credentials_invalid_api_key": "Invalid API key",
+    "credentials_test_error": "Test failed"
   }
 }

@@ -347,8 +347,8 @@ export class OrdersAiTools {
 	private async getOrderStats(ctx: AiToolContext, args: Record<string, unknown>): Promise<AiExecutionResult> {
 		return this.wrap('ORDER_STATS', async () => {
 			const stats = await this.ordersService.getStats(this.buildMe(ctx), {
-				dateFrom: args.dateFrom,
-				dateTo: args.dateTo,
+				startDate: args.startDate,
+				endDate: args.endDate,
 				statusId: args.statusId,
 			});
 			return stats;
