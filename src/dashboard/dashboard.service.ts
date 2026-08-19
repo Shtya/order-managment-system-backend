@@ -1113,14 +1113,14 @@ export class DashboardService {
       )
       .addSelect((sub) => {
         return sub
-          .select("COUNT(oa_active.id)", "activeCount")
+          .select("COUNT(DISTINCT oa_active.orderId)", "activeCount")
           .from(OrderAssignmentEntity, "oa_active")
           .where("oa_active.employeeId = u.id")
           .andWhere("oa_active.isAssignmentActive = true");
       }, "activeAssignments")
       .addSelect((sub) => {
         return sub
-          .select("COUNT(oa_locked.id)", "lockedCount")
+          .select("COUNT(DISTINCT oa_locked.id)", "lockedCount")
           .from(OrderAssignmentEntity, "oa_locked")
           .where("oa_locked.employeeId = u.id")
           .andWhere("oa_locked.lockedUntil > CURRENT_TIMESTAMP");
