@@ -9425,7 +9425,7 @@ const AI_PROVIDER_SEEDS = [
         isActive: true,
 
         protocol: AiProviderProtocol.OPENAI_COMPATIBLE,
-        authType: AiAuthType.BEARER,
+        authType: AiAuthType.API_KEY,
     },
 
     {
@@ -9479,7 +9479,7 @@ const AI_PROVIDER_SEEDS = [
         isActive: true,
 
         protocol: AiProviderProtocol.OPENAI_COMPATIBLE,
-        authType: AiAuthType.BEARER,
+        authType: AiAuthType.API_KEY,
     },
 
     {
@@ -9498,7 +9498,7 @@ const AI_PROVIDER_SEEDS = [
         isActive: false,
 
         protocol: AiProviderProtocol.OPENAI_COMPATIBLE,
-        authType: AiAuthType.BEARER,
+        authType: AiAuthType.API_KEY,
     },
 
     {
@@ -9517,7 +9517,7 @@ const AI_PROVIDER_SEEDS = [
         isActive: false,
 
         protocol: AiProviderProtocol.OPENAI_COMPATIBLE,
-        authType: AiAuthType.BEARER,
+        authType: AiAuthType.API_KEY,
     },
 ] as const;
 

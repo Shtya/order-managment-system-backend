@@ -36,44 +36,38 @@ export class AiAuditService {
 	) {}
 
 	async createRequestSummary(input: RequestSummaryInput): Promise<AiRequestSummaryEntity> {
-		try {
-			const entity = this.requestSummaryRepo.create({
-				adminId: input.adminId,
-				sessionId: input.sessionId,
-				conversationId: input.conversationId,
-				requestId: input.requestId,
-				providerId: input.providerId,
-				modelId: input.modelId,
-				status: input.status as AiRequestSummaryStatus,
-				usagePromptTokens: input.usagePromptTokens,
-				usageCompletionTokens: input.usageCompletionTokens,
-				usageTotalTokens: input.usageTotalTokens,
-				rounds: input.rounds,
-				durationMs: input.durationMs,
-				errorCode: input.errorCode,
-				error: input.error,
-				summary: input.summary,
-				progress: input.progress,
-				providersUsed: input.providersUsed,
-			});
-			const saved = await this.requestSummaryRepo.save(entity);
-			return saved as any;
-		} catch (error) {
-			this.logger.error('Failed to persist AI request summary', error);
-			return null as any;
-		}
+		const entity = this.requestSummaryRepo.create({
+			adminId: input.adminId,
+			sessionId: input.sessionId,
+			conversationId: input.conversationId,
+			requestId: input.requestId,
+			providerId: input.providerId,
+			modelId: input.modelId,
+			status: input.status as AiRequestSummaryStatus,
+			usagePromptTokens: input.usagePromptTokens,
+			usageCompletionTokens: input.usageCompletionTokens,
+			usageTotalTokens: input.usageTotalTokens,
+			rounds: input.rounds,
+			durationMs: input.durationMs,
+			errorCode: input.errorCode,
+			error: input.error,
+			summary: input.summary,
+			progress: input.progress,
+			providersUsed: input.providersUsed,
+		});
+		return this.requestSummaryRepo.save(entity) as Promise<AiRequestSummaryEntity>;
 	}
 
 	// ---------- Idempotency record helpers (race-safe) ----------
 
-	async findWriteCall(adminId: string, toolName: string, toolCallId: string): Promise<AiWriteToolCallEntity | null> {
+	async findWriteCall(adminId: string, toolName: string, dedupKey: string): Promise<AiWriteToolCallEntity | null> {
 		return this.writeToolCallRepo.findOne({
-			where: { adminId: adminId || null, toolName, toolCallId } as any,
+			where: { adminId: adminId || null, toolName, dedupKey } as any,
 		});
 	}
 
 	/**
-	 * Atomic claim of a PENDING idempotency row keyed by (adminId, toolCallId).
+	 * Atomic claim of a PENDING idempotency row keyed by (adminId, toolName, dedupKey).
 	 * - Fresh rows are claimed via INSERT ... ON CONFLICT DO NOTHING.
 	 * - When a row already exists it may only be re-claimed (stolen) if its status
 	 *   is STALE or FAILED; a fresh PENDING row is owned by another in-flight request.
@@ -124,7 +118,7 @@ export class AiAuditService {
 				})
 				.where('adminId = :adminId', { adminId: input.adminId || null })
 				.andWhere('toolName = :toolName', { toolName: input.toolName })
-				.andWhere('toolCallId = :toolCallId', { toolCallId: input.toolCallId })
+				.andWhere('dedupKey = :dedupKey', { dedupKey: input.dedupKey })
 				.andWhere('status IN (:...statuses)', { statuses: ['STALE', 'FAILED'] })
 				.execute();
 
@@ -138,13 +132,13 @@ export class AiAuditService {
 	async updateWriteCallStatus(
 		adminId: string,
 		toolName: string,
-		toolCallId: string,
+		dedupKey: string,
 		status: AiWriteToolCallStatus,
 		extra: Partial<Pick<AiWriteToolCallEntity, 'result' | 'error' | 'completedAt'>> = {},
 	): Promise<void> {
 		try {
 			await this.writeToolCallRepo.update(
-				{ adminId: adminId || null, toolName, toolCallId } as any,
+				{ adminId: adminId || null, toolName, dedupKey } as any,
 				{
 					status,
 					...(extra.result !== undefined ? { result: extra.result as any } : {}),
@@ -157,15 +151,15 @@ export class AiAuditService {
 		}
 	}
 
-	async completeWriteCall(adminId: string, toolName: string, toolCallId: string, result: unknown): Promise<void> {
-		return this.updateWriteCallStatus(adminId, toolName, toolCallId, AiWriteToolCallStatus.COMPLETED, { result, completedAt: new Date() });
+	async completeWriteCall(adminId: string, toolName: string, dedupKey: string, result: unknown): Promise<void> {
+		return this.updateWriteCallStatus(adminId, toolName, dedupKey, AiWriteToolCallStatus.COMPLETED, { result, completedAt: new Date() });
 	}
 
-	async failWriteCall(adminId: string, toolName: string, toolCallId: string, error: string): Promise<void> {
-		return this.updateWriteCallStatus(adminId, toolName, toolCallId, AiWriteToolCallStatus.FAILED, { error });
+	async failWriteCall(adminId: string, toolName: string, dedupKey: string, error: string): Promise<void> {
+		return this.updateWriteCallStatus(adminId, toolName, dedupKey, AiWriteToolCallStatus.FAILED, { error });
 	}
 
-	async markStale(adminId: string, toolName: string, toolCallId: string): Promise<void> {
-		return this.updateWriteCallStatus(adminId, toolName, toolCallId, AiWriteToolCallStatus.STALE);
+	async markStale(adminId: string, toolName: string, dedupKey: string): Promise<void> {
+		return this.updateWriteCallStatus(adminId, toolName, dedupKey, AiWriteToolCallStatus.STALE);
 	}
 }

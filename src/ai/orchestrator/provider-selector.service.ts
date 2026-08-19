@@ -1,11 +1,11 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { AI_CONFIG_TOKEN, AI_PROVIDER_DEFAULTS } from '../ai.constants';
 import { AiConfig, AiProviderRuntimeConfig } from '../interfaces/provider-config.interface';
 import { AiProviderAbstract, boolEnv, intEnv, floatEnv, strEnv } from '../providers/ai-provider.abstract';
 import { AiProviderError } from '../errors/provider.errors';
-import { AiDefaultModelEntity, AiEntityScope, AiIntegrationEntity, AiIntegrationScope, AiProviderEntity } from '../../../entities/ai.entity';
+import { AiDefaultModelEntity, AiEntityScope, AiIntegrationEntity, AiIntegrationScope, AiModelEntity, AiProviderEntity } from '../../../entities/ai.entity';
 import { EncryptionService } from '../../../common/encryption.service';
 import { Llm7Provider } from '../providers/llm7.provider';
 import { OpenAiProvider } from '../providers/openai.provider';
@@ -15,6 +15,8 @@ import { DeepSeekProvider } from '../providers/deepseek.provider';
 import { GoogleProvider } from '../providers/google.provider';
 import { PollinationsProvider } from '../providers/pollinations.provider';
 import { OpenAiCompatibleProviderImpl } from '../providers/openai-compatible.provider';
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class AiProviderSelectorService implements OnModuleInit {
@@ -39,6 +41,8 @@ export class AiProviderSelectorService implements OnModuleInit {
 		private readonly integrationRepo: Repository<AiIntegrationEntity>,
 		@InjectRepository(AiDefaultModelEntity)
 		private readonly defaultModelRepo: Repository<AiDefaultModelEntity>,
+		@InjectRepository(AiModelEntity)
+		private readonly modelRepo: Repository<AiModelEntity>,
 		private readonly encryptionService: EncryptionService,
 	) {}
 
@@ -60,8 +64,7 @@ export class AiProviderSelectorService implements OnModuleInit {
 
 	async select(requestedName?: string, tenantId?: string | null): Promise<AiProviderAbstract> {
 		if (requestedName) {
-			// UUID → entity-based provider (custom providers via DB)
-			if (requestedName.length === 36 && requestedName.includes('-')) {
+			if (UUID_REGEX.test(requestedName)) {
 				const entity = await this.providerRepo.findOne({
 					where: [
 						{ id: requestedName, isActive: true, adminId: tenantId ?? undefined },
@@ -209,12 +212,12 @@ export class AiProviderSelectorService implements OnModuleInit {
 	}
 
 	async resolveProviderByModelId(modelCode: string, tenantId?: string | null): Promise<string | null> {
-		const model = await this.defaultModelRepo.manager.getRepository('AiModelEntity').findOne({
+		const model = await this.modelRepo.findOne({
 			where: { modelCode },
-			relations: ['provider'],
-		}) as any;
+			relations: ['provider', 'provider.integrations'],
+		});
 
-		if (model?.provider?.isActive) {
+		if (model?.provider?.isActive && this.hasIntegrationConfig(model.provider, tenantId)) {
 			return model.provider.id;
 		}
 
@@ -222,20 +225,87 @@ export class AiProviderSelectorService implements OnModuleInit {
 	}
 
 	async failoverCandidates(excludeName?: string, tenantId?: string | null): Promise<AiProviderAbstract[]> {
-		const out: AiProviderAbstract[] = [];
+		const systemEntities = await this.providerRepo.find({
+			where: {
+				code: In(this.allKinds),
+				isActive: true,
+				adminId: null,
+			},
+			relations: ['models', 'integrations'],
+		});
+
+		let customEntities: AiProviderEntity[] = [];
+		if (tenantId) {
+			customEntities = await this.providerRepo.find({
+				where: {
+					isActive: true,
+					adminId: tenantId,
+				},
+				relations: ['models', 'integrations'],
+			});
+		}
+
+		const entityByKind = new Map<string, AiProviderEntity>();
+		for (const e of systemEntities) {
+			entityByKind.set(e.code, e);
+		}
+
+		const tasks: Array<Promise<AiProviderAbstract | null>> = [];
+
 		for (const kind of this.allKinds) {
 			if (kind === excludeName) continue;
-			const p = this.providersByKind.get(kind);
-			if (!p?.isEnabled()) continue;
-
-			try {
-				const cloned = await this.select(kind, tenantId);
-				if (cloned) out.push(cloned);
-			} catch {
-				// skip providers that fail to resolve
-			}
+			const base = this.providersByKind.get(kind);
+			if (!base?.isEnabled()) continue;
+			const entity = entityByKind.get(kind);
+			if (entity && !this.hasIntegrationConfig(entity, tenantId)) continue;
+			tasks.push(this.buildFromEntity(entity, kind, tenantId, base)
+				.then((p) => {
+					if (p && p.getConfig().entityId && p.getConfig().entityId === excludeName) return null;
+					return p;
+				})
+				.catch((err) => {
+					this.logger.warn(`[failoverCandidates] skip system provider '${kind}': ${err instanceof Error ? err.message : String(err)}`);
+					return null;
+				}));
 		}
+
+		for (const entity of customEntities) {
+			if (excludeName && (entity.id === excludeName || entity.code === excludeName)) continue;
+			if (!this.hasIntegrationConfig(entity, tenantId)) continue;
+			tasks.push(this.buildFromEntity(entity, entity.code, tenantId)
+				.catch((err) => {
+					this.logger.warn(`[failoverCandidates] skip custom provider '${entity.code}' (${entity.id}): ${err instanceof Error ? err.message : String(err)}`);
+					return null;
+				}));
+		}
+
+		const resolved = await Promise.all(tasks);
+		const out = resolved.filter((p): p is AiProviderAbstract => p !== null);
 		return out.sort((a, b) => (a.getConfig().priority ?? 100) - (b.getConfig().priority ?? 100));
+	}
+
+	private async buildFromEntity(
+		entity: AiProviderEntity | null,
+		fallbackKind: string,
+		tenantId?: string | null,
+		baseHint?: AiProviderAbstract,
+	): Promise<AiProviderAbstract | null> {
+		let injectable = baseHint;
+		if (entity) {
+			if (tenantId && entity.adminId && entity.adminId !== tenantId) {
+				return null;
+			}
+			if (!this.hasIntegrationConfig(entity, tenantId)) {
+				return null;
+			}
+			injectable = injectable ?? this.pickInjectableForEntity(entity);
+		}
+		const base = injectable ?? this.llm7;
+		if (!base.isEnabled() && this.enabledProviders().length > 1) {
+			return null;
+		}
+		const runtime = await this.resolveRuntimeConfig(entity, fallbackKind, tenantId);
+		return base.cloneWithRuntime(runtime);
 	}
 
 	listAvailableKinds(): string[] {

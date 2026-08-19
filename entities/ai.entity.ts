@@ -446,7 +446,7 @@ export class AiRequestSummaryEntity {
     updatedAt: Date;
 }
 
-@Index(['adminId', 'toolCallId'], { unique: true })
+@Index(['adminId', 'toolName', 'dedupKey'], { unique: true })
 @Entity('ai_write_tool_calls')
 export class AiWriteToolCallEntity {
     @PrimaryGeneratedColumn('uuid')

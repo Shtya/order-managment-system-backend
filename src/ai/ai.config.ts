@@ -14,7 +14,7 @@ function intEnv(value: string | undefined, fallback: number): number {
 }
 
 export function createAiConfig(env: NodeJS.ProcessEnv = process.env): AiConfig {
-	const enabled = boolEnv(env.AI_MODULE_ENABLED, false);
+	const enabled = boolEnv(env.AI_MODULE_ENABLED, true);
 
 	return {
 		enabled,

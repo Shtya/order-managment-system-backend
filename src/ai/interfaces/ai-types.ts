@@ -123,6 +123,23 @@ export interface AiOrchestrationError {
 	status?: number;
 }
 
+export interface AiOrchestrationDevInfo {
+	phaseTiming: {
+		totalMs: number;
+		phases: Array<{ name: string; ms: number; pct: string; detail?: Record<string, unknown> }>;
+	};
+	nodeEnv: string;
+	requestedProvider?: string;
+	requestedModel?: string;
+	tenantId?: string | null;
+	userId?: string;
+	userRole?: string;
+	providersUsed: string[];
+	modelsUsed: string[];
+	rounds: number;
+	progress: AiProgressEvent[];
+}
+
 export interface AiOrchestrationResult {
 	sessionId: string;
 	requestId: string;
@@ -131,14 +148,15 @@ export interface AiOrchestrationResult {
 	content?: string;
 	toolCalls?: AiToolCall[];
 	usage: AiUsage;
-	providersUsed: string[];
-	modelsUsed: string[];
-	rounds: number;
-	progress: AiProgressEvent[];
+	providersUsed?: string[];
+	modelsUsed?: string[];
+	rounds?: number;
+	progress?: AiProgressEvent[];
 	conversationSummary?: AiConversationSummary;
 	error?: string;
 	errorCode?: string;
 	errorDetails?: AiOrchestrationError;
+	_dev?: AiOrchestrationDevInfo;
 }
 
 export interface AiProviderRequest {

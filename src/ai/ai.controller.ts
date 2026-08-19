@@ -39,7 +39,7 @@ const AI_MANAGE = 'ai.manage';
 
 @ApiTags('AI')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+@UseGuards(AiAccessGuard, JwtAuthGuard, PermissionsGuard)
 @Controller('ai')
 export class AiController {
 	constructor(
@@ -219,6 +219,8 @@ export class AiController {
 			provider: dto.provider,
 			model: dto.model,
 			acceptWriteOperations: dto.acceptWriteOperations,
+			enforcePiiMasking: dto.enforcePiiMasking,
+			allowedToolNames: dto.allowedToolNames,
 			metadata: dto.metadata,
 		});
 	}

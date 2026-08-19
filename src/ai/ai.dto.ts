@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsNotEmpty, IsObject, IsOptional, IsString, IsUUID, MaxLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class AiChatHistoryMessageDto {
@@ -7,6 +7,7 @@ export class AiChatHistoryMessageDto {
 
 	@IsOptional()
 	@IsString()
+	@MaxLength(50_000)
 	content?: string | null;
 
 	@IsOptional()
@@ -34,6 +35,7 @@ export class AiChatRequestDto {
 
 	@IsOptional()
 	@IsArray()
+	@ArrayMaxSize(50)
 	@ValidateNested({ each: true })
 	@Type(() => AiChatHistoryMessageDto)
 	history?: AiChatHistoryMessageDto[];
