@@ -191,6 +191,7 @@ export interface AiAddressCorrectionConfig {
     modelCode?: string;
     shippingCompanyId?: string;
     shippingCompany?: string;
+    providerCode?: string;
     provider?: string;
     branches?: {
         id: string;
