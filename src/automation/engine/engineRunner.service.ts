@@ -347,10 +347,10 @@ export class EngineRunnerService {
     }
 
     if (run.currentNodeId !== step.nodeId) {
-      await this.failRun(
-        run,
-        `Current node ID ${run.currentNodeId} does not match step node ID ${step.nodeId}. Cannot resume.`,
-      );
+      // await this.failRun(
+      //   run,
+      //   `Current node ID ${run.currentNodeId} does not match step node ID ${step.nodeId}. Cannot resume.`,
+      // );
       return {
         success: false,
         message: "Current node ID does not match step node ID",
