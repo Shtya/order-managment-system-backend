@@ -152,7 +152,7 @@ export class AutomationService {
       );
     }
 
-    return await this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const automationRepo = manager.getRepository(AutomationFlowEntity);
       const versionRepo = manager.getRepository(AutomationFlowVersionEntity);
 
@@ -208,16 +208,18 @@ export class AutomationService {
         );
       }
 
-      this.onboardingAchievementService.enqueueAchievement(
-        adminId,
-        GettingStartedAchievementType.FIRST_AUTOMATION_CREATED,
-      );
-
       return {
         ...savedAutomation,
         latestVersion: savedVersion,
       };
     });
+
+    this.onboardingAchievementService.enqueueAchievement(
+      adminId,
+      GettingStartedAchievementType.FIRST_AUTOMATION_CREATED,
+    );
+
+    return result;
   }
 
   async update(me: any, id: string, dto: UpdateAutomationDto) {

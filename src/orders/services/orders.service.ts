@@ -3404,10 +3404,24 @@ export class OrdersService {
       });
     }
 
-    this.onboardingAchievementService.enqueueAchievement(
-      adminId,
-      GettingStartedAchievementType.FIRST_ORDER_CREATED,
-    );
+    // 🔥 Trigger Achievement Queue (after commit)
+    if (queryRunner) {
+      queryRunner.data.postCommitTasks.push(async () => {
+        try {
+          this.onboardingAchievementService.enqueueAchievement(
+            adminId,
+            GettingStartedAchievementType.FIRST_ORDER_CREATED,
+          );
+        } catch (error) {
+          console.error("Error triggering achievement after commit:", error);
+        }
+      });
+    } else {
+      this.onboardingAchievementService.enqueueAchievement(
+        adminId,
+        GettingStartedAchievementType.FIRST_ORDER_CREATED,
+      );
+    }
 
     return saved;
   }

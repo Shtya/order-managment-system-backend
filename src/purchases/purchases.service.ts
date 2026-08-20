@@ -1165,19 +1165,24 @@ export class PurchasesService {
         status === ApprovalStatus.ACCEPTED &&
         oldStatus !== ApprovalStatus.ACCEPTED
       ) {
-        this.onboardingAchievementService.enqueueAchievement(
-          adminId,
-          GettingStartedAchievementType.FIRST_PURCHASE_ACCEPTED,
-        );
+        shouldEnqueueAchievement = true;
       }
       return saved;
     };
 
-    if (manager) {
-      return runWithManager(manager);
-    } else {
-      return this.dataSource.transaction(runWithManager);
+    let shouldEnqueueAchievement = false;
+    const result = manager
+      ? await runWithManager(manager)
+      : await this.dataSource.transaction(runWithManager);
+
+    if (shouldEnqueueAchievement) {
+      this.onboardingAchievementService.enqueueAchievement(
+        adminId,
+        GettingStartedAchievementType.FIRST_PURCHASE_ACCEPTED,
+      );
     }
+
+    return result;
   }
 
   async remove(

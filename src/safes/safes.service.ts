@@ -138,7 +138,7 @@ export class SafesService {
   async createAccount(me: any, dto: CreateAccountDto) {
     const adminId = tenantId(me);
 
-    return await this.dataSource.transaction(async (manager) => {
+    const savedAccount = await this.dataSource.transaction(async (manager) => {
       const existing = await manager.findOne(Account, {
         where: {
           name: dto.name,
@@ -178,13 +178,15 @@ export class SafesService {
         );
       }
 
-      this.onboardingAchievementService.enqueueAchievement(
-        adminId,
-        GettingStartedAchievementType.FIRST_SAFE_CREATED,
-      );
-
       return savedAccount;
     });
+
+    this.onboardingAchievementService.enqueueAchievement(
+      adminId,
+      GettingStartedAchievementType.FIRST_SAFE_CREATED,
+    );
+
+    return savedAccount;
   }
 
   async updateAccount(me: any, id: string, dto: UpdateAccountDto) {

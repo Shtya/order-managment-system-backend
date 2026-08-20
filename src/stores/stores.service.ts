@@ -576,7 +576,8 @@ export class StoresService {
     }
 
     // 3. Transactional Save & Connection Validation
-    return await this.dataSource.transaction(async (manager) => {
+    let shouldEnqueueAchievement = false;
+    const result = await this.dataSource.transaction(async (manager) => {
       const validateConnection = p.code !== StoreProvider.SHOPIFY;
 
       const store = manager.create(StoreEntity, {
@@ -611,10 +612,7 @@ export class StoresService {
               ),
             );
           }
-          this.onboardingAchievementService.enqueueAchievement(
-            adminId,
-            GettingStartedAchievementType.STORE_CONNECTED,
-          );
+          shouldEnqueueAchievement = true;
         } catch (error: any) {
           this.logger.error(
             `Validation failed for ${dto.provider}: ${error.message}`,
@@ -640,6 +638,15 @@ export class StoresService {
         credentialsConfigured: true,
       };
     });
+
+    if (shouldEnqueueAchievement) {
+      this.onboardingAchievementService.enqueueAchievement(
+        adminId,
+        GettingStartedAchievementType.STORE_CONNECTED,
+      );
+    }
+
+    return result;
   }
 
   async upsertIntegrate(me: any, dto: IntegrateDto) {

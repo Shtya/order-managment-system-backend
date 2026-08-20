@@ -206,7 +206,7 @@ export class TriggerDispatcherService {
       `[TriggerDispatcher] createRunAndQueue called for automation ${automation.id}`,
     );
     try {
-      const result = await this.dataSource.transaction(async (manager) => {
+      const savedRun = await this.dataSource.transaction(async (manager) => {
         console.log(
           `[TriggerDispatcher] Starting transaction for createRunAndQueue`,
         );
@@ -260,27 +260,30 @@ export class TriggerDispatcherService {
           `[TriggerDispatcher] Automation run ${savedRun.id} saved successfully`,
         );
 
-        // 2. Push to queue
+        return savedRun;
+      });
+
+      // 2. Push to queue (after transaction commits)
+      if (savedRun) {
         console.log(
           `[TriggerDispatcher] Adding job to flow queue for run ${savedRun.id}`,
         );
         await this.automationQueueService.enqueueStartFlow(
           savedRun.id,
           automation.id,
-          version.id,
+          automation.latestVersion.id,
           automation.adminId,
         );
+        
         console.log(
           `[TriggerDispatcher] Job added to queue successfully for run ${savedRun.id}`,
         );
-
-        return savedRun;
-      });
+      }
 
       console.log(
         `[TriggerDispatcher] createRunAndQueue completed successfully`,
       );
-      return result;
+      return savedRun;
     } catch (error) {
       console.error(`[TriggerDispatcher] Error in createRunAndQueue:`, error);
       throw error;
