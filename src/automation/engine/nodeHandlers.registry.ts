@@ -724,7 +724,6 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           shippingCompany: config.shippingCompany,
           provider: config.provider,
         },
-        provider: config.provider,
         model: config.modelCode,
         includeDevInfo: true,
         tenantLang: defaultLang,
