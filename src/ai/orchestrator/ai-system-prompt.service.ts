@@ -54,7 +54,7 @@ export class AiSystemPromptService {
       "6. Ensure the operation is not already completed, pending, or in an unknown state.",
       "",
       "Never bypass permissions, validation, business rules, or tool restrictions.",
-      "Never retry a write automatically when its final state is unknown or it may already have executed.",
+      "Never retry a write automatically when its final state is unknown or it may have already executed.",
       "",
       "# Write results",
       "- Never claim an operation succeeded unless the tool explicitly confirms success.",
@@ -145,6 +145,27 @@ export class AiSystemPromptService {
     );
 
     return lines.join("\n");
+  }
+
+  /**
+   * Builds system prompt with tenant language support.
+   * and adds a language instruction to the prompt.
+   */
+  buildWithTenantLang(
+    ctx: AiToolContext,
+    options: { locale?: string; tenantLang?: string } = {},
+  ): string {
+    const basePrompt = this.build(ctx, { locale: options.locale });
+
+    if (!options.tenantLang) {
+      return basePrompt;
+    }
+
+    const langInstruction = options.tenantLang === "ar"
+      ? "\n\n# Language\nAlways respond in Arabic."
+      : "\n\n# Language\nAlways respond in English.";
+
+    return basePrompt + langInstruction;
   }
 }
 

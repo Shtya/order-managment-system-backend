@@ -216,6 +216,17 @@ export class AiController {
     return this.svc.deleteModel(req.user, id);
   }
 
+  @ApiOperation({ summary: "Activate or deactivate a model" })
+  @Permissions(AI_MANAGE)
+  @Post("models/:id/active")
+  async toggleModelActive(
+    @Req() req: any,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: { isActive: boolean },
+  ) {
+    return this.svc.toggleModelActive(req.user, id, dto);
+  }
+
   // ──────────────────────────── 5. INTEGRATIONS ────────────────────────────
 
   @ApiOperation({ summary: "List tenant integrations (credentials status)" })

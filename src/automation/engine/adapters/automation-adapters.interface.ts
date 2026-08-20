@@ -5,6 +5,7 @@ import { Upsell, UpsellHistory } from "entities/upsells.entity";
 import { OrderEntity } from "entities/order.entity";
 import { SmsSendLogEntity } from "entities/sms.entity";
 import { IssueEntity, IssuePriority } from "entities/issue.entity";
+import { CreateShipmentDto } from "dto/shipping.dto";
 
 /**
  * Execution mode for automation handlers
@@ -170,4 +171,17 @@ export interface AutomationAdapter {
     previewMode?: boolean;
     skippedSideEffect?: boolean;
   }>;
+
+  /**
+   * Create a shipment for an order
+   * In production: calls ShippingService.createShipment
+   * In preview: returns mock data without side effects
+   */
+  createShipment(
+    user: { adminId: string; id: string | null; role?: any },
+    providerCode: string,
+    dto: CreateShipmentDto,
+    orderId: string,
+    options?: { emitSocket?: boolean },
+  ): Promise<any>;
 }

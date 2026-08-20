@@ -17,7 +17,7 @@ const DEFAULT_CONFIG: QueueDelayConfig = {
   maxDelayMs: 5000,
   jitterFactor: 0.3,
   maxPerUser: 1,
-  lockTimeout: 60000,
+  lockTimeout:  5 * 60 * 1000, // 5 minutes
   keyPrefix: "user-slot",
 };
 

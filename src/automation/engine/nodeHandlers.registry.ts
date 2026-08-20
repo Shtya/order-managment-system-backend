@@ -10,7 +10,9 @@ import {
 } from "@nestjs/common";
 import {
   ActionType,
+  AiAddressCorrectionConfig,
   AssignOrderToEmployeeConfig,
+  AssignShippingProviderConfig,
   AutomationRunEntity,
   ConditionType,
   CreateIssueConfig,
@@ -49,6 +51,8 @@ import { Company, User } from "entities/user.entity";
 import { Language } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
+import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.service";
+import { AiOrchestrationResult } from "src/ai/interfaces/ai-types";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -648,6 +652,275 @@ export class ActionUpdateOrderStatusHandler extends FlowNodeHandler {
         success: false,
         shouldPause: false,
         error: "The order status could not be updated successfully.",
+      };
+    }
+  }
+}
+
+@Injectable()
+export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
+  private readonly logger = new Logger(ActionAiAddressCorrectionHandler.name);
+
+  constructor(
+    @InjectRepository(OrderEntity)
+    protected readonly orderRepo: Repository<OrderEntity>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    private readonly aiOrchestrator: AiOrchestratorService,
+    private readonly clientSettingsService: ClientSettingsService,
+  ) {
+    super(orderRepo);
+  }
+
+  async execute(
+    config: AiAddressCorrectionConfig,
+    run: AutomationRunEntity,
+  ): Promise<NodeHandlerResponse> {
+    try {
+      const orderData = await this.getOrder(run.executionState.trigger.output);
+      if (!orderData?.id) {
+        return {
+          success: true,
+          shouldPause: false,
+          chosenBranch: "failed_to_correct",
+          output: { reason: "Order data not available for address correction" },
+        };
+      }
+
+      const admin = await this.userRepo.findOne({
+        where: { id: run.adminId },
+        relations: ["role"],
+      });
+
+      if (!admin) {
+        return {
+          success: true,
+          shouldPause: false,
+          chosenBranch: "failed_to_correct",
+          output: { reason: "Admin user not found" },
+        };
+      }
+
+      const settings = await this.clientSettingsService.getSettings(admin);
+      const defaultLang = settings?.defaultLang || "en";
+
+      const prompt = this.buildPrompt(orderData, config);
+
+      const chatResult = await this.aiOrchestrator.chat(admin, prompt, {
+        acceptWriteOperations: true,
+        allowedToolNames: [
+          "get_city",
+          "get_cities",
+          "get_areas_by_city",
+          "get_shipping_zones",
+          "get_shipping_districts",
+          "get_location_by_coordinates",
+          "bulk_update_orders_shipping",
+        ],
+        metadata: {
+          orderId: orderData.id,
+          orderNumber: orderData.orderNumber,
+          shippingCompanyId: config.shippingCompanyId,
+          shippingCompany: config.shippingCompany,
+          provider: config.provider,
+        },
+        includeDevInfo: true,
+        tenantLang: defaultLang,
+      });
+
+      return decideAddressCorrectionBranch(chatResult);
+    } catch (error) {
+      this.logger.error(
+        `Failed to correct order address: ${error?.message}`,
+        error?.stack,
+      );
+
+      return {
+        success: true,
+        shouldPause: false,
+        chosenBranch: "failed_to_correct",
+        error: error?.message || "Address correction failed",
+      };
+    }
+  }
+
+  private buildPrompt(orderData: any, config: AiAddressCorrectionConfig): string {
+    const shippingCompanyInfo = config.shippingCompany
+      ? `\n- Selected Shipping Company: ${config.shippingCompany} (${config.provider})`
+      : "";
+
+    const locationAddress = orderData.locationAddress || "";
+    const locationName = orderData.locationName || "";
+    const latitude = orderData.latitude;
+    const longitude = orderData.longitude;
+    const address = orderData.address || "";
+    const city = orderData.city || "";
+    const area = orderData.area || "";
+    const landmark = orderData.landmark || "";
+
+    return `You are an AI assistant that prepares order shipping information for distribution by a shipping company. Your task is to ensure the order has the correct city, and the required shipping details (zone, district) for the selected shipping company.
+
+## Order Data
+- Order ID: ${orderData.id}
+- Order Number: ${orderData.orderNumber}
+- Current City: ${city || "not set"}
+- Current Area: ${area || "not set"}
+- Current Address: ${address || "not set"}
+- Landmark: ${landmark || "not set"}
+- Location Address: ${locationAddress || "not set"}
+- Location Name: ${locationName || "not set"}
+- Latitude: ${latitude ?? "not set"}
+- Longitude: ${longitude ?? "not set"}
+- City ID: ${orderData.cityId || "not set"}
+${shippingCompanyInfo}
+
+## Available Tools
+- \`get_cities\` - List all unified cities with their provider locations (includes dropOff/pickup availability)
+- \`get_city\` - Get a single city by ID with provider locations
+- \`get_areas_by_city\` - List areas for a unified city
+- \`get_shipping_zones\` - List zones for a shipping provider city
+- \`get_shipping_districts\` - List districts for a shipping provider city
+- \`get_location_by_coordinates\` - Get location details from latitude/longitude
+- \`bulk_update_orders_shipping\` - Update order shipping fields
+
+## Address Sources (priority order)
+1. Primary: \`locationAddress\`, \`locationName\`, \`latitude\`, \`longitude\`
+2. Fallback: \`address\`, \`city\`, \`area\`, \`landmark\`
+
+## Your Task
+1. Determine the correct city using \`get_cities\`
+2. Use \`get_location_by_coordinates\` if address fields are ambiguous
+3. Find the provider location mapping for the shipping company
+4. Check if the city supports dropOff for this provider (if not, the order may need special handling)
+5. Fetch zones/districts using the provider's external city ID
+6. Select the correct zone/district based on the address
+7. Update using \`bulk_update_orders_shipping\` with:
+   - \`code\`: The provider code (e.g. "bosta", "turbo")
+   - \`items\`: [{ \`id\`: orderUuid, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
+8. **Do NOT update if unsure about the location**
+
+## Response
+Explain briefly what you found and what you did (or why you couldn't update). Use simple, everyday language that any user can understand. Avoid technical terms.`;
+  }
+}
+
+function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeHandlerResponse {
+  const progress = !chatResult.progress?.length ? chatResult?._dev?.progress : chatResult.progress;
+  const toolResults = progress?.filter(
+      (event) => event.type === "tool_result",
+    ) ?? [];
+
+  const updateResult = toolResults.find(
+    (event) => event.toolName === "bulk_update_orders_shipping",
+  );
+
+  if (updateResult?.result?.ok) {
+    return {
+      success: true,
+      chosenBranch: "address_corrected",
+      output: { ...(updateResult.result.data as Record<string, unknown>), aiComment: chatResult.content },
+    };
+  }
+
+  if (updateResult && !updateResult.result?.ok) {
+    return {
+      success: true,
+      chosenBranch: "failed_to_correct",
+      error: updateResult.result?.error,
+      output: { aiComment: chatResult.content },
+    };
+  }
+
+  return {
+    success: true,
+    chosenBranch: "address_incomplete",
+    output: {
+      aiComment: chatResult.content,
+    },
+  };
+}
+
+@Injectable()
+export class ActionAssignShippingProviderHandler extends FlowNodeHandler {
+  private readonly logger = new Logger(ActionAssignShippingProviderHandler.name);
+
+  constructor(
+    @InjectRepository(OrderEntity)
+    protected readonly orderRepo: Repository<OrderEntity>,
+    private readonly adapter: AutomationAdapter,
+  ) {
+    super(orderRepo);
+  }
+
+  async execute(
+    config: AssignShippingProviderConfig,
+    run: AutomationRunEntity,
+  ): Promise<NodeHandlerResponse> {
+    try {
+      const orderData = await this.getOrder(run.executionState.trigger.output);
+      if (!orderData?.id) {
+        return {
+          success: true,
+          shouldPause: false,
+          chosenBranch: "failed_to_distribute",
+          output: { reason: "Order data not available for shipping assignment" },
+        };
+      }
+
+      const me = {
+        adminId: orderData.adminId || run.initialPayload?.adminId,
+        id: run.initialPayload?.userId || null,
+        role: run.initialPayload?.role,
+      };
+
+      let selectedProvider = config.provider;
+      let selectedCompanyId = config.shippingCompanyId;
+      let selectedCompanyName = config.shippingCompany;
+
+      if (!selectedProvider) {
+        return {
+          success: true,
+          shouldPause: false,
+          chosenBranch: "failed_to_distribute",
+          output: {
+            orderId: orderData.id,
+            reason: "Selected shipping provider is unavailable",
+          },
+        };
+      }
+
+      const shipment = await this.adapter.createShipment(
+        me,
+        selectedProvider as any,
+        {},
+        orderData.id,
+        { emitSocket: false },
+      );
+
+      return {
+        success: true,
+        shouldPause: false,
+        chosenBranch: "distributed",
+        output: {
+          orderId: orderData.id,
+          shippingCompanyId: selectedCompanyId,
+          shippingCompany: selectedCompanyName,
+          provider: selectedProvider,
+          shipment,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to assign shipping provider: ${error?.message}`,
+        error?.stack,
+      );
+
+      return {
+        success: false,
+        shouldPause: false,
+        chosenBranch: "failed_to_distribute",
+        error: error?.message || "Shipping provider assignment failed",
+        
       };
     }
   }
@@ -1705,6 +1978,7 @@ export class NodeHandlersRegistry {
     private readonly clientSettingsService: ClientSettingsService,
     @Inject(forwardRef(() => AutomationQueueService))
     private readonly automationQueueService: AutomationQueueService,
+    private readonly aiOrchestrator: AiOrchestratorService,
   ) {
     this.registerHandlers();
   }
@@ -1722,6 +1996,17 @@ export class NodeHandlersRegistry {
     this.handlers.set(
       ActionType.UPDATE_ORDER_STATUS,
       new ActionUpdateOrderStatusHandler(this.adapter, this.orderRepo),
+    );
+    this.handlers.set(
+      ActionType.AI_ADDRESS_CORRECTION,
+      new ActionAiAddressCorrectionHandler(this.orderRepo, this.userRepo, this.aiOrchestrator, this.clientSettingsService),
+    );
+    this.handlers.set(
+      ActionType.ASSIGN_SHIPPING_PROVIDER,
+      new ActionAssignShippingProviderHandler(
+        this.orderRepo,
+        this.adapter,
+      ),
     );
     this.handlers.set(
       ActionType.SEND_WHATSAPP_TEMPLATE,

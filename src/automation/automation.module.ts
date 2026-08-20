@@ -44,6 +44,8 @@ import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
 import { AutomationSubscriber } from "./automation-subscriber";
 import { SmsModule } from "src/sms/sms.module";
 import { IssueModule } from "src/issue/issue.module";
+import { ShippingModule } from "src/shipping/shipping.module";
+import { AiModule } from "src/ai/ai.module";
 
 @Module({
   imports: [
@@ -53,6 +55,8 @@ import { IssueModule } from "src/issue/issue.module";
     forwardRef(() => OrdersModule),
     forwardRef(() => WhatsappModule),
     forwardRef(() => OrderAssignmentModule),
+    forwardRef(() => ShippingModule),
+    forwardRef(() => AiModule),
     IssueModule,
     NotificationModule,
     WebSocketModule,

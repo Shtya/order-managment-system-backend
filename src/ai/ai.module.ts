@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import {
   AiIntegrationEntity,
@@ -50,10 +50,10 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
       AiWriteToolCallEntity,
       AiDefaultModelEntity,
     ]),
-    OrdersModule,
-    ShippingModule,
-    WhatsappModule,
-    CitiesModule,
+    forwardRef(() => OrdersModule),
+    forwardRef(() => ShippingModule),
+    forwardRef(() => WhatsappModule),
+    forwardRef(() => CitiesModule),
   ],
   controllers: [AiController],
   providers: [

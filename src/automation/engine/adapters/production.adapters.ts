@@ -22,6 +22,8 @@ import { SmsService } from "src/sms/sms.service";
 import { isArray } from "class-validator";
 import { IssueService } from "src/issue/issue.service";
 import { IssuePriority } from "entities/issue.entity";
+import { ShippingService } from "src/shipping/shipping.service";
+import { CreateShipmentDto } from "dto/shipping.dto";
 
 /**
  * Production implementation of AutomationAdapter
@@ -46,6 +48,8 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     private readonly orderAssignmentService: OrderAssignmentService,
     private readonly smsService: SmsService,
     private readonly issueService: IssueService,
+    @Inject(forwardRef(() => ShippingService))
+    private readonly shippingService: ShippingService,
   ) {}
 
   async changeStatus(
@@ -226,5 +230,21 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
         success: false,
       };
     }
+  }
+
+  async createShipment(
+    user: { adminId: string; id: string | null; role?: any },
+    providerCode: string,
+    dto: CreateShipmentDto,
+    orderId: string,
+    options: { emitSocket?: boolean } = { emitSocket: false },
+  ) {
+    return this.shippingService.createShipment(
+      user,
+      providerCode as any,
+      dto,
+      orderId,
+      options,
+    );
   }
 }

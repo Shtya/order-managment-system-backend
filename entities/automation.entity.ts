@@ -106,6 +106,8 @@ export class AutomationFlowEntity {
 
 export enum ActionType {
     UPDATE_ORDER_STATUS = 'update_order_status',
+    AI_ADDRESS_CORRECTION = 'ai_address_correction',
+    ASSIGN_SHIPPING_PROVIDER = 'assign_shipping_provider',
     SEND_WHATSAPP_TEMPLATE = 'send_whatsapp_template',
     SEND_WHATSAPP_MESSAGE = 'send_whatsapp_message',
     SEND_UPSELL = 'send_upsell',
@@ -155,6 +157,8 @@ export type NodeConfig =
     OrderCreatedConfig |
     OrderUpdatedConfig |
     UpdateOrderStatusConfig |
+    AiAddressCorrectionConfig |
+    AssignShippingProviderConfig |
     SendWhatsappTemplateConfig |
     SendSmsConfig |
     SendUpsellConfig |
@@ -177,6 +181,34 @@ export interface SendUpsellConfig {
 export interface AssignOrderToEmployeeConfig {
     employeeId?: string;
     employeeName?: string;
+}
+
+export interface AiAddressCorrectionConfig {
+    providerId: string;
+    providerName?: string;
+    modelId: string;
+    modelName?: string;
+    modelCode?: string;
+    shippingCompanyId?: string;
+    shippingCompany?: string;
+    provider?: string;
+    branches?: {
+        id: string;
+        label: string;
+        condition: string;
+    }[];
+}
+
+export interface AssignShippingProviderConfig {
+    mode?: 'auto' | 'manual';
+    shippingCompanyId?: string;
+    shippingCompany?: string;
+    provider?: string;
+    branches?: {
+        id: string;
+        label: string;
+        condition: string;
+    }[];
 }
 
 export interface OrderCreatedConfig {

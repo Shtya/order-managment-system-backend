@@ -78,6 +78,13 @@ export class CitiesService {
     });
   }
 
+  async findOneWithProviders(id: string) {
+    return this.cityRepo.findOne({
+      where: { id },
+      relations: ["providerLocations"],
+    });
+  }
+
   async findAreas(cityId: string) {
     return this.areaRepo.find({
       where: { cityId },

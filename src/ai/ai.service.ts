@@ -258,7 +258,7 @@ export class AiService {
 
     if (isActive !== undefined) {
       if (scope === AiEntityScope.SYSTEM) {
-        qb.where("p.adminId IS NULL AND p.isActive = :isActive", { isActive });
+        qb.where("p.adminId IS NULL AND p.isActive = true");
       } else if (scope === AiEntityScope.CUSTOM) {
         if (!adminId) return { records: [] };
         qb.where("p.adminId = :adminId AND p.isActive = :isActive", {
@@ -272,13 +272,15 @@ export class AiService {
           });
         } else if (adminId) {
           qb.where(
-            "(p.adminId IS NULL OR p.adminId = :adminId) AND p.isActive = :isActive",
-            { adminId, isActive },
-          );
-        } else {
-          qb.where("p.adminId IS NULL AND p.isActive = :isActive", {
+          "(p.adminId IS NULL AND p.isActive = true) OR " +
+            "(p.adminId = :adminId AND p.isActive = :isActive)",
+          {
+            adminId,
             isActive,
-          });
+          },
+        );
+        } else {
+           qb.where("p.adminId IS NULL AND p.isActive = true");
         }
       }
     } else {
@@ -333,6 +335,7 @@ export class AiService {
         id: model.id,
         displayName: model.name,
         modelCode: model.modelCode,
+        isActive: model.isActive,
       })),
     }));
 
@@ -721,6 +724,19 @@ export class AiService {
     const model = await this.findModelWithAccess(me, id);
     this.ensureWritable({ adminId: model.adminId, scope: model.scope }, me);
     await this.modelRepo.remove(model);
+  }
+
+  async toggleModelActive(
+    me: any,
+    modelId: string,
+    dto: { isActive: boolean },
+  ) {
+    const model = await this.findModelWithAccess(me, modelId);
+    this.ensureWritable({ adminId: model.adminId, scope: model.scope }, me);
+
+    model.isActive = dto.isActive;
+    await this.modelRepo.save(model);
+    return { ok: true, isActive: dto.isActive };
   }
 
   // ──────────────────────────── INTEGRATIONS ────────────────────────────

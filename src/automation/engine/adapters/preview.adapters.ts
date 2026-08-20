@@ -25,6 +25,7 @@ import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
 import { SmsSendLogEntity, SmsSendStatus } from "entities/sms.entity";
 import { IssuePriority } from "entities/issue.entity";
+import { CreateShipmentDto } from "dto/shipping.dto";
 
 /**
  * Preview implementation of AutomationAdapter
@@ -301,6 +302,26 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
       success: true,
       issueId: mockIssue.id,
       issue: mockIssue,
+      previewMode: true,
+      skippedSideEffect: true,
+    };
+  }
+
+  async createShipment(
+    user: { adminId: string; id: string | null; role?: any },
+    providerCode: string,
+    dto: CreateShipmentDto,
+    orderId: string,
+    options: { emitSocket?: boolean } = { emitSocket: false },
+  ) {
+    this.logger.log(
+      `[PREVIEW] Skipping actual shipment creation for order ${orderId} with provider ${providerCode}`,
+    );
+
+    return {
+      id: `preview-${randomUUID()}`,
+      orderId,
+      providerCode,
       previewMode: true,
       skippedSideEffect: true,
     };

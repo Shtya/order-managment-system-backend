@@ -87,6 +87,8 @@ export interface AiChatOptions {
   enforcePiiMasking?: boolean;
   allowedToolNames?: string[];
   metadata?: Record<string, unknown>;
+  includeDevInfo?: boolean;
+  tenantLang?: string;
 }
 
 const FORCE_ANSWER_NOTE =
@@ -154,7 +156,11 @@ export class AiOrchestratorService {
     const messages: AiChatMessage[] = [];
     messages.push({
       role: "system",
-      content: this.systemPromptService.build(ctx),
+      content: options.tenantLang
+        ? this.systemPromptService.buildWithTenantLang(ctx, {
+            tenantLang: options.tenantLang,
+          })
+        : this.systemPromptService.build(ctx),
     });
     timer.stop({ systemPromptLen: messages[0].content?.length ?? 0 });
 
@@ -270,7 +276,7 @@ export class AiOrchestratorService {
     const nodeEnv = process.env.NODE_ENV?.toLowerCase() ?? "development";
     const isDevEnv =
       nodeEnv === "development" || nodeEnv === "dev" || nodeEnv === "local";
-    if (isDevEnv) {
+    if (isDevEnv || options.includeDevInfo) {
       const devInfo: AiOrchestrationDevInfo = {
         phaseTiming: summary,
         nodeEnv: process.env.NODE_ENV ?? "development",
