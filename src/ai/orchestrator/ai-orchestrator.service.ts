@@ -235,24 +235,8 @@ export class AiOrchestratorService {
         outcome: "exception",
         errorKind: errorDetails?.kind,
       });
-      timer.start("finalize.errorPath");
-      const finalized = this.finalize(
-        ctx,
-        execution,
-        {
-          error: error.message ?? String(error),
-          errorCode: errorDetails?.kind,
-          errorDetails,
-        },
-        masked.pairs,
-        timer,
-      );
-      finalResult = finalized.finalResult;
-      providersUsed = finalized.providersUsed;
-      modelsUsed = finalized.modelsUsed;
-      rounds = finalized.rounds;
-      progress = finalized.progress;
-      timer.stop({ ok: finalResult.ok });
+
+      throw error;
     }
 
     const summary = timer.summarize();
