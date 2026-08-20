@@ -82,6 +82,7 @@ export interface AiChatOptions {
   conversationId?: string;
   history?: AiChatMessage[];
   provider?: string;
+  providerId?: string;
   model?: string;
   acceptWriteOperations?: boolean;
   enforcePiiMasking?: boolean;
@@ -129,6 +130,7 @@ export class AiOrchestratorService {
       userRoleName: me?.role?.name,
       userPermissionNames: me?.role?.permissionNames ?? [],
       provider: options.provider,
+      providerId: options.providerId,
       model: options.model,
       metadata: options.metadata,
       enforcePiiMasking: options.enforcePiiMasking ?? false,
@@ -186,7 +188,8 @@ export class AiOrchestratorService {
       sessionId,
       userId: session.userId,
       tenantId: session.tenantId,
-      requestedProvider: session.provider ?? "default",
+      requestedProvider: session.provider ?? session.providerId ?? "default",
+      requestedProviderId: session.providerId ?? null,
       requestedModel: session.model ?? "none",
       totalBootstrapMs: timer.sinceStartMs(),
     });
@@ -265,6 +268,7 @@ export class AiOrchestratorService {
         phaseTiming: summary,
         nodeEnv: process.env.NODE_ENV ?? "development",
         requestedProvider: session.provider,
+        requestedProviderId: session.providerId,
         requestedModel: session.model,
         tenantId: session.tenantId,
         userId: session.userId,
@@ -438,13 +442,18 @@ export class AiOrchestratorService {
     candidates: AiProviderAbstract[];
     userExplicitChoice: boolean;
   }> {
-    const userExplicitChoice = !!(ctx.session.provider || ctx.session.model);
-    let requested = ctx.session.provider ?? this.config.defaultProvider;
+    const userExplicitChoice = !!(
+      ctx.session.provider ||
+      ctx.session.providerId ||
+      ctx.session.model
+    );
+    let requested =
+      ctx.session.provider ?? ctx.session.providerId ?? this.config.defaultProvider;
     const requestedModel = ctx.session.model;
     let usedDefaultModel = false;
     let usedModelLookup = false;
 
-    if (!ctx.session.provider) {
+    if (!ctx.session.provider && !ctx.session.providerId) {
       if (requestedModel) {
         const t0 = performance.now();
         const providerByModel =
@@ -525,6 +534,7 @@ export class AiOrchestratorService {
         {
           requestId: ctx.requestId,
           primary: primary.kind,
+          requestedProviderId: ctx.session.providerId ?? null,
           selectMs,
           usedDefaultModel,
           usedModelLookup,

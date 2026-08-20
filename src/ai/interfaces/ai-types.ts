@@ -60,6 +60,7 @@ export interface AiExecutionSession {
   userRoleName?: string;
   userPermissionNames?: string[];
   provider?: string;
+  providerId?: string;
   model?: string;
   metadata?: Record<string, unknown>;
   allowedToolNames?: string[];
@@ -132,6 +133,7 @@ export interface AiOrchestrationDevInfo {
   };
   nodeEnv: string;
   requestedProvider?: string;
+  requestedProviderId?: string;
   requestedModel?: string;
   tenantId?: string | null;
   userId?: string;

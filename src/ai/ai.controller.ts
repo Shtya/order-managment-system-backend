@@ -290,6 +290,7 @@ export class AiController {
     return this.orchestrator.chat(req.user, dto.message, {
       conversationId: dto.conversationId,
       provider: dto.provider,
+      providerId: dto.providerId,
       model: dto.model,
       acceptWriteOperations: dto.acceptWriteOperations,
       enforcePiiMasking: dto.enforcePiiMasking,

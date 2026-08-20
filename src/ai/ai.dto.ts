@@ -66,6 +66,10 @@ export class AiChatRequestDto {
   provider?: string;
 
   @IsOptional()
+  @IsUUID()
+  providerId?: string;
+
+  @IsOptional()
   @IsString()
   model?: string;
 
