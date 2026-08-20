@@ -383,12 +383,13 @@ export class OrderAssignmentService {
 
     const qb = this.userRepo
       .createQueryBuilder("user")
-      .leftJoin("user.role", "role") // لتمكين الفلترة بالـ role
-      .leftJoin(
+      .leftJoin("user.role", "role")
+      .innerJoin(
         "user.assignments",
         "assignment",
         "assignment.isAssignmentActive = true",
       )
+      .innerJoin("assignment.order", "o")
       .where("user.adminId = :adminId", { adminId })
       .select([
         "user.id",

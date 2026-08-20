@@ -1066,9 +1066,9 @@ export class DashboardService {
     const oaJoinOn =
       oaRangeParts.length > 0 ? oaRangeParts.join(" AND ") : "1=1";
 
-    qb.leftJoin("u.assignments", "oa", oaJoinOn)
+    qb.innerJoin("u.assignments", "oa", oaJoinOn)
+      .innerJoin("oa.order", "o")
       .leftJoin("oa.lastStatus", "la")
-      .leftJoin("oa.order", "o")
       .leftJoin("o.status", "st");
 
     if (start) qb.setParameter("empPerfRangeStart", start);
@@ -1115,6 +1115,7 @@ export class DashboardService {
         return sub
           .select("COUNT(DISTINCT oa_active.orderId)", "activeCount")
           .from(OrderAssignmentEntity, "oa_active")
+          .innerJoin("oa_active.order", "o_active")
           .where("oa_active.employeeId = u.id")
           .andWhere("oa_active.isAssignmentActive = true");
       }, "activeAssignments")
@@ -1122,6 +1123,7 @@ export class DashboardService {
         return sub
           .select("COUNT(DISTINCT oa_locked.id)", "lockedCount")
           .from(OrderAssignmentEntity, "oa_locked")
+          .innerJoin("oa_locked.order", "o_locked")
           .where("oa_locked.employeeId = u.id")
           .andWhere("oa_locked.lockedUntil > CURRENT_TIMESTAMP");
       }, "lockedAssignments")
