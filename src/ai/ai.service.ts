@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -66,6 +67,8 @@ const PROTOCOL_AUTH_MAP: Record<string, AiAuthType> = {
 
 @Injectable()
 export class AiService {
+  private readonly logger = new Logger(AiService.name);
+
   constructor(
     @InjectRepository(AiProviderEntity)
     private readonly providerRepo: Repository<AiProviderEntity>,
@@ -948,7 +951,10 @@ export class AiService {
 
   async setCredentials(me: any, providerId: string, dto: SetCredentialsDto) {
     const myAdminId = tenantId(me);
+    this.logger.log(`setCredentials called for providerId=${providerId} adminId=${myAdminId}`);
+
     if (!myAdminId) {
+      this.logger.warn(`setCredentials rejected: no adminId (tenant) for providerId=${providerId}`);
       throw new ForbiddenException(
         this.translations.t("domains.ai.provider_not_custom"),
       );
@@ -956,21 +962,26 @@ export class AiService {
 
     const provider = await this.findProviderWithAccess(me, providerId);
     const authType = provider.authType ?? AiAuthType.API_KEY;
+    this.logger.log(`setCredentials provider found: id=${provider.id} code=${provider.code} authType=${authType}`);
 
     if (dto.credentials?.apiKey) {
+      this.logger.log(`setCredentials testing apiKey for providerId=${providerId} baseUrl=${dto.baseUrl ?? "default"}`);
       const testResult = await this.testProvider(
         provider,
         { apiKey: dto.credentials.apiKey },
         dto.baseUrl,
       );
       if (!testResult.valid) {
+        this.logger.warn(`setCredentials apiKey test FAILED for providerId=${providerId}: ${testResult.message}`);
         throw new BadRequestException(
           testResult.message ??
           this.translations.t("domains.ai.credentials_invalid_api_key"),
         );
       }
+      this.logger.log(`setCredentials apiKey test passed for providerId=${providerId}`);
     }
 
+    this.logger.log(`setCredentials starting transaction for providerId=${providerId} adminId=${myAdminId}`);
     const result = await this.dataSource.transaction(async (mgr) => {
       let integration = await mgr.findOne(AiIntegrationEntity, {
         where: { providerId, adminId: myAdminId },
@@ -981,10 +992,12 @@ export class AiService {
         : undefined;
 
       if (integration) {
+        this.logger.log(`setCredentials updating existing integration id=${integration.id} for providerId=${providerId}`);
         integration.baseUrl = dto.baseUrl ?? integration.baseUrl;
         if (encrypted) (integration as any).encryptedCredentials = encrypted;
         integration.authType = authType;
       } else {
+        this.logger.log(`setCredentials creating new integration for providerId=${providerId} adminId=${myAdminId}`);
         integration = mgr.create(AiIntegrationEntity, {
           providerId,
           adminId: myAdminId,
@@ -997,6 +1010,7 @@ export class AiService {
       }
 
       const saved = await mgr.save(integration);
+      this.logger.log(`setCredentials integration saved id=${saved.id} for providerId=${providerId}`);
 
       return {
         credentialsConfigured: true,
@@ -1005,15 +1019,18 @@ export class AiService {
 
     if (dto.credentials?.apiKey) {
       try {
+        this.logger.log(`setCredentials syncing models for providerId=${providerId}`);
         await this.syncModels(me, providerId, {
           apiKey: dto.credentials.apiKey,
           baseUrl: dto.baseUrl,
         });
-      } catch {
-        // sync failure should not block credential setting
+        this.logger.log(`setCredentials models synced for providerId=${providerId}`);
+      } catch (err) {
+        this.logger.warn(`setCredentials model sync failed for providerId=${providerId}: ${err?.message}`);
       }
     }
 
+    this.logger.log(`setCredentials completed successfully for providerId=${providerId}`);
     return result;
   }
 
