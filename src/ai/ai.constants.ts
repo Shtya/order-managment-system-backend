@@ -24,7 +24,7 @@ export type AiProviderName = (typeof AI_PROVIDERS)[number];
 export const AI_USE_DEPRECATED_EXTRA_FEATURE_FLAG = false;
 
 export const PROVIDER_REQUEST_TIMEOUT_MS = 90_000;
-export const PROVIDER_FUNCTION_CALLING_TIMEOUT_MS = 30_000;
+export const PROVIDER_FUNCTION_CALLING_TIMEOUT_MS = 100_000;
 export const PROVIDER_RETRY_BASE_DELAY_MS = 750;
 export const PROVIDER_RETRY_MAX_DELAY_MS = 6_000;
 

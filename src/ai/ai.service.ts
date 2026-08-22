@@ -457,6 +457,7 @@ export class AiService {
         );
 
         if (!testResult.valid) {
+          this.logger.warn(`createProvider apiKey test FAILED for providerId=${p.id}: ${testResult.message}`);
           throw new BadRequestException(
             testResult.message ??
             this.translations.t("domains.ai.credentials_invalid_api_key"),
@@ -476,13 +477,22 @@ export class AiService {
           encryptedCredentials: encrypted,
           isActive: true,
         });
-        await mgr.save(integration);
+        const savedInt = await mgr.save(integration);
       }
 
       return p;
     });
 
-
+    if (credentials?.apiKey) {
+      try {
+        await this.syncModels(me, saved.id, {
+          apiKey: credentials.apiKey,
+          baseUrl,
+        });
+      } catch {
+        // sync failure should not block provider creation
+      }
+    }
 
     return saved;
   }
@@ -1282,6 +1292,7 @@ export class AiService {
     credentials?: { apiKey?: string; baseUrl?: string },
   ) {
     const adminId = tenantId(me);
+
     const provider = await this.findProviderWithAccess(me, providerId);
 
     const baseProvider = this.resolveBaseProvider(provider);
@@ -1321,7 +1332,7 @@ export class AiService {
             runtimeConfig.baseUrl = integration.baseUrl;
           }
         } catch {
-          // proceed without credentials
+          this.logger.warn(`syncModels failed to decrypt integration credentials for providerId=${providerId}`);
         }
       } else if (integration?.baseUrl && !runtimeConfig.baseUrl) {
         runtimeConfig.baseUrl = integration.baseUrl;
