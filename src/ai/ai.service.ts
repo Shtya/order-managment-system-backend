@@ -982,7 +982,7 @@ export class AiService {
     }
 
     this.logger.log(`setCredentials starting transaction for providerId=${providerId} adminId=${myAdminId}`);
-    const result = await this.dataSource.transaction(async (mgr) => {
+    const integration = await this.dataSource.transaction(async (mgr) => {
       let integration = await mgr.findOne(AiIntegrationEntity, {
         where: { providerId, adminId: myAdminId },
       });
@@ -1009,12 +1009,7 @@ export class AiService {
         });
       }
 
-      const saved = await mgr.save(integration);
-      this.logger.log(`setCredentials integration saved id=${saved.id} for providerId=${providerId}`);
-
-      return {
-        credentialsConfigured: true,
-      };
+      return await mgr.save(integration);
     });
 
     if (dto.credentials?.apiKey) {
@@ -1031,7 +1026,10 @@ export class AiService {
     }
 
     this.logger.log(`setCredentials completed successfully for providerId=${providerId}`);
-    return result;
+    return {
+      credentialsConfigured: true,
+      integrationId: integration.id,
+    };
   }
 
   async testCredentials(me: any, providerId: string, modelCode?: string) {
