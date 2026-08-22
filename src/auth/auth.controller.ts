@@ -66,7 +66,7 @@ export class AuthController {
     return await this.auth.resendRegisterOtp(dto.email);
   }
 
-  @Throttle({ default: { limit: 10, ttl: minutes(1) } })
+  @Throttle({ login: { limit: 10, ttl: minutes(1) } })
   @Post("login")
   login(@Body() dto: LoginDto) {
     return this.auth.login(dto.email, dto.password);

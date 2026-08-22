@@ -100,6 +100,14 @@ import { config as loadEnvFile } from "dotenv";
           ttl: minutes(1),
           limit: 300,
         },
+        {
+          name: "login",
+          ttl: minutes(1),
+          limit: 10,
+          skipIf: (context: ExecutionContext) =>
+            context.getClass().name !== "AuthController" ||
+            context.getHandler().name !== "login",
+        },
       ],
       errorMessage: "Too many attempts. Please wait before trying again.",
       generateKey: (
