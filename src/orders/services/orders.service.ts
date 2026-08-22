@@ -106,6 +106,7 @@ import {
 } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { CancelCausesService } from "src/cancel-causes/cancel-causes.service";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -187,6 +188,8 @@ export class OrdersService {
     private readonly translations: TranslationService,
     private requestTranslations: RequestTranslationService,
     private readonly onboardingAchievementService: OnboardingAchievementService,
+    @Inject(forwardRef(() => CancelCausesService))
+    private readonly cancelCausesService: CancelCausesService,
   ) {}
 
   //private function to lock order if he delivered and has monthly closign id
@@ -334,6 +337,7 @@ export class OrdersService {
       oldStatusId: params.fromStatusId,
       newStatusId: params.toStatusId,
     });
+    return log;
   }
 
   // ✅ Handle order status change (logs, triggers, sync)
@@ -663,6 +667,11 @@ export class OrdersService {
       `(SELECT COUNT(*) FROM "upsell_history" uh WHERE uh."orderId" = "order".id)`,
       "upsellHistoryCount",
     );
+
+    qb.addSelect(
+      `(SELECT COUNT(*) FROM "order_cancel_causes" occ WHERE occ."orderId" = "order".id)`,
+      "cancelCauseCount",
+    );
     if (superAdmin) {
       qb.leftJoinAndSelect("order.admin", "admin");
     }
@@ -786,6 +795,16 @@ export class OrdersService {
       } else if (q.storeId !== "all") {
         qb.andWhere("order.storeId = :storeId", {
           storeId: q.storeId,
+        });
+      }
+    }
+
+    if (q?.lastCancelCauseId && q.lastCancelCauseId !== "all") {
+      if (q.lastCancelCauseId === "none") {
+        qb.andWhere("order.lastCancelCauseId IS NULL");
+      } else {
+        qb.andWhere("order.lastCancelCauseId = :lastCancelCauseId", {
+          lastCancelCauseId: q.lastCancelCauseId,
         });
       }
     }
@@ -923,6 +942,9 @@ export class OrdersService {
           : 0,
         upsellHistoryCount: rawData?.upsellHistoryCount
           ? parseInt(rawData.upsellHistoryCount, 10)
+          : 0,
+        cancelCauseCount: rawData?.cancelCauseCount
+          ? parseInt(rawData.cancelCauseCount, 10)
           : 0,
       };
     });
@@ -4173,19 +4195,49 @@ export class OrdersService {
       order.status = newStatus;
       order.statusId = newStatus?.id;
       order.updatedByUserId = me?.id;
+
+      let resolvedCause = null;
+      let historyNotes = dto.notes;
+      if (newStatusCode === OrderStatus.CANCELLED) {
+        resolvedCause =
+          await this.cancelCausesService.resolveCancellationCause(manager, {
+            adminId,
+            employeeId: me?.id,
+            dto,
+            required: false,
+          });
+        if (resolvedCause) {
+          historyNotes = this.cancelCausesService.composeHistoryNotes(
+            resolvedCause.snapshotName,
+            dto.notes,
+          );
+        }
+      }
+
       const saved = await manager.save(OrderEntity, order);
 
       // Log status change
-      await this.logStatusChange({
+      const history = await this.logStatusChange({
         adminId,
         orderId: saved.id,
         fromStatusId: oldStatusId,
         toStatusId: newStatus.id,
         userId: me?.id,
-        notes: dto.notes,
+        notes: historyNotes,
         ipAddress,
         manager,
       });
+
+      if (resolvedCause) {
+        await this.cancelCausesService.applyCancellationCause(manager, {
+          adminId,
+          order: saved,
+          employeeId: me?.id,
+          resolved: resolvedCause,
+          historyId: history.id,
+          toStatusId: newStatus.id,
+        });
+      }
 
       await this.notificationService.create({
         userId: adminId,
@@ -4634,6 +4686,22 @@ export class OrdersService {
         order.isConfirmed = true;
       }
 
+      let resolvedCause = null;
+      let historyNotes = dto.notes;
+      if (newStatus.code === OrderStatus.CANCELLED) {
+        resolvedCause =
+          await this.cancelCausesService.resolveCancellationCause(manager, {
+            adminId,
+            employeeId,
+            dto,
+            required: true,
+          });
+        historyNotes = this.cancelCausesService.composeHistoryNotes(
+          resolvedCause.snapshotName,
+          dto.notes,
+        );
+      }
+
       // Save Entities
       await manager.save(OrderAssignmentEntity, activeAssignment);
       const savedOrder = await manager.save(OrderEntity, order);
@@ -4667,16 +4735,27 @@ export class OrdersService {
       });
 
       // Log History
-      await this.logStatusChange({
+      const history = await this.logStatusChange({
         adminId,
         orderId: savedOrder.id,
         fromStatusId: oldStatusId,
         toStatusId: newStatus.id,
         userId: employeeId,
-        notes: dto.notes,
+        notes: historyNotes,
         ipAddress,
         manager,
       });
+
+      if (resolvedCause) {
+        await this.cancelCausesService.applyCancellationCause(manager, {
+          adminId,
+          order: savedOrder,
+          employeeId,
+          resolved: resolvedCause,
+          historyId: history.id,
+          toStatusId: newStatus.id,
+        });
+      }
 
       // 2. Notify Employee (The one assigned to the order)
       notificationPromises.push(

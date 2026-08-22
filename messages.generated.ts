@@ -573,6 +573,10 @@ export type I18nTranslations = {
             "cannot_reject_closed": string;
             "cannot_reconfirm_closed": string;
             "no_active_assignment": string;
+            "cancel_cause_required": string;
+            "cancel_cause_xor": string;
+            "cancel_cause_invalid": string;
+            "cancel_cause_use_main": string;
             "confirmation_status_not_allowed": string;
             "auto_move_status_not_configured": string;
             "order_delivered_cannot_edit": string;
@@ -1140,6 +1144,16 @@ export type I18nTranslations = {
             "priority_medium": string;
             "priority_high": string;
             "priority_urgent": string;
+        };
+        "cancel_causes": {
+            "not_found": string;
+            "name_exists": string;
+            "not_pending": string;
+            "description": string;
+            "reject_instead_of_delete": string;
+            "disabled_in_use": string;
+            "invalid_range": string;
+            "excel_sheet": string;
         };
         "issues": {
             "created_successfully": string;

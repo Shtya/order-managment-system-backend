@@ -432,6 +432,10 @@
     "cannot_reject_closed": "Cannot reject a order that has been closed.",
     "cannot_reconfirm_closed": "Cannot re-confirm a order that has been closed.",
     "no_active_assignment": "You do not have an active assignment for this order.",
+    "cancel_cause_required": "A cancel cause is required when cancelling an order.",
+    "cancel_cause_xor": "Provide either an existing cancel cause or a custom cause, not both.",
+    "cancel_cause_invalid": "The selected cancel cause is invalid or not available.",
+    "cancel_cause_use_main": "This cancel cause was merged. Please select the main cancel cause.",
     "confirmation_status_not_allowed": "Confirmation team is not allowed to set status to {statusCode}",
     "auto_move_status_not_configured": "Auto-move status is not configured correctly.",
     "order_delivered_cannot_edit": "Order has been delivered and cannot be edited.",
@@ -999,6 +1003,16 @@
     "priority_medium": "Medium",
     "priority_high": "High",
     "priority_urgent": "Urgent"
+  },
+  "cancel_causes": {
+    "not_found": "Cancel cause not found",
+    "name_exists": "A cancel cause with this name already exists",
+    "not_pending": "This cancel cause is not pending review",
+    "description": "Description",
+    "reject_instead_of_delete": "Pending cancel causes must be rejected, not deleted",
+    "disabled_in_use": "This cancel cause is in use and was disabled instead of deleted",
+    "invalid_range": "Invalid date range",
+    "excel_sheet": "Cancel Causes"
   },
   "issues": {
     "created_successfully": "Issue created successfully",

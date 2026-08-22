@@ -432,6 +432,10 @@
     "cannot_reject_closed": "لا يمكن رفض طلب تم إغلاقه.",
     "cannot_reconfirm_closed": "لا يمكن إعادة تأكيد طلب تم إغلاقه.",
     "no_active_assignment": "ليس لديك إسناد نشط لهذا الطلب.",
+    "cancel_cause_required": "يجب تحديد سبب الإلغاء عند إلغاء الطلب.",
+    "cancel_cause_xor": "قدّم سبب إلغاء موجود أو سبب مخصص، وليس كليهما.",
+    "cancel_cause_invalid": "سبب الإلغاء المحدد غير صالح أو غير متاح.",
+    "cancel_cause_use_main": "تم دمج سبب الإلغاء هذا. يرجى اختيار السبب الرئيسي.",
     "confirmation_status_not_allowed": "فريق التأكيد غير مسموح له بتعيين الحالة إلى {statusCode}",
     "auto_move_status_not_configured": "حالة النقل التلقائي غير مهيأة بشكل صحيح.",
     "order_delivered_cannot_edit": "تم تسليم الطلب ولا يمكن تعديله.",
@@ -999,6 +1003,16 @@
     "priority_medium": "متوسطة",
     "priority_high": "عالية",
     "priority_urgent": "عاجلة"
+  },
+  "cancel_causes": {
+    "not_found": "سبب الإلغاء غير موجود",
+    "name_exists": "يوجد سبب إلغاء بهذا الاسم بالفعل",
+    "not_pending": "سبب الإلغاء هذا ليس قيد المراجعة",
+    "description": "الوصف",
+    "reject_instead_of_delete": "يجب رفض أسباب الإلغاء المعلقة وليس حذفها",
+    "disabled_in_use": "سبب الإلغاء مستخدم وتم تعطيله بدلاً من حذفه",
+    "invalid_range": "نطاق التاريخ غير صالح",
+    "excel_sheet": "أسباب الإلغاء"
   },
   "issues": {
     "created_successfully": "تم إنشاء المشكلة بنجاح",

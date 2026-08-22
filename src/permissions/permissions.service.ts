@@ -205,6 +205,14 @@ export class PermissionsService implements OnModuleInit {
       "issues.causes.update",
       "issues.causes.delete",
 
+      "cancel-causes.read",
+      "cancel-causes.getonly",
+      "cancel-causes.create",
+      "cancel-causes.update",
+      "cancel-causes.delete",
+      "cancel-causes.review",
+      "cancel-causes.statistics",
+
       // ✅ NEW: Getting started permissions
       "getting-started.stats",
 

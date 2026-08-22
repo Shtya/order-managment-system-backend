@@ -39,6 +39,7 @@ import { BulkUploadUsage } from "entities/plans.entity";
 import { AutomationModule } from "src/automation/automation.module";
 import { ClientSettingsEntity } from "entities/clientSettings.entity";
 import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
+import { CancelCausesModule } from "src/cancel-causes/cancel-causes.module";
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { OrderReplacemetsController } from "./controllers/order-replacements.con
     forwardRef(() => WalletModule),
     forwardRef(() => AuthModule),
     forwardRef(() => OrderAssignmentModule),
+    forwardRef(() => CancelCausesModule),
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,

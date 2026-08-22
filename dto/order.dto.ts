@@ -15,6 +15,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   Min,
@@ -338,6 +339,16 @@ export class ChangeOrderStatusDto {
   @IsOptional()
   @IsInt({ message: i18nValidationMessage('validation.is_int') })
   reminderDaysBefore?: number;
+
+  @IsOptional()
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  cancelCauseId?: string;
+
+  @IsOptional()
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @MinLength(3, { message: i18nValidationMessage("validation.min_length") })
+  @MaxLength(200, { message: i18nValidationMessage("validation.max_length") })
+  customCauseName?: string;
 }
 
 // ✅ Update Payment Status DTO

@@ -26,6 +26,10 @@ import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { CityEntity } from "./cities.entity";
 import { OrderAssignmentEntity } from "./assignment.entity";
 import { BundleEntity } from "./bundle.entity";
+import {
+  CancelCauseEntity,
+  OrderCancelCauseEntity,
+} from "./cancel-cause.entity";
 
 
 // ✅ Order Status Enum
@@ -361,6 +365,22 @@ export class OrderEntity {
 
   @OneToMany(() => OrderAssignmentEntity, (assignment) => assignment.order)
   assignments: OrderAssignmentEntity[];
+
+  @Column({ type: "uuid", nullable: true })
+  lastCancelCauseId?: string | null;
+
+  @ManyToOne(() => CancelCauseEntity, { onDelete: "SET NULL", nullable: true })
+  @JoinColumn({ name: "lastCancelCauseId" })
+  lastCancelCause?: CancelCauseEntity | null;
+
+  @Column({ type: "varchar", length: 200, nullable: true })
+  lastCancelCauseText?: string | null;
+
+  @Column({ type: "timestamptz", nullable: true })
+  cancelledAt?: Date | null;
+
+  @OneToMany(() => OrderCancelCauseEntity, (occ) => occ.order)
+  cancelCauses: OrderCancelCauseEntity[];
 
   @OneToMany(() => ShipmentEntity, (shipment) => shipment.order)
   shipments: ShipmentEntity[];

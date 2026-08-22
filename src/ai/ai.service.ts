@@ -457,7 +457,6 @@ export class AiService {
         );
 
         if (!testResult.valid) {
-          this.logger.warn(`createProvider apiKey test FAILED for providerId=${p.id}: ${testResult.message}`);
           throw new BadRequestException(
             testResult.message ??
             this.translations.t("domains.ai.credentials_invalid_api_key"),
@@ -1332,7 +1331,7 @@ export class AiService {
             runtimeConfig.baseUrl = integration.baseUrl;
           }
         } catch {
-          this.logger.warn(`syncModels failed to decrypt integration credentials for providerId=${providerId}`);
+          // proceed without credentials
         }
       } else if (integration?.baseUrl && !runtimeConfig.baseUrl) {
         runtimeConfig.baseUrl = integration.baseUrl;
