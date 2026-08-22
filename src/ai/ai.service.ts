@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, Repository } from "typeorm";
+import { DataSource, Repository, SelectQueryBuilder } from "typeorm";
 import { DateFilterUtil } from "../../common/date-filter.util";
 import { EncryptionService } from "../../common/encryption.service";
 import { maskSensitiveValue } from "../../common/healpers";
@@ -249,7 +249,14 @@ export class AiService {
     const qb = this.providerRepo
       .createQueryBuilder("p")
       .leftJoinAndSelect("p.models", "model")
-      .leftJoinAndSelect("p.integrations", "integration")
+      .leftJoinAndSelect(
+        "p.integrations",
+        "integration",
+        adminId
+          ? "(integration.adminId = :integrationAdminId OR integration.adminId IS NULL)"
+          : "integration.adminId IS NULL",
+        { integrationAdminId: adminId ?? null },
+      )
       .leftJoinAndSelect(
         "model.availabilities",
         "availability",
@@ -339,23 +346,27 @@ export class AiService {
 
     const providers = await qb.getMany();
 
-    const records = providers.map((provider) => ({
-      ...provider,
+    const records = providers.map((provider) => {
+      const integration = this.pickTenantIntegration(
+        provider.integrations,
+        adminId,
+      );
 
-      integration: provider.integrations?.[0]
-        ? this.toIntegrationResponse(provider.integrations[0])
-        : undefined,
-
-      models: (provider.models ?? []).map((model) => ({
-        id: model.id,
-        displayName: model.name,
-        modelCode: model.modelCode,
-        isActive: model.isActive,
-
-        // No availability row = available by default
-        isAvailable: model.availabilities?.[0]?.isAvailable ?? true,
-      })),
-    }));
+      return {
+        ...provider,
+        integrations: undefined,
+        integration: integration
+          ? this.toIntegrationResponse(integration)
+          : undefined,
+        models: (provider.models ?? []).map((model) => ({
+          id: model.id,
+          displayName: model.name,
+          modelCode: model.modelCode,
+          isActive: model.isActive,
+          isAvailable: model.availabilities?.[0]?.isAvailable ?? true,
+        })),
+      };
+    });
 
     return {
       records,
@@ -382,7 +393,10 @@ export class AiService {
 
     const models = await qb.getMany();
 
-    const integration = (provider as any).integrations?.[0];
+    const integration = this.pickTenantIntegration(
+      (provider as any).integrations,
+      myAdminId,
+    );
 
     return {
       ...this.toProviderResponse(provider, models),
@@ -586,7 +600,14 @@ export class AiService {
 
     const qb = this.modelRepo.createQueryBuilder("m");
     qb.leftJoin("m.provider", "provider");
-    qb.leftJoin("provider.integrations", "providerIntegration");
+    qb.leftJoin(
+      "provider.integrations",
+      "providerIntegration",
+      myAdminId
+        ? "(providerIntegration.adminId = :integrationAdminId OR providerIntegration.adminId IS NULL)"
+        : "providerIntegration.adminId IS NULL",
+      { integrationAdminId: myAdminId ?? null },
+    );
 
     qb.addSelect([
       "m",
@@ -705,7 +726,10 @@ export class AiService {
       );
     }
 
-    const integration = (provider as any).integrations?.[0];
+    const integration = this.pickTenantIntegration(
+      (provider as any).integrations,
+      myAdminId,
+    );
     if (integration?.encryptedCredentials) {
       const decrypted = this.encryptionService.decrypt(
         integration.encryptedCredentials.ciphertext,
@@ -752,7 +776,10 @@ export class AiService {
       }
 
       const provider = await this.findProviderWithAccess(me, model.providerId);
-      const integration = (provider as any).integrations?.[0];
+      const integration = this.pickTenantIntegration(
+        (provider as any).integrations,
+        tenantId(me),
+      );
       if (integration?.encryptedCredentials) {
         const decrypted = this.encryptionService.decrypt(
           integration.encryptedCredentials.ciphertext,
@@ -1277,7 +1304,10 @@ export class AiService {
     }
 
     if (!runtimeConfig.apiKey) {
-      const integration = (provider as any).integrations?.[0];
+      const integration = this.pickTenantIntegration(
+        (provider as any).integrations,
+        tenantId(me),
+      );
       if (integration?.encryptedCredentials) {
         try {
           const decrypted = this.encryptionService.decrypt(
@@ -1647,32 +1677,33 @@ export class AiService {
 
   // ──────────────────────────── ACCESSORS ────────────────────────────
 
+  private pickTenantIntegration(
+    integrations: AiIntegrationEntity[] | undefined,
+    adminId?: string | null,
+  ): AiIntegrationEntity | undefined {
+    if (!integrations?.length) return undefined;
+    if (adminId) {
+      const mine = integrations.find((item) => item.adminId === adminId);
+      if (mine) return mine;
+    }
+    return integrations.find((item) => !item.adminId);
+  }
+
   private async findProviderWithAccess(
     me: any,
     id: string,
   ): Promise<AiProviderEntity> {
     const myAdminId = tenantId(me);
-
+    const qb = this.providerRepo.createQueryBuilder("p");
+    this.joinUserIntegrations(qb, "p.integrations", "integration", myAdminId);
+    qb.where("p.id = :id", { id });
     if (myAdminId) {
-      const provider = await this.providerRepo.findOne({
-        where: [
-          { id, adminId: myAdminId },
-          { id, adminId: null },
-        ],
-        relations: ["integrations"],
+      qb.andWhere("(p.adminId = :adminId OR p.adminId IS NULL)", {
+        adminId: myAdminId,
       });
-      if (!provider) {
-        throw new NotFoundException(
-          this.translations.t("domains.ai.provider_not_found"),
-        );
-      }
-      return provider;
     }
 
-    const provider = await this.providerRepo.findOne({
-      where: { id },
-      relations: ["integrations"],
-    });
+    const provider = await qb.getOne();
     if (!provider) {
       throw new NotFoundException(
         this.translations.t("domains.ai.provider_not_found"),
@@ -1692,16 +1723,35 @@ export class AiService {
       );
     }
 
-    const provider = await this.providerRepo.findOne({
-      where: { id, adminId: myAdminId },
-      relations: ["integrations"],
+    const qb = this.providerRepo.createQueryBuilder("p");
+    this.joinUserIntegrations(qb, "p.integrations", "integration", myAdminId);
+    qb.where("p.id = :id", { id }).andWhere("p.adminId = :adminId", {
+      adminId: myAdminId,
     });
+
+    const provider = await qb.getOne();
     if (!provider) {
       throw new NotFoundException(
         this.translations.t("domains.ai.provider_not_found"),
       );
     }
     return provider;
+  }
+
+  private joinUserIntegrations(
+    qb: SelectQueryBuilder<any>,
+    relation: string,
+    alias: string,
+    adminId?: string | null,
+  ) {
+    qb.leftJoinAndSelect(
+      relation,
+      alias,
+      adminId
+        ? `(${alias}.adminId = :integrationAdminId OR ${alias}.adminId IS NULL)`
+        : `${alias}.adminId IS NULL`,
+      { integrationAdminId: adminId ?? null },
+    );
   }
 
   private ensureWritable(
@@ -1734,7 +1784,14 @@ export class AiService {
     const qb = this.modelRepo
       .createQueryBuilder("model")
       .leftJoinAndSelect("model.provider", "provider")
-      .leftJoinAndSelect("provider.integrations", "integration")
+      .leftJoinAndSelect(
+        "provider.integrations",
+        "integration",
+        myAdminId
+          ? "(integration.adminId = :integrationAdminId OR integration.adminId IS NULL)"
+          : "integration.adminId IS NULL",
+        { integrationAdminId: myAdminId ?? null },
+      )
       .leftJoinAndSelect(
         "model.availabilities",
         "availability",
@@ -1795,7 +1852,10 @@ export class AiService {
   }
 
   private toModelResponse(entity: AiModelEntity, availabilityMap?: Map<string, boolean>): ModelResponseDto {
-    const providerIntegration = entity.provider?.integrations?.[0];
+    const providerIntegration = this.pickTenantIntegration(
+      entity.provider?.integrations,
+      entity.adminId,
+    );
     let maskedIntegration:
       | {
         id: string;
@@ -1902,7 +1962,7 @@ export class AiService {
     }
 
     return {
-      ...entity,
+      id: entity.id,
       adminId: entity.adminId,
       providerId: entity.providerId,
       scope: entity.scope,
@@ -1913,20 +1973,20 @@ export class AiService {
       lastError: entity.lastError,
       provider: entity.provider
         ? {
-          id: entity.provider.id,
-          code: entity.provider.code,
-          name: entity.provider.name,
-          scope: entity.provider.scope,
-          website: entity.provider.website,
-          logoUrl: entity.provider.logoUrl,
-          tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
-          isActive: entity.provider.isActive,
-          description: entity.provider.description,
-          protocol: entity.provider.protocol,
-          adminId: entity.provider.adminId,
-          created_at: entity.provider.created_at,
-          updated_at: entity.provider.updated_at,
-        }
+            id: entity.provider.id,
+            code: entity.provider.code,
+            name: entity.provider.name,
+            scope: entity.provider.scope,
+            website: entity.provider.website,
+            logoUrl: entity.provider.logoUrl,
+            tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
+            isActive: entity.provider.isActive,
+            description: entity.provider.description,
+            protocol: entity.provider.protocol,
+            adminId: entity.provider.adminId,
+            created_at: entity.provider.created_at,
+            updated_at: entity.provider.updated_at,
+          }
         : undefined,
       models,
       created_at: entity.created_at,

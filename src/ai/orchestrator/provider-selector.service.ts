@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, Repository } from "typeorm";
+import { Repository, SelectQueryBuilder } from "typeorm";
 import { AI_CONFIG_TOKEN, AI_PROVIDER_DEFAULTS } from "../ai.constants";
 import {
   AiConfig,
@@ -87,17 +87,10 @@ export class AiProviderSelectorService implements OnModuleInit {
   ): Promise<AiProviderAbstract> {
     if (requestedName) {
       if (UUID_REGEX.test(requestedName)) {
-        const entity = await this.providerRepo.findOne({
-          where: [
-            {
-              id: requestedName,
-              isActive: true,
-              adminId: tenantId ?? undefined,
-            },
-            { id: requestedName, isActive: true, adminId: null },
-          ],
-          relations: ["models", "integrations"],
-        });
+        const entity = await this.providerQuery(tenantId)
+          .where("p.id = :id", { id: requestedName })
+          .andWhere("p.isActive = true")
+          .getOne();
         if (entity) {
           if (tenantId && entity.adminId && entity.adminId !== tenantId) {
             throw new BadRequestException(
@@ -127,13 +120,15 @@ export class AiProviderSelectorService implements OnModuleInit {
           }
     
           
-            const entity = await this.providerRepo.findOne({
-              where: [
-                { code: requestedName, adminId: tenantId ?? undefined },
-                { code: requestedName, adminId: null },
-              ],
-              relations: ["models", "integrations"],
-            });
+            const entity = await this.providerQuery(tenantId)
+              .where("p.code = :code", { code: requestedName })
+              .andWhere(
+                tenantId
+                  ? "(p.adminId = :tenantAdminId OR p.adminId IS NULL)"
+                  : "p.adminId IS NULL",
+                { tenantAdminId: tenantId },
+              )
+              .getOne();
             if (!entity || !entity.isActive) {
               throw new BadRequestException(
                 this.translations.t("domains.ai.provider_not_found_or_inactive", { args: { name: requestedName } }),
@@ -152,17 +147,16 @@ export class AiProviderSelectorService implements OnModuleInit {
         }
 
         // Custom provider by code (not in system providersByKind) → resolve via protocol
-        const entity = await this.providerRepo.findOne({
-          where: [
-            {
-              code: requestedName,
-              isActive: true,
-              adminId: tenantId ?? undefined,
-            },
-            { code: requestedName, isActive: true, adminId: null },
-          ],
-          relations: ["models", "integrations"],
-        });
+        const entity = await this.providerQuery(tenantId)
+          .where("p.code = :code", { code: requestedName })
+          .andWhere("p.isActive = true")
+          .andWhere(
+            tenantId
+              ? "(p.adminId = :tenantAdminId OR p.adminId IS NULL)"
+              : "p.adminId IS NULL",
+            { tenantAdminId: tenantId },
+          )
+          .getOne();
         if (entity) {
           if (tenantId && entity.adminId && entity.adminId !== tenantId) {
             throw new BadRequestException(
@@ -195,10 +189,11 @@ export class AiProviderSelectorService implements OnModuleInit {
       throw new BadRequestException(this.translations.t("domains.ai.no_provider_available"));
     }
 
-    const entity = await this.providerRepo.findOne({
-      where: [{ code: fallback.kind, isActive: true, adminId: null }],
-      relations: ["models", "integrations"],
-    });
+    const entity = await this.providerQuery(tenantId)
+      .where("p.code = :code", { code: fallback.kind })
+      .andWhere("p.isActive = true")
+      .andWhere("p.adminId IS NULL")
+      .getOne();
     if (entity && !this.hasIntegrationConfig(entity, tenantId)) {
       throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: fallback.kind } }));
     }
@@ -214,13 +209,16 @@ export class AiProviderSelectorService implements OnModuleInit {
     entityId: string,
     tenantId?: string | null,
   ): Promise<AiProviderAbstract> {
-    const entity = await this.providerRepo.findOne({
-      where: [
-        { id: entityId, isActive: true, adminId: tenantId ?? undefined },
-        { id: entityId, isActive: true, adminId: null },
-      ],
-      relations: ["models", "integrations"],
-    });
+    const entity = await this.providerQuery(tenantId)
+      .where("p.id = :id", { id: entityId })
+      .andWhere("p.isActive = true")
+      .andWhere(
+        tenantId
+          ? "(p.adminId = :tenantAdminId OR p.adminId IS NULL)"
+          : "p.adminId IS NULL",
+        { tenantAdminId: tenantId },
+      )
+      .getOne();
 
     if (!entity) {
       throw new AiProviderError(
@@ -294,10 +292,10 @@ export class AiProviderSelectorService implements OnModuleInit {
     modelCode: string,
     tenantId?: string | null,
   ): Promise<string | null> {
-    const model = await this.modelRepo.findOne({
-      where: { modelCode },
-      relations: ["provider", "provider.integrations"],
-    });
+    const modelQb = this.modelRepo.createQueryBuilder("model");
+    modelQb.leftJoinAndSelect("model.provider", "p");
+    this.joinScopedIntegrations(modelQb, tenantId, "p.integrations", "integration");
+    const model = await modelQb.where("model.modelCode = :modelCode", { modelCode }).getOne();
 
     if (
       model?.isActive &&
@@ -314,24 +312,20 @@ export class AiProviderSelectorService implements OnModuleInit {
     excludeName?: string,
     tenantId?: string | null,
   ): Promise<AiProviderAbstract[]> {
-    const systemEntities = await this.providerRepo.find({
-      where: {
-        code: In(this.allKinds),
-        isActive: true,
-        adminId: null,
-      },
-      relations: ["models", "integrations"],
-    });
+    const systemQb = this.providerQuery(tenantId)
+      .where("p.isActive = true")
+      .andWhere("p.adminId IS NULL");
+    if (this.allKinds.length) {
+      systemQb.andWhere("p.code IN (:...kinds)", { kinds: this.allKinds });
+    }
+    const systemEntities = await systemQb.getMany();
 
     let customEntities: AiProviderEntity[] = [];
     if (tenantId) {
-      customEntities = await this.providerRepo.find({
-        where: {
-          isActive: true,
-          adminId: tenantId,
-        },
-        relations: ["models", "integrations"],
-      });
+      customEntities = await this.providerQuery(tenantId)
+        .where("p.isActive = true")
+        .andWhere("p.adminId = :tenantAdminId", { tenantAdminId: tenantId })
+        .getMany();
     }
 
     const entityByKind = new Map<string, AiProviderEntity>();
@@ -568,5 +562,28 @@ export class AiProviderSelectorService implements OnModuleInit {
     }
 
     return runtime;
+  }
+
+  private providerQuery(tenantId?: string | null) {
+    const qb = this.providerRepo.createQueryBuilder("p");
+    qb.leftJoinAndSelect("p.models", "models");
+    this.joinScopedIntegrations(qb, tenantId);
+    return qb;
+  }
+
+  private joinScopedIntegrations(
+    qb: SelectQueryBuilder<any>,
+    tenantId?: string | null,
+    relation = "p.integrations",
+    alias = "integration",
+  ) {
+    qb.leftJoinAndSelect(
+      relation,
+      alias,
+      tenantId
+        ? `(${alias}.adminId = :integrationAdminId OR ${alias}.adminId IS NULL)`
+        : `${alias}.adminId IS NULL`,
+      { integrationAdminId: tenantId ?? null },
+    );
   }
 }
