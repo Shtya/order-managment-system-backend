@@ -2,15 +2,18 @@ import { Injectable } from "@nestjs/common";
 import OpenAI from "openai";
 import {
   AiProviderAbstract,
+  AiProviderModelInfo,
   normalizeUsage,
   safeJsonParse,
   boolEnv,
   intEnv,
   floatEnv,
   strEnv,
+  isTextGenerateModel,
 } from "./ai-provider.abstract";
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
-import { AiProviderError } from "../errors/provider.errors";
+import { AiProviderError, toAiProviderError } from "../errors/provider.errors";
+import { AiModelType } from "../../../entities/ai.entity";
 
 @Injectable()
 export class OpenAiProvider extends AiProviderAbstract {
@@ -18,8 +21,6 @@ export class OpenAiProvider extends AiProviderAbstract {
   readonly displayName = "OpenAI";
 
   protected buildClient(): OpenAI {
-    // this.apiKey = "1e1d1827417842cc85f9c9b12d40cd89.laBTXb9VbCl3IhDe"
-    // this.model = "GLM-4.7"
     if (!this.apiKey) {
       throw new AiProviderError(
         `Missing API key for provider '${this.kind}'(env or integration)`,
@@ -49,6 +50,34 @@ export class OpenAiProvider extends AiProviderAbstract {
 
   supports(): boolean {
     return !!this.apiKey;
+  }
+
+  async getModels(): Promise<AiProviderModelInfo[]> {
+    const client = this.buildClient();
+    try {
+      const models: AiProviderModelInfo[] = [];
+      for await (const model of client.models.list()) {
+        const modelCode = model.id;
+        if (!modelCode) continue;
+        const modelType = inferOpenAiCatalogType(model.id);
+        if (!isTextGenerateModel({ modelCode, modelType })) continue;
+        models.push({
+          modelCode,
+          name: model.id,
+          modelType: AiModelType.TEXT,
+          toolsCalling: undefined,
+          stream: undefined,
+          metadata: {
+            object: model.object,
+            owned_by: model.owned_by,
+            created: model.created,
+          },
+        });
+      }
+      return models;
+    } catch (error) {
+      throw toAiProviderError(error, this.kind);
+    }
   }
 
   protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {
@@ -173,4 +202,26 @@ function mapMessage(message: {
     default:
       return { role: message.role, content: message.content };
   }
+}
+
+function inferOpenAiCatalogType(id: string): AiModelType {
+  const lower = id.toLowerCase();
+  if (
+    lower.includes("dall-e") ||
+    lower.includes("gpt-image") ||
+    lower.includes("imagen")
+  ) {
+    return AiModelType.IMAGE;
+  }
+  if (
+    lower.includes("whisper") ||
+    lower.includes("tts") ||
+    lower.includes("audio")
+  ) {
+    return AiModelType.AUDIO;
+  }
+  if (lower.includes("sora") || lower.includes("video")) {
+    return AiModelType.VIDEO;
+  }
+  return AiModelType.TEXT;
 }

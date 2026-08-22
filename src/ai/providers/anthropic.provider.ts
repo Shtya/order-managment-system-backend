@@ -1,14 +1,18 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import Anthropic from "@anthropic-ai/sdk";
 import {
   AiProviderAbstract,
+  AiProviderModelInfo,
   normalizeUsage,
   boolEnv,
   intEnv,
   floatEnv,
   strEnv,
+  isTextGenerateModel,
 } from "./ai-provider.abstract";
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
+import { toAiProviderError } from "../errors/provider.errors";
+import { AiModelType } from "../../../entities/ai.entity";
 
 @Injectable()
 export class AnthropicProvider extends AiProviderAbstract {
@@ -17,11 +21,11 @@ export class AnthropicProvider extends AiProviderAbstract {
 
   protected buildClient(): Anthropic {
     if (!this.apiKey) {
-      throw new Error(`Missing API key for provider '${this.kind}'`);
+      throw new BadRequestException(`Missing API key for provider '${this.kind}'`);
     }
     return new Anthropic({
       apiKey: this.apiKey,
-      baseURL: this.baseUrl || undefined,
+      // baseURL: this.baseUrl || undefined,
     });
   }
 
@@ -42,6 +46,42 @@ export class AnthropicProvider extends AiProviderAbstract {
 
   supports(): boolean {
     return !!this.apiKey;
+  }
+
+  async getModels(): Promise<AiProviderModelInfo[]> {
+    const client = this.buildClient();
+    try {
+      const models: AiProviderModelInfo[] = [];
+      for await (const model of client.models.list({ limit: 100 })) {
+        const modelCode = model.id;
+        if (!modelCode) continue;
+        if (!isTextGenerateModel({ modelCode, modelType: AiModelType.TEXT })) {
+          continue;
+        }
+        const capabilities = model.capabilities;
+        models.push({
+          modelCode,
+          name: model.display_name || model.id,
+          modelType: AiModelType.TEXT,
+          reasoning: capabilities?.thinking?.supported === true,
+          jsonMode: capabilities?.structured_outputs?.supported === true,
+          toolsCalling: true,
+          stream: true,
+          contextWindow: {
+            maxInputTokens: model.max_input_tokens ?? undefined,
+            maxOutputTokens: model.max_tokens ?? undefined,
+          },
+          metadata: {
+            type: model.type,
+            created_at: model.created_at,
+            capabilities,
+          },
+        });
+      }
+      return models;
+    } catch (error) {
+      throw toAiProviderError(error, this.kind);
+    }
   }
 
   protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {

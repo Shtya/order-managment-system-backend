@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import { AI_CONFIG_TOKEN, AI_PROVIDER_DEFAULTS } from "../ai.constants";
@@ -23,6 +23,7 @@ import {
   AiProviderEntity,
 } from "../../../entities/ai.entity";
 import { EncryptionService } from "../../../common/encryption.service";
+import { TranslationService } from "../../../common/translation.service";
 import { Llm7Provider } from "../providers/llm7.provider";
 import { OpenAiProvider } from "../providers/openai.provider";
 import { AnthropicProvider } from "../providers/anthropic.provider";
@@ -61,6 +62,7 @@ export class AiProviderSelectorService implements OnModuleInit {
     @InjectRepository(AiModelEntity)
     private readonly modelRepo: Repository<AiModelEntity>,
     private readonly encryptionService: EncryptionService,
+    private readonly translations: TranslationService,
   ) {}
 
   onModuleInit() {
@@ -98,12 +100,12 @@ export class AiProviderSelectorService implements OnModuleInit {
         });
         if (entity) {
           if (tenantId && entity.adminId && entity.adminId !== tenantId) {
-            throw new Error(
-              `AI provider '${requestedName}' not accessible for this tenant`,
+            throw new BadRequestException(
+              this.translations.t("domains.ai.provider_not_accessible_for_tenant", { args: { name: requestedName } }),
             );
           }
           if (!this.hasIntegrationConfig(entity, tenantId)) {
-            throw new Error(`AI provider '${requestedName}' is not configured`);
+            throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: requestedName } }));
           }
           const injectable = this.pickInjectableForEntity(entity);
           const runtime = await this.resolveRuntimeConfig(
@@ -115,27 +117,31 @@ export class AiProviderSelectorService implements OnModuleInit {
           return base.cloneWithRuntime(runtime);
         }
 
-        throw new Error(`AI provider '${requestedName}' not found or inactive`);
+        throw new BadRequestException(this.translations.t("domains.ai.provider_not_found_or_inactive", { args: { name: requestedName } }));
       } else {
         // Name (code like 'openai') → match injectable by kind, and find entity by code
         const injectable = this.providersByKind.get(requestedName);
         if (injectable) {
           if (!injectable.isEnabled() && this.enabledProviders().length > 1) {
-            throw new Error(`AI provider '${requestedName}' is disabled`);
+            throw new BadRequestException(this.translations.t("domains.ai.provider_disabled", { args: { name: requestedName } }));
           }
-          const entity = await this.providerRepo.findOne({
-            where: [
-              {
-                code: requestedName,
-                isActive: true,
-                adminId: tenantId ?? undefined,
-              },
-              { code: requestedName, isActive: true, adminId: null },
-            ],
-            relations: ["models", "integrations"],
-          });
+    
+          
+            const entity = await this.providerRepo.findOne({
+              where: [
+                { code: requestedName, adminId: tenantId ?? undefined },
+                { code: requestedName, adminId: null },
+              ],
+              relations: ["models", "integrations"],
+            });
+            if (!entity || !entity.isActive) {
+              throw new BadRequestException(
+                this.translations.t("domains.ai.provider_not_found_or_inactive", { args: { name: requestedName } }),
+              );
+            }
+          
           if (entity && !this.hasIntegrationConfig(entity, tenantId)) {
-            throw new Error(`AI provider '${requestedName}' is not configured`);
+            throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: requestedName } }));
           }
           const runtime = await this.resolveRuntimeConfig(
             entity,
@@ -159,12 +165,12 @@ export class AiProviderSelectorService implements OnModuleInit {
         });
         if (entity) {
           if (tenantId && entity.adminId && entity.adminId !== tenantId) {
-            throw new Error(
-              `AI provider '${requestedName}' not accessible for this tenant`,
+            throw new BadRequestException(
+              this.translations.t("domains.ai.provider_not_accessible_for_tenant", { args: { name: requestedName } }),
             );
           }
           if (!this.hasIntegrationConfig(entity, tenantId)) {
-            throw new Error(`AI provider '${requestedName}' is not configured`);
+            throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: requestedName } }));
           }
           const resolved = this.pickInjectableForEntity(entity);
           const runtime = await this.resolveRuntimeConfig(
@@ -176,7 +182,7 @@ export class AiProviderSelectorService implements OnModuleInit {
           return base.cloneWithRuntime(runtime);
         }
 
-        throw new Error(`AI provider '${requestedName}' not found or inactive`);
+        throw new BadRequestException(this.translations.t("domains.ai.provider_not_found_or_inactive", { args: { name: requestedName } }));
       }
     }
 
@@ -186,7 +192,7 @@ export class AiProviderSelectorService implements OnModuleInit {
       this.providersByKind.get(defaultKind) ?? this.enabledProviders()[0];
 
     if (!fallback) {
-      throw new Error("No enabled AI provider is available");
+      throw new BadRequestException(this.translations.t("domains.ai.no_provider_available"));
     }
 
     const entity = await this.providerRepo.findOne({
@@ -194,7 +200,7 @@ export class AiProviderSelectorService implements OnModuleInit {
       relations: ["models", "integrations"],
     });
     if (entity && !this.hasIntegrationConfig(entity, tenantId)) {
-      throw new Error(`AI provider '${fallback.kind}' is not configured`);
+      throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: fallback.kind } }));
     }
     const runtime = await this.resolveRuntimeConfig(
       entity,
@@ -262,7 +268,7 @@ export class AiProviderSelectorService implements OnModuleInit {
         where: { adminId: tenantId },
         relations: ["model", "model.provider"],
       });
-      if (record?.model?.provider?.isActive) {
+      if (record?.model?.isActive && record?.model?.provider?.isActive) {
         return {
           modelCode: record.model.modelCode,
           providerEntityId: record.model.provider.id,
@@ -274,7 +280,7 @@ export class AiProviderSelectorService implements OnModuleInit {
       where: { adminId: null },
       relations: ["model", "model.provider"],
     });
-    if (systemDefault?.model?.provider?.isActive) {
+    if (systemDefault?.model?.isActive && systemDefault?.model?.provider?.isActive) {
       return {
         modelCode: systemDefault.model.modelCode,
         providerEntityId: systemDefault.model.provider.id,
@@ -294,6 +300,7 @@ export class AiProviderSelectorService implements OnModuleInit {
     });
 
     if (
+      model?.isActive &&
       model?.provider?.isActive &&
       this.hasIntegrationConfig(model.provider, tenantId)
     ) {

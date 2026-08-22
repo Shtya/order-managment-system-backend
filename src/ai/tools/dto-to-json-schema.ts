@@ -1,6 +1,7 @@
 import { getMetadataStorage } from "class-validator";
 import "reflect-metadata";
 import { getSchemaPropertyMeta } from "./schema-property.decorator";
+import { BadRequestException } from "@nestjs/common";
 
 export interface JsonSchemaOptions {
   schemaDerivationTimeoutMs?: number;
@@ -61,7 +62,7 @@ export function dtoToJsonSchema(
   const schema = deriveForClass(DtoClass, new Set<string>());
 
   if (Date.now() - start > timeoutMs) {
-    throw new Error(
+    throw new BadRequestException(
       `Schema derivation for '${DtoClass.name}' exceeded timeout (${timeoutMs}ms)`,
     );
   }

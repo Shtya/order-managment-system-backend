@@ -1,13 +1,17 @@
-import { Injectable } from "@nestjs/common";
-import { GoogleGenAI } from "@google/genai";
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { GoogleGenAI, type Model } from "@google/genai";
 import {
   AiProviderAbstract,
-  boolEnv,
+  AiProviderModelInfo,
   intEnv,
   floatEnv,
   strEnv,
+  stripGeminiModelName,
+  isTextGenerateModel,
 } from "./ai-provider.abstract";
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
+import { toAiProviderError } from "../errors/provider.errors";
+import { AiModelType } from "../../../entities/ai.entity";
 
 @Injectable()
 export class GoogleProvider extends AiProviderAbstract {
@@ -16,7 +20,7 @@ export class GoogleProvider extends AiProviderAbstract {
 
   protected buildClient(): GoogleGenAI {
     if (!this.apiKey) {
-      throw new Error(
+      throw new BadRequestException(
         `Missing API key for provider '${this.kind}'(env or integration)`,
       );
     }
@@ -40,6 +44,72 @@ export class GoogleProvider extends AiProviderAbstract {
 
   supports(): boolean {
     return !!this.apiKey;
+  }
+
+  async getModels(): Promise<AiProviderModelInfo[]> {
+    const client = this.buildClient();
+
+    try {
+      const pager = await client.models.list();
+      const models: Model[] = [];
+
+      for await (const model of pager) {
+        models.push(model);
+      }
+
+      return models.flatMap((model) => {
+        const actions = model.supportedActions ?? [];
+        const modelCode =
+          (model as Model & { baseModelId?: string }).baseModelId ||
+          stripGeminiModelName(model.name);
+
+        if (!modelCode) return [];
+
+        const canGenerate = actions.includes("generateContent");
+        const canStream =
+          actions.includes("streamGenerateContent") || canGenerate;
+        const modelType = inferGeminiModelType(modelCode);
+
+        if (
+          !isTextGenerateModel({
+            modelCode,
+            modelType,
+            supportedActions: actions,
+          })
+        ) {
+          return [];
+        }
+
+        return [
+          {
+            modelCode,
+            name: model.displayName ?? modelCode,
+            description: model.description,
+            modelType: AiModelType.TEXT,
+            reasoning: model.thinking === true,
+            // ListModels does not expose function-calling; generateContent ≠ tools.
+            toolsCalling: canGenerate ? undefined : false,
+            stream: canStream,
+            contextWindow: {
+              maxInputTokens: model.inputTokenLimit,
+              maxOutputTokens: model.outputTokenLimit,
+            },
+            metadata: {
+              version: model.version,
+              supportedActions: actions,
+              temperature: model.temperature,
+              maxTemperature: model.maxTemperature,
+              topP: model.topP,
+              topK: model.topK,
+              thinking: model.thinking,
+              tunedModelInfo: model.tunedModelInfo,
+            },
+          },
+        ];
+      });
+    } catch (error) {
+      throw toAiProviderError(error, this.kind);
+    }
   }
 
   protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {
@@ -66,11 +136,11 @@ export class GoogleProvider extends AiProviderAbstract {
         config: {
           ...(systemMessage
             ? {
-                systemInstruction:
-                  typeof systemMessage.content === "string"
-                    ? systemMessage.content
-                    : String(systemMessage.content),
-              }
+              systemInstruction:
+                typeof systemMessage.content === "string"
+                  ? systemMessage.content
+                  : String(systemMessage.content),
+            }
             : {}),
 
           temperature: request.temperature ?? this.temperature,
@@ -79,16 +149,16 @@ export class GoogleProvider extends AiProviderAbstract {
 
           ...(request.tools.length > 0 && request.toolChoice !== "none"
             ? {
-                tools: [
-                  {
-                    functionDeclarations: request.tools.map((t) => ({
-                      name: t.name,
-                      description: t.description,
-                      parameters: t.parameters,
-                    })),
-                  },
-                ],
-              }
+              tools: [
+                {
+                  functionDeclarations: request.tools.map((t) => ({
+                    name: t.name,
+                    description: t.description,
+                    parameters: t.parameters,
+                  })),
+                },
+              ],
+            }
             : {}),
         },
       }),
@@ -125,4 +195,18 @@ export class GoogleProvider extends AiProviderAbstract {
       providerModel: this.model,
     };
   }
+}
+
+function inferGeminiModelType(modelCode: string): AiModelType {
+  const id = modelCode.toLowerCase();
+  if (id.includes("image") || id.includes("imagen") || id.includes("banana")) {
+    return AiModelType.IMAGE;
+  }
+  if (id.includes("lyria") || id.includes("tts") || id.includes("audio")) {
+    return AiModelType.AUDIO;
+  }
+  if (id.includes("veo") || id.includes("video")) {
+    return AiModelType.VIDEO;
+  }
+  return AiModelType.TEXT;
 }

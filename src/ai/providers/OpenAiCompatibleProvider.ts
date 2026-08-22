@@ -1,7 +1,12 @@
 import OpenAI from "openai";
-import { AiProviderAbstract } from "./ai-provider.abstract";
+import {
+  AiProviderAbstract,
+  AiProviderModelInfo,
+  isTextGenerateModel,
+} from "./ai-provider.abstract";
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
-import { AiProviderError } from "../errors/provider.errors";
+import { AiProviderError, toAiProviderError } from "../errors/provider.errors";
+import { AiModelType } from "../../../entities/ai.entity";
 
 export abstract class OpenAiCompatibleProvider extends AiProviderAbstract {
   protected buildClient(): OpenAI {
@@ -15,6 +20,38 @@ export abstract class OpenAiCompatibleProvider extends AiProviderAbstract {
       apiKey: this.apiKey,
       baseURL: this.baseUrl || undefined,
     });
+  }
+
+  async getModels(): Promise<AiProviderModelInfo[]> {
+    const client = this.buildClient();
+
+    try {
+      const models: AiProviderModelInfo[] = [];
+      for await (const model of client.models.list()) {
+        const modelCode = model.id;
+        if (!modelCode) continue;
+        if (!isTextGenerateModel({ modelCode, modelType: AiModelType.TEXT })) {
+          continue;
+        }
+        models.push({
+          modelCode,
+          name: model.id,
+          modelType: AiModelType.TEXT,
+          toolsCalling: undefined,
+          stream: undefined,
+          jsonMode: undefined,
+          reasoning: undefined,
+          metadata: {
+            object: model.object,
+            ownedBy: model.owned_by,
+            created: model.created,
+          },
+        });
+      }
+      return models;
+    } catch (error) {
+      throw toAiProviderError(error, this.kind);
+    }
   }
 
   protected abstract getFunctionCallModelName(
@@ -37,16 +74,16 @@ export abstract class OpenAiCompatibleProvider extends AiProviderAbstract {
 
         ...(request.tools.length > 0 && request.toolChoice !== "none"
           ? {
-              tools: request.tools.map((t) => ({
-                type: "function" as const,
-                function: {
-                  name: t.name,
-                  description: t.description,
-                  parameters: t.parameters,
-                },
-              })),
-              tool_choice: request.toolChoice,
-            }
+            tools: request.tools.map((t) => ({
+              type: "function" as const,
+              function: {
+                name: t.name,
+                description: t.description,
+                parameters: t.parameters,
+              },
+            })),
+            tool_choice: request.toolChoice,
+          }
           : {}),
       }),
       this.getTimeoutMs(),

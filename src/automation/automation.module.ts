@@ -43,6 +43,7 @@ import { OrderAssignmentModule } from "src/order-assignment/order-assignment.mod
 import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
 import { AutomationSubscriber } from "./automation-subscriber";
 import { SmsModule } from "src/sms/sms.module";
+import { AiModelAvailabilityEntity, AiModelEntity, AiProviderEntity } from "entities/ai.entity";
 import { IssueModule } from "src/issue/issue.module";
 import { ShippingModule } from "src/shipping/shipping.module";
 import { AiModule } from "src/ai/ai.module";
@@ -73,6 +74,9 @@ import { AiModule } from "src/ai/ai.module";
       User,
       OrderAssignmentEntity,
       WhatsappMessageEntity,
+      AiProviderEntity,
+      AiModelEntity,
+      AiModelAvailabilityEntity,
     ]),
   ],
   controllers: [AutomationController],

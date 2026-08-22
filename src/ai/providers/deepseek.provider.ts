@@ -2,15 +2,18 @@ import { Injectable } from "@nestjs/common";
 import OpenAI from "openai";
 import {
   AiProviderAbstract,
+  AiProviderModelInfo,
   normalizeUsage,
   safeJsonParse,
   boolEnv,
   intEnv,
   floatEnv,
   strEnv,
+  isTextGenerateModel,
 } from "./ai-provider.abstract";
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
-import { AiProviderError } from "../errors/provider.errors";
+import { AiProviderError, toAiProviderError } from "../errors/provider.errors";
+import { AiModelType } from "../../../entities/ai.entity";
 
 @Injectable()
 export class DeepSeekProvider extends AiProviderAbstract {
@@ -47,6 +50,36 @@ export class DeepSeekProvider extends AiProviderAbstract {
 
   supports(): boolean {
     return !!this.apiKey;
+  }
+
+  async getModels(): Promise<AiProviderModelInfo[]> {
+    const client = this.buildClient();
+    try {
+      const models: AiProviderModelInfo[] = [];
+      for await (const model of client.models.list()) {
+        const modelCode = model.id;
+        if (!modelCode) continue;
+        if (!isTextGenerateModel({ modelCode, modelType: AiModelType.TEXT })) {
+          continue;
+        }
+        const isReasoner = /reasoner|reason/i.test(modelCode);
+        models.push({
+          modelCode,
+          name: model.id,
+          modelType: AiModelType.TEXT,
+          reasoning: isReasoner,
+          toolsCalling: !isReasoner,
+          stream: true,
+          metadata: {
+            object: model.object,
+            owned_by: model.owned_by,
+          },
+        });
+      }
+      return models;
+    } catch (error) {
+      throw toAiProviderError(error, this.kind);
+    }
   }
 
   protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {

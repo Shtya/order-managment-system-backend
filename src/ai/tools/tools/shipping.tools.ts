@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { ShippingService } from "../../../shipping/shipping.service";
 import { CitiesService } from "../../../cities/cities.service";
 import { OrdersService } from "../../../orders/services/orders.service";
@@ -96,7 +96,7 @@ export class ShippingAiTools {
 
   private getTenantId(ctx: AiToolContext): string {
     const tenantId = ctx.session.tenantId;
-    if (!tenantId) throw new Error("Tenant id is required for shipping tools");
+    if (!tenantId) throw new BadRequestException("Tenant id is required for shipping tools");
     return tenantId;
   }
 

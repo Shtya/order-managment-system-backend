@@ -1647,6 +1647,16 @@ export type I18nTranslations = {
             "provider_class_not_found": string;
             "credentials_invalid_api_key": string;
             "credentials_test_error": string;
+            "provider_inactive_for_model": string;
+            "model_inactive": string;
+            "model_not_available_for_tenant": string;
+            "provider_no_content_or_tools": string;
+            "all_providers_failed": string;
+            "provider_not_accessible_for_tenant": string;
+            "provider_not_configured": string;
+            "provider_not_found_or_inactive": string;
+            "provider_disabled": string;
+            "no_provider_available": string;
         };
     };
     "emails": {

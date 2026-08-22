@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { OrdersService } from "../../../orders/services/orders.service";
 import { CitiesService } from "../../../cities/cities.service";
 import { ShippingService } from "../../../shipping/shipping.service";
@@ -195,7 +195,7 @@ export class OrdersAiTools {
         page: 1,
       });
       const order = (records as any)?.records?.[0];
-      if (!order) throw new Error("No orders found for this store");
+      if (!order) throw new BadRequestException("No orders found for this store");
       return mapOrderCompact(order, { includeItems: false });
     });
   }
@@ -327,7 +327,7 @@ export class OrdersAiTools {
     return this.wrap("CITY_FOUND", async () => {
       const cityId = String(args.cityId);
       const city = await this.citiesService.findOneWithProviders(cityId);
-      if (!city) throw new Error(`City '${cityId}' not found`);
+      if (!city) throw new BadRequestException(`City '${cityId}' not found`);
       return {
         id: city.id,
         nameEn: city.nameEn,
@@ -422,7 +422,7 @@ export class OrdersAiTools {
       const lon = Number(args.longitude);
 
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-        throw new Error(
+        throw new BadRequestException(
           `Invalid latitude or longitude: latitude=${args.latitude}, longitude=${args.longitude}`,
         );
       }
@@ -481,7 +481,7 @@ export class OrdersAiTools {
           lastError = error;
 
           if (attempt === 3) {
-            throw new Error(
+            throw new BadRequestException(
               `Reverse geocoding failed after ${attempt + 1} attempts: ${error instanceof Error ? error.message : String(error)
               }`,
             );
@@ -490,7 +490,7 @@ export class OrdersAiTools {
       }
 
       if (!res?.ok) {
-        throw new Error(
+        throw new BadRequestException(
           `Reverse geocoding failed: ${lastError instanceof Error
             ? lastError.message
             : String(lastError)
@@ -503,7 +503,7 @@ export class OrdersAiTools {
       try {
         data = await res.json();
       } catch (error) {
-        throw new Error(
+        throw new BadRequestException(
           `Nominatim returned an invalid JSON response: ${error instanceof Error ? error.message : String(error)
           }`,
         );
@@ -534,7 +534,7 @@ export class OrdersAiTools {
 
   private getTenantId(ctx: AiToolContext): string {
     const tenantId = ctx.session.tenantId;
-    if (!tenantId) throw new Error("Tenant id is required for shipping tools");
+    if (!tenantId) throw new BadRequestException("Tenant id is required for shipping tools");
     return tenantId;
   }
 }

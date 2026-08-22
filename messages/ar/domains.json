@@ -1505,6 +1505,16 @@
     "model_not_accessible": "النموذج غير متاح",
     "provider_class_not_found": "لم يتم العثور على فئة المزود '{code}'",
     "credentials_invalid_api_key": "مفتاح API غير صالح",
-    "credentials_test_error": "فشل الاختبار"
+    "credentials_test_error": "فشل الاختبار",
+    "provider_inactive_for_model": "مزود النموذج '{model}' غير نشط",
+    "model_inactive": "النموذج '{model}' غير نشط",
+    "model_not_available_for_tenant": "النموذج '{model}' غير متاح لهذا المستأجر",
+    "provider_no_content_or_tools": "لم يُرجع المزود محتوى أو استدعاءات أدوات",
+    "all_providers_failed": "فشل جميع مزودات الذكاء الاصطناعي",
+    "provider_not_accessible_for_tenant": "مزود الذكاء الاصطناعي '{name}' غير متاح لهذا المستأجر",
+    "provider_not_configured": "مزود الذكاء الاصطناعي '{name}' غير مُكوَّن",
+    "provider_not_found_or_inactive": "لم يتم العثور على مزود الذكاء الاصطناعي '{name}' أو غير نشط",
+    "provider_disabled": "مزود الذكاء الاصطناعي '{name}' معطّل",
+    "no_provider_available": "لا يوجد مزود ذكاء اصطناعي نشط متاح"
   }
 }

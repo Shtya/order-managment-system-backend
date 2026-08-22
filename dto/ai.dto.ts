@@ -213,6 +213,7 @@ export class UpdateProviderDto {
 export class AiProviderModelSummaryDto {
 	id: string;
 	modelCode: string;
+	isAvailable?: boolean;
 }
 
 export class ProviderResponseDto {
@@ -300,7 +301,10 @@ export class SyncModelItemDto {
 
 	@IsOptional()
 	@IsObject()
-	contextWindow?: Record<string, any>;
+	contextWindow?: {
+		maxInputTokens?: number;
+		maxOutputTokens?: number;
+	};
 }
 
 export class ProviderSyncResponseDto {
@@ -414,7 +418,10 @@ export class CreateModelDto {
 
 	@IsOptional()
 	@IsObject()
-	contextWindow?: Record<string, any>;
+	contextWindow?: {
+		maxInputTokens?: number;
+		maxOutputTokens?: number;
+	};
 }
 
 export class UpdateModelDto {
@@ -475,7 +482,10 @@ export class UpdateModelDto {
 
 	@IsOptional()
 	@IsObject()
-	contextWindow?: Record<string, any>;
+	contextWindow?: {
+		maxInputTokens?: number;
+		maxOutputTokens?: number;
+	};
 }
 
 export class ModelResponseDto {
@@ -490,15 +500,19 @@ export class ModelResponseDto {
 	modelType: AiModelType;
 	tier?: AiModelTier;
 	isActive: boolean;
+	isAvailable?: boolean;
 	stream?: boolean;
 	jsonMode?: boolean;
 	reasoning?: boolean;
 	toolsCalling?: boolean;
 	modalities?: Record<string, any>;
-	contextWindow?: Record<string, any>;
+	contextWindow?: {
+		maxInputTokens?: number;
+		maxOutputTokens?: number;
+	};
 	provider?: ProviderResponseDto;
-	
-	created_t: Date;
+
+	created_at: Date;
 	updated_at: Date;
 }
 
@@ -590,7 +604,7 @@ export class IntegrationResponseDto {
 	lastError?: string;
 	provider?: ProviderResponseDto;
 	models?: ModelResponseDto[];
-	created_t: Date;
+	created_at: Date;
 	updated_ut: Date;
 }
 

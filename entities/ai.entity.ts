@@ -110,7 +110,7 @@ export class AiProviderEntity {
 
     @Column({ default: true })
     isActive: boolean;
-    
+
     @Column({ type: 'text', nullable: true })
     description?: string;
 
@@ -245,7 +245,10 @@ export class AiModelEntity {
     metadata?: Record<string, any>;
 
     @Column({ type: 'jsonb', nullable: true })
-    contextWindow?: Record<string, any>;
+    contextWindow?: {
+        maxInputTokens?: number;
+        maxOutputTokens?: number;
+    };
 
     @Column({ type: 'boolean', nullable: true })
     stream?: boolean;
@@ -267,11 +270,57 @@ export class AiModelEntity {
      * Your super admin wants this model
      * visible in the system catalog.
      */
+
+    @OneToMany(
+        () => AiModelAvailabilityEntity,
+        (availability) => availability.model,
+    )
+    availabilities: AiModelAvailabilityEntity[];
+
     @Column({ default: true })
     isActive: boolean;
 
     @CreateDateColumn({ type: 'timestamptz' })
-    created_t: Date;
+    created_at: Date;
+
+    @UpdateDateColumn({ type: 'timestamptz' })
+    updated_at: Date;
+}
+
+@Entity('ai_model_availability')
+@Index(['adminId', 'modelId'], { unique: true })
+export class AiModelAvailabilityEntity {
+
+    @PrimaryGeneratedColumn('uuid')
+    id!: string;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    adminId?: string | null;
+
+    @ManyToOne(
+        () => User,
+        { nullable: true, onDelete: 'CASCADE' },
+    )
+    @JoinColumn({ name: 'adminId' })
+    admin?: User;
+
+    @Index()
+    @Column({ type: 'uuid' })
+    modelId: string;
+
+    @ManyToOne(
+        () => AiModelEntity,
+        { onDelete: 'CASCADE' },
+    )
+    @JoinColumn({ name: 'modelId' })
+    model: AiModelEntity;
+
+    @Column({ default: true })
+    isAvailable: boolean;
+
+    @CreateDateColumn({ type: 'timestamptz' })
+    created_at: Date;
 
     @UpdateDateColumn({ type: 'timestamptz' })
     updated_at: Date;
@@ -347,7 +396,7 @@ export class AiIntegrationEntity {
     lastError?: string;
 
     @CreateDateColumn({ type: 'timestamptz' })
-    created_t: Date;
+    created_at: Date;
 
     @UpdateDateColumn({ type: 'timestamptz' })
     updated_ut: Date;

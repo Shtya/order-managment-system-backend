@@ -1,3 +1,5 @@
+import { BadRequestException } from "@nestjs/common";
+
 export type AiProviderErrorKind =
   | "CONFIG"
   | "TIMEOUT"
@@ -9,11 +11,11 @@ export type AiProviderErrorKind =
   | "TOOL_ERROR"
   | "OUT_OF_ROUNDS";
 
-export class AiProviderError extends Error {
+export class AiProviderError extends BadRequestException {
   readonly kind: AiProviderErrorKind;
   readonly provider?: string;
-  readonly status?: number;
   readonly retryable: boolean;
+  readonly providerStatus?: number;
 
   constructor(
     message: string,
@@ -25,15 +27,12 @@ export class AiProviderError extends Error {
       cause?: unknown;
     },
   ) {
-    super(message);
+    super(message, { cause: options.cause });
     this.name = "AiProviderError";
     this.kind = options.kind;
     this.provider = options.provider;
-    this.status = options.status;
+    this.providerStatus = options.status;
     this.retryable = options.retryable ?? false;
-    if (options.cause !== undefined) {
-      (this as any).cause = options.cause;
-    }
   }
 
   static isRetryableKind(kind: AiProviderErrorKind): boolean {
@@ -114,18 +113,12 @@ export function isAiProviderError(error: unknown): error is AiProviderError {
 }
 
 export function toAiProviderError(
-  error: unknown,
+  error: any,
   provider?: string,
 ): AiProviderError {
   if (error instanceof AiProviderError) return error;
 
-  const err = error as {
-    name?: string;
-    message?: string;
-    status?: number;
-    code?: string;
-    response?: { status?: number };
-  };
+  const err = error;
   const status = err?.response?.status ?? err?.status;
   const code = String(err?.code ?? "");
   const isTimeout =
@@ -138,7 +131,19 @@ export function toAiProviderError(
     code === "ERR_SOCKET_CONNECTION_TIMEOUT" ||
     code === "UND_ERR_CONNECT_TIMEOUT";
 
-  const message = err?.message ?? "Unknown provider error";
+  const rawMessage = err?.error?.error?.message ?? err?.message ?? "Unknown provider error";
+
+  let message: string;
+  if (typeof rawMessage === "string" && rawMessage.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawMessage);
+      message = parsed?.message ?? parsed?.error?.message ?? rawMessage;
+    } catch {
+      message = rawMessage;
+    }
+  } else {
+    message = rawMessage;
+  }
 
   if (isTimeout) return new AiProviderTimeoutError(message, { provider });
   if (isNetwork) {

@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, OnModuleInit } from "@nestjs/common";
 import { AI_TOOL_NAMESPACE_TOKEN } from "../ai.constants";
 import { AiTool } from "./ai-tool.abstract";
 import { AiToolContext } from "./ai-tool-context";
@@ -21,7 +21,7 @@ export class AiToolRegistryService implements OnModuleInit {
     for (const namespace of this.namespaces ?? []) {
       for (const tool of namespace.getTools() ?? []) {
         if (this.tools.has(tool.name)) {
-          throw new Error(
+          throw new BadRequestException(
             `Duplicate AI tool name '${tool.name}' registered across namespaces`,
           );
         }

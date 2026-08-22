@@ -23,6 +23,40 @@ import {
   AiProviderInvalidResponseError,
   toAiProviderError,
 } from "../errors/provider.errors";
+import { AiModelType, AiModelTier } from "../../../entities/ai.entity";
+
+/**
+ * Normalized model information returned by every provider's getModels().
+ * Maps directly to the fields of AiModelEntity so it can be synchronized
+ * into the database without additional transformation.
+ */
+export interface AiProviderModelInfo {
+  /** Provider's model ID (e.g. "gpt-4o", "claude-sonnet-4") */
+  modelCode: string;
+  /** Human-readable name */
+  name: string;
+  /** Model description */
+  description?: string;
+  /** Model modality type */
+  modelType: AiModelType;
+  /** Cost tier */
+  tier?: AiModelTier;
+  /** Context window details */
+  contextWindow?: {
+    maxInputTokens?: number;
+    maxOutputTokens?: number;
+  };
+  /** Whether the model supports streaming */
+  stream?: boolean;
+  /** Whether the model supports JSON mode */
+  jsonMode?: boolean;
+  /** Whether the model supports reasoning / thinking */
+  reasoning?: boolean;
+  /** Whether the model supports function/tool calling */
+  toolsCalling?: boolean;
+  /** Provider-specific metadata (normalized, not raw) */
+  metadata?: Record<string, any>;
+}
 
 export abstract class AiProviderAbstract {
   abstract readonly kind: string;
@@ -124,6 +158,8 @@ export abstract class AiProviderAbstract {
   }
 
   abstract supports(): boolean;
+
+  abstract getModels(): Promise<AiProviderModelInfo[]>;
 
   async callModel(request: AiProviderRequest): Promise<AiProviderResult> {
     const retries = Math.max(0, this.retries ?? 0);
@@ -292,6 +328,62 @@ export function strEnv(
   return value ?? fallback;
 }
 
+/**
+ * Gemini ListModels returns resource names like `models/gemini-2.5-flash`.
+ * Chat calls expect the id without that prefix. Other providers use a plain `id`.
+ */
+export function stripGeminiModelName(name: string | undefined): string {
+  if (!name) return "";
+  return name
+    .replace(/^models\//, "")
+    .replace(/^tunedModels\//, "")
+    .replace(/^publishers\/[^/]+\/models\//, "");
+}
+
+export function mapModelTypeFromModalities(
+  output: unknown,
+  fallback: AiModelType = AiModelType.TEXT,
+): AiModelType {
+  if (!Array.isArray(output)) return fallback;
+  if (output.includes("video")) return AiModelType.VIDEO;
+  if (output.includes("image")) return AiModelType.IMAGE;
+  if (output.includes("audio")) return AiModelType.AUDIO;
+  return fallback;
+}
+
+const NON_TEXT_GENERATE_CODE =
+  /(embedding|embed-|whisper|tts|dall-e|dalle|gpt-image|imagen|sora|veo-|lyria|moderation|transcribe|realtime|computer-use|babbage|text-ada|davinci|nano-banana|flux|stable-diffusion|-image$|-image-|-audio-|-video-)/i;
+
+export function isTextGenerateModel(opts: {
+  modelCode: string;
+  modelType?: AiModelType;
+  supportedActions?: string[];
+  outputModalities?: unknown;
+  modelFamily?: string;
+}): boolean {
+  if (opts.modelType && opts.modelType !== AiModelType.TEXT) return false;
+  if (!opts.modelCode || NON_TEXT_GENERATE_CODE.test(opts.modelCode)) {
+    return false;
+  }
+  if (
+    opts.supportedActions?.length &&
+    !opts.supportedActions.includes("generateContent")
+  ) {
+    return false;
+  }
+  if (Array.isArray(opts.outputModalities)) {
+    const outputs = opts.outputModalities.map((m) => String(m).toLowerCase());
+    if (!outputs.includes("text") || outputs.some((m) => m !== "text")) {
+      return false;
+    }
+  }
+  if (opts.modelFamily) {
+    const family = opts.modelFamily.toLowerCase();
+    if (family !== "chat" && family !== "text") return false;
+  }
+  return true;
+}
+
 export function safeJsonParse(value: unknown): unknown {
   if (typeof value !== "string") return value;
   try {
@@ -340,3 +432,4 @@ export function createProviderHealth(model?: string): AiProviderHealth {
 }
 
 export { AiChatMessage, AiToolSpec, AiUsage };
+export { AiModelType, AiModelTier } from "../../../entities/ai.entity";

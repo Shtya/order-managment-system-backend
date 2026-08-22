@@ -7,6 +7,7 @@ import {
   AiRequestSummaryEntity,
   AiWriteToolCallEntity,
   AiDefaultModelEntity,
+  AiModelAvailabilityEntity,
 } from "../../entities/ai.entity";
 import { EncryptionService } from "../../common/encryption.service";
 import { OrdersModule } from "../orders/orders.module";
@@ -34,7 +35,6 @@ import { AiExportService } from "./ai-export.service";
 import { Llm7Provider } from "./providers/llm7.provider";
 import { OpenAiProvider } from "./providers/openai.provider";
 import { AnthropicProvider } from "./providers/anthropic.provider";
-import { AzureOpenAiProvider } from "./providers/azure.provider";
 import { DeepSeekProvider } from "./providers/deepseek.provider";
 import { GoogleProvider } from "./providers/google.provider";
 import { PollinationsProvider } from "./providers/pollinations.provider";
@@ -49,6 +49,7 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
       AiRequestSummaryEntity,
       AiWriteToolCallEntity,
       AiDefaultModelEntity,
+      AiModelAvailabilityEntity,
     ]),
     forwardRef(() => OrdersModule),
     forwardRef(() => ShippingModule),
@@ -64,7 +65,6 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
     Llm7Provider,
     OpenAiProvider,
     AnthropicProvider,
-    AzureOpenAiProvider,
     DeepSeekProvider,
     GoogleProvider,
     PollinationsProvider,

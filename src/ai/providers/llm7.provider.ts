@@ -1,15 +1,19 @@
 import { Injectable } from "@nestjs/common";
 import {
   AiProviderAbstract,
+  AiProviderModelInfo,
   normalizeUsage,
   safeJsonParse,
   boolEnv,
   intEnv,
   floatEnv,
   strEnv,
+  mapModelTypeFromModalities,
+  isTextGenerateModel,
 } from "./ai-provider.abstract";
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
 import { AiProviderError } from "../errors/provider.errors";
+import { AiModelType, AiModelTier } from "../../../entities/ai.entity";
 
 interface OpenAiChatCompletionRequest {
   model: string;
@@ -72,6 +76,105 @@ export class Llm7Provider extends AiProviderAbstract {
 
   supports(): boolean {
     return true;
+  }
+
+  async getModels(): Promise<AiProviderModelInfo[]> {
+    const endpoint = `${this.baseUrl.replace(/\/$/, "")}/models`;
+    const controller = this.createAbortController();
+
+    const response = await this.withTimeout(
+      fetch(endpoint, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          ...(this.apiKey ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+        },
+        signal: controller.signal,
+      }),
+      this.getTimeoutMs(),
+      this.kind,
+    );
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as any;
+      const message =
+        data?.error?.message ?? `Provider returned HTTP ${response.status}`;
+      throw new AiProviderError(message, {
+        kind:
+          response.status === 429
+            ? "RATE_LIMITED"
+            : response.status === 401 || response.status === 403
+              ? "AUTH"
+              : "HTTP",
+        provider: this.kind,
+        status: response.status,
+        retryable: response.status === 429 || response.status >= 500,
+      });
+    }
+
+    const data = (await response.json().catch(() => null)) as any;
+    const models = Array.isArray(data?.data) ? data.data : [];
+    return models.flatMap((model: any) => {
+      const modelCode = typeof model?.id === "string" ? model.id : "";
+      if (!modelCode) return [];
+
+      const outputModalities = model.modalities?.output;
+      let modelType = mapModelTypeFromModalities(outputModalities);
+      if (model.model_type === "video") modelType = AiModelType.VIDEO;
+      else if (model.model_type === "image") modelType = AiModelType.IMAGE;
+      else if (model.model_type === "audio") modelType = AiModelType.AUDIO;
+
+      if (
+        !isTextGenerateModel({
+          modelCode,
+          modelType,
+          outputModalities,
+          modelFamily: model.model_type,
+        })
+      ) {
+        return [];
+      }
+
+      const tier =
+        model.tier === "pro"
+          ? AiModelTier.PRO
+          : model.tier === "turbo" || model.tier === "free"
+            ? AiModelTier.FREE
+            : undefined;
+
+      return [
+        {
+          modelCode,
+          name: model.id,
+          modelType: AiModelType.TEXT,
+          tier,
+          stream: typeof model.stream === "boolean" ? model.stream : undefined,
+          jsonMode:
+            typeof model.json_mode === "boolean" ? model.json_mode : undefined,
+          reasoning:
+            typeof model.reasoning === "boolean" ? model.reasoning : undefined,
+          toolsCalling:
+            typeof model.tools_calling === "boolean"
+              ? model.tools_calling
+              : undefined,
+          contextWindow: {
+            maxInputTokens: model.context_window?.tokens ?? undefined,
+          },
+          metadata: {
+            object: model.object,
+            owned_by: model.owned_by,
+            created: model.created,
+            model_type: model.model_type,
+            tier: model.tier,
+            pricing: model.pricing,
+            pricing_mode: model.pricing_mode,
+            modalities: model.modalities,
+            usage_based_only: model.usage_based_only,
+            capabilities: model.capabilities,
+          },
+        },
+      ];
+    });
   }
 
   protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {

@@ -53,6 +53,7 @@ import { ClientSettingsService } from "src/client-settings/client-settings.servi
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.service";
 import { AiOrchestrationResult } from "src/ai/interfaces/ai-types";
+import { AiModelAvailabilityEntity, AiModelEntity, AiProviderEntity } from "entities/ai.entity";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -313,7 +314,7 @@ export abstract class FlowNodeHandler {
   constructor(
     @InjectRepository(OrderEntity)
     protected readonly orderRepo: Repository<OrderEntity>,
-  ) {}
+  ) { }
   abstract execute(
     config: any,
     run: AutomationRunEntity,
@@ -668,6 +669,12 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     private readonly userRepo: Repository<User>,
     private readonly aiOrchestrator: AiOrchestratorService,
     private readonly clientSettingsService: ClientSettingsService,
+    @InjectRepository(AiProviderEntity)
+    private readonly providerRepo: Repository<AiProviderEntity>,
+    @InjectRepository(AiModelEntity)
+    private readonly modelRepo: Repository<AiModelEntity>,
+    @InjectRepository(AiModelAvailabilityEntity)
+    private readonly availabilityRepo: Repository<AiModelAvailabilityEntity>,
   ) {
     super(orderRepo);
   }
@@ -680,10 +687,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
       const orderData = await this.getOrder(run.executionState.trigger.output);
       if (!orderData?.id) {
         return {
-          success: true,
-          shouldPause: false,
-          chosenBranch: "failed_to_correct",
-          output: { reason: "Order data not available for address correction" },
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: "Order information not available for address correction",
         };
       }
 
@@ -694,15 +700,83 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
       if (!admin) {
         return {
-          success: true,
-          shouldPause: false,
-          chosenBranch: "failed_to_correct",
-          output: { reason: "Admin user not found" },
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error:  "Admin user not found" ,
         };
       }
 
       const settings = await this.clientSettingsService.getSettings(admin);
       const defaultLang = settings?.defaultLang || "en";
+
+      if (config.providerCode || config.providerId || config.modelCode) {
+        const qb = this.providerRepo
+          .createQueryBuilder("provider")
+          .leftJoin(
+            "provider.models",
+            "model",
+            config.modelCode
+              ? "model.modelCode = :modelCode"
+              : "1 = 0",
+            {
+              modelCode: config.modelCode,
+            },
+          )
+          .leftJoin(
+            "model.availabilities",
+            "availability",
+            run.adminId
+              ? "availability.adminId = :adminId"
+              : "1 = 0",
+            {
+              adminId: run.adminId,
+            },
+          )
+          .where("provider.isActive = true");
+
+        if (config.providerCode || config.providerId) {
+          qb.andWhere(
+            "(LOWER(provider.code) = LOWER(:providerCode) OR provider.id = :providerId)",
+            {
+              providerCode: config.providerCode ?? null,
+              providerId: config.providerId ?? null,
+            },
+          );
+        }
+
+        const provider = await qb
+          .select([
+            "provider.id",
+            "provider.code",
+            "model.id",
+            "model.modelCode",
+            "availability.id",
+            "availability.isAvailable",
+          ])
+          .getOne();
+
+        if (!provider) {
+          return {
+            success: false,
+            chosenBranch: "address_not_corrected",
+            error:  `AI provider '${config.providerCode || config.providerId
+                }' not found or inactive`,
+          };
+        }
+
+        if (config.modelCode) {
+          const model = provider.models?.[0];
+          const availability = model?.availabilities?.[0];
+
+          if (model && availability?.isAvailable === false) {
+            return {
+              success: false,
+              chosenBranch: "address_not_corrected",
+              error: `AI model '${config.modelCode}' is not available for this tenant`,
+            };
+          }
+        }
+      }
 
       const prompt = this.buildPrompt(orderData, config);
 
@@ -738,9 +812,8 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
       );
 
       return {
-        success: true,
-        shouldPause: false,
-        chosenBranch: "failed_to_correct",
+        success: false,
+        chosenBranch: "address_not_corrected",
         error: error?.message || "Address correction failed",
       };
     }
@@ -809,8 +882,8 @@ Explain briefly what you found and what you did (or why you couldn't update). Us
 function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeHandlerResponse {
   const progress = !chatResult.progress?.length ? chatResult?._dev?.progress : chatResult.progress;
   const toolResults = progress?.filter(
-      (event) => event.type === "tool_result",
-    ) ?? [];
+    (event) => event.type === "tool_result",
+  ) ?? [];
 
   const updateResult = toolResults.find(
     (event) => event.toolName === "bulk_update_orders_shipping",
@@ -827,7 +900,7 @@ function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeH
   if (updateResult && !updateResult.result?.ok) {
     return {
       success: true,
-      chosenBranch: "failed_to_correct",
+      chosenBranch: "address_not_corrected",
       error: updateResult.result?.error,
       output: { aiComment: chatResult.content },
     };
@@ -835,7 +908,7 @@ function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeH
 
   return {
     success: true,
-    chosenBranch: "address_incomplete",
+    chosenBranch: "address_not_corrected",
     output: {
       aiComment: chatResult.content,
     },
@@ -862,10 +935,8 @@ export class ActionAssignShippingProviderHandler extends FlowNodeHandler {
       const orderData = await this.getOrder(run.executionState.trigger.output);
       if (!orderData?.id) {
         return {
-          success: true,
-          shouldPause: false,
-          chosenBranch: "failed_to_distribute",
-          output: { reason: "Order data not available for shipping assignment" },
+          success: false,
+          error: "Order information not available for shipping assignment",
         };
       }
 
@@ -881,13 +952,8 @@ export class ActionAssignShippingProviderHandler extends FlowNodeHandler {
 
       if (!selectedProvider) {
         return {
-          success: true,
-          shouldPause: false,
-          chosenBranch: "failed_to_distribute",
-          output: {
-            orderId: orderData.id,
-            reason: "Selected shipping provider is unavailable",
-          },
+          success: false,
+          error: "Selected shipping provider is unavailable",
         };
       }
 
@@ -919,10 +985,9 @@ export class ActionAssignShippingProviderHandler extends FlowNodeHandler {
 
       return {
         success: false,
-        shouldPause: false,
         chosenBranch: "failed_to_distribute",
         error: error?.message || "Shipping provider assignment failed",
-        
+
       };
     }
   }
@@ -953,7 +1018,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
   ) {
     super(orderRepo);
   }
-
+  
   async execute(
     hydratedConfig: SendWhatsappTemplateConfig,
     run: AutomationRunEntity,
@@ -1056,24 +1121,24 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
       // 2. Prepare Hydrated Variables (Map dynamic paths to real values)
       const headerVariables = hydratedConfig.headerVariables
         ? this.mapVariablesToValues(
-            hydratedConfig.headerVariables,
-            orderData,
-            globalData,
-          )
+          hydratedConfig.headerVariables,
+          orderData,
+          globalData,
+        )
         : undefined;
       const bodyVariables = hydratedConfig.bodyVariables
         ? this.mapVariablesToValues(
-            hydratedConfig.bodyVariables,
-            orderData,
-            globalData,
-          )
+          hydratedConfig.bodyVariables,
+          orderData,
+          globalData,
+        )
         : undefined;
       const buttonVariables = hydratedConfig.buttonVariables
         ? this.mapVariablesToValues(
-            hydratedConfig.buttonVariables,
-            orderData,
-            globalData,
-          )
+          hydratedConfig.buttonVariables,
+          orderData,
+          globalData,
+        )
         : undefined;
 
       // Handle Location Header if present
@@ -1121,9 +1186,9 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
           locationData,
           headerUrl:
             hydratedConfig.useOrderFirstItemImage &&
-            template.templateConfig?.headerType?.toUpperCase() === "IMAGE"
+              template.templateConfig?.headerType?.toUpperCase() === "IMAGE"
               ? orderData.items?.[0]?.variant?.product?.mainImage ||
-                hydratedConfig.headerUrl
+              hydratedConfig.headerUrl
               : hydratedConfig.headerUrl,
         },
         orderData.adminId,
@@ -1167,10 +1232,10 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
           },
           ...(noResponseMs
             ? {
-                waitMinutes: noResponseMinutes,
-                waitMs: noResponseMs,
-                resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
-              }
+              waitMinutes: noResponseMinutes,
+              waitMs: noResponseMs,
+              resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
+            }
             : {}),
         },
       };
@@ -1228,10 +1293,10 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
 
               textValue = !isNaN(date.getTime())
                 ? date.toLocaleString("en-GB", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    year: "numeric",
-                  })
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                })
                 : val;
             } else {
               textValue = String(val);
@@ -1418,10 +1483,10 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
           recipient: to,
           ...(noResponseMs
             ? {
-                waitMinutes: noResponseMinutes,
-                waitMs: noResponseMs,
-                resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
-              }
+              waitMinutes: noResponseMinutes,
+              waitMs: noResponseMs,
+              resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
+            }
             : {}),
         },
       };
@@ -1516,10 +1581,10 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
         // Resolve order + global variables inside the upsell message config
         const messageConfig = upsell.messageConfig
           ? this.deepReplaceVariables(
-              upsell.messageConfig,
-              orderData,
-              globalData,
-            )
+            upsell.messageConfig,
+            orderData,
+            globalData,
+          )
           : upsell.messageConfig;
 
         const history = await this.adapter.sendUpsell(
@@ -1579,10 +1644,10 @@ export class ActionSendUpsellHandler extends FlowNodeHandler {
           recipient: orderData.phoneNumber,
           ...(noResponseMs
             ? {
-                waitMinutes: noResponseMinutes,
-                waitMs: noResponseMs,
-                resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
-              }
+              waitMinutes: noResponseMinutes,
+              waitMs: noResponseMs,
+              resumeAt: new Date(Date.now() + noResponseMs).toISOString(),
+            }
             : {}),
         },
       };
@@ -1981,6 +2046,12 @@ export class NodeHandlersRegistry {
     @Inject(forwardRef(() => AutomationQueueService))
     private readonly automationQueueService: AutomationQueueService,
     private readonly aiOrchestrator: AiOrchestratorService,
+    @InjectRepository(AiProviderEntity)
+    private readonly aiProviderRepo: Repository<AiProviderEntity>,
+    @InjectRepository(AiModelEntity)
+    private readonly aiModelRepo: Repository<AiModelEntity>,
+    @InjectRepository(AiModelAvailabilityEntity)
+    private readonly aiAvailabilityRepo: Repository<AiModelAvailabilityEntity>,
   ) {
     this.registerHandlers();
   }
@@ -2001,7 +2072,7 @@ export class NodeHandlersRegistry {
     );
     this.handlers.set(
       ActionType.AI_ADDRESS_CORRECTION,
-      new ActionAiAddressCorrectionHandler(this.orderRepo, this.userRepo, this.aiOrchestrator, this.clientSettingsService),
+      new ActionAiAddressCorrectionHandler(this.orderRepo, this.userRepo, this.aiOrchestrator, this.clientSettingsService, this.aiProviderRepo, this.aiModelRepo, this.aiAvailabilityRepo),
     );
     this.handlers.set(
       ActionType.ASSIGN_SHIPPING_PROVIDER,

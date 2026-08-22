@@ -24,6 +24,7 @@ import {
   AiWriteToolCallStatus,
   AiDefaultModelEntity,
   AiModelTier,
+  AiModelAvailabilityEntity,
 } from "../../entities/ai.entity";
 import {
   CreateModelDto,
@@ -57,6 +58,7 @@ import { AiProviderAbstract } from "./providers/ai-provider.abstract";
 import { AiProviderError } from "./errors/provider.errors";
 import { tenantId } from "src/category/category.service";
 import { SystemRole } from "entities/user.entity";
+import { AiModelType } from "../../entities/ai.entity";
 
 const PROTOCOL_AUTH_MAP: Record<string, AiAuthType> = {
   [AiProviderProtocol.OPENAI_COMPATIBLE]: AiAuthType.API_KEY,
@@ -77,12 +79,14 @@ export class AiService {
     private readonly writeCallRepo: Repository<AiWriteToolCallEntity>,
     @InjectRepository(AiDefaultModelEntity)
     private readonly defaultModelRepo: Repository<AiDefaultModelEntity>,
+    @InjectRepository(AiModelAvailabilityEntity)
+    private readonly availabilityRepo: Repository<AiModelAvailabilityEntity>,
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
     @Inject(AI_CONFIG_TOKEN) private readonly config: AiConfig,
     private readonly selector: AiProviderSelectorService,
     private readonly encryptionService: EncryptionService,
-  ) {}
+  ) { }
 
   // ──────────────────────────── DEFAULT MODEL ────────────────────────────
 
@@ -242,7 +246,13 @@ export class AiService {
     const qb = this.providerRepo
       .createQueryBuilder("p")
       .leftJoinAndSelect("p.models", "model")
-      .leftJoinAndSelect("p.integrations", "integration");
+      .leftJoinAndSelect("p.integrations", "integration")
+      .leftJoinAndSelect(
+        "model.availabilities",
+        "availability",
+        "availability.adminId = :adminId",
+        { adminId: adminId ?? null },
+      );
 
     /*
      * Scope:
@@ -272,15 +282,15 @@ export class AiService {
           });
         } else if (adminId) {
           qb.where(
-          "(p.adminId IS NULL AND p.isActive = true) OR " +
+            "(p.adminId IS NULL AND p.isActive = true) OR " +
             "(p.adminId = :adminId AND p.isActive = :isActive)",
-          {
-            adminId,
-            isActive,
-          },
-        );
+            {
+              adminId,
+              isActive,
+            },
+          );
         } else {
-           qb.where("p.adminId IS NULL AND p.isActive = true");
+          qb.where("p.adminId IS NULL AND p.isActive = true");
         }
       }
     } else {
@@ -310,11 +320,11 @@ export class AiService {
     if (search) {
       qb.andWhere(
         `(
-                LOWER(p.name) LIKE LOWER(:search)
-                OR LOWER(p.code) LIKE LOWER(:search)
-                OR LOWER(model.name) LIKE LOWER(:search)
-                OR LOWER(model.modelCode) LIKE LOWER(:search)
-            )`,
+        LOWER(p.name) LIKE LOWER(:search)
+        OR LOWER(p.code) LIKE LOWER(:search)
+        OR LOWER(model.name) LIKE LOWER(:search)
+        OR LOWER(model.modelCode) LIKE LOWER(:search)
+      )`,
         {
           search: `%${search}%`,
         },
@@ -328,14 +338,19 @@ export class AiService {
 
     const records = providers.map((provider) => ({
       ...provider,
+
       integration: provider.integrations?.[0]
         ? this.toIntegrationResponse(provider.integrations[0])
         : undefined,
+
       models: (provider.models ?? []).map((model) => ({
         id: model.id,
         displayName: model.name,
         modelCode: model.modelCode,
         isActive: model.isActive,
+
+        // No availability row = available by default
+        isAvailable: model.availabilities?.[0]?.isAvailable ?? true,
       })),
     }));
 
@@ -346,11 +361,26 @@ export class AiService {
 
   async getProvider(me: any, id: string) {
     const provider = await this.findProviderWithAccess(me, id);
-    const models = await this.modelRepo.find({
-      where: { providerId: id },
-      order: { name: "ASC" },
-    });
+
+    const myAdminId = tenantId(me);
+
+    const qb = this.modelRepo
+      .createQueryBuilder("model")
+      .leftJoinAndSelect(
+        "model.availabilities",
+        "availability",
+        "availability.adminId = :adminId",
+        { adminId: myAdminId ?? null },
+      )
+      .where("model.providerId = :providerId", {
+        providerId: id,
+      })
+      .orderBy("model.name", "ASC");
+
+    const models = await qb.getMany();
+
     const integration = (provider as any).integrations?.[0];
+
     return {
       ...this.toProviderResponse(provider, models),
       integration: integration
@@ -390,7 +420,7 @@ export class AiService {
     const authType =
       dto.authType ?? PROTOCOL_AUTH_MAP[protocol] ?? AiAuthType.API_KEY;
 
-    return this.dataSource.transaction(async (mgr) => {
+    const saved = await this.dataSource.transaction(async (mgr) => {
       const provider = mgr.create(AiProviderEntity, {
         ...providerData,
         logoUrl: null,
@@ -400,14 +430,28 @@ export class AiService {
         protocol,
         authType,
       });
-      const saved = await mgr.save(provider);
+      const p = await mgr.save(provider);
 
+      if (credentials?.apiKey) {
+        const testResult = await this.testProvider(
+          p,
+          { apiKey: credentials.apiKey },
+          baseUrl,
+        );
+
+        if (!testResult.valid) {
+          throw new BadRequestException(
+            testResult.message ??
+            this.translations.t("domains.ai.credentials_invalid_api_key"),
+          );
+        }
+      }
       if (baseUrl || credentials) {
         const encrypted = credentials
           ? this.encryptionService.encrypt(JSON.stringify(credentials))
           : undefined;
         const integration = mgr.create(AiIntegrationEntity, {
-          providerId: saved.id,
+          providerId: p.id,
           adminId: myAdminId,
           scope: AiIntegrationScope.TENANT,
           authType,
@@ -418,8 +462,12 @@ export class AiService {
         await mgr.save(integration);
       }
 
-      return saved;
+      return p;
     });
+
+
+
+    return saved;
   }
 
   async updateProvider(me: any, id: string, dto: UpdateProviderDto) {
@@ -590,13 +638,13 @@ export class AiService {
 
     if (cursor) {
       const operator = sortDir === "DESC" ? "<" : ">";
-      qb.andWhere(`(m.created_t, m.id) ${operator} (:cursorValue, :cursorId)`, {
+      qb.andWhere(`(m.created_at, m.id) ${operator} (:cursorValue, :cursorId)`, {
         cursorValue: cursor.value,
         cursorId: cursor.id,
       });
     }
 
-    qb.orderBy("m.created_t", sortDir);
+    qb.orderBy("m.created_at", sortDir);
     qb.addOrderBy("m.id", sortDir);
 
     const rows = await qb.take(limit + 1).getMany();
@@ -604,14 +652,23 @@ export class AiService {
     const records = hasMore ? rows.slice(0, limit) : rows;
     const last = records[records.length - 1];
 
-    const mapped = records.map((m) => this.toModelResponse(m));
+    let availabilityMap: Map<string, boolean> | undefined;
+    if (myAdminId && records.length > 0) {
+      const modelIds = records.map((m) => m.id);
+      const availRows = await this.availabilityRepo.find({
+        where: modelIds.map((modelId) => ({ adminId: myAdminId, modelId })),
+      });
+      availabilityMap = new Map(availRows.map((a) => [a.modelId, a.isAvailable]));
+    }
+
+    const mapped = records.map((m) => this.toModelResponse(m, availabilityMap));
 
     return {
       records: mapped,
       hasMore,
       limit,
-      nextCursor: hasMore ? { value: last.created_t, id: last.id } : undefined,
-      sortBy: "created_t",
+      nextCursor: hasMore ? { value: last.created_at, id: last.id } : undefined,
+      sortBy: "created_at",
       sortDir,
     };
   }
@@ -662,7 +719,7 @@ export class AiService {
       if (!testResult.valid) {
         throw new BadRequestException(
           testResult.message ??
-            this.translations.t("domains.ai.credentials_invalid_api_key"),
+          this.translations.t("domains.ai.credentials_invalid_api_key"),
         );
       }
     }
@@ -709,7 +766,7 @@ export class AiService {
         if (!testResult.valid) {
           throw new BadRequestException(
             testResult.message ??
-              this.translations.t("domains.ai.credentials_invalid_api_key"),
+            this.translations.t("domains.ai.credentials_invalid_api_key"),
           );
         }
       }
@@ -766,7 +823,7 @@ export class AiService {
           hasMore: false,
           limit,
           nextCursor: undefined,
-          sortBy: "created_t",
+          sortBy: "created_at",
           sortDir,
         };
       }
@@ -784,13 +841,13 @@ export class AiService {
 
     if (cursor) {
       const operator = sortDir === "DESC" ? "<" : ">";
-      qb.andWhere(`(i.created_t, i.id) ${operator} (:cursorValue, :cursorId)`, {
+      qb.andWhere(`(i.created_at, i.id) ${operator} (:cursorValue, :cursorId)`, {
         cursorValue: cursor.value,
         cursorId: cursor.id,
       });
     }
 
-    qb.orderBy("i.created_t", sortDir);
+    qb.orderBy("i.created_at", sortDir);
     qb.addOrderBy("i.id", sortDir);
 
     const rows = await qb.take(limit + 1).getMany();
@@ -831,7 +888,7 @@ export class AiService {
         lastValidatedAt: i.lastValidatedAt,
         lastError: i.lastError,
         scope: i.scope,
-        created_t: i.created_t,
+        created_at: i.created_at,
         updated_ut: i.updated_ut,
       };
     });
@@ -840,8 +897,8 @@ export class AiService {
       records: mapped,
       hasMore,
       limit,
-      nextCursor: hasMore ? { value: last.created_t, id: last.id } : undefined,
-      sortBy: "created_t",
+      nextCursor: hasMore ? { value: last.created_at, id: last.id } : undefined,
+      sortBy: "created_at",
       sortDir,
     };
   }
@@ -900,7 +957,21 @@ export class AiService {
     const provider = await this.findProviderWithAccess(me, providerId);
     const authType = provider.authType ?? AiAuthType.API_KEY;
 
-    return this.dataSource.transaction(async (mgr) => {
+    if (dto.credentials?.apiKey) {
+      const testResult = await this.testProvider(
+        provider,
+        { apiKey: dto.credentials.apiKey },
+        dto.baseUrl,
+      );
+      if (!testResult.valid) {
+        throw new BadRequestException(
+          testResult.message ??
+          this.translations.t("domains.ai.credentials_invalid_api_key"),
+        );
+      }
+    }
+
+    const result = await this.dataSource.transaction(async (mgr) => {
       let integration = await mgr.findOne(AiIntegrationEntity, {
         where: { providerId, adminId: myAdminId },
       });
@@ -931,6 +1002,19 @@ export class AiService {
         credentialsConfigured: true,
       };
     });
+
+    if (dto.credentials?.apiKey) {
+      try {
+        await this.syncModels(me, providerId, {
+          apiKey: dto.credentials.apiKey,
+          baseUrl: dto.baseUrl,
+        });
+      } catch {
+        // sync failure should not block credential setting
+      }
+    }
+
+    return result;
   }
 
   async testCredentials(me: any, providerId: string, modelCode?: string) {
@@ -950,7 +1034,7 @@ export class AiService {
         "lastValidatedAt",
         "lastError",
         "scope",
-        "created_t",
+        "created_at",
         "updated_ut",
       ],
       relations: ["provider"],
@@ -1075,6 +1159,52 @@ export class AiService {
     }
   }
 
+  private async testProvider(
+    provider: AiProviderEntity,
+    credentials: AiProviderCredentials,
+    baseUrl?: string,
+  ): Promise<{ valid: boolean; message?: string }> {
+    const baseProvider = this.resolveBaseProvider(provider);
+    if (!baseProvider) {
+      return {
+        valid: false,
+        message: this.translations.t("domains.ai.provider_class_not_found", {
+          args: { code: provider.code ?? provider.protocol },
+        }),
+      };
+    }
+
+    try {
+      const testInstance = baseProvider.cloneWithRuntime({
+        apiKey: credentials.apiKey,
+        baseUrl: baseUrl ?? undefined,
+      });
+      await testInstance.getModels();
+      return { valid: true };
+    } catch (err: any) {
+      const status = err?.providerStatus ?? err?.status;
+      const isAuth =
+        (err instanceof AiProviderError && err.kind === "AUTH") ||
+        status === 401 ||
+        status === 403;
+
+      if (isAuth) {
+        return {
+          valid: false,
+          message: this.translations.t(
+            "domains.ai.credentials_invalid_api_key",
+          ),
+        };
+      }
+      return {
+        valid: false,
+        message:
+          err?.message ??
+          this.translations.t("domains.ai.credentials_test_error"),
+      };
+    }
+  }
+
   async deleteIntegration(me: any, providerId: string) {
     const myAdminId = tenantId(me);
     const where: any = { providerId };
@@ -1102,6 +1232,156 @@ export class AiService {
       );
     }
     await this.modelRepo.remove(model);
+  }
+
+  async syncModels(
+    me: any,
+    providerId: string,
+    credentials?: { apiKey?: string; baseUrl?: string },
+  ) {
+    const adminId = tenantId(me);
+    const provider = await this.findProviderWithAccess(me, providerId);
+
+    const baseProvider = this.resolveBaseProvider(provider);
+    if (!baseProvider) {
+      throw new BadRequestException(
+        this.translations.t("domains.ai.provider_class_not_found", {
+          args: { code: provider.code ?? provider.protocol },
+        }),
+      );
+    }
+
+    const runtimeConfig: Record<string, any> = {};
+
+    if (credentials?.apiKey) {
+      runtimeConfig.apiKey = credentials.apiKey;
+    }
+
+    if (credentials?.baseUrl) {
+      runtimeConfig.baseUrl = credentials.baseUrl;
+    }
+
+    if (!runtimeConfig.apiKey) {
+      const integration = (provider as any).integrations?.[0];
+      if (integration?.encryptedCredentials) {
+        try {
+          const decrypted = this.encryptionService.decrypt(
+            integration.encryptedCredentials.ciphertext,
+            integration.encryptedCredentials.iv,
+            integration.encryptedCredentials.tag,
+          );
+          const parsed = JSON.parse(decrypted);
+          if (parsed.apiKey) runtimeConfig.apiKey = parsed.apiKey;
+          if (!runtimeConfig.baseUrl && integration.baseUrl) {
+            runtimeConfig.baseUrl = integration.baseUrl;
+          }
+        } catch {
+          // proceed without credentials
+        }
+      } else if (integration?.baseUrl && !runtimeConfig.baseUrl) {
+        runtimeConfig.baseUrl = integration.baseUrl;
+      }
+    }
+
+    const instance = baseProvider.cloneWithRuntime(runtimeConfig);
+    const remoteModels = await instance.getModels();
+
+    const existingModels = await this.modelRepo.find({
+      where: { providerId },
+      select: ["modelCode", "id"],
+    });
+    const existingCodes = new Set(existingModels.map((m) => m.modelCode));
+
+    const toCreate: AiModelEntity[] = [];
+    const skipped: string[] = [];
+
+    for (const remote of remoteModels) {
+      if (existingCodes.has(remote.modelCode)) {
+        skipped.push(remote.modelCode);
+        continue;
+      }
+
+      toCreate.push(
+        this.modelRepo.create({
+          providerId,
+          adminId: provider.adminId,
+          scope: AiEntityScope.CUSTOM,
+          modelCode: remote.modelCode,
+          name: remote.name,
+          description: remote.description,
+          modelType: remote.modelType ?? AiModelType.TEXT,
+          tier: remote.tier,
+          contextWindow: remote.contextWindow,
+          stream: remote.stream,
+          jsonMode: remote.jsonMode,
+          reasoning: remote.reasoning,
+          toolsCalling: remote.toolsCalling,
+          metadata: remote.metadata,
+          isActive: true,
+        }),
+      );
+    }
+
+    const saved = await this.modelRepo.save(toCreate);
+
+    const remoteCodes = new Set(remoteModels.map((m) => m.modelCode));
+
+    if (adminId) {
+      const affectedModels = existingModels;
+
+      if (affectedModels.length > 0) {
+        const existingAvail = await this.availabilityRepo.find({
+          where: affectedModels.map((m) => ({
+            adminId,
+            modelId: m.id,
+          })),
+        });
+
+        const existingAvailMap = new Map(
+          existingAvail.map((a) => [a.modelId, a]),
+        );
+
+        const toSave = affectedModels
+          .map((model) => {
+            const existing = existingAvailMap.get(model.id);
+            const isAvailable = remoteCodes.has(model.modelCode);
+
+            if (existing) {
+              // Only update if the value actually changed
+              if (existing.isAvailable !== isAvailable) {
+                existing.isAvailable = isAvailable;
+                return existing;
+              }
+
+              return null;
+            }
+
+            return this.availabilityRepo.create({
+              adminId,
+              modelId: model.id,
+              isAvailable,
+            });
+          })
+          .filter(Boolean);
+
+        if (toSave.length > 0) {
+          await this.availabilityRepo.save(toSave);
+        }
+      }
+    }
+
+    return {
+      providerId,
+      providerName: provider.name,
+      total: remoteModels.length,
+      created: saved.length,
+      skipped: skipped.length,
+      models: saved.map((m) => ({
+        id: m.id,
+        modelCode: m.modelCode,
+        name: m.name,
+      })),
+    };
   }
 
   // ──────────────────────────── AUDIT: REQUEST SUMMARIES ────────────────────────────
@@ -1436,39 +1716,41 @@ export class AiService {
   ): Promise<AiModelEntity> {
     const myAdminId = tenantId(me);
 
+    const qb = this.modelRepo
+      .createQueryBuilder("model")
+      .leftJoinAndSelect("model.provider", "provider")
+      .leftJoinAndSelect("provider.integrations", "integration")
+      .leftJoinAndSelect(
+        "model.availabilities",
+        "availability",
+        "availability.adminId = :adminId",
+        { adminId: myAdminId ?? null },
+      )
+      .where("model.id = :id", { id });
+
     if (myAdminId) {
-      const model = await this.modelRepo.findOne({
-        where: [
-          { id, adminId: myAdminId },
-          { id, adminId: null },
-        ],
-        relations: ["provider", "provider.integrations"],
-      });
-      if (!model) {
-        throw new NotFoundException(
-          this.translations.t("domains.ai.model_not_found"),
-        );
-      }
-      return model;
+      qb.andWhere(
+        "(model.adminId = :adminId OR model.adminId IS NULL)",
+        { adminId: myAdminId },
+      );
     }
 
-    const model = await this.modelRepo.findOne({
-      where: { id },
-      relations: ["provider", "provider.integrations"],
-    });
+    const model = await qb.getOne();
+
     if (!model) {
       throw new NotFoundException(
         this.translations.t("domains.ai.model_not_found"),
       );
     }
+
     return model;
   }
-
   // ──────────────────────────── HELPERS ────────────────────────────
 
   private toProviderResponse(
     entity: AiProviderEntity,
     models?: AiModelEntity[],
+    availabilityMap?: Map<string, boolean>,
   ): ProviderResponseDto {
     return {
       id: entity.id,
@@ -1485,23 +1767,27 @@ export class AiService {
       adminId: entity.adminId,
       models: models
         ? models
-            .filter((m) => m.isActive)
-            .map((m) => ({ id: m.id, modelCode: m.modelCode }))
+          .filter((m) => m.isActive)
+          .map((m) => ({
+            id: m.id,
+            modelCode: m.modelCode,
+            isAvailable: availabilityMap?.get(m.id) ?? true,
+          }))
         : undefined,
       created_at: entity.created_at,
       updated_at: entity.updated_at,
     };
   }
 
-  private toModelResponse(entity: AiModelEntity): ModelResponseDto {
+  private toModelResponse(entity: AiModelEntity, availabilityMap?: Map<string, boolean>): ModelResponseDto {
     const providerIntegration = entity.provider?.integrations?.[0];
     let maskedIntegration:
       | {
-          id: string;
-          baseUrl?: string;
-          credentials?: Record<string, any>;
-          adminId?: string;
-        }
+        id: string;
+        baseUrl?: string;
+        credentials?: Record<string, any>;
+        adminId?: string;
+      }
       | undefined;
     if (providerIntegration) {
       let maskedCredentials: Record<string, any> | undefined;
@@ -1545,6 +1831,7 @@ export class AiService {
       modelType: entity.modelType,
       tier: entity.tier,
       isActive: entity.isActive,
+      isAvailable: availabilityMap?.get(entity.id) ?? true,
       stream: entity.stream,
       jsonMode: entity.jsonMode,
       reasoning: entity.reasoning,
@@ -1553,24 +1840,24 @@ export class AiService {
       contextWindow: entity.contextWindow,
       provider: entity.provider
         ? {
-            id: entity.provider.id,
-            code: entity.provider.code,
-            name: entity.provider.name,
-            scope: entity.provider.scope,
-            website: entity.provider.website,
-            logoUrl: entity.provider.logoUrl,
-            tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
-            isActive: entity.provider.isActive,
-            description: entity.provider.description,
-            descriptionAr: entity.provider.descriptionAr,
-            protocol: entity.provider.protocol,
-            adminId: entity.provider.adminId,
-            created_at: entity.provider.created_at,
-            updated_at: entity.provider.updated_at,
-            integration: maskedIntegration,
-          }
+          id: entity.provider.id,
+          code: entity.provider.code,
+          name: entity.provider.name,
+          scope: entity.provider.scope,
+          website: entity.provider.website,
+          logoUrl: entity.provider.logoUrl,
+          tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
+          isActive: entity.provider.isActive,
+          description: entity.provider.description,
+          descriptionAr: entity.provider.descriptionAr,
+          protocol: entity.provider.protocol,
+          adminId: entity.provider.adminId,
+          created_at: entity.provider.created_at,
+          updated_at: entity.provider.updated_at,
+          integration: maskedIntegration,
+        }
         : undefined,
-      created_t: entity.created_t,
+      created_at: entity.created_at,
       updated_at: entity.updated_at,
     };
   }
@@ -1611,23 +1898,23 @@ export class AiService {
       lastError: entity.lastError,
       provider: entity.provider
         ? {
-            id: entity.provider.id,
-            code: entity.provider.code,
-            name: entity.provider.name,
-            scope: entity.provider.scope,
-            website: entity.provider.website,
-            logoUrl: entity.provider.logoUrl,
-            tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
-            isActive: entity.provider.isActive,
-            description: entity.provider.description,
-            protocol: entity.provider.protocol,
-            adminId: entity.provider.adminId,
-            created_at: entity.provider.created_at,
-            updated_at: entity.provider.updated_at,
-          }
+          id: entity.provider.id,
+          code: entity.provider.code,
+          name: entity.provider.name,
+          scope: entity.provider.scope,
+          website: entity.provider.website,
+          logoUrl: entity.provider.logoUrl,
+          tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
+          isActive: entity.provider.isActive,
+          description: entity.provider.description,
+          protocol: entity.provider.protocol,
+          adminId: entity.provider.adminId,
+          created_at: entity.provider.created_at,
+          updated_at: entity.provider.updated_at,
+        }
         : undefined,
       models,
-      created_t: entity.created_t,
+      created_at: entity.created_at,
       updated_ut: entity.updated_ut,
     };
   }
@@ -1656,30 +1943,30 @@ export class AiService {
       providersUsed: entity.providersUsed,
       provider: entity.provider
         ? {
-            id: entity.provider.id,
-            code: entity.provider.code,
-            name: entity.provider.name,
-            scope: entity.provider.scope,
-            isActive: entity.provider.isActive,
-            tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
-            logoUrl: entity.provider.logoUrl,
-            created_at: entity.provider.created_at,
-            updated_at: entity.provider.updated_at,
-          }
+          id: entity.provider.id,
+          code: entity.provider.code,
+          name: entity.provider.name,
+          scope: entity.provider.scope,
+          isActive: entity.provider.isActive,
+          tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
+          logoUrl: entity.provider.logoUrl,
+          created_at: entity.provider.created_at,
+          updated_at: entity.provider.updated_at,
+        }
         : undefined,
       model: entity.model
         ? {
-            id: entity.model.id,
-            providerId: entity.model.providerId,
-            modelCode: entity.model.modelCode,
-            name: entity.model.name,
-            modelType: entity.model.modelType,
-            tier: entity.model.tier,
-            isActive: entity.model.isActive,
-            scope: entity.model.scope,
-            created_t: entity.model.created_t,
-            updated_at: entity.model.updated_at,
-          }
+          id: entity.model.id,
+          providerId: entity.model.providerId,
+          modelCode: entity.model.modelCode,
+          name: entity.model.name,
+          modelType: entity.model.modelType,
+          tier: entity.model.tier,
+          isActive: entity.model.isActive,
+          scope: entity.model.scope,
+          created_at: entity.model.created_at,
+          updated_at: entity.model.updated_at,
+        }
         : undefined,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
@@ -1707,30 +1994,30 @@ export class AiService {
       completedAt: entity.completedAt,
       provider: entity.provider
         ? {
-            id: entity.provider.id,
-            code: entity.provider.code,
-            name: entity.provider.name,
-            scope: entity.provider.scope,
-            tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
-            isActive: entity.provider.isActive,
-            logoUrl: entity.provider.logoUrl,
-            created_at: entity.provider.created_at,
-            updated_at: entity.provider.updated_at,
-          }
+          id: entity.provider.id,
+          code: entity.provider.code,
+          name: entity.provider.name,
+          scope: entity.provider.scope,
+          tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
+          isActive: entity.provider.isActive,
+          logoUrl: entity.provider.logoUrl,
+          created_at: entity.provider.created_at,
+          updated_at: entity.provider.updated_at,
+        }
         : undefined,
       model: entity.model
         ? {
-            id: entity.model.id,
-            providerId: entity.model.providerId,
-            modelCode: entity.model.modelCode,
-            name: entity.model.name,
-            modelType: entity.model.modelType,
-            tier: entity.model.tier,
-            isActive: entity.model.isActive,
-            scope: entity.model.scope,
-            created_t: entity.model.created_t,
-            updated_at: entity.model.updated_at,
-          }
+          id: entity.model.id,
+          providerId: entity.model.providerId,
+          modelCode: entity.model.modelCode,
+          name: entity.model.name,
+          modelType: entity.model.modelType,
+          tier: entity.model.tier,
+          isActive: entity.model.isActive,
+          scope: entity.model.scope,
+          created_at: entity.model.created_at,
+          updated_at: entity.model.updated_at,
+        }
         : undefined,
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,

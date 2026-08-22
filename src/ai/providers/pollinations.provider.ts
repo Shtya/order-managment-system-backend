@@ -1,15 +1,19 @@
 import { Injectable } from "@nestjs/common";
 import {
   AiProviderAbstract,
+  AiProviderModelInfo,
   normalizeUsage,
   safeJsonParse,
   boolEnv,
   intEnv,
   floatEnv,
   strEnv,
+  mapModelTypeFromModalities,
+  isTextGenerateModel,
 } from "./ai-provider.abstract";
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
 import { AiProviderError } from "../errors/provider.errors";
+import { AiModelType } from "../../../entities/ai.entity";
 
 interface PollinationsChatCompletionRequest {
   model: string;
@@ -61,6 +65,91 @@ export class PollinationsProvider extends AiProviderAbstract {
 
   supports(): boolean {
     return true;
+  }
+
+  async getModels(): Promise<AiProviderModelInfo[]> {
+    const endpoint = `${this.baseUrl.replace(/\/$/, "")}/v1/models`;
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
+
+    const controller = this.createAbortController();
+    const response = await this.withTimeout(
+      fetch(endpoint, {
+        method: "GET",
+        headers,
+        signal: controller.signal,
+      }),
+      this.getTimeoutMs(),
+      this.kind,
+    );
+
+    if (!response.ok) {
+      const data = (await response.json().catch(() => null)) as any;
+      const message =
+        data?.error?.message ?? `Provider returned HTTP ${response.status}`;
+      throw new AiProviderError(message, {
+        kind:
+          response.status === 429
+            ? "RATE_LIMITED"
+            : response.status === 401 || response.status === 403
+              ? "AUTH"
+              : "HTTP",
+        provider: this.kind,
+        status: response.status,
+        retryable: response.status === 429 || response.status >= 500,
+      });
+    }
+
+    const data = (await response.json().catch(() => null)) as any;
+    const models = Array.isArray(data?.data) ? data.data : [];
+    return models.flatMap((model: any) => {
+      const modelCode = typeof model?.id === "string" ? model.id : "";
+      if (!modelCode) return [];
+
+      const modelType = mapModelTypeFromModalities(model.output_modalities);
+      if (
+        !isTextGenerateModel({
+          modelCode,
+          modelType,
+          outputModalities: model.output_modalities,
+        })
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          modelCode,
+          name: model.id,
+          modelType: AiModelType.TEXT,
+          toolsCalling:
+            typeof model.tools === "boolean" ? model.tools : undefined,
+          reasoning:
+            typeof model.reasoning === "boolean" ? model.reasoning : undefined,
+          stream: Array.isArray(model.supported_endpoints)
+            ? model.supported_endpoints.some((ep: string) =>
+                String(ep).includes("chat/completions"),
+              )
+            : true,
+          contextWindow: {
+            maxInputTokens: model.context_length ?? undefined,
+          },
+          metadata: {
+            object: model.object,
+            created: model.created,
+            input_modalities: model.input_modalities,
+            output_modalities: model.output_modalities,
+            supported_endpoints: model.supported_endpoints,
+            agent: model.agent,
+            base_model: model.base_model,
+            pricing: model.pricing,
+            capabilities: model.capabilities,
+          },
+        },
+      ];
+    });
   }
 
   protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import { randomUUID, createHash } from "crypto";
 import { AI_CONFIG_TOKEN } from "../ai.constants";
 import { AiConfig } from "../interfaces/provider-config.interface";
@@ -24,7 +24,11 @@ import { AiLoggerService } from "./ai-logger.service";
 import { AiAuditService } from "./ai-audit.service";
 import { AiPiiMaskerService } from "../security/ai-pii-masker.service";
 import { AiWriteToolCallStatus } from "entities/ai.entity";
-import { isAiProviderError } from "../errors/provider.errors";
+import { isAiProviderError, AiProviderError } from "../errors/provider.errors";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { AiModelAvailabilityEntity, AiModelEntity } from "../../../entities/ai.entity";
+import { TranslationService } from "../../../common/translation.service";
 
 class PhaseTimer {
   private readonly phases: Array<{
@@ -105,7 +109,12 @@ export class AiOrchestratorService {
     private readonly logger: AiLoggerService,
     private readonly auditService: AiAuditService,
     private readonly piiMasker: AiPiiMaskerService,
-  ) {}
+    @InjectRepository(AiModelAvailabilityEntity)
+    private readonly availabilityRepo: Repository<AiModelAvailabilityEntity>,
+    @InjectRepository(AiModelEntity)
+    private readonly modelRepo: Repository<AiModelEntity>,
+    private readonly translations: TranslationService,
+  ) { }
 
   async chat(
     me: any,
@@ -160,8 +169,8 @@ export class AiOrchestratorService {
       role: "system",
       content: options.tenantLang
         ? this.systemPromptService.buildWithTenantLang(ctx, {
-            tenantLang: options.tenantLang,
-          })
+          tenantLang: options.tenantLang,
+        })
         : this.systemPromptService.build(ctx),
     });
     timer.stop({ systemPromptLen: messages[0].content?.length ?? 0 });
@@ -230,7 +239,7 @@ export class AiOrchestratorService {
           provider: error.provider,
           retryable: error.retryable,
           message: error.message,
-          status: error.status,
+          status: error.providerStatus,
         };
       }
       timer.stop({
@@ -294,8 +303,8 @@ export class AiOrchestratorService {
     const allToolSpecs = this.toolRegistry.getToolSpecs(ctx);
     const toolSpecs = ctx.session.allowedToolNames?.length
       ? allToolSpecs.filter((t) =>
-          ctx.session.allowedToolNames!.includes(t.name),
-        )
+        ctx.session.allowedToolNames!.includes(t.name),
+      )
       : allToolSpecs;
     timer.stop({
       allCount: allToolSpecs.length,
@@ -304,13 +313,17 @@ export class AiOrchestratorService {
 
     const seenToolCalls = new Set<string>();
     timer.start("resolveProviders");
-    const { candidates, userExplicitChoice, primary } =
+    const { candidates, userExplicitChoice, primary, toolsCalling } =
       await this.resolveProviders(ctx);
     timer.stop({
       primary: primary.kind,
       candidateCount: candidates.length,
       userExplicitChoice,
+      toolsCalling,
     });
+
+    const modelSupportsTools = toolsCalling !== false;
+    const effectiveToolCatalog = modelSupportsTools ? toolSpecs : [];
 
     const maxRounds = this.config.maxProviderRoundtrips;
 
@@ -318,7 +331,7 @@ export class AiOrchestratorService {
       execution.beginRound();
 
       const isLastRound = round === maxRounds;
-      const effectiveToolSpecs = isLastRound ? [] : toolSpecs;
+      const effectiveToolSpecs = isLastRound ? [] : effectiveToolCatalog;
 
       timer.start(`callProvider.r${round}`, {
         round,
@@ -427,7 +440,7 @@ export class AiOrchestratorService {
         return { content: result.content };
       }
 
-      throw new Error("Provider returned neither content nor tool calls");
+      throw new BadRequestException(this.translations.t("domains.ai.provider_no_content_or_tools"));
     }
 
     return {
@@ -441,6 +454,7 @@ export class AiOrchestratorService {
     primary: AiProviderAbstract;
     candidates: AiProviderAbstract[];
     userExplicitChoice: boolean;
+    toolsCalling?: boolean;
   }> {
     const userExplicitChoice = !!(
       ctx.session.provider ||
@@ -524,8 +538,58 @@ export class AiOrchestratorService {
     });
 
     const effectiveModel = (ctx.session as any).model ?? requestedModel;
+    let toolsCalling: boolean | undefined;
     if (effectiveModel) {
-      primary = primary.cloneWithRuntime({ model: effectiveModel });
+      const qb = this.modelRepo
+        .createQueryBuilder("model")
+        .innerJoinAndSelect("model.provider", "provider")
+        .leftJoinAndSelect(
+          "model.availabilities",
+          "availability",
+          "availability.adminId = :adminId",
+          {
+            adminId:
+              ctx.session.tenantId ?? "00000000-0000-0000-0000-000000000000",
+          },
+        )
+        .where("model.modelCode = :modelCode", {
+          modelCode: effectiveModel,
+        });
+
+      const providerEntityId = primary.getConfig().entityId;
+      if (providerEntityId) {
+        qb.andWhere("model.providerId = :providerId", {
+          providerId: providerEntityId,
+        });
+      }
+
+      const modelEntity = await qb.getOne();
+
+      if (modelEntity) {
+        if (!modelEntity.provider?.isActive) {
+          throw new AiProviderError(
+            this.translations.t("domains.ai.provider_inactive_for_model", { args: { model: effectiveModel } }),
+            { kind: "CONFIG", provider: primary.kind },
+          );
+        }
+        if (!modelEntity.isActive) {
+          throw new AiProviderError(
+            this.translations.t("domains.ai.model_inactive", { args: { model: effectiveModel } }),
+            { kind: "CONFIG", provider: primary.kind },
+          );
+        }
+        if (modelEntity.availabilities?.[0]?.isAvailable === false) {
+          throw new AiProviderError(
+            this.translations.t("domains.ai.model_not_available_for_tenant", { args: { model: effectiveModel } }),
+            { kind: "CONFIG", provider: primary.kind },
+          );
+        }
+        toolsCalling = modelEntity.toolsCalling;
+      }
+
+      primary = primary.cloneWithRuntime({
+        model: effectiveModel,
+      });
     }
 
     if (userExplicitChoice) {
@@ -540,7 +604,7 @@ export class AiOrchestratorService {
           usedModelLookup,
         },
       );
-      return { primary, candidates: [primary], userExplicitChoice: true };
+      return { primary, candidates: [primary], userExplicitChoice: true, toolsCalling };
     }
 
     const excludeKey = primary.getConfig().entityId ?? primary.getConfig().name;
@@ -574,6 +638,7 @@ export class AiOrchestratorService {
       primary,
       candidates: [primary, ...failovers],
       userExplicitChoice: false,
+      toolsCalling,
     };
   }
 
@@ -594,7 +659,6 @@ export class AiOrchestratorService {
       providerModel?: string;
     };
   }> {
-    const toolChoice = toolSpecs.length > 0 ? "auto" : "none";
     let lastError: unknown;
     const attemptTimes: Array<{
       provider: string;
@@ -615,7 +679,7 @@ export class AiOrchestratorService {
         const result = await candidate.callModel({
           messages,
           tools: toolSpecs,
-          toolChoice,
+          toolChoice: toolSpecs.length > 0 ? "auto" : "none",
         });
         const ms = performance.now() - t0;
         attemptTimes.push({ provider: candidate.kind, ms, ok: true });
@@ -671,7 +735,7 @@ export class AiOrchestratorService {
       round,
       attempts: attemptTimes,
     });
-    throw lastError ?? new Error("All AI providers failed");
+    throw lastError ?? new Error(this.translations.t("domains.ai.all_providers_failed"));
   }
 
   private async executeToolCall(
@@ -1104,14 +1168,14 @@ export class AiOrchestratorService {
       error: result.error,
       summary: this.config.storeConversationSummaries
         ? {
-            conversationId: execution.session.conversationId,
-            lastError: result.error ?? null,
-            lastToolNames: extractToolNames(progress),
-            usage,
-            rounds,
-            providersUsed,
-            modelsUsed,
-          }
+          conversationId: execution.session.conversationId,
+          lastError: result.error ?? null,
+          lastToolNames: extractToolNames(progress),
+          usage,
+          rounds,
+          providersUsed,
+          modelsUsed,
+        }
         : undefined,
       progress,
       providersUsed,

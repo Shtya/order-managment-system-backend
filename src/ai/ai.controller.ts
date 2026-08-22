@@ -216,6 +216,20 @@ export class AiController {
     return this.svc.deleteModel(req.user, id);
   }
 
+  @ApiOperation({
+    summary:
+      "Sync models from the remote provider API into the system (skips existing)",
+  })
+  @Permissions(AI_MANAGE)
+  @Post("providers/:providerId/sync-models")
+  async syncModels(
+    @Req() req: any,
+    @Param("providerId", ParseUUIDPipe) providerId: string,
+    @Body() dto: { apiKey?: string; baseUrl?: string },
+  ) {
+    return this.svc.syncModels(req.user, providerId, dto);
+  }
+
   @ApiOperation({ summary: "Activate or deactivate a model" })
   @Permissions(AI_MANAGE)
   @Post("models/:id/active")
@@ -268,6 +282,7 @@ export class AiController {
     @Param("providerId", ParseUUIDPipe) providerId: string,
     @Query("modelCode") modelCode?: string,
   ) {
+    
     return this.svc.testCredentials(req.user, providerId, modelCode);
   }
 
@@ -344,7 +359,7 @@ export class AiController {
     @Req() req: any,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    this.ensureSuperAdmin(req.user);
+    // this.ensureSuperAdmin(req.user);
     return this.svc.getRequestSummary(req.user, id);
   }
 
@@ -394,7 +409,7 @@ export class AiController {
     @Req() req: any,
     @Query() query: ListWriteToolCallsQueryDto,
   ) {
-    this.ensureSuperAdmin(req.user);
+    
     return this.svc.listWriteToolCalls(req.user, query);
   }
 
@@ -407,7 +422,7 @@ export class AiController {
     @Req() req: any,
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    this.ensureSuperAdmin(req.user);
+    
     return this.svc.getWriteToolCall(req.user, id);
   }
 

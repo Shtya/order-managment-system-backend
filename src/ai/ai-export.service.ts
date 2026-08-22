@@ -169,7 +169,7 @@ export class AiExportService {
       },
       {
         header: this.translations.t("domains.ai.export_col_created_at"),
-        key: "created_t",
+        key: "created_at",
         width: 22,
       },
       {
@@ -215,7 +215,7 @@ export class AiExportService {
               ? this.translations.t("common.yes")
               : this.translations.t("common.no")
             : "",
-        created_t: m.created_t,
+        created_at: m.created_at,
         updated_at: m.updated_at,
       });
     });
@@ -273,7 +273,7 @@ export class AiExportService {
       },
       {
         header: this.translations.t("domains.ai.export_col_created_at"),
-        key: "created_t",
+        key: "created_at",
         width: 22,
       },
       {
@@ -295,7 +295,7 @@ export class AiExportService {
           : this.translations.t("common.inactive"),
         lastValidatedAt: i.lastValidatedAt ?? "",
         lastError: i.lastError ?? "",
-        created_t: i.created_t,
+        created_at: i.created_at,
         updated_ut: i.updated_ut,
       });
     });

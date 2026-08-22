@@ -1502,6 +1502,16 @@
     "model_not_accessible": "Model is not accessible",
     "provider_class_not_found": "No provider class found for '{code}'",
     "credentials_invalid_api_key": "Invalid API key",
-    "credentials_test_error": "Test failed"
+    "credentials_test_error": "Test failed",
+    "provider_inactive_for_model": "Provider for model '{model}' is inactive",
+    "model_inactive": "Model '{model}' is inactive",
+    "model_not_available_for_tenant": "Model '{model}' is not available for this tenant",
+    "provider_no_content_or_tools": "Provider returned neither content nor tool calls",
+    "all_providers_failed": "All AI providers failed",
+    "provider_not_accessible_for_tenant": "AI provider '{name}' not accessible for this tenant",
+    "provider_not_configured": "AI provider '{name}' is not configured",
+    "provider_not_found_or_inactive": "AI provider '{name}' not found or inactive",
+    "provider_disabled": "AI provider '{name}' is disabled",
+    "no_provider_available": "No enabled AI provider is available"
   }
 }

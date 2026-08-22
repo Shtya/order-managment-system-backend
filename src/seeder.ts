@@ -3,7 +3,7 @@ import * as bcrypt from "bcrypt";
 import * as crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-import { DataSource, In, Repository } from "typeorm";
+import { DataSource, In, IsNull, Repository } from "typeorm";
 
 import { CategoryEntity } from "../entities/categories.entity";
 import typeDataSource from "../typeorm.config";
@@ -5126,511 +5126,6 @@ export const AI_MODEL_SEEDS = [
     },
   },
   {
-    provider: "google",
-    modelCode: "lyria-3-clip-preview",
-    name: "Lyria 3 Clip Preview",
-    description:
-      "30 second duration clips are priced at $0.04 per clip. Lyria 3 is Google's family of music generation models, available through the Gemini API. With Lyria 3, you can generate...",
-    descriptionAr:
-      "تسعير المقاطع مدتها 30 ثانية بـ 0.04 دولار لكل مقطع. ليريا 3 هي عائلة نماذج توليد الموسيقى من جوجل، المتاحة عبر واجهة برمجة تطبيقات جيميني. مع ليريا 3، يمكنك توليد...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["text", "image"],
-      output: ["text", "audio"],
-      modality: "text+image->text+audio",
-    },
-    contextWindow: {
-      maxInputTokens: 1048576,
-      maxOutputTokens: 65536,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: false,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "google/lyria-3-clip-preview",
-      canonicalSlug: "google/lyria-3-clip-preview-20260330",
-      supportedParameters: [
-        "max_tokens",
-        "response_format",
-        "seed",
-        "temperature",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0",
-        completion: "0",
-      },
-      created: 1774907255,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "google",
-    modelCode: "lyria-3-pro-preview",
-    name: "Lyria 3 Pro Preview",
-    description:
-      "Full-length songs are priced at $0.08 per song. Lyria 3 is Google's family of music generation models, available through the Gemini API. With Lyria 3, you can generate high-quality, 48kHz...",
-    descriptionAr:
-      "تسعير الأغاني الكاملة بـ 0.08 دولار لكل أغنية. ليريا 3 هي عائلة نماذج توليد الموسيقى من جوجل، المتاحة عبر واجهة برمجة تطبيقات جيميني. مع ليريا 3، يمكنك توليد جودة عالية، 48 كيلوهرتز...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["text", "image"],
-      output: ["text", "audio"],
-      modality: "text+image->text+audio",
-    },
-    contextWindow: {
-      maxInputTokens: 1048576,
-      maxOutputTokens: 65536,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: false,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "google/lyria-3-pro-preview",
-      canonicalSlug: "google/lyria-3-pro-preview-20260330",
-      supportedParameters: [
-        "max_tokens",
-        "response_format",
-        "seed",
-        "temperature",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0",
-        completion: "0",
-      },
-      created: 1774907286,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "google",
-    modelCode: "gemini-2.5-flash-image",
-    name: "Nano Banana (Gemini 2.5 Flash Image)",
-    description:
-      'Gemini 2.5 Flash Image, a.k.a. "Nano Banana," is now generally available. It is a state of the art image generation model with contextual understanding. It is capable of image generation,...',
-    descriptionAr:
-      'جيميني 2.5 فلاش إيميج، المعروف أيضاً باسم "نانو بانانا"، متاح الآن بشكل عام. هو نموذج توليد صور متطور مع فهم سياقي. قادر على توليد الصور،...',
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text"],
-      output: ["image", "text"],
-      modality: "text+image->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 32768,
-      maxOutputTokens: 8192,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: false,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "google/gemini-2.5-flash-image",
-      canonicalSlug: "google/gemini-2.5-flash-image",
-      supportedParameters: [
-        "max_tokens",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.0000003",
-        completion: "0.0000025",
-        image: "0.0000003",
-        image_output: "0.00003",
-        audio: "0.000001",
-        input_audio_cache: "0.0000001",
-        web_search: "0.014",
-        internal_reasoning: "0.0000025",
-        input_cache_read: "0.00000003",
-        input_cache_write: "0.0000000833333333333333",
-      },
-      created: 1759870431,
-      knowledgeCutoff: "2025-01-31",
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "google",
-    modelCode: "gemini-3.1-flash-image-preview",
-    name: "Nano Banana 2 (Gemini 3.1 Flash Image Preview)",
-    description:
-      'Gemini 3.1 Flash Image Preview, a.k.a. "Nano Banana 2," is Googleâ€™s latest state of the art image generation and editing model, delivering Pro-level visual quality at Flash speed. It combines...',
-    descriptionAr:
-      'جيميني 3.1 فلاش إيميج معاينة، المعروف أيضاً باسم "نانو بانانا 2"، هو أحدث نموذج توليد وتحرير صور متطور من جوجل، يقدم جودة بصرية مستوى برو بسرعة فلاش. يجمع...',
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text"],
-      output: ["image", "text"],
-      modality: "text+image->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 65536,
-      maxOutputTokens: 65536,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "google/gemini-3.1-flash-image-preview",
-      canonicalSlug: "google/gemini-3.1-flash-image-preview-20260226",
-      supportedParameters: [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "reasoning_effort",
-        "response_format",
-        "seed",
-        "structured_outputs",
-        "temperature",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.0000005",
-        completion: "0.000003",
-        image_output: "0.00006",
-        web_search: "0.014",
-      },
-      created: 1772119558,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "google",
-    modelCode: "gemini-3.1-flash-image",
-    name: "Nano Banana 2 (Gemini 3.1 Flash Image)",
-    description:
-      'Gemini 3.1 Flash Image, a.k.a. "Nano Banana 2," is Googleâ€™s latest state of the art image generation and editing model, delivering Pro-level visual quality at Flash speed. It combines advanced...',
-    descriptionAr:
-      'جيميني 3.1 فلاش إيميج، المعروف أيضاً باسم "نانو بانانا 2"، هو أحدث نموذج توليد وتحرير صور متطور من جوجل، يقدم جودة بصرية مستوى برو بسرعة فلاش. يجمع...',
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text"],
-      output: ["image", "text"],
-      modality: "text+image->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 131072,
-      maxOutputTokens: 32768,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "google/gemini-3.1-flash-image",
-      canonicalSlug: "google/gemini-3.1-flash-image-20260528",
-      supportedParameters: [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "reasoning_effort",
-        "response_format",
-        "seed",
-        "structured_outputs",
-        "temperature",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.0000005",
-        completion: "0.000003",
-        image_output: "0.00006",
-        web_search: "0.014",
-      },
-      created: 1781754065,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "google",
-    modelCode: "gemini-3.1-flash-lite-image",
-    name: "Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
-    description:
-      "Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image) is Google's fastest, most cost-efficient Gemini image model, built for high-velocity developer pipelines and rapid-fire visual exploration. It delivers text-to-image generation...",
-    descriptionAr:
-      "نانو بانانا 2 لايت (جيميني 3.1 فلاش لايت إيميج) هو أسرع نموذج صور جيميني وأكثر كفاءة من حيث التكلفة من جوجل، مبني لخطوط أنابيب المطورين عالية السرعة والاستكشاف البصري السريع المتتالي. يوفر توليد النص إلى الصورة...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text"],
-      output: ["image", "text"],
-      modality: "text+image->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 65536,
-      maxOutputTokens: 66000,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "google/gemini-3.1-flash-lite-image",
-      canonicalSlug: "google/gemini-3.1-flash-lite-image-20260630",
-      supportedParameters: [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "reasoning_effort",
-        "response_format",
-        "seed",
-        "temperature",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.00000025",
-        completion: "0.0000015",
-        image_output: "0.00003",
-        web_search: "0.014",
-      },
-      created: 1782837225,
-      knowledgeCutoff: "2025-01-01",
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "google",
-    modelCode: "gemini-3-pro-image-preview",
-    name: "Nano Banana Pro (Gemini 3 Pro Image Preview)",
-    description:
-      "Nano Banana Pro is Googleâ€™s most advanced image-generation and editing model, built on Gemini 3 Pro. It extends the original Nano Banana with significantly improved multimodal reasoning, real-world grounding, and...",
-    descriptionAr:
-      "نانو بانانا برو هو أكثر نماذج توليد وتحرير الصور تقدماً من جوجل، مبني على جيميني 3 برو. يمد النموذج نانو بانانا الأصلي باستدلال متعدد الوسائط محسن بشكل كبير، والتأريض الواقعي، و...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text"],
-      output: ["image", "text"],
-      modality: "text+image->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 65536,
-      maxOutputTokens: 32768,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "google/gemini-3-pro-image-preview",
-      canonicalSlug: "google/gemini-3-pro-image-preview-20251120",
-      supportedParameters: [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.000002",
-        completion: "0.000012",
-        image: "0.000002",
-        image_output: "0.00012",
-        audio: "0.000002",
-        input_audio_cache: "0.0000002",
-        web_search: "0.014",
-        internal_reasoning: "0.000012",
-        input_cache_read: "0.0000002",
-        input_cache_write: "0.000000375",
-      },
-      created: 1763653797,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "google",
-    modelCode: "gemini-3-pro-image",
-    name: "Nano Banana Pro (Gemini 3 Pro Image)",
-    description:
-      "Nano Banana Pro is Googleâ€™s most advanced image-generation and editing model, built on Gemini 3 Pro. It extends the original Nano Banana with significantly improved multimodal reasoning, real-world grounding, and...",
-    descriptionAr:
-      "نانو بانانا برو هو أكثر نماذج توليد وتحرير الصور تقدماً من جوجل، مبني على جيميني 3 برو. يمد النموذج نانو بانانا الأصلي باستدلال متعدد الوسائط محسن بشكل كبير، والتأريض الواقعي، و...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text"],
-      output: ["image", "text"],
-      modality: "text+image->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 131072,
-      maxOutputTokens: 32768,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: true,
-    metadata: {
-      openRouterId: "google/gemini-3-pro-image",
-      canonicalSlug: "google/gemini-3-pro-image-20260528",
-      supportedParameters: [
-        "include_reasoning",
-        "max_tokens",
-        "reasoning",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.000002",
-        completion: "0.000012",
-        image: "0.000002",
-        image_output: "0.00012",
-        audio: "0.000002",
-        input_audio_cache: "0.0000002",
-        web_search: "0.014",
-        internal_reasoning: "0.000012",
-        input_cache_read: "0.0000002",
-        input_cache_write: "0.000000375",
-      },
-      created: 1781754054,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "openai",
-    modelCode: "gpt-audio",
-    name: "GPT Audio",
-    description:
-      "The gpt-audio model is OpenAI's first generally available audio model. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Audio is priced...",
-    descriptionAr:
-      "نموذج gpt-audio هو أول نموذج صوتي متاح بشكل عام من أوبن إي آي. تتميز اللقطة الجديدة بفك ترميز محسن لأصوات طبيعية أكثر وتحافظ على اتساق الصوت بشكل أفضل. الصوت مسعر بـ...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["text", "audio"],
-      output: ["text", "audio"],
-      modality: "text+audio->text+audio",
-    },
-    contextWindow: {
-      maxInputTokens: 128000,
-      maxOutputTokens: 16384,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: false,
-    toolsCalling: true,
-    metadata: {
-      openRouterId: "openai/gpt-audio",
-      canonicalSlug: "openai/gpt-audio",
-      supportedParameters: [
-        "frequency_penalty",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.0000025",
-        completion: "0.00001",
-        audio: "0.000032",
-        audio_output: "0.000064",
-      },
-      created: 1768862569,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "openai",
-    modelCode: "gpt-audio-mini",
-    name: "GPT Audio Mini",
-    description:
-      "A cost-efficient version of GPT Audio. The new snapshot features an upgraded decoder for more natural sounding voices and maintains better voice consistency. Input is priced at $0.60 per million...",
-    descriptionAr:
-      "نسخة فعالة من حيث التكلفة من GPT الصوتي. تتميز اللقطة الجديدة بفك ترميز محسن لأصوات طبيعية أكثر وتحافظ على اتساق الصوت بشكل أفضل. الإدخال مسعر بـ 0.60 دولار لكل مليون...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["text", "audio"],
-      output: ["text", "audio"],
-      modality: "text+audio->text+audio",
-    },
-    contextWindow: {
-      maxInputTokens: 128000,
-      maxOutputTokens: 16384,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: false,
-    toolsCalling: true,
-    metadata: {
-      openRouterId: "openai/gpt-audio-mini",
-      canonicalSlug: "openai/gpt-audio-mini",
-      supportedParameters: [
-        "frequency_penalty",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "tool_choice",
-        "tools",
-        "top_logprobs",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.0000006",
-        completion: "0.0000024",
-        audio: "0.0000006",
-        audio_output: "0.0000024",
-      },
-      created: 1768859419,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
     provider: "openai",
     modelCode: "gpt-chat-latest",
     name: "GPT Chat Latest",
@@ -6572,116 +6067,6 @@ export const AI_MODEL_SEEDS = [
   },
   {
     provider: "openai",
-    modelCode: "gpt-5-image",
-    name: "GPT-5 Image",
-    description:
-      "[GPT-5](https://openrouter.ai/openai/gpt-5) Image combines OpenAI's GPT-5 model with state-of-the-art image generation capabilities. It offers major improvements in reasoning, code quality, and user experience while incorporating GPT Image 1's superior instruction following,...",
-    descriptionAr:
-      "[GPT-5](https://openrouter.ai/openai/gpt-5) إيميج يجمع نموذج GPT-5 من أوبن إي آي مع قدرات توليد صور متطورة. يقدم تحسينات كبيرة في الاستدلال وجودة الكود وتجربة المستخدم مع دمج اتباع التعليمات المتفوق لـ GPT إيميج 1،...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text", "file"],
-      output: ["image", "text"],
-      modality: "text+image+file->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 400000,
-      maxOutputTokens: 128000,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "openai/gpt-5-image",
-      canonicalSlug: "openai/gpt-5-image",
-      supportedParameters: [
-        "frequency_penalty",
-        "include_reasoning",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "reasoning",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "top_logprobs",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.00001",
-        completion: "0.00001",
-        image_output: "0.00004",
-        web_search: "0.01",
-        input_cache_read: "0.00000125",
-      },
-      created: 1760447986,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "openai",
-    modelCode: "gpt-5-image-mini",
-    name: "GPT-5 Image Mini",
-    description:
-      "GPT-5 Image Mini combines OpenAI's advanced language capabilities, powered by [GPT-5 Mini](https://openrouter.ai/openai/gpt-5-mini), with GPT Image 1 Mini for efficient image generation. This natively multimodal model features superior instruction following, text...",
-    descriptionAr:
-      "يجمع GPT-5 إيميج ميني قدرات اللغة المتقدمة من أوبن إي آي، المدعومة بـ [GPT-5 ميني](https://openrouter.ai/openai/gpt-5-mini)، مع GPT إيميج 1 ميني لتوليد الصور بكفاءة. هذا النموذج متعدد الوسائط الأصلي يتميز باتباع التعليمات المتفوق، والنص...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["file", "image", "text"],
-      output: ["image", "text"],
-      modality: "text+image+file->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 400000,
-      maxOutputTokens: 128000,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "openai/gpt-5-image-mini",
-      canonicalSlug: "openai/gpt-5-image-mini",
-      supportedParameters: [
-        "frequency_penalty",
-        "include_reasoning",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "reasoning",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "temperature",
-        "top_logprobs",
-        "top_p",
-      ],
-      pricing: {
-        prompt: "0.0000025",
-        completion: "0.000002",
-        image_output: "0.000008",
-        web_search: "0.01",
-        input_cache_read: "0.00000025",
-      },
-      created: 1760624583,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "openai",
     modelCode: "gpt-5-mini",
     name: "GPT-5 Mini",
     description:
@@ -7321,60 +6706,6 @@ export const AI_MODEL_SEEDS = [
         ],
       },
       created: 1772734352,
-      knowledgeCutoff: null,
-      expirationDate: null,
-    },
-  },
-  {
-    provider: "openai",
-    modelCode: "gpt-5.4-image-2",
-    name: "GPT-5.4 Image 2",
-    description:
-      "[GPT-5.4](https://openrouter.ai/openai/gpt-5.4) Image 2 combines OpenAI's GPT-5.4 model with state-of-the-art image generation capabilities from GPT Image 2. It enables rich multimodal workflows, allowing users to seamlessly move between reasoning, coding, and...",
-    descriptionAr:
-      "[GPT-5.4](https://openrouter.ai/openai/gpt-5.4) إيميج 2 يجمع نموذج GPT-5.4 من أوبن إي آي مع قدرات توليد صور متطورة من GPT إيميج 2. يمكّن سير عمل متعدد الوسائط الغني، مما يسمح للمستخدمين بالتنقل بسلاسة بين الاستدلال والبرمجة و...",
-    modelType: AiModelType.TEXT,
-    tier: null,
-
-    modalities: {
-      input: ["image", "text", "file"],
-      output: ["image", "text"],
-      modality: "text+image+file->text+image",
-    },
-    contextWindow: {
-      maxInputTokens: 272000,
-      maxOutputTokens: 128000,
-    },
-    stream: true,
-    jsonMode: true,
-    reasoning: true,
-    toolsCalling: false,
-    metadata: {
-      openRouterId: "openai/gpt-5.4-image-2",
-      canonicalSlug: "openai/gpt-5.4-image-2-20260421",
-      supportedParameters: [
-        "frequency_penalty",
-        "include_reasoning",
-        "logit_bias",
-        "logprobs",
-        "max_tokens",
-        "presence_penalty",
-        "reasoning",
-        "reasoning_effort",
-        "response_format",
-        "seed",
-        "stop",
-        "structured_outputs",
-        "top_logprobs",
-      ],
-      pricing: {
-        prompt: "0.000008",
-        completion: "0.000015",
-        image_output: "0.00003",
-        web_search: "0.01",
-        input_cache_read: "0.000002",
-      },
-      created: 1776797528,
       knowledgeCutoff: null,
       expirationDate: null,
     },
@@ -9187,7 +8518,7 @@ const AI_PROVIDER_SEEDS = [
   },
 ] as const;
 
-export async function seedAiModels() {
+export async function seedAiModels(options: { deleteNon?: boolean } = {}) {
   console.log("ðŸŒ± Seeding AI providers...");
   const repository = dataSource.getRepository(AiProviderEntity);
 
@@ -9240,10 +8571,41 @@ export async function seedAiModels() {
 
   console.log(`âœ… AI providers seeded: ${AI_PROVIDER_SEEDS.length}`);
 
-  console.log("ðŸŒ± Seeding AI models...");
-
   const providerRepo = dataSource.getRepository(AiProviderEntity);
   const modelRepo = dataSource.getRepository(AiModelEntity);
+
+  if (options.deleteNon) {
+    console.log(
+      "ðŸ—‘ï¸ --delete-non: skipping model sync, removing system models not in AI_MODEL_SEEDS",
+    );
+
+    const keepKeys = new Set(
+      AI_MODEL_SEEDS.map((model) => `${model.provider}:${model.modelCode}`),
+    );
+
+    const systemModels = await modelRepo.find({
+      where: { scope: AiEntityScope.SYSTEM, adminId: IsNull() },
+      relations: ["provider"],
+    });
+
+    const staleIds = systemModels
+      .filter((model) => {
+        const key = `${model.provider?.code}:${model.modelCode}`;
+        return !keepKeys.has(key);
+      })
+      .map((model) => model.id);
+
+    if (staleIds.length) {
+      await modelRepo.delete(staleIds);
+    }
+
+    console.log(
+      `âœ… Deleted ${staleIds.length} system AI models not present in AI_MODEL_SEEDS`,
+    );
+    return;
+  }
+
+  console.log("ðŸŒ± Seeding AI models...");
 
   for (const model of AI_MODEL_SEEDS) {
     const provider = await providerRepo.findOne({
@@ -9288,7 +8650,7 @@ export async function seedAiModels() {
  * Seed Orchestrator
  * =========================
  */
-async function runGlobalSeed(seedName?: string) {
+async function runGlobalSeed(seedName?: string, options: { deleteNon?: boolean } = {}) {
   switch (seedName) {
     case "statuses":
       await seedOrderStatuses();
@@ -9315,7 +8677,7 @@ async function runGlobalSeed(seedName?: string) {
       break;
 
     case "models":
-      await seedAiModels();
+      await seedAiModels({ deleteNon: options.deleteNon });
       break;
 
     case "all":
@@ -9332,17 +8694,19 @@ async function runGlobalSeed(seedName?: string) {
 
     default:
       throw new Error(
-        `Unknown seed: ${seedName}. Available seeds: statuses, locations, super-admin, categories, warehouses, getting-started, all`,
+        `Unknown seed: ${seedName}. Available seeds: statuses, locations, super-admin, categories, warehouses, getting-started, models, all`,
       );
   }
 }
 
-const seedName = process.argv[2];
+const cliArgs = process.argv.slice(2);
+const deleteNon = cliArgs.includes("--delete-non-exist");
+const seedName = cliArgs.find((arg) => !arg.startsWith("--"));
 
 dataSource
   .initialize()
   .then(async () => {
-    await runGlobalSeed(seedName);
+    await runGlobalSeed(seedName, { deleteNon });
     await dataSource.destroy();
     process.exit(0);
   })
