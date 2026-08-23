@@ -1884,16 +1884,16 @@ export class ShippingService {
       mapped.unifiedStatus === UnifiedShippingStatus.CUSTOMER_REFUSED ||
       mapped.unifiedStatus === UnifiedShippingStatus.CANCELLED
     ) {
-      const failedStatus = await manager.findOne(OrderStatusEntity, {
-        where: { code: OrderStatus.FAILED_DELIVERY },
-      });
-      if (failedStatus) {
-        order.statusId = failedStatus.id;
-        order.status = failedStatus;
-        statusChanged = true;
-      }
-      await manager.save(order);
-      await returnStock();
+      // const failedStatus = await manager.findOne(OrderStatusEntity, {
+      //   where: { code: OrderStatus.FAILED_DELIVERY },
+      // });
+      // if (failedStatus) {
+      //   order.statusId = failedStatus.id;
+      //   order.status = failedStatus;
+      //   statusChanged = true;
+      // }
+      // await manager.save(order);
+      // await returnStock();
 
       await this.notificationService.create({
         userId: shipment.adminId,
