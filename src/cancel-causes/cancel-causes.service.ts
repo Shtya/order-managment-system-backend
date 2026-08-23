@@ -266,6 +266,73 @@ export class CancelCausesService {
     };
   }
 
+  async getProductCauseBreakdown(me: any, productId: string, q?: any) {
+    const adminId = tenantId(me);
+    const { page, limit, skip } = this.pageParams({
+      ...q,
+      limit: q?.limit || 50,
+    });
+
+    const qb = this.eventsQb(adminId, { ...q, productId })
+      .innerJoin("o.items", "oi")
+      .innerJoin("oi.variant", "pv")
+      .andWhere(`pv."productId" = :productIdJoin`, { productIdJoin: productId })
+      .select(this.catalogIdExpr(), "causeId")
+      .addSelect('MAX(occ."causeNameSnapshot")', "name")
+      .addSelect("MAX(cause.code)", "code")
+      .addSelect("MAX(cause.description)", "description")
+      .addSelect('MAX(cause."reviewStatus")', "reviewStatus")
+      .addSelect(`BOOL_OR(cause."isActive")`, "isActive")
+      .addSelect("COUNT(DISTINCT occ.id)::int", "count")
+      .addSelect('COUNT(DISTINCT occ."orderId")::int', "orderCount")
+      .addSelect("COALESCE(SUM(oi.quantity), 0)::int", "quantity")
+      .addSelect(
+        `COUNT(DISTINCT occ.id) FILTER (WHERE occ."isCustomSubmission" = true)::int`,
+        "customCount",
+      )
+      .addSelect("MAX(occ.created_at)", "lastOccurredAt")
+      .groupBy(this.catalogIdExpr());
+
+    const raw = await qb
+      .orderBy("COUNT(DISTINCT occ.id)", "DESC")
+      .offset(skip)
+      .limit(limit)
+      .getRawMany();
+
+    const totalRow = await this.eventsQb(adminId, { ...q, productId })
+      .select("COUNT(occ.id)::int", "total")
+      .getRawOne();
+    const total = this.rawNum(totalRow, "total");
+
+    const groups = await this.eventsQb(adminId, { ...q, productId })
+      .select(`COUNT(DISTINCT ${this.catalogIdExpr()})::int`, "c")
+      .getRawOne();
+
+    return {
+      total,
+      total_records: this.rawNum(groups, "c"),
+      current_page: page,
+      per_page: limit,
+      records: raw.map((r) => ({
+        causeId: r.causeId || r.causeid || null,
+        name: r.name,
+        code: r.code,
+        description: r.description,
+        reviewStatus: r.reviewStatus || r.reviewstatus || null,
+        isActive: Boolean(r.isActive ?? r.isactive),
+        count: this.rawNum(r, "count"),
+        orderCount: this.rawNum(r, "orderCount", "ordercount"),
+        quantity: this.rawNum(r, "quantity"),
+        customCount: this.rawNum(r, "customCount", "customcount"),
+        lastOccurredAt: r.lastOccurredAt || r.lastoccurredat || null,
+        percent:
+          total === 0
+            ? 0
+            : parseFloat(((this.rawNum(r, "count") / total) * 100).toFixed(2)),
+      })),
+    };
+  }
+
   async listPending(me: any, q?: any) {
     return this.list(me, { ...q, reviewStatus: CancelCauseReviewStatus.PENDING });
   }
@@ -675,6 +742,55 @@ export class CancelCausesService {
     return DateFilterUtil.getBoundaries(src?.startDate, src?.endDate);
   }
 
+  private hasFilterValue(value?: string) {
+    return Boolean(value) && value !== "all";
+  }
+
+  private productExistsSql(orderIdExpr: string, productParam: string) {
+    return `EXISTS (
+      SELECT 1
+      FROM order_items oi
+      INNER JOIN product_variants pv ON pv.id = oi."variantId"
+      WHERE oi."orderId" = ${orderIdExpr}
+        AND pv."productId" = ${productParam}
+    )`;
+  }
+
+  private applyOrderDimensionFilters(
+    qb: SelectQueryBuilder<any>,
+    q?: any,
+    orderAlias = "o",
+  ) {
+    if (this.hasFilterValue(q?.storeId)) {
+      if (q.storeId === "none") {
+        qb.andWhere(`${orderAlias}.storeId IS NULL`);
+      } else {
+        qb.andWhere(`${orderAlias}.storeId = :storeId`, { storeId: q.storeId });
+      }
+    }
+    if (this.hasFilterValue(q?.cityId)) {
+      if (q.cityId === "none") {
+        qb.andWhere(`${orderAlias}.cityId IS NULL`);
+      } else {
+        qb.andWhere(`${orderAlias}.cityId = :cityId`, { cityId: q.cityId });
+      }
+    }
+    if (this.hasFilterValue(q?.shippingCompanyId)) {
+      if (q.shippingCompanyId === "none") {
+        qb.andWhere(`${orderAlias}.shippingCompanyId IS NULL`);
+      } else {
+        qb.andWhere(`${orderAlias}.shippingCompanyId = :shippingCompanyId`, {
+          shippingCompanyId: q.shippingCompanyId,
+        });
+      }
+    }
+    if (this.hasFilterValue(q?.productId)) {
+      qb.andWhere(this.productExistsSql(`${orderAlias}.id`, ":productId"), {
+        productId: q.productId,
+      });
+    }
+  }
+
   private eventsQb(
     adminId: string,
     q?: any,
@@ -699,13 +815,7 @@ export class CancelCausesService {
         employeeId: q.employeeId,
       });
     }
-    if (q?.storeId) qb.andWhere(`o."storeId" = :storeId`, { storeId: q.storeId });
-    if (q?.cityId) qb.andWhere(`o."cityId" = :cityId`, { cityId: q.cityId });
-    if (q?.shippingCompanyId) {
-      qb.andWhere(`o."shippingCompanyId" = :shippingCompanyId`, {
-        shippingCompanyId: q.shippingCompanyId,
-      });
-    }
+    this.applyOrderDimensionFilters(qb, q, "o");
     if (q?.causeId) {
       qb.andWhere(
         `COALESCE(cause."mergedIntoCauseId", occ."cancelCauseId") = :causeId`,
@@ -794,13 +904,7 @@ export class CancelCausesService {
       start || undefined,
       end || undefined,
     );
-    if (q?.storeId) ordersQb.andWhere("o.storeId = :storeId", { storeId: q.storeId });
-    if (q?.cityId) ordersQb.andWhere("o.cityId = :cityId", { cityId: q.cityId });
-    if (q?.shippingCompanyId) {
-      ordersQb.andWhere("o.shippingCompanyId = :shippingCompanyId", {
-        shippingCompanyId: q.shippingCompanyId,
-      });
-    }
+    this.applyOrderDimensionFilters(ordersQb, q, "o");
     const totalOrdersInPeriod = await ordersQb.getCount();
     const cancellationRate =
       totalOrdersInPeriod === 0
@@ -987,6 +1091,40 @@ export class CancelCausesService {
     });
   }
 
+  async getTopCancelledProducts(me: any, q?: any) {
+    const adminId = tenantId(me);
+    const limit = Math.min(20, Math.max(1, Number(q?.limit) || 8));
+
+    const rows = await this.eventsQb(adminId, q)
+      .innerJoin("o.items", "oi")
+      .innerJoin("oi.variant", "pv")
+      .leftJoin("pv.product", "p")
+      .select(`pv."productId"`, "productId")
+      .addSelect("MAX(p.name)", "name")
+      .addSelect("COUNT(DISTINCT occ.id)::int", "count")
+      .addSelect('COUNT(DISTINCT occ."orderId")::int', "orderCount")
+      .addSelect("COALESCE(SUM(oi.quantity), 0)::int", "quantity")
+      .groupBy(`pv."productId"`)
+      .orderBy("COUNT(DISTINCT occ.id)", "DESC")
+      .limit(limit)
+      .getRawMany();
+
+    const total = rows.reduce((s, r) => s + this.rawNum(r, "count"), 0);
+    return {
+      records: rows.map((r) => ({
+        productId: r.productId || r.productid || null,
+        name: r.name,
+        count: this.rawNum(r, "count"),
+        orderCount: this.rawNum(r, "orderCount", "ordercount"),
+        quantity: this.rawNum(r, "quantity"),
+        percent:
+          total === 0
+            ? 0
+            : parseFloat(((this.rawNum(r, "count") / total) * 100).toFixed(2)),
+      })),
+    };
+  }
+
   async getTrend(me: any, q?: any) {
     const adminId = tenantId(me);
     const interval = ["day", "week", "month"].includes(q?.interval)
@@ -1012,17 +1150,33 @@ export class CancelCausesService {
       extraFilters += ` AND occ."submittedByEmployeeId" = $${paramIndex++}`;
       params.push(q.employeeId);
     }
-    if (q?.storeId) {
-      extraFilters += ` AND o."storeId" = $${paramIndex++}`;
-      params.push(q.storeId);
+    if (this.hasFilterValue(q?.storeId)) {
+      if (q.storeId === "none") {
+        extraFilters += ` AND o."storeId" IS NULL`;
+      } else {
+        extraFilters += ` AND o."storeId" = $${paramIndex++}`;
+        params.push(q.storeId);
+      }
     }
-    if (q?.cityId) {
-      extraFilters += ` AND o."cityId" = $${paramIndex++}`;
-      params.push(q.cityId);
+    if (this.hasFilterValue(q?.cityId)) {
+      if (q.cityId === "none") {
+        extraFilters += ` AND o."cityId" IS NULL`;
+      } else {
+        extraFilters += ` AND o."cityId" = $${paramIndex++}`;
+        params.push(q.cityId);
+      }
     }
-    if (q?.shippingCompanyId) {
-      extraFilters += ` AND o."shippingCompanyId" = $${paramIndex++}`;
-      params.push(q.shippingCompanyId);
+    if (this.hasFilterValue(q?.shippingCompanyId)) {
+      if (q.shippingCompanyId === "none") {
+        extraFilters += ` AND o."shippingCompanyId" IS NULL`;
+      } else {
+        extraFilters += ` AND o."shippingCompanyId" = $${paramIndex++}`;
+        params.push(q.shippingCompanyId);
+      }
+    }
+    if (this.hasFilterValue(q?.productId)) {
+      extraFilters += ` AND ${this.productExistsSql("o.id", `$${paramIndex++}`)}`;
+      params.push(q.productId);
     }
     if (q?.causeId) {
       extraFilters += ` AND COALESCE(cause."mergedIntoCauseId", occ."cancelCauseId") = $${paramIndex++}`;

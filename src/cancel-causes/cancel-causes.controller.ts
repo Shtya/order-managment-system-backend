@@ -52,6 +52,20 @@ export class CancelCausesController {
     return this.cancelCausesService.listOrderHistory(req.user, orderId, q);
   }
 
+  @Permissions("cancel-causes.read", "products.read")
+  @Get("product/:productId/causes")
+  productCauses(
+    @Req() req: any,
+    @Param("productId") productId: string,
+    @Query() q: any,
+  ) {
+    return this.cancelCausesService.getProductCauseBreakdown(
+      req.user,
+      productId,
+      q,
+    );
+  }
+
   @Permissions("cancel-causes.review")
   @Get("pending")
   pending(@Req() req: any, @Query() q: any) {
@@ -95,6 +109,12 @@ export class CancelCausesController {
   @Get("statistics/top-this-month")
   topThisMonth(@Req() req: any, @Query() q: any) {
     return this.cancelCausesService.getTopThisMonth(req.user, q);
+  }
+
+  @Permissions("cancel-causes.statistics")
+  @Get("statistics/top-products")
+  topProducts(@Req() req: any, @Query() q: any) {
+    return this.cancelCausesService.getTopCancelledProducts(req.user, q);
   }
 
   @Permissions("cancel-causes.statistics")

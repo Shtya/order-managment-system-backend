@@ -215,11 +215,13 @@ export class ProductsService {
       order: { id: "ASC" },
     });
 
+    const mapped = await Promise.all(rows.map((r) => this.mapSkuRow(r)));
     const byProduct = new Map<string, any[]>();
-    for (const r of rows) {
-      const arr = byProduct.get(r.productId) ?? [];
-      arr.push(await this.mapSkuRow(r));
-      byProduct.set(r.productId, arr);
+    for (let i = 0; i < rows.length; i++) {
+      const productId = rows[i].productId;
+      const arr = byProduct.get(productId) ?? [];
+      arr.push(mapped[i]);
+      byProduct.set(productId, arr);
     }
 
     for (const p of products) {
@@ -374,6 +376,37 @@ export class ProductsService {
     for (const p of products) {
       p.stockSummary =
         summaries.get(p.id) ?? this.buildEmptyProductStockSummary();
+    }
+    return products;
+  }
+
+  private async attachCancelCauseCounts(me: any, products: any[]) {
+    const adminId = tenantId(me);
+    const ids = (products ?? []).map((p) => p.id).filter(Boolean);
+    if (!adminId || !ids.length) return products;
+
+    const placeholders = ids.map((_, index) => `$${index + 2}`).join(", ");
+    const rows = await this.prodRepo.query(
+      `
+      SELECT pv."productId" AS "productId", COUNT(DISTINCT occ.id)::int AS count
+      FROM order_cancel_causes occ
+      INNER JOIN order_items oi ON oi."orderId" = occ."orderId"
+      INNER JOIN product_variants pv ON pv.id = oi."variantId"
+      WHERE occ."adminId" = $1
+        AND pv."productId" IN (${placeholders})
+      GROUP BY pv."productId"
+      `,
+      [adminId, ...ids],
+    );
+
+    const map = new Map(
+      (rows || []).map((row) => [
+        String(row.productId ?? row.productid),
+        Number(row.count || 0),
+      ]),
+    );
+    for (const product of products) {
+      product.cancelCauseCount = map.get(String(product.id)) || 0;
     }
     return products;
   }
@@ -1079,14 +1112,14 @@ export class ProductsService {
 
     const [records, total] = await qb.getManyAndCount();
 
-    const enriched = await this.attachSkusToProducts(me, records);
-    const withSummaries = await this.attachStockSummariesToProducts(
-      me,
-      enriched,
-    );
+    await Promise.all([
+      this.attachSkusToProducts(me, records),
+      this.attachStockSummariesToProducts(me, records),
+      this.attachCancelCauseCounts(me, records),
+    ]);
 
     return {
-      records: withSummaries,
+      records,
       total_records: total,
       current_page: q?.page ?? 1,
       per_page: q?.limit ?? 10,
