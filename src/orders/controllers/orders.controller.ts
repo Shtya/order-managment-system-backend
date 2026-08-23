@@ -39,7 +39,7 @@ import {
   UpdateStatusDto,
   CreateManifestDto,
 } from "dto/order.dto";
-import { ScanLogType, ScanReason } from "entities/order.entity";
+import { ScanLogType, ScanReason, OrderConfirmationSource } from "entities/order.entity";
 import { tenantId } from "src/category/category.service";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
@@ -390,7 +390,9 @@ export class OrdersController {
     @Param("id") id: string,
     @Body() dto: ChangeOrderStatusDto,
   ) {
-    return this.svc.changeStatus(req.user, id, dto, req.ip);
+    return this.svc.changeStatus(req.user, id, dto, req.ip, {
+      defaultConfirmationSource: OrderConfirmationSource.MANUAL,
+    });
   }
 
   @Permissions("orders.update")

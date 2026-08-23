@@ -30,9 +30,15 @@ import {
   CancelCauseEntity,
   OrderCancelCauseEntity,
 } from "./cancel-cause.entity";
+import { OrderTagEntity } from "./tag.entity";
 
 
 // ✅ Order Status Enum
+export enum OrderConfirmationSource {
+  WHATSAPP = "whatsapp",
+  MANUAL = "manual",
+}
+
 export enum OrderStatus {
   NEW = "new",   //
   UNDER_REVIEW = "under_review", //
@@ -263,6 +269,9 @@ export class OrderEntity {
   @Column({ type: 'boolean', default: false })
   isConfirmed: boolean;
 
+  @Column({ type: "varchar", length: 20, nullable: true })
+  confirmationSource?: OrderConfirmationSource | null;
+
   @UpdateDateColumn({ type: "timestamptz", nullable: true })
   confirmedAt?: Date;
 
@@ -476,6 +485,9 @@ export class OrderEntity {
   @JoinColumn({ name: 'monthlyClosingId' })
   monthlyClosing: Relation<MonthlyClosingEntity>;
 
+
+  @OneToMany(() => OrderTagEntity, (orderTag) => orderTag.order)
+  orderTags: Relation<OrderTagEntity[]>;
 
   @DeleteDateColumn({ name: "deleted_at", nullable: true, type: "timestamptz" })
   deleted_at?: Date;

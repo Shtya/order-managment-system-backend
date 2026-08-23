@@ -33,6 +33,7 @@ import {
   PaymentStatus,
   OrderStatusEntity,
   OrderStatus,
+  OrderConfirmationSource,
   slugify,
   OrderReplacementEntity,
   OrderReplacementItemEntity,
@@ -107,6 +108,7 @@ import {
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
 import { CancelCausesService } from "src/cancel-causes/cancel-causes.service";
+import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -190,6 +192,8 @@ export class OrdersService {
     private readonly onboardingAchievementService: OnboardingAchievementService,
     @Inject(forwardRef(() => CancelCausesService))
     private readonly cancelCausesService: CancelCausesService,
+    @Inject(forwardRef(() => TagAutomationEvaluator))
+    private readonly tagAutomationEvaluator: TagAutomationEvaluator,
   ) {}
 
   //private function to lock order if he delivered and has monthly closign id
@@ -369,6 +373,10 @@ export class OrdersService {
           payload: null,
           orderId: order.id,
         });
+        await this.tagAutomationEvaluator.evaluateOrder(
+          order.id,
+          order.adminId,
+        );
 
         if (order.externalId) {
           await this.storesService.syncOrderStatus(
@@ -637,6 +645,8 @@ export class OrdersService {
         "replacementOrder",
       )
       .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.orderTags", "orderTags")
+      .leftJoinAndSelect("orderTags.tag", "orderTag")
       .leftJoinAndSelect("order.shippingCompany", "shipping")
       .leftJoinAndSelect("order.store", "store")
       .leftJoinAndSelect(
@@ -688,6 +698,11 @@ export class OrdersService {
       });
     }
 
+    if(q?.tagId) {
+      qb.andWhere("orderTags.tagId = :tagId", {
+        tagId: q.tagId,
+      });
+    }
     if (
       q?.hasActiveAssignment !== undefined &&
       q.hasActiveAssignment !== "all"
@@ -785,6 +800,25 @@ export class OrdersService {
         qb.andWhere("order.shippingCompanyId = :shippingCompanyId", {
           shippingCompanyId: q.shippingCompanyId,
         });
+      }
+    }
+
+    if (q?.tagIds) {
+      const tagIds = Array.isArray(q.tagIds)
+        ? q.tagIds
+        : String(q.tagIds)
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean);
+      if (tagIds.length) {
+        qb.andWhere(
+          `EXISTS (
+            SELECT 1 FROM order_tags ot
+            WHERE ot."orderId" = order.id
+              AND ot."tagId" IN (:...tagIds)
+          )`,
+          { tagIds },
+        );
       }
     }
 
@@ -3042,6 +3076,8 @@ export class OrdersService {
       .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
       .leftJoinAndSelect("statusHistory.toStatus", "toStatus")
       .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.orderTags", "orderTags")
+      .leftJoinAndSelect("orderTags.tag", "orderTag")
       .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
       .leftJoinAndSelect("order.store", "store")
       .leftJoinAndSelect("order.replacementResult", "replacementResult")
@@ -4119,6 +4155,7 @@ export class OrdersService {
     id: string,
     dto: ChangeOrderStatusDto,
     ipAddress?: string,
+    options?: { defaultConfirmationSource?: OrderConfirmationSource },
   ) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -4175,8 +4212,11 @@ export class OrdersService {
       }
 
       if (newStatusCode === OrderStatus.CONFIRMED) {
-        order.confirmedAt = new Date();
-        order.isConfirmed = true;
+        this.applyConfirmation(
+          order,
+          {confirmationSource: dto.confirmationSource},
+          options?.defaultConfirmationSource ?? OrderConfirmationSource.MANUAL,
+        );
       }
 
       if (newStatusCode === OrderStatus.POSTPONED && dto.postponedDate) {
@@ -4417,6 +4457,9 @@ export class OrdersService {
       // 2. Update Order: Revert status and CLEAR rejection data
       await manager.update(OrderEntity, id, {
         statusId: confirmedStatus.id,
+        isConfirmed: true,
+        confirmedAt: new Date(),
+        confirmationSource: OrderConfirmationSource.MANUAL,
         rejectReason: null, // ✅ Clear the previous rejection reason
         rejectedAt: null, // ✅ Clear the rejection timestamp
         rejectedById: null,
@@ -4682,8 +4725,11 @@ export class OrdersService {
       order.updatedByUserId = employeeId;
 
       if (newStatus.code === OrderStatus.CONFIRMED) {
-        order.confirmedAt = new Date();
-        order.isConfirmed = true;
+        this.applyConfirmation(
+          order,
+          dto,
+          OrderConfirmationSource.MANUAL,
+        );
       }
 
       let resolvedCause = null;
@@ -4949,6 +4995,19 @@ export class OrdersService {
       where: { adminId, externalId },
       relations: ["status", "items", "items.variant", "store"],
     });
+  }
+
+  private applyConfirmation(
+    order: OrderEntity,
+    dto?: { confirmationSource?: OrderConfirmationSource },
+    defaultSource?: OrderConfirmationSource,
+  ) {
+    order.confirmedAt = new Date();
+    order.isConfirmed = true;
+    const source = dto?.confirmationSource ?? defaultSource;
+    if (source) {
+      order.confirmationSource = source;
+    }
   }
 
   async updateExternalId(orderId: string, externalId: string) {

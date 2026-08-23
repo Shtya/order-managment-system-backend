@@ -1,6 +1,6 @@
 import { Type } from "class-transformer";
 import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from "class-validator";
-import { AssignmentMode, AutomationMigrationStrategy, Language, NotificationSettings, OrderFlowPath, StockDeductionStrategy, TimeUnit } from "entities/clientSettings.entity";
+import { AssignmentMode, AutomationMigrationStrategy, Language, NotificationSettings, OrderFlowPath, OrderTagMode, StockDeductionStrategy, TimeUnit } from "entities/clientSettings.entity";
 import { i18nValidationMessage } from "nestjs-i18n";
 
 export class ShippingSettingsDto {
@@ -146,4 +146,12 @@ export class UpsertClientSettingsDto {
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   @IsOptional()
   autoCancelDuplicates?: boolean;
+
+  @IsEnum(OrderTagMode, { message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(OrderTagMode).join(', ')], }); }})
+  @IsOptional()
+  orderTagMode?: OrderTagMode;
+
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
+  tagAutomationsEnabled?: boolean;
 }

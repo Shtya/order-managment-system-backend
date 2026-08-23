@@ -14,6 +14,7 @@ import { OrderEntity } from "entities/order.entity";
 import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
 import { TriggerEntityType, TriggerType } from "entities/automation.entity";
 import { ShipmentEntity } from "entities/shipping.entity";
+import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 
 @EventSubscriber()
 @Injectable()
@@ -24,6 +25,8 @@ export class ShipmentSubscriber implements EntitySubscriberInterface<ShipmentEnt
     private dataSource: DataSource,
     @Inject(forwardRef(() => TriggerDispatcherService))
     private readonly triggerDispatcher: TriggerDispatcherService,
+    @Inject(forwardRef(() => TagAutomationEvaluator))
+    private readonly tagAutomationEvaluator: TagAutomationEvaluator,
   ) {
     this.dataSource.subscribers.push(this);
   }
@@ -37,7 +40,7 @@ export class ShipmentSubscriber implements EntitySubscriberInterface<ShipmentEnt
     const shipment = event.entity;
     this.logger.log("afterInsert", JSON.stringify(shipment));
 
-    if (!shipment || !shipment.orderId || !shipment.status) return;
+    if (!shipment || !shipment.orderId) return;
 
     // Queue the task for the newly inserted shipment
     this.queueShipmentTrigger(
@@ -106,6 +109,10 @@ export class ShipmentSubscriber implements EntitySubscriberInterface<ShipmentEnt
             adminId: fullOrder.adminId,
             payload: fullOrder,
           });
+          await this.tagAutomationEvaluator.evaluateOrder(
+            fullOrder.id,
+            fullOrder.adminId,
+          );
         }
       } catch (error) {
         this.logger.error(

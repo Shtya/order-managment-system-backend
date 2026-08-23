@@ -25,7 +25,12 @@ export interface AutomationAdapter {
   changeStatus(
     user: { adminId: string; id: string | null },
     orderId: string,
-    data: { statusId: string; notes?: string },
+    data: {
+      statusId: string;
+      notes?: string;
+      confirmationSource?: string;
+      cancelCauseId?: string;
+    },
   ): Promise<{
     success: boolean;
     orderId: string;

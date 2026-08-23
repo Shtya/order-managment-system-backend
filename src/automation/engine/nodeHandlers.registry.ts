@@ -27,7 +27,7 @@ import {
   UpdateOrderStatusConfig,
   WaitConfig,
 } from "entities/automation.entity";
-import { OrderEntity } from "entities/order.entity";
+import { OrderConfirmationSource, OrderEntity, OrderStatus } from "entities/order.entity";
 import {
   MessageActionIntent,
   MessageStatus,
@@ -626,6 +626,11 @@ export class ActionUpdateOrderStatusHandler extends FlowNodeHandler {
         {
           statusId: statusEntity.id,
           notes: `Updated automatically via automation`,
+          confirmationSource: OrderConfirmationSource.WHATSAPP,
+          ...(statusEntity.code === OrderStatus.CANCELLED &&
+          hydratedConfig.cancelCauseId
+            ? { cancelCauseId: hydratedConfig.cancelCauseId }
+            : {}),
         },
       );
 

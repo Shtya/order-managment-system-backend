@@ -26,6 +26,7 @@ import { AutomationModule } from "src/automation/automation.module";
 import { ShipmentSubscriber } from "./shipping.subscriptor";
 import { ReturnShipmentCheckerService } from "./return-shipment-checker.service";
 import { ClientSettingsEntity } from "entities/clientSettings.entity";
+import { TagsModule } from "src/tags/tags.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ClientSettingsEntity } from "entities/clientSettings.entity";
     forwardRef(() => AutomationModule),
     forwardRef(() => AuthModule),
     forwardRef(() => OrdersModule),
+    forwardRef(() => TagsModule),
     WebSocketModule,
     TypeOrmModule.forFeature([
       ShippingCompanyEntity,

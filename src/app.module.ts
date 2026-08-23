@@ -75,6 +75,7 @@ import { SmsModule } from "./sms/sms.module";
 import { SupportTicketModule } from "./support_ticket/support_ticket.module";
 import { IssueModule } from "./issue/issue.module";
 import { CancelCausesModule } from "./cancel-causes/cancel-causes.module";
+import { TagsModule } from "./tags/tags.module";
 import { GettingStartedModule } from "./getting-started/getting-started.module";
 import { AiModule } from "./ai/ai.module";
 import { config as loadEnvFile } from "dotenv";
@@ -189,6 +190,7 @@ import { config as loadEnvFile } from "dotenv";
     SupportTicketModule,
     IssueModule,
     CancelCausesModule,
+    TagsModule,
     GettingStartedModule,
     AiModule,
   ],

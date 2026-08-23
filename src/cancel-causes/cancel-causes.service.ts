@@ -704,6 +704,7 @@ export class CancelCausesService {
       submittedByEmployeeId: params.employeeId || null,
       statusHistoryId: params.historyId || null,
       toStatusId: params.toStatusId,
+      cancelledAfterShipping: this.orderHasShippedOut(params.order),
     });
     await eventRepo.save(event);
 
@@ -744,6 +745,43 @@ export class CancelCausesService {
 
   private hasFilterValue(value?: string) {
     return Boolean(value) && value !== "all";
+  }
+
+  private hasShippedOutSql(orderAlias = "o") {
+    return `(${orderAlias}."shippedAt" IS NOT NULL)`;
+  }
+
+  private afterShippingExpr(occAlias = "occ", orderAlias = "o") {
+    return `COALESCE(${occAlias}."cancelledAfterShipping", ${this.hasShippedOutSql(orderAlias)})`;
+  }
+
+  private applyShippingTimingFilter(
+    qb: SelectQueryBuilder<any>,
+    q?: any,
+    occAlias = "occ",
+    orderAlias = "o",
+  ) {
+    const timing = String(q?.shippingTiming || "both");
+    if (timing === "after") {
+      qb.andWhere(`${this.afterShippingExpr(occAlias, orderAlias)} = true`);
+    } else if (timing === "before") {
+      qb.andWhere(`${this.afterShippingExpr(occAlias, orderAlias)} = false`);
+    }
+  }
+
+  private shippingTimingSql(q?: any, occAlias = "occ", orderAlias = "o") {
+    const timing = String(q?.shippingTiming || "both");
+    if (timing === "after") {
+      return ` AND ${this.afterShippingExpr(occAlias, orderAlias)} = true`;
+    }
+    if (timing === "before") {
+      return ` AND ${this.afterShippingExpr(occAlias, orderAlias)} = false`;
+    }
+    return "";
+  }
+
+  private orderHasShippedOut(order: OrderEntity): boolean {
+    return Boolean(order?.shippedAt);
   }
 
   private productExistsSql(orderIdExpr: string, productParam: string) {
@@ -816,6 +854,7 @@ export class CancelCausesService {
       });
     }
     this.applyOrderDimensionFilters(qb, q, "o");
+    this.applyShippingTimingFilter(qb, q, "occ", "o");
     if (q?.causeId) {
       qb.andWhere(
         `COALESCE(cause."mergedIntoCauseId", occ."cancelCauseId") = :causeId`,
@@ -913,6 +952,67 @@ export class CancelCausesService {
             ((totalCancellations / totalOrdersInPeriod) * 100).toFixed(2),
           );
 
+    const timingAgnosticQ = { ...q, shippingTiming: "both" };
+    const allCancelStats = await this.eventsQb(adminId, timingAgnosticQ, dateQ)
+      .select("COUNT(occ.id)::int", "totalCancellations")
+      .addSelect('COUNT(DISTINCT occ."orderId")::int', "uniqueOrdersCancelled")
+      .getRawOne();
+    const allCancellations = this.rawNum(
+      allCancelStats,
+      "totalCancellations",
+      "totalcancellations",
+    );
+
+    const afterShippingStats = await this.eventsQb(
+      adminId,
+      { ...q, shippingTiming: "after" },
+      dateQ,
+    )
+      .select("COUNT(occ.id)::int", "afterShippingCancellations")
+      .addSelect(
+        'COUNT(DISTINCT occ."orderId")::int',
+        "uniqueOrdersCancelledAfterShipping",
+      )
+      .getRawOne();
+    const afterShippingCancellations = this.rawNum(
+      afterShippingStats,
+      "afterShippingCancellations",
+      "aftershippingcancellations",
+    );
+    const uniqueOrdersCancelledAfterShipping = this.rawNum(
+      afterShippingStats,
+      "uniqueOrdersCancelledAfterShipping",
+      "uniqueorderscancelledaftershipping",
+    );
+
+    const shippedOrdersQb = this.orderRepo
+      .createQueryBuilder("o")
+      .where("o.adminId = :adminId", { adminId })
+      .andWhere("o.shippedAt IS NOT NULL");
+    DateFilterUtil.applyToQueryBuilder(
+      shippedOrdersQb,
+      "o.shippedAt",
+      start || undefined,
+      end || undefined,
+    );
+    this.applyOrderDimensionFilters(shippedOrdersQb, q, "o");
+    const shippedOrdersInPeriod = await shippedOrdersQb.getCount();
+    const afterShippingCancelRate =
+      shippedOrdersInPeriod === 0
+        ? 0
+        : parseFloat(
+            (
+              (uniqueOrdersCancelledAfterShipping / shippedOrdersInPeriod) *
+              100
+            ).toFixed(2),
+          );
+    const afterShippingShareOfCancels =
+      allCancellations === 0
+        ? 0
+        : parseFloat(
+            ((afterShippingCancellations / allCancellations) * 100).toFixed(2),
+          );
+
     const top5 = await this.topCauses(adminId, q, 5, dateQ);
 
     return {
@@ -924,6 +1024,11 @@ export class CancelCausesService {
       top5,
       cancellationRate,
       totalOrdersInPeriod,
+      shippedOrdersInPeriod,
+      afterShippingCancellations,
+      uniqueOrdersCancelledAfterShipping,
+      afterShippingCancelRate,
+      afterShippingShareOfCancels,
     };
   }
 
@@ -1182,6 +1287,7 @@ export class CancelCausesService {
       extraFilters += ` AND COALESCE(cause."mergedIntoCauseId", occ."cancelCauseId") = $${paramIndex++}`;
       params.push(q.causeId);
     }
+    extraFilters += this.shippingTimingSql(q, "occ", "o");
 
     const query = `
       WITH segments AS (

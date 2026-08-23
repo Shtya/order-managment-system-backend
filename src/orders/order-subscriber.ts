@@ -11,6 +11,7 @@ import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { OrderEntity } from "entities/order.entity";
 import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
 import { TriggerEntityType, TriggerType } from "entities/automation.entity";
+import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 
 @EventSubscriber()
 @Injectable()
@@ -19,6 +20,8 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
     private dataSource: DataSource,
     @Inject(forwardRef(() => TriggerDispatcherService))
     private readonly triggerDispatcher: TriggerDispatcherService,
+    @Inject(forwardRef(() => TagAutomationEvaluator))
+    private readonly tagAutomationEvaluator: TagAutomationEvaluator,
   ) {
     // Register this subscriber in the TypeORM lifecycle
     this.dataSource.subscribers.push(this);
@@ -57,17 +60,40 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
         adminId: fullOrder.adminId,
         payload: fullOrder,
       });
+      await this.tagAutomationEvaluator.evaluateOrder(
+        fullOrder.id,
+        fullOrder.adminId,
+      );
     };
 
-    if (event.queryRunner) {
-      // 🚀 USE A UNIQUE NAMESPACE HERE
-      if (!event.queryRunner.data.orderSubscriberTasks) {
-        event.queryRunner.data.orderSubscriberTasks = [];
+    await this.queueAfterCommit(event.queryRunner, runAfterCommit);
+  }
+
+  async afterUpdate(event: UpdateEvent<OrderEntity>) {
+    const order = event.entity ?? event.databaseEntity;
+    const orderId = order?.id;
+    if (!orderId) return;
+
+    const adminId = order.adminId ?? event.databaseEntity?.adminId;
+    const runAfterCommit = async () => {
+      await this.tagAutomationEvaluator.evaluateOrder(orderId, adminId);
+    };
+
+    await this.queueAfterCommit(event.queryRunner, runAfterCommit);
+  }
+
+  private queueAfterCommit(
+    queryRunner: InsertEvent<OrderEntity>["queryRunner"],
+    task: () => Promise<void>,
+  ) {
+    if (queryRunner) {
+      if (!queryRunner.data.orderSubscriberTasks) {
+        queryRunner.data.orderSubscriberTasks = [];
       }
-      event.queryRunner.data.orderSubscriberTasks.push(runAfterCommit);
-    } else {
-      await runAfterCommit();
+      queryRunner.data.orderSubscriberTasks.push(task);
+      return;
     }
+    return task();
   }
 
   // TypeORM hook that automatically runs after a transaction successfully commits

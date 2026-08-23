@@ -213,6 +213,15 @@ export class PermissionsService implements OnModuleInit {
       "cancel-causes.review",
       "cancel-causes.statistics",
 
+      "tags.read",
+      "tags.create",
+      "tags.update",
+      "tags.delete",
+      "tag-automations.read",
+      "tag-automations.create",
+      "tag-automations.update",
+      "tag-automations.delete",
+
       // ✅ NEW: Getting started permissions
       "getting-started.stats",
 

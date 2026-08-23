@@ -18,7 +18,7 @@ import { OrdersService } from "src/orders/services/orders.service";
 import { WhatsappInteractiveMessagePayload } from "src/whatsapp/services/WhatsappApi.service";
 import { Upsell, UpsellHistory } from "entities/upsells.entity";
 import { UpsellsService } from "src/upsells/upsells.service";
-import { OrderEntity } from "entities/order.entity";
+import { OrderConfirmationSource, OrderEntity } from "entities/order.entity";
 import { AutomationRunEntity } from "entities/automation.entity";
 import { User } from "entities/user.entity";
 import { OrderAssignmentEntity } from "entities/assignment.entity";
@@ -58,7 +58,12 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
   async changeStatus(
     user: { adminId: string; id: string | null },
     orderId: string,
-    data: { statusId: string; notes?: string },
+    data: {
+      statusId: string;
+      notes?: string;
+      confirmationSource?: OrderConfirmationSource;
+      cancelCauseId?: string;
+    },
   ) {
     this.logger.log(
       `[PREVIEW] Skipping actual status update for order ${orderId} to status ${data.statusId}`,

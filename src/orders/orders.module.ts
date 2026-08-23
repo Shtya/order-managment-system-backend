@@ -40,6 +40,7 @@ import { AutomationModule } from "src/automation/automation.module";
 import { ClientSettingsEntity } from "entities/clientSettings.entity";
 import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
 import { CancelCausesModule } from "src/cancel-causes/cancel-causes.module";
+import { TagsModule } from "src/tags/tags.module";
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { CancelCausesModule } from "src/cancel-causes/cancel-causes.module";
     forwardRef(() => AuthModule),
     forwardRef(() => OrderAssignmentModule),
     forwardRef(() => CancelCausesModule),
+    forwardRef(() => TagsModule),
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,

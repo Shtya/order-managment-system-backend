@@ -14,7 +14,7 @@ import { Repository, In } from "typeorm";
 import { AutomationAdapter } from "./automation-adapters.interface";
 import { Upsell, UpsellHistory } from "entities/upsells.entity";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
-import { OrderEntity } from "entities/order.entity";
+import { OrderConfirmationSource, OrderEntity } from "entities/order.entity";
 import { AutomationRunEntity } from "entities/automation.entity";
 import { UpsellsService } from "src/upsells/upsells.service";
 import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
@@ -55,7 +55,12 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
   async changeStatus(
     user: { adminId: string; id: string | null },
     orderId: string,
-    data: { statusId: string; notes?: string },
+    data: {
+      statusId: string;
+      notes?: string;
+      confirmationSource?: OrderConfirmationSource;
+      cancelCauseId?: string;
+    },
   ) {
     await this.ordersService.changeStatus(user, orderId, data);
 

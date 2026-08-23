@@ -24,6 +24,7 @@ import { WhatsappService } from "../whatsapp/whatsapp.service";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { TranslationService } from "common/translation.service";
+import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 
 @Injectable()
 export class UpsellsService {
@@ -46,6 +47,8 @@ export class UpsellsService {
     private readonly ordersService: OrdersService,
     private readonly notificationService: NotificationService,
     private readonly translations: TranslationService,
+    @Inject(forwardRef(() => TagAutomationEvaluator))
+    private readonly tagAutomationEvaluator: TagAutomationEvaluator,
   ) {}
 
   async create(me: any, dto: CreateUpsellDto) {
@@ -722,6 +725,7 @@ export class UpsellsService {
       history.respondedAt = new Date();
 
       await this.upsellHistoryRepo.save(history);
+      await this.tagAutomationEvaluator.evaluateOrder(orderId, adminId);
 
       return {
         success: true,

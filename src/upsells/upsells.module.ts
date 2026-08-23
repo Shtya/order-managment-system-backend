@@ -6,6 +6,7 @@ import { Upsell, UpsellHistory } from "entities/upsells.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { WhatsappModule } from "../whatsapp/whatsapp.module";
 import { OrdersModule } from "../orders/orders.module";
+import { TagsModule } from "src/tags/tags.module";
 import { WhatsappAccountEntity } from "entities/whatsapp.entity";
 
 @Module({
@@ -19,6 +20,7 @@ import { WhatsappAccountEntity } from "entities/whatsapp.entity";
     ]),
     forwardRef(() => WhatsappModule),
     forwardRef(() => OrdersModule),
+    forwardRef(() => TagsModule),
   ],
   controllers: [UpsellsController],
   providers: [UpsellsService],

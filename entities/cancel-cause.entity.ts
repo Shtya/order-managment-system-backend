@@ -165,6 +165,9 @@ export class OrderCancelCauseEntity {
   @JoinColumn({ name: "toStatusId" })
   toStatus?: OrderStatusEntity | null;
 
+  @Column({ type: "boolean", nullable: true, default: null })
+  cancelledAfterShipping?: boolean | null;
+
   @CreateDateColumn({ type: "timestamptz" })
   created_at: Date;
 }

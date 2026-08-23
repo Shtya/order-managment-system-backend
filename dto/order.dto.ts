@@ -27,6 +27,7 @@ import {
   PaymentStatus,
   PaymentMethod,
   DamageResponsibility,
+  OrderConfirmationSource,
 } from "entities/order.entity";
 import { i18nValidationMessage } from "nestjs-i18n";
 
@@ -349,6 +350,17 @@ export class ChangeOrderStatusDto {
   @MinLength(3, { message: i18nValidationMessage("validation.min_length") })
   @MaxLength(200, { message: i18nValidationMessage("validation.max_length") })
   customCauseName?: string;
+
+  @IsOptional()
+  @IsEnum(OrderConfirmationSource, {
+    message: (args) => {
+      return i18nValidationMessage("validation.is_enum")({
+        ...args,
+        constraints: [Object.values(OrderConfirmationSource).join(", ")],
+      });
+    },
+  })
+  confirmationSource?: OrderConfirmationSource;
 }
 
 // ✅ Update Payment Status DTO

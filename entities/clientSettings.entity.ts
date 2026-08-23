@@ -36,6 +36,11 @@ export enum OrderFlowPath {
     EN = "en",
     AR = "ar",
   }
+
+export enum OrderTagMode {
+    ONE = "one",
+    MANY = "many",
+  }
   export type NotificationType =
     | "order"
     | "store"
@@ -203,6 +208,16 @@ export class ClientSettingsEntity {
     autoShipAfterWarehouse: boolean;
     warehouseDefaultShippingCompanyId: string | null;
   };
+
+  @Column({
+    type: "varchar",
+    length: 20,
+    default: OrderTagMode.ONE,
+  })
+  orderTagMode: OrderTagMode;
+
+  @Column({ type: "boolean", default: true })
+  tagAutomationsEnabled: boolean;
 
   @Column({ type: "timestamptz", nullable: true })
   returnNotificationLastSentAt: Date;

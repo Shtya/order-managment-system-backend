@@ -1155,6 +1155,24 @@ export type I18nTranslations = {
             "invalid_range": string;
             "excel_sheet": string;
         };
+        "tags": {
+            "not_found": string;
+            "name_exists": string;
+            "automation_not_found": string;
+            "manual_assignment_disabled": string;
+            "excel_sheet": string;
+            "excel_automations_sheet": string;
+            "excel_name": string;
+            "excel_color": string;
+            "excel_description": string;
+            "excel_active": string;
+            "excel_manual": string;
+            "excel_priority": string;
+            "excel_tag": string;
+            "excel_enabled": string;
+            "excel_logic": string;
+            "excel_rules": string;
+        };
         "issues": {
             "created_successfully": string;
             "updated_successfully": string;
@@ -1291,6 +1309,12 @@ export type I18nTranslations = {
             "payment_method_not_applied_message": string;
             "payment_method_failed_title": string;
             "payment_method_failed_message": string;
+            "confirm_accepted_title": string;
+            "confirm_accepted_message": string;
+            "confirm_not_accepted_title": string;
+            "confirm_not_accepted_message": string;
+            "confirm_failed_title": string;
+            "confirm_failed_message": string;
             "message_not_found": string;
             "phone_number_id_not_found": string;
             "whatsapp_account_already_integrated": string;

@@ -234,6 +234,8 @@ export interface ShipmentCreatedConfig {
 export interface UpdateOrderStatusConfig {
     newStatus: string;
     newStatusId: string;
+    cancelCauseId?: string;
+    cancelCauseName?: string;
 }
 
 export interface SendSmsConfig {
