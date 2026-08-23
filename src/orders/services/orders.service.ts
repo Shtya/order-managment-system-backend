@@ -632,7 +632,12 @@ export class OrdersService {
       .leftJoinAndSelect("items.bundle", "bundle")
       .leftJoinAndSelect("variant.product", "product")
 
-      .leftJoinAndSelect("order.replacementResult", "replacementResult")
+    if (q?.includeProductLocation === "true" || q?.includeProductLocation === true) {
+      qb.leftJoinAndSelect("product.warehouse", "productWarehouse")
+        .leftJoinAndSelect("product.storageLocation", "productStorageLocation");
+    }
+
+    qb.leftJoinAndSelect("order.replacementResult", "replacementResult")
       .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
       .leftJoinAndSelect("replacementResult.items", "bridgeItems")
       .leftJoinAndSelect("bridgeItems.originalOrderItem", "origItem")

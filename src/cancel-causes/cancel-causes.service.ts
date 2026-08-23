@@ -952,17 +952,6 @@ export class CancelCausesService {
             ((totalCancellations / totalOrdersInPeriod) * 100).toFixed(2),
           );
 
-    const timingAgnosticQ = { ...q, shippingTiming: "both" };
-    const allCancelStats = await this.eventsQb(adminId, timingAgnosticQ, dateQ)
-      .select("COUNT(occ.id)::int", "totalCancellations")
-      .addSelect('COUNT(DISTINCT occ."orderId")::int', "uniqueOrdersCancelled")
-      .getRawOne();
-    const allCancellations = this.rawNum(
-      allCancelStats,
-      "totalCancellations",
-      "totalcancellations",
-    );
-
     const afterShippingStats = await this.eventsQb(
       adminId,
       { ...q, shippingTiming: "after" },
@@ -985,6 +974,28 @@ export class CancelCausesService {
       "uniqueorderscancelledaftershipping",
     );
 
+    const beforeShippingStats = await this.eventsQb(
+      adminId,
+      { ...q, shippingTiming: "before" },
+      dateQ,
+    )
+      .select("COUNT(occ.id)::int", "beforeShippingCancellations")
+      .addSelect(
+        'COUNT(DISTINCT occ."orderId")::int',
+        "uniqueOrdersCancelledBeforeShipping",
+      )
+      .getRawOne();
+    const beforeShippingCancellations = this.rawNum(
+      beforeShippingStats,
+      "beforeShippingCancellations",
+      "beforeshippingcancellations",
+    );
+    const uniqueOrdersCancelledBeforeShipping = this.rawNum(
+      beforeShippingStats,
+      "uniqueOrdersCancelledBeforeShipping",
+      "uniqueorderscancelledbeforeshipping",
+    );
+
     const shippedOrdersQb = this.orderRepo
       .createQueryBuilder("o")
       .where("o.adminId = :adminId", { adminId })
@@ -997,7 +1008,25 @@ export class CancelCausesService {
     );
     this.applyOrderDimensionFilters(shippedOrdersQb, q, "o");
     const shippedOrdersInPeriod = await shippedOrdersQb.getCount();
+    const beforeShippingCancelRate =
+      totalOrdersInPeriod === 0
+        ? 0
+        : parseFloat(
+            (
+              (uniqueOrdersCancelledBeforeShipping / totalOrdersInPeriod) *
+              100
+            ).toFixed(2),
+          );
     const afterShippingCancelRate =
+      totalOrdersInPeriod === 0
+        ? 0
+        : parseFloat(
+            (
+              (uniqueOrdersCancelledAfterShipping / totalOrdersInPeriod) *
+              100
+            ).toFixed(2),
+          );
+    const afterShippingCancelRateOfShipped =
       shippedOrdersInPeriod === 0
         ? 0
         : parseFloat(
@@ -1005,12 +1034,6 @@ export class CancelCausesService {
               (uniqueOrdersCancelledAfterShipping / shippedOrdersInPeriod) *
               100
             ).toFixed(2),
-          );
-    const afterShippingShareOfCancels =
-      allCancellations === 0
-        ? 0
-        : parseFloat(
-            ((afterShippingCancellations / allCancellations) * 100).toFixed(2),
           );
 
     const top5 = await this.topCauses(adminId, q, 5, dateQ);
@@ -1025,10 +1048,13 @@ export class CancelCausesService {
       cancellationRate,
       totalOrdersInPeriod,
       shippedOrdersInPeriod,
+      beforeShippingCancellations,
+      uniqueOrdersCancelledBeforeShipping,
       afterShippingCancellations,
       uniqueOrdersCancelledAfterShipping,
+      beforeShippingCancelRate,
       afterShippingCancelRate,
-      afterShippingShareOfCancels,
+      afterShippingCancelRateOfShipped,
     };
   }
 

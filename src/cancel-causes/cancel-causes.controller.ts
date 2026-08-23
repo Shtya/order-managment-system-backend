@@ -92,7 +92,7 @@ export class CancelCausesController {
   statistics(@Req() req: any, @Query() q: any) {
     return this.cancelCausesService.getOverviewStatistics(req.user, q);
   }
-
+  
   @Permissions("cancel-causes.statistics")
   @Get("statistics/by-cause")
   byCause(@Req() req: any, @Query() q: any) {
