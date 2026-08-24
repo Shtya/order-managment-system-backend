@@ -1171,6 +1171,8 @@ export type I18nTranslations = {
             "excel_tag": string;
             "excel_enabled": string;
             "excel_logic": string;
+            "excel_logic_and": string;
+            "excel_logic_or": string;
             "excel_rules": string;
         };
         "issues": {
@@ -1359,6 +1361,25 @@ export type I18nTranslations = {
             "template_quality_updated_message": string;
             "template_status_updated": string;
             "template_status_updated_message": string;
+            "billing_number_not_assigned": string;
+            "billing_number_suspended": string;
+            "billing_number_assigned_to_other": string;
+            "billing_sending_not_allowed": string;
+            "billing_rate_not_configured": string;
+            "billing_insufficient_wallet_balance": string;
+            "billing_rates_must_be_object": string;
+            "billing_invalid_rate_key": string;
+            "billing_rate_out_of_range": string;
+            "billing_rate_too_many_decimals": string;
+            "billing_message_fee_note": string;
+            "billing_fee_refund_note": string;
+            "billing_overdraft_title": string;
+            "billing_overdraft_message": string;
+            "platform_account_has_active_assignment": string;
+            "billing_number_already_assigned": string;
+            "billing_assignment_not_found": string;
+            "billing_assignment_revoked_readonly": string;
+            "billing_template_management_not_allowed": string;
         };
         "upsells": {
             "failed_to_download_header_media_from_url": string;

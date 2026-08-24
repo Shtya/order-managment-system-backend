@@ -5,7 +5,7 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Not, Repository } from "typeorm";
-import { TagEntity } from "entities/tag.entity";
+import { TagAutomationEntity, TagEntity } from "entities/tag.entity";
 import { CreateTagDto, UpdateTagDto } from "dto/tag.dto";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
@@ -16,6 +16,8 @@ export class TagsService {
   constructor(
     @InjectRepository(TagEntity)
     private readonly tagRepo: Repository<TagEntity>,
+    @InjectRepository(TagAutomationEntity)
+    private readonly automationRepo: Repository<TagAutomationEntity>,
     private readonly translations: TranslationService,
   ) {}
 
@@ -27,6 +29,42 @@ export class TagsService {
       );
     }
     return adminId;
+  }
+
+  async stats(me: any) {
+    const adminId = this.adminIdOf(me);
+    const [tagRow, automationRow] = await Promise.all([
+      this.tagRepo
+        .createQueryBuilder("tag")
+        .select("COUNT(*)", "tags")
+        .addSelect(
+          "COUNT(*) FILTER (WHERE tag.isActive = true)",
+          "activeTags",
+        )
+        .addSelect(
+          "COUNT(*) FILTER (WHERE tag.allowManualAssignment = true)",
+          "manualTags",
+        )
+        .where("tag.adminId = :adminId", { adminId })
+        .getRawOne(),
+      this.automationRepo
+        .createQueryBuilder("automation")
+        .select("COUNT(*)", "automations")
+        .addSelect(
+          "COUNT(*) FILTER (WHERE automation.isEnabled = true)",
+          "activeAutomations",
+        )
+        .where("automation.adminId = :adminId", { adminId })
+        .getRawOne(),
+    ]);
+
+    return {
+      tags: Number(tagRow?.tags ?? 0),
+      activeTags: Number(tagRow?.activeTags ?? 0),
+      manualTags: Number(tagRow?.manualTags ?? 0),
+      automations: Number(automationRow?.automations ?? 0),
+      activeAutomations: Number(automationRow?.activeAutomations ?? 0),
+    };
   }
 
   async list(me: any, q?: any) {
@@ -50,6 +88,14 @@ export class TagsService {
       qb.andWhere("tag.isActive = true");
     } else if (q?.isActive === false || q?.isActive === "false") {
       qb.andWhere("tag.isActive = false");
+    }
+    if (q?.allowManualAssignment === true || q?.allowManualAssignment === "true") {
+      qb.andWhere("tag.allowManualAssignment = true");
+    } else if (
+      q?.allowManualAssignment === false ||
+      q?.allowManualAssignment === "false"
+    ) {
+      qb.andWhere("tag.allowManualAssignment = false");
     }
 
     const sortBy =
@@ -156,13 +202,22 @@ export class TagsService {
       { header: this.translations.t("domains.tags.excel_manual"), key: "allowManualAssignment", width: 16 },
       { header: this.translations.t("domains.tags.excel_priority"), key: "priority", width: 12 },
     ];
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+    
     all.records.forEach((row: any) => {
       worksheet.addRow({
         name: row.name,
         color: row.color,
         description: row.description,
-        isActive: row.isActive,
-        allowManualAssignment: row.allowManualAssignment,
+        isActive: this.translations.t(row.isActive ? "common.yes" : "common.no"),
+        allowManualAssignment: this.translations.t(
+          row.allowManualAssignment ? "common.yes" : "common.no",
+        ),
         priority: row.priority,
       });
     });

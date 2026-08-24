@@ -194,7 +194,7 @@ export class OrdersService {
     private readonly cancelCausesService: CancelCausesService,
     @Inject(forwardRef(() => TagAutomationEvaluator))
     private readonly tagAutomationEvaluator: TagAutomationEvaluator,
-  ) {}
+  ) { }
 
   //private function to lock order if he delivered and has monthly closign id
   public async throwIfDelivered(order: OrderEntity, message?: string) {
@@ -212,7 +212,7 @@ export class OrdersService {
     if (order.statusId === deliveryStatus.id && order.monthlyClosingId) {
       throw new BadRequestException(
         message ||
-          this.translations.t("domains.orders.cannot_update_or_delete_closed"),
+        this.translations.t("domains.orders.cannot_update_or_delete_closed"),
       );
     }
   }
@@ -356,7 +356,7 @@ export class OrdersService {
     // Function to run after commit
     const runAfterCommit = async () => {
       try {
-        const order = await params.manager.findOne(OrderEntity, {
+        const order = await this.orderRepo.findOne({
           where: { id: params.orderId },
           select: ["id", "adminId", "oldStatusId", "statusId", "externalId"],
         });
@@ -703,11 +703,18 @@ export class OrdersService {
       });
     }
 
-    if(q?.tagId) {
-      qb.andWhere("orderTags.tagId = :tagId", {
-        tagId: q.tagId,
-      });
+    if (q?.tagId) {
+      qb.andWhere(
+        `EXISTS (
+      SELECT 1
+      FROM order_tags ot
+      WHERE ot."orderId" = "order".id
+        AND ot."tagId" = :tagId
+    )`,
+        { tagId: q.tagId },
+      );
     }
+
     if (
       q?.hasActiveAssignment !== undefined &&
       q.hasActiveAssignment !== "all"
@@ -812,14 +819,14 @@ export class OrdersService {
       const tagIds = Array.isArray(q.tagIds)
         ? q.tagIds
         : String(q.tagIds)
-            .split(",")
-            .map((id) => id.trim())
-            .filter(Boolean);
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
       if (tagIds.length) {
         qb.andWhere(
           `EXISTS (
             SELECT 1 FROM order_tags ot
-            WHERE ot."orderId" = order.id
+            WHERE ot."orderId" = "order".id
               AND ot."tagId" IN (:...tagIds)
           )`,
           { tagIds },
@@ -1567,7 +1574,7 @@ export class OrdersService {
         orderNumber: log.order?.orderNumber || "N/A",
         actionType: log.actionType
           ? this.translations.t(actionTypeKeys[log.actionType]) ||
-            log.actionType
+          log.actionType
           : "N/A",
         result: log.result
           ? this.translations.t(resultKeys[log.result]) || log.result
@@ -3240,12 +3247,12 @@ export class OrdersService {
       variantIds.length === 0
         ? []
         : await manager
-            .createQueryBuilder(ProductVariantEntity, "variant")
-            .leftJoin("variant.product", "product")
-            .addSelect(["variant", "product.id", "product.wholesalePrice"])
-            .where("variant.adminId = :adminId", { adminId })
-            .andWhere("variant.id IN (:...variantIds)", { variantIds })
-            .getMany();
+          .createQueryBuilder(ProductVariantEntity, "variant")
+          .leftJoin("variant.product", "product")
+          .addSelect(["variant", "product.id", "product.wholesalePrice"])
+          .where("variant.adminId = :adminId", { adminId })
+          .andWhere("variant.id IN (:...variantIds)", { variantIds })
+          .getMany();
 
     const variantMap = new Map(variants.map((v) => [v.id, v]));
 
@@ -4219,7 +4226,7 @@ export class OrdersService {
       if (newStatusCode === OrderStatus.CONFIRMED) {
         this.applyConfirmation(
           order,
-          {confirmationSource: dto.confirmationSource},
+          { confirmationSource: dto.confirmationSource },
           options?.defaultConfirmationSource ?? OrderConfirmationSource.MANUAL,
         );
       }
@@ -4571,11 +4578,11 @@ export class OrdersService {
           message:
             oldStatus.code === OrderStatus.DELIVERED
               ? this.translations.t(
-                  "domains.orders.order_delivered_cannot_edit",
-                )
+                "domains.orders.order_delivered_cannot_edit",
+              )
               : this.translations.t(
-                  "domains.orders.order_in_warehouse_cannot_edit",
-                ),
+                "domains.orders.order_in_warehouse_cannot_edit",
+              ),
         };
       }
 
@@ -4615,6 +4622,7 @@ export class OrdersService {
 
       const now = new Date();
       activeAssignment.lastActionAt = now;
+      activeAssignment.contactTries = (activeAssignment.contactTries || 0) + 1;
 
       // 3. Handle Retry & Assignment Logic
       const isRetryStatus = settings.retryStatuses.includes(newStatus.code);
@@ -4753,8 +4761,22 @@ export class OrdersService {
         );
       }
 
-      // Save Entities
-      await manager.save(OrderAssignmentEntity, activeAssignment);
+      // Persist assignment (including contactTries) before the order save.
+      // Tag automations run on OrderEntity afterUpdate; a TypeORM save() can
+      // skip new columns if they are not marked dirty, so update() always writes them.
+      await manager.update(
+        OrderAssignmentEntity,
+        { id: activeAssignment.id },
+        {
+          lastActionAt: activeAssignment.lastActionAt,
+          contactTries: activeAssignment.contactTries,
+          retriesUsed: activeAssignment.retriesUsed,
+          isAssignmentActive: activeAssignment.isAssignmentActive,
+          lockedUntil: activeAssignment.lockedUntil ?? null,
+          finishedAt: activeAssignment.finishedAt ?? null,
+          lastStatusId: activeAssignment.lastStatusId,
+        },
+      );
       const savedOrder = await manager.save(OrderEntity, order);
 
       if (this.isWarehouseStatus(newStatus.code)) {
@@ -5362,8 +5384,8 @@ export class OrdersService {
           shipmentDate:
             shipment?.created_at || order.shippedAt
               ? new Date(
-                  shipment?.created_at || order.shippedAt,
-                ).toLocaleDateString()
+                shipment?.created_at || order.shippedAt,
+              ).toLocaleDateString()
               : na,
           shippingCompany: order.shippingCompany?.name || na,
           assignedEmployee: assignment?.employee?.name || na,
@@ -6782,8 +6804,8 @@ export class OrdersService {
       message:
         validOrderPayloads.length > 0
           ? this.translations.t("domains.orders.bulk_orders_queued", {
-              args: { count: validOrderPayloads.length },
-            })
+            args: { count: validOrderPayloads.length },
+          })
           : this.translations.t("domains.orders.bulk_no_valid_orders"),
       failed: rows.length - validOrderPayloads.length,
       errorFileBuffer,
@@ -7400,11 +7422,11 @@ export class OrdersService {
 
         const message = isDeduction
           ? this.translations.t("domains.orders.insufficient_stock_deduct", {
-              args: { prefix, sku, available, quantity: item.quantity },
-            })
+            args: { prefix, sku, available, quantity: item.quantity },
+          })
           : this.translations.t("domains.orders.insufficient_stock_order", {
-              args: { prefix, sku, available },
-            });
+            args: { prefix, sku, available },
+          });
 
         throw new BadRequestException(message);
       }

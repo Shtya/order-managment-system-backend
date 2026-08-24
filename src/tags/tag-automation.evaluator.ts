@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { QueryRunner, Repository } from "typeorm";
 import { OrderEntity, OrderItemEntity } from "entities/order.entity";
+import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { ShipmentEntity } from "entities/shipping.entity";
 import { UpsellHistory, UpsellStatus } from "entities/upsells.entity";
 import {
@@ -92,47 +93,67 @@ export class TagAutomationEvaluator {
 
     const snapshot = await this.buildSnapshot(order);
     const matching: TagEntity[] = [];
+    const consideredTagIds = new Set<string>();
 
     for (const automation of resolvedAutomations) {
       if (!automation.tag?.isActive) continue;
+      consideredTagIds.add(automation.tag.id);
       if (this.matches(automation.conditions, snapshot)) {
         matching.push(automation.tag);
       }
     }
 
-    if (!matching.length) return;
+    const removeUnmatched =
+      resolvedSettings?.tagAutomationsRemoveUnmatched !== false;
+    const matchingTagIds = new Set(matching.map((tag) => tag.id));
+    const unmatchedTagIds = [...consideredTagIds].filter(
+      (tagId) => !matchingTagIds.has(tagId),
+    );
 
-    const mode = resolvedSettings?.orderTagMode || OrderTagMode.MANY;
-
-    if (mode === OrderTagMode.ONE) {
-      matching.sort((a, b) => {
-        const byPriority = (b.priority || 0) - (a.priority || 0);
-        if (byPriority !== 0) return byPriority;
-        const byUpdated =
-          new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
-        if (byUpdated !== 0) return byUpdated;
-        return String(b.id).localeCompare(String(a.id));
-      });
-      await this.assignmentService.assignTag({
-        orderId: order.id,
-        tagId: matching[0].id,
-        adminId: order.adminId,
-        source: TagAssignmentSource.AUTOMATIC,
-      });
+    if (!matching.length && !(removeUnmatched && unmatchedTagIds.length)) {
       return;
     }
 
-    const uniqueTagIds = [...new Set(matching.map((tag) => tag.id))];
-    await Promise.all(
-      uniqueTagIds.map((tagId) =>
-        this.assignmentService.assignTag({
+    const mode = resolvedSettings?.orderTagMode || OrderTagMode.MANY;
+
+    if (matching.length) {
+      if (mode === OrderTagMode.ONE) {
+        matching.sort((a, b) => {
+          const byPriority = (b.priority || 0) - (a.priority || 0);
+          if (byPriority !== 0) return byPriority;
+          const byUpdated =
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          if (byUpdated !== 0) return byUpdated;
+          return String(b.id).localeCompare(String(a.id));
+        });
+        await this.assignmentService.assignTag({
           orderId: order.id,
-          tagId,
+          tagId: matching[0].id,
           adminId: order.adminId,
           source: TagAssignmentSource.AUTOMATIC,
-        }),
-      ),
-    );
+        });
+      } else {
+        const uniqueTagIds = [...matchingTagIds];
+        await Promise.all(
+          uniqueTagIds.map((tagId) =>
+            this.assignmentService.assignTag({
+              orderId: order.id,
+              tagId,
+              adminId: order.adminId,
+              source: TagAssignmentSource.AUTOMATIC,
+            }),
+          ),
+        );
+      }
+    }
+
+    if (removeUnmatched && unmatchedTagIds.length) {
+      await this.assignmentService.removeAutomaticTags({
+        orderId: order.id,
+        adminId: order.adminId,
+        tagIds: unmatchedTagIds,
+      });
+    }
   }
 
   private async buildSnapshot(order: OrderEntity) {
@@ -141,7 +162,7 @@ export class TagAutomationEvaluator {
       0,
     );
 
-    const [latestShipment, latestUpsell] = await Promise.all([
+    const [latestShipment, latestUpsell, assignmentRow] = await Promise.all([
       this.orderRepo.manager.getRepository(ShipmentEntity).findOne({
         where: { orderId: order.id },
         order: { created_at: "DESC" },
@@ -150,6 +171,17 @@ export class TagAutomationEvaluator {
         where: { orderId: order.id, adminId: order.adminId },
         order: { createdAt: "DESC" },
       }),
+      this.orderRepo.manager
+        .getRepository(OrderAssignmentEntity)
+        .createQueryBuilder("assignment")
+        .select("COALESCE(SUM(assignment.contactTries), 0)", "contactTries")
+        .addSelect(
+          "COALESCE(MAX(CASE WHEN assignment.isAssignmentActive = true THEN 1 ELSE 0 END), 0)",
+          "hasActive",
+        )
+        .where("assignment.orderId = :orderId", { orderId: order.id })
+        .cache(false)
+        .getRawOne(),
     ]);
 
     const normalized = normalizeEgyptianPhoneNumber(order.phoneNumber || "");
@@ -162,10 +194,13 @@ export class TagAutomationEvaluator {
       "order.paymentStatus": order.paymentStatus ?? null,
       "order.productsTotal": Number(order.productsTotal || 0),
       "order.itemsQuantity": itemsQuantity,
+      "order.productsCount": (order.items || []).length,
       "order.shippingCompanyId": order.shippingCompanyId ?? null,
       "order.finalTotal": Number(order.finalTotal || 0),
       "order.isConfirmed": !!order.isConfirmed,
       "order.confirmationSource": order.confirmationSource ?? null,
+      "assignment.contactTries": Number(assignmentRow?.contactTries || 0),
+      "assignment.hasActive": Number(assignmentRow?.hasActive || 0) === 1,
       "shipment.status": latestShipment?.status ?? null,
       "upsell.accepted": latestUpsell?.status === UpsellStatus.ACCEPTED,
       "order.phone.valid": phoneValid,

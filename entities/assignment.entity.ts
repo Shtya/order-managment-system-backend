@@ -223,6 +223,10 @@ export class OrderAssignmentEntity {
     @Column({ type: "int", default: 0 })
     retriesUsed: number;
 
+    /** Confirmation-team contact attempts. Incremented on every changeConfirmationStatus. */
+    @Column({ type: "int", default: 0 })
+    contactTries: number;
+
     @Column({ type: "int", default: 3 })
     maxRetriesAtAssignment: number; // Snapshot of global settings at time of assign
 

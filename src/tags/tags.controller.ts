@@ -40,10 +40,16 @@ export class TagsController {
     return this.tagsService.list(req.user, q);
   }
 
-  @Permissions("tags.read", "orders.update")
+  @Permissions("tags.read", "orders.update", "orders.updateTags")
   @Get("assignable")
   assignable(@Req() req: any) {
     return this.tagsService.listAssignable(req.user);
+  }
+
+  @Permissions("tags.read")
+  @Get("stats")
+  stats(@Req() req: any) {
+    return this.tagsService.stats(req.user);
   }
 
   @Permissions("tags.read")
@@ -148,13 +154,13 @@ export class TagAutomationsController {
 export class OrderTagsController {
   constructor(private readonly assignmentService: TagsAssignmentService) {}
 
-  @Permissions("orders.read", "tags.read")
+  @Permissions("orders.read", "tags.read", "orders.update", "orders.updateTags", "orders.confirm-incoming")
   @Get()
   list(@Req() req: any, @Param("orderId") orderId: string) {
     return this.assignmentService.listOrderTags(req.user, orderId);
   }
 
-  @Permissions("orders.update")
+  @Permissions("orders.update", "orders.updateTags")
   @Post()
   assign(
     @Req() req: any,
@@ -164,7 +170,7 @@ export class OrderTagsController {
     return this.assignmentService.assignManual(req.user, orderId, dto.tagId);
   }
 
-  @Permissions("orders.update")
+  @Permissions("orders.update", "orders.updateTags")
   @Delete(":tagId")
   remove(
     @Req() req: any,

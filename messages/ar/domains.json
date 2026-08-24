@@ -1030,6 +1030,8 @@
     "excel_tag": "الوسم",
     "excel_enabled": "مفعّل",
     "excel_logic": "المنطق",
+    "excel_logic_and": "كل القواعد",
+    "excel_logic_or": "أي قاعدة",
     "excel_rules": "القواعد"
   },
   "issues": {
@@ -1217,7 +1219,26 @@
     "template_quality_updated": "تم تحديث جودة القالب",
     "template_quality_updated_message": "تم تحديث جودة القالب إلى {quality}",
     "template_status_updated": "تم تحديث حالة القالب",
-    "template_status_updated_message": "تم تحديث حالة القالب إلى {status}"
+    "template_status_updated_message": "تم تحديث حالة القالب إلى {status}",
+    "billing_number_not_assigned": "رقم الواتساب غير مُسند لأي مستخدم",
+    "billing_number_suspended": "رقم الواتساب موقوف حالياً",
+    "billing_number_assigned_to_other": "رقم الواتساب مُسند لمستخدم آخر",
+    "billing_sending_not_allowed": "الإرسال غير مسموح على رقم الواتساب هذا",
+    "billing_rate_not_configured": "لم يتم تحديد سعر لهذا النوع من الرسائل على هذا الرقم",
+    "billing_insufficient_wallet_balance": "رصيد المحفظة غير كافٍ. يرجى شحن المحفظة لمتابعة الإرسال.",
+    "billing_rates_must_be_object": "يجب أن تكون الأسعار كائناً بصيغة نوع الرسالة => السعر",
+    "billing_invalid_rate_key": "فئة سعر غير صالحة",
+    "billing_rate_out_of_range": "يجب أن يكون السعر بين 0 و 1000",
+    "billing_rate_too_many_decimals": "السعر يقبل حد أقصى منزلتين عشريتين",
+    "billing_message_fee_note": "رسوم رسالة واتساب ({rateKey})",
+    "billing_fee_refund_note": "استرداد رسوم واتساب ({rateKey}) - فشل تسليم الرسالة",
+    "billing_overdraft_title": "تنبيه فوترة واتساب",
+    "billing_overdraft_message": "انخفض رصيد محفظتك إلى ما دون الصفر ({balance} دولار) بعد خصم رسوم رسالة واتساب. يرجى شحن المحفظة.",
+    "platform_account_has_active_assignment": "لا يمكن حذف هذا الرقم وهو مُسند لمستخدم. قم بإلغاء الإسناد أولاً أو استخدم الحذف القسري.",
+    "billing_number_already_assigned": "رقم الواتساب مُسند بالفعل لمستخدم. قم بإلغاء الإسناد الحالي أولاً أو أكّد إعادة الإسناد.",
+    "billing_assignment_not_found": "الإسناد غير موجود",
+    "billing_assignment_revoked_readonly": "لا يمكن تعديل الإسنادات الملغاة",
+    "billing_template_management_not_allowed": "لا يمكنك إدارة القوالب على رقم الواتساب هذا"
   },
   "upsells": {
     "failed_to_download_header_media_from_url": "فشل تنزيل وسائط رأس القالب من الرابط",

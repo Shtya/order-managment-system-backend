@@ -1294,6 +1294,8 @@ export class OrderAssignmentService {
       .leftJoinAndSelect("items.variant", "variant")
       .leftJoinAndSelect("items.bundle", "bundle")
       .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.orderTags", "orderTags")
+      .leftJoinAndSelect("orderTags.tag", "tag")
       .leftJoinAndSelect("order.statusHistory", "statusHistory")
       .leftJoinAndSelect("statusHistory.fromStatus", "fromStatus")
       .leftJoinAndSelect("statusHistory.toStatus", "toStatus")

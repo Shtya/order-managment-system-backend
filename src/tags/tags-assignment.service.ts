@@ -141,6 +141,26 @@ export class TagsAssignmentService {
     return this.loadOrderTags(params.adminId, params.orderId, params.manager);
   }
 
+  async removeAutomaticTags(params: {
+    orderId: string;
+    adminId: string;
+    tagIds: string[];
+    manager?: EntityManager;
+  }) {
+    if (!params.tagIds.length) return;
+    const orderTagRepo = params.manager
+      ? params.manager.getRepository(OrderTagEntity)
+      : this.orderTagRepo;
+    await orderTagRepo
+      .createQueryBuilder()
+      .delete()
+      .where('"adminId" = :adminId', { adminId: params.adminId })
+      .andWhere('"orderId" = :orderId', { orderId: params.orderId })
+      .andWhere('"tagId" IN (:...tagIds)', { tagIds: params.tagIds })
+      .andWhere("source = :source", { source: TagAssignmentSource.AUTOMATIC })
+      .execute();
+  }
+
   private async loadOrderTags(
     adminId: string,
     orderId: string,

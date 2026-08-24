@@ -1,6 +1,7 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { OrderAssignmentService } from "./order-assignment.service";
 import { OrderAssignmentController } from "./order-assignment.controller";
+import { OrderAssignmentSubscriber } from "./order-assignment.subscriber";
 import { RedisModule } from "common/redis/redis.module";
 import {
   OrderAssignmentEntity,
@@ -14,11 +15,12 @@ import { ProductEntity } from "entities/sku.entity";
 import { CityEntity } from "entities/cities.entity";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { StoreEntity } from "entities/stores.entity";
-import { BullModule } from "@nestjs/bullmq";
+import { TagsModule } from "src/tags/tags.module";
 
 @Module({
   imports: [
     forwardRef(() => OrdersModule),
+    forwardRef(() => TagsModule),
     RedisModule,
     TypeOrmModule.forFeature([
       OrderAssignmentEntity,
@@ -33,7 +35,7 @@ import { BullModule } from "@nestjs/bullmq";
     ]),
   ],
   controllers: [OrderAssignmentController],
-  providers: [OrderAssignmentService],
+  providers: [OrderAssignmentService, OrderAssignmentSubscriber],
   exports: [OrderAssignmentService],
 })
 export class OrderAssignmentModule {}

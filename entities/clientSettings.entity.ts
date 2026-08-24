@@ -212,12 +212,16 @@ export class ClientSettingsEntity {
   @Column({
     type: "varchar",
     length: 20,
-    default: OrderTagMode.ONE,
+    default: OrderTagMode.MANY,
   })
   orderTagMode: OrderTagMode;
 
   @Column({ type: "boolean", default: true })
   tagAutomationsEnabled: boolean;
+
+  /** When true, re-evaluation removes automatic tags whose rules no longer match. */
+  @Column({ type: "boolean", default: true })
+  tagAutomationsRemoveUnmatched: boolean;
 
   @Column({ type: "timestamptz", nullable: true })
   returnNotificationLastSentAt: Date;

@@ -127,15 +127,24 @@ export class TagAutomationsService {
       { header: this.translations.t("domains.tags.excel_name"), key: "name", width: 28 },
       { header: this.translations.t("domains.tags.excel_tag"), key: "tag", width: 24 },
       { header: this.translations.t("domains.tags.excel_enabled"), key: "isEnabled", width: 12 },
-      { header: this.translations.t("domains.tags.excel_logic"), key: "logic", width: 10 },
+      { header: this.translations.t("domains.tags.excel_logic"), key: "logic", width: 18 },
       { header: this.translations.t("domains.tags.excel_rules"), key: "rules", width: 10 },
     ];
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
     all.records.forEach((row: any) => {
       worksheet.addRow({
         name: row.name,
         tag: row.tag?.name,
-        isEnabled: row.isEnabled,
-        logic: row.conditions?.logic,
+        isEnabled: this.translations.t(row.isEnabled ? "common.yes" : "common.no"),
+        logic:
+          row.conditions?.logic === "OR"
+            ? this.translations.t("domains.tags.excel_logic_or")
+            : this.translations.t("domains.tags.excel_logic_and"),
         rules: row.conditions?.rules?.length ?? 0,
       });
     });

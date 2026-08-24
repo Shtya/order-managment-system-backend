@@ -1030,6 +1030,8 @@
     "excel_tag": "Tag",
     "excel_enabled": "Enabled",
     "excel_logic": "Logic",
+    "excel_logic_and": "All rules",
+    "excel_logic_or": "Any rule",
     "excel_rules": "Rules"
   },
   "issues": {
@@ -1214,7 +1216,26 @@
     "template_quality_updated": "Template Quality Updated",
     "template_quality_updated_message": "Template quality has been updated to {quality}",
     "template_status_updated": "Template Status Updated",
-    "template_status_updated_message": "Template status has been updated to {status}"
+    "template_status_updated_message": "Template status has been updated to {status}",
+    "billing_number_not_assigned": "This WhatsApp number is not assigned to any user",
+    "billing_number_suspended": "This WhatsApp number is currently suspended",
+    "billing_number_assigned_to_other": "This WhatsApp number is assigned to another user",
+    "billing_sending_not_allowed": "Sending is not allowed on this WhatsApp number",
+    "billing_rate_not_configured": "No price configured for this message type on this number",
+    "billing_insufficient_wallet_balance": "Insufficient wallet balance. Please top up your wallet to continue sending.",
+    "billing_rates_must_be_object": "Rates must be an object of message type => price",
+    "billing_invalid_rate_key": "Invalid price category",
+    "billing_rate_out_of_range": "Price must be between 0 and 1000",
+    "billing_rate_too_many_decimals": "Price accepts at most 2 decimal places",
+    "billing_message_fee_note": "WhatsApp message fee ({rateKey})",
+    "billing_fee_refund_note": "WhatsApp fee refund ({rateKey}) - message failed to deliver",
+    "billing_overdraft_title": "WhatsApp billing alert",
+    "billing_overdraft_message": "Your wallet balance went below zero ({balance} USD) after a WhatsApp message charge. Please top up your wallet.",
+    "platform_account_has_active_assignment": "Cannot delete this number while it is assigned to a user. Revoke the assignment first or use force delete.",
+    "billing_number_already_assigned": "This WhatsApp number is already assigned to a user. Revoke the current assignment first or confirm reassignment.",
+    "billing_assignment_not_found": "Assignment not found",
+    "billing_assignment_revoked_readonly": "Revoked assignments cannot be modified",
+    "billing_template_management_not_allowed": "You are not allowed to manage templates on this WhatsApp number"
   },
   "upsells": {
     "failed_to_download_header_media_from_url": "Failed to download header media from URL",

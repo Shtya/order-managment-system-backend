@@ -154,4 +154,8 @@ export class UpsertClientSettingsDto {
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   @IsOptional()
   tagAutomationsEnabled?: boolean;
+
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
+  tagAutomationsRemoveUnmatched?: boolean;
 }

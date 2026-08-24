@@ -92,6 +92,8 @@ export class RolesService implements OnModuleInit {
           "roles.getOnly",
           "users.getOnly",
           "cancel-causes.getonly",
+          "tags.read",
+          "orders.updateTags",
         ],
       },
       {
