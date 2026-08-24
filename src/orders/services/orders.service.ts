@@ -3830,13 +3830,13 @@ export class OrdersService {
         email: dto.email !== undefined ? dto.email : order.email,
         address: dto.address !== undefined ? dto.address : order.address,
         city: dto.city !== undefined ? dto.city : order.city,
-        cityId: dto.cityId !== undefined ? dto.cityId : order.cityId,
+        cityId: !!dto.cityId ? dto.cityId : order.cityId,
         area: dto.area !== undefined ? dto.area : order.area,
         paymentMethod:
           dto.paymentMethod !== undefined
             ? dto.paymentMethod
             : order.paymentMethod,
-        storeId: dto.storeId !== undefined ? dto.storeId : order.storeId,
+        storeId: !!dto.storeId ? dto.storeId : order.storeId,
         shippingCost:
           dto.shippingCost !== undefined
             ? dto.shippingCost

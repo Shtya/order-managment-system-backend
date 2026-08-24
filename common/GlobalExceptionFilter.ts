@@ -22,6 +22,11 @@ function logSystemError(exception: any, req: any, res: any, code: string | undef
     return;
   }
 
+  const requestPath = (req.originalUrl || req.url || '').split('?')[0];
+  if (requestPath.includes('/whatsapp/webhook')) {
+    return;
+  }
+
   const durationMs = req.startTime
     ? Date.now() - req.startTime
     : null;
