@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { QueryRunner, Repository } from "typeorm";
+import { In, QueryRunner, Repository } from "typeorm";
 import { OrderEntity, OrderItemEntity } from "entities/order.entity";
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { ShipmentEntity } from "entities/shipping.entity";
@@ -13,7 +13,10 @@ import {
   TagConditions,
   TagEntity,
 } from "entities/tag.entity";
-import { OrderTagMode } from "entities/clientSettings.entity";
+import {
+  ClientSettingsEntity,
+  OrderTagMode,
+} from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { TagsAssignmentService } from "./tags-assignment.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
@@ -76,6 +79,61 @@ export class TagAutomationEvaluator {
     ]);
     if (!order?.adminId) return;
 
+    await this.applyAutomations(order, settings, automations);
+  }
+
+  async evaluateOrders(orderIds: string[], adminId: string) {
+    const uniqueOrderIds = [...new Set(orderIds.filter(Boolean))];
+    if (!uniqueOrderIds.length) return;
+
+    const [settings, automations, orders] = await Promise.all([
+      this.clientSettingsService.getCachedSettings(adminId),
+      this.automationRepo.find({
+        where: { adminId, isEnabled: true },
+        relations: ["tag"],
+      }),
+      this.orderRepo.find({
+        where: { id: In(uniqueOrderIds) },
+        relations: ["status", "items"],
+      }),
+    ]);
+
+    if (settings?.tagAutomationsEnabled === false || !automations.length) {
+      return;
+    }
+
+    const snapshots = await this.buildSnapshots(orders, adminId, automations);
+    const results = await Promise.allSettled(
+      orders.map((order) =>
+        this.applyAutomations(
+          order,
+          settings,
+          automations,
+          snapshots.get(order.id),
+        ),
+      ),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        this.logger.error(
+          `Tag automation evaluate failed for order ${orders[index].id}`,
+          result.reason instanceof Error
+            ? result.reason.stack
+            : result.reason,
+        );
+      }
+    });
+  }
+
+  private async applyAutomations(
+    order: OrderEntity,
+    settings: ClientSettingsEntity | null,
+    automations: TagAutomationEntity[] | null,
+    snapshotOverride?: Record<string, any>,
+  ) {
+    if (!order?.adminId) return;
+
     const resolvedSettings =
       settings ??
       (await this.clientSettingsService.getCachedSettings(order.adminId));
@@ -91,7 +149,8 @@ export class TagAutomationEvaluator {
       }));
     if (!resolvedAutomations.length) return;
 
-    const snapshot = await this.buildSnapshot(order);
+    const snapshot =
+      snapshotOverride ?? (await this.buildSnapshot(order));
     const matching: TagEntity[] = [];
     const consideredTagIds = new Set<string>();
 
@@ -156,12 +215,113 @@ export class TagAutomationEvaluator {
     }
   }
 
-  private async buildSnapshot(order: OrderEntity) {
-    const itemsQuantity = (order.items || []).reduce(
-      (sum, item: OrderItemEntity) => sum + Number(item.quantity || 0),
-      0,
+  private async buildSnapshots(
+    orders: OrderEntity[],
+    adminId: string,
+    automations: TagAutomationEntity[],
+  ) {
+    const fields = new Set<string>();
+    for (const automation of automations) {
+      for (const rule of automation.conditions?.rules || []) {
+        if (rule.field) fields.add(rule.field);
+      }
+    }
+
+    const orderIds = orders.map((order) => order.id);
+    if (!orderIds.length) return new Map<string, Record<string, any>>();
+    const needsShipment = fields.has("shipment.status");
+    const needsUpsell = fields.has("upsell.accepted");
+    const needsAssignment =
+      fields.has("assignment.contactTries") || fields.has("assignment.hasActive");
+
+    const [latestShipments, latestUpsells, assignmentRows] = await Promise.all([
+      needsShipment
+        ? this.orderRepo.manager
+            .getRepository(ShipmentEntity)
+            .createQueryBuilder("shipment")
+            .select("shipment.orderId", "orderId")
+            .addSelect("shipment.status", "status")
+            .distinctOn(["shipment.orderId"])
+            .where("shipment.orderId IN (:...orderIds)", { orderIds })
+            .orderBy("shipment.orderId")
+            .addOrderBy("shipment.created_at", "DESC")
+            .getRawMany<{ orderId: string; status: ShipmentEntity["status"] }>()
+        : Promise.resolve(
+            [] as Array<{ orderId: string; status: ShipmentEntity["status"] }>,
+          ),
+      needsUpsell
+        ? this.orderRepo.manager
+            .getRepository(UpsellHistory)
+            .createQueryBuilder("history")
+            .select("history.orderId", "orderId")
+            .addSelect("history.status", "status")
+            .distinctOn(["history.orderId"])
+            .where("history.orderId IN (:...orderIds)", { orderIds })
+            .andWhere("history.adminId = :adminId", { adminId })
+            .orderBy("history.orderId")
+            .addOrderBy("history.createdAt", "DESC")
+            .getRawMany<{ orderId: string; status: UpsellStatus }>()
+        : Promise.resolve([] as Array<{ orderId: string; status: UpsellStatus }>),
+      needsAssignment
+        ? this.orderRepo.manager
+            .getRepository(OrderAssignmentEntity)
+            .createQueryBuilder("assignment")
+            .select("assignment.orderId", "orderId")
+            .addSelect(
+              "COALESCE(SUM(assignment.contactTries), 0)",
+              "contactTries",
+            )
+            .addSelect(
+              "COALESCE(MAX(CASE WHEN assignment.isAssignmentActive = true THEN 1 ELSE 0 END), 0)",
+              "hasActive",
+            )
+            .where("assignment.orderId IN (:...orderIds)", { orderIds })
+            .groupBy("assignment.orderId")
+            .cache(false)
+            .getRawMany()
+        : Promise.resolve([] as Array<{
+            orderId: string;
+            contactTries: string | number;
+            hasActive: string | number;
+          }>),
+    ]);
+
+    const shipmentByOrderId = new Map(
+      latestShipments.map((row) => [row.orderId, row.status ?? null]),
+    );
+    const upsellAcceptedByOrderId = new Map(
+      latestUpsells.map((row) => [
+        row.orderId,
+        row.status === UpsellStatus.ACCEPTED,
+      ]),
+    );
+    const assignmentByOrderId = new Map(
+      assignmentRows.map((row) => [
+        row.orderId,
+        {
+          contactTries: Number(row.contactTries || 0),
+          hasActive: Number(row.hasActive || 0) === 1,
+        },
+      ]),
     );
 
+    const snapshots = new Map<string, Record<string, any>>();
+    for (const order of orders) {
+      const assignment = assignmentByOrderId.get(order.id);
+      snapshots.set(
+        order.id,
+        this.composeSnapshot(order, {
+          contactTries: assignment?.contactTries ?? 0,
+          hasActive: assignment?.hasActive ?? false,
+          shipmentStatus: shipmentByOrderId.get(order.id) ?? null,
+          upsellAccepted: upsellAcceptedByOrderId.get(order.id) ?? false,
+        }),
+      );
+    }
+    return snapshots;
+  }
+
+  private async buildSnapshot(order: OrderEntity) {
     const [latestShipment, latestUpsell, assignmentRow] = await Promise.all([
       this.orderRepo.manager.getRepository(ShipmentEntity).findOne({
         where: { orderId: order.id },
@@ -184,6 +344,27 @@ export class TagAutomationEvaluator {
         .getRawOne(),
     ]);
 
+    return this.composeSnapshot(order, {
+      contactTries: Number(assignmentRow?.contactTries || 0),
+      hasActive: Number(assignmentRow?.hasActive || 0) === 1,
+      shipmentStatus: latestShipment?.status ?? null,
+      upsellAccepted: latestUpsell?.status === UpsellStatus.ACCEPTED,
+    });
+  }
+
+  private composeSnapshot(
+    order: OrderEntity,
+    related: {
+      contactTries: number;
+      hasActive: boolean;
+      shipmentStatus: any;
+      upsellAccepted: boolean;
+    },
+  ) {
+    const itemsQuantity = (order.items || []).reduce(
+      (sum, item: OrderItemEntity) => sum + Number(item.quantity || 0),
+      0,
+    );
     const normalized = normalizeEgyptianPhoneNumber(order.phoneNumber || "");
     const phoneValid = /^201(0|1|2|5)\d{8}$/.test(normalized);
 
@@ -199,10 +380,10 @@ export class TagAutomationEvaluator {
       "order.finalTotal": Number(order.finalTotal || 0),
       "order.isConfirmed": !!order.isConfirmed,
       "order.confirmationSource": order.confirmationSource ?? null,
-      "assignment.contactTries": Number(assignmentRow?.contactTries || 0),
-      "assignment.hasActive": Number(assignmentRow?.hasActive || 0) === 1,
-      "shipment.status": latestShipment?.status ?? null,
-      "upsell.accepted": latestUpsell?.status === UpsellStatus.ACCEPTED,
+      "assignment.contactTries": related.contactTries,
+      "assignment.hasActive": related.hasActive,
+      "shipment.status": related.shipmentStatus,
+      "upsell.accepted": related.upsellAccepted,
       "order.phone.valid": phoneValid,
     };
   }

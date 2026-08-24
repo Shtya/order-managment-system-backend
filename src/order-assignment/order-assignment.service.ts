@@ -49,6 +49,7 @@ import {
 } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 
 @Injectable()
 export class OrderAssignmentService {
@@ -90,6 +91,8 @@ export class OrderAssignmentService {
     private readonly translations: TranslationService,
     private requestTranslations: RequestTranslationService,
     private readonly onboardingAchievementService: OnboardingAchievementService,
+    @Inject(forwardRef(() => TagAutomationEvaluator))
+    private readonly tagAutomationEvaluator: TagAutomationEvaluator,
   ) {}
 
   private async bulkUpdateOrderStatusOnAssignment(
@@ -323,7 +326,7 @@ export class OrderAssignmentService {
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       // Find active assignments
       const assignments = await manager.find(OrderAssignmentEntity, {
         where: {
@@ -339,7 +342,9 @@ export class OrderAssignmentService {
         );
       }
 
-      const assignmentOrderIds = assignments.map((a) => a.orderId);
+      const assignmentOrderIds = [
+        ...new Set(assignments.map((a) => a.orderId).filter(Boolean)),
+      ];
 
       // Revert follow-up statuses back to their original statuses
       await this.bulkRevertOrderStatusOnUnassignment(
@@ -362,8 +367,26 @@ export class OrderAssignmentService {
             args: { count: assignmentOrderIds.length },
           },
         ),
+        assignmentOrderIds,
       };
     });
+
+    try {
+      await this.tagAutomationEvaluator.evaluateOrders(
+        result.assignmentOrderIds,
+        adminId,
+      );
+    } catch (error) {
+      this.logger.error(
+        "[removeActiveAssignments] Tag evaluate failed after unassignment",
+        error instanceof Error ? error.stack : error,
+      );
+    }
+
+    return {
+      success: result.success,
+      message: result.message,
+    };
   }
 
   async getEmployeesByLoad(
