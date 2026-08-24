@@ -30,9 +30,9 @@ export class BundleSubscriber implements EntitySubscriberInterface<BundleEntity>
     if (!entity.isActive) return;
 
     // Only sync if assigned to a specific store
-    if (entity.storeId) {
-      await this.storesService.syncBundleToStore(event.entity, null, true);
-    }
+    // if (entity.storeId) {
+    //   await this.storesService.syncBundleToStore(event.entity, null, true);
+    // }
   }
 
   async afterUpdate(event: UpdateEvent<BundleEntity>) {
@@ -43,10 +43,10 @@ export class BundleSubscriber implements EntitySubscriberInterface<BundleEntity>
     const oldEntity = event.databaseEntity;
     const { adminId, storeId } = oldEntity;
 
-    await this.storesService.syncBundleToStore(
-      entity,
-      { adminId, oldStoreId: storeId },
-      true,
-    );
+    // await this.storesService.syncBundleToStore(
+    //   entity,
+    //   { adminId, oldStoreId: storeId },
+    //   true,
+    // );
   }
 }

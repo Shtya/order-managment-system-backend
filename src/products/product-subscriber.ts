@@ -29,18 +29,18 @@ export class ProductSubscriber implements EntitySubscriberInterface<ProductEntit
 
   async afterInsert(event: InsertEvent<ProductEntity>) {
     // Only sync if assigned to a specific store
-    if (event.entity.storeId) {
-      await this.storesService.syncProductToStore(event.entity, true);
-    }
+    // if (event.entity.storeId) {
+    //   await this.storesService.syncProductToStore(event.entity, true);
+    // }
   }
 
   async afterUpdate(event: UpdateEvent<ProductEntity>) {
     const entity = event.entity as ProductEntity;
     // as `[Variants Sync] No local variant found for SKU ${sku}`,
     if (!entity.isActive) return; // Skip inactive products
-    if (entity.storeId) {
-      await this.storesService.syncProductToStore(entity, true);
-    }
+    // if (entity.storeId) {
+    //   await this.storesService.syncProductToStore(entity, true);
+    // }
   }
 }
 
@@ -68,9 +68,9 @@ export class VariantSubscriber implements EntitySubscriberInterface<ProductVaria
       where: { id: variant.productId },
     });
 
-    if (product?.storeId) {
-      await this.storesService.syncProductToStore(product, true);
-    }
+    // if (product?.storeId) {
+    //   await this.storesService.syncProductToStore(product, true);
+    // }
   }
 
   async afterUpdate(event: UpdateEvent<ProductVariantEntity>) {
@@ -86,13 +86,13 @@ export class VariantSubscriber implements EntitySubscriberInterface<ProductVaria
       return; // Do nothing, this was likely a sync-back from the provider
     }
     // 4. Proceed with sync
-    const product = await event.manager.findOne(ProductEntity, {
-      where: { id: variant.productId },
-      relations: ["store"], // Ensure store relation is available
-    });
+    // const product = await event.manager.findOne(ProductEntity, {
+    //   where: { id: variant.productId },
+    //   relations: ["store"], // Ensure store relation is available
+    // });
 
-    if (product?.storeId) {
-      await this.storesService.syncProductToStore(product, true);
-    }
+    // if (product?.storeId) {
+    //   await this.storesService.syncProductToStore(product, true);
+    // }
   }
 }
