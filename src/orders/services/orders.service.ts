@@ -1125,28 +1125,41 @@ export class OrdersService {
       )
     `;
 
-    // ── Distinct days (orders + shipments) in parallel ────────────
-    const [orderDayRows, shipDayRows] = await Promise.all([
-      this.buildGroupedByDateOrdersQb(adminId, q)
-        .select(orderDayExpr, "day")
-        .groupBy(orderDayExpr)
+    // ── Distinct days via SQL UNION + DB pagination (no full scan into memory) ─
+    const orderDaysQb = this.buildGroupedByDateOrdersQb(adminId, q)
+      .select(orderDayExpr, "day")
+      .groupBy(orderDayExpr);
+
+    const shipDaysQb = this.buildGroupedByDateShipmentsQb(adminId, q)
+      .select(shipDayExpr, "day")
+      .groupBy(shipDayExpr);
+
+    const daysUnionSql = `(${orderDaysQb.getQuery()} UNION ${shipDaysQb.getQuery()})`;
+    const daysParams = {
+      ...orderDaysQb.getParameters(),
+      ...shipDaysQb.getParameters(),
+    };
+
+    const [pageDayRows, totalGroupsRaw] = await Promise.all([
+      this.dataSource
+        .createQueryBuilder()
+        .select("days.day", "day")
+        .from(daysUnionSql, "days")
+        .orderBy("days.day", "DESC")
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .setParameters(daysParams)
         .getRawMany(),
-      this.buildGroupedByDateShipmentsQb(adminId, q)
-        .select(shipDayExpr, "day")
-        .groupBy(shipDayExpr)
-        .getRawMany(),
+      this.dataSource
+        .createQueryBuilder()
+        .select("COUNT(*)", "count")
+        .from(daysUnionSql, "days")
+        .setParameters(daysParams)
+        .getRawOne(),
     ]);
 
-    const allDays = Array.from(
-      new Set(
-        [...orderDayRows, ...shipDayRows]
-          .map((r) => r.day)
-          .filter(Boolean),
-      ),
-    ).sort((a, b) => String(b).localeCompare(String(a)));
-
-    const totalGroups = allDays.length;
-    const pageDays = allDays.slice((page - 1) * limit, page * limit);
+    const totalGroups = Number(totalGroupsRaw?.count) || 0;
+    const pageDays = pageDayRows.map((r) => r.day).filter(Boolean);
 
     if (!pageDays.length) {
       return {
