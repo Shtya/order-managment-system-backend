@@ -61,7 +61,7 @@ export class OrderSyncQueueService {
       orderHash = Date.now().toString();
     }
 
-    const jobId = `bulk-orders::${adminId}:${orderHash}`;
+    const jobId = `bulk-orders-${adminId}-${orderHash}`;
 
     await this.addJob(
       adminId,
@@ -102,7 +102,7 @@ export class OrderSyncQueueService {
     failureId: string,
     provider: StoreProvider,
   ) {
-    const jobId = `retry-failed-order:${failureId}`;
+    const jobId = `retry-failed-order-${failureId}`;
     await this.addJob(
       adminId,
       OrderSyncJobs.RETRY_FAILED_ORDER,
@@ -125,7 +125,7 @@ export class OrderSyncQueueService {
       .update([...dto.items.map((item) => item.orderId)].sort().join(","))
       .digest("hex");
 
-    const jobId = `bulk-shipping:${adminId}:${orderHash}`;
+    const jobId = `bulk-shipping-${adminId}-${orderHash}`;
 
     await this.addJob(
       adminId,

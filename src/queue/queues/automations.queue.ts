@@ -44,7 +44,7 @@ export class AutomationQueueService {
     versionId: string,
     adminId: string,
   ) {
-    const jobId = `start-flow:${adminId}:${runId}`;
+    const jobId = `start-flow-${adminId}-${runId}`;
     await this.addJob(
       adminId,
       AutomationJobs.START,
@@ -71,8 +71,8 @@ export class AutomationQueueService {
     const delayMs = options?.delayMs ?? 0;
     const jobId =
       resumeAttempt > 0
-        ? `resume-flow:${adminId}:${resumeData.originalMessageId}:attempt-${resumeAttempt}`
-        : `resume-flow:${adminId}:${resumeData.originalMessageId}`;
+        ? `resume-flow:${adminId}-${resumeData.originalMessageId}-attempt-${resumeAttempt}`
+        : `resume-flow:${adminId}-${resumeData.originalMessageId}`;
 
     if (delayMs > 0) {
       // Same pattern as enqueueWaitResume: add directly so delay + jobId are honored.

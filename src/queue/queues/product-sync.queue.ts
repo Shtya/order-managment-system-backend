@@ -77,7 +77,7 @@ export class ProductSyncQueueService {
     storeId: string,
     storeType: StoreProvider,
   ) {
-    const jobId = `product:${storeType}:${productId}`;
+    const jobId = `product-${storeType}-${productId}`;
 
     if (this.productSyncTimeouts.has(jobId)) {
       clearTimeout(this.productSyncTimeouts.get(jobId));
@@ -115,7 +115,7 @@ export class ProductSyncQueueService {
     storeType: StoreProvider,
     oldBundleData: oldBundleDataDto,
   ) {
-    const jobId = `bundle:${storeType}:${bundleId}`;
+    const jobId = `bundle-${storeType}-${bundleId}`;
 
     if (this.bundleSyncTimeouts.has(jobId)) {
       clearTimeout(this.bundleSyncTimeouts.get(jobId));
@@ -152,7 +152,7 @@ export class ProductSyncQueueService {
     ids?: string[],
     type: FullStoreSyncType = FullStoreSyncType.PRODUCT,
   ) {
-    const jobId = `fullSync:${store.provider}:${store.id}`;
+    const jobId = `fullSync-${store.provider}-${store.id}`;
     await this.addJob(
       store.adminId,
       ProductSyncJobs.FULL_SYNC,
@@ -167,7 +167,7 @@ export class ProductSyncQueueService {
   }
 
   async enqueueFullProductSyncLocally(store: StoreEntity) {
-    const jobId = `syncProductsLocally:${store.id}`;
+    const jobId = `syncProductsLocally-${store.id}`;
     await this.addJob(
       store.adminId,
       ProductSyncJobs.SYNC_LOCAL,

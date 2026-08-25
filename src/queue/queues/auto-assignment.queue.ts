@@ -65,7 +65,7 @@ export class AutoAssignmentQueueService {
       .update([...data.orderIds].sort().join(","))
       .digest("hex");
     // 🔑 idempotency key (prevents duplicate enqueue per admin batch)
-    const jobId = opts?.jobId ?? `auto-assignment:${data.adminId}:${orderHash}`;
+    const jobId = opts?.jobId ?? `auto-assignment-${data.adminId}-${orderHash}`;
 
     return this.autoAssignmentQueue.add(
       AutoAssignmentJobs.ASSIGN_ORDERS,
