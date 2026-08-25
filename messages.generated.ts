@@ -1321,6 +1321,12 @@ export type I18nTranslations = {
             "payment_method_not_applied_message": string;
             "payment_method_failed_title": string;
             "payment_method_failed_message": string;
+            "cancel_cause_accepted_title": string;
+            "cancel_cause_accepted_message": string;
+            "cancel_cause_not_applied_title": string;
+            "cancel_cause_not_applied_message": string;
+            "cancel_cause_failed_title": string;
+            "cancel_cause_failed_message": string;
             "confirm_accepted_title": string;
             "confirm_accepted_message": string;
             "confirm_not_accepted_title": string;

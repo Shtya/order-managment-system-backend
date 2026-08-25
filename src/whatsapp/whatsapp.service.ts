@@ -1233,7 +1233,7 @@ export class WhatsappService {
         return; // Parent message doesn't require an action or isn't linked to an order
       }
 
-      // 3. Business ready-message command (order.set_postponed_date, order.apply_discount, ...)
+      // 3. Business ready-message command (order.set_postponed_date, order.apply_discount, order.set_cancel_cause, ...)
       const businessCommand = parentMessage.metadata?.businessCommand;
       if (businessCommand) {
         await this.processBusinessAction(
@@ -1331,6 +1331,9 @@ export class WhatsappService {
         break;
       case "order.set_payment_method":
         await this.handlePaymentMethodAction(adminId, parentMessage, payload);
+        break;
+      case "order.set_cancel_cause":
+        await this.handleCancelCauseAction(adminId, parentMessage, payload);
         break;
       default:
         this.logger.warn(`Unknown business command: ${businessCommand}`);
@@ -1595,6 +1598,94 @@ export class WhatsappService {
       await notify(
         "domains.whatsapp.payment_method_failed_title",
         "domains.whatsapp.payment_method_failed_message",
+        { orderNumber, error: error.message },
+        NotificationType.SYSTEM_ALERT,
+      );
+    }
+  }
+
+  /**
+   * order.set_cancel_cause: the customer picked a row from the cancel-cause list.
+   * Reply id = __cancel_cause_<uuid>__. Cancels the order with that cause via changeStatus.
+   */
+  private async handleCancelCauseAction(
+    adminId: string,
+    parentMessage: WhatsappMessageEntity,
+    payload: any,
+  ): Promise<void> {
+    const orderId = parentMessage.orderId;
+    const orderNumber = parentMessage.order?.orderNumber || "";
+    const notify = (
+      titleKey: I18nKey,
+      messageKey: I18nKey,
+      args: Record<string, any>,
+      type: NotificationType,
+    ) =>
+      this.notifyBusinessResult(
+        adminId,
+        orderId,
+        titleKey,
+        messageKey,
+        args,
+        type,
+      );
+
+    try {
+      const listReply = payload?.interactive?.list_reply;
+      const replyId = listReply?.id || "";
+      const match = replyId.match(
+        /^__cancel_cause_([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})__$/i,
+      );
+      const cancelCauseId = match?.[1];
+      const causeName =
+        listReply?.title ||
+        (parentMessage.metadata?.businessConfig?.cancelCauses || []).find(
+          (c: { id?: string; name?: string }) =>
+            String(c?.id) === String(cancelCauseId),
+        )?.name ||
+        cancelCauseId ||
+        "";
+
+      if (!cancelCauseId) {
+        this.logger.warn(
+          `Invalid cancel cause reply id for order ${orderId}: ${replyId}`,
+        );
+        await notify(
+          "domains.whatsapp.cancel_cause_not_applied_title",
+          "domains.whatsapp.cancel_cause_not_applied_message",
+          { orderNumber },
+          NotificationType.SYSTEM_ALERT,
+        );
+        return;
+      }
+
+      const status = await this.orderService.findStatusByCode(
+        OrderStatus.CANCELLED,
+        adminId,
+      );
+      await this.orderService.changeStatus({ id: adminId, adminId }, orderId, {
+        statusId: status.id,
+        cancelCauseId,
+      });
+
+      await this.markActionCompleted(parentMessage.id);
+      await notify(
+        "domains.whatsapp.cancel_cause_accepted_title",
+        "domains.whatsapp.cancel_cause_accepted_message",
+        { orderNumber, causeName },
+        NotificationType.ORDER_UPDATED,
+      );
+      this.logger.log(
+        `Order ${orderId} cancelled with cause ${cancelCauseId} via WhatsApp business action.`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to cancel order ${orderId} via WhatsApp: ${error.message}`,
+        error.stack,
+      );
+      await notify(
+        "domains.whatsapp.cancel_cause_failed_title",
+        "domains.whatsapp.cancel_cause_failed_message",
         { orderNumber, error: error.message },
         NotificationType.SYSTEM_ALERT,
       );
