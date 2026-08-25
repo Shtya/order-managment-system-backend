@@ -215,6 +215,10 @@ export class ShipmentEntity {
 	@Column({ type: 'enum', enum: UnifiedShippingStatus, nullable: true })
 	unifiedStatus: UnifiedShippingStatus;
 
+	/** Set when shipment goes out for delivery (manifest / ship). Null until shipped. */
+	@Column({ type: 'timestamptz', nullable: true, default: null })
+	shippedAt?: Date | null;
+
 	@Column({ type: 'varchar', length: 120, nullable: true })
 	rawStatus?: string;
 

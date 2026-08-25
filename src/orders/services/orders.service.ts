@@ -1082,8 +1082,11 @@ export class OrdersService {
   }
 
   // ========================================
-  // ✅ LIST ORDERS GROUPED BY CREATION DATE (daily statistics)
-  // Statistics are computed at DB level BEFORE pagination (complete filtered result per date).
+  // ✅ LIST ORDERS GROUPED BY DATE (daily statistics)
+  // Days = UNION of:
+  //   - order.created_at days (filtered orders)
+  //   - shipment.shippedAt days (outbound shipments; independent of orders)
+  // so a day with shipments but no created orders still appears.
   // ========================================
   async listGroupedByDate(me: any, q?: any) {
     const superAdmin = isSuperAdmin(me);
@@ -1101,7 +1104,156 @@ export class OrdersService {
 
     const page = Math.max(1, Number(q?.page ?? 1));
     const limit = Math.max(1, Number(q?.limit ?? 10));
+    const orderDayExpr = `DATE(order.created_at)::text`;
+    const shipDayExpr = `DATE(s."shippedAt")::text`;
 
+    const delayedCondition = `
+      "order"."shippedAt" IS NOT NULL
+      AND "cityTenantConfig"."maxShippingDays" IS NOT NULL
+      AND (
+        (
+          status.code = :delayedShippedCode
+          AND (CURRENT_DATE - DATE("order"."shippedAt") + 1)
+            > "cityTenantConfig"."maxShippingDays"
+        )
+        OR (
+          status.code = :delayedDeliveredCode
+          AND "order"."deliveredAt" IS NOT NULL
+          AND (DATE("order"."deliveredAt") - DATE("order"."shippedAt") + 1)
+            > "cityTenantConfig"."maxShippingDays"
+        )
+      )
+    `;
+
+    // ── Distinct days (orders + shipments) in parallel ────────────
+    const [orderDayRows, shipDayRows] = await Promise.all([
+      this.buildGroupedByDateOrdersQb(adminId, q)
+        .select(orderDayExpr, "day")
+        .groupBy(orderDayExpr)
+        .getRawMany(),
+      this.buildGroupedByDateShipmentsQb(adminId, q)
+        .select(shipDayExpr, "day")
+        .groupBy(shipDayExpr)
+        .getRawMany(),
+    ]);
+
+    const allDays = Array.from(
+      new Set(
+        [...orderDayRows, ...shipDayRows]
+          .map((r) => r.day)
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => String(b).localeCompare(String(a)));
+
+    const totalGroups = allDays.length;
+    const pageDays = allDays.slice((page - 1) * limit, page * limit);
+
+    if (!pageDays.length) {
+      return {
+        total_records: totalGroups,
+        current_page: page,
+        per_page: limit,
+        records: [],
+      };
+    }
+
+    // ── Page stats (order aggregates + shipment counts) in parallel ─
+    const orderStatsQb = this.buildGroupedByDateOrdersQb(adminId, q);
+    orderStatsQb
+      .select(orderDayExpr, "day")
+      .addSelect("COUNT(order.id)", "totalOrders")
+      .addSelect(
+        `COUNT(CASE WHEN status.code = :deliveredCode THEN 1 END)`,
+        "delivered",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN status.code = :postponedCode THEN 1 END)`,
+        "postponed",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN status.code = :confirmedCode THEN 1 END)`,
+        "confirmed",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN status.code = :cancelledCode THEN 1 END)`,
+        "cancelled",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN ${delayedCondition} THEN 1 END)`,
+        "delayed",
+      )
+      .addSelect("COALESCE(SUM(order.finalTotal), 0)", "totalAmount")
+      .andWhere(`${orderDayExpr} IN (:...pageDays)`, { pageDays })
+      .setParameter("deliveredCode", OrderStatus.DELIVERED)
+      .setParameter("postponedCode", OrderStatus.POSTPONED)
+      .setParameter("confirmedCode", OrderStatus.CONFIRMED)
+      .setParameter("cancelledCode", OrderStatus.CANCELLED)
+      .setParameter("delayedShippedCode", OrderStatus.SHIPPED)
+      .setParameter("delayedDeliveredCode", OrderStatus.DELIVERED)
+      .groupBy(orderDayExpr);
+
+    const shipStatsQb = this.buildGroupedByDateShipmentsQb(adminId, q);
+    shipStatsQb
+      .select(shipDayExpr, "day")
+      .addSelect("COUNT(*)::int", "shipped")
+      .andWhere(`${shipDayExpr} IN (:...pageDays)`, { pageDays })
+      .groupBy(shipDayExpr);
+
+    const [orderStatsRows, shipStatsRows] = await Promise.all([
+      orderStatsQb.getRawMany(),
+      shipStatsQb.getRawMany(),
+    ]);
+
+    const orderStatsByDay = new Map(
+      orderStatsRows.map((row) => [
+        row.day,
+        {
+          totalOrders: Number(row.totalOrders) || 0,
+          delivered: Number(row.delivered) || 0,
+          postponed: Number(row.postponed) || 0,
+          confirmed: Number(row.confirmed) || 0,
+          cancelled: Number(row.cancelled) || 0,
+          delayed: Number(row.delayed) || 0,
+          totalAmount: Number(row.totalAmount) || 0,
+        },
+      ]),
+    );
+
+    const shippedByDay = new Map(
+      shipStatsRows.map((row) => [row.day, Number(row.shipped) || 0]),
+    );
+
+    const emptyOrderStats = {
+      totalOrders: 0,
+      delivered: 0,
+      postponed: 0,
+      confirmed: 0,
+      cancelled: 0,
+      delayed: 0,
+      totalAmount: 0,
+    };
+
+    const records = pageDays.map((day) => {
+      const orderStats = orderStatsByDay.get(day) || emptyOrderStats;
+      return {
+        date: day,
+        statistics: {
+          ...orderStats,
+          shipped: shippedByDay.get(day) || 0,
+        },
+      };
+    });
+
+    return {
+      total_records: totalGroups,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
+
+  /** Filtered orders QB (joins + shared filters) for grouped-by-date stats. */
+  private buildGroupedByDateOrdersQb(adminId: string | null, q?: any) {
     const qb = this.orderRepo.createQueryBuilder("order");
 
     if (adminId) {
@@ -1151,81 +1303,30 @@ export class OrdersService {
       );
     }
 
-    // Shared order filters
     this.applyOrdersListFilters(qb, q);
+    return qb;
+  }
 
-    const dayExpression = `DATE(order.created_at)::text`;
+  /** Shipments with shippedAt set — day axis for outbound stats (not order-filtered). */
+  private buildGroupedByDateShipmentsQb(adminId: string | null, q?: any) {
+    const qb = this.dataSource
+      .createQueryBuilder()
+      .from("shipments", "s")
+      .where(`s."shippedAt" IS NOT NULL`);
 
-    // ─────────────────────────────────────────────────────────────
-    // Count total date groups
-    // ─────────────────────────────────────────────────────────────
+    if (adminId) {
+      qb.andWhere(`s."adminId" = :shipAdminId`, { shipAdminId: adminId });
+    }
 
-    const countQb = qb.clone();
+    // Same period filter as orders, applied on shipment.shippedAt
+    DateFilterUtil.applyToQueryBuilder(
+      qb as any,
+      `s."shippedAt"`,
+      q?.startDate,
+      q?.endDate,
+    );
 
-    const totalGroupsRaw = await countQb
-      .select(`COUNT(DISTINCT ${dayExpression})`, "count")
-      .getRawOne();
-
-    const totalGroups = Number(totalGroupsRaw?.count) || 0;
-
-    // ─────────────────────────────────────────────────────────────
-    // Get paginated date groups
-    // Delayed matches OrderTab shippingDays column:
-    //   - only SHIPPED / DELIVERED with shippedAt + maxShippingDays
-    //   - SHIPPED: elapsed until today
-    //   - DELIVERED: elapsed until deliveredAt
-    // ─────────────────────────────────────────────────────────────
-
-    const delayedCondition = `
-      "order"."shippedAt" IS NOT NULL
-      AND "cityTenantConfig"."maxShippingDays" IS NOT NULL
-      AND (
-        (
-          status.code = :delayedShippedCode
-          AND (CURRENT_DATE - DATE("order"."shippedAt") + 1)
-            > "cityTenantConfig"."maxShippingDays"
-        )
-        OR (
-          status.code = :delayedDeliveredCode
-          AND "order"."deliveredAt" IS NOT NULL
-          AND (DATE("order"."deliveredAt") - DATE("order"."shippedAt") + 1)
-            > "cityTenantConfig"."maxShippingDays"
-        )
-      )
-    `;
-
-    qb.select(dayExpression, "day")
-      .addSelect("COUNT(order.id)", "totalOrders")
-      .addSelect(
-        `COUNT(CASE WHEN ${delayedCondition} THEN 1 END)`,
-        "delayed",
-      )
-      .addSelect("COALESCE(SUM(order.finalTotal), 0)", "totalAmount")
-      .setParameter("delayedShippedCode", OrderStatus.SHIPPED)
-      .setParameter("delayedDeliveredCode", OrderStatus.DELIVERED)
-      .groupBy(dayExpression)
-      .orderBy("day", "DESC")
-      // ⚠️ offset/limit (NOT take) — take() is not reliably applied on raw grouped queries
-      .offset((page - 1) * limit)
-      .limit(limit);
-
-    const rows = await qb.getRawMany();
-
-    const records = rows.map((row) => ({
-      date: row.day,
-      statistics: {
-        totalOrders: Number(row.totalOrders) || 0,
-        delayed: Number(row.delayed) || 0,
-        totalAmount: Number(row.totalAmount) || 0,
-      },
-    }));
-
-    return {
-      total_records: totalGroups,
-      current_page: page,
-      per_page: limit,
-      records,
-    };
+    return qb;
   }
 
   // ========================================
@@ -1256,6 +1357,31 @@ export class OrdersService {
         width: 15,
       },
       {
+        header: t("domains.orders.export_grouped_shipped"),
+        key: "shipped",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_delivered"),
+        key: "delivered",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_postponed"),
+        key: "postponed",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_confirmed"),
+        key: "confirmed",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_cancelled"),
+        key: "cancelled",
+        width: 14,
+      },
+      {
         header: t("domains.orders.export_grouped_delayed"),
         key: "delayed",
         width: 14,
@@ -1271,6 +1397,11 @@ export class OrdersService {
       worksheet.addRow({
         date: group.date,
         totalOrders: group.statistics.totalOrders,
+        shipped: group.statistics.shipped,
+        delivered: group.statistics.delivered,
+        postponed: group.statistics.postponed,
+        confirmed: group.statistics.confirmed,
+        cancelled: group.statistics.cancelled,
         delayed: group.statistics.delayed,
         totalAmount: group.statistics.totalAmount,
       });
@@ -2094,16 +2225,20 @@ export class OrdersService {
             .getMany();
 
           // Deduplicate in Node.js to guarantee only the latest per order ID
-          const uniqueShipmentIds = Array.from(
-            new Map(latestShipments.map((s) => [s.orderId, s.id])).values(),
+          const uniqueShipments = Array.from(
+            new Map(latestShipments.map((s) => [s.orderId, s])).values(),
           );
 
           // 2. Perform one batch update
-          if (uniqueShipmentIds.length > 0) {
-            latestShipments.forEach(
-              (s) => (s.status = ShipmentStatus.OUT_FOR_DELIVERY),
-            );
-            await manager.save(latestShipments);
+          if (uniqueShipments.length > 0) {
+            const shippedAt = new Date();
+            uniqueShipments.forEach((s) => {
+              s.status = ShipmentStatus.OUT_FOR_DELIVERY;
+              if (!s.shippedAt) {
+                s.shippedAt = shippedAt;
+              }
+            });
+            await manager.save(uniqueShipments);
           }
         }
 

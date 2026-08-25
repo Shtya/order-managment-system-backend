@@ -625,7 +625,12 @@
     "export_grouped_by_date_sheet": "الطلبات مجمعة حسب التاريخ",
     "export_grouped_date": "التاريخ",
     "export_grouped_total_orders": "إجمالي الطلبات",
-    "export_grouped_delayed": "متأخر",
+    "export_grouped_shipped": "شحنات خارجة",
+    "export_grouped_delivered": "تم التوصيل",
+    "export_grouped_postponed": "مؤجل",
+    "export_grouped_confirmed": "مؤكد",
+    "export_grouped_cancelled": "ملغي",
+    "export_grouped_delayed": "شحنات متأخرة",
     "export_grouped_total_amount": "إجمالي المبلغ",
     "actions": {
       "confirmed": "تأكيد الطلب",

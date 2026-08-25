@@ -625,7 +625,12 @@
     "export_grouped_by_date_sheet": "Orders Grouped by Date",
     "export_grouped_date": "Date",
     "export_grouped_total_orders": "Total Orders",
-    "export_grouped_delayed": "Delayed",
+    "export_grouped_shipped": "Shipments Out",
+    "export_grouped_delivered": "Delivered",
+    "export_grouped_postponed": "Postponed",
+    "export_grouped_confirmed": "Confirmed",
+    "export_grouped_cancelled": "Cancelled",
+    "export_grouped_delayed": "Delayed Shipments",
     "export_grouped_total_amount": "Total Amount",
     "actions": {
       "confirmed": "Order Confirmed",

@@ -766,6 +766,11 @@ export type I18nTranslations = {
             "export_grouped_by_date_sheet": string;
             "export_grouped_date": string;
             "export_grouped_total_orders": string;
+            "export_grouped_shipped": string;
+            "export_grouped_delivered": string;
+            "export_grouped_postponed": string;
+            "export_grouped_confirmed": string;
+            "export_grouped_cancelled": string;
             "export_grouped_delayed": string;
             "export_grouped_total_amount": string;
             "actions": {
