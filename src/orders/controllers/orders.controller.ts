@@ -339,6 +339,31 @@ export class OrdersController {
     return this.svc.getConfirmationStatusCounts(req.user);
   }
 
+  // ✅ List orders grouped by creation date with daily statistics
+  @Permissions("orders.read")
+  @Get("grouped-by-date")
+  listGroupedByDate(@Req() req: any, @Query() q: any) {
+    return this.svc.listGroupedByDate(req.user, q);
+  }
+
+  // ✅ Export orders grouped by creation date (daily statistics) to Excel
+  @Permissions("orders.read")
+  @Get("export/grouped-by-date")
+  async exportGroupedByDate(@Req() req: any, @Query() q: any, @Res() res: Response) {
+    const buffer = await this.svc.exportGroupedByDate(req.user, q);
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=orders_grouped_by_date_export_${Date.now()}.xlsx`,
+    );
+
+    return res.send(buffer);
+  }
+
   // ✅ Get single order
   @Permissions("orders.read", "orders.confirm-incoming")
   @Get(":id")

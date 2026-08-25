@@ -20,6 +20,7 @@ import {
   Not,
   MoreThan,
   MoreThanOrEqual,
+  SelectQueryBuilder,
 } from "typeorm";
 import axios from "axios";
 import * as ExcelJS from "exceljs";
@@ -617,10 +618,16 @@ export class OrdersService {
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
     const sortBy = String(q?.sortBy ?? "createdAt");
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+    // Nested query params: cursor[value]/cursor[id] (axios / Nest) or { value, id }
+    const cursor = this.parseListCursor(q?.cursor);
+    const useCursorPagination =
+      q?.useCursor === "true" ||
+      q?.useCursor === true ||
+      !!(cursor?.value && cursor?.id);
+    const hasCursorValue = !!(cursor?.value && cursor?.id);
 
     const qb = this.orderRepo.createQueryBuilder("order");
 
@@ -697,6 +704,243 @@ export class OrdersService {
       orderNumber: "order.orderNumber",
     };
 
+    // ✅ Shared order filters (same as listGroupedByDate)
+    this.applyOrdersListFilters(qb, q);
+
+    if (q?.excludeStatus) {
+      const statusParam = q.excludeStatus;
+      if (typeof statusParam === "string" && statusParam.includes(",")) {
+        const statusCodes = statusParam.split(",").map((s) => s.trim());
+        qb.andWhere("status.code NOT IN (:...statusCodes)", { statusCodes });
+      } else if (!isNaN(Number(statusParam))) {
+        qb.andWhere("order.statusId NOT :statusId", {
+          statusId: Number(statusParam),
+        });
+      } else {
+        qb.andWhere("status.code NOT LIKE :statusCode", {
+          statusCode: `${String(statusParam).trim()}`,
+        });
+      }
+    }
+
+    if (q?.onlyReturned) {
+      qb.innerJoinAndSelect("order.lastReturn", "lastReturn")
+        .leftJoinAndSelect("lastReturn.items", "returnItems")
+        .leftJoinAndSelect("returnItems.returnedVariant", "returnedVariant")
+        .andWhere(`status.code = :statusCode`, {
+          statusCode: OrderStatus.RETURN_PREPARING,
+        })
+        .andWhere("lastReturn.status = :returnStatus", {
+          returnStatus: ReturnRequestStatus.PENDING,
+        });
+    }
+    // do not select
+    // if (q?.activeIntegration) {
+    //   qb.leftJoin("shipping.integrations", "integrations")
+    //     .andWhere(`integrations."isActive" = true`)
+    //     .andWhere(`integrations."adminId" = :adminId`, { adminId })
+    //     .andWhere("shipment.id IS NOT NULL")
+    //     .andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
+    //       shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
+    //     });
+    // }
+
+    if (q?.tagIds) {
+      const tagIds = Array.isArray(q.tagIds)
+        ? q.tagIds
+        : String(q.tagIds)
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
+      if (tagIds.length) {
+        qb.andWhere(
+          `EXISTS (
+            SELECT 1 FROM order_tags ot
+            WHERE ot."orderId" = "order".id
+              AND ot."tagId" IN (:...tagIds)
+          )`,
+          { tagIds },
+        );
+      }
+    }
+
+    // Product Filter
+    if (q?.productId && q.productId !== "all") {
+      qb.andWhere("variant.productId = :productId", {
+        productId: q.productId,
+      });
+    }
+
+    // Label Printed Filter
+    if (q?.labelPrinted !== undefined && q.labelPrinted !== "all") {
+      if (q.labelPrinted === "true" || q.labelPrinted === true) {
+        qb.andWhere("order.labelPrinted IS NOT NULL");
+      } else if (q.labelPrinted === "false" || q.labelPrinted === false) {
+        qb.andWhere("order.labelPrinted IS NULL");
+      }
+    }
+
+    // If status is distributed/printed/preparing/ready/packed (like DistributionTab), filter by shipment.status
+    const statusParam = q?.status;
+    const isDistributionStatus =
+      q?.isDistributionStatus === "true" || q?.isDistributionStatus === true;
+
+    if (
+      isDistributionStatus ||
+      (q?.shipmentStatus && q.shipmentStatus !== "all")
+    ) {
+      if (q?.shipmentStatus && q.shipmentStatus !== "all") {
+        qb.andWhere("shipment.status = :status", {
+          status: q.shipmentStatus,
+        });
+      } else {
+        qb.andWhere("shipment.status IN (:...statuses)", {
+          statuses: [
+            ShipmentStatus.PENDING_ACTION,
+            ShipmentStatus.PREPARING,
+            ShipmentStatus.READY_TO_SHIP,
+          ],
+        });
+      }
+    }
+
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      "order.shippedAt",
+      q?.shippedStartDate,
+      q?.shippedEndDate,
+    );
+
+    if (q?.minShippingDays !== undefined && q?.minShippingDays !== "") {
+      qb.andWhere('"order"."shippedAt" IS NOT NULL');
+      qb.andWhere(
+        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) >= :minShippingDays`,
+        { minShippingDays: Number(q.minShippingDays) },
+      );
+    }
+
+    if (q?.lateShipping === "true" || q?.lateShipping === true) {
+      qb.andWhere('"order"."shippedAt" IS NOT NULL');
+      qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
+      qb.andWhere(
+        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
+      );
+    }
+
+    if (q?.hasReplacement !== undefined) {
+      if (q.hasReplacement === "false" || q.hasReplacement === false) {
+        qb.andWhere("replacementRequest.id IS NULL");
+      } else if (q.hasReplacement === "true" || q.hasReplacement === true) {
+        qb.andWhere("replacementRequest.id IS NOT NULL");
+      }
+    }
+
+    if (sortColumns[sortBy]) {
+      qb.orderBy(sortColumns[sortBy], sortDir);
+    } else {
+      qb.orderBy("order.created_at", "DESC"); // fallback
+    }
+    // Deterministic tie-breaker (required for stable keyset/cursor pagination)
+    qb.addOrderBy("order.id", sortDir);
+
+    // ✅ Keyset (cursor) pagination — used only when useCursor=true (grouped date expand)
+    // Normal list callers keep skip/take + total_records unchanged.
+    if (useCursorPagination && hasCursorValue) {
+      const operator = sortDir === "DESC" ? "<" : ">";
+      qb.andWhere(
+        `("order"."created_at", "order"."id") ${operator} (:cursorValue, :cursorId)`,
+        {
+          cursorValue: cursor.value,
+          cursorId: cursor.id,
+        },
+      );
+    }
+
+    // First cursor page still returns total; subsequent cursor pages skip count
+    const total =
+      useCursorPagination && hasCursorValue ? 0 : await qb.getCount();
+    const { entities, raw } = await qb
+      .skip(useCursorPagination ? 0 : (page - 1) * limit)
+      .take(useCursorPagination ? limit + 1 : limit)
+      .getRawAndEntities();
+
+    const hasMore = useCursorPagination
+      ? entities.length > limit
+      : undefined;
+    if (hasMore) {
+      entities.length = limit;
+      raw.length = Math.min(raw.length, limit);
+    }
+
+    // 3. دمج حقول الـ Count المخصصة من الـ Raw داخل الـ Entities
+    const records = entities.map((order) => {
+      // البحث عن السطر الخام المقابل للطلب الحالي لمطابقة المعرف
+      const rawData = raw.find(
+        (r) => r.order_id === order.id || r.id === order.id,
+      );
+
+      return {
+        ...order,
+        // عمل parseInt لأن قيم COUNT
+        automationRunCount: rawData?.automationRunCount
+          ? parseInt(rawData.automationRunCount, 10)
+          : 0,
+        upsellHistoryCount: rawData?.upsellHistoryCount
+          ? parseInt(rawData.upsellHistoryCount, 10)
+          : 0,
+        cancelCauseCount: rawData?.cancelCauseCount
+          ? parseInt(rawData.cancelCauseCount, 10)
+          : 0,
+      };
+    });
+
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+      ...(useCursorPagination
+        ? {
+            hasMore,
+            nextCursor:
+              hasMore && records.length
+                ? {
+                    value: records[records.length - 1]?.created_at,
+                    id: records[records.length - 1]?.id,
+                  }
+                : undefined,
+          }
+        : {}),
+    };
+  }
+
+  /** Parse cursor from nested query (`cursor[value]`) or plain object / JSON string. */
+  private parseListCursor(
+    cursor: any,
+  ): { value: string; id: string } | null {
+    if (!cursor) return null;
+    let parsed = cursor;
+    if (typeof cursor === "string") {
+      try {
+        parsed = JSON.parse(cursor);
+      } catch {
+        return null;
+      }
+    }
+    if (parsed?.value != null && parsed?.id != null) {
+      return { value: String(parsed.value), id: String(parsed.id) };
+    }
+    return null;
+  }
+
+  // ========================================
+  // ✅ SHARED ORDER LIST FILTERS
+  // Used by list() and listGroupedByDate().
+  // Requires caller to have joined: "status" (always),
+  // "assignment" (when userId / hasActiveAssignment used),
+  // "shipment" (when shippingStatus is used).
+  // ========================================
+  private applyOrdersListFilters(qb: SelectQueryBuilder<OrderEntity>, q?: any) {
     if (q?.userId) {
       qb.andWhere("assignment.employeeId = :userId", {
         userId: q.userId,
@@ -739,58 +983,20 @@ export class OrdersService {
         statusId: q.statusId,
       });
     } else if (q?.status) {
-      const statusParam = q.status;
-      if (typeof statusParam === "string" && statusParam.includes(",")) {
-        const statusCodes = statusParam.split(",").map((s) => s.trim());
+      const statusFilter = q.status;
+      if (typeof statusFilter === "string" && statusFilter.includes(",")) {
+        const statusCodes = statusFilter.split(",").map((s) => s.trim());
         qb.andWhere("status.code IN (:...statusCodes)", { statusCodes });
-      } else if (!isNaN(Number(statusParam))) {
+      } else if (!isNaN(Number(statusFilter))) {
         qb.andWhere("order.statusId = :statusId", {
-          statusId: Number(statusParam),
+          statusId: Number(statusFilter),
         });
       } else {
         qb.andWhere("status.code = :statusCode", {
-          statusCode: String(statusParam).trim(),
+          statusCode: String(statusFilter).trim(),
         });
       }
     }
-
-    if (q?.excludeStatus) {
-      const statusParam = q.excludeStatus;
-      if (typeof statusParam === "string" && statusParam.includes(",")) {
-        const statusCodes = statusParam.split(",").map((s) => s.trim());
-        qb.andWhere("status.code NOT IN (:...statusCodes)", { statusCodes });
-      } else if (!isNaN(Number(statusParam))) {
-        qb.andWhere("order.statusId NOT :statusId", {
-          statusId: Number(statusParam),
-        });
-      } else {
-        qb.andWhere("status.code NOT LIKE :statusCode", {
-          statusCode: `${String(statusParam).trim()}`,
-        });
-      }
-    }
-
-    if (q?.onlyReturned) {
-      qb.innerJoinAndSelect("order.lastReturn", "lastReturn")
-        .leftJoinAndSelect("lastReturn.items", "returnItems")
-        .leftJoinAndSelect("returnItems.returnedVariant", "returnedVariant")
-        .andWhere(`status.code = :statusCode`, {
-          statusCode: OrderStatus.RETURN_PREPARING,
-        })
-        .andWhere("lastReturn.status = :returnStatus", {
-          returnStatus: ReturnRequestStatus.PENDING,
-        });
-    }
-    // do not select
-    // if (q?.activeIntegration) {
-    //   qb.leftJoin("shipping.integrations", "integrations")
-    //     .andWhere(`integrations."isActive" = true`)
-    //     .andWhere(`integrations."adminId" = :adminId`, { adminId })
-    //     .andWhere("shipment.id IS NOT NULL")
-    //     .andWhere("shipment.unifiedStatus NOT IN (:...shipmentExcluded)", {
-    //       shipmentExcluded: [UnifiedShippingStatus.DELIVERED, UnifiedShippingStatus.CANCELLED],
-    //     });
-    // }
 
     if (q?.paymentStatus) {
       if (q?.paymentStatus === PaymentMethod.CASH_ON_DELIVERY) {
@@ -803,8 +1009,7 @@ export class OrdersService {
         });
       }
     }
-    // if (q?.paymentMethod) qb.andWhere("order.paymentMethod = :paymentMethod", { paymentMethod: q.paymentMethod });
-    // Shipping Company Filter
+
     if (q?.shippingCompanyId && q.shippingCompanyId !== "all") {
       if (q.shippingCompanyId === "none") {
         qb.andWhere("order.shippingCompanyId IS NULL");
@@ -815,26 +1020,6 @@ export class OrdersService {
       }
     }
 
-    if (q?.tagIds) {
-      const tagIds = Array.isArray(q.tagIds)
-        ? q.tagIds
-        : String(q.tagIds)
-          .split(",")
-          .map((id) => id.trim())
-          .filter(Boolean);
-      if (tagIds.length) {
-        qb.andWhere(
-          `EXISTS (
-            SELECT 1 FROM order_tags ot
-            WHERE ot."orderId" = "order".id
-              AND ot."tagId" IN (:...tagIds)
-          )`,
-          { tagIds },
-        );
-      }
-    }
-
-    // Store Filter
     if (q?.storeId) {
       if (q.storeId === "none") {
         qb.andWhere("order.storeId IS NULL");
@@ -855,30 +1040,25 @@ export class OrdersService {
       }
     }
 
-    // Product Filter
-    if (q?.productId && q.productId !== "all") {
-      qb.andWhere("variant.productId = :productId", {
-        productId: q.productId,
+    if (q?.shippingStatus && q.shippingStatus !== "all") {
+      qb.andWhere("shipment.status = :shippingStatus", {
+        shippingStatus: q.shippingStatus,
       });
     }
 
-    // Label Printed Filter
-    if (q?.labelPrinted !== undefined && q.labelPrinted !== "all") {
-      if (q.labelPrinted === "true" || q.labelPrinted === true) {
-        qb.andWhere("order.labelPrinted IS NOT NULL");
-      } else if (q.labelPrinted === "false" || q.labelPrinted === false) {
-        qb.andWhere("order.labelPrinted IS NULL");
-      }
+    // Exact calendar day used by listGroupedByDate (DB DATE), so expand matches the group
+    if (q?.groupDate) {
+      qb.andWhere(`DATE(order.created_at)::text = :groupDate`, {
+        groupDate: String(q.groupDate).trim(),
+      });
+    } else {
+      DateFilterUtil.applyToQueryBuilder(
+        qb,
+        "order.created_at",
+        q?.startDate,
+        q?.endDate,
+      );
     }
-
-    // Date range
-
-    DateFilterUtil.applyToQueryBuilder(
-      qb,
-      "order.created_at",
-      q?.startDate,
-      q?.endDate,
-    );
 
     if (q?.postponedStartDate || q?.postponedEndDate) {
       DateFilterUtil.applyToQueryBuilder(
@@ -889,60 +1069,7 @@ export class OrdersService {
       );
     }
 
-    // If status is distributed/printed/preparing/ready/packed (like DistributionTab), filter by shipment.status
-    const statusParam = q?.status;
-    const isDistributionStatus =
-      q?.isDistributionStatus === "true" || q?.isDistributionStatus === true;
-
-    if (
-      isDistributionStatus ||
-      (q?.shipmentStatus && q.shipmentStatus !== "all")
-    ) {
-      if (q?.shipmentStatus && q.shipmentStatus !== "all") {
-        qb.andWhere("shipment.status = :status", {
-          status: q.shipmentStatus,
-        });
-      } else {
-        qb.andWhere("shipment.status IN (:...statuses)", {
-          statuses: [
-            ShipmentStatus.PENDING_ACTION,
-            ShipmentStatus.PREPARING,
-            ShipmentStatus.READY_TO_SHIP,
-          ],
-        });
-      }
-    }
-
-    if (q?.shippingStatus && q.shippingStatus !== "all") {
-      qb.andWhere("shipment.status = :shippingStatus", {
-        shippingStatus: q.shippingStatus,
-      });
-    }
-
-    DateFilterUtil.applyToQueryBuilder(
-      qb,
-      "order.shippedAt",
-      q?.shippedStartDate,
-      q?.shippedEndDate,
-    );
-
-    if (q?.minShippingDays !== undefined && q?.minShippingDays !== "") {
-      qb.andWhere('"order"."shippedAt" IS NOT NULL');
-      qb.andWhere(
-        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) >= :minShippingDays`,
-        { minShippingDays: Number(q.minShippingDays) },
-      );
-    }
-
-    if (q?.lateShipping === "true" || q?.lateShipping === true) {
-      qb.andWhere('"order"."shippedAt" IS NOT NULL');
-      qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
-      qb.andWhere(
-        `(CURRENT_DATE - DATE("order"."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
-      );
-    }
-
-    // Search
+    const search = String(q?.search ?? "").trim();
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
@@ -952,55 +1079,211 @@ export class OrdersService {
         }),
       );
     }
+  }
 
-    if (q?.hasReplacement !== undefined) {
-      if (q.hasReplacement === "false" || q.hasReplacement === false) {
-        qb.andWhere("replacementRequest.id IS NULL");
-      } else if (q.hasReplacement === "true" || q.hasReplacement === true) {
-        qb.andWhere("replacementRequest.id IS NOT NULL");
-      }
+  // ========================================
+  // ✅ LIST ORDERS GROUPED BY CREATION DATE (daily statistics)
+  // Statistics are computed at DB level BEFORE pagination (complete filtered result per date).
+  // ========================================
+  async listGroupedByDate(me: any, q?: any) {
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
     }
 
-    if (sortColumns[sortBy]) {
-      qb.orderBy(sortColumns[sortBy], sortDir);
-    } else {
-      qb.orderBy("order.created_at", "DESC"); // fallback
-    }
-
-    const total = await qb.getCount();
-    const { entities, raw } = await qb
-      .skip((page - 1) * limit)
-      .take(limit)
-      .getRawAndEntities();
-
-    // 3. دمج حقول الـ Count المخصصة من الـ Raw داخل الـ Entities
-    const records = entities.map((order) => {
-      // البحث عن السطر الخام المقابل للطلب الحالي لمطابقة المعرف
-      const rawData = raw.find(
-        (r) => r.order_id === order.id || r.id === order.id,
+    if (!superAdmin && !adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
       );
+    }
 
-      return {
-        ...order,
-        // عمل parseInt لأن قيم COUNT
-        automationRunCount: rawData?.automationRunCount
-          ? parseInt(rawData.automationRunCount, 10)
-          : 0,
-        upsellHistoryCount: rawData?.upsellHistoryCount
-          ? parseInt(rawData.upsellHistoryCount, 10)
-          : 0,
-        cancelCauseCount: rawData?.cancelCauseCount
-          ? parseInt(rawData.cancelCauseCount, 10)
-          : 0,
-      };
-    });
+    const page = Math.max(1, Number(q?.page ?? 1));
+    const limit = Math.max(1, Number(q?.limit ?? 10));
+
+    const qb = this.orderRepo.createQueryBuilder("order");
+
+    if (adminId) {
+      qb.where("order.adminId = :adminId", { adminId });
+    }
+
+    qb.leftJoin("order.status", "status");
+    qb.leftJoin("order.cityDetails", "cityDetails").leftJoin(
+      "cityDetails.tenantConfigs",
+      "cityTenantConfig",
+      `cityTenantConfig.adminId = order.adminId`,
+    );
+
+    const needsAssignmentJoin =
+      !!q?.userId ||
+      (q?.hasActiveAssignment !== undefined &&
+        q.hasActiveAssignment !== "all");
+
+    if (needsAssignmentJoin) {
+      qb.leftJoin(
+        "order.assignments",
+        "assignment",
+        `assignment.id = (
+        SELECT sub.id
+        FROM order_assignments sub
+        WHERE sub."orderId" = order.id
+        ORDER BY sub."assignedAt" DESC
+        LIMIT 1
+      )`,
+      );
+    }
+
+    const needsShipmentJoin =
+      !!q?.shippingStatus && q.shippingStatus !== "all";
+
+    if (needsShipmentJoin) {
+      qb.leftJoin(
+        "order.shipments",
+        "shipment",
+        `shipment.id = (
+        SELECT s.id
+        FROM shipments s
+        WHERE s."trackingNumber" = "order"."trackingNumber"
+        ORDER BY s."created_at" DESC
+        LIMIT 1
+      )`,
+      );
+    }
+
+    // Shared order filters
+    this.applyOrdersListFilters(qb, q);
+
+    const dayExpression = `DATE(order.created_at)::text`;
+
+    // ─────────────────────────────────────────────────────────────
+    // Count total date groups
+    // ─────────────────────────────────────────────────────────────
+
+    const countQb = qb.clone();
+
+    const totalGroupsRaw = await countQb
+      .select(`COUNT(DISTINCT ${dayExpression})`, "count")
+      .getRawOne();
+
+    const totalGroups = Number(totalGroupsRaw?.count) || 0;
+
+    // ─────────────────────────────────────────────────────────────
+    // Get paginated date groups
+    // Delayed matches OrderTab shippingDays column:
+    //   - only SHIPPED / DELIVERED with shippedAt + maxShippingDays
+    //   - SHIPPED: elapsed until today
+    //   - DELIVERED: elapsed until deliveredAt
+    // ─────────────────────────────────────────────────────────────
+
+    const delayedCondition = `
+      "order"."shippedAt" IS NOT NULL
+      AND "cityTenantConfig"."maxShippingDays" IS NOT NULL
+      AND (
+        (
+          status.code = :delayedShippedCode
+          AND (CURRENT_DATE - DATE("order"."shippedAt") + 1)
+            > "cityTenantConfig"."maxShippingDays"
+        )
+        OR (
+          status.code = :delayedDeliveredCode
+          AND "order"."deliveredAt" IS NOT NULL
+          AND (DATE("order"."deliveredAt") - DATE("order"."shippedAt") + 1)
+            > "cityTenantConfig"."maxShippingDays"
+        )
+      )
+    `;
+
+    qb.select(dayExpression, "day")
+      .addSelect("COUNT(order.id)", "totalOrders")
+      .addSelect(
+        `COUNT(CASE WHEN ${delayedCondition} THEN 1 END)`,
+        "delayed",
+      )
+      .addSelect("COALESCE(SUM(order.finalTotal), 0)", "totalAmount")
+      .setParameter("delayedShippedCode", OrderStatus.SHIPPED)
+      .setParameter("delayedDeliveredCode", OrderStatus.DELIVERED)
+      .groupBy(dayExpression)
+      .orderBy("day", "DESC")
+      // ⚠️ offset/limit (NOT take) — take() is not reliably applied on raw grouped queries
+      .offset((page - 1) * limit)
+      .limit(limit);
+
+    const rows = await qb.getRawMany();
+
+    const records = rows.map((row) => ({
+      date: row.day,
+      statistics: {
+        totalOrders: Number(row.totalOrders) || 0,
+        delayed: Number(row.delayed) || 0,
+        totalAmount: Number(row.totalAmount) || 0,
+      },
+    }));
 
     return {
-      total_records: total,
+      total_records: totalGroups,
       current_page: page,
       per_page: limit,
       records,
     };
+  }
+
+  // ========================================
+  // ✅ EXPORT ORDERS GROUPED BY CREATION DATE (daily statistics)
+  // ========================================
+  async exportGroupedByDate(me: any, q?: any) {
+    const t = (
+      key: Parameters<TranslationService["t"]>[0],
+      options?: Parameters<TranslationService["t"]>[1],
+    ) => this.translations.t(key, options);
+
+    const { records: groups } = await this.listGroupedByDate(me, {
+      ...q,
+      page: 1,
+      limit: 100000,
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(
+      t("domains.orders.export_grouped_by_date_sheet"),
+    );
+
+    worksheet.columns = [
+      { header: t("domains.orders.export_grouped_date"), key: "date", width: 18 },
+      {
+        header: t("domains.orders.export_grouped_total_orders"),
+        key: "totalOrders",
+        width: 15,
+      },
+      {
+        header: t("domains.orders.export_grouped_delayed"),
+        key: "delayed",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_total_amount"),
+        key: "totalAmount",
+        width: 18,
+      },
+    ];
+
+    groups.forEach((group) => {
+      worksheet.addRow({
+        date: group.date,
+        totalOrders: group.statistics.totalOrders,
+        delayed: group.statistics.delayed,
+        totalAmount: group.statistics.totalAmount,
+      });
+    });
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    return workbook.xlsx.writeBuffer();
   }
 
   async getShippedStatsByCompany(me: any, q?: any) {

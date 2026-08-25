@@ -763,6 +763,11 @@ export type I18nTranslations = {
             "export_customer_notes": string;
             "export_created_at": string;
             "export_updated_at": string;
+            "export_grouped_by_date_sheet": string;
+            "export_grouped_date": string;
+            "export_grouped_total_orders": string;
+            "export_grouped_delayed": string;
+            "export_grouped_total_amount": string;
             "actions": {
                 "confirmed": string;
                 "courier_assigned": string;

@@ -622,6 +622,11 @@
     "export_shipping_company": "Shipping Company",
     "export_order_number": "Order Number",
     "export_updated_at": "Updated At",
+    "export_grouped_by_date_sheet": "Orders Grouped by Date",
+    "export_grouped_date": "Date",
+    "export_grouped_total_orders": "Total Orders",
+    "export_grouped_delayed": "Delayed",
+    "export_grouped_total_amount": "Total Amount",
     "actions": {
       "confirmed": "Order Confirmed",
       "courier_assigned": "Assigned to Courier",

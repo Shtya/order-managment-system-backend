@@ -622,6 +622,11 @@
     "export_customer_notes": "ملاحظات العميل",
     "export_created_at": "تاريخ الإنشاء",
     "export_updated_at": "تاريخ التحديث",
+    "export_grouped_by_date_sheet": "الطلبات مجمعة حسب التاريخ",
+    "export_grouped_date": "التاريخ",
+    "export_grouped_total_orders": "إجمالي الطلبات",
+    "export_grouped_delayed": "متأخر",
+    "export_grouped_total_amount": "إجمالي المبلغ",
     "actions": {
       "confirmed": "تأكيد الطلب",
       "courier_assigned": "إسناد لشركة الشحن",
