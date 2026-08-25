@@ -31,6 +31,10 @@ import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { OrderEntity } from "entities/order.entity";
 import { getErrorMessage } from "common/healpers";
 import { RequestTranslationService } from "common/translation.service";
+import { AutomationQueueService } from "src/queue/queues/automations.queue";
+
+const RESUME_WHILE_RUNNING_DELAY_MS = 2000;
+const MAX_RESUME_WHILE_RUNNING_ATTEMPTS = 3;
 
 @Injectable()
 export class EngineRunnerService {
@@ -56,6 +60,8 @@ export class EngineRunnerService {
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsappService: WhatsappService,
     private requestTranslations: RequestTranslationService,
+    @Inject(forwardRef(() => AutomationQueueService))
+    private readonly automationQueueService: AutomationQueueService,
   ) {}
 
   /**
@@ -247,6 +253,7 @@ export class EngineRunnerService {
     originalMessageId: string,
     buttonText: string,
     buttonId?: string,
+    resumeAttempt = 0,
   ): Promise<{
     success: boolean;
     message: string;
@@ -275,6 +282,66 @@ export class EngineRunnerService {
     }
 
     const run = await this.runRepo.findOne({ where: { id: step.runId } });
+
+    // Wait until the run finishes its post-send work and becomes PAUSED.
+    // Re-enqueue with a short delay (like wait-resume) instead of failing while RUNNING.
+    if (!run) {
+      this.logger.warn(
+        `Automation run ${step.runId} not found. Cannot resume.`,
+      );
+      return {
+        success: false,
+        message: "Run not found",
+        runId: step.runId,
+      };
+    }
+
+    if (run.status === RunStatus.RUNNING) {
+      if (resumeAttempt < MAX_RESUME_WHILE_RUNNING_ATTEMPTS) {
+        const nextAttempt = resumeAttempt + 1;
+        this.logger.warn(
+          `Automation run ${run.id} is still RUNNING (attempt ${nextAttempt}/${MAX_RESUME_WHILE_RUNNING_ATTEMPTS}). Deferring resume by ${RESUME_WHILE_RUNNING_DELAY_MS}ms.`,
+        );
+        await this.automationQueueService.enqueueResumeFlow(
+          run.adminId,
+          {
+            originalMessageId,
+            buttonText,
+            buttonId: buttonId ?? "",
+            resumeAttempt: nextAttempt,
+          },
+          { delayMs: RESUME_WHILE_RUNNING_DELAY_MS },
+        );
+        return {
+          success: false,
+          message: "Resume deferred; run still RUNNING",
+          runId: run.id,
+          status: run.status,
+        };
+      }
+      this.logger.warn(
+        `Automation run ${run.id} is still RUNNING after ${MAX_RESUME_WHILE_RUNNING_ATTEMPTS} deferred attempts. Cannot resume.`,
+      );
+      return {
+        success: false,
+        message: "Run is not in PAUSED state",
+        runId: run.id,
+        status: run.status,
+      };
+    }
+
+    if (run.status !== RunStatus.PAUSED) {
+      this.logger.warn(
+        `Automation run ${step.runId} is not in PAUSED state. Cannot resume.`,
+      );
+      return {
+        success: false,
+        message: "Run is not in PAUSED state",
+        runId: step.runId,
+        status: run.status,
+      };
+    }
+
     let upsellApplyResultCode: string | undefined;
 
     try {
@@ -331,18 +398,6 @@ export class EngineRunnerService {
         message: `Error: ${message}`,
         runId: step.runId,
         status: RunStatus.FAILED,
-      };
-    }
-
-    if (!run || run.status !== RunStatus.PAUSED) {
-      this.logger.warn(
-        `Automation run ${step.runId} is not in PAUSED state. Cannot resume.`,
-      );
-      return {
-        success: false,
-        message: "Run is not in PAUSED state",
-        runId: step.runId,
-        status: run?.status,
       };
     }
 
@@ -641,18 +696,15 @@ export class EngineRunnerService {
         // const result = await handler.execute(hydratedConfig, run);
         const result = await handler.execute(nodeConfig, run);
         this.logger.log(`Handler result:`, result);
-        if (result?.resumeAfter) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, result.resumeAfter),
-          );
-        }
-        // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
 
+        // 5. توثيق السجل والـ Step في قاعدة البيانات بـ Transaction واحد لضمان التزامن
+        // Persist before pause so an early WhatsApp reply can find the step by messageId.
         await this.saveStepResult(run, node, result, nodeConfig);
         completedNodeIds.push(currentNodeId);
         await this.emitRunUpdate(run);
 
         // 6. فحص ما إذا كانت الخطوة تطلب إيقاف مؤقت (مثل الانتظار لرد الواتساب)
+        // Pause immediately — do not honor resumeAfter first, or early replies see RUNNING.
         if (result.shouldPause) {
           this.logger.log(`Node ${currentNodeId} requested pause`);
           run.status = RunStatus.PAUSED;
@@ -662,6 +714,13 @@ export class EngineRunnerService {
             `Run ${run.id} is now PAUSED at node ${currentNodeId}`,
           );
           return; // كسر الحلقة تماماً وفك الـ Thread
+        }
+
+        // Spacing between outbound nodes only when continuing (not pausing for a reply).
+        if (result?.resumeAfter) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, result.resumeAfter),
+          );
         }
 
         if (!result.success) {

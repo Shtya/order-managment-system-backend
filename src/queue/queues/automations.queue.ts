@@ -63,14 +63,36 @@ export class AutomationQueueService {
       originalMessageId: string;
       buttonText: string;
       buttonId: string;
+      resumeAttempt?: number;
     },
+    options?: { delayMs?: number },
   ) {
-    const jobId = `resume-flow:${adminId}:${resumeData.originalMessageId}`;
+    const resumeAttempt = resumeData.resumeAttempt ?? 0;
+    const delayMs = options?.delayMs ?? 0;
+    const jobId =
+      resumeAttempt > 0
+        ? `resume-flow:${adminId}:${resumeData.originalMessageId}:attempt-${resumeAttempt}`
+        : `resume-flow:${adminId}:${resumeData.originalMessageId}`;
+
+    if (delayMs > 0) {
+      // Same pattern as enqueueWaitResume: add directly so delay + jobId are honored.
+      await this.automationsQueue.add(
+        AutomationJobs.RESUME,
+        {
+          resumeData: { ...resumeData, resumeAttempt },
+          type: AutomationJobs.RESUME,
+          adminId,
+        },
+        { jobId, delay: delayMs },
+      );
+      return;
+    }
+
     await this.addJob(
       adminId,
       AutomationJobs.RESUME,
       {
-        resumeData,
+        resumeData: { ...resumeData, resumeAttempt },
       },
       { jobId },
     );
@@ -156,6 +178,7 @@ export class AutomationWorkerService extends WorkerHost {
           resumeData.originalMessageId,
           resumeData.buttonText,
           resumeData.buttonId,
+          resumeData.resumeAttempt ?? 0,
         );
         this.logger.log(`=== SUCCESS: Finished resume job ${job.id}`);
         return result;
