@@ -1370,13 +1370,8 @@ export class OrdersService {
         width: 15,
       },
       {
-        header: t("domains.orders.export_grouped_shipped"),
-        key: "shipped",
-        width: 14,
-      },
-      {
-        header: t("domains.orders.export_grouped_delivered"),
-        key: "delivered",
+        header: t("domains.orders.export_grouped_confirmed"),
+        key: "confirmed",
         width: 14,
       },
       {
@@ -1385,13 +1380,18 @@ export class OrdersService {
         width: 14,
       },
       {
-        header: t("domains.orders.export_grouped_confirmed"),
-        key: "confirmed",
+        header: t("domains.orders.export_grouped_cancelled"),
+        key: "cancelled",
         width: 14,
       },
       {
-        header: t("domains.orders.export_grouped_cancelled"),
-        key: "cancelled",
+        header: t("domains.orders.export_grouped_shipped"),
+        key: "shipped",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_delivered"),
+        key: "delivered",
         width: 14,
       },
       {
