@@ -159,7 +159,7 @@ export class AutomationWorkerService extends WorkerHost {
   }
 
   private async handleJob(job: Job): Promise<any> {
-    const { type, runId, resumeData, waitNodeId } = job.data;
+    const { type, runId, resumeData, waitNodeId, adminId } = job.data;
     this.logger.debug(`Processing Job ${job.id} | Type: ${type}`);
 
     try {
@@ -179,6 +179,7 @@ export class AutomationWorkerService extends WorkerHost {
           resumeData.buttonText,
           resumeData.buttonId,
           resumeData.resumeAttempt ?? 0,
+          adminId,
         );
         this.logger.log(`=== SUCCESS: Finished resume job ${job.id}`);
         return result;

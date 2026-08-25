@@ -254,6 +254,7 @@ export class EngineRunnerService {
     buttonText: string,
     buttonId?: string,
     resumeAttempt = 0,
+    adminId?: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -274,7 +275,22 @@ export class EngineRunnerService {
       )
       .getOne();
 
+    // Step may not be persisted yet if the client replies while the send handler
+    // is still running — defer like the RUNNING retry.
     if (!step) {
+      if (
+        adminId &&
+        resumeAttempt < MAX_RESUME_WHILE_RUNNING_ATTEMPTS
+      ) {
+        return this.deferResumeWhileNotReady(
+          adminId,
+          originalMessageId,
+          buttonText,
+          buttonId,
+          resumeAttempt,
+          "automation step not saved yet",
+        );
+      }
       this.logger.warn(
         `Interactive reply received for message ${originalMessageId}, but no matching automation step was found.`,
       );
@@ -298,26 +314,16 @@ export class EngineRunnerService {
 
     if (run.status === RunStatus.RUNNING) {
       if (resumeAttempt < MAX_RESUME_WHILE_RUNNING_ATTEMPTS) {
-        const nextAttempt = resumeAttempt + 1;
-        this.logger.warn(
-          `Automation run ${run.id} is still RUNNING (attempt ${nextAttempt}/${MAX_RESUME_WHILE_RUNNING_ATTEMPTS}). Deferring resume by ${RESUME_WHILE_RUNNING_DELAY_MS}ms.`,
-        );
-        await this.automationQueueService.enqueueResumeFlow(
+        return this.deferResumeWhileNotReady(
           run.adminId,
-          {
-            originalMessageId,
-            buttonText,
-            buttonId: buttonId ?? "",
-            resumeAttempt: nextAttempt,
-          },
-          { delayMs: RESUME_WHILE_RUNNING_DELAY_MS },
+          originalMessageId,
+          buttonText,
+          buttonId,
+          resumeAttempt,
+          `run ${run.id} still RUNNING`,
+          run.id,
+          run.status,
         );
-        return {
-          success: false,
-          message: "Resume deferred; run still RUNNING",
-          runId: run.id,
-          status: run.status,
-        };
       }
       this.logger.warn(
         `Automation run ${run.id} is still RUNNING after ${MAX_RESUME_WHILE_RUNNING_ATTEMPTS} deferred attempts. Cannot resume.`,
@@ -350,8 +356,8 @@ export class EngineRunnerService {
         step.dataType === ActionType.SEND_UPSELL &&
         buttonId?.endsWith("_btn_0")
       ) {
-        const adminId = run.executionState.trigger.output.adminId;
-        const me = { adminId };
+        const upsellAdminId = run.executionState.trigger.output.adminId;
+        const me = { adminId: upsellAdminId };
         const result = await this.upsellsService.applyUpsellByMessageId(
           me,
           originalMessageId,
@@ -496,6 +502,44 @@ export class EngineRunnerService {
       message: "Automation resumed successfully",
       runId: run.id,
       status: run.status,
+    };
+  }
+
+  /** Re-enqueue a WhatsApp resume after a short delay while the send/pause race settles. */
+  private async deferResumeWhileNotReady(
+    adminId: string,
+    originalMessageId: string,
+    buttonText: string,
+    buttonId: string | undefined,
+    resumeAttempt: number,
+    reason: string,
+    runId?: string,
+    status?: RunStatus,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    runId?: string;
+    status?: RunStatus;
+  }> {
+    const nextAttempt = resumeAttempt + 1;
+    this.logger.warn(
+      `Deferring WhatsApp resume for message ${originalMessageId} (${reason}; attempt ${nextAttempt}/${MAX_RESUME_WHILE_RUNNING_ATTEMPTS}) by ${RESUME_WHILE_RUNNING_DELAY_MS}ms.`,
+    );
+    await this.automationQueueService.enqueueResumeFlow(
+      adminId,
+      {
+        originalMessageId,
+        buttonText,
+        buttonId: buttonId ?? "",
+        resumeAttempt: nextAttempt,
+      },
+      { delayMs: RESUME_WHILE_RUNNING_DELAY_MS },
+    );
+    return {
+      success: false,
+      message: `Resume deferred; ${reason}`,
+      runId,
+      status,
     };
   }
 
