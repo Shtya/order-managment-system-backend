@@ -34,6 +34,15 @@ export function getActualFieldValue(
   switch (field) {
     case "shippingCompany":
       return orderData.shippingCompanyId;
+    case "status":
+      return orderData.statusId;
+    case "cityId":
+      return orderData.cityId;
+    case "lastCancelCause":
+    case "lastCancelCauseId":
+    case "cancelCause":
+    case "cancelCauseId":
+      return orderData.lastCancelCauseId;
     case "productsTotal":
       return orderData.productsTotal;
     case "items_count":

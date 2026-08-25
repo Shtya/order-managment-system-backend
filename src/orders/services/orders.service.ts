@@ -3523,6 +3523,13 @@ export class OrdersService {
       .leftJoinAndSelect("orderTags.tag", "orderTag")
       .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
       .leftJoinAndSelect("order.store", "store")
+      .leftJoinAndSelect("order.lastCancelCause", "lastCancelCause")
+      .leftJoinAndSelect("order.cityDetails", "cityDetails")
+      .leftJoinAndSelect(
+        "cityDetails.tenantConfigs",
+        "cityTenantConfig",
+        "cityTenantConfig.adminId = order.adminId",
+      )
       .leftJoinAndSelect("order.replacementResult", "replacementResult")
       .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
       .leftJoinAndSelect("replacementResult.items", "bridgeItems")
@@ -3534,11 +3541,10 @@ export class OrdersService {
       // Filter assignments to only include the active one
       .leftJoinAndSelect(
         "order.assignments",
-        "assignments",
-        "assignments.isAssignmentActive = :active",
-        { active: true },
+        "assignment",
+        `assignment.id = (SELECT sub.id FROM order_assignments sub WHERE sub."orderId" = order.id ORDER BY sub."assignedAt" DESC LIMIT 1)`,
       )
-      .leftJoinAndSelect("assignments.employee", "employee");
+      .leftJoinAndSelect("assignment.employee", "employee");
 
     if (superAdmin) {
       qb.leftJoinAndSelect("order.admin", "admin");
@@ -3612,11 +3618,10 @@ export class OrdersService {
       .leftJoinAndSelect("order.store", "store")
       .leftJoinAndSelect(
         "order.assignments",
-        "assignments",
-        "assignments.isAssignmentActive = :active",
-        { active: true },
+        "assignment",
+        `assignment.id = (SELECT sub.id FROM order_assignments sub WHERE sub."orderId" = order.id ORDER BY sub."assignedAt" DESC LIMIT 1)`,
       )
-      .leftJoinAndSelect("assignments.employee", "employee")
+      .leftJoinAndSelect("assignment.employee", "employee")
       .leftJoinAndSelect("order.replacementResult", "replacementResult")
       .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
       .leftJoinAndSelect("replacementResult.items", "bridgeItems")
