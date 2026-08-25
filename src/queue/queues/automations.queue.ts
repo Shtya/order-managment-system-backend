@@ -69,10 +69,11 @@ export class AutomationQueueService {
   ) {
     const resumeAttempt = resumeData.resumeAttempt ?? 0;
     const delayMs = options?.delayMs ?? 0;
+    // BullMQ custom job IDs cannot contain ":".
     const jobId =
       resumeAttempt > 0
-        ? `resume-flow:${adminId}-${resumeData.originalMessageId}-attempt-${resumeAttempt}`
-        : `resume-flow:${adminId}-${resumeData.originalMessageId}`;
+        ? `resume-flow-${adminId}-${resumeData.originalMessageId}-attempt-${resumeAttempt}`
+        : `resume-flow-${adminId}-${resumeData.originalMessageId}`;
 
     if (delayMs > 0) {
       // Same pattern as enqueueWaitResume: add directly so delay + jobId are honored.
