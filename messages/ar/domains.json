@@ -186,6 +186,8 @@
     "auto_assignment_disabled": "التعيين التلقائي معطل",
     "order_assigned_title": "تم تعيين الطلب",
     "order_assigned_message": "تم تعيين الطلب #{orderNumber} للموظف {employeeName} بقاعدة {ruleName}.",
+    "order_assignment_expired_title": "تم إلغاء توزيع الطلب",
+    "order_assignment_expired_message": "تمت إزالة الطلب #{orderNumber} تلقائياً من الموظف {employeeName} بعد انتهاء مدة التوزيع.",
     "export_my_assigned_orders_sheet": "طلباتي المعينة",
     "export_auto_assign_rules_sheet": "قواعد التعيين التلقائي",
     "export_customer_name": "اسم العميل",

@@ -54,6 +54,15 @@ export class UpsertClientSettingsDto {
 
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   @IsOptional()
+  assignmentExpiryEnabled?: boolean;
+
+  @IsInt({message: i18nValidationMessage('validation.is_int')})
+  @Min(1, {message: i18nValidationMessage('validation.min')})
+  @IsOptional()
+  assignmentExpiryHours?: number;
+
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
   enabled?: boolean;
 
   @IsNumber({}, {message: i18nValidationMessage('validation.is_number')})

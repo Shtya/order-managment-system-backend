@@ -327,6 +327,8 @@ export type I18nTranslations = {
             "auto_assignment_disabled": string;
             "order_assigned_title": string;
             "order_assigned_message": string;
+            "order_assignment_expired_title": string;
+            "order_assignment_expired_message": string;
             "export_my_assigned_orders_sheet": string;
             "export_auto_assign_rules_sheet": string;
             "export_customer_name": string;

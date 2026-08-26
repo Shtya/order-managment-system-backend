@@ -186,6 +186,8 @@
     "auto_assignment_disabled": "Auto-assignment is disabled",
     "order_assigned_title": "Order Assigned",
     "order_assigned_message": "Order #{orderNumber} has been assigned to employee {employeeName} with rule {ruleName}.",
+    "order_assignment_expired_title": "Order Unassigned",
+    "order_assignment_expired_message": "Order #{orderNumber} was automatically removed from employee {employeeName} after the assignment time limit.",
     "export_my_assigned_orders_sheet": "My Assigned Orders",
     "export_auto_assign_rules_sheet": "Auto Assign Rules",
     "export_customer_name": "Customer Name",

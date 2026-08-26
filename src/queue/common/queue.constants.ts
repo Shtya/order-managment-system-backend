@@ -38,6 +38,7 @@ export const QueueConfigs: Record<
 
 export const AutoAssignmentJobs = {
   ASSIGN_ORDERS: "assign-orders",
+  EXPIRE_ASSIGNMENT: "expire-assignment",
 } as const;
 
 export const ProductSyncJobs = {

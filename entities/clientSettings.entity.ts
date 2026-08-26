@@ -98,6 +98,12 @@ export class ClientSettingsEntity {
   })
   assignmentDelayUnit: TimeUnit;
 
+  @Column({ type: "boolean", default: false })
+  assignmentExpiryEnabled: boolean;
+
+  @Column({ type: "int", default: 24 })
+  assignmentExpiryHours: number;
+
   @Column({ type: "enum", enum: Language, default: Language.EN })
   defaultLang: Language;
 

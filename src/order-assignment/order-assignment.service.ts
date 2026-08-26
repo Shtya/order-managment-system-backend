@@ -50,6 +50,7 @@ import {
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
 import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
+import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
 
 @Injectable()
 export class OrderAssignmentService {
@@ -93,7 +94,100 @@ export class OrderAssignmentService {
     private readonly onboardingAchievementService: OnboardingAchievementService,
     @Inject(forwardRef(() => TagAutomationEvaluator))
     private readonly tagAutomationEvaluator: TagAutomationEvaluator,
+    @Inject(forwardRef(() => AutoAssignmentQueueService))
+    private readonly autoAssignmentQueueService: AutoAssignmentQueueService,
   ) {}
+
+  async expireAssignment(
+    adminId: string,
+    data: { orderId: string; assignmentId: string },
+  ) {
+    const settings =
+      await this.clientSettingsService.getCachedSettings(adminId);
+    if (!settings?.assignmentExpiryEnabled) {
+      this.logger.debug(
+        `Skip expire assignment ${data.assignmentId}: expiry disabled`,
+      );
+      return { skipped: true, reason: "expiry_disabled" };
+    }
+
+    const assignment = await this.orderAssignmentRepo.findOne({
+      where: {
+        id: data.assignmentId,
+        orderId: data.orderId,
+        assignedByAdminId: adminId,
+        isAssignmentActive: true,
+      },
+      relations: ["order", "employee"],
+    });
+
+    if (!assignment) {
+      this.logger.debug(
+        `Skip expire assignment ${data.assignmentId}: not active`,
+      );
+      return { skipped: true, reason: "not_active" };
+    }
+
+    assignment.isAssignmentActive = false;
+    assignment.finishedAt = new Date();
+    assignment.lockedUntil = null;
+    await this.orderAssignmentRepo.save(assignment);
+
+    await this.notificationService.create({
+      userId: adminId,
+      type: NotificationType.ORDER_ASSIGNED,
+      title: await this.requestTranslations.tAsync(
+        "domains.order_assignment.order_assignment_expired_title",
+        adminId,
+      ),
+      message: await this.requestTranslations.tAsync(
+        "domains.order_assignment.order_assignment_expired_message",
+        adminId,
+        {
+          args: {
+            orderNumber: assignment.order?.orderNumber ?? data.orderId,
+            employeeName: assignment.employee?.name ?? "",
+          },
+        },
+      ),
+      relatedEntityType: "order",
+      relatedEntityId: String(data.orderId),
+    });
+
+    this.logger.debug(
+      `Expired assignment ${data.assignmentId} for order ${data.orderId}`,
+    );
+    return { success: true, assignmentId: assignment.id };
+  }
+
+  private async scheduleAssignmentExpiry(
+    adminId: string,
+    assignments: Array<{ id: string; orderId: string }>,
+  ) {
+    if (!adminId || !assignments?.length) return;
+
+    const settings =
+      await this.clientSettingsService.getCachedSettings(adminId);
+    if (
+      !settings?.assignmentExpiryEnabled ||
+      !settings.assignmentExpiryHours ||
+      settings.assignmentExpiryHours < 1
+    ) {
+      return;
+    }
+
+    const delayMs = settings.assignmentExpiryHours * 60 * 60 * 1000;
+
+    await Promise.all(
+      assignments.map((a) =>
+        this.autoAssignmentQueueService.enqueueExpireAssignment(
+          adminId,
+          { orderId: a.orderId, assignmentId: a.id },
+          { delayMs },
+        ),
+      ),
+    );
+  }
 
   private async bulkUpdateOrderStatusOnAssignment(
     orderIds: string[],
@@ -497,7 +591,7 @@ export class OrderAssignmentService {
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const summary = await this.dataSource.transaction(async (manager) => {
       // 1) verify employees exist & belong to admin
       const employees = await manager.find(User, {
         where: { id: In(employeeIds), adminId } as any,
@@ -602,7 +696,7 @@ export class OrderAssignmentService {
       );
 
       // return helpful summary
-      const summary = {
+      return {
         success: true,
         totalAssigned: saved.length,
         byEmployee: employees.map((emp) => {
@@ -613,10 +707,19 @@ export class OrderAssignmentService {
             assignedCount: count,
           };
         }),
+        _savedAssignments: saved.map((s) => ({
+          id: s.id,
+          orderId: s.orderId,
+        })),
       };
-
-      return summary;
     });
+    
+    await this.scheduleAssignmentExpiry(
+      adminId,
+      summary._savedAssignments || [],
+    );
+    const { _savedAssignments, ...rest } = summary;
+    return rest;
   }
 
   async manualAssign(
@@ -624,7 +727,7 @@ export class OrderAssignmentService {
     order: OrderEntity,
     adminId: string,
   ): Promise<string> {
-    return await this.dataSource.transaction(async (manager) => {
+    const outcome = await this.dataSource.transaction(async (manager) => {
       // Verify employee exists and belongs to admin
       const employee = await manager.findOne(User, {
         where: { id: employeeId, adminId } as any,
@@ -650,7 +753,7 @@ export class OrderAssignmentService {
         .getOne();
 
       if (!freeOrder) {
-        return "not_eligable";
+        return { result: "not_eligable" as const, saved: null };
       }
 
       if (
@@ -659,7 +762,7 @@ export class OrderAssignmentService {
           freeOrder.status.code as any,
         )
       ) {
-        return "not_eligable";
+        return { result: "not_eligable" as const, saved: null };
       }
 
       // Get settings
@@ -668,7 +771,7 @@ export class OrderAssignmentService {
       const maxRetries = settings?.maxRetries || 3;
 
       // Create assignment
-      await manager.save(
+      const saved = await manager.save(
         manager.create(OrderAssignmentEntity, {
           orderId: order.id,
           employeeId: employeeId,
@@ -685,8 +788,15 @@ export class OrderAssignmentService {
         manager,
       );
 
-      return "assigned";
+      return { result: "assigned" as const, saved };
     });
+
+    if (outcome.result === "assigned" && outcome.saved) {
+      await this.scheduleAssignmentExpiry(adminId, [
+        { id: outcome.saved.id, orderId: outcome.saved.orderId },
+      ]);
+    }
+    return outcome.result;
   }
 
   async autoAssign(me: any, dto: AutoAssignDto) {
@@ -697,7 +807,7 @@ export class OrderAssignmentService {
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       // 1. Find 'Free' Orders (No active assignments)
       const q = manager
         .createQueryBuilder(OrderEntity, "order")
@@ -859,8 +969,19 @@ export class OrderAssignmentService {
           previouslyActive: parseInt(emp.activeCount),
           newlyAssigned: saved.filter((s) => s.employeeId === emp.id).length,
         })),
+        _savedAssignments: saved.map((s) => ({
+          id: s.id,
+          orderId: s.orderId,
+        })),
       };
     });
+
+    await this.scheduleAssignmentExpiry(
+      adminId,
+      result._savedAssignments || [],
+    );
+    const { _savedAssignments, ...rest } = result;
+    return rest;
   }
 
   async getAutoPreview(me: any, dto: AutoPreviewDto) {
@@ -2104,14 +2225,28 @@ export class OrderAssignmentService {
     return await workbook.xlsx.writeBuffer();
   }
 
-  async processAutoAssignment(adminId: any, orderIds: string[]) {
+  async processAutoAssignment(
+    adminId: any,
+    orderIds: string[],
+  ): Promise<{
+    success?: boolean;
+    message?: string;
+    noActiveRules?: boolean;
+    assignedCount: number;
+    results?: Array<{
+      orderId: string;
+      orderNumber?: string;
+      employeeId?: string;
+      ruleName?: string;
+    }>;
+  }> {
     if (!adminId) {
       throw new BadRequestException(
         this.translations.t("common.missing_admin_id"),
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       // 1. Get active rules ordered by priority
       const rules = await manager.find(AutoAssignRuleEntity, {
         where: { adminId, isActive: true },
@@ -2157,6 +2292,7 @@ export class OrderAssignmentService {
 
       let assignedCount = 0;
       const results = [];
+      const savedAssignments: Array<{ id: string; orderId: string }> = [];
 
       for (const order of orders) {
         // Check if already assigned
@@ -2189,7 +2325,7 @@ export class OrderAssignmentService {
         if (rule && rule.employees?.length) {
           const employee = await this.selectEmployeeByStrategy(rule);
           if (employee) {
-            await manager.save(
+            const saved = await manager.save(
               manager.create(OrderAssignmentEntity, {
                 orderId: order.id,
                 employeeId: employee.id,
@@ -2198,6 +2334,7 @@ export class OrderAssignmentService {
                 isAssignmentActive: true,
               }),
             );
+            savedAssignments.push({ id: saved.id, orderId: saved.orderId });
             assignedCount++;
             //send notification to admin about thi assignment
             this.logger.debug(
@@ -2242,8 +2379,23 @@ export class OrderAssignmentService {
         }
       }
 
-      return { success: true, assignedCount, results };
+      return { success: true, assignedCount, results, savedAssignments };
     });
+
+    if (
+      "savedAssignments" in result &&
+      Array.isArray(result.savedAssignments) &&
+      result.savedAssignments.length
+    ) {
+      await this.scheduleAssignmentExpiry(adminId, result.savedAssignments);
+    }
+
+    if ("savedAssignments" in result) {
+      const { savedAssignments: _saved, ...rest } = result;
+      return rest;
+    }
+
+    return result;
   }
 
   async previewAutoAssignment(adminId: string, orders: OrderEntity[]) {
