@@ -94,6 +94,14 @@ export class CreateTagDto {
   allowManualAssignment?: boolean;
 
   @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", {
+    each: true,
+    message: i18nValidationMessage("validation.is_uuid"),
+  })
+  employeeIds?: string[];
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt({ message: i18nValidationMessage("validation.is_int") })
   @Min(0, { message: i18nValidationMessage("validation.min") })
@@ -126,6 +134,14 @@ export class UpdateTagDto {
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
   allowManualAssignment?: boolean;
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", {
+    each: true,
+    message: i18nValidationMessage("validation.is_uuid"),
+  })
+  employeeIds?: string[];
 
   @IsOptional()
   @Type(() => Number)

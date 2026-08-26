@@ -123,14 +123,19 @@ export class TagsService {
 
   async listAssignable(me: any) {
     const adminId = this.adminIdOf(me);
-    const where: any = { adminId, isActive: true };
+    const qb = this.tagRepo
+      .createQueryBuilder("tag")
+      .where("tag.adminId = :adminId", { adminId })
+      .andWhere("tag.isActive = true");
+
     if (me?.role?.name !== "admin") {
-      where.allowManualAssignment = true;
+      qb.andWhere("tag.allowManualAssignment = true").andWhere(
+        `(tag."employeeIds" IS NULL OR tag."employeeIds" = '[]'::jsonb OR tag."employeeIds" @> :empJson)`,
+        { empJson: JSON.stringify([me.id]) },
+      );
     }
-    return this.tagRepo.find({
-      where,
-      order: { priority: "DESC", name: "ASC" },
-    });
+
+    return qb.orderBy("tag.priority", "DESC").addOrderBy("tag.name", "ASC").getMany();
   }
 
   async get(me: any, id: string) {
@@ -165,13 +170,15 @@ export class TagsService {
   async create(me: any, dto: CreateTagDto) {
     const adminId = this.adminIdOf(me);
     await this.assertUniqueName(adminId, dto.name.trim());
+    const allowEmployees = dto.allowManualAssignment ?? true;
     const tag = this.tagRepo.create({
       adminId,
       name: dto.name.trim(),
       color: dto.color || "#6C5CE7",
       description: dto.description ?? null,
       isActive: dto.isActive ?? true,
-      allowManualAssignment: dto.allowManualAssignment ?? true,
+      allowManualAssignment: allowEmployees,
+      employeeIds: allowEmployees ? this.normalizeEmployeeIds(dto.employeeIds) : [],
       priority: dto.priority ?? 0,
     });
     return this.tagRepo.save(tag);
@@ -189,8 +196,19 @@ export class TagsService {
     if (dto.allowManualAssignment !== undefined) {
       tag.allowManualAssignment = dto.allowManualAssignment;
     }
+    if (dto.employeeIds !== undefined) {
+      tag.employeeIds = this.normalizeEmployeeIds(dto.employeeIds);
+    }
+    if (tag.allowManualAssignment === false) {
+      tag.employeeIds = [];
+    }
     if (dto.priority !== undefined) tag.priority = dto.priority;
     return this.tagRepo.save(tag);
+  }
+
+  private normalizeEmployeeIds(ids?: string[] | null) {
+    if (!Array.isArray(ids)) return [];
+    return [...new Set(ids.filter(Boolean))];
   }
 
   async toggleActive(me: any, id: string) {
@@ -202,6 +220,9 @@ export class TagsService {
   async toggleEmployeeUse(me: any, id: string) {
     const tag = await this.get(me, id);
     tag.allowManualAssignment = !tag.allowManualAssignment;
+    if (!tag.allowManualAssignment) {
+      tag.employeeIds = [];
+    }
     return this.tagRepo.save(tag);
   }
 

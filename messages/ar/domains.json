@@ -1029,6 +1029,7 @@
     "name_exists": "يوجد وسم بهذا الاسم بالفعل",
     "automation_not_found": "أتمتة الوسم غير موجودة",
     "employee_assignment_disabled": "لا يمكن للموظفين استخدام هذا الوسم",
+    "employee_no_access": "ليس لديك صلاحية الوصول إلى هذا الوسم",
     "excel_employee": "السماح للموظفين بالاستخدام",
     "excel_sheet": "الوسوم",
     "excel_automations_sheet": "أتمتة الوسوم",

@@ -1029,6 +1029,7 @@
     "name_exists": "A tag with this name already exists",
     "automation_not_found": "Tag automation not found",
     "employee_assignment_disabled": "Employees cannot use this tag",
+    "employee_no_access": "You do not have access to this tag",
     "excel_employee": "Allow employees to use",
     "excel_sheet": "Tags",
     "excel_automations_sheet": "Tag Automations",

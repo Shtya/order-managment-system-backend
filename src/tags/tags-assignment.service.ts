@@ -79,6 +79,16 @@ export class TagsAssignmentService {
         this.translations.t("domains.tags.employee_assignment_disabled"),
       );
     }
+    if (
+      me?.role?.name !== "admin" &&
+      Array.isArray(existing.tag?.employeeIds) &&
+      existing.tag.employeeIds.length > 0 &&
+      !existing.tag.employeeIds.includes(me?.id)
+    ) {
+      throw new BadRequestException(
+        this.translations.t("domains.tags.employee_no_access"),
+      );
+    }
     await this.orderTagRepo.remove(existing);
     return this.listOrderTags(me, orderId);
   }
@@ -112,6 +122,17 @@ export class TagsAssignmentService {
     ) {
       throw new BadRequestException(
         this.translations.t("domains.tags.employee_assignment_disabled"),
+      );
+    }
+    if (
+      params.source === TagAssignmentSource.MANUAL &&
+      !params.actorIsAdmin &&
+      Array.isArray(tag.employeeIds) &&
+      tag.employeeIds.length > 0 &&
+      !tag.employeeIds.includes(params.userId)
+    ) {
+      throw new BadRequestException(
+        this.translations.t("domains.tags.employee_no_access"),
       );
     }
 

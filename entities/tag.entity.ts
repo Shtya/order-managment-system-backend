@@ -97,6 +97,13 @@ export class TagEntity {
   @Column({ type: "boolean", default: true })
   allowManualAssignment: boolean;
 
+  /**
+   * Employees allowed to use this tag when allowManualAssignment is true.
+   * Empty array = all employees.
+   */
+  @Column({ type: "jsonb", default: [] })
+  employeeIds: string[];
+
   @Column({ type: "int", default: 0 })
   priority: number;
 
