@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, IsUrl, Min, MinLength } from 'class-validator';
+import { IsEmail, IsInt, IsNotEmpty, IsObject, IsOptional, IsString, IsUrl, Min, MinLength } from 'class-validator';
 import { i18nValidationMessage } from 'nestjs-i18n';
 
 
@@ -44,6 +44,13 @@ export class UpdateMeUserDto {
 	@IsOptional() isActive?: boolean;
 
 	@IsOptional() @IsString({message: i18nValidationMessage('validation.is_string')}) phone?: string;
+}
+
+/** Body for PATCH /users/me/table-preferences */
+export class UpdateMeTablePreferencesDto {
+	/** Per-table column prefs: `{ orders: { order: string[], hidden: string[] } }` (legacy: `string[]` = hidden only) */
+	@IsObject({ message: i18nValidationMessage('validation.is_object') })
+	tablePreferences: Record<string, any>;
 }
 
 

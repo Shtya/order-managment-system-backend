@@ -196,6 +196,10 @@ export class User {
 	// 🔗 Relation to Wallet
 	@OneToOne(() => Wallet, (wallet) => wallet.user, { cascade: true })
 	wallet: Relation<Wallet>;
+
+	/** Per-table column prefs: `{ orders: { order: string[], hidden: string[] } }` (legacy: `string[]` = hidden only). Not selected by default — use dedicated me/table-preferences endpoints. */
+	@Column({ type: 'simple-json', nullable: true, default: null, select: false })
+	tablePreferences?: Record<string, any> | null;
 	
 	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;

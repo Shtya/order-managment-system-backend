@@ -21,6 +21,7 @@ import { SubscriptionGuard } from "common/subscription.guard";
 import {
   AdminCreateAvatarDto,
   AdminCreateDto,
+  UpdateMeTablePreferencesDto,
   UpdateMeUserDto,
   UpdateUserDto,
   UpsertCompanyDto,
@@ -203,6 +204,12 @@ export class UsersController {
     return this.users.getMe(req.user?.id);
   }
 
+  /** Dedicated fetch — tablePreferences is select:false on User and not on /users/me. */
+  @Get("me/table-preferences")
+  getMyTablePreferences(@Req() req: any) {
+    return this.users.getMyTablePreferences(req.user?.id);
+  }
+
   @Permissions("users.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
@@ -236,10 +243,22 @@ export class UsersController {
     );
   }
 
-  @Permissions("users.update")
+  /** Any authenticated user can update their own profile fields. */
   @Patch("me")
   updateMe(@Req() req: any, @Body() dto: UpdateMeUserDto) {
     return this.users.updateMe(req.user, dto);
+  }
+
+  /** Merge + save table column prefs only; returns `{ tablePreferences }`. */
+  @Patch("me/table-preferences")
+  updateMyTablePreferences(
+    @Req() req: any,
+    @Body() dto: UpdateMeTablePreferencesDto,
+  ) {
+    return this.users.updateMyTablePreferences(
+      req.user?.id,
+      dto.tablePreferences,
+    );
   }
 
   @Permissions("users.update")

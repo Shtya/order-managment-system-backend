@@ -1209,6 +1209,73 @@ export class UsersService {
     return await this.getFullUser(saved.id);
   }
 
+  /** Load tablePreferences only (column is select: false on User). */
+  async getMyTablePreferences(userId: string) {
+    const row = await this.usersRepo
+      .createQueryBuilder("user")
+      .select("user.id")
+      .addSelect("user.tablePreferences")
+      .where("user.id = :userId", { userId })
+      .getOne();
+
+    if (!row) {
+      throw new NotFoundException(this.translations.t("common.user_not_found"));
+    }
+
+    return {
+      tablePreferences:
+        row.tablePreferences && typeof row.tablePreferences === "object"
+          ? row.tablePreferences
+          : {},
+    };
+  }
+
+  async updateMyTablePreferences(
+    userId: string,
+    patch: Record<string, any>,
+  ) {
+    const row = await this.usersRepo
+      .createQueryBuilder("user")
+      .select("user.id")
+      .addSelect("user.tablePreferences")
+      .where("user.id = :userId", { userId })
+      .getOne();
+
+    if (!row) {
+      throw new NotFoundException(this.translations.t("common.user_not_found"));
+    }
+
+    const current =
+      row.tablePreferences && typeof row.tablePreferences === "object"
+        ? { ...row.tablePreferences }
+        : {};
+
+    for (const [tableKey, pref] of Object.entries(patch || {})) {
+      if (!tableKey) continue;
+      // Legacy: string[] = hidden keys only
+      if (Array.isArray(pref)) {
+        current[tableKey] = {
+          order: [],
+          hidden: pref.filter((k) => typeof k === "string"),
+        };
+        continue;
+      }
+      if (pref && typeof pref === "object") {
+        current[tableKey] = {
+          order: Array.isArray((pref as any).order)
+            ? (pref as any).order.filter((k: unknown) => typeof k === "string")
+            : [],
+          hidden: Array.isArray((pref as any).hidden)
+            ? (pref as any).hidden.filter((k: unknown) => typeof k === "string")
+            : [],
+        };
+      }
+    }
+
+    await this.usersRepo.update(userId, { tablePreferences: current });
+    return { tablePreferences: current };
+  }
+
   async deactivate(me: User, id: string) {
     const user = await this.get(me, id);
     user.isActive = false;
