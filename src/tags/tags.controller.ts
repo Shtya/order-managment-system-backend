@@ -80,6 +80,18 @@ export class TagsController {
   }
 
   @Permissions("tags.update")
+  @Patch(":id/toggle-active")
+  toggleActive(@Req() req: any, @Param("id") id: string) {
+    return this.tagsService.toggleActive(req.user, id);
+  }
+
+  @Permissions("tags.update")
+  @Patch(":id/toggle-employee-use")
+  toggleEmployeeUse(@Req() req: any, @Param("id") id: string) {
+    return this.tagsService.toggleEmployeeUse(req.user, id);
+  }
+
+  @Permissions("tags.update")
   @Patch(":id")
   update(@Req() req: any, @Param("id") id: string, @Body() dto: UpdateTagDto) {
     return this.tagsService.update(req.user, id, dto);
@@ -129,6 +141,12 @@ export class TagAutomationsController {
   @Post()
   create(@Req() req: any, @Body() dto: CreateTagAutomationDto) {
     return this.automationsService.create(req.user, dto);
+  }
+
+  @Permissions("tag-automations.update")
+  @Patch(":id/toggle-enabled")
+  toggleEnabled(@Req() req: any, @Param("id") id: string) {
+    return this.automationsService.toggleEnabled(req.user, id);
   }
 
   @Permissions("tag-automations.update")

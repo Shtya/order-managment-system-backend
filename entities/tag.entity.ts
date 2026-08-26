@@ -93,6 +93,7 @@ export class TagEntity {
   @Column({ type: "boolean", default: true })
   isActive: boolean;
 
+  /** When false, only the tenant admin can assign/remove this tag. Employees cannot use it. */
   @Column({ type: "boolean", default: true })
   allowManualAssignment: boolean;
 

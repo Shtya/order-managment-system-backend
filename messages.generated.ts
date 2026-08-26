@@ -1169,7 +1169,8 @@ export type I18nTranslations = {
             "not_found": string;
             "name_exists": string;
             "automation_not_found": string;
-            "manual_assignment_disabled": string;
+            "employee_assignment_disabled": string;
+            "excel_employee": string;
             "excel_sheet": string;
             "excel_automations_sheet": string;
             "excel_name": string;

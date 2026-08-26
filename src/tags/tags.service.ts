@@ -43,7 +43,7 @@ export class TagsService {
         )
         .addSelect(
           "COUNT(*) FILTER (WHERE tag.allowManualAssignment = true)",
-          "manualTags",
+          "employeeTags",
         )
         .where("tag.adminId = :adminId", { adminId })
         .getRawOne(),
@@ -61,7 +61,8 @@ export class TagsService {
     return {
       tags: Number(tagRow?.tags ?? 0),
       activeTags: Number(tagRow?.activeTags ?? 0),
-      manualTags: Number(tagRow?.manualTags ?? 0),
+      employeeTags: Number(tagRow?.employeeTags ?? tagRow?.manualTags ?? 0),
+      manualTags: Number(tagRow?.employeeTags ?? tagRow?.manualTags ?? 0),
       automations: Number(automationRow?.automations ?? 0),
       activeAutomations: Number(automationRow?.activeAutomations ?? 0),
     };
@@ -122,8 +123,12 @@ export class TagsService {
 
   async listAssignable(me: any) {
     const adminId = this.adminIdOf(me);
+    const where: any = { adminId, isActive: true };
+    if (me?.role?.name !== "admin") {
+      where.allowManualAssignment = true;
+    }
     return this.tagRepo.find({
-      where: { adminId, isActive: true, allowManualAssignment: true },
+      where,
       order: { priority: "DESC", name: "ASC" },
     });
   }
@@ -188,6 +193,18 @@ export class TagsService {
     return this.tagRepo.save(tag);
   }
 
+  async toggleActive(me: any, id: string) {
+    const tag = await this.get(me, id);
+    tag.isActive = !tag.isActive;
+    return this.tagRepo.save(tag);
+  }
+
+  async toggleEmployeeUse(me: any, id: string) {
+    const tag = await this.get(me, id);
+    tag.allowManualAssignment = !tag.allowManualAssignment;
+    return this.tagRepo.save(tag);
+  }
+
   async export(me: any, q?: any) {
     const all = await this.list(me, { ...q, page: 1, limit: 1000 });
     const workbook = new ExcelJS.Workbook();
@@ -199,7 +216,7 @@ export class TagsService {
       { header: this.translations.t("domains.tags.excel_color"), key: "color", width: 12 },
       { header: this.translations.t("domains.tags.excel_description"), key: "description", width: 36 },
       { header: this.translations.t("domains.tags.excel_active"), key: "isActive", width: 10 },
-      { header: this.translations.t("domains.tags.excel_manual"), key: "allowManualAssignment", width: 16 },
+      { header: this.translations.t("domains.tags.excel_employee"), key: "allowManualAssignment", width: 18 },
       { header: this.translations.t("domains.tags.excel_priority"), key: "priority", width: 12 },
     ];
     worksheet.getRow(1).font = { bold: true };

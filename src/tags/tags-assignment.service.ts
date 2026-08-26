@@ -57,6 +57,7 @@ export class TagsAssignmentService {
       adminId,
       source: TagAssignmentSource.MANUAL,
       userId: me?.id,
+      actorIsAdmin: me?.role?.name === "admin",
     });
   }
 
@@ -65,9 +66,18 @@ export class TagsAssignmentService {
     await this.requireOrder(adminId, orderId);
     const existing = await this.orderTagRepo.findOne({
       where: { adminId, orderId, tagId },
+      relations: ["tag"],
     });
     if (!existing) {
       throw new NotFoundException(this.translations.t("domains.tags.not_found"));
+    }
+    if (
+      me?.role?.name !== "admin" &&
+      existing.tag?.allowManualAssignment === false
+    ) {
+      throw new BadRequestException(
+        this.translations.t("domains.tags.employee_assignment_disabled"),
+      );
     }
     await this.orderTagRepo.remove(existing);
     return this.listOrderTags(me, orderId);
@@ -80,6 +90,7 @@ export class TagsAssignmentService {
     source: TagAssignmentSource;
     userId?: string | null;
     manager?: EntityManager;
+    actorIsAdmin?: boolean;
   }) {
     const tagRepo = params.manager
       ? params.manager.getRepository(TagEntity)
@@ -96,9 +107,12 @@ export class TagsAssignmentService {
     }
     if (
       params.source === TagAssignmentSource.MANUAL &&
-      tag.allowManualAssignment === false
+      tag.allowManualAssignment === false &&
+      !params.actorIsAdmin
     ) {
-      throw new BadRequestException(this.translations.t("domains.tags.manual_assignment_disabled"));
+      throw new BadRequestException(
+        this.translations.t("domains.tags.employee_assignment_disabled"),
+      );
     }
 
     await this.requireOrder(params.adminId, params.orderId, params.manager);

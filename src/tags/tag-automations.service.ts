@@ -117,6 +117,12 @@ export class TagAutomationsService {
     return this.automationRepo.save(automation);
   }
 
+  async toggleEnabled(me: any, id: string) {
+    const automation = await this.get(me, id);
+    automation.isEnabled = !automation.isEnabled;
+    return this.automationRepo.save(automation);
+  }
+
   async export(me: any, q?: any) {
     const all = await this.list(me, { ...q, page: 1, limit: 1000 });
     const workbook = new ExcelJS.Workbook();
