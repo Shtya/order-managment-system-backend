@@ -438,6 +438,7 @@ export abstract class FlowNodeHandler {
         "items.variant.product",
         "store",
         "shippingCompany",
+        "replacementResult",
       ],
     });
     if (!order) {

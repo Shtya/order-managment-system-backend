@@ -50,6 +50,10 @@ export function getActualFieldValue(
       return orderData.productsTotal;
     case "items_count":
       return orderData.items?.length || orderData.items?.length || 0;
+    case "isReplacement":
+    case "replacementResult":
+      // Replacement orders have isReplacement=true and/or a linked replacementResult row
+      return Boolean(orderData?.isReplacement);
     default:
       return orderData[field] || orderData[field?.toLowerCase()];
   }

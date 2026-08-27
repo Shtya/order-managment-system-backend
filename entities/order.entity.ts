@@ -452,7 +452,7 @@ export class OrderEntity {
   @Column({ type: 'text', nullable: true })
   locationAddress?: string;
 
-  // @OneToOne("OrderReplacementEntity", "originalOrder", { nullable: true })
+  
   @OneToOne(() => OrderReplacementEntity, (replacement) => replacement.originalOrder)
   replacementRequest: Relation<OrderReplacementEntity>;
   
@@ -744,6 +744,7 @@ export class OrderReplacementEntity {
 
   @Column({ type: "text", nullable: true })
   reason?: string;
+  
   @Column({ type: "text", nullable: true })
   anotherReason?: string; // Customer's reason (e.g., "Wrong Size")
 
