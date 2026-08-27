@@ -1276,6 +1276,57 @@ export class UsersService {
     return { tablePreferences: current };
   }
 
+  /** Load orderStatisticsPreferences only (column is select: false on User). */
+  async getMyOrderStatisticsPreferences(userId: string) {
+    const row = await this.usersRepo
+      .createQueryBuilder("user")
+      .select("user.id")
+      .addSelect("user.orderStatisticsPreferences")
+      .where("user.id = :userId", { userId })
+      .getOne();
+
+    if (!row) {
+      throw new NotFoundException(this.translations.t("common.user_not_found"));
+    }
+
+    const prefs = row.orderStatisticsPreferences;
+    return {
+      orderStatisticsPreferences:
+        prefs && typeof prefs === "object"
+          ? {
+              hidden: Array.isArray((prefs as any).hidden)
+                ? (prefs as any).hidden.filter((k: unknown) => typeof k === "string")
+                : [],
+            }
+          : { hidden: [] },
+    };
+  }
+
+  async updateMyOrderStatisticsPreferences(
+    userId: string,
+    patch: { hidden?: string[] },
+  ) {
+    const row = await this.usersRepo
+      .createQueryBuilder("user")
+      .select("user.id")
+      .addSelect("user.orderStatisticsPreferences")
+      .where("user.id = :userId", { userId })
+      .getOne();
+
+    if (!row) {
+      throw new NotFoundException(this.translations.t("common.user_not_found"));
+    }
+
+    const next = {
+      hidden: Array.isArray(patch?.hidden)
+        ? patch.hidden.filter((k) => typeof k === "string")
+        : [],
+    };
+
+    await this.usersRepo.update(userId, { orderStatisticsPreferences: next });
+    return { orderStatisticsPreferences: next };
+  }
+
   async deactivate(me: User, id: string) {
     const user = await this.get(me, id);
     user.isActive = false;

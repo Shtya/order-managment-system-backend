@@ -21,6 +21,7 @@ import { SubscriptionGuard } from "common/subscription.guard";
 import {
   AdminCreateAvatarDto,
   AdminCreateDto,
+  UpdateMeOrderStatisticsPreferencesDto,
   UpdateMeTablePreferencesDto,
   UpdateMeUserDto,
   UpdateUserDto,
@@ -210,6 +211,12 @@ export class UsersController {
     return this.users.getMyTablePreferences(req.user?.id);
   }
 
+  /** Dedicated fetch — orderStatisticsPreferences is select:false on User and not on /users/me. */
+  @Get("me/order-statistics-preferences")
+  getMyOrderStatisticsPreferences(@Req() req: any) {
+    return this.users.getMyOrderStatisticsPreferences(req.user?.id);
+  }
+
   @Permissions("users.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
@@ -258,6 +265,18 @@ export class UsersController {
     return this.users.updateMyTablePreferences(
       req.user?.id,
       dto.tablePreferences,
+    );
+  }
+
+  /** Save order statistics visibility prefs; returns `{ orderStatisticsPreferences }`. */
+  @Patch("me/order-statistics-preferences")
+  updateMyOrderStatisticsPreferences(
+    @Req() req: any,
+    @Body() dto: UpdateMeOrderStatisticsPreferencesDto,
+  ) {
+    return this.users.updateMyOrderStatisticsPreferences(
+      req.user?.id,
+      dto.orderStatisticsPreferences,
     );
   }
 

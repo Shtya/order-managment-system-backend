@@ -200,7 +200,11 @@ export class User {
 	/** Per-table column prefs: `{ orders: { order: string[], hidden: string[] } }` (legacy: `string[]` = hidden only). Not selected by default — use dedicated me/table-preferences endpoints. */
 	@Column({ type: 'simple-json', nullable: true, default: null, select: false })
 	tablePreferences?: Record<string, any> | null;
-	
+
+	/** Order statistics card visibility: `{ hidden: string[] }` (stat keys / status codes). Not selected by default — use dedicated me/order-statistics-preferences endpoints. */
+	@Column({ type: 'simple-json', nullable: true, default: null, select: false })
+	orderStatisticsPreferences?: { hidden?: string[] } | null;
+
 	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;
 

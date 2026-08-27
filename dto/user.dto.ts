@@ -53,6 +53,13 @@ export class UpdateMeTablePreferencesDto {
 	tablePreferences: Record<string, any>;
 }
 
+/** Body for PATCH /users/me/order-statistics-preferences */
+export class UpdateMeOrderStatisticsPreferencesDto {
+	/** Order stats visibility: `{ hidden: string[] }` (stat keys / status codes) */
+	@IsObject({ message: i18nValidationMessage('validation.is_object') })
+	orderStatisticsPreferences: { hidden?: string[] };
+}
+
 
 
 export class UpsertCompanyDto {
