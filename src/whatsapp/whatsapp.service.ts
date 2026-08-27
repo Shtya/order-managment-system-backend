@@ -40,6 +40,7 @@ import {
   AutomationRunEntity,
   RunStatus,
 } from "entities/automation.entity";
+import { ADDRESS_CHOICE_DELETED_BUTTON_ID } from "src/automation/engine/automation-helpers";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, Repository, Not, LessThanOrEqual, In } from "typeorm";
 import { WhatsappTemplateService } from "./services/WhatsappTemplate.service";
@@ -2364,6 +2365,8 @@ export class WhatsappService {
           error.message ||
           error.title ||
           JSON.stringify(error);
+      } else if (status === MessageStatus.DELETED) {
+        message.status = MessageStatus.DELETED;
       } else {
         message.status = status;
       }
@@ -2374,6 +2377,28 @@ export class WhatsappService {
       }
 
       await this.messageRepo.save(message);
+
+      // If an address-choice list was deleted while automation is waiting, resume as not corrected
+      if (
+        status === MessageStatus.DELETED &&
+        message.metadata?.addressConflictChoice === true &&
+        message.actionStatus === MessageActionStatus.PENDING
+      ) {
+        try {
+          await this.automationQueueService.enqueueResumeFlow(
+            account.adminId,
+            {
+              originalMessageId: message.messageId,
+              buttonText: ADDRESS_CHOICE_DELETED_BUTTON_ID,
+              buttonId: ADDRESS_CHOICE_DELETED_BUTTON_ID,
+            },
+          );
+        } catch (error) {
+          this.logger.error(
+            `Failed to enqueue address-choice deleted resume for ${message.messageId}: ${error?.message}`,
+          );
+        }
+      }
 
       // Emit notification for message status update
       this.appGateway.emitUpdateMessage(account.adminId, message);

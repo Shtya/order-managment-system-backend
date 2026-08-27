@@ -477,6 +477,7 @@ export class AiRequestSummaryEntity {
     error: string;
 
     @Column({ type: 'jsonb', nullable: true })
+    /** Compact request metadata; may include userMessage/assistantContent for session resume. */
     summary: any;
 
     @Column({ type: 'jsonb', nullable: true })

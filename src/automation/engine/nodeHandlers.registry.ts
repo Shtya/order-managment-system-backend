@@ -30,6 +30,7 @@ import {
 import { OrderConfirmationSource, OrderEntity, OrderStatus } from "entities/order.entity";
 import {
   MessageActionIntent,
+  MessageActionStatus,
   MessageStatus,
   TemplateStatus,
   WhatsappMessageEntity,
@@ -54,6 +55,39 @@ import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.service";
 import { AiOrchestrationResult } from "src/ai/interfaces/ai-types";
 import { AiModelAvailabilityEntity, AiModelEntity, AiProviderEntity } from "entities/ai.entity";
+
+// Re-export for callers that previously imported from this module
+export { ADDRESS_CHOICE_DELETED_BUTTON_ID } from "./automation-helpers";
+
+const ADDRESS_CORRECTION_READ_TOOLS = [
+  "get_city",
+  "get_cities",
+  "get_areas_by_city",
+  "get_shipping_zones",
+  "get_shipping_districts",
+  "get_location_by_coordinates",
+] as const;
+
+const ADDRESS_CORRECTION_WRITE_TOOLS = [
+  ...ADDRESS_CORRECTION_READ_TOOLS,
+  "bulk_update_orders_shipping",
+] as const;
+
+const ADDRESS_CORRECTION_FIRST_PASS_TOOLS = [
+  ...ADDRESS_CORRECTION_WRITE_TOOLS,
+  "report_address_conflict",
+] as const;
+
+export type ConflictingAddressCandidate = {
+  rowId: string;
+  label: string;
+  fullAddress: string;
+  city?: string;
+  area?: string;
+  source?: string;
+  latitude?: number;
+  longitude?: number;
+};
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -680,6 +714,8 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     private readonly modelRepo: Repository<AiModelEntity>,
     @InjectRepository(AiModelAvailabilityEntity)
     private readonly availabilityRepo: Repository<AiModelAvailabilityEntity>,
+    private readonly whatsappService?: WhatsappService,
+    private readonly messageRepo?: Repository<WhatsappMessageEntity>,
   ) {
     super(orderRepo);
   }
@@ -689,6 +725,21 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     run: AutomationRunEntity,
   ): Promise<NodeHandlerResponse> {
     try {
+      const priorOutput =
+        run.executionState.steps?.[run.currentNodeId]?.output || {};
+
+      // Second entry: customer already replied (or list deleted)
+      if (
+        priorOutput?.pendingAddressConflict &&
+        priorOutput?.addressConflictResume
+      ) {
+        return this.completeAfterCustomerChoice(config, run, priorOutput, {
+          buttonId: priorOutput.buttonId,
+          buttonText: priorOutput.buttonText,
+          deleted: !!priorOutput.addressChoiceDeleted,
+        });
+      }
+
       const orderData = await this.getOrder(run.executionState.trigger.output);
       if (!orderData?.id) {
         return {
@@ -707,107 +758,44 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         return {
           success: false,
           chosenBranch: "address_not_corrected",
-          error:  "Admin user not found" ,
+          error: "Admin user not found",
         };
       }
 
+      const providerError = await this.validateProviderAvailability(config, run);
+      if (providerError) return providerError;
+
       const settings = await this.clientSettingsService.getSettings(admin);
       const defaultLang = settings?.defaultLang || "en";
-
-      if (config.providerCode || config.providerId || config.modelCode) {
-        const qb = this.providerRepo
-          .createQueryBuilder("provider")
-          .leftJoin(
-            "provider.models",
-            "model",
-            config.modelCode
-              ? "model.modelCode = :modelCode"
-              : "1 = 0",
-            {
-              modelCode: config.modelCode,
-            },
-          )
-          .leftJoin(
-            "model.availabilities",
-            "availability",
-            run.adminId
-              ? "availability.adminId = :adminId"
-              : "1 = 0",
-            {
-              adminId: run.adminId,
-            },
-          )
-          .where("provider.isActive = true");
-
-        if (config.providerCode || config.providerId) {
-          qb.andWhere(
-            "(LOWER(provider.code) = LOWER(:providerCode) OR provider.id = :providerId)",
-            {
-              providerCode: config.providerCode ?? null,
-              providerId: config.providerId ?? null,
-            },
-          );
-        }
-
-        const provider = await qb
-          .select([
-            "provider.id",
-            "provider.code",
-            "model.id",
-            "model.modelCode",
-            "availability.id",
-            "availability.isAvailable",
-          ])
-          .getOne();
-
-        if (!provider) {
-          return {
-            success: false,
-            chosenBranch: "address_not_corrected",
-            error:  `AI provider '${config.providerCode || config.providerId
-                }' not found or inactive`,
-          };
-        }
-
-        if (config.modelCode) {
-          const model = provider.models?.[0];
-          const availability = model?.availabilities?.[0];
-
-          if (model && availability?.isAvailable === false) {
-            return {
-              success: false,
-              chosenBranch: "address_not_corrected",
-              error: `AI model '${config.modelCode}' is not available for this tenant`,
-            };
-          }
-        }
-      }
-
       const prompt = this.buildPrompt(orderData, config);
 
       const chatResult = await this.aiOrchestrator.chat(admin, prompt, {
         acceptWriteOperations: true,
-        allowedToolNames: [
-          "get_city",
-          "get_cities",
-          "get_areas_by_city",
-          "get_shipping_zones",
-          "get_shipping_districts",
-          "get_location_by_coordinates",
-          "bulk_update_orders_shipping",
-        ],
+        allowedToolNames: [...ADDRESS_CORRECTION_FIRST_PASS_TOOLS],
         metadata: {
           orderId: orderData.id,
           orderNumber: orderData.orderNumber,
           shippingCompanyId: config.shippingCompanyId,
           shippingCompany: config.shippingCompany,
           provider: config.provider,
+          updateWrittenAddress: shouldUpdateWrittenAddress(config),
         },
         model: config.modelCode,
         provider: config.providerCode,
         includeDevInfo: true,
         tenantLang: defaultLang,
       });
+
+      const conflict = extractAddressConflict(chatResult);
+      if (conflict) {
+        return this.handleAddressConflict(
+          orderData,
+          config,
+          chatResult,
+          conflict.addresses,
+          conflict.reason,
+        );
+      }
 
       return decideAddressCorrectionBranch(chatResult);
     } catch (error) {
@@ -824,10 +812,391 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     }
   }
 
+  /**
+   * Completes a paused address-conflict wait after the customer picks a list row
+   * (or after the outbound list message is deleted). Called only from execute().
+   */
+  private async completeAfterCustomerChoice(
+    config: AiAddressCorrectionConfig,
+    run: AutomationRunEntity,
+    priorOutput: Record<string, any>,
+    selection: { buttonId?: string; buttonText?: string; deleted?: boolean },
+  ): Promise<NodeHandlerResponse> {
+    const sanitizePrior = (out: Record<string, any>) => {
+      const {
+        aiHistory: _omitHistory,
+        addressConflictResume: _omitResume,
+        ...rest
+      } = out || {};
+      return rest;
+    };
+
+    try {
+      if (!priorOutput?.pendingAddressConflict) {
+        return {
+          success: true,
+          chosenBranch: "address_not_corrected",
+          error: "No pending address conflict to resume",
+          output: {
+            ...sanitizePrior(priorOutput),
+            pendingAddressConflict: false,
+            addressConflictResume: false,
+          },
+        };
+      }
+
+      if (selection.deleted) {
+        return {
+          success: true,
+          chosenBranch: "address_not_corrected",
+          error: "Address choice message was deleted",
+          output: {
+            ...sanitizePrior(priorOutput),
+            pendingAddressConflict: false,
+            addressConflictResume: false,
+            addressChoiceDeleted: true,
+          },
+        };
+      }
+
+      const orderData = await this.getOrder(run.executionState.trigger.output);
+      if (!orderData?.id) {
+        return {
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: "Order information not available for address correction",
+          output: {
+            ...sanitizePrior(priorOutput),
+            pendingAddressConflict: false,
+            addressConflictResume: false,
+          },
+        };
+      }
+
+      const admin = await this.userRepo.findOne({
+        where: { id: run.adminId },
+        relations: ["role"],
+      });
+      if (!admin) {
+        return {
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: "Admin user not found",
+          output: {
+            ...sanitizePrior(priorOutput),
+            pendingAddressConflict: false,
+            addressConflictResume: false,
+          },
+        };
+      }
+
+      const conflictingAddresses = (priorOutput.conflictingAddresses ||
+        []) as ConflictingAddressCandidate[];
+      const selected =
+        conflictingAddresses.find((a) => a.rowId === selection.buttonId) ||
+        conflictingAddresses.find(
+          (a) =>
+            a.label === selection.buttonText ||
+            a.fullAddress === selection.buttonText,
+        );
+
+      if (!selected) {
+        return {
+          success: true,
+          chosenBranch: "address_not_corrected",
+          error: "Customer selection did not match any conflicting address",
+          output: {
+            ...sanitizePrior(priorOutput),
+            pendingAddressConflict: false,
+            addressConflictResume: false,
+            buttonClicked: selection.buttonText,
+            buttonId: selection.buttonId,
+          },
+        };
+      }
+
+      const settings = await this.clientSettingsService.getSettings(admin);
+      const defaultLang = settings?.defaultLang || "en";
+      const resumePrompt = this.buildResumePrompt(
+        orderData,
+        config,
+        conflictingAddresses,
+        selected,
+        selection,
+      );
+
+      const history = priorOutput.aiSessionId
+        ? await this.aiOrchestrator.getSessionHistory(priorOutput.aiSessionId)
+        : [];
+
+      const chatResult = await this.aiOrchestrator.chat(admin, resumePrompt, {
+        acceptWriteOperations: true,
+        allowedToolNames: [...ADDRESS_CORRECTION_WRITE_TOOLS],
+        history,
+        metadata: {
+          orderId: orderData.id,
+          orderNumber: orderData.orderNumber,
+          shippingCompanyId: config.shippingCompanyId,
+          shippingCompany: config.shippingCompany,
+          provider: config.provider,
+          customerSelectedRowId: selected.rowId,
+          updateWrittenAddress: shouldUpdateWrittenAddress(config),
+        },
+        model: config.modelCode,
+        provider: config.providerCode,
+        includeDevInfo: true,
+        tenantLang: defaultLang,
+      });
+
+      const result = decideAddressCorrectionBranch(chatResult);
+      result.output = {
+        ...sanitizePrior(priorOutput),
+        ...(result.output || {}),
+        pendingAddressConflict: false,
+        addressConflictResume: false,
+        buttonClicked: selection.buttonText,
+        buttonId: selection.buttonId,
+        customerSelectedAddress: selected,
+      };
+
+      await this.markAddressChoiceMessageCompleted(priorOutput.messageId);
+
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Failed to resume address correction after customer choice: ${error?.message}`,
+        error?.stack,
+      );
+      return {
+        success: false,
+        chosenBranch: "address_not_corrected",
+        error: error?.message || "Address correction resume failed",
+        output: {
+          ...sanitizePrior(priorOutput),
+          pendingAddressConflict: false,
+          addressConflictResume: false,
+        },
+      };
+    }
+  }
+  private async handleAddressConflict(
+    orderData: any,
+    config: AiAddressCorrectionConfig,
+    chatResult: AiOrchestrationResult,
+    rawAddresses: any[],
+    reason: string | undefined,
+  ): Promise<NodeHandlerResponse> {
+    const candidates = normalizeConflictAddresses(rawAddresses);
+    if (candidates.length < 2) {
+      return {
+        success: true,
+        chosenBranch: "address_not_corrected",
+        error: "Address conflict reported but fewer than 2 usable addresses",
+        output: { aiComment: chatResult.content, reason },
+      };
+    }
+
+    const to = orderData.normalizedPhoneNumber
+      ? orderData.normalizedPhoneNumber
+      : orderData.phoneNumber
+        ? normalizeEgyptianPhoneNumber(orderData.phoneNumber)
+        : null;
+
+    if (!to) {
+      return {
+        success: true,
+        chosenBranch: "address_not_corrected",
+        error: "Recipient phone number not found for address conflict list",
+        output: { aiComment: chatResult.content, conflictingAddresses: candidates },
+      };
+    }
+
+    if (!this.whatsappService) {
+      return {
+        success: true,
+        chosenBranch: "address_not_corrected",
+        error: "WhatsApp service unavailable for address conflict list",
+        output: { aiComment: chatResult.content, conflictingAddresses: candidates },
+      };
+    }
+
+    const payload: any = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to,
+      type: "interactive",
+      interactive: {
+        type: "list",
+        body: {
+          text: "لقينا أكتر من عنوان للطلب. اختار العنوان الصحيح من القائمة.",
+        },
+        action: {
+          button: "عرض العناوين",
+          sections: [
+            {
+              title: "العناوين",
+              rows: candidates.map((a) => ({
+                id: a.rowId,
+                title: truncateWhatsappText(a.label, 24),
+                description: truncateWhatsappText(a.fullAddress, 72),
+              })),
+            },
+          ],
+        },
+      },
+      metadata: {
+        addressConflictChoice: true,
+      },
+    };
+
+    try {
+      const response = await this.whatsappService.sendMessage(
+        { adminId: orderData.adminId },
+        payload,
+        undefined,
+        undefined,
+        MessageActionIntent.BRANCHES,
+        orderData.id,
+      );
+      const messageId = response?.messages?.[0]?.id;
+      if (!messageId) {
+        return {
+          success: true,
+          chosenBranch: "address_not_corrected",
+          error: "Failed to send address conflict list (no message id)",
+          output: {
+            aiComment: chatResult.content,
+            conflictingAddresses: candidates,
+          },
+        };
+      }
+
+      await wait(4000);
+      if (this.messageRepo) {
+        await checkMessageStatus(messageId, this.messageRepo, this.logger);
+      }
+
+      return {
+        success: true,
+        shouldPause: true,
+        output: {
+          messageId,
+          pendingAddressConflict: true,
+          conflictingAddresses: candidates,
+          conflictReason: reason,
+          // Resume loads prompt/comment from ai_request_summaries via sessionId
+          aiSessionId: chatResult.sessionId,
+          orderId: orderData.id,
+          aiComment: chatResult.content,
+          shippingCompany: config.shippingCompany,
+          provider: config.provider,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to send address conflict list: ${error?.message}`,
+        error?.stack,
+      );
+      return {
+        success: true,
+        chosenBranch: "address_not_corrected",
+        error: error?.message || "Failed to send address conflict list",
+        output: {
+          aiComment: chatResult.content,
+          conflictingAddresses: candidates,
+        },
+      };
+    }
+  }
+
+  private async validateProviderAvailability(
+    config: AiAddressCorrectionConfig,
+    run: AutomationRunEntity,
+  ): Promise<NodeHandlerResponse | null> {
+    if (!(config.providerCode || config.providerId || config.modelCode)) {
+      return null;
+    }
+
+    const qb = this.providerRepo
+      .createQueryBuilder("provider")
+      .leftJoin(
+        "provider.models",
+        "model",
+        config.modelCode ? "model.modelCode = :modelCode" : "1 = 0",
+        { modelCode: config.modelCode },
+      )
+      .leftJoin(
+        "model.availabilities",
+        "availability",
+        run.adminId ? "availability.adminId = :adminId" : "1 = 0",
+        { adminId: run.adminId },
+      )
+      .where("provider.isActive = true");
+
+    if (config.providerCode || config.providerId) {
+      qb.andWhere(
+        "(LOWER(provider.code) = LOWER(:providerCode) OR provider.id = :providerId)",
+        {
+          providerCode: config.providerCode ?? null,
+          providerId: config.providerId ?? null,
+        },
+      );
+    }
+
+    const provider = await qb
+      .select([
+        "provider.id",
+        "provider.code",
+        "model.id",
+        "model.modelCode",
+        "availability.id",
+        "availability.isAvailable",
+      ])
+      .getOne();
+
+    if (!provider) {
+      return {
+        success: false,
+        chosenBranch: "address_not_corrected",
+        error: `AI provider '${config.providerCode || config.providerId}' not found or inactive`,
+      };
+    }
+
+    if (config.modelCode) {
+      const model = provider.models?.[0];
+      const availability = model?.availabilities?.[0];
+      if (model && availability?.isAvailable === false) {
+        return {
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: `AI model '${config.modelCode}' is not available for this tenant`,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private async markAddressChoiceMessageCompleted(messageId?: string) {
+    if (!messageId || !this.messageRepo) return;
+    try {
+      const message = await this.messageRepo.findOne({ where: { messageId } });
+      if (!message) return;
+      message.actionStatus = MessageActionStatus.COMPLETED;
+      message.actionCompletedAt = new Date();
+      await this.messageRepo.save(message);
+    } catch (error) {
+      this.logger.warn(
+        `Failed to mark address choice message completed: ${error?.message}`,
+      );
+    }
+  }
+
   private buildPrompt(orderData: any, config: AiAddressCorrectionConfig): string {
     const shippingCompanyInfo = config.shippingCompany
       ? `\n- Selected Shipping Company: ${config.shippingCompany} (${config.provider})`
       : "";
+    const updateWritten = shouldUpdateWrittenAddress(config);
 
     const locationAddress = orderData.locationAddress || "";
     const locationName = orderData.locationName || "";
@@ -837,6 +1206,36 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     const city = orderData.city || "";
     const area = orderData.area || "";
     const landmark = orderData.landmark || "";
+
+    const writtenAddressRules = updateWritten
+      ? `## Writing the \`address\` field (CRITICAL)
+When calling \`bulk_update_orders_shipping\`, \`address\` must be a **normal full written shipping address** a courier can read — never append coordinates.
+- **Never** put latitude/longitude inside \`address\` (bad: "العريش، شمال سيناء، مصر (موقع على الخريطة: 31.135, 33.814)")
+- Coordinates stay in tools/metadata only; \`address\` is plain text only
+- **Bad (too short):** "العريش، شمال سيناء، مصر" or only city + governorate + country — unless that is all that exists for a chosen map pin and you have no richer \`locationAddress\`/\`locationName\`
+- **Good:** street/road, neighborhood/area, landmark if available, building/details, then city/governorate — e.g. from \`locationAddress\` / \`locationName\` / reverse-geocode result
+- If \`latitude\` and \`longitude\` exist, call \`get_location_by_coordinates\`
+- If the tool returns \`isSparse: true\`, prefer \`locationAddress\` / \`locationName\` for the written \`address\` when updating after the customer chooses that pin; still use sparse reverse-geocode for \`cityId\` / zone / district
+- Prefer the richest available text in this order:
+  1. \`locationAddress\` / \`locationName\` on the order (if detailed)
+  2. reverse-geocode \`composedAddress\` / \`displayName\` when \`hasStreetLevelDetail\` is true
+  3. combine useful parts (road + district + city) when available
+- Never replace a more detailed existing \`locationAddress\` with a shorter reverse-geocode city string unless the customer explicitly chose the map location`
+      : `## Written \`address\` field (DISABLED for this run)
+The client setting **updateWrittenAddress is false**.
+- You **must NOT** set or change the written \`address\` field
+- When calling \`bulk_update_orders_shipping\`, omit \`address\` entirely — update only \`cityId\` and \`shippingMetadata\` (zoneId, districtId)
+- Still use location/address sources to decide city / zone / district`;
+
+    const updateTaskStep = updateWritten
+      ? `8. Update using \`bulk_update_orders_shipping\` with:
+   - \`code\`: The provider code (e.g. "bosta", "turbo")
+   - \`items\`: [{ \`id\`: orderUuid, \`address\`: fullDetailedWrittenAddress, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
+   - Always set \`address\` to normal full address text only. **Never append latitude/longitude** to \`address\``
+      : `8. Update using \`bulk_update_orders_shipping\` with:
+   - \`code\`: The provider code (e.g. "bosta", "turbo")
+   - \`items\`: [{ \`id\`: orderUuid, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
+   - **Do NOT include \`address\`** — written address must stay unchanged`;
 
     return `You are an AI assistant that prepares order shipping information for distribution by a shipping company. Your task is to ensure the order has the correct city, and the required shipping details (zone, district) for the selected shipping company.
 
@@ -852,6 +1251,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 - Latitude: ${latitude ?? "not set"}
 - Longitude: ${longitude ?? "not set"}
 - City ID: ${orderData.cityId || "not set"}
+- Update written address: ${updateWritten ? "yes" : "no"}
 ${shippingCompanyInfo}
 
 ## Available Tools
@@ -861,27 +1261,236 @@ ${shippingCompanyInfo}
 - \`get_shipping_zones\` - List zones for a shipping provider city
 - \`get_shipping_districts\` - List districts for a shipping provider city
 - \`get_location_by_coordinates\` - Get location details from latitude/longitude
-- \`bulk_update_orders_shipping\` - Update order shipping fields
+- \`bulk_update_orders_shipping\` - Update order shipping fields${updateWritten ? " including written `address`," : " (city, zone, district only — do not send `address`),"} city, zone, and district
+- \`report_address_conflict\` - Send the customer a WhatsApp list to choose between 2+ **complete and accurate** conflicting addresses
 
 ## Address Sources (priority order)
 1. Primary: \`locationAddress\`, \`locationName\`, \`latitude\`, \`longitude\`
 2. Fallback: \`address\`, \`city\`, \`area\`, \`landmark\`
 
-## Your Task
-1. Determine the correct city using \`get_cities\`
-2. Use \`get_location_by_coordinates\` if address fields are ambiguous
-3. Find the provider location mapping for the shipping company
-4. Check if the city supports dropOff for this provider (if not, the order may need special handling)
-5. Fetch zones/districts using the provider's external city ID
-6. Select the correct zone/district based on the address
-7. Update using \`bulk_update_orders_shipping\` with:
-   - \`code\`: The provider code (e.g. "bosta", "turbo")
-   - \`items\`: [{ \`id\`: orderUuid, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
-8. **Do NOT update if unsure about the location**
+## What counts as a complete / accurate shipping address
+A candidate is usable for shipping if the courier can deliver to it, for example:
+- A clear written address with city + street/building detail, OR
+- A **map pin with valid latitude/longitude** (the pin itself is precise enough even if reverse-geocode text is sparse / city-only)
+It is **incomplete / inaccurate** only if it is vague text with no city and no coordinates (e.g. empty, "near the mosque" alone, garbage text).
+
+Important: \`isSparse: true\` on reverse geocode does **NOT** mean the map pin is invalid. Sparse only means OSM text is short. The pin is still a complete accurate option for customer choice.
+
+${writtenAddressRules}
+
+## Conflict / choice rules (IMPORTANT)
+**Ask the customer when there are 2+ different places that are each usable for shipping (written complete address AND/OR map pin with coordinates).**
+
+1. **Two or more different places, each usable** (example: written address in Cairo vs map pin in Arish/North Sinai) → call \`report_address_conflict\` with those candidates. Do **NOT** call \`bulk_update_orders_shipping\` in that turn.
+   - For labels use exactly:
+     - Written order address → label \`"العنوان المسجل"\`, source \`"address"\`
+     - WhatsApp/map pin → label \`"عنوان الواتساب"\`, source \`"coordinates"\` or \`"locationAddress"\`, include latitude/longitude
+   - \`fullAddress\` must be normal address text only (no lat/lng in the string)
+2. **One complete/accurate address and one incomplete/inaccurate text (no coordinates):**
+   - If they clearly refer to the **same place** (weaker/vaguer detail of the accurate one) → do **NOT** ask. Use the accurate one + \`bulk_update_orders_shipping\`.
+   - If they are unrelated vague text only → do **NOT** ask with invalid options; do not update.
+3. **All candidates incomplete/inaccurate** (no usable written address and no coordinates) → do **NOT** call \`report_address_conflict\`. Do not update shipping.
+4. **Single clear complete address / single map pin** → resolve city/zone/district and update with \`bulk_update_orders_shipping\`.
+
+Never refuse to ask the customer just because reverse-geocode text for a map pin is city-only — the pin itself is still a valid choice when it conflicts with a different written address.
+
+## Your Task (when updating shipping)
+1. Judge each address source for completeness/accuracy using the rules above
+2. If latitude/longitude are set, call \`get_location_by_coordinates\` to get the exact map location details before updating
+3. Determine the correct city using \`get_cities\`
+4. Find the provider location mapping for the shipping company
+5. Check if the city supports dropOff for this provider (if not, the order may need special handling)
+6. Fetch zones/districts using the provider's external city ID
+7. Select the correct zone/district based on the address
+${updateTaskStep}
+9. **Do NOT update if unsure about the location**
+10. **Never invent an address**
 
 ## Response
 Explain briefly what you found and what you did (or why you couldn't update). Use simple, everyday language that any user can understand. Avoid technical terms.`;
   }
+
+  private buildResumePrompt(
+    orderData: any,
+    config: AiAddressCorrectionConfig,
+    conflictingAddresses: ConflictingAddressCandidate[],
+    selected: ConflictingAddressCandidate,
+    selection: { buttonId?: string; buttonText?: string },
+  ): string {
+    const shippingCompanyInfo = config.shippingCompany
+      ? `\n- Selected Shipping Company: ${config.shippingCompany} (${config.provider})`
+      : "";
+    const updateWritten = shouldUpdateWrittenAddress(config);
+
+    const listText = conflictingAddresses
+      .map(
+        (a) =>
+          `- id: ${a.rowId} | label: ${a.label} | fullAddress: ${a.fullAddress}` +
+          `${a.city ? ` | city: ${a.city}` : ""}${a.area ? ` | area: ${a.area}` : ""}` +
+          `${a.source ? ` | source: ${a.source}` : ""}`,
+      )
+      .join("\n");
+
+    const updateStep = updateWritten
+      ? `4. Update using \`bulk_update_orders_shipping\` with:
+   - \`address\`: normal full written address from selection fullAddress / order locationAddress / detailed reverse-geocode. **Do not append lat/lng** (bad: "... (موقع على الخريطة: 31.13, 33.81)"). Never shorten to only city + governorate + country when richer text exists
+   - \`cityId\` and \`shippingMetadata\` (zoneId, districtId) as needed`
+      : `4. Update using \`bulk_update_orders_shipping\` with:
+   - \`cityId\` and \`shippingMetadata\` (zoneId, districtId) as needed
+   - **Do NOT include \`address\`** — client disabled updating the written address`;
+
+    return `Continue the previous address-correction task. The customer already chose one address from the conflict list. Use that selection only — do not ask again and do not call report_address_conflict.
+
+## Order Data
+- Order ID: ${orderData.id}
+- Order Number: ${orderData.orderNumber}
+- City ID: ${orderData.cityId || "not set"}
+- Update written address: ${updateWritten ? "yes" : "no"}
+${shippingCompanyInfo}
+
+## Addresses that were sent to the customer
+${listText}
+
+## Customer selection
+- Selected row id: ${selection.buttonId || selected.rowId}
+- Selected title: ${selection.buttonText || selected.label}
+- Full address to use: ${selected.fullAddress}
+- City hint: ${selected.city || "not set"}
+- Area hint: ${selected.area || "not set"}
+- Source: ${selected.source || "not set"}
+- Latitude: ${selected.latitude ?? "not set"}
+- Longitude: ${selected.longitude ?? "not set"}
+
+## Your Task
+1. Treat the selected address above as the correct shipping address
+2. If latitude/longitude are set on the selection (or on the order), call \`get_location_by_coordinates\` to enrich city/zone selection. If the result is \`isSparse\`, do not use that short city string as \`address\`
+3. Resolve city / zone / district for the shipping company using the available tools
+${updateStep}
+5. Do NOT invent a different address
+
+## Response
+Explain briefly what you updated (or why you could not). Use simple everyday language.`;
+  }
+}
+
+function shouldUpdateWrittenAddress(config: AiAddressCorrectionConfig): boolean {
+  return config?.updateWrittenAddress !== false;
+}
+
+function truncateWhatsappText(value: string, max: number): string {
+  const text = (value || "").trim();
+  if (text.length <= max) return text || "-";
+  return `${text.slice(0, Math.max(0, max - 1))}…`;
+}
+
+const CONFLICT_TITLE_REGISTERED = "العنوان المسجل";
+const CONFLICT_TITLE_WHATSAPP = "عنوان الواتساب";
+
+function isWhatsappMapSource(source?: string, hasCoords?: boolean): boolean {
+  if (hasCoords) return true;
+  const s = (source || "").toLowerCase();
+  return (
+    s.includes("location") ||
+    s.includes("coordinate") ||
+    s.includes("map") ||
+    s.includes("lat") ||
+    s.includes("whatsapp")
+  );
+}
+
+function resolveConflictListTitle(
+  source?: string,
+  latitude?: number,
+  longitude?: number,
+): string {
+  const hasCoords =
+    Number.isFinite(latitude) && Number.isFinite(longitude);
+  return isWhatsappMapSource(source, hasCoords)
+    ? CONFLICT_TITLE_WHATSAPP
+    : CONFLICT_TITLE_REGISTERED;
+}
+
+/** Strip lat/lng / map-pin suffixes the model sometimes appends to address text. */
+function sanitizeConflictAddressText(value: string): string {
+  let text = (value || "").trim();
+  text = text.replace(/^موقع\s*الخريطة\s*[:：\-–]?\s*/i, "");
+  text = text.replace(
+    /\s*[\(（]?\s*موقع\s*(?:على\s*)?الخريطة\s*[:：]?\s*-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?\s*[\)）]?\s*$/i,
+    "",
+  );
+  text = text.replace(
+    /\s*[\(（]?\s*-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+\s*[\)）]?\s*$/g,
+    "",
+  );
+  return text.trim();
+}
+
+function normalizeConflictAddresses(raw: any[]): ConflictingAddressCandidate[] {
+  const out: ConflictingAddressCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const item of raw || []) {
+    if (!item || typeof item !== "object") continue;
+    const fullAddress = sanitizeConflictAddressText(
+      String(item.fullAddress || item.address || ""),
+    );
+    const source = item.source ? String(item.source) : undefined;
+    const latitude =
+      item.latitude !== undefined && item.latitude !== null
+        ? Number(item.latitude)
+        : undefined;
+    const longitude =
+      item.longitude !== undefined && item.longitude !== null
+        ? Number(item.longitude)
+        : undefined;
+    const label = resolveConflictListTitle(source, latitude, longitude);
+    if (!fullAddress && !label) continue;
+
+    const key = `${label}|${fullAddress.toLowerCase()}|${latitude ?? ""}|${longitude ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      rowId: `addr_${out.length}`,
+      label,
+      fullAddress: fullAddress || label,
+      city: item.city ? String(item.city) : undefined,
+      area: item.area ? String(item.area) : undefined,
+      source,
+      latitude: Number.isFinite(latitude) ? latitude : undefined,
+      longitude: Number.isFinite(longitude) ? longitude : undefined,
+    });
+
+    if (out.length >= 10) break;
+  }
+
+  return out;
+}
+
+function extractAddressConflict(chatResult: AiOrchestrationResult): {
+  addresses: any[];
+  reason?: string;
+} | null {
+  const progress = !chatResult.progress?.length
+    ? chatResult?._dev?.progress
+    : chatResult.progress;
+  const toolResults =
+    progress?.filter((event) => event.type === "tool_result") ?? [];
+
+  const conflictResult = [...toolResults]
+    .reverse()
+    .find((event) => event.toolName === "report_address_conflict");
+
+  if (!conflictResult?.result?.ok) return null;
+
+  const data = (conflictResult.result.data || {}) as Record<string, any>;
+  const addresses = Array.isArray(data.addresses) ? data.addresses : [];
+  if (addresses.length < 2) return null;
+
+  return {
+    addresses,
+    reason: data.reason ? String(data.reason) : undefined,
+  };
 }
 
 function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeHandlerResponse {
@@ -2077,7 +2686,17 @@ export class NodeHandlersRegistry {
     );
     this.handlers.set(
       ActionType.AI_ADDRESS_CORRECTION,
-      new ActionAiAddressCorrectionHandler(this.orderRepo, this.userRepo, this.aiOrchestrator, this.clientSettingsService, this.aiProviderRepo, this.aiModelRepo, this.aiAvailabilityRepo),
+      new ActionAiAddressCorrectionHandler(
+        this.orderRepo,
+        this.userRepo,
+        this.aiOrchestrator,
+        this.clientSettingsService,
+        this.aiProviderRepo,
+        this.aiModelRepo,
+        this.aiAvailabilityRepo,
+        this.whatsappService,
+        this.messageRepo,
+      ),
     );
     this.handlers.set(
       ActionType.ASSIGN_SHIPPING_PROVIDER,

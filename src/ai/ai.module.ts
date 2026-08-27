@@ -98,6 +98,7 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
   ],
   exports: [
     AiOrchestratorService,
+    AiAuditService,
     AiToolRegistryService,
     AiProviderSelectorService,
   ],

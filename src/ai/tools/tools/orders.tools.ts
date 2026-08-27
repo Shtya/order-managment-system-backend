@@ -17,6 +17,7 @@ import {
   GetLatestOrderToolArgsDto,
   SearchOrdersToolArgsDto,
   BulkUpdateOrdersShippingToolArgsDto,
+  ReportAddressConflictToolArgsDto
 } from "../dto/orders.tool.dto";
 import { dtoToJsonSchema } from "../dto-to-json-schema";
 import {
@@ -101,7 +102,7 @@ export class OrdersAiTools {
       new AiTool({
         name: "get_location_by_coordinates",
         description:
-          "Get location details (address, city, district, country) from latitude and longitude coordinates using reverse geocoding.",
+          "Get location details (address, city, district, country) from latitude and longitude using reverse geocoding. Returns displayName, composedAddress, isSparse, hasStreetLevelDetail, road, district, city, state. If isSparse is true, map data has no street-level detail — do NOT overwrite a richer order locationAddress with the short city/governorate string.",
         inputSchema: dtoToJsonSchema(GetLocationByCoordinatesToolArgsDto),
         argsDto: GetLocationByCoordinatesToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_READ,
@@ -112,13 +113,24 @@ export class OrdersAiTools {
       new AiTool({
         name: 'bulk_update_orders_shipping',
         description:
-          `Update shipping fields (city / district / zone / order size) for one or more orders in a single transaction. Each item requires the order UUID id.`,
+          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id. You can set: address (normal full written shipping text with NO latitude/longitude in the string), cityId, and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". If reverse geocode isSparse/city-only, prefer order locationAddress/locationName. NEVER set address to only city + governorate + country when richer text exists.`,
         inputSchema: dtoToJsonSchema(BulkUpdateOrdersShippingToolArgsDto),
         argsDto: BulkUpdateOrdersShippingToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_WRITE,
         isWrite: true,
         staleRecovery: 'auto_recover',
         run: (ctx, args) => this.bulkUpdateOrdersShipping(ctx, args),
+      }),
+      new AiTool({
+        name: "report_address_conflict",
+        description:
+          "Ask the customer to choose between 2+ usable conflicting shipping locations via WhatsApp list. Labels must be exactly: \"العنوان المسجل\" (written order address) and \"عنوان الواتساب\" (WhatsApp/map pin). A map pin with latitude/longitude IS a valid option even if reverse-geocode text is sparse. fullAddress must be plain address text with NO lat/lng. Do NOT call bulk_update_orders_shipping in the same turn. Do NOT invent addresses.",
+        inputSchema: dtoToJsonSchema(ReportAddressConflictToolArgsDto),
+        argsDto: ReportAddressConflictToolArgsDto,
+        permission: AI_PERMISSION_TOOLS_ORDERS_READ,
+        isWrite: false,
+        staleRecovery: "manual_review",
+        run: (ctx, args) => this.reportAddressConflict(ctx, args),
       }),
       new AiTool({
         name: "get_latest_order",
@@ -287,12 +299,47 @@ export class OrdersAiTools {
   ): Promise<AiExecutionResult> {
     return this.wrap("ORDERS_SHIPPING_UPDATED", async () => {
       const me = this.buildMe(ctx);
-      const items = Array.isArray(args.items) ? args.items : [];
+      const allowWrittenAddress =
+        ctx.session?.metadata?.updateWrittenAddress !== false;
+      const items = Array.isArray(args.items)
+        ? args.items.map((item: any) => {
+            if (!item || typeof item !== "object") return item;
+            if (!allowWrittenAddress) {
+              const { address: _omitAddress, ...rest } = item;
+              return rest;
+            }
+            if (item.address === undefined || item.address === null) return item;
+            return {
+              ...item,
+              // address: stripCoordinatesFromAddressText(String(item.address)),
+            };
+          })
+        : [];
       const result = await this.ordersService.bulkUpdateShippingFields(me, {
         code: args.code ? String(args.code) : undefined,
         items,
       });
       return result;
+    });
+  }
+
+  private async reportAddressConflict(
+    ctx: AiToolContext,
+    args: Record<string, unknown>,
+  ): Promise<AiExecutionResult> {
+    return this.wrap("ADDRESS_CONFLICT_REPORTED", async () => {
+      const addresses = Array.isArray(args.addresses) ? args.addresses : [];
+      if (addresses.length < 2) {
+        throw new BadRequestException(
+          "report_address_conflict requires at least 2 address candidates",
+        );
+      }
+      return {
+        addresses,
+        reason: args.reason ? String(args.reason) : undefined,
+        message:
+          "Address conflict recorded. Do not update shipping until the customer chooses one address.",
+      };
     });
   }
 
@@ -435,7 +482,8 @@ export class OrdersAiTools {
         `&lat=${lat}` +
         `&lon=${lon}` +
         `&accept-language=${encodeURIComponent(lang)}` +
-        `&addressdetails=1`;
+        `&addressdetails=1` +
+        `&zoom=18`;
 
       let res: Response | null = null;
       let lastError: unknown = null;
@@ -510,24 +558,61 @@ export class OrdersAiTools {
       }
 
       const addr = data.address || {};
+      const city =
+        addr.city ||
+        addr.town ||
+        addr.village ||
+        addr.municipality ||
+        addr.county ||
+        null;
+      const district =
+        addr.suburb ||
+        addr.neighbourhood ||
+        addr.quarter ||
+        addr.city_district ||
+        null;
+      const road = addr.road || addr.pedestrian || addr.path || null;
+      const houseNumber = addr.house_number || null;
+      const state = addr.state || addr.region || null;
+      const country = addr.country || null;
+      const displayName = data.display_name || null;
+
+      const detailParts = [
+        [houseNumber, road].filter(Boolean).join(" "),
+        district,
+        city,
+        state,
+        country,
+      ]
+        .map((p) => (typeof p === "string" ? p.trim() : ""))
+        .filter(Boolean);
+
+      const composedAddress = detailParts.join("، ") || displayName;
+      const hasStreetLevelDetail = !!(road || houseNumber || district);
+      const isSparse =
+        !hasStreetLevelDetail &&
+        !!city &&
+        detailParts.length <= 3;
 
       return {
-        displayName: data.display_name || null,
+        displayName,
+        composedAddress,
+        isSparse,
+        hasStreetLevelDetail,
+        detailNote: isSparse
+          ? "Reverse geocode is city/governorate level only (no street/neighborhood in map data). Prefer order locationAddress/locationName if they are more detailed; do NOT overwrite a richer address with this short result."
+          : null,
         latitude: lat,
         longitude: lon,
-        country: addr.country || null,
+        country,
         countryCode: addr.country_code || null,
-        state: addr.state || null,
-        city:
-          addr.city ||
-          addr.town ||
-          addr.village ||
-          addr.municipality ||
-          null,
-        district: addr.suburb || addr.neighbourhood || null,
+        state,
+        city,
+        district,
         postcode: addr.postcode || null,
-        road: addr.road || null,
-        houseNumber: addr.house_number || null,
+        road,
+        houseNumber,
+        rawAddress: addr,
       };
     });
   }

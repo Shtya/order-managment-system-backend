@@ -6,6 +6,9 @@ import { OrderEntity } from "entities/order.entity";
  * Shared helper functions for automation engine (both production and preview)
  */
 
+/** Sentinel button id used when the address-choice list message is deleted. */
+export const ADDRESS_CHOICE_DELETED_BUTTON_ID = "__address_choice_deleted__";
+
 /**
  * Find the next node ID in the flow based on edges and optional source handle (for branching)
  */

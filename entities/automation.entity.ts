@@ -193,6 +193,8 @@ export interface AiAddressCorrectionConfig {
     shippingCompany?: string;
     providerCode?: string;
     provider?: string;
+    /** When true (default), AI may rewrite order.address. When false, only city/zone/district. */
+    updateWrittenAddress?: boolean;
     branches?: {
         id: string;
         label: string;

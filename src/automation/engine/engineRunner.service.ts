@@ -25,13 +25,20 @@ import {
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { AppGateway } from "common/app.gateway";
-import { findNextNodeId } from "./automation-helpers";
+import {
+  ADDRESS_CHOICE_DELETED_BUTTON_ID,
+  findNextNodeId,
+} from "./automation-helpers";
 import { UpsellsService } from "src/upsells/upsells.service";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { OrderEntity } from "entities/order.entity";
 import { getErrorMessage } from "common/healpers";
 import { RequestTranslationService } from "common/translation.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
+import {
+  MessageStatus,
+  WhatsappMessageEntity,
+} from "entities/whatsapp.entity";
 
 const RESUME_WHILE_RUNNING_DELAY_MS = 2000;
 const MAX_RESUME_WHILE_RUNNING_ATTEMPTS = 3;
@@ -51,6 +58,8 @@ export class EngineRunnerService {
     private readonly automationRepo: Repository<AutomationFlowEntity>,
     @InjectRepository(AutomationRunStepEntity)
     private readonly stepRepo: Repository<AutomationRunStepEntity>,
+    @InjectRepository(WhatsappMessageEntity)
+    private readonly messageRepo: Repository<WhatsappMessageEntity>,
     @Inject(forwardRef(() => NodeHandlersRegistry))
     private readonly registry: NodeHandlersRegistry,
     private readonly notificationService: NotificationService,
@@ -432,6 +441,25 @@ export class EngineRunnerService {
     const config = node?.data?.config as any;
     const branches = config?.branches || [];
 
+    // AI address conflict: customer list reply (or deleted list message)
+    const priorStepOutput =
+      run.executionState.steps?.[step.nodeId]?.output ||
+      step.outputData ||
+      {};
+    if (
+      step.dataType === ActionType.AI_ADDRESS_CORRECTION &&
+      priorStepOutput?.pendingAddressConflict
+    ) {
+      return this.resumeAddressConflictChoice(
+        run,
+        step,
+        priorStepOutput,
+        originalMessageId,
+        buttonText,
+        buttonId,
+      );
+    }
+
     // 3. مطابقة الزر الذي ضغطه العميل مع الفروع المتاحة في إعدادات العقدة
     let chosenBranch = branches.find(
       (b: any) =>
@@ -503,6 +531,134 @@ export class EngineRunnerService {
       runId: run.id,
       status: run.status,
     };
+  }
+
+  private async resumeAddressConflictChoice(
+    run: AutomationRunEntity,
+    step: AutomationRunStepEntity,
+    priorStepOutput: Record<string, any>,
+    originalMessageId: string,
+    buttonText: string,
+    buttonId?: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    runId?: string;
+    status?: RunStatus;
+  }> {
+    const isDeletedSentinel =
+      buttonId === ADDRESS_CHOICE_DELETED_BUTTON_ID ||
+      buttonText === ADDRESS_CHOICE_DELETED_BUTTON_ID;
+
+    let deleted = isDeletedSentinel;
+    if (!deleted) {
+      const outbound = await this.messageRepo.findOne({
+        where: { messageId: originalMessageId, adminId: run.adminId },
+      });
+      if (!outbound || outbound.status === MessageStatus.DELETED) {
+        deleted = true;
+      }
+    }
+
+    // Write selection onto the paused step and allow runLoop to re-execute it
+    const previousStep = run.executionState.steps[step.nodeId];
+    run.executionState.steps[step.nodeId] = {
+      type: ActionType.AI_ADDRESS_CORRECTION,
+      executedAt: previousStep?.executedAt || new Date().toISOString(),
+      success: false,
+      input: previousStep?.input,
+      output: {
+        ...priorStepOutput,
+        addressConflictResume: true,
+        buttonId,
+        buttonText,
+        addressChoiceDeleted: deleted,
+      },
+    };
+    await this.runRepo.save(run);
+
+    step.outputData = run.executionState.steps[step.nodeId].output;
+    step.errorMessage = null;
+    step.status = StepStatus.SUCCESS;
+    await this.stepRepo.save(step);
+
+    await this.sendAutomationNotification(
+      run,
+      NotificationType.AUTOMATION_RUN_RESUMED,
+    );
+
+    await this.reenterPausedNode(run.id, step.nodeId);
+
+    return {
+      success: true,
+      message: deleted
+        ? "Address choice message deleted; continued as address_not_corrected"
+        : "Address conflict resolved and automation resumed",
+      runId: run.id,
+      status: run.status,
+    };
+  }
+
+  /**
+   * Re-enter a paused node from the start of runLoop (same nodeId),
+   * so its handler.execute runs again and saveStepResult + branching apply.
+   */
+  private async reenterPausedNode(
+    runId: string,
+    nodeId: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    runId: string;
+    status?: RunStatus;
+  }> {
+    if (this.currentlyRunning.has(runId)) {
+      this.logger.log(
+        `Run ${runId} is already being executed, skipping duplicate request.`,
+      );
+      return { success: false, message: "Run is already in progress", runId };
+    }
+
+    const run = await this.runRepo.findOne({ where: { id: runId } });
+    if (!run) return { success: false, message: "Run not found", runId };
+
+    this.currentlyRunning.add(runId);
+
+    let result: {
+      success: boolean;
+      message: string;
+      runId: string;
+      status?: RunStatus;
+    } = {
+      success: true,
+      message: "Execution resumed at paused node",
+      runId,
+      status: run.status,
+    };
+
+    try {
+      run.status = RunStatus.RUNNING;
+      await this.runRepo.save(run);
+
+      const version = await this.versionRepo.findOne({
+        where: { id: run.versionId },
+      });
+      if (!version) {
+        return { success: false, message: "Version not found", runId };
+      }
+
+      await this.runLoop(run, version.flow, nodeId);
+      result = {
+        success: true,
+        message: "Execution completed",
+        runId,
+        status: run.status,
+      };
+    } finally {
+      this.currentlyRunning.delete(runId);
+    }
+
+    return result;
   }
 
   /** Re-enqueue a WhatsApp resume after a short delay while the send/pause race settles. */

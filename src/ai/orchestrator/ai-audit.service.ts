@@ -40,6 +40,16 @@ export class AiAuditService {
     private readonly writeToolCallRepo: Repository<AiWriteToolCallEntity>,
   ) {}
 
+  async findBySessionId(
+    sessionId: string,
+  ): Promise<AiRequestSummaryEntity | null> {
+    if (!sessionId) return null;
+    return this.requestSummaryRepo.findOne({
+      where: { sessionId },
+      order: { createdAt: "DESC" },
+    });
+  }
+
   async createRequestSummary(
     input: RequestSummaryInput,
   ): Promise<AiRequestSummaryEntity> {
@@ -61,6 +71,7 @@ export class AiAuditService {
       summary: input.summary,
       progress: input.progress,
       providersUsed: input.providersUsed,
+      modelsUsed: input.modelsUsed,
     });
     return this.requestSummaryRepo.save(
       entity,

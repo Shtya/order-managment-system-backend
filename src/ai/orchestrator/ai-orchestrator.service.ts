@@ -217,12 +217,13 @@ export class AiOrchestratorService {
       });
 
       timer.start("finalize");
-      const finalized = this.finalize(
+      const finalized = await this.finalize(
         ctx,
         execution,
         result,
         masked.pairs,
         timer,
+        masked.text,
       );
       finalResult = finalized.finalResult;
       providersUsed = finalized.providersUsed;
@@ -1052,7 +1053,7 @@ export class AiOrchestratorService {
     return cappedResult;
   }
 
-  private finalize(
+  private async finalize(
     ctx: AiToolContext,
     execution: AiExecutionScope,
     result: {
@@ -1063,13 +1064,14 @@ export class AiOrchestratorService {
     },
     pairs: Array<{ token: string; original: string }>,
     timer: PhaseTimer,
-  ): {
+    userMessage?: string,
+  ): Promise<{
     finalResult: AiOrchestrationResult;
     providersUsed: string[];
     modelsUsed: string[];
     rounds: number;
     progress: AiProgressEvent[];
-  } {
+  }> {
     timer.start("finalize.aggregateUsage");
     const usage = execution.getUsage();
     const ok = !result.error;
@@ -1111,29 +1113,30 @@ export class AiOrchestratorService {
       modelsUsed: modelsUsed.length,
     });
 
+    // Await so callers (e.g. address-conflict resume) can load history by sessionId.
     timer.start("finalize.persistSummary");
-    const persistDone = this.persistSummary(
-      ctx,
-      execution,
-      result,
-      usage,
-      ok,
-      progress,
-      providersUsed,
-      modelsUsed,
-      rounds,
-    );
-    persistDone
-      .then((ms) =>
-        this.logger.debug("[perf] persistSummary", {
-          requestId: ctx.requestId,
-          ok: true,
-          ms,
-        }),
-      )
-      .catch((err) =>
-        this.logger.error("[finalize] persistSummary failed", err),
+    try {
+      const ms = await this.persistSummary(
+        ctx,
+        execution,
+        result,
+        usage,
+        ok,
+        progress,
+        providersUsed,
+        modelsUsed,
+        rounds,
+        userMessage,
+        content,
       );
+      this.logger.debug("[perf] persistSummary", {
+        requestId: ctx.requestId,
+        ok: true,
+        ms,
+      });
+    } catch (err) {
+      this.logger.error("[finalize] persistSummary failed", err);
+    }
     timer.stop();
 
     return { finalResult, providersUsed, modelsUsed, rounds, progress };
@@ -1149,9 +1152,23 @@ export class AiOrchestratorService {
     providersUsed: string[],
     modelsUsed: string[],
     rounds: number,
+    userMessage?: string,
+    assistantContent?: string,
   ): Promise<number> {
     const t0 = performance.now();
     const adminId = ctx.session.tenantId ?? ctx.session.userId;
+
+    const conversationSummary = this.config.storeConversationSummaries
+      ? {
+          conversationId: execution.session.conversationId,
+          lastError: result.error ?? null,
+          lastToolNames: extractToolNames(progress),
+          usage,
+          rounds,
+          providersUsed,
+          modelsUsed,
+        }
+      : {};
 
     await this.auditService.createRequestSummary({
       adminId,
@@ -1166,22 +1183,52 @@ export class AiOrchestratorService {
       durationMs: execution.getDurationMs(),
       errorCode: result.errorCode,
       error: result.error,
-      summary: this.config.storeConversationSummaries
-        ? {
-          conversationId: execution.session.conversationId,
-          lastError: result.error ?? null,
-          lastToolNames: extractToolNames(progress),
-          usage,
-          rounds,
-          providersUsed,
-          modelsUsed,
-        }
-        : undefined,
+      summary: {
+        ...conversationSummary,
+        // Stored on AI session so automation steps need not expose full chat history
+        userMessage: userMessage ?? null,
+        assistantContent: assistantContent ?? null,
+      },
       progress,
       providersUsed,
       modelsUsed,
     });
     return performance.now() - t0;
+  }
+
+  /**
+   * Rebuild compact chat history for a prior AI session from ai_request_summaries.
+   * Used by automation resume without persisting aiHistory on run step output.
+   */
+  async getSessionHistory(sessionId: string): Promise<AiChatMessage[]> {
+    if (!sessionId) return [];
+    const row = await this.auditService.findBySessionId(sessionId);
+    if (!row) return [];
+
+    const summary = (row.summary || {}) as Record<string, any>;
+    const history: AiChatMessage[] = [];
+
+    if (typeof summary.userMessage === "string" && summary.userMessage.trim()) {
+      history.push({ role: "user", content: summary.userMessage });
+    }
+
+    const assistantContent =
+      (typeof summary.assistantContent === "string" &&
+      summary.assistantContent.trim()
+        ? summary.assistantContent
+        : null) ||
+      (Array.isArray(row.progress)
+        ? [...row.progress]
+            .reverse()
+            .find((e: any) => e?.type === "provider_content" && e?.content)
+            ?.content
+        : null);
+
+    if (typeof assistantContent === "string" && assistantContent.trim()) {
+      history.push({ role: "assistant", content: assistantContent });
+    }
+
+    return history;
   }
 
   private resolveTenantId(me: any): string | null {

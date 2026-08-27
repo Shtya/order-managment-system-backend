@@ -3853,7 +3853,7 @@ export class OrdersService {
       createdByUserId: me?.id,
       shippingMetadata: dto.shippingMetadata,
     } as any);
-
+    
     const saved = await manager.save(OrderEntity, order);
 
     // Update the transaction with the orderId if we have one

@@ -289,6 +289,7 @@ export class BulkUpdateShippingFieldItemDto {
 
   @IsOptional()
   @IsString({ message: i18nValidationMessage('validation.is_string') })
+  // Full written shipping address (street / area / building). Used by UI and AI address correction.
   // @MinLength(5, {
   //   message: i18nValidationMessage('validation.min_length'),
   // })
