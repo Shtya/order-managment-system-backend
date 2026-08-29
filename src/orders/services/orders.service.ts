@@ -1251,9 +1251,10 @@ export class OrdersService {
       .andWhere(`${shipDayExpr} IN (:...pageDays)`, { pageDays })
       .groupBy(shipDayExpr);
 
-    const [orderStatsRows, shipStatsRows] = await Promise.all([
+    const [orderStatsRows, shipStatsRows, tagStatsRows] = await Promise.all([
       orderStatsQb.getRawMany(),
       shipStatsQb.getRawMany(),
+      this.buildGroupedByDateTagStatsQb(adminId, q, me, pageDays).getRawMany(),
     ]);
 
     const orderStatsByDay = new Map(
@@ -1275,6 +1276,20 @@ export class OrdersService {
       shipStatsRows.map((row) => [row.day, Number(row.shipped) || 0]),
     );
 
+    const tagsByDay = new Map();
+    for (const row of tagStatsRows) {
+      const day = row.day;
+      if (!day) continue;
+      const list = tagsByDay.get(day) || [];
+      list.push({
+        id: row.tagId,
+        name: row.tagName,
+        color: row.tagColor || "#6C5CE7",
+        count: Number(row.count) || 0,
+      });
+      tagsByDay.set(day, list);
+    }
+
     const emptyOrderStats = {
       totalOrders: 0,
       delivered: 0,
@@ -1292,6 +1307,7 @@ export class OrdersService {
         statistics: {
           ...orderStats,
           shipped: shippedByDay.get(day) || 0,
+          tags: tagsByDay.get(day) || [],
         },
       };
     });
@@ -1360,6 +1376,33 @@ export class OrdersService {
     }
 
     this.applyOrdersListFilters(qb, q, me);
+    return qb;
+  }
+
+  /** Tag counts per calendar day for filtered orders in grouped-by-date view. */
+  private buildGroupedByDateTagStatsQb(
+    adminId: string | null,
+    q: any,
+    me: any,
+    pageDays: string[],
+  ) {
+    const orderDayExpr = `DATE(order.created_at)::text`;
+    const qb = this.buildGroupedByDateOrdersQb(adminId, q, me);
+    qb.innerJoin("order.orderTags", "groupOrderTag")
+      .innerJoin("groupOrderTag.tag", "groupTag")
+      .select(orderDayExpr, "day")
+      .addSelect("groupTag.id", "tagId")
+      .addSelect("groupTag.name", "tagName")
+      .addSelect("groupTag.color", "tagColor")
+      .addSelect("COUNT(DISTINCT order.id)", "count")
+      .andWhere(`${orderDayExpr} IN (:...pageDays)`, { pageDays })
+      .groupBy(orderDayExpr)
+      .addGroupBy("groupTag.id")
+      .addGroupBy("groupTag.name")
+      .addGroupBy("groupTag.color")
+      .orderBy(orderDayExpr, "DESC")
+      .addOrderBy("count", "DESC")
+      .addOrderBy("groupTag.name", "ASC");
     return qb;
   }
 
@@ -1447,9 +1490,21 @@ export class OrdersService {
         key: "totalAmount",
         width: 18,
       },
+      {
+        header: t("domains.orders.export_grouped_tags"),
+        key: "tags",
+        width: 48,
+      },
     ];
 
     groups.forEach((group) => {
+      const tagStats = Array.isArray(group.statistics?.tags)
+        ? group.statistics.tags
+        : [];
+      const tagsText = tagStats
+        .map((tag) => `${tag.name}: ${tag.count ?? 0}`)
+        .join(", ");
+
       worksheet.addRow({
         date: group.date,
         totalOrders: group.statistics.totalOrders,
@@ -1460,6 +1515,7 @@ export class OrdersService {
         cancelled: group.statistics.cancelled,
         delayed: group.statistics.delayed,
         totalAmount: group.statistics.totalAmount,
+        tags: tagsText,
       });
     });
 

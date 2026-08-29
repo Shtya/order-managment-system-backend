@@ -635,6 +635,7 @@
     "export_grouped_cancelled": "Cancelled",
     "export_grouped_delayed": "Delayed Shipments",
     "export_grouped_total_amount": "Total Amount",
+    "export_grouped_tags": "Tags",
     "actions": {
       "confirmed": "Order Confirmed",
       "courier_assigned": "Assigned to Courier",

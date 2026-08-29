@@ -776,6 +776,7 @@ export type I18nTranslations = {
             "export_grouped_cancelled": string;
             "export_grouped_delayed": string;
             "export_grouped_total_amount": string;
+            "export_grouped_tags": string;
             "actions": {
                 "confirmed": string;
                 "courier_assigned": string;

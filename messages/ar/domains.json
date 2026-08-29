@@ -635,6 +635,7 @@
     "export_grouped_cancelled": "ملغي",
     "export_grouped_delayed": "شحنات متأخرة",
     "export_grouped_total_amount": "إجمالي المبلغ",
+    "export_grouped_tags": "الوسوم",
     "actions": {
       "confirmed": "تأكيد الطلب",
       "courier_assigned": "إسناد لشركة الشحن",
