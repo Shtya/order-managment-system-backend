@@ -1527,11 +1527,17 @@ export class OrderAssignmentService {
       .leftJoinAndSelect("order.status", "status")
       .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
       .leftJoinAndSelect("order.store", "store")
+      .leftJoinAndSelect("order.lastInternalNote", "lastInternalNote")
+      .leftJoinAndSelect("lastInternalNote.author", "lastInternalNoteAuthor")
       .orderBy("assignment.assignedAt", "ASC") // 🔥 Old → New
       .addOrderBy("order.id", "ASC")
       .getOne();
 
     if (!order) return null;
+
+    (order as any).myUnreadCount = Number(
+      order.internalNotesUnreadCounts?.[me?.id] || 0,
+    );
 
     // Collect upselling product ids
     const upsellingIds = new Set<string>();

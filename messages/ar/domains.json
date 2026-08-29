@@ -416,6 +416,7 @@
     "orders_not_return_preparing": "الطلبات التالية ليست في حالة 'تجهيز الإرجاع': {orderNumbers}",
     "manifest_not_found": "بيان التحميل غير موجود",
     "order_not_found": "الطلب غير موجود",
+    "internal_note_empty": "لا يمكن أن تكون الملاحظة الداخلية فارغة",
     "invalid_shipping_company": "شركة الشحن المحددة غير صالحة.",
     "shipping_company_not_active": "{companyName} غير نشطة حالياً.",
     "invalid_store": "المتجر المحدد غير صالح أو لا ينتمي إلى حسابك.",

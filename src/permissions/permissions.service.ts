@@ -85,6 +85,7 @@ export class PermissionsService implements OnModuleInit {
       "orders.distribution",
       "orders.restoreFailed",
       "orders.confirm-incoming",
+      "orders.internalNotes",
       "suppliers.read",
       "suppliers.create",
       "suppliers.update",

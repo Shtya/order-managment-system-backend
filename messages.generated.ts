@@ -557,6 +557,7 @@ export type I18nTranslations = {
             "orders_not_return_preparing": string;
             "manifest_not_found": string;
             "order_not_found": string;
+            "internal_note_empty": string;
             "invalid_shipping_company": string;
             "shipping_company_not_active": string;
             "invalid_store": string;

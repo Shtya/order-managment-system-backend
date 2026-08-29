@@ -7,6 +7,7 @@ import { User } from '../entities/user.entity';
 import { Notification } from 'entities/notifications.entity';
 import { SupportTicketEntity, SupportTicketMessageEntity } from 'entities/support_tickets.entity';
 import { IssueEntity, IssueMessageEntity } from 'entities/issue.entity';
+import { OrderInternalNoteEntity } from 'entities/order.entity';
 import { ConversationEntity, WhatsappMessageEntity } from 'entities/whatsapp.entity';
 import { CustomerEntity } from 'entities/customers.entity';
 import { createClient, RedisClientOptions } from 'redis';
@@ -285,6 +286,25 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     emitIssueRead(userIds: string[], issue: IssueEntity, readByUserId: string) {
         this.emitToUsers(userIds, "issue:read", { issue, readByUserId });
+    }
+
+    emitOrderInternalNoteCreated(
+        userIds: string[],
+        payload: {
+            note: OrderInternalNoteEntity | Record<string, unknown>;
+            orderId: string;
+            lastInternalNote: OrderInternalNoteEntity | Record<string, unknown>;
+            internalNotesUnreadCounts: Record<string, number>;
+        },
+    ) {
+        this.emitToUsers(userIds, "order_internal_note:created", payload);
+    }
+
+    emitOrderInternalNoteRead(
+        userIds: string[],
+        payload: { orderId: string; readByUserId: string },
+    ) {
+        this.emitToUsers(userIds, "order_internal_note:read", payload);
     }
 
     // --- Helper Methods ---

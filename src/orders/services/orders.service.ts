@@ -690,7 +690,9 @@ export class OrdersService {
         "cityTenantConfig",
         `cityTenantConfig.adminId = order.adminId`,
       )
-      .leftJoinAndSelect("assignment.employee", "employee");
+      .leftJoinAndSelect("assignment.employee", "employee")
+      .leftJoinAndSelect("order.lastInternalNote", "lastInternalNote")
+      .leftJoinAndSelect("lastInternalNote.author", "lastInternalNoteAuthor");
 
     qb.addSelect(
       `(SELECT COUNT(*) FROM "automation_runs" ar WHERE ar."triggerEntityId" = "order".id::text AND ar."triggerEntityType" = 'order')`,
@@ -707,6 +709,13 @@ export class OrdersService {
       `(SELECT COUNT(*) FROM "order_cancel_causes" occ WHERE occ."orderId" = "order".id)`,
       "cancelCauseCount",
     );
+    if (me?.id) {
+      qb.addSelect(
+        `COALESCE(("order"."internalNotesUnreadCounts" ->> :meUnreadId)::int, 0)`,
+        "myUnreadCount",
+      );
+      qb.setParameter("meUnreadId", String(me.id));
+    }
     if (superAdmin) {
       qb.leftJoinAndSelect("order.admin", "admin");
     }
@@ -718,7 +727,7 @@ export class OrdersService {
     };
 
     // ✅ Shared order filters (same as listGroupedByDate)
-    this.applyOrdersListFilters(qb, q);
+    this.applyOrdersListFilters(qb, q, me);
 
     if (q?.excludeStatus) {
       const statusParam = q.excludeStatus;
@@ -904,6 +913,9 @@ export class OrdersService {
         cancelCauseCount: rawData?.cancelCauseCount
           ? parseInt(rawData.cancelCauseCount, 10)
           : 0,
+        myUnreadCount: rawData?.myUnreadCount
+          ? parseInt(rawData.myUnreadCount, 10)
+          : Number(order.internalNotesUnreadCounts?.[me?.id] || 0),
       };
     });
 
@@ -953,7 +965,11 @@ export class OrdersService {
   // "assignment" (when userId / hasActiveAssignment used),
   // "shipment" (when shippingStatus is used).
   // ========================================
-  private applyOrdersListFilters(qb: SelectQueryBuilder<OrderEntity>, q?: any) {
+  private applyOrdersListFilters(
+    qb: SelectQueryBuilder<OrderEntity>,
+    q?: any,
+    me?: any,
+  ) {
     if (q?.userId) {
       qb.andWhere("assignment.employeeId = :userId", {
         userId: q.userId,
@@ -1092,6 +1108,16 @@ export class OrdersService {
         }),
       );
     }
+
+    if (
+      me?.id &&
+      (q?.unreadInternalNotes === "true" || q?.unreadInternalNotes === true)
+    ) {
+      qb.andWhere(
+        `COALESCE(("order"."internalNotesUnreadCounts" ->> :meUnreadFilterId)::int, 0) > 0`,
+        { meUnreadFilterId: String(me.id) },
+      );
+    }
   }
 
   // ========================================
@@ -1139,7 +1165,7 @@ export class OrdersService {
     `;
 
     // ── Distinct days via SQL UNION + DB pagination (no full scan into memory) ─
-    const orderDaysQb = this.buildGroupedByDateOrdersQb(adminId, q)
+    const orderDaysQb = this.buildGroupedByDateOrdersQb(adminId, q, me)
       .select(orderDayExpr, "day")
       .groupBy(orderDayExpr);
 
@@ -1184,7 +1210,7 @@ export class OrdersService {
     }
 
     // ── Page stats (order aggregates + shipment counts) in parallel ─
-    const orderStatsQb = this.buildGroupedByDateOrdersQb(adminId, q);
+    const orderStatsQb = this.buildGroupedByDateOrdersQb(adminId, q, me);
     orderStatsQb
       .select(orderDayExpr, "day")
       .addSelect("COUNT(order.id)", "totalOrders")
@@ -1279,7 +1305,11 @@ export class OrdersService {
   }
 
   /** Filtered orders QB (joins + shared filters) for grouped-by-date stats. */
-  private buildGroupedByDateOrdersQb(adminId: string | null, q?: any) {
+  private buildGroupedByDateOrdersQb(
+    adminId: string | null,
+    q?: any,
+    me?: any,
+  ) {
     const qb = this.orderRepo.createQueryBuilder("order");
 
     if (adminId) {
@@ -1329,7 +1359,7 @@ export class OrdersService {
       );
     }
 
-    this.applyOrdersListFilters(qb, q);
+    this.applyOrdersListFilters(qb, q, me);
     return qb;
   }
 
@@ -3537,6 +3567,8 @@ export class OrdersService {
       .leftJoinAndSelect("order.shippingCompany", "shippingCompany")
       .leftJoinAndSelect("order.store", "store")
       .leftJoinAndSelect("order.lastCancelCause", "lastCancelCause")
+      .leftJoinAndSelect("order.lastInternalNote", "lastInternalNote")
+      .leftJoinAndSelect("lastInternalNote.author", "lastInternalNoteAuthor")
       .leftJoinAndSelect("order.cityDetails", "cityDetails")
       .leftJoinAndSelect(
         "cityDetails.tenantConfigs",
@@ -3598,6 +3630,9 @@ export class OrdersService {
       );
     }
 
+    (order as any).myUnreadCount = Number(
+      order.internalNotesUnreadCounts?.[me?.id] || 0,
+    );
     return order;
   }
 

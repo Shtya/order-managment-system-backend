@@ -355,6 +355,28 @@ export class OrderEntity {
   @Column({ type: "text", nullable: true })
   customerNotes?: string;
 
+  @Column({ type: "jsonb", default: () => "'{}'" })
+  internalNotesUnreadCounts: Record<string, number>;
+
+  @Column({ type: "jsonb", default: () => "'{}'" })
+  internalNotesLastReadAt: Record<string, string>;
+
+  @Column({ type: "uuid", nullable: true })
+  lastInternalNoteId?: string | null;
+
+  @ManyToOne(() => OrderInternalNoteEntity, {
+    nullable: true,
+    onDelete: "SET NULL",
+  })
+  @JoinColumn({ name: "lastInternalNoteId" })
+  lastInternalNote?: Relation<OrderInternalNoteEntity | null>;
+
+  @Column({ type: "timestamptz", nullable: true })
+  lastInternalNoteAt?: Date | null;
+
+  @OneToMany(() => OrderInternalNoteEntity, (note) => note.order)
+  internalNotes: OrderInternalNoteEntity[];
+
   // ✅ Relations
   @OneToMany(() => OrderItemEntity, (item) => item.order, {
     cascade: true,
@@ -733,7 +755,51 @@ export class OrderMessageEntity {
   created_at!: Date;
 }
 
+@Entity({ name: "order_internal_notes" })
+@Index(["adminId", "orderId", "created_at"])
+@Index(["orderId", "created_at", "id"])
+export class OrderInternalNoteEntity {
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
 
+  @Index()
+  @Column({ type: "uuid" })
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: "RESTRICT" })
+  @JoinColumn({ name: "adminId" })
+  admin: User;
+
+  @Index()
+  @Column({ type: "uuid" })
+  orderId: string;
+
+  @ManyToOne(() => OrderEntity, (order) => order.internalNotes, {
+    onDelete: "CASCADE",
+  })
+  @JoinColumn({ name: "orderId" })
+  order: OrderEntity;
+
+  @Index()
+  @Column({ type: "uuid" })
+  authorUserId: string;
+
+  @ManyToOne(() => User, { onDelete: "RESTRICT" })
+  @JoinColumn({ name: "authorUserId" })
+  author: User;
+
+  @Column({ type: "text" })
+  body: string;
+
+  @Column({ type: "varchar", length: 200 })
+  authorName: string;
+
+  @Column({ type: "varchar", length: 200, nullable: true })
+  authorRoleName?: string | null;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  created_at!: Date;
+}
 
 @Entity({ name: "order_replacements" })
 export class OrderReplacementEntity {

@@ -394,6 +394,12 @@ export class MarkMessagesReadDto {
   messageIds: string[];
 }
 
+export class CreateOrderInternalNoteDto {
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @IsNotEmpty({ message: i18nValidationMessage("validation.is_not_empty") })
+  body: string;
+}
+
 
 export class ReplacementItemDto {
   @IsString({ message: i18nValidationMessage('validation.is_string') })

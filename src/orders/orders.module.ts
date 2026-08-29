@@ -3,6 +3,8 @@ import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { OrdersController } from "./controllers/orders.controller";
 import { OrdersService } from "./services/orders.service";
+import { OrderInternalNotesService } from "./services/order-internal-notes.service";
+import { OrderInternalNotesController } from "./controllers/order-internal-notes.controller";
 import {
   OrderEntity,
   OrderItemEntity,
@@ -14,6 +16,7 @@ import {
   ShipmentManifestEntity,
   OrderActionLogEntity,
   ReturnRequestEntity,
+  OrderInternalNoteEntity,
 } from "entities/order.entity";
 import { ProductEntity, ProductVariantEntity } from "entities/sku.entity";
 import { StoresModule } from "src/stores/stores.module";
@@ -73,6 +76,7 @@ import { TagsModule } from "src/tags/tags.module";
       ShipmentManifestEntity,
       OrderActionLogEntity,
       ReturnRequestEntity,
+      OrderInternalNoteEntity,
     ]),
   ],
   providers: [
@@ -81,11 +85,13 @@ import { TagsModule } from "src/tags/tags.module";
     ShippingSeedService,
     OrderReplacementService,
     OrderReturnService,
+    OrderInternalNotesService,
   ],
   controllers: [
     OrdersController,
     OrderReplacemetsController,
     OrderReturnsController,
+    OrderInternalNotesController,
   ],
   exports: [OrdersService],
 })

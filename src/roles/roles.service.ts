@@ -94,6 +94,7 @@ export class RolesService implements OnModuleInit {
           "cancel-causes.getonly",
           "tags.read",
           "orders.updateTags",
+          "orders.internalNotes",
         ],
       },
       {

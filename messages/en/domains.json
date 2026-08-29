@@ -416,6 +416,7 @@
     "orders_not_return_preparing": "The following orders are not in 'Return Preparing' status: {orderNumbers}",
     "manifest_not_found": "Manifest not found",
     "order_not_found": "Order not found",
+    "internal_note_empty": "Internal note cannot be empty",
     "invalid_shipping_company": "Invalid shipping company selected.",
     "shipping_company_not_active": "{companyName} is not currently active.",
     "invalid_store": "The selected store is invalid or does not belong to your account.",
