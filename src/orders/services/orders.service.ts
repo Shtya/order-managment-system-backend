@@ -515,19 +515,28 @@ export class OrdersService {
       .addGroupBy("status.color")
       .addGroupBy("status.system")
       .addGroupBy("status.sortOrder")
-      .orderBy("status.sortOrder", "ASC")
-      .getRawMany();
+      .orderBy("status.sortOrder", "ASC");
 
     const stats = await qb.getRawMany();
-    return stats.map((stat) => ({
-      id: stat.id,
-      name: stat.name,
-      code: stat.code,
-      color: stat.color,
-      system: !!stat.system,
-      sortOrder: stat.sortOrder ?? stat.sort_order ?? stat.sortorder ?? 0,
-      count: Number(stat.count) || 0,
-    }));
+    const totalOrders = stats.reduce(
+      (sum, stat) => sum + (Number(stat.count) || 0),
+      0,
+    );
+
+    return stats.map((stat) => {
+      const count = Number(stat.count) || 0;
+      return {
+        id: stat.id,
+        name: stat.name,
+        code: stat.code,
+        color: stat.color,
+        system: !!stat.system,
+        sortOrder: stat.sortOrder ?? stat.sort_order ?? stat.sortorder ?? 0,
+        count,
+        percent:
+          totalOrders > 0 ? Math.round((count / totalOrders) * 100) : 0,
+      };
+    });
   }
 
   async getStatuses(me: any, q?: any) {
@@ -7923,15 +7932,24 @@ export class OrdersService {
       .orderBy("status.sortOrder", "ASC")
       .getRawMany();
 
-    // Map raw results to clean objects
-    return results.map((r) => ({
-      id: r.status_id,
-      name: r.status_name,
-      code: r.status_code,
-      color: r.status_color,
-      system: r.status_system,
-      count: Number(r.count),
-    }));
+    const totalOrders = results.reduce(
+      (sum, r) => sum + (Number(r.count) || 0),
+      0,
+    );
+
+    return results.map((r) => {
+      const count = Number(r.count) || 0;
+      return {
+        id: r.status_id,
+        name: r.status_name,
+        code: r.status_code,
+        color: r.status_color,
+        system: r.status_system,
+        count,
+        percent:
+          totalOrders > 0 ? Math.round((count / totalOrders) * 100) : 0,
+      };
+    });
   }
 
   ALLOWED_STATUS_CODES_FOR_ASSIGNMENT = new Set([
