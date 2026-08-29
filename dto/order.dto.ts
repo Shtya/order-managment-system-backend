@@ -245,6 +245,14 @@ export class CreateOrderDto {
   @ValidateNested({ each: true })
   @Type(() => RemovedOrderItemDto)
   removedItems?: RemovedOrderItemDto[]; // Items explicitly removed
+
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_number') })
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_number') })
+  longitude?: number;
 }
 
 // ✅ Update Order DTO

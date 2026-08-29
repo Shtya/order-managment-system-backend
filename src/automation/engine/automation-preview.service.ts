@@ -628,7 +628,7 @@ class PreviewNodeHandlersRegistry {
     );
     this.handlers.set(
       ConditionType.ORDER_CHECK,
-      new ConditionOrderCheckHandler(orderRepo),
+      new ConditionOrderCheckHandler(orderRepo, this.ordersService),
     );
     this.handlers.set(
       ActionType.UPDATE_ORDER_STATUS,

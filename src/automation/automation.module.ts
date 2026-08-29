@@ -12,7 +12,6 @@ import { TriggerDispatcherService } from "./engine/triggerDispatcher.service";
 import { EngineRunnerService } from "./engine/engineRunner.service";
 import { VariableHydratorService } from "./engine/variableHydrator.service";
 import {
-  ConditionOrderCheckHandler,
   ConditionQuickOrderStatusHandler,
   NodeHandlersRegistry,
 } from "./engine/nodeHandlers.registry";
@@ -87,7 +86,6 @@ import { AiModule } from "src/ai/ai.module";
     VariableHydratorService,
     NodeHandlersRegistry,
     ConditionQuickOrderStatusHandler,
-    ConditionOrderCheckHandler,
     ProductionAutomationAdapter,
     AutomationPreviewService,
     TriggerMatchersRegistry,

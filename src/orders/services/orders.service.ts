@@ -297,11 +297,15 @@ export class OrdersService {
   }
 
   // ✅ Generate items signature (sku:quantity|sku:quantity|...)
-  private generateItemsSignature(items: OrderItemEntity[]): string {
+  private generateItemsSignature(
+    items: OrderItemEntity[],
+    variantMap?: Map<string, ProductVariantEntity>,
+  ): string {
     if (!items || items.length === 0) return "";
     return items
       .map((item) => {
-        const sku = item.variant?.sku || "N/A";
+        const sku =
+          item.variant?.sku || variantMap?.get(item.variantId)?.sku || "N/A";
         return `${sku}:${item.quantity}`;
       })
       .join("|");
@@ -3726,7 +3730,6 @@ export class OrdersService {
         lineProfit,
       } as any);
 
-      item.variant = variant; // Attach for signature generation
       return item;
     });
 
@@ -3738,7 +3741,7 @@ export class OrdersService {
       dto.additionalFees ?? 0,
     );
 
-    const itemsSignature = this.generateItemsSignature(items);
+    const itemsSignature = this.generateItemsSignature(items, variantMap);
     const normalizedPhoneNumber = normalizeEgyptianPhoneNumber(dto.phoneNumber);
 
     // Get settings for duplicate window and auto-cancel
@@ -7876,6 +7879,51 @@ export class OrdersService {
         throw new BadRequestException(message);
       }
     }
+  }
+
+  /**
+   * Non-throwing stock check for automation conditions and read-only validations.
+   */
+  public async isStockSufficientForItems(
+    adminId: string,
+    items: {
+      variantId: string;
+      quantity: number;
+      variant?: ProductVariantEntity;
+      sku?: string;
+    }[],
+    options: {
+      isDeduction?: boolean;
+      variantMap?: Map<string, ProductVariantEntity>;
+    } = {},
+  ): Promise<boolean> {
+    if (!items.length) {
+      return false;
+    }
+
+    try {
+      await this.validateStockAvailability(adminId, items, options);
+      return true;
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  public async isStockSufficientForOrder(
+    order: Pick<OrderEntity, "adminId" | "items">,
+    options: { isDeduction?: boolean } = {},
+  ): Promise<boolean> {
+    const items = (order.items || []).map((item) => ({
+      variantId: item.variantId,
+      quantity: item.quantity,
+      variant: item.variant,
+      sku: item.variant?.sku,
+    }));
+
+    return this.isStockSufficientForItems(order.adminId, items, options);
   }
 
   async getAllowedConfirmationStatuses(me: any): Promise<OrderStatusEntity[]> {

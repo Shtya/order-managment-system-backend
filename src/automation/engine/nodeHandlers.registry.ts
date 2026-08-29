@@ -523,8 +523,32 @@ export class ConditionOrderCheckHandler extends FlowNodeHandler {
   constructor(
     @InjectRepository(OrderEntity)
     protected readonly orderRepo: Repository<OrderEntity>,
+    private readonly ordersService: OrdersService,
   ) {
     super(orderRepo);
+  }
+
+  private async resolveCheckValue(
+    check: { field: string },
+    orderData: OrderEntity | any,
+  ): Promise<any> {
+    if (check.field === "hasEnoughStock") {
+      if (orderData?.__mock) {
+        return true;
+      }
+
+      const isReplacement = Boolean(
+        orderData?.isReplacement || orderData?.replacementResult,
+      );
+
+      return this.ordersService.isStockSufficientForOrder(orderData, {
+        // Replacement orders are already reserved; check physical stock like manifest/shipping.
+        // Non-replacement orders use available stock (same as create/update validation).
+        // isDeduction: isReplacement,
+      });
+    }
+
+    return getActualFieldValue(check.field, orderData);
   }
 
   async execute(
@@ -549,7 +573,7 @@ export class ConditionOrderCheckHandler extends FlowNodeHandler {
 
       // 2. المرور على جميع الشروط (المنطق هنا هو AND: يجب أن تتطابق جميع الشروط)
       for (const check of checks) {
-        const actualValue = getActualFieldValue(check.field, orderData); // مثلاً: orderData['items_count']
+        const actualValue = await this.resolveCheckValue(check, orderData);
         const targetValue = check.targetValue; // القيمة المدخلة من المستخدم
         const operator = check.operator;
 
@@ -2679,7 +2703,7 @@ export class NodeHandlersRegistry {
     );
     this.handlers.set(
       ConditionType.ORDER_CHECK,
-      new ConditionOrderCheckHandler(this.orderRepo),
+      new ConditionOrderCheckHandler(this.orderRepo, this.ordersService),
     );
     this.handlers.set(
       ActionType.UPDATE_ORDER_STATUS,

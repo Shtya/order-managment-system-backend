@@ -53,7 +53,7 @@ export function getActualFieldValue(
     case "isReplacement":
     case "replacementResult":
       // Replacement orders have isReplacement=true and/or a linked replacementResult row
-      return Boolean(orderData?.isReplacement);
+      return Boolean(orderData?.isReplacement || orderData?.replacementResult);
     default:
       return orderData[field] || orderData[field?.toLowerCase()];
   }
