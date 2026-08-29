@@ -67,7 +67,7 @@ export class TagsService {
       activeAutomations: Number(automationRow?.activeAutomations ?? 0),
     };
   }
-
+  
   async list(me: any, q?: any) {
     const adminId = this.adminIdOf(me);
     const page = Math.max(1, Number(q?.page) || 1);
@@ -77,6 +77,7 @@ export class TagsService {
     const qb = this.tagRepo
       .createQueryBuilder("tag")
       .loadRelationCountAndMap("tag.automationsCount", "tag.automations")
+      .loadRelationCountAndMap("tag.ordersCount", "tag.orderTags")
       .where("tag.adminId = :adminId", { adminId });
 
     if (q?.search) {
