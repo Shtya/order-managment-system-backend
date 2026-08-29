@@ -11,6 +11,7 @@ export enum TriggerType {
     ORDER_UPDATED = 'order_updated',
     SHIPMENT_CREATED = 'shipment_created',
     SHIPMENT_UPDATED = 'shipment_updated',
+    ASSIGNMENT_CANCELLED = 'assignment_cancelled',
 }
 
 export enum AutomationStatus {
@@ -156,6 +157,7 @@ export interface FlowNode {
 export type NodeConfig =
     OrderCreatedConfig |
     OrderUpdatedConfig |
+    AssignmentCancelledConfig |
     UpdateOrderStatusConfig |
     AiAddressCorrectionConfig |
     AssignShippingProviderConfig |
@@ -222,6 +224,12 @@ export interface OrderCreatedConfig {
 export interface OrderUpdatedConfig {
     status?: string;
     statusId?: string;
+}
+
+export type AssignmentCancelSource = 'automatic' | 'manual' | 'both';
+
+export interface AssignmentCancelledConfig {
+    cancelSource?: AssignmentCancelSource;
 }
 
 export interface ShipmentUpdatedConfig {

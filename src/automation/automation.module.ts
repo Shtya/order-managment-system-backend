@@ -20,6 +20,7 @@ import {
   OrderUpdatedTriggerMatcher,
   ShipmentCreatedTriggerMatcher,
   ShipmentUpdatedTriggerMatcher,
+  AssignmentCancelledTriggerMatcher,
   TriggerMatchersRegistry,
 } from "./engine/triggerMatchers.registry";
 import { OrdersModule } from "src/orders/orders.module";
@@ -93,6 +94,7 @@ import { AiModule } from "src/ai/ai.module";
     OrderUpdatedTriggerMatcher,
     ShipmentUpdatedTriggerMatcher,
     ShipmentCreatedTriggerMatcher,
+    AssignmentCancelledTriggerMatcher,
     AutomationSubscriber,
     // PostCommitTasksSubscriber
   ],

@@ -5,6 +5,7 @@ import {
   OrderUpdatedConfig,
   ShipmentUpdatedConfig,
   ShipmentCreatedConfig,
+  AssignmentCancelledConfig,
 } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 
@@ -72,6 +73,23 @@ export class ShipmentUpdatedTriggerMatcher implements TriggerMatcher {
 }
 
 @Injectable()
+export class AssignmentCancelledTriggerMatcher implements TriggerMatcher {
+  shouldRun(config: AssignmentCancelledConfig, payload: any): boolean {
+    const eventSource = payload?.assignmentCancelSource;
+    if (!eventSource) {
+      return false;
+    }
+
+    const configuredSource = config.cancelSource ?? "automatic";
+    if (configuredSource === "both") {
+      return true;
+    }
+
+    return configuredSource === eventSource;
+  }
+}
+
+@Injectable()
 export class TriggerMatchersRegistry {
   private readonly matchers = new Map<TriggerType, TriggerMatcher>();
 
@@ -80,6 +98,7 @@ export class TriggerMatchersRegistry {
     private readonly orderUpdatedMatcher: OrderUpdatedTriggerMatcher,
     private readonly shipmentCreatedMatcher: ShipmentCreatedTriggerMatcher,
     private readonly shipmentUpdatedMatcher: ShipmentUpdatedTriggerMatcher,
+    private readonly assignmentCancelledMatcher: AssignmentCancelledTriggerMatcher,
   ) {
     this.registerMatchers();
   }
@@ -94,6 +113,10 @@ export class TriggerMatchersRegistry {
     this.matchers.set(
       TriggerType.SHIPMENT_UPDATED,
       this.shipmentUpdatedMatcher,
+    );
+    this.matchers.set(
+      TriggerType.ASSIGNMENT_CANCELLED,
+      this.assignmentCancelledMatcher,
     );
   }
 

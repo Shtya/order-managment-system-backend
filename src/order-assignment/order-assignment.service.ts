@@ -51,6 +51,8 @@ import { OnboardingAchievementService } from "src/queue/queues/onboarding-achiev
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
 import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
+import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
+import { TriggerEntityType, TriggerType } from "entities/automation.entity";
 
 @Injectable()
 export class OrderAssignmentService {
@@ -96,7 +98,59 @@ export class OrderAssignmentService {
     private readonly tagAutomationEvaluator: TagAutomationEvaluator,
     @Inject(forwardRef(() => AutoAssignmentQueueService))
     private readonly autoAssignmentQueueService: AutoAssignmentQueueService,
+    @Inject(forwardRef(() => TriggerDispatcherService))
+    private readonly triggerDispatcher: TriggerDispatcherService,
   ) {}
+
+  private async dispatchAssignmentCancelledAutomations(
+    adminId: string,
+    orderIds: string[],
+    cancelSource: "automatic" | "manual",
+  ) {
+    const uniqueOrderIds = [...new Set(orderIds.filter(Boolean))];
+    if (!uniqueOrderIds.length) {
+      return;
+    }
+
+    const orders = await this.orderRepo.find({
+      where: { id: In(uniqueOrderIds), adminId },
+      relations: [
+        "status",
+        "items",
+        "items.variant",
+        "items.variant.product",
+      ],
+    });
+
+    if (!orders.length) {
+      return;
+    }
+
+    const results = await Promise.allSettled(
+      orders.map((order) =>
+        this.triggerDispatcher.dispatch({
+          type: TriggerType.ASSIGNMENT_CANCELLED,
+          entityType: TriggerEntityType.ORDER,
+          entityId: order.id,
+          adminId,
+          payload: {
+            ...order,
+            assignmentCancelSource: cancelSource,
+          },
+        }),
+      ),
+    );
+
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        const orderId = orders[index]?.id ?? uniqueOrderIds[index];
+        this.logger.error(
+          `[dispatchAssignmentCancelledAutomations] Failed for order ${orderId}`,
+          result.reason instanceof Error ? result.reason.stack : result.reason,
+        );
+      }
+    });
+  }
 
   async expireAssignment(
     adminId: string,
@@ -157,6 +211,20 @@ export class OrderAssignmentService {
     this.logger.debug(
       `Expired assignment ${data.assignmentId} for order ${data.orderId}`,
     );
+
+    try {
+      await this.dispatchAssignmentCancelledAutomations(
+        adminId,
+        [data.orderId],
+        "automatic",
+      );
+    } catch (error) {
+      this.logger.error(
+        `[expireAssignment] Automation dispatch failed for order ${data.orderId}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
+
     return { success: true, assignmentId: assignment.id };
   }
 
@@ -473,6 +541,19 @@ export class OrderAssignmentService {
     } catch (error) {
       this.logger.error(
         "[removeActiveAssignments] Tag evaluate failed after unassignment",
+        error instanceof Error ? error.stack : error,
+      );
+    }
+
+    try {
+      await this.dispatchAssignmentCancelledAutomations(
+        adminId,
+        result.assignmentOrderIds,
+        "manual",
+      );
+    } catch (error) {
+      this.logger.error(
+        "[removeActiveAssignments] Automation dispatch failed after unassignment",
         error instanceof Error ? error.stack : error,
       );
     }

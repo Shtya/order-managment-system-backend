@@ -172,6 +172,7 @@ export class AutomationPreviewService {
     [TriggerType.ORDER_UPDATED]: TriggerEntityType.ORDER,
     [TriggerType.SHIPMENT_CREATED]: TriggerEntityType.ORDER,
     [TriggerType.SHIPMENT_UPDATED]: TriggerEntityType.ORDER,
+    [TriggerType.ASSIGNMENT_CANCELLED]: TriggerEntityType.ORDER,
   };
 
   constructor(
