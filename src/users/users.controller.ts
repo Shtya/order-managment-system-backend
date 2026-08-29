@@ -21,8 +21,8 @@ import { SubscriptionGuard } from "common/subscription.guard";
 import {
   AdminCreateAvatarDto,
   AdminCreateDto,
-  UpdateMeOrderStatisticsPreferencesDto,
   UpdateMeTablePreferencesDto,
+  UpdateMeStatisticsPreferencesDto,
   UpdateMeUserDto,
   UpdateUserDto,
   UpsertCompanyDto,
@@ -211,10 +211,10 @@ export class UsersController {
     return this.users.getMyTablePreferences(req.user?.id);
   }
 
-  /** Dedicated fetch — orderStatisticsPreferences is select:false on User and not on /users/me. */
-  @Get("me/order-statistics-preferences")
-  getMyOrderStatisticsPreferences(@Req() req: any) {
-    return this.users.getMyOrderStatisticsPreferences(req.user?.id);
+  /** Dedicated fetch — statisticsPreferences is select:false on User and not on /users/me. */
+  @Get("me/statistics-preferences")
+  getMyStatisticsPreferences(@Req() req: any) {
+    return this.users.getMyStatisticsPreferences(req.user?.id);
   }
 
   @Permissions("users.read")
@@ -268,15 +268,15 @@ export class UsersController {
     );
   }
 
-  /** Save order statistics visibility prefs; returns `{ orderStatisticsPreferences }`. */
-  @Patch("me/order-statistics-preferences")
-  updateMyOrderStatisticsPreferences(
+  /** Merge + save statistics visibility prefs only; returns `{ statisticsPreferences }`. */
+  @Patch("me/statistics-preferences")
+  updateMyStatisticsPreferences(
     @Req() req: any,
-    @Body() dto: UpdateMeOrderStatisticsPreferencesDto,
+    @Body() dto: UpdateMeStatisticsPreferencesDto,
   ) {
-    return this.users.updateMyOrderStatisticsPreferences(
+    return this.users.updateMyStatisticsPreferences(
       req.user?.id,
-      dto.orderStatisticsPreferences,
+      dto.statisticsPreferences,
     );
   }
 

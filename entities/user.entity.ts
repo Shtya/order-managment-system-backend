@@ -201,9 +201,9 @@ export class User {
 	@Column({ type: 'simple-json', nullable: true, default: null, select: false })
 	tablePreferences?: Record<string, any> | null;
 
-	/** Order statistics card visibility: `{ hidden: string[] }` (stat keys / status codes). Not selected by default — use dedicated me/order-statistics-preferences endpoints. */
+	/** Per-page stats visibility: `{ orders: { hidden: string[] } }`. Not selected by default — use dedicated me/statistics-preferences endpoints. */
 	@Column({ type: 'simple-json', nullable: true, default: null, select: false })
-	orderStatisticsPreferences?: { hidden?: string[] } | null;
+	statisticsPreferences?: Record<string, any> | null;
 
 	@CreateDateColumn({ type: "timestamptz" })
 	createdAt: Date;

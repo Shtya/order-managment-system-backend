@@ -53,11 +53,12 @@ export class UpdateMeTablePreferencesDto {
 	tablePreferences: Record<string, any>;
 }
 
-/** Body for PATCH /users/me/order-statistics-preferences */
-export class UpdateMeOrderStatisticsPreferencesDto {
-	/** Order stats visibility: `{ hidden: string[] }` (stat keys / status codes) */
+
+/** Body for PATCH /users/me/statistics-preferences */
+export class UpdateMeStatisticsPreferencesDto {
+	/** Per-page stats visibility: `{ orders: { hidden: string[] } }` (legacy: `string[]` = hidden only) */
 	@IsObject({ message: i18nValidationMessage('validation.is_object') })
-	orderStatisticsPreferences: { hidden?: string[] };
+	statisticsPreferences: Record<string, any>;
 }
 
 

@@ -1276,12 +1276,13 @@ export class UsersService {
     return { tablePreferences: current };
   }
 
-  /** Load orderStatisticsPreferences only (column is select: false on User). */
-  async getMyOrderStatisticsPreferences(userId: string) {
+
+  /** Load statisticsPreferences only (column is select: false on User). */
+  async getMyStatisticsPreferences(userId: string) {
     const row = await this.usersRepo
       .createQueryBuilder("user")
       .select("user.id")
-      .addSelect("user.orderStatisticsPreferences")
+      .addSelect("user.statisticsPreferences")
       .where("user.id = :userId", { userId })
       .getOne();
 
@@ -1289,27 +1290,22 @@ export class UsersService {
       throw new NotFoundException(this.translations.t("common.user_not_found"));
     }
 
-    const prefs = row.orderStatisticsPreferences;
     return {
-      orderStatisticsPreferences:
-        prefs && typeof prefs === "object"
-          ? {
-              hidden: Array.isArray((prefs as any).hidden)
-                ? (prefs as any).hidden.filter((k: unknown) => typeof k === "string")
-                : [],
-            }
-          : { hidden: [] },
+      statisticsPreferences:
+        row.statisticsPreferences && typeof row.statisticsPreferences === "object"
+          ? row.statisticsPreferences
+          : {},
     };
   }
 
-  async updateMyOrderStatisticsPreferences(
+  async updateMyStatisticsPreferences(
     userId: string,
-    patch: { hidden?: string[] },
+    patch: Record<string, any>,
   ) {
     const row = await this.usersRepo
       .createQueryBuilder("user")
       .select("user.id")
-      .addSelect("user.orderStatisticsPreferences")
+      .addSelect("user.statisticsPreferences")
       .where("user.id = :userId", { userId })
       .getOne();
 
@@ -1317,14 +1313,30 @@ export class UsersService {
       throw new NotFoundException(this.translations.t("common.user_not_found"));
     }
 
-    const next = {
-      hidden: Array.isArray(patch?.hidden)
-        ? patch.hidden.filter((k) => typeof k === "string")
-        : [],
-    };
+    const current =
+      row.statisticsPreferences && typeof row.statisticsPreferences === "object"
+        ? { ...row.statisticsPreferences }
+        : {};
 
-    await this.usersRepo.update(userId, { orderStatisticsPreferences: next });
-    return { orderStatisticsPreferences: next };
+    for (const [statsKey, pref] of Object.entries(patch || {})) {
+      if (!statsKey) continue;
+      if (Array.isArray(pref)) {
+        current[statsKey] = {
+          hidden: pref.filter((k) => typeof k === "string"),
+        };
+        continue;
+      }
+      if (pref && typeof pref === "object") {
+        current[statsKey] = {
+          hidden: Array.isArray((pref as any).hidden)
+            ? (pref as any).hidden.filter((k: unknown) => typeof k === "string")
+            : [],
+        };
+      }
+    }
+
+    await this.usersRepo.update(userId, { statisticsPreferences: current });
+    return { statisticsPreferences: current };
   }
 
   async deactivate(me: User, id: string) {
