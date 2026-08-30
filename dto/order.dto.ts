@@ -396,6 +396,7 @@ export class MarkMessagesReadDto {
 
 export class CreateOrderInternalNoteDto {
   @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @MaxLength(2000, { message: i18nValidationMessage("validation.max_length") })
   @IsNotEmpty({ message: i18nValidationMessage("validation.is_not_empty") })
   body: string;
 }
