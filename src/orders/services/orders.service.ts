@@ -6395,7 +6395,16 @@ export class OrdersService {
       .getOne();
 
     if (existing) {
+      if (existing.isActive) {
+        throw new BadRequestException(
+          this.translations.t("domains.orders.status_conflict_exists", {
+            args: { conflictType: name },
+          }),
+        );
+      }
+
       existing.isActive = true;
+      existing.deactivatedAt = null;
       existing.name = dto.name.trim();
       existing.description = dto.description?.trim();
       existing.color = dto.color.trim();
@@ -6539,10 +6548,9 @@ export class OrdersService {
     const existing = await queryBuilder.getOne();
 
     if (existing) {
-      const conflictType = existing.code === code ? "code" : "name";
       throw new BadRequestException(
         this.translations.t("domains.orders.status_conflict_exists", {
-          args: { conflictType },
+          args: { conflictType: name },
         }),
       );
     }
