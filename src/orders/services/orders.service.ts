@@ -8798,6 +8798,7 @@ export class OrdersService {
           );
         }),
       )
+      .andWhere("status.isActive = true")
       .groupBy("status.id")
       .orderBy("status.sortOrder", "ASC")
       .getRawMany();
