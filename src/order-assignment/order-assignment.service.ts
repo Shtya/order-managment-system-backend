@@ -2789,130 +2789,205 @@ export class OrderAssignmentService {
       ({ start, end } = this.defaultThisMonthBounds());
     }
 
-    const settings =
-      await this.clientSettingsService.getCachedSettings(adminId);
+    const actionAt = `COALESCE(oa."lastActionAt", oa."assignedAt")`;
+    const dayExpr = `to_char(timezone('Africa/Cairo', ${actionAt}), 'YYYY-MM-DD')`;
+
+    const [
+      settings,
+      statuses,
+      countRows,
+      previouslyConfirmedRow,
+      activeRow,
+      contactRow,
+      lockedRow,
+      lastStatusRows,
+      confirmedShipmentRow,
+      assignedRow,
+      dailyStatusRows,
+      dailyTotalRows,
+      tagRows,
+      causeRows,
+    ] = await Promise.all([
+      this.clientSettingsService.getCachedSettings(adminId),
+      this.statusRepo
+        .createQueryBuilder("status")
+        .where(
+          new Brackets((qb) => {
+            qb.where("status.adminId = :adminId", { adminId }).orWhere(
+              "status.system = true",
+            );
+          }),
+        )
+        .orderBy("status.sortOrder", "ASC")
+        .addOrderBy("status.name", "ASC")
+        .getMany(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .select("o.statusId", "statusId")
+        .addSelect("COUNT(DISTINCT oa.id)", "count")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .groupBy("o.statusId")
+        .getRawMany(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .select(
+          "COUNT(DISTINCT CASE WHEN o.isConfirmed = true THEN oa.id END)",
+          "previouslyConfirmedCount",
+        )
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .getRawOne(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .select("COUNT(DISTINCT oa.id)", "count")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere("oa.isAssignmentActive = true")
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .getRawOne(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .select("COALESCE(SUM(oa.contactTries), 0)", "contactTries")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .getRawOne(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .select("COUNT(DISTINCT oa.id)", "count")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere("oa.isAssignmentActive = true")
+        .andWhere("oa.lockedUntil IS NOT NULL")
+        .andWhere("oa.lockedUntil > :now", { now: new Date() })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .getRawOne(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .innerJoin("oa.lastStatus", "ls")
+        .select("ls.id", "statusId")
+        .addSelect("ls.code", "code")
+        .addSelect("COUNT(DISTINCT oa.id)", "count")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .groupBy("ls.id")
+        .addGroupBy("ls.code")
+        .getRawMany(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .innerJoin("oa.lastStatus", "ls")
+        .leftJoin("o.shipments", "ship")
+        .select(
+          "COUNT(DISTINCT CASE WHEN ship.id IS NULL THEN oa.id END)",
+          "withoutShipment",
+        )
+        .addSelect(
+          "COUNT(DISTINCT CASE WHEN ship.id IS NOT NULL THEN oa.id END)",
+          "withShipment",
+        )
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere("ls.code = :confirmedCode", {
+          confirmedCode: OrderStatus.CONFIRMED,
+        })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .getRawOne(),
+      this.userRepo
+        .createQueryBuilder("user")
+        .innerJoin("user.assignments", "oa")
+        .innerJoin("oa.order", "o")
+        .select("COUNT(DISTINCT oa.id)", "count")
+        .where("user.id = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .getRawOne(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .select(dayExpr, "date")
+        .addSelect("oa.lastStatusId", "statusId")
+        .addSelect("COUNT(DISTINCT oa.id)", "count")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere("oa.lastStatusId IS NOT NULL")
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .groupBy(dayExpr)
+        .addGroupBy("oa.lastStatusId")
+        .orderBy(dayExpr, "ASC")
+        .getRawMany(),
+      this.orderAssignmentRepo
+        .createQueryBuilder("oa")
+        .innerJoin("oa.order", "o")
+        .select(dayExpr, "date")
+        .addSelect("COUNT(DISTINCT oa.id)", "assigned")
+        .addSelect("COALESCE(SUM(oa.contactTries), 0)", "contactTries")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .groupBy(dayExpr)
+        .orderBy(dayExpr, "ASC")
+        .getRawMany(),
+      this.dataSource
+        .getRepository(OrderTagEntity)
+        .createQueryBuilder("ot")
+        .innerJoin("ot.tag", "t")
+        .innerJoin(OrderAssignmentEntity, "oa", "oa.orderId = ot.orderId")
+        .innerJoin("oa.order", "o")
+        .select("t.id", "id")
+        .addSelect("t.name", "name")
+        .addSelect("t.color", "color")
+        .addSelect("COUNT(DISTINCT ot.id)", "count")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .groupBy("t.id")
+        .addGroupBy("t.name")
+        .addGroupBy("t.color")
+        .orderBy("COUNT(DISTINCT ot.id)", "DESC")
+        .getRawMany(),
+      this.dataSource
+        .getRepository(OrderCancelCauseEntity)
+        .createQueryBuilder("occ")
+        .innerJoin(OrderAssignmentEntity, "oa", "oa.orderId = occ.orderId")
+        .innerJoin("oa.order", "o")
+        .select("occ.cancelCauseId", "id")
+        .addSelect("MAX(occ.causeNameSnapshot)", "name")
+        .addSelect("COUNT(DISTINCT occ.id)", "count")
+        .where("oa.employeeId = :employeeId", { employeeId })
+        .andWhere("o.adminId = :adminId", { adminId })
+        .andWhere("occ.submittedByEmployeeId = :employeeId", { employeeId })
+        .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+        .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+        .groupBy("occ.cancelCauseId")
+        .orderBy("COUNT(DISTINCT occ.id)", "DESC")
+        .getRawMany(),
+    ]);
+
     const confirmationCodes = (settings?.confirmationStatuses || []).filter(
       Boolean,
     );
-
-    const actionAt = `COALESCE(oa."lastActionAt", oa."assignedAt")`;
-
-    const statuses = await this.statusRepo
-      .createQueryBuilder("status")
-      .where(
-        new Brackets((qb) => {
-          qb.where("status.adminId = :adminId", { adminId }).orWhere(
-            "status.system = true",
-          );
-        }),
-      )
-      .orderBy("status.sortOrder", "ASC")
-      .addOrderBy("status.name", "ASC")
-      .getMany();
-
-    const countsQb = this.orderAssignmentRepo
-      .createQueryBuilder("oa")
-      .innerJoin("oa.order", "o")
-      .select("o.statusId", "statusId")
-      .addSelect("COUNT(DISTINCT oa.id)", "count")
-      .where("oa.employeeId = :employeeId", { employeeId })
-      .andWhere("o.adminId = :adminId", { adminId });
-
-    if (start) {
-      countsQb.andWhere(`${actionAt} >= :start`, { start });
-    }
-    if (end) {
-      countsQb.andWhere(`${actionAt} <= :end`, { end });
-    }
-
-    const [countRows, previouslyConfirmedRow, activeRow, contactRow, lockedRow, lastStatusRows, confirmedShipmentRow, assignedRow] =
-      await Promise.all([
-        countsQb.clone().groupBy("o.statusId").getRawMany(),
-        this.orderAssignmentRepo
-          .createQueryBuilder("oa")
-          .innerJoin("oa.order", "o")
-          .select(
-            "COUNT(DISTINCT CASE WHEN o.isConfirmed = true THEN oa.id END)",
-            "previouslyConfirmedCount",
-          )
-          .where("oa.employeeId = :employeeId", { employeeId })
-          .andWhere("o.adminId = :adminId", { adminId })
-          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
-          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
-          .getRawOne(),
-        this.orderAssignmentRepo
-          .createQueryBuilder("oa")
-          .innerJoin("oa.order", "o")
-          .select("COUNT(DISTINCT oa.id)", "count")
-          .where("oa.employeeId = :employeeId", { employeeId })
-          .andWhere("o.adminId = :adminId", { adminId })
-          .andWhere("oa.isAssignmentActive = true")
-          .getRawOne(),
-        this.orderAssignmentRepo
-          .createQueryBuilder("oa")
-          .innerJoin("oa.order", "o")
-          .select("COALESCE(SUM(oa.contactTries), 0)", "contactTries")
-          .where("oa.employeeId = :employeeId", { employeeId })
-          .andWhere("o.adminId = :adminId", { adminId })
-          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
-          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
-          .getRawOne(),
-        this.orderAssignmentRepo
-          .createQueryBuilder("oa")
-          .innerJoin("oa.order", "o")
-          .select("COUNT(DISTINCT oa.id)", "count")
-          .where("oa.employeeId = :employeeId", { employeeId })
-          .andWhere("o.adminId = :adminId", { adminId })
-          .andWhere("oa.isAssignmentActive = true")
-          .andWhere("oa.lockedUntil IS NOT NULL")
-          .andWhere("oa.lockedUntil > :now", { now: new Date() })
-          .getRawOne(),
-        this.orderAssignmentRepo
-          .createQueryBuilder("oa")
-          .innerJoin("oa.order", "o")
-          .innerJoin("oa.lastStatus", "ls")
-          .select("ls.id", "statusId")
-          .addSelect("ls.code", "code")
-          .addSelect("COUNT(DISTINCT oa.id)", "count")
-          .where("oa.employeeId = :employeeId", { employeeId })
-          .andWhere("o.adminId = :adminId", { adminId })
-          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
-          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
-          .groupBy("ls.id")
-          .addGroupBy("ls.code")
-          .getRawMany(),
-        this.orderAssignmentRepo
-          .createQueryBuilder("oa")
-          .innerJoin("oa.order", "o")
-          .innerJoin("oa.lastStatus", "ls")
-          .leftJoin("o.shipments", "ship")
-          .select(
-            "COUNT(DISTINCT CASE WHEN ship.id IS NULL THEN oa.id END)",
-            "withoutShipment",
-          )
-          .addSelect(
-            "COUNT(DISTINCT CASE WHEN ship.id IS NOT NULL THEN oa.id END)",
-            "withShipment",
-          )
-          .where("oa.employeeId = :employeeId", { employeeId })
-          .andWhere("o.adminId = :adminId", { adminId })
-          .andWhere("ls.code = :confirmedCode", {
-            confirmedCode: OrderStatus.CONFIRMED,
-          })
-          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
-          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
-          .getRawOne(),
-        this.userRepo
-          .createQueryBuilder("user")
-          .innerJoin("user.assignments", "oa")
-          .innerJoin("oa.order", "o")
-          .select("COUNT(DISTINCT oa.id)", "count")
-          .where("user.id = :employeeId", { employeeId })
-          .andWhere("o.adminId = :adminId", { adminId })
-          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
-          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
-          .getRawOne(),
-      ]);
 
     const countByStatusId: Record<string, number> = {};
     for (const row of countRows) {
@@ -3009,89 +3084,6 @@ export class OrderAssignmentService {
         count: s.count,
         percent: s.percent,
       }));
-
-    const dayExpr = `to_char(timezone('Africa/Cairo', ${actionAt}), 'YYYY-MM-DD')`;
-
-    const dailyStatusQb = this.orderAssignmentRepo
-      .createQueryBuilder("oa")
-      .innerJoin("oa.order", "o")
-      .select(dayExpr, "date")
-      .addSelect("oa.lastStatusId", "statusId")
-      .addSelect("COUNT(DISTINCT oa.id)", "count")
-      .where("oa.employeeId = :employeeId", { employeeId })
-      .andWhere("o.adminId = :adminId", { adminId })
-      .andWhere("oa.lastStatusId IS NOT NULL")
-      .groupBy(dayExpr)
-      .addGroupBy("oa.lastStatusId")
-      .orderBy(dayExpr, "ASC");
-
-    const dailyTotalsQb = this.orderAssignmentRepo
-      .createQueryBuilder("oa")
-      .innerJoin("oa.order", "o")
-      .select(dayExpr, "date")
-      .addSelect("COUNT(DISTINCT oa.id)", "assigned")
-      .addSelect("COALESCE(SUM(oa.contactTries), 0)", "contactTries")
-      .where("oa.employeeId = :employeeId", { employeeId })
-      .andWhere("o.adminId = :adminId", { adminId })
-      .groupBy(dayExpr)
-      .orderBy(dayExpr, "ASC");
-
-    if (start) {
-      dailyStatusQb.andWhere(`${actionAt} >= :start`, { start });
-      dailyTotalsQb.andWhere(`${actionAt} >= :start`, { start });
-    }
-    if (end) {
-      dailyStatusQb.andWhere(`${actionAt} <= :end`, { end });
-      dailyTotalsQb.andWhere(`${actionAt} <= :end`, { end });
-    }
-
-    const tagsQb = this.dataSource
-      .getRepository(OrderTagEntity)
-      .createQueryBuilder("ot")
-      .innerJoin("ot.tag", "t")
-      .innerJoin(OrderAssignmentEntity, "oa", "oa.orderId = ot.orderId")
-      .innerJoin("oa.order", "o")
-      .select("t.id", "id")
-      .addSelect("t.name", "name")
-      .addSelect("t.color", "color")
-      .addSelect("COUNT(DISTINCT ot.id)", "count")
-      .where("oa.employeeId = :employeeId", { employeeId })
-      .andWhere("o.adminId = :adminId", { adminId })
-      .groupBy("t.id")
-      .addGroupBy("t.name")
-      .addGroupBy("t.color")
-      .orderBy("COUNT(DISTINCT ot.id)", "DESC");
-
-    const causesQb = this.dataSource
-      .getRepository(OrderCancelCauseEntity)
-      .createQueryBuilder("occ")
-      .innerJoin(OrderAssignmentEntity, "oa", "oa.orderId = occ.orderId")
-      .innerJoin("oa.order", "o")
-      .select("occ.cancelCauseId", "id")
-      .addSelect("MAX(occ.causeNameSnapshot)", "name")
-      .addSelect("COUNT(DISTINCT occ.id)", "count")
-      .where("oa.employeeId = :employeeId", { employeeId })
-      .andWhere("o.adminId = :adminId", { adminId })
-      .andWhere("occ.submittedByEmployeeId = :employeeId", { employeeId })
-      .groupBy("occ.cancelCauseId")
-      .orderBy("COUNT(DISTINCT occ.id)", "DESC");
-
-    if (start) {
-      tagsQb.andWhere(`${actionAt} >= :start`, { start });
-      causesQb.andWhere(`${actionAt} >= :start`, { start });
-    }
-    if (end) {
-      tagsQb.andWhere(`${actionAt} <= :end`, { end });
-      causesQb.andWhere(`${actionAt} <= :end`, { end });
-    }
-
-    const [dailyStatusRows, dailyTotalRows, tagRows, causeRows] =
-      await Promise.all([
-        dailyStatusQb.getRawMany(),
-        dailyTotalsQb.getRawMany(),
-        tagsQb.getRawMany(),
-        causesQb.getRawMany(),
-      ]);
 
     const dailyMap = new Map<
       string,
