@@ -77,6 +77,12 @@ export class OrderAssignmentController {
     return this.orderAssignmentService.getNextAssignedOrder(req.user);
   }
 
+  @Permissions("orders.confirm-incoming")
+  @Get("employee/performance")
+  getMyPerformance(@Req() req: any, @Query() q: any) {
+    return this.orderAssignmentService.getMyPerformance(req.user, q);
+  }
+
   @Permissions("orders.assign")
   @Post("assign-manual")
   async manualAssignOrders(@Req() req: any, @Body() dto: ManualAssignManyDto) {

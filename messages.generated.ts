@@ -837,6 +837,11 @@ export type I18nTranslations = {
                     "date": string;
                 };
             };
+            "employeeDashboard": {
+                "tables": {
+                    "share": string;
+                };
+            };
         };
         "accounting": {
             "closing_period_start_after_last": string;

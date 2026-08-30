@@ -27,7 +27,10 @@ import {
   OrderEntity,
   OrderStatus,
   OrderStatusEntity,
+  OrderStatusPercentFrom,
 } from "entities/order.entity";
+import { OrderTagEntity } from "entities/tag.entity";
+import { OrderCancelCauseEntity } from "entities/cancel-cause.entity";
 import { AssignmentMode } from "entities/clientSettings.entity";
 import { TimeUnit } from "entities/clientSettings.entity";
 import { User } from "entities/user.entity";
@@ -2726,5 +2729,471 @@ export class OrderAssignmentService {
       return selectedEmployee;
     }
     return null;
+  }
+
+  private resolvePercentFrom(
+    system: boolean,
+    percentFrom?: string,
+  ): OrderStatusPercentFrom {
+    if (system) {
+      return OrderStatusPercentFrom.TOTAL;
+    }
+    const values = Object.values(OrderStatusPercentFrom) as string[];
+    if (percentFrom && values.includes(percentFrom)) {
+      return percentFrom as OrderStatusPercentFrom;
+    }
+    return OrderStatusPercentFrom.TOTAL;
+  }
+
+  private computeStatusPercent(
+    count: number,
+    percentFrom: OrderStatusPercentFrom,
+    totalOrders: number,
+    countsByCode: Record<string, number>,
+    previouslyConfirmedCount: number,
+  ): number {
+    let denominator = totalOrders;
+    if (percentFrom === OrderStatusPercentFrom.PREVIOUSLY_CONFIRMED) {
+      denominator = previouslyConfirmedCount;
+    } else if (percentFrom !== OrderStatusPercentFrom.TOTAL) {
+      denominator = countsByCode[percentFrom] || 0;
+    }
+    return denominator > 0 ? Math.round((count / denominator) * 100) : 0;
+  }
+
+  private defaultThisMonthBounds() {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  async getMyPerformance(me: any, q: any) {
+    const adminId = tenantId(me);
+    const employeeId = me?.id;
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    if (!employeeId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_user_id"),
+      );
+    }
+
+    let { start, end } = DateFilterUtil.getBoundaries(q?.startDate, q?.endDate);
+    if (!start && !end) {
+      ({ start, end } = this.defaultThisMonthBounds());
+    }
+
+    const settings =
+      await this.clientSettingsService.getCachedSettings(adminId);
+    const confirmationCodes = (settings?.confirmationStatuses || []).filter(
+      Boolean,
+    );
+
+    const actionAt = `COALESCE(oa."lastActionAt", oa."assignedAt")`;
+
+    const statuses = await this.statusRepo
+      .createQueryBuilder("status")
+      .where(
+        new Brackets((qb) => {
+          qb.where("status.adminId = :adminId", { adminId }).orWhere(
+            "status.system = true",
+          );
+        }),
+      )
+      .orderBy("status.sortOrder", "ASC")
+      .addOrderBy("status.name", "ASC")
+      .getMany();
+
+    const countsQb = this.orderAssignmentRepo
+      .createQueryBuilder("oa")
+      .innerJoin("oa.order", "o")
+      .select("o.statusId", "statusId")
+      .addSelect("COUNT(DISTINCT oa.id)", "count")
+      .where("oa.employeeId = :employeeId", { employeeId })
+      .andWhere("o.adminId = :adminId", { adminId });
+
+    if (start) {
+      countsQb.andWhere(`${actionAt} >= :start`, { start });
+    }
+    if (end) {
+      countsQb.andWhere(`${actionAt} <= :end`, { end });
+    }
+
+    const [countRows, previouslyConfirmedRow, activeRow, contactRow, lockedRow, lastStatusRows, confirmedShipmentRow] =
+      await Promise.all([
+        countsQb.clone().groupBy("o.statusId").getRawMany(),
+        this.orderAssignmentRepo
+          .createQueryBuilder("oa")
+          .innerJoin("oa.order", "o")
+          .select(
+            "COUNT(DISTINCT CASE WHEN o.isConfirmed = true THEN oa.id END)",
+            "previouslyConfirmedCount",
+          )
+          .where("oa.employeeId = :employeeId", { employeeId })
+          .andWhere("o.adminId = :adminId", { adminId })
+          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+          .getRawOne(),
+        this.orderAssignmentRepo
+          .createQueryBuilder("oa")
+          .innerJoin("oa.order", "o")
+          .select("COUNT(DISTINCT oa.id)", "count")
+          .where("oa.employeeId = :employeeId", { employeeId })
+          .andWhere("o.adminId = :adminId", { adminId })
+          .andWhere("oa.isAssignmentActive = true")
+          .getRawOne(),
+        this.orderAssignmentRepo
+          .createQueryBuilder("oa")
+          .innerJoin("oa.order", "o")
+          .select("COALESCE(SUM(oa.contactTries), 0)", "contactTries")
+          .where("oa.employeeId = :employeeId", { employeeId })
+          .andWhere("o.adminId = :adminId", { adminId })
+          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+          .getRawOne(),
+        this.orderAssignmentRepo
+          .createQueryBuilder("oa")
+          .innerJoin("oa.order", "o")
+          .select("COUNT(DISTINCT oa.id)", "count")
+          .where("oa.employeeId = :employeeId", { employeeId })
+          .andWhere("o.adminId = :adminId", { adminId })
+          .andWhere("oa.isAssignmentActive = true")
+          .andWhere("oa.lockedUntil IS NOT NULL")
+          .andWhere("oa.lockedUntil > :now", { now: new Date() })
+          .getRawOne(),
+        this.orderAssignmentRepo
+          .createQueryBuilder("oa")
+          .innerJoin("oa.order", "o")
+          .innerJoin("oa.lastStatus", "ls")
+          .select("ls.id", "statusId")
+          .addSelect("ls.code", "code")
+          .addSelect("COUNT(DISTINCT oa.id)", "count")
+          .where("oa.employeeId = :employeeId", { employeeId })
+          .andWhere("o.adminId = :adminId", { adminId })
+          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+          .groupBy("ls.id")
+          .addGroupBy("ls.code")
+          .getRawMany(),
+        this.orderAssignmentRepo
+          .createQueryBuilder("oa")
+          .innerJoin("oa.order", "o")
+          .innerJoin("oa.lastStatus", "ls")
+          .leftJoin("o.shipments", "ship")
+          .select(
+            "COUNT(DISTINCT CASE WHEN ship.id IS NULL THEN oa.id END)",
+            "withoutShipment",
+          )
+          .addSelect(
+            "COUNT(DISTINCT CASE WHEN ship.id IS NOT NULL THEN oa.id END)",
+            "withShipment",
+          )
+          .where("oa.employeeId = :employeeId", { employeeId })
+          .andWhere("o.adminId = :adminId", { adminId })
+          .andWhere("ls.code = :confirmedCode", {
+            confirmedCode: OrderStatus.CONFIRMED,
+          })
+          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+          .getRawOne(),
+      ]);
+
+    const countByStatusId: Record<string, number> = {};
+    for (const row of countRows) {
+      if (!row.statusId) continue;
+      countByStatusId[String(row.statusId)] = Number(row.count) || 0;
+    }
+
+    const assigned = Object.values(countByStatusId).reduce(
+      (sum, n) => sum + n,
+      0,
+    );
+    const previouslyConfirmedCount = Number(
+      previouslyConfirmedRow?.previouslyConfirmedCount ??
+        previouslyConfirmedRow?.previouslyconfirmedcount ??
+        0,
+    );
+
+    const countsByCode: Record<string, number> = {};
+    for (const status of statuses) {
+      countsByCode[status.code] = countByStatusId[status.id] || 0;
+    }
+
+    const catalog = statuses.map((status) => {
+      const percentFrom = this.resolvePercentFrom(
+        !!status.system,
+        status.percentFrom,
+      );
+      const count = countByStatusId[status.id] || 0;
+      return {
+        id: status.id,
+        code: status.code,
+        name: status.name,
+        color: status.color,
+        system: !!status.system,
+        sortOrder: status.sortOrder,
+        percentFrom,
+        count,
+        percent: this.computeStatusPercent(
+          count,
+          percentFrom,
+          assigned,
+          countsByCode,
+          previouslyConfirmedCount,
+        ),
+      };
+    });
+
+    const byStatus = catalog.map((s) => ({
+      statusId: s.id,
+      count: s.count,
+      percent: s.percent,
+    }));
+
+    const lastStatusCountById: Record<string, number> = {};
+    const lastStatusCountByCode: Record<string, number> = {};
+    for (const row of lastStatusRows) {
+      const count = Number(row.count) || 0;
+      if (row.statusId) lastStatusCountById[String(row.statusId)] = count;
+      if (row.code) lastStatusCountByCode[String(row.code)] = count;
+    }
+
+    const confirmationStatuses = statuses
+      .filter((status) => confirmationCodes.includes(status.code))
+      .map((status) => {
+        const percentFrom = this.resolvePercentFrom(
+          !!status.system,
+          status.percentFrom,
+        );
+        const count = lastStatusCountById[status.id] || 0;
+        return {
+          id: status.id,
+          code: status.code,
+          name: status.name,
+          color: status.color,
+          system: !!status.system,
+          sortOrder: status.sortOrder,
+          percentFrom,
+          count,
+          percent: this.computeStatusPercent(
+            count,
+            percentFrom,
+            assigned,
+            lastStatusCountByCode,
+            previouslyConfirmedCount,
+          ),
+        };
+      });
+
+    const statusBreakdown = [...catalog]
+      .sort((a, b) => b.count - a.count)
+      .map((s) => ({
+        statusId: s.id,
+        code: s.code,
+        name: s.name,
+        color: s.color,
+        system: s.system,
+        count: s.count,
+        percent: s.percent,
+      }));
+
+    const dayExpr = `to_char(timezone('Africa/Cairo', ${actionAt}), 'YYYY-MM-DD')`;
+
+    const dailyStatusQb = this.orderAssignmentRepo
+      .createQueryBuilder("oa")
+      .innerJoin("oa.order", "o")
+      .select(dayExpr, "date")
+      .addSelect("oa.lastStatusId", "statusId")
+      .addSelect("COUNT(DISTINCT oa.id)", "count")
+      .where("oa.employeeId = :employeeId", { employeeId })
+      .andWhere("o.adminId = :adminId", { adminId })
+      .andWhere("oa.lastStatusId IS NOT NULL")
+      .groupBy(dayExpr)
+      .addGroupBy("oa.lastStatusId")
+      .orderBy(dayExpr, "ASC");
+
+    const dailyTotalsQb = this.orderAssignmentRepo
+      .createQueryBuilder("oa")
+      .innerJoin("oa.order", "o")
+      .select(dayExpr, "date")
+      .addSelect("COUNT(DISTINCT oa.id)", "assigned")
+      .addSelect("COALESCE(SUM(oa.contactTries), 0)", "contactTries")
+      .where("oa.employeeId = :employeeId", { employeeId })
+      .andWhere("o.adminId = :adminId", { adminId })
+      .groupBy(dayExpr)
+      .orderBy(dayExpr, "ASC");
+
+    if (start) {
+      dailyStatusQb.andWhere(`${actionAt} >= :start`, { start });
+      dailyTotalsQb.andWhere(`${actionAt} >= :start`, { start });
+    }
+    if (end) {
+      dailyStatusQb.andWhere(`${actionAt} <= :end`, { end });
+      dailyTotalsQb.andWhere(`${actionAt} <= :end`, { end });
+    }
+
+    const tagsQb = this.dataSource
+      .getRepository(OrderTagEntity)
+      .createQueryBuilder("ot")
+      .innerJoin("ot.tag", "t")
+      .innerJoin(OrderAssignmentEntity, "oa", "oa.orderId = ot.orderId")
+      .innerJoin("oa.order", "o")
+      .select("t.id", "id")
+      .addSelect("t.name", "name")
+      .addSelect("t.color", "color")
+      .addSelect("COUNT(DISTINCT ot.id)", "count")
+      .where("oa.employeeId = :employeeId", { employeeId })
+      .andWhere("o.adminId = :adminId", { adminId })
+      .groupBy("t.id")
+      .addGroupBy("t.name")
+      .addGroupBy("t.color")
+      .orderBy("COUNT(DISTINCT ot.id)", "DESC");
+
+    const causesQb = this.dataSource
+      .getRepository(OrderCancelCauseEntity)
+      .createQueryBuilder("occ")
+      .innerJoin(OrderAssignmentEntity, "oa", "oa.orderId = occ.orderId")
+      .innerJoin("oa.order", "o")
+      .select("occ.cancelCauseId", "id")
+      .addSelect("MAX(occ.causeNameSnapshot)", "name")
+      .addSelect("COUNT(DISTINCT occ.id)", "count")
+      .where("oa.employeeId = :employeeId", { employeeId })
+      .andWhere("o.adminId = :adminId", { adminId })
+      .andWhere("occ.submittedByEmployeeId = :employeeId", { employeeId })
+      .groupBy("occ.cancelCauseId")
+      .orderBy("COUNT(DISTINCT occ.id)", "DESC");
+
+    if (start) {
+      tagsQb.andWhere(`${actionAt} >= :start`, { start });
+      causesQb.andWhere(`${actionAt} >= :start`, { start });
+    }
+    if (end) {
+      tagsQb.andWhere(`${actionAt} <= :end`, { end });
+      causesQb.andWhere(`${actionAt} <= :end`, { end });
+    }
+
+    const [dailyStatusRows, dailyTotalRows, tagRows, causeRows] =
+      await Promise.all([
+        dailyStatusQb.getRawMany(),
+        dailyTotalsQb.getRawMany(),
+        tagsQb.getRawMany(),
+        causesQb.getRawMany(),
+      ]);
+
+    const dailyMap = new Map<
+      string,
+      { date: string; assigned: number; contactTries: number; byStatus: Record<string, number> }
+    >();
+
+    for (const row of dailyTotalRows) {
+      const date = String(row.date);
+      dailyMap.set(date, {
+        date,
+        assigned: Number(row.assigned) || 0,
+        contactTries: Number(row.contactTries ?? row.contacttries) || 0,
+        byStatus: {},
+      });
+    }
+    for (const row of dailyStatusRows) {
+      const date = String(row.date);
+      if (!dailyMap.has(date)) {
+        dailyMap.set(date, {
+          date,
+          assigned: 0,
+          contactTries: 0,
+          byStatus: {},
+        });
+      }
+      if (row.statusId) {
+        dailyMap.get(date)!.byStatus[String(row.statusId)] =
+          Number(row.count) || 0;
+      }
+    }
+
+    const daily = Array.from(dailyMap.values()).sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
+
+    const tagTotal = tagRows.reduce((s, r) => s + (Number(r.count) || 0), 0);
+    const causeTotal = causeRows.reduce(
+      (s, r) => s + (Number(r.count) || 0),
+      0,
+    );
+
+    const contactTries =
+      Number(contactRow?.contactTries ?? contactRow?.contacttries) || 0;
+    const confirmedCount =
+      lastStatusCountByCode[OrderStatus.CONFIRMED] || 0;
+    const shippedNow = countsByCode[OrderStatus.SHIPPED] || 0;
+    const deliveredCount = countsByCode[OrderStatus.DELIVERED] || 0;
+    const returnedCount =
+      (countsByCode[OrderStatus.RETURNED] || 0) +
+      (countsByCode[OrderStatus.PARTIALLY_RETURNED] || 0);
+    const shippedEver = shippedNow + deliveredCount + returnedCount;
+    const confirmedWithShipment =
+      Number(
+        confirmedShipmentRow?.withShipment ??
+          confirmedShipmentRow?.withshipment,
+      ) || 0;
+    const confirmedNotShipped =
+      Number(
+        confirmedShipmentRow?.withoutShipment ??
+          confirmedShipmentRow?.withoutshipment,
+      ) || 0;
+
+    return {
+      statuses: catalog.map(({ count: _c, percent: _p, ...rest }) => rest),
+      confirmationStatuses,
+      kpis: {
+        assigned,
+        activeAssignments: Number(activeRow?.count) || 0,
+        lockedAssignments: Number(lockedRow?.count) || 0,
+        contactTries,
+        confirmRate:
+          assigned > 0 ? Math.round((confirmedCount / assigned) * 100) : 0,
+        avgContactTries:
+          assigned > 0
+            ? Math.round((contactTries / assigned) * 10) / 10
+            : 0,
+        confirmedCount,
+        shippedNow,
+        delivered: deliveredCount,
+        returned: returnedCount,
+        shippedEver,
+        shippedOfConfirmedPercent:
+          confirmedCount > 0
+            ? Math.round((confirmedWithShipment / confirmedCount) * 100)
+            : 0,
+        confirmedNotShipped,
+        byStatus,
+      },
+      daily,
+      statusBreakdown,
+      tags: tagRows.map((r) => {
+        const count = Number(r.count) || 0;
+        return {
+          id: r.id,
+          name: r.name,
+          color: r.color,
+          count,
+          percent: tagTotal > 0 ? Math.round((count / tagTotal) * 100) : 0,
+        };
+      }),
+      cancelCauses: causeRows.map((r) => {
+        const count = Number(r.count) || 0;
+        return {
+          id: r.id,
+          name: r.name,
+          count,
+          percent: causeTotal > 0 ? Math.round((count / causeTotal) * 100) : 0,
+        };
+      }),
+    };
   }
 }

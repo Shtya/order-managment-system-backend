@@ -695,6 +695,11 @@
         "status": "الحالة",
         "date": "التاريخ"
       }
+    },
+    "employeeDashboard": {
+      "tables": {
+        "share": "النسبة من إجمالي عدد التاجات"
+      }
     }
   },
   "accounting": {
