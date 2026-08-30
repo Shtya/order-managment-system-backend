@@ -1875,25 +1875,23 @@ export class OrdersService {
       );
     }
 
-    const total =
-      useCursorPagination && hasCursorValue
-        ? 0
-        : Number(
-            (
-              await qb
-                .clone()
-                .select("COUNT(DISTINCT shipment.id)", "count")
-                .orderBy()
-                .getRawOne()
-            )?.count,
-          ) || 0;
-
-    const idRows = await qb
-      .clone()
-      .select("shipment.id", "id")
-      .addSelect("shipment.shippedAt", "shippedAt")
-      .take(useCursorPagination ? limit + 1 : limit)
-      .getRawMany();
+    const skipTotal = useCursorPagination && hasCursorValue;
+    const [totalRow, idRows] = await Promise.all([
+      skipTotal
+        ? Promise.resolve(null)
+        : qb
+            .clone()
+            .select("COUNT(DISTINCT shipment.id)", "count")
+            .orderBy()
+            .getRawOne(),
+      qb
+        .clone()
+        .select("shipment.id", "id")
+        .addSelect("shipment.shippedAt", "shippedAt")
+        .take(useCursorPagination ? limit + 1 : limit)
+        .getRawMany(),
+    ]);
+    const total = skipTotal ? 0 : Number(totalRow?.count) || 0;
 
     const hasMore = useCursorPagination ? idRows.length > limit : undefined;
     if (hasMore) {
