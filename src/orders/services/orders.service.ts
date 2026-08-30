@@ -34,6 +34,7 @@ import {
   PaymentStatus,
   OrderStatusEntity,
   OrderStatus,
+  OrderStatusPercentFrom,
   OrderConfirmationSource,
   slugify,
   OrderReplacementEntity,
@@ -462,6 +463,54 @@ export class OrdersService {
   // ========================================
   // ✅ STATS
   // ========================================
+  private resolvePercentFrom(
+    system: boolean,
+    percentFrom?: string,
+  ): OrderStatusPercentFrom {
+    if (system) {
+      return OrderStatusPercentFrom.TOTAL;
+    }
+
+    const values = Object.values(OrderStatusPercentFrom) as string[];
+    if (percentFrom && values.includes(percentFrom)) {
+      return percentFrom as OrderStatusPercentFrom;
+    }
+
+    return OrderStatusPercentFrom.TOTAL;
+  }
+
+  private buildStatusCountsByCode(
+    stats: Array<{
+      code?: string;
+      status_code?: string;
+      count?: string | number;
+    }>,
+  ): Record<string, number> {
+    const counts: Record<string, number> = {};
+    for (const stat of stats) {
+      const code = stat.code ?? stat.status_code;
+      if (!code) continue;
+      counts[code] = Number(stat.count) || 0;
+    }
+    return counts;
+  }
+
+  private computeStatusPercent(
+    count: number,
+    percentFrom: OrderStatusPercentFrom,
+    totalOrders: number,
+    countsByCode: Record<string, number>,
+    previouslyConfirmedCount: number,
+  ): number {
+    let denominator = totalOrders;
+    if (percentFrom === OrderStatusPercentFrom.PREVIOUSLY_CONFIRMED) {
+      denominator = previouslyConfirmedCount;
+    } else if (percentFrom !== OrderStatusPercentFrom.TOTAL) {
+      denominator = countsByCode[percentFrom] || 0;
+    }
+    return denominator > 0 ? Math.round((count / denominator) * 100) : 0;
+  }
+
   async getStats(me: any, q?: any) {
     const superAdmin = isSuperAdmin(me);
     let adminId = tenantId(me);
@@ -490,8 +539,13 @@ export class OrdersService {
       "status.color  AS color",
       "status.system AS system",
       "status.sortOrder AS sortOrder",
+      "status.percentFrom AS \"percentFrom\"",
     ])
       .addSelect("COUNT(o.id)", "count")
+      .addSelect(
+        "COUNT(CASE WHEN o.isConfirmed = true THEN o.id END)",
+        "previouslyConfirmedCount",
+      )
       .where(
         new Brackets((qb) => {
           if (superAdmin && !q?.adminId) {
@@ -520,6 +574,7 @@ export class OrdersService {
       .addGroupBy("status.color")
       .addGroupBy("status.system")
       .addGroupBy("status.sortOrder")
+      .addGroupBy("status.percentFrom")
       .orderBy("status.sortOrder", "ASC");
 
     const stats = await qb.getRawMany();
@@ -527,19 +582,39 @@ export class OrdersService {
       (sum, stat) => sum + (Number(stat.count) || 0),
       0,
     );
+    const countsByCode = this.buildStatusCountsByCode(stats);
+    const previouslyConfirmedCount = stats.reduce(
+      (sum, stat) =>
+        sum +
+        (Number(
+          stat.previouslyConfirmedCount ?? stat.previouslyconfirmedcount,
+        ) || 0),
+      0,
+    );
 
     return stats.map((stat) => {
       const count = Number(stat.count) || 0;
+      const system = !!stat.system;
+      const percentFrom = this.resolvePercentFrom(
+        system,
+        stat.percentFrom  ?? stat.percent_from,
+      );
       return {
         id: stat.id,
         name: stat.name,
         code: stat.code,
         color: stat.color,
-        system: !!stat.system,
+        system,
         sortOrder: stat.sortOrder ?? stat.sort_order ?? stat.sortorder ?? 0,
+        percentFrom,
         count,
-        percent:
-          totalOrders > 0 ? Math.round((count / totalOrders) * 100) : 0,
+        percent: this.computeStatusPercent(
+          count,
+          percentFrom,
+          totalOrders,
+          countsByCode,
+          previouslyConfirmedCount,
+        ),
       };
     });
   }
@@ -567,6 +642,7 @@ export class OrdersService {
         "status.color  AS color",
         "status.system AS system",
         "status.sortOrder AS sortOrder",
+        "status.percentFrom AS percentFrom",
       ])
       .where(
         new Brackets((qb) => {
@@ -591,6 +667,10 @@ export class OrdersService {
       color: stat.color,
       system: !!stat.system,
       sortOrder: stat.sortOrder ?? stat.sort_order ?? stat.sortorder ?? 0,
+      percentFrom: this.resolvePercentFrom(
+        !!stat.system,
+        stat.percentFrom ?? stat.percent_from,
+      ),
     }));
   }
 
@@ -6322,6 +6402,7 @@ export class OrdersService {
       existing.description = dto.description?.trim();
       existing.color = dto.color.trim();
       existing.sortOrder = dto.sortOrder;
+      existing.percentFrom = this.resolvePercentFrom(false, dto.percentFrom);
       existing.system = false;
 
       const saved = await this.statusRepo.save(existing);
@@ -6352,6 +6433,7 @@ export class OrdersService {
       description: dto.description?.trim(),
       color: dto.color.trim(),
       sortOrder: dto.sortOrder,
+      percentFrom: this.resolvePercentFrom(false, dto.percentFrom),
       adminId: adminId,
       system: false, // Force false for admin-created statuses
     });
@@ -6402,6 +6484,10 @@ export class OrdersService {
       description: dto.description?.trim(),
       color: dto.color.trim(),
       sortOrder: dto.sortOrder,
+      percentFrom: this.resolvePercentFrom(
+        false,
+        dto.percentFrom ?? status.percentFrom,
+      ),
     });
 
     const saved = await this.statusRepo.save(status);
@@ -8700,8 +8786,13 @@ export class OrdersService {
         "status.code",
         "status.color",
         "status.system",
+        "status.percentFrom",
       ])
       .addSelect("COUNT(assignment.id)", "count")
+      .addSelect(
+        "COUNT(CASE WHEN order.isConfirmed = true THEN assignment.id END)",
+        "previouslyConfirmedCount",
+      )
       .where(
         new Brackets((qb) => {
           qb.where("status.adminId = :adminId", { adminId }).orWhere(
@@ -8717,18 +8808,38 @@ export class OrdersService {
       (sum, r) => sum + (Number(r.count) || 0),
       0,
     );
+    const countsByCode = this.buildStatusCountsByCode(results);
+    const previouslyConfirmedCount = results.reduce(
+      (sum, r) =>
+        sum +
+        (Number(
+          r.previouslyConfirmedCount ?? r.previouslyconfirmedcount,
+        ) || 0),
+      0,
+    );
 
     return results.map((r) => {
       const count = Number(r.count) || 0;
+      const system = !!r.status_system;
+      const percentFrom = this.resolvePercentFrom(
+        system,
+        r.status_percentFrom ?? r.status_percent_from,
+      );
       return {
         id: r.status_id,
         name: r.status_name,
         code: r.status_code,
         color: r.status_color,
-        system: r.status_system,
+        system,
+        percentFrom,
         count,
-        percent:
-          totalOrders > 0 ? Math.round((count / totalOrders) * 100) : 0,
+        percent: this.computeStatusPercent(
+          count,
+          percentFrom,
+          totalOrders,
+          countsByCode,
+          previouslyConfirmedCount,
+        ),
       };
     });
   }

@@ -67,6 +67,17 @@ export enum OrderStatus {
   PARTIALLY_RETURNED = "partially_returned", // Partially returned
 }
 
+export enum OrderStatusPercentFrom {
+  TOTAL = "total",
+  NEW = "new",
+  CONFIRMED = "confirmed",
+  CANCELLED = "cancelled",
+  SHIPPED = "shipped",
+  DELIVERED = "delivered",
+  RETURNED = "returned",
+  PREVIOUSLY_CONFIRMED = "previously_confirmed",
+}
+
 
 //final (delivered)
 @Entity("order_statuses")
@@ -93,6 +104,14 @@ export class OrderStatusEntity extends ActivatableEntity {
 
   @Column({ type: "varchar", length: 7, default: "#000000" })
   color: string; // Hex code for UI display
+
+  @Column({
+    type: "varchar",
+    length: 40,
+    default: OrderStatusPercentFrom.TOTAL,
+  })
+  percentFrom: OrderStatusPercentFrom;
+
   @OneToMany(() => OrderEntity, (order) => order.status)
   orders: OrderEntity[];
 

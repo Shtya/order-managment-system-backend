@@ -28,6 +28,7 @@ import {
   PaymentMethod,
   DamageResponsibility,
   OrderConfirmationSource,
+  OrderStatusPercentFrom,
 } from "entities/order.entity";
 import { i18nValidationMessage } from "nestjs-i18n";
 
@@ -49,6 +50,12 @@ export class CreateStatusDto {
   @IsOptional()
   @IsHexColor()
   color?: string; // Ensures #000000 format
+
+  @IsOptional()
+  @IsEnum(OrderStatusPercentFrom, {
+    message: i18nValidationMessage("validation.is_enum"),
+  })
+  percentFrom?: OrderStatusPercentFrom;
 }
 export class UpdateStatusDto extends PartialType(CreateStatusDto) {
   @IsOptional()
