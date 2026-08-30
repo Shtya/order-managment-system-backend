@@ -2825,7 +2825,7 @@ export class OrderAssignmentService {
       countsQb.andWhere(`${actionAt} <= :end`, { end });
     }
 
-    const [countRows, previouslyConfirmedRow, activeRow, contactRow, lockedRow, lastStatusRows, confirmedShipmentRow] =
+    const [countRows, previouslyConfirmedRow, activeRow, contactRow, lockedRow, lastStatusRows, confirmedShipmentRow, assignedRow] =
       await Promise.all([
         countsQb.clone().groupBy("o.statusId").getRawMany(),
         this.orderAssignmentRepo
@@ -2902,6 +2902,16 @@ export class OrderAssignmentService {
           .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
           .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
           .getRawOne(),
+        this.userRepo
+          .createQueryBuilder("user")
+          .innerJoin("user.assignments", "oa")
+          .innerJoin("oa.order", "o")
+          .select("COUNT(DISTINCT oa.id)", "count")
+          .where("user.id = :employeeId", { employeeId })
+          .andWhere("o.adminId = :adminId", { adminId })
+          .andWhere(start ? `${actionAt} >= :start` : "1=1", { start })
+          .andWhere(end ? `${actionAt} <= :end` : "1=1", { end })
+          .getRawOne(),
       ]);
 
     const countByStatusId: Record<string, number> = {};
@@ -2910,10 +2920,7 @@ export class OrderAssignmentService {
       countByStatusId[String(row.statusId)] = Number(row.count) || 0;
     }
 
-    const assigned = Object.values(countByStatusId).reduce(
-      (sum, n) => sum + n,
-      0,
-    );
+    const assigned = Number(assignedRow?.count) || 0;
     const previouslyConfirmedCount = Number(
       previouslyConfirmedRow?.previouslyConfirmedCount ??
         previouslyConfirmedRow?.previouslyconfirmedcount ??
