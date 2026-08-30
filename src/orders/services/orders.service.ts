@@ -1529,6 +1529,568 @@ export class OrdersService {
     return workbook.xlsx.writeBuffer();
   }
 
+  // ========================================
+  // ✅ LIST SHIPMENTS GROUPED BY shippedAt DATE (shipping tab groups view)
+  // ========================================
+  async listShipmentsGroupedByShippedDate(me: any, q?: any) {
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
+    if (!superAdmin && !adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const page = Math.max(1, Number(q?.page ?? 1));
+    const limit = Math.max(1, Number(q?.limit ?? 10));
+    const dayExpr = `DATE(shipment."shippedAt")::text`;
+
+    const lateCondition = `
+      "cityTenantConfig"."maxShippingDays" IS NOT NULL
+      AND (CURRENT_DATE - DATE(shipment."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"
+    `;
+
+    const daysQb = this.buildShippedGroupsBaseQb(adminId, q);
+    const [pageDayRows, totalGroupsRaw] = await Promise.all([
+      daysQb
+        .clone()
+        .select(dayExpr, "day")
+        .groupBy(dayExpr)
+        .orderBy("day", "DESC")
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .getRawMany(),
+      daysQb
+        .clone()
+        .select(`COUNT(DISTINCT ${dayExpr})`, "count")
+        .getRawOne(),
+    ]);
+
+    const totalGroups = Number(totalGroupsRaw?.count) || 0;
+    const pageDays = pageDayRows.map((r) => r.day).filter(Boolean);
+
+    if (!pageDays.length) {
+      return {
+        total_records: totalGroups,
+        current_page: page,
+        per_page: limit,
+        records: [],
+      };
+    }
+
+    const statsQb = this.buildShippedGroupsBaseQb(adminId, q);
+    statsQb
+      .select(dayExpr, "day")
+      .addSelect("COUNT(shipment.id)", "totalShipments")
+      .addSelect(
+        `COUNT(CASE WHEN shipment.status = :shippedDeliveredStatus THEN 1 END)`,
+        "delivered",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN shipment.status = :shippedReturnedStatus THEN 1 END)`,
+        "returned",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN ${lateCondition} THEN 1 END)`,
+        "late",
+      )
+      .andWhere(`${dayExpr} IN (:...pageDays)`, { pageDays })
+      .setParameter("shippedDeliveredStatus", ShipmentStatus.DELIVERED)
+      .setParameter("shippedReturnedStatus", ShipmentStatus.RETURNED_TO_WAREHOUSE)
+      .groupBy(dayExpr);
+
+    const salesQb = this.buildShippedGroupsBaseQb(adminId, q);
+    salesQb
+      .select(dayExpr, "day")
+      .addSelect(`"order".id`, "orderId")
+      .addSelect(`MAX("order"."finalTotal")`, "finalTotal")
+      .andWhere(`${dayExpr} IN (:...pageDays)`, { pageDays })
+      .groupBy(dayExpr)
+      .addGroupBy(`"order".id`);
+
+    const companyQb = this.buildShippedGroupsBaseQb(adminId, q);
+    companyQb
+      .select(dayExpr, "day")
+      .addSelect(`shipment."shippingCompanyId"`, "companyId")
+      .addSelect("shippingCompany.name", "companyName")
+      .addSelect("COUNT(shipment.id)", "count")
+      .andWhere(`${dayExpr} IN (:...pageDays)`, { pageDays })
+      .groupBy(dayExpr)
+      .addGroupBy(`shipment."shippingCompanyId"`)
+      .addGroupBy("shippingCompany.name")
+      .orderBy(dayExpr, "DESC")
+      .addOrderBy("count", "DESC");
+
+    const tagQb = this.buildShippedGroupsTagStatsQb(adminId, q, pageDays);
+
+    const [statsRows, salesRows, companyRows, tagRows] = await Promise.all([
+      statsQb.getRawMany(),
+      salesQb.getRawMany(),
+      companyQb.getRawMany(),
+      tagQb.getRawMany(),
+    ]);
+
+    const salesByDay = new Map<string, number>();
+    salesRows.forEach((row) => {
+      const prev = salesByDay.get(row.day) || 0;
+      salesByDay.set(row.day, prev + (Number(row.finalTotal) || 0));
+    });
+
+    const statsByDay = new Map(
+      statsRows.map((row) => [
+        row.day,
+        {
+          totalShipments: Number(row.totalShipments) || 0,
+          delivered: Number(row.delivered) || 0,
+          returned: Number(row.returned) || 0,
+          late: Number(row.late) || 0,
+          totalAmount: salesByDay.get(row.day) || 0,
+          companies: [] as Array<{
+            companyId: string | null;
+            companyName: string | null;
+            count: number;
+          }>,
+          tags: [] as Array<{
+            id: string;
+            name: string;
+            color: string | null;
+            count: number;
+          }>,
+        },
+      ]),
+    );
+
+    companyRows.forEach((row) => {
+      const entry = statsByDay.get(row.day);
+      if (!entry) return;
+      entry.companies.push({
+        companyId: row.companyId ?? null,
+        companyName: row.companyName ?? null,
+        count: Number(row.count) || 0,
+      });
+    });
+
+    tagRows.forEach((row) => {
+      const entry = statsByDay.get(row.day);
+      if (!entry) return;
+      entry.tags.push({
+        id: row.tagId,
+        name: row.tagName,
+        color: row.tagColor ?? null,
+        count: Number(row.count) || 0,
+      });
+    });
+
+    const emptyStats = {
+      totalShipments: 0,
+      delivered: 0,
+      returned: 0,
+      late: 0,
+      totalAmount: 0,
+      companies: [],
+      tags: [],
+    };
+
+    const records = pageDays.map((day) => ({
+      date: day,
+      statistics: statsByDay.get(day) || emptyStats,
+    }));
+
+    return {
+      total_records: totalGroups,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
+
+  /**
+   * Expand a shipped-date group: one row per ShipmentEntity (with its order),
+   * not the orders list.
+   */
+  async listShipmentsForShippedGroupDate(me: any, q?: any) {
+    const superAdmin = isSuperAdmin(me);
+    let adminId = tenantId(me);
+
+    if (superAdmin && q?.adminId) {
+      adminId = q.adminId;
+    }
+
+    if (!superAdmin && !adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const groupDate = String(q?.shipmentGroupDate ?? "").trim();
+    if (!groupDate) {
+      throw new BadRequestException("shipmentGroupDate is required");
+    }
+
+    const cursor = this.parseListCursor(q?.cursor);
+    const useCursorPagination =
+      q?.useCursor === "true" ||
+      q?.useCursor === true ||
+      !!(cursor?.value && cursor?.id);
+    const hasCursorValue = !!(cursor?.value && cursor?.id);
+    const limit = Math.max(1, Number(q?.limit ?? 20));
+    const sortDir: "ASC" | "DESC" = "DESC";
+
+    const qb = this.buildShippedGroupsBaseQb(adminId, q);
+    qb.andWhere(`DATE(shipment."shippedAt")::text = :shipmentGroupDate`, {
+      shipmentGroupDate: groupDate,
+    });
+
+    if (q?.shipmentGroupCompanyId === "none") {
+      qb.andWhere(`shipment."shippingCompanyId" IS NULL`);
+    } else if (q?.shipmentGroupCompanyId) {
+      qb.andWhere(`shipment."shippingCompanyId" = :shipmentGroupCompanyId`, {
+        shipmentGroupCompanyId: String(q.shipmentGroupCompanyId),
+      });
+    }
+
+    qb.orderBy(`shipment."shippedAt"`, sortDir).addOrderBy(
+      "shipment.id",
+      sortDir,
+    );
+
+    if (useCursorPagination && hasCursorValue) {
+      const operator = sortDir === "DESC" ? "<" : ">";
+      qb.andWhere(
+        `(shipment."shippedAt", shipment.id) ${operator} (:cursorValue, :cursorId)`,
+        {
+          cursorValue: cursor.value,
+          cursorId: cursor.id,
+        },
+      );
+    }
+
+    const total =
+      useCursorPagination && hasCursorValue
+        ? 0
+        : Number(
+            (
+              await qb
+                .clone()
+                .select("COUNT(DISTINCT shipment.id)", "count")
+                .orderBy()
+                .getRawOne()
+            )?.count,
+          ) || 0;
+
+    const idRows = await qb
+      .clone()
+      .select("shipment.id", "id")
+      .addSelect("shipment.shippedAt", "shippedAt")
+      .take(useCursorPagination ? limit + 1 : limit)
+      .getRawMany();
+
+    const hasMore = useCursorPagination ? idRows.length > limit : undefined;
+    if (hasMore) {
+      idRows.length = limit;
+    }
+
+    const shipmentIds = idRows.map((row) => row.id).filter(Boolean);
+    const shipments = shipmentIds.length
+      ? await this.buildShippedGroupRowsQb(adminId, q)
+          .andWhere("shipment.id IN (:...shipmentIds)", { shipmentIds })
+          .getMany()
+      : [];
+
+    const shipmentById = new Map(shipments.map((s) => [s.id, s]));
+    const ordered = shipmentIds
+      .map((id) => shipmentById.get(id))
+      .filter(Boolean) as ShipmentEntity[];
+
+    const records = ordered.map((shipment) => {
+      const order = shipment.order;
+      return {
+        ...order,
+        id: order?.id,
+        shipmentId: shipment.id,
+        shippedAt: shipment.shippedAt ?? order?.shippedAt,
+        shippingCompany: shipment.shippingCompany ?? order?.shippingCompany,
+        shipments: [
+          {
+            id: shipment.id,
+            status: shipment.status,
+            unifiedStatus: shipment.unifiedStatus,
+            trackingNumber: shipment.trackingNumber,
+            created_at: shipment.created_at,
+            shippedAt: shipment.shippedAt,
+            shippingCompanyId: shipment.shippingCompanyId,
+          },
+        ],
+      };
+    });
+
+    const lastIdRow = idRows[idRows.length - 1];
+
+    return {
+      total_records: total,
+      current_page: 1,
+      per_page: limit,
+      records,
+      ...(useCursorPagination
+        ? {
+            hasMore,
+            nextCursor:
+              hasMore && lastIdRow
+                ? {
+                    value: lastIdRow.shippedAt,
+                    id: lastIdRow.id,
+                  }
+                : undefined,
+          }
+        : {}),
+    };
+  }
+
+  async exportShipmentsGroupedByShippedDate(me: any, q?: any) {
+    const t = (
+      key: Parameters<TranslationService["t"]>[0],
+      options?: Parameters<TranslationService["t"]>[1],
+    ) => this.translations.t(key, options);
+
+    const { records: groups } = await this.listShipmentsGroupedByShippedDate(
+      me,
+      {
+        ...q,
+        page: 1,
+        limit: 100000,
+      },
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(
+      t("domains.orders.export_shipped_grouped_by_date_sheet"),
+    );
+
+    worksheet.columns = [
+      { header: t("domains.orders.export_grouped_date"), key: "date", width: 18 },
+      {
+        header: t("domains.orders.export_shipped_grouped_total_shipments"),
+        key: "totalShipments",
+        width: 16,
+      },
+      {
+        header: t("domains.orders.export_shipped_grouped_companies"),
+        key: "companies",
+        width: 40,
+      },
+      {
+        header: t("domains.orders.export_grouped_delivered"),
+        key: "delivered",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_shipped_grouped_returned"),
+        key: "returned",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_delayed"),
+        key: "late",
+        width: 14,
+      },
+      {
+        header: t("domains.orders.export_grouped_total_amount"),
+        key: "totalAmount",
+        width: 18,
+      },
+      {
+        header: t("domains.orders.export_grouped_tags"),
+        key: "tags",
+        width: 48,
+      },
+    ];
+
+    groups.forEach((group) => {
+      const companies = Array.isArray(group.statistics?.companies)
+        ? group.statistics.companies
+        : [];
+      const tagStats = Array.isArray(group.statistics?.tags)
+        ? group.statistics.tags
+        : [];
+
+      worksheet.addRow({
+        date: group.date,
+        totalShipments: group.statistics?.totalShipments ?? 0,
+        companies: companies
+          .map(
+            (c) => `${c.companyName || t("common.not_applicable")}: ${c.count ?? 0}`,
+          )
+          .join(", "),
+        delivered: group.statistics?.delivered ?? 0,
+        returned: group.statistics?.returned ?? 0,
+        late: group.statistics?.late ?? 0,
+        totalAmount: group.statistics?.totalAmount ?? 0,
+        tags: tagStats
+          .map((tag) => `${tag.name}: ${tag.count ?? 0}`)
+          .join(", "),
+      });
+    });
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    return workbook.xlsx.writeBuffer();
+  }
+
+  /** Rows QB for shipment group expand — loads shipment.order and display relations. */
+  private buildShippedGroupRowsQb(adminId: string | null, q?: any) {
+    const qb = this.dataSource
+      .getRepository(ShipmentEntity)
+      .createQueryBuilder("shipment")
+      .innerJoinAndSelect("shipment.order", "order")
+      .leftJoinAndSelect("shipment.shippingCompany", "shippingCompany")
+      .leftJoinAndSelect("order.items", "items")
+      .leftJoinAndSelect("items.variant", "variant")
+      .leftJoinAndSelect("items.bundle", "bundle")
+      .leftJoinAndSelect("variant.product", "product")
+      .leftJoinAndSelect("order.status", "status")
+      .leftJoinAndSelect("order.cityDetails", "cityDetails")
+      .leftJoinAndSelect(
+        "cityDetails.tenantConfigs",
+        "cityTenantConfig",
+        `"cityTenantConfig"."adminId" = "order"."adminId"`,
+      )
+      .leftJoinAndSelect(
+        "order.assignments",
+        "assignment",
+        `assignment.id = (
+          SELECT sub.id
+          FROM order_assignments sub
+          WHERE sub."orderId" = "order"."id"
+          ORDER BY sub."assignedAt" DESC
+          LIMIT 1
+        )`,
+      )
+      .leftJoinAndSelect("assignment.employee", "employee");
+
+    this.applyShippedGroupsFilters(qb, adminId, q, { assignmentJoined: true });
+    return qb;
+  }
+
+  /** Base QB for shipment groups — filters on shipment.shippedAt. */
+  private buildShippedGroupsBaseQb(adminId: string | null, q?: any) {
+    const qb = this.dataSource
+      .getRepository(ShipmentEntity)
+      .createQueryBuilder("shipment")
+      .innerJoin("shipment.order", "order")
+      .leftJoin("shipment.shippingCompany", "shippingCompany")
+      .leftJoin("order.cityDetails", "cityDetails")
+      .leftJoin(
+        "cityDetails.tenantConfigs",
+        "cityTenantConfig",
+        `"cityTenantConfig"."adminId" = "order"."adminId"`,
+      );
+
+    this.applyShippedGroupsFilters(qb, adminId, q);
+    return qb;
+  }
+
+  private applyShippedGroupsFilters(
+    qb: SelectQueryBuilder<ShipmentEntity>,
+    adminId: string | null,
+    q?: any,
+    opts?: { assignmentJoined?: boolean },
+  ) {
+    qb.andWhere(`shipment."shippedAt" IS NOT NULL`);
+
+    if (adminId) {
+      qb.andWhere(`shipment."adminId" = :adminId`, { adminId });
+    }
+
+    DateFilterUtil.applyToQueryBuilder(
+      qb,
+      `shipment."shippedAt"`,
+      q?.shippedStartDate,
+      q?.shippedEndDate,
+    );
+
+    if (q?.shippingCompanyId && q.shippingCompanyId !== "all") {
+      if (q.shippingCompanyId === "none") {
+        qb.andWhere(`shipment."shippingCompanyId" IS NULL`);
+      } else {
+        qb.andWhere(`shipment."shippingCompanyId" = :shippingCompanyId`, {
+          shippingCompanyId: q.shippingCompanyId,
+        });
+      }
+    }
+
+    if (q?.userId) {
+      if (!opts?.assignmentJoined) {
+        qb.leftJoin(
+          "order.assignments",
+          "assignment",
+          `assignment.id = (
+            SELECT sub.id
+            FROM order_assignments sub
+            WHERE sub."orderId" = "order"."id"
+            ORDER BY sub."assignedAt" DESC
+            LIMIT 1
+          )`,
+        );
+      }
+      qb.andWhere(`assignment."employeeId" = :userId`, { userId: q.userId });
+    }
+
+    if (q?.lateShipping === "true" || q?.lateShipping === true) {
+      qb.andWhere(`"cityTenantConfig"."maxShippingDays" IS NOT NULL`);
+      qb.andWhere(
+        `(CURRENT_DATE - DATE(shipment."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"`,
+      );
+    }
+
+    const search = String(q?.search ?? "").trim();
+    if (search) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where(`"order"."orderNumber" ILIKE :s`, { s: `%${search}%` })
+            .orWhere(`"order"."customerName" ILIKE :s`, { s: `%${search}%` })
+            .orWhere(`"order"."phoneNumber" ILIKE :s`, { s: `%${search}%` })
+            .orWhere(`shipment."trackingNumber" ILIKE :s`, { s: `%${search}%` });
+        }),
+      );
+    }
+  }
+
+  /** Tag counts per shipment-shipped day for grouped shipping view. */
+  private buildShippedGroupsTagStatsQb(
+    adminId: string | null,
+    q: any,
+    pageDays: string[],
+  ) {
+    const dayExpr = `DATE(shipment."shippedAt")::text`;
+    const qb = this.buildShippedGroupsBaseQb(adminId, q);
+    qb.innerJoin("order.orderTags", "groupOrderTag")
+      .innerJoin("groupOrderTag.tag", "groupTag")
+      .select(dayExpr, "day")
+      .addSelect("groupTag.id", "tagId")
+      .addSelect("groupTag.name", "tagName")
+      .addSelect("groupTag.color", "tagColor")
+      .addSelect("COUNT(DISTINCT shipment.id)", "count")
+      .andWhere(`${dayExpr} IN (:...pageDays)`, { pageDays })
+      .groupBy(dayExpr)
+      .addGroupBy("groupTag.id")
+      .addGroupBy("groupTag.name")
+      .addGroupBy("groupTag.color")
+      .orderBy(dayExpr, "DESC")
+      .addOrderBy("count", "DESC")
+      .addOrderBy("groupTag.name", "ASC");
+    return qb;
+  }
+
   async getShippedStatsByCompany(me: any, q?: any) {
     const superAdmin = isSuperAdmin(me);
     let adminId = tenantId(me);

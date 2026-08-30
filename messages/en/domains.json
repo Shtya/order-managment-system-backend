@@ -636,6 +636,10 @@
     "export_grouped_delayed": "Delayed Shipments",
     "export_grouped_total_amount": "Total Amount",
     "export_grouped_tags": "Tags",
+    "export_shipped_grouped_by_date_sheet": "Shipments Grouped by Date",
+    "export_shipped_grouped_total_shipments": "Total Shipments",
+    "export_shipped_grouped_companies": "Shipping Companies",
+    "export_shipped_grouped_returned": "Returned",
     "actions": {
       "confirmed": "Order Confirmed",
       "courier_assigned": "Assigned to Courier",

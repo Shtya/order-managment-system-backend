@@ -47,7 +47,7 @@ export class DateFilterUtil {
         
 
         // Creates safe parameter names like "order_created_at_start"
-        const safeParam = columnName.replace('.', '_');
+        const safeParam = columnName.replace(/[^0-9a-zA-Z_.]/g, "_");
 
         if (start && end) {
             // If start and end are the same instant, push the end one day forward

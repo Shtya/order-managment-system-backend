@@ -61,6 +61,42 @@ export class OrdersController {
     return this.svc.getShippedStatsByCompany(req.user, q);
   }
 
+  @Get("shipped/grouped-by-date")
+  @Permissions("orders.read")
+  listShipmentsGroupedByShippedDate(@Req() req: any, @Query() q: any) {
+    return this.svc.listShipmentsGroupedByShippedDate(req.user, q);
+  }
+
+  @Get("shipped/grouped-by-date/rows")
+  @Permissions("orders.read")
+  listShipmentsForShippedGroupDate(@Req() req: any, @Query() q: any) {
+    return this.svc.listShipmentsForShippedGroupDate(req.user, q);
+  }
+
+  @Get("shipped/export/grouped-by-date")
+  @Permissions("orders.read")
+  async exportShipmentsGroupedByShippedDate(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.svc.exportShipmentsGroupedByShippedDate(
+      req.user,
+      q,
+    );
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=shipments_grouped_by_date_export_${Date.now()}.xlsx`,
+    );
+
+    return res.send(buffer);
+  }
+
   @Get("return-preparing/stats")
   @Permissions("orders.read")
   returnPreparingStats(@Req() req: any, @Query() q: any) {
