@@ -640,6 +640,9 @@
     "export_shipped_grouped_total_shipments": "إجمالي الشحنات",
     "export_shipped_grouped_companies": "شركات الشحن",
     "export_shipped_grouped_returned": "مرتجعة",
+    "export_shipped_grouped_out_for_delivery": "خرج للتوصيل",
+    "export_shipped_grouped_open_tickets": "تذاكر مفتوحة",
+    "export_shipped_grouped_current": "حالي",
     "actions": {
       "confirmed": "تأكيد الطلب",
       "courier_assigned": "إسناد لشركة الشحن",

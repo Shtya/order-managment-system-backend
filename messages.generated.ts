@@ -781,6 +781,9 @@ export type I18nTranslations = {
             "export_shipped_grouped_total_shipments": string;
             "export_shipped_grouped_companies": string;
             "export_shipped_grouped_returned": string;
+            "export_shipped_grouped_out_for_delivery": string;
+            "export_shipped_grouped_open_tickets": string;
+            "export_shipped_grouped_current": string;
             "actions": {
                 "confirmed": string;
                 "courier_assigned": string;

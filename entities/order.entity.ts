@@ -31,6 +31,7 @@ import {
   OrderCancelCauseEntity,
 } from "./cancel-cause.entity";
 import { OrderTagEntity } from "./tag.entity";
+import { IssueEntity } from "./issue.entity";
 
 
 // ✅ Order Status Enum
@@ -510,6 +511,9 @@ export class OrderEntity {
 
   @OneToMany(() => OrderTagEntity, (orderTag) => orderTag.order)
   orderTags: Relation<OrderTagEntity[]>;
+
+  @OneToMany(() => IssueEntity, (issue) => issue.order)
+  issues: Relation<IssueEntity[]>;
 
   @DeleteDateColumn({ name: "deleted_at", nullable: true, type: "timestamptz" })
   deleted_at?: Date;

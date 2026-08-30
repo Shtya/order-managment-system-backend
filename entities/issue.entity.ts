@@ -149,7 +149,7 @@ export class IssueEntity {
   @Column({ type: 'uuid', nullable: false })
   orderId: string;
 
-  @ManyToOne(() => OrderEntity, { nullable: false, onDelete: 'RESTRICT' })
+  @ManyToOne(() => OrderEntity, (order) => order.issues, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'orderId' })
   order: OrderEntity;
 

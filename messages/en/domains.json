@@ -640,6 +640,9 @@
     "export_shipped_grouped_total_shipments": "Total Shipments",
     "export_shipped_grouped_companies": "Shipping Companies",
     "export_shipped_grouped_returned": "Returned",
+    "export_shipped_grouped_out_for_delivery": "Out for Delivery",
+    "export_shipped_grouped_open_tickets": "Open Tickets",
+    "export_shipped_grouped_current": "Current",
     "actions": {
       "confirmed": "Order Confirmed",
       "courier_assigned": "Assigned to Courier",

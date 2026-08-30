@@ -94,6 +94,7 @@ import { randomBytes } from "crypto";
 import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { CityEntity } from "entities/cities.entity";
+import { IssueEntity, IssueStatus } from "entities/issue.entity";
 import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
 import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
 import { TriggerEntityType, TriggerType } from "entities/automation.entity";
@@ -1599,9 +1600,14 @@ export class OrdersService {
         `COUNT(CASE WHEN ${lateCondition} THEN 1 END)`,
         "late",
       )
+      .addSelect(
+        `COUNT(CASE WHEN shipment.status = :shippedOutForDeliveryStatus THEN 1 END)`,
+        "outForDelivery",
+      )
       .andWhere(`${dayExpr} IN (:...pageDays)`, { pageDays })
       .setParameter("shippedDeliveredStatus", ShipmentStatus.DELIVERED)
       .setParameter("shippedReturnedStatus", ShipmentStatus.RETURNED_TO_WAREHOUSE)
+      .setParameter("shippedOutForDeliveryStatus", ShipmentStatus.OUT_FOR_DELIVERY)
       .groupBy(dayExpr);
 
     const salesQb = this.buildShippedGroupsBaseQb(adminId, q);
@@ -1619,19 +1625,26 @@ export class OrdersService {
       .addSelect(`shipment."shippingCompanyId"`, "companyId")
       .addSelect("shippingCompany.name", "companyName")
       .addSelect("COUNT(shipment.id)", "count")
+      .addSelect(
+        `COUNT(CASE WHEN shipment.status = :companyOutForDeliveryStatus THEN 1 END)`,
+        "current",
+      )
       .andWhere(`${dayExpr} IN (:...pageDays)`, { pageDays })
+      .setParameter("companyOutForDeliveryStatus", ShipmentStatus.OUT_FOR_DELIVERY)
       .groupBy(dayExpr)
       .addGroupBy(`shipment."shippingCompanyId"`)
       .addGroupBy("shippingCompany.name")
       .orderBy(dayExpr, "DESC")
       .addOrderBy("count", "DESC");
 
+    const ticketQb = this.buildShippedGroupsOpenTicketsQb(adminId, q, pageDays);
     const tagQb = this.buildShippedGroupsTagStatsQb(adminId, q, pageDays);
 
-    const [statsRows, salesRows, companyRows, tagRows] = await Promise.all([
+    const [statsRows, salesRows, companyRows, ticketRows, tagRows] = await Promise.all([
       statsQb.getRawMany(),
       salesQb.getRawMany(),
       companyQb.getRawMany(),
+      ticketQb.getRawMany(),
       tagQb.getRawMany(),
     ]);
 
@@ -1649,11 +1662,14 @@ export class OrdersService {
           delivered: Number(row.delivered) || 0,
           returned: Number(row.returned) || 0,
           late: Number(row.late) || 0,
+          outForDelivery: Number(row.outForDelivery) || 0,
+          openTickets: 0,
           totalAmount: salesByDay.get(row.day) || 0,
           companies: [] as Array<{
             companyId: string | null;
             companyName: string | null;
             count: number;
+            current: number;
           }>,
           tags: [] as Array<{
             id: string;
@@ -1672,7 +1688,14 @@ export class OrdersService {
         companyId: row.companyId ?? null,
         companyName: row.companyName ?? null,
         count: Number(row.count) || 0,
+        current: Number(row.current) || 0,
       });
+    });
+
+    ticketRows.forEach((row) => {
+      const entry = statsByDay.get(row.day);
+      if (!entry) return;
+      entry.openTickets = Number(row.openTickets) || 0;
     });
 
     tagRows.forEach((row) => {
@@ -1691,6 +1714,8 @@ export class OrdersService {
       delivered: 0,
       returned: 0,
       late: 0,
+      outForDelivery: 0,
+      openTickets: 0,
       totalAmount: 0,
       companies: [],
       tags: [],
@@ -1813,6 +1838,7 @@ export class OrdersService {
         ...order,
         id: order?.id,
         shipmentId: shipment.id,
+        openTicketsCount: Number((order as any)?.openTicketsCount) || 0,
         shippedAt: shipment.shippedAt ?? order?.shippedAt,
         shippingCompany: shipment.shippingCompany ?? order?.shippingCompany,
         shipments: [
@@ -1899,6 +1925,16 @@ export class OrdersService {
         width: 14,
       },
       {
+        header: t("domains.orders.export_shipped_grouped_out_for_delivery"),
+        key: "outForDelivery",
+        width: 18,
+      },
+      {
+        header: t("domains.orders.export_shipped_grouped_open_tickets"),
+        key: "openTickets",
+        width: 16,
+      },
+      {
         header: t("domains.orders.export_grouped_total_amount"),
         key: "totalAmount",
         width: 18,
@@ -1922,13 +1958,16 @@ export class OrdersService {
         date: group.date,
         totalShipments: group.statistics?.totalShipments ?? 0,
         companies: companies
-          .map(
-            (c) => `${c.companyName || t("common.not_applicable")}: ${c.count ?? 0}`,
-          )
+          .map((c) => {
+            const name = c.companyName || t("common.not_applicable");
+            return `${name}: ${c.count ?? 0} (${t("domains.orders.export_shipped_grouped_current")}: ${c.current ?? 0})`;
+          })
           .join(", "),
         delivered: group.statistics?.delivered ?? 0,
         returned: group.statistics?.returned ?? 0,
         late: group.statistics?.late ?? 0,
+        outForDelivery: group.statistics?.outForDelivery ?? 0,
+        openTickets: group.statistics?.openTickets ?? 0,
         totalAmount: group.statistics?.totalAmount ?? 0,
         tags: tagStats
           .map((tag) => `${tag.name}: ${tag.count ?? 0}`)
@@ -1975,7 +2014,18 @@ export class OrdersService {
           LIMIT 1
         )`,
       )
-      .leftJoinAndSelect("assignment.employee", "employee");
+      .leftJoinAndSelect("assignment.employee", "employee")
+      .loadRelationCountAndMap(
+        "order.openTicketsCount",
+        "order.issues",
+        "openIssue",
+        (issueQb) =>
+          issueQb
+            .innerJoin("openIssue.status", "openIssueStatus")
+            .andWhere(`"openIssueStatus".code NOT IN (:...closedIssueStatuses)`, {
+              closedIssueStatuses: [IssueStatus.SOLVED, IssueStatus.CANCELLED],
+            }),
+      );
 
     this.applyShippedGroupsFilters(qb, adminId, q, { assignmentJoined: true });
     return qb;
@@ -2063,6 +2113,36 @@ export class OrdersService {
         }),
       );
     }
+  }
+
+  /** Open tickets for shipment-group orders (status not SOLVED/CANCELLED). */
+  private buildShippedGroupsOpenTicketsQb(
+    adminId: string | null,
+    q: any,
+    pageDays: string[],
+  ) {
+    const dayExpr = `DATE(shipment."shippedAt")::text`;
+    const qb = this.buildShippedGroupsBaseQb(adminId, q);
+    qb.innerJoin(
+      IssueEntity,
+      "group_issue",
+      `"group_issue"."orderId" = "order".id
+        AND "group_issue"."adminId" = shipment."adminId"
+        AND "group_issue"."deleted_at" IS NULL`,
+    )
+      .innerJoin(
+        "issue_statuses",
+        "group_issue_status",
+        `"group_issue_status".id = "group_issue"."statusId"`,
+      )
+      .andWhere(`"group_issue_status".code NOT IN (:...closedIssueStatuses)`, {
+        closedIssueStatuses: [IssueStatus.SOLVED, IssueStatus.CANCELLED],
+      })
+      .select(dayExpr, "day")
+      .addSelect(`COUNT(DISTINCT "group_issue".id)`, "openTickets")
+      .andWhere(`${dayExpr} IN (:...pageDays)`, { pageDays })
+      .groupBy(dayExpr);
+    return qb;
   }
 
   /** Tag counts per shipment-shipped day for grouped shipping view. */

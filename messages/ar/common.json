@@ -17,7 +17,7 @@
   "email_change_code_sent": "تم إرسال رمز التحقق إلى عنوان بريدك الإلكتروني الجديد",
   "email_updated": "تم تحديث البريد الإلكتروني بنجاح",
   "missing_user_id": "معرف المستخدم مفقود",
-  "not_applicable": "غ/م",
+  "not_applicable": "N/A",
   "em_dash": "—",
   "export_order_number": "رقم الطلب",
   "export_status": "الحالة",
