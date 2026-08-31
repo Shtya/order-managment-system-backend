@@ -97,6 +97,30 @@ export class OrdersController {
     return res.send(buffer);
   }
 
+  @Get("shipped/export/grouped-by-date/rows")
+  @Permissions("orders.read")
+  async exportShipmentsForShippedGroupDate(
+    @Req() req: any,
+    @Query() q: any,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.svc.exportShipmentsForShippedGroupDate(
+      req.user,
+      q,
+    );
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=shipments_group_rows_export_${Date.now()}.xlsx`,
+    );
+
+    return res.send(buffer);
+  }
+
   @Get("return-preparing/stats")
   @Permissions("orders.read")
   returnPreparingStats(@Req() req: any, @Query() q: any) {

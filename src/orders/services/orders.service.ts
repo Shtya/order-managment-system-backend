@@ -1851,13 +1851,7 @@ export class OrdersService {
       shipmentGroupDate: groupDate,
     });
 
-    if (q?.shipmentGroupCompanyId === "none") {
-      qb.andWhere(`shipment."shippingCompanyId" IS NULL`);
-    } else if (q?.shipmentGroupCompanyId) {
-      qb.andWhere(`shipment."shippingCompanyId" = :shipmentGroupCompanyId`, {
-        shipmentGroupCompanyId: String(q.shipmentGroupCompanyId),
-      });
-    }
+    this.applyShipmentGroupExpandFilters(qb, q);
 
     qb.orderBy(`shipment."shippedAt"`, sortDir).addOrderBy(
       "shipment.id",
@@ -2063,6 +2057,165 @@ export class OrdersService {
     return workbook.xlsx.writeBuffer();
   }
 
+  async exportShipmentsForShippedGroupDate(me: any, q?: any) {
+    const na = this.translations.t("common.not_applicable");
+    const t = (
+      key: Parameters<TranslationService["t"]>[0],
+      options?: Parameters<TranslationService["t"]>[1],
+    ) => this.translations.t(key, options);
+
+    const { records } = await this.listShipmentsForShippedGroupDate(me, {
+      ...q,
+      useCursor: false,
+      limit: 100000,
+    });
+
+    const exportData = records.map((order: any) => {
+      const productsList =
+        order.items
+          ?.map(
+            (item: any) =>
+              `${item.variant?.product?.name || na} - ${item.variant?.sku || na} (x${item.quantity})`,
+          )
+          .join("; ") || na;
+      const shipment = order.shipments?.[0];
+      const assignment = order.assignments?.[0];
+      const shippingDays = this.calcShippingDaysElapsed(
+        order.shippedAt,
+        order.status?.code === OrderStatus.DELIVERED ? order.deliveredAt : null,
+      );
+
+      return {
+        orderNumber: order.orderNumber,
+        customerName: order.customerName,
+        phoneNumber: order.phoneNumber || na,
+        city: order.city || na,
+        address: order.address || na,
+        finalTotal: order.finalTotal || 0,
+        shippingCost: order.shippingCost || 0,
+        products: productsList,
+        status: order.status?.system
+          ? order.status.code
+          : order.status?.name || na,
+        shippingDays: shippingDays ?? na,
+        trackingNumber:
+          shipment?.trackingNumber || order.trackingNumber || na,
+        shipmentStatus: shipment?.status || na,
+        shipmentDate: shipment?.shippedAt
+          ? new Date(shipment.shippedAt).toLocaleDateString()
+          : order.shippedAt
+            ? new Date(order.shippedAt).toLocaleDateString()
+            : na,
+        shippingCompany:
+          order.shippingCompany?.name || shipment?.shippingCompanyId || na,
+        assignedEmployee: assignment?.employee?.name || na,
+        openTicketsCount: order.openTicketsCount ?? 0,
+      };
+    });
+
+    const groupDate = String(q?.shipmentGroupDate ?? "").trim();
+    const sheetTitle = t("domains.orders.export_shipped_grouped_rows_sheet");
+    const sheetName = (groupDate ? `${groupDate} - ${sheetTitle}` : sheetTitle).slice(
+      0,
+      31,
+    );
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet(sheetName);
+
+    worksheet.columns = [
+      {
+        header: t("common.export_order_number"),
+        key: "orderNumber",
+        width: 18,
+      },
+      {
+        header: t("domains.orders.export_customer_name"),
+        key: "customerName",
+        width: 25,
+      },
+      {
+        header: t("domains.orders.export_phone_number"),
+        key: "phoneNumber",
+        width: 18,
+      },
+      { header: t("domains.orders.export_city"), key: "city", width: 15 },
+      {
+        header: t("domains.orders.export_address"),
+        key: "address",
+        width: 35,
+      },
+      {
+        header: t("domains.orders.export_final_total"),
+        key: "finalTotal",
+        width: 15,
+      },
+      {
+        header: t("domains.orders.export_shipping_cost"),
+        key: "shippingCost",
+        width: 15,
+      },
+      {
+        header: t("domains.orders.export_products"),
+        key: "products",
+        width: 40,
+      },
+      {
+        header: t("domains.orders.export_order_status"),
+        key: "status",
+        width: 20,
+      },
+      {
+        header: t("domains.orders.export_shipping_days"),
+        key: "shippingDays",
+        width: 15,
+      },
+      {
+        header: t("domains.orders.export_tracking_number"),
+        key: "trackingNumber",
+        width: 22,
+      },
+      {
+        header: t("domains.orders.export_shipment_status"),
+        key: "shipmentStatus",
+        width: 20,
+      },
+      {
+        header: t("domains.orders.export_shipment_date"),
+        key: "shipmentDate",
+        width: 18,
+      },
+      {
+        header: t("common.export_shipping_company"),
+        key: "shippingCompany",
+        width: 20,
+      },
+      {
+        header: t("domains.orders.export_assigned_employee"),
+        key: "assignedEmployee",
+        width: 22,
+      },
+      {
+        header: t("domains.orders.export_shipped_grouped_open_tickets"),
+        key: "openTicketsCount",
+        width: 16,
+      },
+    ];
+
+    worksheet.getRow(1).font = { bold: true };
+    worksheet.getRow(1).fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFE0E0E0" },
+    };
+
+    exportData.forEach((row) => {
+      worksheet.addRow(row);
+    });
+
+    return workbook.xlsx.writeBuffer();
+  }
+
   /** Rows QB for shipment group expand — loads shipment.order and display relations. */
   private buildShippedGroupRowsQb(adminId: string | null, q?: any) {
     const qb = this.dataSource
@@ -2189,6 +2342,86 @@ export class OrdersService {
             .orWhere(`"order"."phoneNumber" ILIKE :s`, { s: `%${search}%` })
             .orWhere(`shipment."trackingNumber" ILIKE :s`, { s: `%${search}%` });
         }),
+      );
+    }
+  }
+
+  private parseShipmentGroupStatFilters(q?: any): string[] {
+    const raw = q?.shipmentGroupStatFilters;
+    if (!raw) return [];
+
+    const values = Array.isArray(raw)
+      ? raw
+      : String(raw)
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean);
+
+    const allowed = new Set([
+      "delivered",
+      "returned",
+      "openTickets",
+      "late",
+    ]);
+
+    return values.filter((value) => allowed.has(value));
+  }
+
+  /** Filters for expanded shipment group rows (company + stat pills). */
+  private applyShipmentGroupExpandFilters(
+    qb: SelectQueryBuilder<ShipmentEntity>,
+    q?: any,
+  ) {
+    if (q?.shipmentGroupCompanyId === "none") {
+      qb.andWhere(`shipment."shippingCompanyId" IS NULL`);
+    } else if (q?.shipmentGroupCompanyId) {
+      qb.andWhere(`shipment."shippingCompanyId" = :shipmentGroupCompanyId`, {
+        shipmentGroupCompanyId: String(q.shipmentGroupCompanyId),
+      });
+    }
+
+    const statFilters = this.parseShipmentGroupStatFilters(q);
+    if (!statFilters.length) return;
+
+    const lateCondition = `
+      "cityTenantConfig"."maxShippingDays" IS NOT NULL
+      AND (CURRENT_DATE - DATE(shipment."shippedAt") + 1) > "cityTenantConfig"."maxShippingDays"
+    `;
+
+    if (statFilters.includes("delivered")) {
+      qb.andWhere(`shipment.status = :shipmentGroupDeliveredStatus`, {
+        shipmentGroupDeliveredStatus: ShipmentStatus.DELIVERED,
+      });
+    }
+
+    if (statFilters.includes("returned")) {
+      qb.andWhere(`shipment.status = :shipmentGroupReturnedStatus`, {
+        shipmentGroupReturnedStatus: ShipmentStatus.RETURNED_TO_WAREHOUSE,
+      });
+    }
+
+    if (statFilters.includes("late")) {
+      qb.andWhere(lateCondition);
+    }
+
+    if (statFilters.includes("openTickets")) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1
+          FROM issues group_open_issue
+          INNER JOIN issue_statuses group_open_issue_status
+            ON group_open_issue_status.id = group_open_issue."statusId"
+          WHERE group_open_issue."orderId" = "order".id
+            AND group_open_issue."adminId" = shipment."adminId"
+            AND group_open_issue."deleted_at" IS NULL
+            AND group_open_issue_status.code NOT IN (:...groupOpenIssueClosedStatuses)
+        )`,
+        {
+          groupOpenIssueClosedStatuses: [
+            IssueStatus.SOLVED,
+            IssueStatus.CANCELLED,
+          ],
+        },
       );
     }
   }

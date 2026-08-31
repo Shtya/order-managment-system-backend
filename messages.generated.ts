@@ -778,6 +778,7 @@ export type I18nTranslations = {
             "export_grouped_total_amount": string;
             "export_grouped_tags": string;
             "export_shipped_grouped_by_date_sheet": string;
+            "export_shipped_grouped_rows_sheet": string;
             "export_shipped_grouped_total_shipments": string;
             "export_shipped_grouped_companies": string;
             "export_shipped_grouped_returned": string;
