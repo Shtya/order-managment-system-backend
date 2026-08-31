@@ -2086,26 +2086,31 @@ export class OrdersService {
       );
 
       return {
+        createdAt: order.created_at
+          ? new Date(order.created_at).toLocaleDateString()
+          : na,
         orderNumber: order.orderNumber,
+        trackingNumber:
+          shipment?.trackingNumber || order.trackingNumber || na,
         customerName: order.customerName,
-        phoneNumber: order.phoneNumber || na,
+        products: productsList,
+        finalTotal: order.finalTotal || 0,
         city: order.city || na,
         address: order.address || na,
-        finalTotal: order.finalTotal || 0,
+        phoneNumber: order.phoneNumber || na,
         shippingCost: order.shippingCost || 0,
-        products: productsList,
+        shippingDays: shippingDays ?? na,
         status: order.status?.system
           ? order.status.code
           : order.status?.name || na,
-        shippingDays: shippingDays ?? na,
-        trackingNumber:
-          shipment?.trackingNumber || order.trackingNumber || na,
         shipmentStatus: shipment?.status || na,
-        shipmentDate: shipment?.shippedAt
-          ? new Date(shipment.shippedAt).toLocaleDateString()
-          : order.shippedAt
-            ? new Date(order.shippedAt).toLocaleDateString()
-            : na,
+        shipmentDate: shipment?.created_at
+          ? new Date(shipment.created_at).toLocaleDateString()
+          : shipment?.shippedAt
+            ? new Date(shipment.shippedAt).toLocaleDateString()
+            : order.shippedAt
+              ? new Date(order.shippedAt).toLocaleDateString()
+              : na,
         shippingCompany:
           order.shippingCompany?.name || shipment?.shippingCompanyId || na,
         assignedEmployee: assignment?.employee?.name || na,
@@ -2125,9 +2130,19 @@ export class OrdersService {
 
     worksheet.columns = [
       {
+        header: t("domains.orders.export_created_at"),
+        key: "createdAt",
+        width: 18,
+      },
+      {
         header: t("common.export_order_number"),
         key: "orderNumber",
         width: 18,
+      },
+      {
+        header: t("domains.orders.export_tracking_number"),
+        key: "trackingNumber",
+        width: 22,
       },
       {
         header: t("domains.orders.export_customer_name"),
@@ -2135,9 +2150,14 @@ export class OrdersService {
         width: 25,
       },
       {
-        header: t("domains.orders.export_phone_number"),
-        key: "phoneNumber",
-        width: 18,
+        header: t("domains.orders.export_products"),
+        key: "products",
+        width: 40,
+      },
+      {
+        header: t("domains.orders.export_final_total"),
+        key: "finalTotal",
+        width: 15,
       },
       { header: t("domains.orders.export_city"), key: "city", width: 15 },
       {
@@ -2146,9 +2166,9 @@ export class OrdersService {
         width: 35,
       },
       {
-        header: t("domains.orders.export_final_total"),
-        key: "finalTotal",
-        width: 15,
+        header: t("domains.orders.export_phone_number"),
+        key: "phoneNumber",
+        width: 18,
       },
       {
         header: t("domains.orders.export_shipping_cost"),
@@ -2156,24 +2176,14 @@ export class OrdersService {
         width: 15,
       },
       {
-        header: t("domains.orders.export_products"),
-        key: "products",
-        width: 40,
-      },
-      {
-        header: t("domains.orders.export_order_status"),
-        key: "status",
-        width: 20,
-      },
-      {
         header: t("domains.orders.export_shipping_days"),
         key: "shippingDays",
         width: 15,
       },
       {
-        header: t("domains.orders.export_tracking_number"),
-        key: "trackingNumber",
-        width: 22,
+        header: t("domains.orders.export_order_status"),
+        key: "status",
+        width: 20,
       },
       {
         header: t("domains.orders.export_shipment_status"),
