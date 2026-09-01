@@ -93,6 +93,8 @@
   },
   "cities": {
     "not_found": "المدينة غير موجودة",
+    "area_not_found": "المنطقة غير موجودة",
+    "area_city_mismatch": "المنطقة لا تنتمي إلى المدينة المحددة",
     "config_not_found": "الإعدادات غير موجودة",
     "export_sheet": "إعدادات المدن",
     "export_city_name_en": "اسم المدينة (الإنجليزية)",
@@ -108,7 +110,15 @@
   },
   "customer": {
     "not_found": "العميل غير موجود",
-    "phone_already_exists": "يوجد عميل مسجل بهذا الرقم بالفعل"
+    "address_not_found": "عنوان العميل غير موجود",
+    "phone_already_exists": "يوجد عميل مسجل بهذا الرقم بالفعل: {phoneNumber}",
+    "export_sheet": "العملاء",
+    "export_addresses_sheet": "عناوين العملاء",
+    "export_label": "التصنيف",
+    "export_city": "المدينة",
+    "export_area": "المنطقة",
+    "export_landmark": "علامة مميزة",
+    "export_is_default": "افتراضي"
   },
   "dashboard": {
     "export_profit_report_sheet": "تقرير الأرباح",

@@ -234,6 +234,8 @@ export type I18nTranslations = {
         };
         "cities": {
             "not_found": string;
+            "area_not_found": string;
+            "area_city_mismatch": string;
             "config_not_found": string;
             "export_sheet": string;
             "export_city_name_en": string;
@@ -249,7 +251,15 @@ export type I18nTranslations = {
         };
         "customer": {
             "not_found": string;
+            "address_not_found": string;
             "phone_already_exists": string;
+            "export_sheet": string;
+            "export_addresses_sheet": string;
+            "export_label": string;
+            "export_city": string;
+            "export_area": string;
+            "export_landmark": string;
+            "export_is_default": string;
         };
         "dashboard": {
             "export_profit_report_sheet": string;

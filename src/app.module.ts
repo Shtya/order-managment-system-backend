@@ -78,6 +78,7 @@ import { CancelCausesModule } from "./cancel-causes/cancel-causes.module";
 import { TagsModule } from "./tags/tags.module";
 import { GettingStartedModule } from "./getting-started/getting-started.module";
 import { AiModule } from "./ai/ai.module";
+import { ClientsModule } from "./clients/clients.module";
 import { config as loadEnvFile } from "dotenv";
 
 // Load env files BEFORE the module decorator is evaluated so that
@@ -184,6 +185,7 @@ import { config as loadEnvFile } from "dotenv";
     UpsellsModule,
     ConversationModule,
     CustomerModule,
+    ClientsModule,
     OrderAssignmentModule,
     ClientSettingsModule,
     SmsModule,

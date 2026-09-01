@@ -94,7 +94,7 @@ export class UpsellsController {
   }
 
   @Get("history")
-  @Permissions("upsells.read")
+  @Permissions("upsells.read", "orders.confirm-incoming")
   async listHistory(@Req() req: any, @Query() q: any) {
     return await this.svc.listHistory(req.user, q);
   }

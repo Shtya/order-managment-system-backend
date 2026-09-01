@@ -42,7 +42,7 @@ export class CancelCausesController {
     return this.cancelCausesService.listSelectable(req.user, q);
   }
 
-  @Permissions("cancel-causes.read", "orders.read")
+  @Permissions("cancel-causes.read", "orders.read", "orders.confirm-incoming")
   @Get("order/:orderId/history")
   orderHistory(
     @Req() req: any,

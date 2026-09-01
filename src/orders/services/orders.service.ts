@@ -112,6 +112,8 @@ import { OnboardingAchievementService } from "src/queue/queues/onboarding-achiev
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
 import { CancelCausesService } from "src/cancel-causes/cancel-causes.service";
 import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
+import { CustomerEntity } from "entities/customers.entity";
+import { ClientEntity } from "entities/clients.entity";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -597,7 +599,7 @@ export class OrdersService {
       const system = !!stat.system;
       const percentFrom = this.resolvePercentFrom(
         system,
-        stat.percentFrom  ?? stat.percent_from,
+        stat.percentFrom ?? stat.percent_from,
       );
       return {
         id: stat.id,
@@ -773,7 +775,8 @@ export class OrdersService {
       )
       .leftJoinAndSelect("assignment.employee", "employee")
       .leftJoinAndSelect("order.lastInternalNote", "lastInternalNote")
-      .leftJoinAndSelect("lastInternalNote.author", "lastInternalNoteAuthor");
+      .leftJoinAndSelect("lastInternalNote.author", "lastInternalNoteAuthor")
+      .leftJoinAndSelect("order.client", "client");
 
     qb.addSelect(
       `(SELECT COUNT(*) FROM "automation_runs" ar WHERE ar."triggerEntityId" = "order".id::text AND ar."triggerEntityType" = 'order')`,
@@ -871,6 +874,12 @@ export class OrdersService {
     if (q?.productId && q.productId !== "all") {
       qb.andWhere("variant.productId = :productId", {
         productId: q.productId,
+      });
+    }
+
+    if (q?.clientId && q.clientId !== "all") {
+      qb.andWhere("order.clientId = :clientId", {
+        clientId: q.clientId,
       });
     }
 
@@ -1007,15 +1016,15 @@ export class OrdersService {
       records,
       ...(useCursorPagination
         ? {
-            hasMore,
-            nextCursor:
-              hasMore && records.length
-                ? {
-                    value: records[records.length - 1]?.created_at,
-                    id: records[records.length - 1]?.id,
-                  }
-                : undefined,
-          }
+          hasMore,
+          nextCursor:
+            hasMore && records.length
+              ? {
+                value: records[records.length - 1]?.created_at,
+                id: records[records.length - 1]?.id,
+              }
+              : undefined,
+        }
         : {}),
     };
   }
@@ -1874,10 +1883,10 @@ export class OrdersService {
       skipTotal
         ? Promise.resolve(null)
         : qb
-            .clone()
-            .select("COUNT(DISTINCT shipment.id)", "count")
-            .orderBy()
-            .getRawOne(),
+          .clone()
+          .select("COUNT(DISTINCT shipment.id)", "count")
+          .orderBy()
+          .getRawOne(),
       qb
         .clone()
         .select("shipment.id", "id")
@@ -1895,8 +1904,8 @@ export class OrdersService {
     const shipmentIds = idRows.map((row) => row.id).filter(Boolean);
     const shipments = shipmentIds.length
       ? await this.buildShippedGroupRowsQb(adminId, q)
-          .andWhere("shipment.id IN (:...shipmentIds)", { shipmentIds })
-          .getMany()
+        .andWhere("shipment.id IN (:...shipmentIds)", { shipmentIds })
+        .getMany()
       : [];
 
     const shipmentById = new Map(shipments.map((s) => [s.id, s]));
@@ -1936,15 +1945,15 @@ export class OrdersService {
       records,
       ...(useCursorPagination
         ? {
-            hasMore,
-            nextCursor:
-              hasMore && lastIdRow
-                ? {
-                    value: lastIdRow.shippedAt,
-                    id: lastIdRow.id,
-                  }
-                : undefined,
-          }
+          hasMore,
+          nextCursor:
+            hasMore && lastIdRow
+              ? {
+                value: lastIdRow.shippedAt,
+                id: lastIdRow.id,
+              }
+              : undefined,
+        }
         : {}),
     };
   }
@@ -2363,9 +2372,9 @@ export class OrdersService {
     const values = Array.isArray(raw)
       ? raw
       : String(raw)
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean);
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
 
     const allowed = new Set([
       "delivered",
@@ -4594,6 +4603,13 @@ export class OrdersService {
         "cityTenantConfig",
         "cityTenantConfig.adminId = order.adminId",
       )
+      .leftJoinAndSelect("order.client", "client")
+      .leftJoinAndSelect("client.primaryContact", "primaryContact")
+      .leftJoinAndSelect(
+        "client.addresses",
+        "clientAddress",
+        "clientAddress.isDefault = true",
+      )
       .leftJoinAndSelect("order.replacementResult", "replacementResult")
       .leftJoinAndSelect("replacementResult.originalOrder", "repOrder")
       .leftJoinAndSelect("replacementResult.items", "bridgeItems")
@@ -4614,34 +4630,80 @@ export class OrdersService {
       qb.leftJoinAndSelect("order.admin", "admin");
     }
 
-    const order = await qb
-      .leftJoinAndSelect(
-        "order.shipments",
-        "shipments",
-        `shipments."trackingNumber" = "order"."trackingNumber"`,
-      )
+    qb.leftJoinAndSelect(
+      "order.shipments",
+      "shipments",
+      `shipments."trackingNumber" = "order"."trackingNumber"`,
+    )
       .leftJoinAndSelect("shipments.shippingCompany", "shipmentShippingCompany")
       .where(
-        new Brackets((qb) => {
+        new Brackets((inner) => {
           if (isUuid) {
-            qb.where("order.id = :id", { id });
+            inner.where("order.id = :id", { id });
           } else {
-            qb.where("order.orderNumber = :id", { id })
+            inner
+              .where("order.orderNumber = :id", { id })
               .orWhere("order.trackingNumber = :id", { id })
               .orWhere("shipments.trackingNumber = :id", { id });
           }
         }),
       )
       .andWhere(
-        new Brackets((qb) => {
+        new Brackets((inner) => {
           if (superAdmin) {
-            qb.where("1=1");
+            inner.where("1=1");
           } else {
-            qb.andWhere("order.adminId = :adminId", { adminId });
+            inner.andWhere("order.adminId = :adminId", { adminId });
           }
         }),
+      );
+
+    const orderLookupSql = isUuid
+      ? `src.id = :id`
+      : `(src."orderNumber" = :id OR src."trackingNumber" = :id OR EXISTS (
+          SELECT 1 FROM shipments s
+          WHERE s."orderId" = src.id AND s."trackingNumber" = :id
+        ))`;
+    const tenantLookupSql = adminId ? ` AND src."adminId" = :adminId` : "";
+    const clientIdSql = `(SELECT src."clientId" FROM orders src WHERE ${orderLookupSql}${tenantLookupSql} AND src."clientId" IS NOT NULL LIMIT 1)`;
+
+    const statsQb = repo
+      .createQueryBuilder("ord")
+      .leftJoin("ord.status", "st")
+      .where(`ord."clientId" = ${clientIdSql}`)
+      .andWhere("ord.deleted_at IS NULL")
+      .select("COUNT(ord.id)", "totalOrders")
+      .addSelect(
+        "COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)",
+        "confirmedCount",
       )
-      .getOne();
+      .addSelect(
+        `COUNT(CASE WHEN st.code = :deliveredCode THEN 1 END)`,
+        "deliveredCount",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN st.code = :returnedCode THEN 1 END)`,
+        "returnedCount",
+      )
+      .addSelect(
+        `(SELECT COUNT(DISTINCT so.id)
+          FROM orders so
+          INNER JOIN shipments sh ON sh."orderId" = so.id
+          WHERE so."clientId" = ${clientIdSql}
+            ${adminId ? `AND so."adminId" = :adminId` : ""}
+            AND so.deleted_at IS NULL
+            AND sh."shippedAt" IS NOT NULL)`,
+        "shippedCount",
+      )
+      .setParameter("id", id)
+      .setParameter("deliveredCode", OrderStatus.DELIVERED)
+      .setParameter("returnedCode", OrderStatus.RETURNED);
+
+    if (adminId) {
+      statsQb.andWhere("ord.adminId = :adminId", { adminId });
+    }
+
+    const [order, stats] = await Promise.all([qb.getOne(), statsQb.getRawOne()]);
 
     if (!order) {
       throw new BadRequestException(
@@ -4652,6 +4714,17 @@ export class OrdersService {
     (order as any).myUnreadCount = Number(
       order.internalNotesUnreadCounts?.[me?.id] || 0,
     );
+
+    if (order.client?.id) {
+      (order.client as any).totalOrders = Number(stats?.totalOrders ?? 0);
+      (order.client as any).confirmedCount = Number(stats?.confirmedCount ?? 0);
+      (order.client as any).shippedCount = Number(stats?.shippedCount ?? 0);
+      (order.client as any).deliveredCount = Number(stats?.deliveredCount ?? 0);
+      (order.client as any).returnedCount = Number(stats?.returnedCount ?? 0);
+      (order.client as any).primaryNumber =
+        order.client.primaryContact?.phoneNumber || null;
+    }
+
     return order;
   }
 
@@ -4919,7 +4992,7 @@ export class OrdersService {
       createdByUserId: me?.id,
       shippingMetadata: dto.shippingMetadata,
     } as any);
-    
+
     const saved = await manager.save(OrderEntity, order);
 
     // Update the transaction with the orderId if we have one
@@ -5031,6 +5104,21 @@ export class OrdersService {
         .where("order.id = :id", { id })
         .andWhere("order.adminId = :adminId", { adminId })
         .getOne();
+
+
+      if (dto.clientId) {
+        const client = await manager.findOne(ClientEntity, {
+          where: { id: dto.clientId, adminId },
+        });
+        if (!client) {
+          throw new BadRequestException(
+            this.translations.t("domains.customer.not_found"),
+          );
+        }
+
+        order.clientId = client.id;
+        return manager.save(OrderEntity, order);
+      }
 
       await this.throwIfDelivered(
         order,
@@ -5349,6 +5437,7 @@ export class OrdersService {
             ? dto.additionalFees
             : order.additionalFees,
         notes: dto.notes !== undefined ? dto.notes : order.notes,
+        clientId: !!dto.clientId ? dto.clientId : order.clientId,
         customerNotes:
           dto.customerNotes !== undefined
             ? dto.customerNotes

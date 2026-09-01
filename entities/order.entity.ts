@@ -32,6 +32,7 @@ import {
 } from "./cancel-cause.entity";
 import { OrderTagEntity } from "./tag.entity";
 import { IssueEntity } from "./issue.entity";
+import { ClientEntity } from "./clients.entity";
 
 
 // ✅ Order Status Enum
@@ -278,6 +279,16 @@ export class OrderEntity {
 
   @Column({ type: "varchar", length: 100, nullable: true })
   area?: string;
+
+  @Column({ type: "uuid", nullable: true })
+  clientId?: string;
+
+  @ManyToOne(() => ClientEntity, (client) => client.orders, {
+    nullable: true,
+    onDelete: "SET NULL",
+  })
+  @JoinColumn({ name: "clientId" })
+  client?: ClientEntity;
 
   @ManyToOne(() => OrderStatusEntity, { eager: true })
   @JoinColumn({ name: "statusId" })

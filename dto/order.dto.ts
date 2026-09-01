@@ -148,6 +148,10 @@ export class CreateOrderDto {
   phoneNumber: string;
 
   @IsOptional()
+  @IsString({ message: i18nValidationMessage('validation.is_string') })
+  clientId?: string;
+
+  @IsOptional()
   @Transform(({ value }) => value === "" ? undefined : value)
   @IsEmail({}, { message: i18nValidationMessage('validation.is_email') })
   @MaxLength(200, { message: i18nValidationMessage('validation.max_length') })

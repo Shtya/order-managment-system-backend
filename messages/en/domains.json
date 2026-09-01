@@ -93,6 +93,8 @@
   },
   "cities": {
     "not_found": "City not found",
+    "area_not_found": "Area not found",
+    "area_city_mismatch": "Area does not belong to the selected city",
     "config_not_found": "Configuration not found",
     "export_sheet": "Cities Configuration",
     "export_city_name_en": "City Name (En)",
@@ -108,7 +110,15 @@
   },
   "customer": {
     "not_found": "Customer not found",
-    "phone_already_exists": "Customer with this phone number already exists"
+    "address_not_found": "Customer address not found",
+    "phone_already_exists": "Customer with this phone number already exists: {phoneNumber}",
+    "export_sheet": "Customers",
+    "export_addresses_sheet": "Customer Addresses",
+    "export_label": "Label",
+    "export_city": "City",
+    "export_area": "Area",
+    "export_landmark": "Landmark",
+    "export_is_default": "Default"
   },
   "dashboard": {
     "export_profit_report_sheet": "Profit Report",

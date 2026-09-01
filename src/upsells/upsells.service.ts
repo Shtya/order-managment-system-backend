@@ -843,7 +843,7 @@ export class UpsellsService {
   }
 
   async listHistory(me: any, q?: any) {
-    const adminId = me.tenantId || me.id; // Replace with your tenantId(me) helper
+    const adminId = tenantId(me); // Replace with your tenantId(me) helper
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();

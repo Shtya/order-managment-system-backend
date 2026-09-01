@@ -189,4 +189,29 @@ export interface AutomationAdapter {
     orderId: string,
     options?: { emitSocket?: boolean },
   ): Promise<any>;
+
+  /**
+   * Link an order to the client matching the order phone number.
+   * Optionally create that client from order name/email/phone when none exists.
+   */
+  attachOrderToClient(
+    user: { adminId: string; id: string | null },
+    order: {
+      id: string;
+      adminId: string;
+      phoneNumber?: string;
+      customerName?: string;
+      email?: string;
+      clientId?: string | null;
+    },
+    options: { createIfMissing?: boolean },
+  ): Promise<{
+    success: boolean;
+    skipped?: boolean;
+    reason?: string;
+    clientId?: string | null;
+    clientCreated?: boolean;
+    previewMode?: boolean;
+    skippedSideEffect?: boolean;
+  }>;
 }

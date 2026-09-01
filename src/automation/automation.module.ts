@@ -47,6 +47,7 @@ import { AiModelAvailabilityEntity, AiModelEntity, AiProviderEntity } from "enti
 import { IssueModule } from "src/issue/issue.module";
 import { ShippingModule } from "src/shipping/shipping.module";
 import { AiModule } from "src/ai/ai.module";
+import { ClientsModule } from "src/clients/clients.module";
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { AiModule } from "src/ai/ai.module";
     forwardRef(() => ShippingModule),
     forwardRef(() => AiModule),
     IssueModule,
+    ClientsModule,
     NotificationModule,
     WebSocketModule,
     TypeOrmModule.forFeature([

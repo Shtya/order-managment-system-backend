@@ -55,6 +55,7 @@ import {
   ActionSendWhatsappMessageHandler,
   ActionSendSmsHandler,
   ActionCreateIssueHandler,
+  ActionAssignOrderToClientHandler,
   ActionWaitHandler,
 } from "./nodeHandlers.registry";
 import { OrdersService } from "src/orders/services/orders.service";
@@ -677,6 +678,10 @@ class PreviewNodeHandlersRegistry {
     this.handlers.set(
       ActionType.CREATE_ISSUE,
       new ActionCreateIssueHandler(this.adapter, this.orderRepo),
+    );
+    this.handlers.set(
+      ActionType.ASSIGN_ORDER_TO_CLIENT,
+      new ActionAssignOrderToClientHandler(this.adapter, this.orderRepo),
     );
     this.handlers.set(ActionType.WAIT, new ActionWaitHandler(this.orderRepo));
   }

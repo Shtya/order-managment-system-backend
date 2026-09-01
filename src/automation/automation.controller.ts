@@ -134,7 +134,7 @@ export class AutomationController {
   }
 
   @Get("runs")
-  @Permissions("automation.read")
+  @Permissions("automation.read", "orders.confirm-incoming")
   findAllRuns(@Req() req: any, @Query() q: any) {
     return this.automationService.findAllRuns(req.user, q);
   }

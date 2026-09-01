@@ -134,7 +134,7 @@ export class OrdersController {
   }
 
   @Get("statuses")
-  @Permissions("orders.read")
+  @Permissions("orders.read", "orders.confirm-incoming")
   statuses(@Req() req: any, @Query() q: any) {
     return this.svc.getStatuses(req.user, q);
   }
@@ -307,7 +307,7 @@ export class OrdersController {
   }
 
   // ✅ List orders with filters
-  @Permissions("orders.read")
+  @Permissions("orders.read", "orders.confirm-incoming")
   @Get()
   list(@Req() req: any, @Query() q: any) {
     return this.svc.list(req.user, q);

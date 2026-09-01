@@ -24,6 +24,7 @@ import { IssueService } from "src/issue/issue.service";
 import { IssuePriority } from "entities/issue.entity";
 import { ShippingService } from "src/shipping/shipping.service";
 import { CreateShipmentDto } from "dto/shipping.dto";
+import { ClientService } from "src/clients/clients.service";
 
 /**
  * Production implementation of AutomationAdapter
@@ -50,6 +51,8 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     private readonly issueService: IssueService,
     @Inject(forwardRef(() => ShippingService))
     private readonly shippingService: ShippingService,
+    @Inject(forwardRef(() => ClientService))
+    private readonly clientService: ClientService,
   ) {}
 
   async changeStatus(
@@ -251,5 +254,85 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
       orderId,
       options,
     );
+  }
+
+  async attachOrderToClient(
+    user: { adminId: string; id: string | null },
+    order: {
+      id: string;
+      adminId: string;
+      phoneNumber?: string;
+      customerName?: string;
+      email?: string;
+      clientId?: string | null;
+    },
+    options: { createIfMissing?: boolean },
+  ) {
+    const adminId = order.adminId || user.adminId;
+    const me = {
+      id: adminId,
+      adminId,
+      role: { name: "admin" },
+    };
+    const phoneNumber = String(order.phoneNumber || "").trim();
+    if (!phoneNumber) {
+      return {
+        success: true,
+        skipped: true,
+        reason: "Missing phone number",
+        clientId: order.clientId || null,
+      };
+    }
+
+    let clientId = await this.clientService.findClientIdByPhone(
+      adminId,
+      phoneNumber,
+    );
+    let clientCreated = false;
+
+    if (!clientId && options.createIfMissing) {
+      const created = await this.clientService.create(me, {
+        name: order.customerName?.trim() || phoneNumber,
+        email: order.email?.trim() || undefined,
+        contacts: [{ phoneNumber, isPrimary: true }],
+      } as any);
+      clientId = created?.id || null;
+      clientCreated = !!clientId;
+    }
+
+    if (!clientId) {
+      return {
+        success: true,
+        skipped: true,
+        reason: "No client found",
+        clientId: null,
+        clientCreated: false,
+      };
+    }
+
+    if (order.clientId === clientId) {
+      return {
+        success: true,
+        skipped: true,
+        reason: "Order already linked to a this client",
+        clientId,
+        clientCreated,
+      };
+    }
+    
+    if(order.clientId && order.clientId !== clientId) {
+      return {
+        success: false,
+        error: "Order already linked to a different client",
+      };
+    }
+
+    await this.ordersService.update(me, order.id, { clientId } as any);
+
+    return {
+      success: true,
+      clientId,
+      clientCreated,
+    };
   }
 }

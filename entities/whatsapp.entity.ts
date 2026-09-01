@@ -6,6 +6,7 @@ import {
     UpdateDateColumn,
     Index,
     ManyToOne,
+    OneToOne,
     JoinColumn,
     OneToMany,
     Relation
@@ -233,7 +234,7 @@ export class ConversationEntity {
     @Column({ type: 'uuid' })
     customerId: string;
 
-    @ManyToOne(() => CustomerEntity, {
+    @OneToOne(() => CustomerEntity, {
         onDelete: 'CASCADE', eager: true,
     })
     @JoinColumn({ name: 'customerId' })

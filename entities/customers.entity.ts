@@ -1,6 +1,7 @@
-import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, OneToOne, PrimaryGeneratedColumn, UpdateDateColumn } from "typeorm";
 import { User } from "./user.entity";
 import { ConversationEntity } from "./whatsapp.entity";
+import { ClientEntity } from "./clients.entity";
 
 @Index(['adminId', 'waId'], { unique: true })
 @Index(['adminId', 'phoneNumber'], { unique: true })
@@ -31,9 +32,6 @@ export class CustomerEntity {
     @Column({ type: 'varchar', nullable: true })
     profilePicture: string;
 
-    @Column({ type: 'varchar', nullable: true })
-    email: string;
-
     @Column({ type: 'text', nullable: true })
     notes: string;
 
@@ -43,6 +41,17 @@ export class CustomerEntity {
     @Column({ type: 'jsonb', nullable: true })
     metadata: any;
 
+    @Index()
+    @Column({ type: "uuid", nullable: true })
+    clientId?: string;
+
+    @ManyToOne(() => ClientEntity, (client) => client.contacts, {
+        nullable: true,
+        onDelete: "SET NULL",
+    })
+    @JoinColumn({ name: "clientId" })
+    client?: ClientEntity;
+
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 
@@ -50,6 +59,6 @@ export class CustomerEntity {
     updatedAt: Date;
 
     // Relations
-    @OneToMany(() => ConversationEntity, (c) => c.customer)
-    conversations: ConversationEntity[];
+    @OneToOne(() => ConversationEntity, (c) => c.customer)
+    conversation: ConversationEntity;
 }

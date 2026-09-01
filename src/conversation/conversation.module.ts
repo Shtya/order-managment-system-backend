@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { ConversationService } from "./conversation.service";
 import { ConversationController } from "./conversation.controller";
 import { TypeOrmModule } from "@nestjs/typeorm";
@@ -13,7 +13,7 @@ import { CustomerModule } from "../customer/customer.module";
 
 @Module({
   imports: [
-    CustomerModule,
+    forwardRef(() => CustomerModule),
     TypeOrmModule.forFeature([
       WhatsappAccountEntity,
       WhatsappTemplateEntity,

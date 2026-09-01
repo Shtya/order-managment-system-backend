@@ -103,7 +103,7 @@ export class OrderAssignmentService {
     private readonly autoAssignmentQueueService: AutoAssignmentQueueService,
     @Inject(forwardRef(() => TriggerDispatcherService))
     private readonly triggerDispatcher: TriggerDispatcherService,
-  ) {}
+  ) { }
 
   private async dispatchAssignmentCancelledAutomations(
     adminId: string,
@@ -797,7 +797,7 @@ export class OrderAssignmentService {
         })),
       };
     });
-    
+
     await this.scheduleAssignmentExpiry(
       adminId,
       summary._savedAssignments || [],
@@ -1495,13 +1495,14 @@ export class OrderAssignmentService {
 
   async getNextAssignedOrder(me: any) {
     const adminId = tenantId(me);
+
     if (!adminId) {
       throw new BadRequestException(
         this.translations.t("common.missing_admin_id"),
       );
     }
 
-    const order = await this.orderRepo
+    const { entities, raw } = await this.orderRepo
       .createQueryBuilder("order")
       .innerJoinAndSelect(
         "order.assignments",
@@ -1532,11 +1533,89 @@ export class OrderAssignmentService {
       .leftJoinAndSelect("order.store", "store")
       .leftJoinAndSelect("order.lastInternalNote", "lastInternalNote")
       .leftJoinAndSelect("lastInternalNote.author", "lastInternalNoteAuthor")
-      .orderBy("assignment.assignedAt", "ASC") // 🔥 Old → New
+      .leftJoinAndSelect("order.client", "client")
+      .leftJoinAndSelect("client.primaryContact", "primaryContact")
+      .leftJoinAndSelect(
+        "client.addresses",
+        "clientAddress",
+        "clientAddress.isDefault = true",
+      )
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COALESCE(SUM(clientOrder.finalTotal), 0)")
+          .from(OrderEntity, "clientOrder")
+          .where("clientOrder.clientId = client.id")
+          .andWhere("clientOrder.deleted_at IS NULL");
+      }, "client_totalSales")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(clientOrder.id)")
+          .from(OrderEntity, "clientOrder")
+          .where("clientOrder.clientId = client.id")
+          .andWhere("clientOrder.deleted_at IS NULL");
+      }, "client_totalOrders")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(confOrd.id)")
+          .from(OrderEntity, "confOrd")
+          .where("confOrd.clientId = client.id")
+          .andWhere("confOrd.deleted_at IS NULL")
+          .andWhere("confOrd.isConfirmed = true");
+      }, "client_confirmedCount")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(DISTINCT shippedOrd.id)")
+          .from(OrderEntity, "shippedOrd")
+          .innerJoin("shippedOrd.shipments", "shippedSh")
+          .where("shippedOrd.clientId = client.id")
+          .andWhere("shippedOrd.deleted_at IS NULL")
+          .andWhere("shippedSh.shippedAt IS NOT NULL");
+      }, "client_shippedCount")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(delOrd.id)")
+          .from(OrderEntity, "delOrd")
+          .innerJoin("delOrd.status", "delStatus")
+          .where("delOrd.clientId = client.id")
+          .andWhere("delOrd.deleted_at IS NULL")
+          .andWhere(`delStatus.code = '${OrderStatus.DELIVERED}'`);
+      }, "client_deliveredCount")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(retOrd.id)")
+          .from(OrderEntity, "retOrd")
+          .innerJoin("retOrd.status", "retStatus")
+          .where("retOrd.clientId = client.id")
+          .andWhere("retOrd.deleted_at IS NULL")
+          .andWhere(`retStatus.code = '${OrderStatus.RETURNED}'`);
+      }, "client_returnedCount")
+      .orderBy("assignment.assignedAt", "ASC")
       .addOrderBy("order.id", "ASC")
-      .getOne();
+      .getRawAndEntities();
+
+    const order = entities[0];
 
     if (!order) return null;
+
+    // Attach client statistics from the raw query result
+    if (order.client && raw[0]) {
+      (order.client as any).totalSales = Number(raw[0].client_totalSales || 0);
+      (order.client as any).totalOrders = Number(raw[0].client_totalOrders || 0);
+      (order.client as any).confirmedCount = Number(
+        raw[0].client_confirmedCount || 0,
+      );
+      (order.client as any).shippedCount = Number(
+        raw[0].client_shippedCount || 0,
+      );
+      (order.client as any).deliveredCount = Number(
+        raw[0].client_deliveredCount || 0,
+      );
+      (order.client as any).returnedCount = Number(
+        raw[0].client_returnedCount || 0,
+      );
+      (order.client as any).primaryNumber =
+        order.client.primaryContact?.phoneNumber || null;
+    }
 
     (order as any).myUnreadCount = Number(
       order.internalNotesUnreadCounts?.[me?.id] || 0,
@@ -1547,6 +1626,7 @@ export class OrderAssignmentService {
 
     for (const item of order.items || []) {
       if (!item.variant?.product?.upsellingEnabled) continue;
+
       for (const upsell of item.variant?.product?.upsellingProducts || []) {
         if (upsell.productId) {
           upsellingIds.add(upsell.productId);
@@ -1557,29 +1637,35 @@ export class OrderAssignmentService {
     // Fetch lightweight products with SKUs to calculate stock
     const upsellingProducts = upsellingIds.size
       ? await this.productRepo
-          .createQueryBuilder("product")
-          .leftJoinAndSelect("product.variants", "skus", "skus.isActive = true")
-          .select([
-            "product.id",
-            "product.name",
-            "product.sku",
-            "product.type",
-            "product.mainImage",
-            "product.lowestPrice",
-            "product.salePrice",
-            "skus.id",
-            "skus.stockOnHand",
-            "skus.reserved",
-          ])
-          .where("product.id IN (:...ids)", {
-            ids: [...upsellingIds],
-          })
-          .getMany()
+        .createQueryBuilder("product")
+        .leftJoinAndSelect(
+          "product.variants",
+          "skus",
+          "skus.isActive = true",
+        )
+        .select([
+          "product.id",
+          "product.name",
+          "product.sku",
+          "product.type",
+          "product.mainImage",
+          "product.lowestPrice",
+          "product.salePrice",
+          "skus.id",
+          "skus.stockOnHand",
+          "skus.reserved",
+        ])
+        .where("product.id IN (:...ids)", {
+          ids: [...upsellingIds],
+        })
+        .getMany()
       : [];
 
     const productEntries = await Promise.all(
       upsellingProducts.map(
-        async (p): Promise<[string, typeof p & { totalAvailable: number }]> => {
+        async (
+          p,
+        ): Promise<[string, typeof p & { totalAvailable: number }]> => {
           const totals = (p.variants || []).reduce(
             (acc, sku) => {
               acc.totalStock += sku.stockOnHand || 0;
@@ -1607,6 +1693,7 @@ export class OrderAssignmentService {
     for (const item of order.items || []) {
       (item as any).upsellingProducts =
         item.variant?.product?.upsellingProducts || [];
+
       (item as any).upsellingProducts = (
         (item as any).upsellingProducts || []
       ).map((upsell) => ({
@@ -1617,6 +1704,8 @@ export class OrderAssignmentService {
 
     return order;
   }
+
+
 
   async getFreeOrders(me: any, q: GetFreeOrdersDto) {
     const adminId = tenantId(me);
@@ -2001,8 +2090,8 @@ export class OrderAssignmentService {
       promises.push(
         (dto.productIds.length
           ? this.productRepo.find({
-              where: { id: In(dto.productIds), isActive: true },
-            })
+            where: { id: In(dto.productIds), isActive: true },
+          })
           : Promise.resolve([])
         ).then(async (products) => {
           if (
@@ -2023,8 +2112,8 @@ export class OrderAssignmentService {
       promises.push(
         (dto.cityIds.length
           ? this.cityRepo.find({
-              where: { id: In(dto.cityIds), isActive: true },
-            })
+            where: { id: In(dto.cityIds), isActive: true },
+          })
           : Promise.resolve([])
         ).then(async (cities) => {
           if (dto.cityIds.length && cities.length !== dto.cityIds.length) {
@@ -2043,8 +2132,8 @@ export class OrderAssignmentService {
       promises.push(
         (dto.storeIds.length
           ? this.storeRepo.find({
-              where: { id: In(dto.storeIds), isActive: true },
-            })
+            where: { id: In(dto.storeIds), isActive: true },
+          })
           : Promise.resolve([])
         ).then(async (stores) => {
           if (dto.storeIds.length && stores.length !== dto.storeIds.length) {
@@ -2063,8 +2152,8 @@ export class OrderAssignmentService {
       promises.push(
         (dto.employeeIds.length
           ? this.userRepo.find({
-              where: { id: In(dto.employeeIds), adminId, isActive: true },
-            })
+            where: { id: In(dto.employeeIds), adminId, isActive: true },
+          })
           : Promise.resolve([])
         ).then(async (employees) => {
           if (

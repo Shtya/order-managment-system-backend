@@ -116,6 +116,7 @@ export enum ActionType {
     SEND_SMS = 'send_sms',
     WAIT = 'wait',
     CREATE_ISSUE = 'create_issue',
+    ASSIGN_ORDER_TO_CLIENT = 'assign_order_to_client',
 }
 
 export enum ConditionType {
@@ -275,6 +276,10 @@ export interface CreateIssueConfig {
     assignedRoleId: string;
     employeeIds?: string[];
     estimatedMinutes?: number;
+}
+
+export interface AssignOrderToClientConfig {
+    createIfMissing?: boolean;
 }
 
 export interface VariableDetails {

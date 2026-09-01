@@ -16,6 +16,7 @@ import {
   AutomationRunEntity,
   ConditionType,
   CreateIssueConfig,
+  AssignOrderToClientConfig,
   FlowNodeDataType,
   OrderCheckConfig,
   QuickOrderStatusConfig,
@@ -2663,6 +2664,70 @@ export class ActionWaitHandler extends FlowNodeHandler {
   }
 }
 
+export class ActionAssignOrderToClientHandler extends FlowNodeHandler {
+  private readonly logger = new Logger(ActionAssignOrderToClientHandler.name);
+
+  constructor(
+    private readonly adapter: AutomationAdapter,
+    @InjectRepository(OrderEntity)
+    protected readonly orderRepo: Repository<OrderEntity>,
+  ) {
+    super(orderRepo);
+  }
+
+  async execute(
+    config: AssignOrderToClientConfig,
+    run: AutomationRunEntity,
+  ): Promise<NodeHandlerResponse> {
+    try {
+      const orderData = await this.getOrder(run.executionState.trigger.output);
+      if (!orderData?.id) {
+        return {
+          success: false,
+          shouldPause: false,
+          error: "Order data not found in trigger output",
+        };
+      }
+
+      const result = await this.adapter.attachOrderToClient(
+        { adminId: orderData.adminId, id: orderData.adminId },
+        {
+          id: orderData.id,
+          adminId: orderData.adminId,
+          phoneNumber: orderData.phoneNumber,
+          customerName: orderData.customerName,
+          email: orderData.email,
+          clientId: orderData.clientId,
+        },
+        { createIfMissing: config?.createIfMissing === true },
+      );
+
+      return {
+        success: result.success,
+        shouldPause: false,
+        output: {
+          skipped: result.skipped,
+          reason: result.reason,
+          clientId: result.clientId,
+          clientCreated: result.clientCreated,
+          previewMode: result.previewMode,
+          skippedSideEffect: result.skippedSideEffect,
+        },
+      };
+    } catch (error: any) {
+      this.logger.error(
+        `Failed to assign order to client: ${error?.message}`,
+        error?.stack,
+      );
+      return {
+        success: false,
+        shouldPause: false,
+        error: error?.message || "Failed to assign order to client",
+      };
+    }
+  }
+}
+
 @Injectable()
 export class NodeHandlersRegistry {
   private readonly handlers = new Map<FlowNodeDataType, FlowNodeHandler>();
@@ -2790,6 +2855,10 @@ export class NodeHandlersRegistry {
         this.userRepo,
         this.clientSettingsService,
       ),
+    );
+    this.handlers.set(
+      ActionType.ASSIGN_ORDER_TO_CLIENT,
+      new ActionAssignOrderToClientHandler(this.adapter, this.orderRepo),
     );
     this.handlers.set(
       ActionType.WAIT,

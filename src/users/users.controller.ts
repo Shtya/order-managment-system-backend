@@ -80,7 +80,7 @@ export class UsersController {
     return this.users.upsertCompany(req.user, dto);
   }
 
-  @Permissions("users.read")
+  @Permissions("users.read", "orders.confirm-incoming")
   @Get("company")
   async getCompany(@Req() req: any) {
     // me: req.user is passed to service to handle tenantId logic

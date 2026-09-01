@@ -331,4 +331,31 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
       skippedSideEffect: true,
     };
   }
+
+  async attachOrderToClient(
+    user: { adminId: string; id: string | null },
+    order: {
+      id: string;
+      adminId: string;
+      phoneNumber?: string;
+      customerName?: string;
+      email?: string;
+      clientId?: string | null;
+    },
+    options: { createIfMissing?: boolean },
+  ) {
+    this.logger.log(
+      `[PREVIEW] Skipping attach order ${order.id} to client by phone ${order.phoneNumber || "n/a"} (createIfMissing=${!!options.createIfMissing})`,
+    );
+
+    return {
+      success: true,
+      skipped: !order.phoneNumber,
+      reason: order.phoneNumber ? "preview" : "missing_phone",
+      clientId: order.clientId || `preview-client-${randomUUID()}`,
+      clientCreated: !!options.createIfMissing && !order.clientId,
+      previewMode: true,
+      skippedSideEffect: true,
+    };
+  }
 }

@@ -43,46 +43,76 @@ export class ConversationService {
         manager,
       );
 
-      const repo = manager.getRepository(ConversationEntity);
+      return this.ensureConversationForCustomer(manager, adminId, customer.id);
+    });
+  }
 
-      // Try atomic insert (requires unique constraint on adminId + customerId)
-      const insertResult = await repo
-        .createQueryBuilder()
-        .insert()
-        .into(ConversationEntity)
-        .values({
-          adminId,
-          customerId: customer.id,
-          status: ConversationStatus.OPEN,
-        })
-        .orIgnore()
-        .returning("*")
-        .execute();
+  async getOrCreateConversationByCustomerId(me: any, customerId: string) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
 
-      // This transaction created the conversation
-      if (insertResult.raw?.length > 0) {
-        const conversation = repo.create(
-          insertResult.raw[0] as ConversationEntity,
+    return this.dataSource.transaction(async (manager) => {
+      const customer = await manager.getRepository(CustomerEntity).findOne({
+        where: { id: customerId, adminId },
+      });
+      if (!customer) {
+        throw new NotFoundException(
+          this.translations.t("domains.customer.not_found"),
         );
-
-        const finalConversation = await repo.findOne({
-          where: { id: conversation.id },
-          relations: ["customer", "lastMessage"],
-        });
-
-        this.appGateway.emitNewConversation(adminId, finalConversation);
-
-        return finalConversation;
       }
 
-      // Already existed
-      return await repo.findOne({
-        where: {
-          adminId,
-          customerId: customer.id,
-        },
+      return this.ensureConversationForCustomer(manager, adminId, customer.id);
+    });
+  }
+
+  private async ensureConversationForCustomer(
+    manager: EntityManager,
+    adminId: string,
+    customerId: string,
+  ) {
+    const repo = manager.getRepository(ConversationEntity);
+
+    // Try atomic insert (requires unique constraint on adminId + customerId)
+    const insertResult = await repo
+      .createQueryBuilder()
+      .insert()
+      .into(ConversationEntity)
+      .values({
+        adminId,
+        customerId,
+        status: ConversationStatus.OPEN,
+      })
+      .orIgnore()
+      .returning("*")
+      .execute();
+
+    // This transaction created the conversation
+    if (insertResult.raw?.length > 0) {
+      const conversation = repo.create(
+        insertResult.raw[0] as ConversationEntity,
+      );
+
+      const finalConversation = await repo.findOne({
+        where: { id: conversation.id },
         relations: ["customer", "lastMessage"],
       });
+
+      this.appGateway.emitNewConversation(adminId, finalConversation);
+
+      return finalConversation;
+    }
+
+    // Already existed
+    return await repo.findOne({
+      where: {
+        adminId,
+        customerId,
+      },
+      relations: ["customer", "lastMessage"],
     });
   }
 
