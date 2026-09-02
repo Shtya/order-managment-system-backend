@@ -380,12 +380,8 @@ export class OrdersService {
           entityId: order.id,
           adminId: order.adminId,
           payload: null,
-          orderId: order.id,
         });
-        await this.tagAutomationEvaluator.evaluateOrder(
-          order.id,
-          order.adminId,
-        );
+        await this.tagAutomationEvaluator.evaluateOrder(order.id);
 
         if (order.externalId) {
           await this.storesService.syncOrderStatus(

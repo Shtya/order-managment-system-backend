@@ -33,6 +33,11 @@ import {
   AutomationQueueService,
   AutomationWorkerService,
 } from "./queues/automations.queue";
+import {
+  TagAutomationQueueService,
+  TagAutomationWorkerService,
+} from "./queues/tag-automations.queue";
+import { TagsModule } from "src/tags/tags.module";
 import { QueueDelayService } from "./common/queue-delay.service";
 import {
   OnboardingAchievementService,
@@ -72,6 +77,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     forwardRef(() => StoresModule),
     forwardRef(() => AutomationModule),
     forwardRef(() => OrderAssignmentModule),
+    forwardRef(() => TagsModule),
     BullModule.forRootAsync(bullQueueConfig),
     BullModule.registerQueue(...registeredQueues),
     BullBoardModule.forRootAsync({
@@ -119,6 +125,8 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     OrderSyncWorkerService,
     AutomationQueueService,
     AutomationWorkerService,
+    TagAutomationQueueService,
+    TagAutomationWorkerService,
     OnboardingAchievementService,
     OnboardingAchievementProcessor,
     QueueDelayService,
@@ -132,6 +140,8 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     OrderSyncWorkerService,
     AutomationQueueService,
     AutomationWorkerService,
+    TagAutomationQueueService,
+    TagAutomationWorkerService,
     OnboardingAchievementService,
     QueueDelayService,
   ],

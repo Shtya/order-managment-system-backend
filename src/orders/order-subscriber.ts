@@ -32,38 +32,34 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
   }
 
   async afterInsert(event: InsertEvent<OrderEntity>) {
-    const order = event.entity;
+    const eventOrder = event.entity;
     // console.log("[OrderSubscriber] After insert called for order id:", order?.id);
 
-    if (!order) {
+    if (!eventOrder) {
       // console.log("[OrderSubscriber] No order entity, skipping");
       return;
     }
 
     // Load full order with required relations INSIDE the current transaction
-    const fullOrder = await event.manager.findOne(OrderEntity, {
-      where: { id: order.id },
-      relations: ["status", "items", "items.variant", "items.variant.product"],
+    const order = await event.manager.findOne(OrderEntity, {
+      where: { id: eventOrder.id },
     });
 
-    if (!fullOrder) {
+    if (!order) {
       // console.log("[OrderSubscriber] Failed to load full order after insert, skipping");
       return;
     }
-    // console.log(`[OrderSubscriber] Loaded full order ${fullOrder.id}, queuing post-commit task`);
+    // console.log(`[OrderSubscriber] Loaded full order ${order.id}, queuing post-commit task`);
 
     const runAfterCommit = async () => {
       await this.triggerDispatcher.dispatch({
         type: TriggerType.ORDER_CREATED,
         entityType: TriggerEntityType.ORDER,
-        entityId: fullOrder.id,
-        adminId: fullOrder.adminId,
-        payload: fullOrder,
+        entityId: order.id,
+        adminId: order.adminId,
+        payload: null,
       });
-      await this.tagAutomationEvaluator.evaluateOrder(
-        fullOrder.id,
-        fullOrder.adminId,
-      );
+      await this.tagAutomationEvaluator.evaluateOrder(order.id);
     };
 
     await this.queueAfterCommit(event.queryRunner, runAfterCommit);
@@ -76,7 +72,7 @@ export class OrderSubscriber implements EntitySubscriberInterface<OrderEntity> {
 
     const adminId = order.adminId ?? event.databaseEntity?.adminId;
     const runAfterCommit = async () => {
-      await this.tagAutomationEvaluator.evaluateOrder(orderId, adminId);
+      await this.tagAutomationEvaluator.evaluateOrder(orderId);
     };
 
     await this.queueAfterCommit(event.queryRunner, runAfterCommit);

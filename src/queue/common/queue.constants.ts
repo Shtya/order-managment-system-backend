@@ -3,6 +3,7 @@ export enum QueueNames {
   PRODUCT_SYNC = "product-sync",
   ORDER_SYNC = "order-sync",
   AUTOMATIONS = "automations",
+  TAG_AUTOMATIONS = "tag-automations",
   GETTING_STARTED = "getting-started",
 }
 
@@ -29,6 +30,11 @@ export const QueueConfigs: Record<
     displayName: "Automations Queue",
     description:
       "Runs automation flows and resumes them from WhatsApp or upsell replay events",
+  },
+  [QueueNames.TAG_AUTOMATIONS]: {
+    displayName: "Tag Automations Queue",
+    description:
+      "Debounces and evaluates order tag automation rules after order changes",
   },
   [QueueNames.GETTING_STARTED]: {
     displayName: "Getting Started Queue",
@@ -60,6 +66,10 @@ export const AutomationJobs = {
   START: "start",
   RESUME: "resume",
   WAIT_RESUME: "wait-resume",
+} as const;
+
+export const TagAutomationJobs = {
+  EVALUATE_ORDER: "evaluate-order",
 } as const;
 
 export const GettingStartedJobs = {

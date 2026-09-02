@@ -86,33 +86,22 @@ export class ShipmentSubscriber implements EntitySubscriberInterface<ShipmentEnt
   ) {
     const runAfterCommit = async () => {
       try {
-        const fullOrder = await manager
+        const order = await manager
           .getRepository(OrderEntity)
           .createQueryBuilder("order")
-          .leftJoinAndSelect("order.status", "status")
-          .leftJoinAndSelect("order.items", "items")
-          .leftJoinAndSelect("items.variant", "variant")
-          .leftJoinAndSelect("variant.product", "product")
-          .leftJoinAndSelect(
-            "order.shipments",
-            "shipment",
-            `shipment.id = (SELECT s.id FROM shipments s WHERE s."trackingNumber" = "order"."trackingNumber" ORDER BY s."created_at" DESC LIMIT 1)`,
-          )
           .where("order.id = :orderId", { orderId })
+          .select(["id", "adminId"])
           .getOne();
 
-        if (fullOrder) {
+        if (order) {
           await this.triggerDispatcher.dispatch({
             type: TriggerType.SHIPMENT_UPDATED,
             entityType: TriggerEntityType.ORDER,
-            entityId: fullOrder.id,
-            adminId: fullOrder.adminId,
-            payload: fullOrder,
+            entityId: order.id,
+            adminId: order.adminId,
+            payload: null,
           });
-          await this.tagAutomationEvaluator.evaluateOrder(
-            fullOrder.id,
-            fullOrder.adminId,
-          );
+          await this.tagAutomationEvaluator.evaluateOrder(order.id);
         }
       } catch (error) {
         this.logger.error(

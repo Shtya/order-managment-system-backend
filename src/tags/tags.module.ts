@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import {
   OrderTagEntity,
@@ -10,6 +10,7 @@ import { TagsService } from "./tags.service";
 import { TagAutomationsService } from "./tag-automations.service";
 import { TagsAssignmentService } from "./tags-assignment.service";
 import { TagAutomationEvaluator } from "./tag-automation.evaluator";
+import { QueueModule } from "src/queue/queue.module";
 import {
   OrderTagsController,
   TagAutomationsController,
@@ -24,6 +25,7 @@ import {
       TagAutomationEntity,
       OrderEntity,
     ]),
+    forwardRef(() => QueueModule),
   ],
   controllers: [
     TagsController,

@@ -537,10 +537,7 @@ export class OrderAssignmentService {
     });
 
     try {
-      await this.tagAutomationEvaluator.evaluateOrders(
-        result.assignmentOrderIds,
-        adminId,
-      );
+      await this.tagAutomationEvaluator.evaluateOrders(result.assignmentOrderIds);
     } catch (error) {
       this.logger.error(
         "[removeActiveAssignments] Tag evaluate failed after unassignment",

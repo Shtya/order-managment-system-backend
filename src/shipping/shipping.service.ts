@@ -702,23 +702,18 @@ export class ShippingService {
         // Function to dispatch shipment created trigger after commit
         const dispatchShipmentCreated = async (shipmentId: string) => {
           try {
-            const fullOrder = await manager.findOne(OrderEntity, {
+            const order = await manager.findOne(OrderEntity, {
               where: { id: orderId },
-              relations: [
-                "status",
-                "items",
-                "items.variant",
-                "items.variant.product",
-              ],
+              select: ["id", "adminId"],
             });
 
-            if (fullOrder) {
+            if (order) {
               await this.triggerDispatcher.dispatch({
                 type: TriggerType.SHIPMENT_CREATED,
                 entityType: TriggerEntityType.ORDER,
-                entityId: fullOrder.id,
-                adminId: fullOrder.adminId,
-                payload: fullOrder,
+                entityId: order.id,
+                adminId: order.adminId,
+                payload: null,
               });
             }
           } catch (error) {

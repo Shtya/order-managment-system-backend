@@ -725,7 +725,7 @@ export class UpsellsService {
       history.respondedAt = new Date();
 
       await this.upsellHistoryRepo.save(history);
-      await this.tagAutomationEvaluator.evaluateOrder(orderId, adminId);
+      await this.tagAutomationEvaluator.evaluateOrder(orderId);
 
       return {
         success: true,

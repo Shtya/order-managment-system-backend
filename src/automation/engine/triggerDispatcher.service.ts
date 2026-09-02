@@ -48,24 +48,23 @@ export class TriggerDispatcherService {
    */
   async dispatch(trigger: {
     type: TriggerType;
+    payload: any | null;
     entityType: TriggerEntityType;
     entityId: string;
-    payload: any | null;
     adminId: string;
-    orderId?: string;
   }) {
     if (
       trigger.entityType === TriggerEntityType.ORDER &&
-      trigger.orderId &&
+      trigger.entityId &&
       !trigger.payload
     ) {
       const order = await this.orderRepo.findOne({
-        where: { id: trigger.orderId },
+        where: { id: trigger.entityId },
         select: ["id", "adminId", "oldStatusId", "statusId", "externalId"],
       });
       if (!order) {
         console.log(
-          `[TriggerDispatcher] Order ${trigger.orderId} not found, skipping`,
+          `[TriggerDispatcher] Order ${trigger.entityId} not found, skipping`,
         );
         return;
       }

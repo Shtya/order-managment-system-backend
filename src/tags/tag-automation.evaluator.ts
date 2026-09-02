@@ -1,6 +1,6 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { In, QueryRunner, Repository } from "typeorm";
+import { QueryRunner, Repository } from "typeorm";
 import { OrderEntity, OrderItemEntity } from "entities/order.entity";
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { ShipmentEntity } from "entities/shipping.entity";
@@ -19,6 +19,7 @@ import {
 } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { TagsAssignmentService } from "./tags-assignment.service";
+import { TagAutomationQueueService } from "src/queue/queues/tag-automations.queue";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 @Injectable()
@@ -32,16 +33,17 @@ export class TagAutomationEvaluator {
     private readonly automationRepo: Repository<TagAutomationEntity>,
     private readonly clientSettingsService: ClientSettingsService,
     private readonly assignmentService: TagsAssignmentService,
-  ) {}
+    @Inject(forwardRef(() => TagAutomationQueueService))
+    private readonly tagAutomationQueue: TagAutomationQueueService,
+  ) { }
 
   scheduleEvaluate(
     orderId: string,
     queryRunner?: QueryRunner | null,
-    adminId?: string,
   ) {
     const run = async () => {
       try {
-        await this.evaluateOrder(orderId, adminId);
+        await this.evaluateOrder(orderId);
       } catch (error) {
         this.logger.error(
           `Tag automation evaluate failed for order ${orderId}`,
@@ -61,69 +63,37 @@ export class TagAutomationEvaluator {
     void run();
   }
 
-  async evaluateOrder(orderId: string, adminId?: string) {
-    const [order, settings, automations] = await Promise.all([
-      this.orderRepo.findOne({
-        where: { id: orderId },
-        relations: ["status", "items"],
-      }),
-      adminId
-        ? this.clientSettingsService.getCachedSettings(adminId)
-        : Promise.resolve(null),
-      adminId
-        ? this.automationRepo.find({
-            where: { adminId, isEnabled: true },
-            relations: ["tag"],
-          })
-        : Promise.resolve(null),
-    ]);
-    if (!order?.adminId) return;
-
-    await this.applyAutomations(order, settings, automations);
+  async evaluateOrder(orderId: string) {
+    if (!orderId) return;
+    await this.tagAutomationQueue.enqueueEvaluateOrder(orderId);
   }
 
-  async evaluateOrders(orderIds: string[], adminId: string) {
-    const uniqueOrderIds = [...new Set(orderIds.filter(Boolean))];
-    if (!uniqueOrderIds.length) return;
+  async processEvaluateOrder(orderId: string) {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ["status", "items"],
+    });
+    if (!order?.adminId) return;
+    const adminId = order.adminId;
 
-    const [settings, automations, orders] = await Promise.all([
+    const [settings, automations] = await Promise.all([
       this.clientSettingsService.getCachedSettings(adminId),
       this.automationRepo.find({
         where: { adminId, isEnabled: true },
         relations: ["tag"],
       }),
-      this.orderRepo.find({
-        where: { id: In(uniqueOrderIds) },
-        relations: ["status", "items"],
-      }),
     ]);
 
-    if (settings?.tagAutomationsEnabled === false || !automations.length) {
-      return;
-    }
+    await this.applyAutomations(order, settings, automations);
+  }
 
-    const snapshots = await this.buildSnapshots(orders, adminId, automations);
-    const results = await Promise.allSettled(
-      orders.map((order) =>
-        this.applyAutomations(
-          order,
-          settings,
-          automations,
-          snapshots.get(order.id),
-        ),
-      ),
+  async evaluateOrders(orderIds: string[]) {
+    const uniqueOrderIds = [...new Set(orderIds.filter(Boolean))];
+    if (!uniqueOrderIds.length) return;
+
+    await Promise.all(
+      uniqueOrderIds.map((orderId) => this.evaluateOrder(orderId)),
     );
-
-    results.forEach((result, index) => {
-      if (result.status === "rejected") {
-        this.logger.error(
-          `Tag automation evaluate failed for order ${orders[index].id}`,
-          result.reason instanceof Error
-            ? result.reason.stack
-            : result.reason,
-        );
-      }
-    });
   }
 
   private async applyAutomations(
@@ -213,112 +183,6 @@ export class TagAutomationEvaluator {
         tagIds: unmatchedTagIds,
       });
     }
-  }
-
-  private async buildSnapshots(
-    orders: OrderEntity[],
-    adminId: string,
-    automations: TagAutomationEntity[],
-  ) {
-    const fields = new Set<string>();
-    for (const automation of automations) {
-      for (const rule of automation.conditions?.rules || []) {
-        if (rule.field) fields.add(rule.field);
-      }
-    }
-
-    const orderIds = orders.map((order) => order.id);
-    if (!orderIds.length) return new Map<string, Record<string, any>>();
-    const needsShipment = fields.has("shipment.status");
-    const needsUpsell = fields.has("upsell.accepted");
-    const needsAssignment =
-      fields.has("assignment.contactTries") || fields.has("assignment.hasActive");
-
-    const [latestShipments, latestUpsells, assignmentRows] = await Promise.all([
-      needsShipment
-        ? this.orderRepo.manager
-            .getRepository(ShipmentEntity)
-            .createQueryBuilder("shipment")
-            .select("shipment.orderId", "orderId")
-            .addSelect("shipment.status", "status")
-            .distinctOn(["shipment.orderId"])
-            .where("shipment.orderId IN (:...orderIds)", { orderIds })
-            .orderBy("shipment.orderId")
-            .addOrderBy("shipment.created_at", "DESC")
-            .getRawMany<{ orderId: string; status: ShipmentEntity["status"] }>()
-        : Promise.resolve(
-            [] as Array<{ orderId: string; status: ShipmentEntity["status"] }>,
-          ),
-      needsUpsell
-        ? this.orderRepo.manager
-            .getRepository(UpsellHistory)
-            .createQueryBuilder("history")
-            .select("history.orderId", "orderId")
-            .addSelect("history.status", "status")
-            .distinctOn(["history.orderId"])
-            .where("history.orderId IN (:...orderIds)", { orderIds })
-            .andWhere("history.adminId = :adminId", { adminId })
-            .orderBy("history.orderId")
-            .addOrderBy("history.createdAt", "DESC")
-            .getRawMany<{ orderId: string; status: UpsellStatus }>()
-        : Promise.resolve([] as Array<{ orderId: string; status: UpsellStatus }>),
-      needsAssignment
-        ? this.orderRepo.manager
-            .getRepository(OrderAssignmentEntity)
-            .createQueryBuilder("assignment")
-            .select("assignment.orderId", "orderId")
-            .addSelect(
-              "COALESCE(SUM(assignment.contactTries), 0)",
-              "contactTries",
-            )
-            .addSelect(
-              "COALESCE(MAX(CASE WHEN assignment.isAssignmentActive = true THEN 1 ELSE 0 END), 0)",
-              "hasActive",
-            )
-            .where("assignment.orderId IN (:...orderIds)", { orderIds })
-            .groupBy("assignment.orderId")
-            .cache(false)
-            .getRawMany()
-        : Promise.resolve([] as Array<{
-            orderId: string;
-            contactTries: string | number;
-            hasActive: string | number;
-          }>),
-    ]);
-
-    const shipmentByOrderId = new Map(
-      latestShipments.map((row) => [row.orderId, row.status ?? null]),
-    );
-    const upsellAcceptedByOrderId = new Map(
-      latestUpsells.map((row) => [
-        row.orderId,
-        row.status === UpsellStatus.ACCEPTED,
-      ]),
-    );
-    const assignmentByOrderId = new Map(
-      assignmentRows.map((row) => [
-        row.orderId,
-        {
-          contactTries: Number(row.contactTries || 0),
-          hasActive: Number(row.hasActive || 0) === 1,
-        },
-      ]),
-    );
-
-    const snapshots = new Map<string, Record<string, any>>();
-    for (const order of orders) {
-      const assignment = assignmentByOrderId.get(order.id);
-      snapshots.set(
-        order.id,
-        this.composeSnapshot(order, {
-          contactTries: assignment?.contactTries ?? 0,
-          hasActive: assignment?.hasActive ?? false,
-          shipmentStatus: shipmentByOrderId.get(order.id) ?? null,
-          upsellAccepted: upsellAcceptedByOrderId.get(order.id) ?? false,
-        }),
-      );
-    }
-    return snapshots;
   }
 
   private async buildSnapshot(order: OrderEntity) {
