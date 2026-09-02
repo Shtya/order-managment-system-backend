@@ -26,6 +26,20 @@ export function findNextNodeId(
   return edge ? edge.target : null;
 }
 
+export function isClientCheckField(field: string | undefined | null): boolean {
+  return String(field || "").startsWith("client.");
+}
+
+export function getClientStatValue(
+  field: string,
+  stats: Record<string, number> | null | undefined,
+): number | null {
+  if (!stats) return null;
+  const key = String(field).slice("client.".length);
+  const value = stats[key];
+  return value === undefined || value === null ? 0 : Number(value);
+}
+
 /**
  * Get the actual field value from order data based on field name
  * Handles special cases like shippingCompany, productsTotal, items_count

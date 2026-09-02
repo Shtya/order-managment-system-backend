@@ -5,7 +5,7 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { TagAutomationEntity, TagEntity } from "entities/tag.entity";
+import { TagAutomationEntity, TagEntity, TagTarget, isClientConditionField, resolveTagTarget } from "entities/tag.entity";
 import { CreateTagAutomationDto, UpdateTagAutomationDto } from "dto/tag.dto";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
@@ -39,6 +39,18 @@ export class TagAutomationsService {
     return tag;
   }
 
+  private assertConditionsForTag(tag: TagEntity, conditions?: { rules?: Array<{ field?: string }> }) {
+    const rules = conditions?.rules || [];
+    if (tag.target !== TagTarget.CLIENT) {
+      const invalid = rules.find((rule) => isClientConditionField(rule.field || ""));
+      if (invalid) {
+        throw new BadRequestException(
+          this.translations.t("domains.tags.invalid_client_field"),
+        );
+      }
+    }
+  }
+
   async list(me: any, q?: any) {
     const adminId = this.adminIdOf(me);
     const page = Math.max(1, Number(q?.page) || 1);
@@ -48,7 +60,8 @@ export class TagAutomationsService {
     const qb = this.automationRepo
       .createQueryBuilder("automation")
       .leftJoinAndSelect("automation.tag", "tag")
-      .where("automation.adminId = :adminId", { adminId });
+      .where("automation.adminId = :adminId", { adminId })
+      .andWhere("tag.target = :target", { target: resolveTagTarget(q?.target) });
 
     if (q?.search) {
       qb.andWhere(
@@ -94,7 +107,8 @@ export class TagAutomationsService {
 
   async create(me: any, dto: CreateTagAutomationDto) {
     const adminId = this.adminIdOf(me);
-    await this.requireTag(adminId, dto.tagId);
+    const tag = await this.requireTag(adminId, dto.tagId);
+    this.assertConditionsForTag(tag, dto.conditions);
     const automation = this.automationRepo.create({
       adminId,
       tagId: dto.tagId,
@@ -108,8 +122,14 @@ export class TagAutomationsService {
   async update(me: any, id: string, dto: UpdateTagAutomationDto) {
     const automation = await this.get(me, id);
     if (dto.tagId && dto.tagId !== automation.tagId) {
-      await this.requireTag(automation.adminId, dto.tagId);
+      const tag = await this.requireTag(automation.adminId, dto.tagId);
+      this.assertConditionsForTag(tag, dto.conditions ?? automation.conditions);
       automation.tagId = dto.tagId;
+    } else if (dto.conditions !== undefined) {
+      const tag =
+        automation.tag ||
+        (await this.requireTag(automation.adminId, automation.tagId));
+      this.assertConditionsForTag(tag, dto.conditions);
     }
     if (dto.name !== undefined) automation.name = dto.name.trim();
     if (dto.isEnabled !== undefined) automation.isEnabled = dto.isEnabled;

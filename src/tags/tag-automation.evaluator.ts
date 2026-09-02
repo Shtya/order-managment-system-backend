@@ -12,6 +12,7 @@ import {
   TagConditionOperator,
   TagConditions,
   TagEntity,
+  TagTarget,
 } from "entities/tag.entity";
 import {
   ClientSettingsEntity,
@@ -20,6 +21,7 @@ import {
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { TagsAssignmentService } from "./tags-assignment.service";
 import { TagAutomationQueueService } from "src/queue/queues/tag-automations.queue";
+import { ClientService } from "src/clients/clients.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 @Injectable()
@@ -35,6 +37,7 @@ export class TagAutomationEvaluator {
     private readonly assignmentService: TagsAssignmentService,
     @Inject(forwardRef(() => TagAutomationQueueService))
     private readonly tagAutomationQueue: TagAutomationQueueService,
+    private readonly clientsService: ClientService,
   ) { }
 
   scheduleEvaluate(
@@ -84,7 +87,22 @@ export class TagAutomationEvaluator {
       }),
     ]);
 
-    await this.applyAutomations(order, settings, automations);
+    const orderAutomations = (automations || []).filter(
+      (automation) =>
+        (automation.tag?.target || TagTarget.ORDER) === TagTarget.ORDER,
+    );
+    await this.applyAutomations(order, settings, orderAutomations);
+
+    if (order.clientId) {
+      const clientAutomations = (automations || []).filter(
+        (automation) => automation.tag?.target === TagTarget.CLIENT,
+      );
+      await this.applyClientAutomations(
+        order,
+        settings,
+        clientAutomations,
+      );
+    }
   }
 
   async evaluateOrders(orderIds: string[]) {
@@ -111,12 +129,16 @@ export class TagAutomationEvaluator {
       return;
     }
 
-    const resolvedAutomations =
+    const resolvedAutomations = (
       automations ??
       (await this.automationRepo.find({
         where: { adminId: order.adminId, isEnabled: true },
         relations: ["tag"],
-      }));
+      }))
+    ).filter(
+      (automation) =>
+        (automation.tag?.target || TagTarget.ORDER) === TagTarget.ORDER,
+    );
     if (!resolvedAutomations.length) return;
 
     const snapshot =
@@ -179,6 +201,130 @@ export class TagAutomationEvaluator {
     if (removeUnmatched && unmatchedTagIds.length) {
       await this.assignmentService.removeAutomaticTags({
         orderId: order.id,
+        adminId: order.adminId,
+        tagIds: unmatchedTagIds,
+      });
+    }
+  }
+
+  private async applyClientAutomations(
+    order: OrderEntity,
+    settings: ClientSettingsEntity | null,
+    automations: TagAutomationEntity[] | null,
+  ) {
+    if (!order?.adminId || !order.clientId) return;
+
+    const resolvedSettings =
+      settings ??
+      (await this.clientSettingsService.getCachedSettings(order.adminId));
+    if (
+      resolvedSettings &&
+      resolvedSettings.clientTagAutomationsEnabled === false
+    ) {
+      return;
+    }
+
+    const resolvedAutomations = (automations || []).filter(
+      (automation) => automation.tag?.target === TagTarget.CLIENT,
+    );
+    if (!resolvedAutomations.length) return;
+
+    const [orderSnapshot, stats] = await Promise.all([
+      this.buildSnapshot(order),
+      this.clientsService.getOrderStatsSnapshot(order.adminId, order.clientId),
+    ]);
+    
+    const snapshot = {
+      ...orderSnapshot,
+      "client.totalOrders": Number(stats.totalOrders || 0),
+      "client.confirmedCount": Number(stats.confirmedCount || 0),
+      "client.confirmedPercent": Number(stats.confirmedPercent || 0),
+      "client.confirmedRate": Number(stats.confirmedRate || 0),
+      "client.shippedCount": Number(stats.shippedCount || 0),
+      "client.shippedPercent": Number(stats.shippedPercent || 0),
+      "client.deliveredCount": Number(stats.deliveredCount || 0),
+      "client.deliveredPercent": Number(stats.deliveredPercent || 0),
+      "client.returnedCount": Number(stats.returnedCount || 0),
+      "client.returnedPercent": Number(stats.returnedPercent || 0),
+      "client.cancelledCount": Number(stats.cancelledCount || 0),
+      "client.cancelRate": Number(stats.cancelRate || 0),
+      "client.cancelledBeforeShippingCount": Number(
+        stats.cancelledBeforeShippingCount || 0,
+      ),
+      "client.beforeShippingCancelRate": Number(
+        stats.beforeShippingCancelRate || 0,
+      ),
+      "client.cancelledAfterShippingCount": Number(
+        stats.cancelledAfterShippingCount || 0,
+      ),
+      "client.afterShippingCancelRate": Number(
+        stats.afterShippingCancelRate || 0,
+      ),
+      "client.totalSales": Number(stats.totalSales || 0),
+      "client.deliveredRevenue": Number(stats.deliveredRevenue || 0),
+      "client.afterShippingCancelRateOfShipped": Number(
+        stats.afterShippingCancelRateOfShipped || 0,
+      ),
+    };
+
+    const matching: TagEntity[] = [];
+    const consideredTagIds = new Set<string>();
+
+    for (const automation of resolvedAutomations) {
+      if (!automation.tag?.isActive) continue;
+      consideredTagIds.add(automation.tag.id);
+      if (this.matches(automation.conditions, snapshot)) {
+        matching.push(automation.tag);
+      }
+    }
+
+    const removeUnmatched =
+      resolvedSettings?.clientTagAutomationsRemoveUnmatched !== false;
+    const matchingTagIds = new Set(matching.map((tag) => tag.id));
+    const unmatchedTagIds = [...consideredTagIds].filter(
+      (tagId) => !matchingTagIds.has(tagId),
+    );
+
+    if (!matching.length && !(removeUnmatched && unmatchedTagIds.length)) {
+      return;
+    }
+
+    const mode = resolvedSettings?.clientTagMode || OrderTagMode.MANY;
+
+    if (matching.length) {
+      if (mode === OrderTagMode.ONE) {
+        matching.sort((a, b) => {
+          const byPriority = (b.priority || 0) - (a.priority || 0);
+          if (byPriority !== 0) return byPriority;
+          const byUpdated =
+            new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+          if (byUpdated !== 0) return byUpdated;
+          return String(b.id).localeCompare(String(a.id));
+        });
+        await this.assignmentService.assignClientTag({
+          clientId: order.clientId,
+          tagId: matching[0].id,
+          adminId: order.adminId,
+          source: TagAssignmentSource.AUTOMATIC,
+        });
+      } else {
+        const uniqueTagIds = [...matchingTagIds];
+        await Promise.all(
+          uniqueTagIds.map((tagId) =>
+            this.assignmentService.assignClientTag({
+              clientId: order.clientId,
+              tagId,
+              adminId: order.adminId,
+              source: TagAssignmentSource.AUTOMATIC,
+            }),
+          ),
+        );
+      }
+    }
+
+    if (removeUnmatched && unmatchedTagIds.length) {
+      await this.assignmentService.removeAutomaticClientTags({
+        clientId: order.clientId,
         adminId: order.adminId,
         tagIds: unmatchedTagIds,
       });

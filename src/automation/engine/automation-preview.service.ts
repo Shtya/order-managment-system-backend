@@ -59,6 +59,7 @@ import {
   ActionWaitHandler,
 } from "./nodeHandlers.registry";
 import { OrdersService } from "src/orders/services/orders.service";
+import { ClientService } from "src/clients/clients.service";
 import { InjectRepository } from "@nestjs/typeorm";
 import {
   WhatsappAccountEntity,
@@ -202,6 +203,8 @@ export class AutomationPreviewService {
     private readonly upsellsService: UpsellsService,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @Inject(forwardRef(() => ClientService))
+    private readonly clientsService: ClientService,
   ) {}
 
   /**
@@ -606,6 +609,7 @@ export class AutomationPreviewService {
     this.messageRepo,
     this.orderAssignmentRepo,
     this.ordersService,
+    this.clientsService,
   );
 }
 
@@ -622,6 +626,7 @@ class PreviewNodeHandlersRegistry {
     @InjectRepository(OrderAssignmentEntity)
     private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
     private readonly ordersService: OrdersService,
+    private readonly clientsService: ClientService,
   ) {
     // Use production handlers with preview adapter injected
     this.handlers.set(
@@ -630,7 +635,11 @@ class PreviewNodeHandlersRegistry {
     );
     this.handlers.set(
       ConditionType.ORDER_CHECK,
-      new ConditionOrderCheckHandler(orderRepo, this.ordersService),
+      new ConditionOrderCheckHandler(
+        orderRepo,
+        this.ordersService,
+        this.clientsService,
+      ),
     );
     this.handlers.set(
       ActionType.UPDATE_ORDER_STATUS,

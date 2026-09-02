@@ -21,8 +21,10 @@ import { TagsService } from "./tags.service";
 import { TagAutomationsService } from "./tag-automations.service";
 import { TagsAssignmentService } from "./tags-assignment.service";
 import {
+  AssignClientTagDto,
   AssignOrderTagDto,
   CreateTagAutomationDto,
+  SyncAssignedTagsDto,
   CreateTagDto,
   UpdateTagAutomationDto,
   UpdateTagDto,
@@ -40,16 +42,16 @@ export class TagsController {
     return this.tagsService.list(req.user, q);
   }
 
-  @Permissions("tags.read", "orders.update", "orders.updateTags")
+  @Permissions("tags.read", "orders.update", "orders.updateTags", "customer.read", "customer.update")
   @Get("assignable")
-  assignable(@Req() req: any) {
-    return this.tagsService.listAssignable(req.user);
+  assignable(@Req() req: any, @Query() q: any) {
+    return this.tagsService.listAssignable(req.user, q);
   }
 
   @Permissions("tags.read")
   @Get("stats")
-  stats(@Req() req: any) {
-    return this.tagsService.stats(req.user);
+  stats(@Req() req: any, @Query() q: any) {
+    return this.tagsService.stats(req.user, q);
   }
 
   @Permissions("tags.read")
@@ -179,6 +181,21 @@ export class OrderTagsController {
   }
 
   @Permissions("orders.update", "orders.updateTags")
+  @Patch()
+  sync(
+    @Req() req: any,
+    @Param("orderId") orderId: string,
+    @Body() dto: SyncAssignedTagsDto,
+  ) {
+    return this.assignmentService.syncOrderManual(
+      req.user,
+      orderId,
+      dto.addTagIds,
+      dto.removeTagIds,
+    );
+  }
+
+  @Permissions("orders.update", "orders.updateTags")
   @Post()
   assign(
     @Req() req: any,
@@ -196,5 +213,53 @@ export class OrderTagsController {
     @Param("tagId") tagId: string,
   ) {
     return this.assignmentService.removeManual(req.user, orderId, tagId);
+  }
+}
+
+@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
+@RequireSubscription()
+@Controller("clients/:clientId/tags")
+export class ClientTagsController {
+  constructor(private readonly assignmentService: TagsAssignmentService) {}
+
+  @Permissions("customer.read", "tags.read", "customer.update", "orders.confirm-incoming")
+  @Get()
+  list(@Req() req: any, @Param("clientId") clientId: string) {
+    return this.assignmentService.listClientTags(req.user, clientId);
+  }
+
+  @Permissions("customer.update", "tags.update", "orders.confirm-incoming")
+  @Patch()
+  sync(
+    @Req() req: any,
+    @Param("clientId") clientId: string,
+    @Body() dto: SyncAssignedTagsDto,
+  ) {
+    return this.assignmentService.syncClientManual(
+      req.user,
+      clientId,
+      dto.addTagIds,
+      dto.removeTagIds,
+    );
+  }
+
+  @Permissions("customer.update", "tags.update", "orders.confirm-incoming")
+  @Post()
+  assign(
+    @Req() req: any,
+    @Param("clientId") clientId: string,
+    @Body() dto: AssignClientTagDto,
+  ) {
+    return this.assignmentService.assignClientManual(req.user, clientId, dto.tagId);
+  }
+
+  @Permissions("customer.update", "tags.update", "orders.confirm-incoming")
+  @Delete(":tagId")
+  remove(
+    @Req() req: any,
+    @Param("clientId") clientId: string,
+    @Param("tagId") tagId: string,
+  ) {
+    return this.assignmentService.removeClientManual(req.user, clientId, tagId);
   }
 }

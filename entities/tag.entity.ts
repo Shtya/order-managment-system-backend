@@ -13,10 +13,16 @@ import {
 } from "typeorm";
 import { User } from "./user.entity";
 import { OrderEntity } from "./order.entity";
+import { ClientEntity } from "./clients.entity";
 
 export enum TagAssignmentSource {
   MANUAL = "manual",
   AUTOMATIC = "automatic",
+}
+
+export enum TagTarget {
+  ORDER = "order",
+  CLIENT = "client",
 }
 
 export enum TagConditionLogic {
@@ -56,6 +62,25 @@ export enum TagConditionField {
   SHIPMENT_STATUS = "shipment.status",
   UPSELL_ACCEPTED = "upsell.accepted",
   ORDER_PHONE_VALID = "order.phone.valid",
+  CLIENT_TOTAL_ORDERS = "client.totalOrders",
+  CLIENT_CONFIRMED_COUNT = "client.confirmedCount",
+  CLIENT_CONFIRMED_PERCENT = "client.confirmedPercent",
+  CLIENT_CONFIRMED_RATE = "client.confirmedRate",
+  CLIENT_SHIPPED_COUNT = "client.shippedCount",
+  CLIENT_SHIPPED_PERCENT = "client.shippedPercent",
+  CLIENT_DELIVERED_COUNT = "client.deliveredCount",
+  CLIENT_DELIVERED_PERCENT = "client.deliveredPercent",
+  CLIENT_RETURNED_COUNT = "client.returnedCount",
+  CLIENT_RETURNED_PERCENT = "client.returnedPercent",
+  CLIENT_CANCELLED_COUNT = "client.cancelledCount",
+  CLIENT_CANCEL_RATE = "client.cancelRate",
+  CLIENT_CANCELLED_BEFORE_SHIPPING = "client.cancelledBeforeShippingCount",
+  CLIENT_CANCELLED_BEFORE_SHIPPING_RATE = "client.beforeShippingCancelRate",
+  CLIENT_CANCELLED_AFTER_SHIPPING = "client.cancelledAfterShippingCount",
+  CLIENT_CANCELLED_AFTER_SHIPPING_RATE = "client.afterShippingCancelRate",
+  CLIENT_AFTER_SHIPPING_CANCEL_RATE = "client.afterShippingCancelRateOfShipped",
+  CLIENT_TOTAL_SALES = "client.totalSales",
+  CLIENT_DELIVERED_REVENUE = "client.deliveredRevenue",
 }
 
 export interface TagConditionRule {
@@ -69,10 +94,19 @@ export interface TagConditions {
   rules: TagConditionRule[];
 }
 
+export function resolveTagTarget(value?: string | null): TagTarget {
+  return value === TagTarget.CLIENT ? TagTarget.CLIENT : TagTarget.ORDER;
+}
+
+export function isClientConditionField(field: string) {
+  return String(field || "").startsWith("client.");
+}
+
 @Entity({ name: "tags" })
-@Unique(["adminId", "name"])
+@Unique(["adminId", "name", "target"])
 @Index(["adminId", "isActive"])
 @Index(["adminId", "priority"])
+@Index(["adminId", "target"])
 export class TagEntity {
   @PrimaryGeneratedColumn("uuid")
   id: string;
@@ -111,8 +145,14 @@ export class TagEntity {
   @Column({ type: "int", default: 0 })
   priority: number;
 
+  @Column({ type: "varchar", length: 20, default: TagTarget.ORDER })
+  target: TagTarget;
+
   @OneToMany(() => OrderTagEntity, (orderTag) => orderTag.tag)
   orderTags: OrderTagEntity[];
+
+  @OneToMany(() => ClientTagEntity, (clientTag) => clientTag.tag)
+  clientTags: ClientTagEntity[];
 
   @OneToMany(() => TagAutomationEntity, (automation) => automation.tag)
   automations: TagAutomationEntity[];
@@ -153,6 +193,50 @@ export class OrderTagEntity {
   tagId: string;
 
   @ManyToOne(() => TagEntity, (tag) => tag.orderTags, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "tagId" })
+  tag: TagEntity;
+
+  @Column({ type: "varchar", length: 20, default: TagAssignmentSource.MANUAL })
+  source: TagAssignmentSource;
+
+  @Column({ type: "uuid", nullable: true })
+  createdByUserId?: string | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: "SET NULL" })
+  @JoinColumn({ name: "createdByUserId" })
+  createdBy?: User | null;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  created_at: Date;
+}
+
+@Entity({ name: "client_tags" })
+@Unique(["clientId", "tagId"])
+@Index(["adminId", "clientId"])
+@Index(["adminId", "tagId"])
+export class ClientTagEntity {
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
+
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  adminId: string;
+
+  @ManyToOne(() => User, { onDelete: "SET NULL" })
+  @JoinColumn({ name: "adminId" })
+  admin: User;
+
+  @Column({ type: "uuid" })
+  clientId: string;
+
+  @ManyToOne(() => ClientEntity, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "clientId" })
+  client: Relation<ClientEntity>;
+
+  @Column({ type: "uuid" })
+  tagId: string;
+
+  @ManyToOne(() => TagEntity, (tag) => tag.clientTags, { onDelete: "CASCADE" })
   @JoinColumn({ name: "tagId" })
   tag: TagEntity;
 

@@ -5,7 +5,7 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Not, Repository } from "typeorm";
-import { TagAutomationEntity, TagEntity } from "entities/tag.entity";
+import { TagAutomationEntity, TagEntity, TagTarget, resolveTagTarget } from "entities/tag.entity";
 import { CreateTagDto, UpdateTagDto } from "dto/tag.dto";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
@@ -31,8 +31,9 @@ export class TagsService {
     return adminId;
   }
 
-  async stats(me: any) {
+  async stats(me: any, q?: any) {
     const adminId = this.adminIdOf(me);
+    const target = resolveTagTarget(q?.target);
     const [tagRow, automationRow] = await Promise.all([
       this.tagRepo
         .createQueryBuilder("tag")
@@ -46,15 +47,18 @@ export class TagsService {
           "employeeTags",
         )
         .where("tag.adminId = :adminId", { adminId })
+        .andWhere("tag.target = :target", { target })
         .getRawOne(),
       this.automationRepo
         .createQueryBuilder("automation")
+        .innerJoin("automation.tag", "tag")
         .select("COUNT(*)", "automations")
         .addSelect(
           "COUNT(*) FILTER (WHERE automation.isEnabled = true)",
           "activeAutomations",
         )
         .where("automation.adminId = :adminId", { adminId })
+        .andWhere("tag.target = :target", { target })
         .getRawOne(),
     ]);
 
@@ -70,6 +74,7 @@ export class TagsService {
   
   async list(me: any, q?: any) {
     const adminId = this.adminIdOf(me);
+    const target = resolveTagTarget(q?.target);
     const page = Math.max(1, Number(q?.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(q?.limit) || 10));
     const skip = (page - 1) * limit;
@@ -78,7 +83,9 @@ export class TagsService {
       .createQueryBuilder("tag")
       .loadRelationCountAndMap("tag.automationsCount", "tag.automations")
       .loadRelationCountAndMap("tag.ordersCount", "tag.orderTags")
-      .where("tag.adminId = :adminId", { adminId });
+      .loadRelationCountAndMap("tag.clientsCount", "tag.clientTags")
+      .where("tag.adminId = :adminId", { adminId })
+      .andWhere("tag.target = :target", { target });
 
     if (q?.search) {
       qb.andWhere(
@@ -122,12 +129,14 @@ export class TagsService {
     };
   }
 
-  async listAssignable(me: any) {
+  async listAssignable(me: any, q?: any) {
     const adminId = this.adminIdOf(me);
+    const target = resolveTagTarget(q?.target);
     const qb = this.tagRepo
       .createQueryBuilder("tag")
       .where("tag.adminId = :adminId", { adminId })
-      .andWhere("tag.isActive = true");
+      .andWhere("tag.isActive = true")
+      .andWhere("tag.target = :target", { target });
 
     if (me?.role?.name !== "admin") {
       qb.andWhere("tag.allowManualAssignment = true").andWhere(
@@ -154,12 +163,13 @@ export class TagsService {
   private async assertUniqueName(
     adminId: string,
     name: string,
+    target: TagTarget,
     excludeId?: string,
   ) {
     const existing = await this.tagRepo.findOne({
       where: excludeId
-        ? { adminId, name, id: Not(excludeId) }
-        : { adminId, name },
+        ? { adminId, name, target, id: Not(excludeId) }
+        : { adminId, name, target },
     });
     if (existing) {
       throw new BadRequestException(
@@ -170,7 +180,8 @@ export class TagsService {
 
   async create(me: any, dto: CreateTagDto) {
     const adminId = this.adminIdOf(me);
-    await this.assertUniqueName(adminId, dto.name.trim());
+    const target = resolveTagTarget(dto.target);
+    await this.assertUniqueName(adminId, dto.name.trim(), target);
     const allowEmployees = dto.allowManualAssignment ?? true;
     const tag = this.tagRepo.create({
       adminId,
@@ -181,6 +192,7 @@ export class TagsService {
       allowManualAssignment: allowEmployees,
       employeeIds: allowEmployees ? this.normalizeEmployeeIds(dto.employeeIds) : [],
       priority: dto.priority ?? 0,
+      target,
     });
     return this.tagRepo.save(tag);
   }
@@ -188,7 +200,7 @@ export class TagsService {
   async update(me: any, id: string, dto: UpdateTagDto) {
     const tag = await this.get(me, id);
     if (dto.name && dto.name.trim() !== tag.name) {
-      await this.assertUniqueName(tag.adminId, dto.name.trim(), tag.id);
+      await this.assertUniqueName(tag.adminId, dto.name.trim(), tag.target, tag.id);
       tag.name = dto.name.trim();
     }
     if (dto.color !== undefined) tag.color = dto.color;

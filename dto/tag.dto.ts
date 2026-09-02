@@ -21,6 +21,7 @@ import {
   TagConditionField,
   TagConditionLogic,
   TagConditionOperator,
+  TagTarget,
 } from "entities/tag.entity";
 
 export class TagConditionRuleDto {
@@ -106,6 +107,17 @@ export class CreateTagDto {
   @IsInt({ message: i18nValidationMessage("validation.is_int") })
   @Min(0, { message: i18nValidationMessage("validation.min") })
   priority?: number;
+
+  @IsOptional()
+  @IsEnum(TagTarget, {
+    message: (args) => {
+      return i18nValidationMessage("validation.is_enum")({
+        ...args,
+        constraints: [Object.values(TagTarget).join(", ")],
+      });
+    },
+  })
+  target?: TagTarget;
 }
 
 export class UpdateTagDto {
@@ -148,6 +160,17 @@ export class UpdateTagDto {
   @IsInt({ message: i18nValidationMessage("validation.is_int") })
   @Min(0, { message: i18nValidationMessage("validation.min") })
   priority?: number;
+
+  @IsOptional()
+  @IsEnum(TagTarget, {
+    message: (args) => {
+      return i18nValidationMessage("validation.is_enum")({
+        ...args,
+        constraints: [Object.values(TagTarget).join(", ")],
+      });
+    },
+  })
+  target?: TagTarget;
 }
 
 export class CreateTagAutomationDto {
@@ -194,4 +217,23 @@ export class UpdateTagAutomationDto {
 export class AssignOrderTagDto {
   @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
   tagId: string;
+}
+
+export class AssignClientTagDto {
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  tagId: string;
+}
+
+export class SyncAssignedTagsDto {
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @ArrayMaxSize(50, { message: i18nValidationMessage("validation.array_max_size") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  addTagIds?: string[];
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @ArrayMaxSize(50, { message: i18nValidationMessage("validation.array_max_size") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  removeTagIds?: string[];
 }

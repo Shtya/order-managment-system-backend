@@ -1198,6 +1198,8 @@ export type I18nTranslations = {
             "automation_not_found": string;
             "employee_assignment_disabled": string;
             "employee_no_access": string;
+            "invalid_client_field": string;
+            "wrong_target": string;
             "excel_employee": string;
             "excel_sheet": string;
             "excel_automations_sheet": string;

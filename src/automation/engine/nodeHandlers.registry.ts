@@ -37,7 +37,13 @@ import {
   WhatsappMessageEntity,
 } from "entities/whatsapp.entity";
 
-import { evaluateCondition, getActualFieldValue } from "./automation-helpers";
+import {
+  evaluateCondition,
+  getActualFieldValue,
+  getClientStatValue,
+  isClientCheckField,
+} from "./automation-helpers";
+import { ClientService } from "src/clients/clients.service";
 import { AutomationAdapter } from "./adapters/automation-adapters.interface";
 import { ProductionAutomationAdapter } from "./adapters/production.adapters";
 import { Repository } from "typeorm";
@@ -525,6 +531,7 @@ export class ConditionOrderCheckHandler extends FlowNodeHandler {
     @InjectRepository(OrderEntity)
     protected readonly orderRepo: Repository<OrderEntity>,
     private readonly ordersService: OrdersService,
+    private readonly clientsService: ClientService,
   ) {
     super(orderRepo);
   }
@@ -532,20 +539,23 @@ export class ConditionOrderCheckHandler extends FlowNodeHandler {
   private async resolveCheckValue(
     check: { field: string },
     orderData: OrderEntity | any,
+    clientStats: Record<string, number> | null,
   ): Promise<any> {
+    if (isClientCheckField(check.field)) {
+      if (orderData?.__mock) {
+        return 0;
+      }
+      return getClientStatValue(check.field, clientStats);
+    }
+
     if (check.field === "hasEnoughStock") {
       if (orderData?.__mock) {
         return true;
       }
 
-      const isReplacement = Boolean(
-        orderData?.isReplacement || orderData?.replacementResult,
-      );
-
       return this.ordersService.isStockSufficientForOrder(orderData, {
         // Replacement orders are already reserved; check physical stock like manifest/shipping.
         // Non-replacement orders use available stock (same as create/update validation).
-        // isDeduction: isReplacement,
       });
     }
 
@@ -569,12 +579,34 @@ export class ConditionOrderCheckHandler extends FlowNodeHandler {
       }
 
       const checks = hydratedConfig.checks || [];
+      const needsClientStats = checks.some((check) =>
+        isClientCheckField(check.field),
+      );
+      let clientStats: Record<string, number> | null = null;
+      if (
+        needsClientStats &&
+        orderData?.clientId &&
+        orderData?.adminId &&
+        !(orderData as any)?.__mock
+      ) {
+        clientStats = await this.clientsService.getOrderStatsSnapshot(
+          orderData.adminId,
+          orderData.clientId,
+        );
+      }
+
+      const actualValues = await Promise.all(
+        checks.map((check) =>
+          this.resolveCheckValue(check, orderData, clientStats),
+        ),
+      );
 
       let allChecksPassed = true;
 
       // 2. المرور على جميع الشروط (المنطق هنا هو AND: يجب أن تتطابق جميع الشروط)
-      for (const check of checks) {
-        const actualValue = await this.resolveCheckValue(check, orderData);
+      for (let i = 0; i < checks.length; i++) {
+        const check = checks[i];
+        const actualValue = actualValues[i];
         const targetValue = check.targetValue; // القيمة المدخلة من المستخدم
         const operator = check.operator;
 
@@ -2742,6 +2774,8 @@ export class NodeHandlersRegistry {
     private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
     @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
+    @Inject(forwardRef(() => ClientService))
+    private readonly clientsService: ClientService,
     @Inject(forwardRef(() => WhatsappService))
     private readonly whatsappService: WhatsappService,
     @InjectRepository(User)
@@ -2768,7 +2802,11 @@ export class NodeHandlersRegistry {
     );
     this.handlers.set(
       ConditionType.ORDER_CHECK,
-      new ConditionOrderCheckHandler(this.orderRepo, this.ordersService),
+      new ConditionOrderCheckHandler(
+        this.orderRepo,
+        this.ordersService,
+        this.clientsService,
+      ),
     );
     this.handlers.set(
       ActionType.UPDATE_ORDER_STATUS,

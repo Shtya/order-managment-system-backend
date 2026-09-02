@@ -543,68 +543,119 @@ export class ClientService {
     return Number(raw?.count ?? 0);
   }
 
-  async getOrderStats(me: any, clientId: string) {
-    const { adminId } = await this.findClientOrThrow(me, clientId);
-
-    const [raw, tagRows] = await Promise.all([
-      this.dataSource
-        .getRepository(OrderEntity)
-        .createQueryBuilder("ord")
-        .leftJoin("ord.status", "status")
-        .where("ord.adminId = :adminId", { adminId })
-        .andWhere("ord.clientId = :clientId", { clientId })
-        .select("COUNT(ord.id)", "totalOrders")
-        .addSelect("COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)", "allConfirmedCount")
-        .addSelect(`COUNT(CASE WHEN status.code = :confirmedCode THEN 1 END)`, "confirmedCount")
-        .addSelect("COALESCE(SUM(ord.finalTotal), 0)", "totalSales")
-        .addSelect(`COUNT(CASE WHEN status.code = :deliveredCode THEN 1 END)`, "deliveredCount")
-        .addSelect(`COUNT(CASE WHEN status.code = :postponedCode THEN 1 END)`, "postponedCount")
-        .addSelect(
-          `COALESCE(SUM(CASE WHEN status.code = :deliveredCode THEN ord.finalTotal ELSE 0 END), 0)`,
-          "deliveredRevenue",
-        )
-        .addSelect(`COUNT(CASE WHEN status.code = :shippedCode THEN 1 END)`, "shippedCount")
-        .addSelect(
-          `(SELECT COUNT(DISTINCT so.id)
+  async getOrderStatsSnapshot(adminId: string, clientId: string) {
+    const raw = await this.dataSource
+      .getRepository(OrderEntity)
+      .createQueryBuilder("ord")
+      .leftJoin("ord.status", "status")
+      .where("ord.adminId = :adminId", { adminId })
+      .andWhere("ord.clientId = :clientId", { clientId })
+      .select("COUNT(ord.id)", "totalOrders")
+      .addSelect("COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)", "allConfirmedCount")
+      .addSelect(`COUNT(CASE WHEN status.code = :confirmedCode THEN 1 END)`, "confirmedCount")
+      .addSelect("COALESCE(SUM(ord.finalTotal), 0)", "totalSales")
+      .addSelect(`COUNT(CASE WHEN status.code = :deliveredCode THEN 1 END)`, "deliveredCount")
+      .addSelect(`COUNT(CASE WHEN status.code = :postponedCode THEN 1 END)`, "postponedCount")
+      .addSelect(
+        `COALESCE(SUM(CASE WHEN status.code = :deliveredCode THEN ord.finalTotal ELSE 0 END), 0)`,
+        "deliveredRevenue",
+      )
+      .addSelect(`COUNT(CASE WHEN status.code = :shippedCode THEN 1 END)`, "shippedCount")
+      .addSelect(
+        `(SELECT COUNT(DISTINCT so.id)
             FROM orders so
             INNER JOIN shipments sh ON sh."orderId" = so.id
             WHERE so."clientId" = :clientId
               AND so."adminId" = :adminId
               AND so.deleted_at IS NULL
               AND sh."shippedAt" IS NOT NULL)`,
-          "allShippedCount",
-        )
-        .addSelect(`COUNT(CASE WHEN status.code = :returnedCode THEN 1 END)`, "returnedCount")
-        .addSelect(
-          `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') THEN 1 END)`,
-          "cancelledCount",
-        )
-        .addSelect(
-          `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
+        "allShippedCount",
+      )
+      .addSelect(`COUNT(CASE WHEN status.code = :returnedCode THEN 1 END)`, "returnedCount")
+      .addSelect(
+        `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') THEN 1 END)`,
+        "cancelledCount",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
             SELECT occ."cancelledAfterShipping"
             FROM order_cancel_causes occ
             WHERE occ."orderId" = ord.id
             ORDER BY occ.created_at DESC
             LIMIT 1
           ), ord."shippedAt" IS NOT NULL) = false THEN 1 END)`,
-          "cancelledBeforeShippingCount",
-        )
-        .addSelect(
-          `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
+        "cancelledBeforeShippingCount",
+      )
+      .addSelect(
+        `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
             SELECT occ."cancelledAfterShipping"
             FROM order_cancel_causes occ
             WHERE occ."orderId" = ord.id
             ORDER BY occ.created_at DESC
             LIMIT 1
           ), ord."shippedAt" IS NOT NULL) = true THEN 1 END)`,
-          "cancelledAfterShippingCount",
-        )
-        .setParameter("deliveredCode", OrderStatus.DELIVERED)
-        .setParameter("confirmedCode", OrderStatus.CONFIRMED)
-        .setParameter("shippedCode", OrderStatus.SHIPPED)
-        .setParameter("returnedCode", OrderStatus.RETURNED)
-        .setParameter("postponedCode", OrderStatus.POSTPONED)
-        .getRawOne(),
+        "cancelledAfterShippingCount",
+      )
+      .setParameter("deliveredCode", OrderStatus.DELIVERED)
+      .setParameter("confirmedCode", OrderStatus.CONFIRMED)
+      .setParameter("shippedCode", OrderStatus.SHIPPED)
+      .setParameter("returnedCode", OrderStatus.RETURNED)
+      .setParameter("postponedCode", OrderStatus.POSTPONED)
+      .getRawOne();
+
+    return this.mapClientOrderStats(raw);
+  }
+
+  private mapClientOrderStats(raw: any) {
+    const totalOrders = Number(raw?.totalOrders ?? 0);
+    const confirmedCount = Number(raw?.confirmedCount ?? 0);
+    const allConfirmedCount = Number(raw?.allConfirmedCount ?? 0);
+    const shippedCount = Number(raw?.shippedCount ?? 0);
+    const cancelledCount = Number(raw?.cancelledCount ?? 0);
+    const allShippedCount = Number(raw?.allShippedCount ?? 0);
+    const cancelledBeforeShippingCount = Number(
+      raw?.cancelledBeforeShippingCount ?? 0,
+    );
+    const cancelledAfterShippingCount = Number(
+      raw?.cancelledAfterShippingCount ?? 0,
+    );
+    const deliveredCount = Number(raw?.deliveredCount ?? 0);
+    const returnedCount = Number(raw?.returnedCount ?? 0);
+    const rate = (count: number, denominator: number) =>
+      denominator > 0 ? Number(((count / denominator) * 100).toFixed(2)) : 0;
+
+    return {
+      totalOrders,
+      confirmedCount,
+      confirmedPercent: rate(confirmedCount, totalOrders),
+      confirmedRate: rate(allConfirmedCount, totalOrders),
+      totalSales: Number(raw?.totalSales ?? 0),
+      deliveredCount,
+      deliveredPercent: rate(deliveredCount, totalOrders),
+      postponedCount: Number(raw?.postponedCount ?? 0),
+      deliveredRevenue: Number(raw?.deliveredRevenue ?? 0),
+      shippedCount,
+      shippedPercent: rate(shippedCount, totalOrders),
+      returnedCount,
+      returnedPercent: rate(returnedCount, totalOrders),
+      cancelledCount,
+      cancelledBeforeShippingCount,
+      cancelledAfterShippingCount,
+      cancelRate: rate(cancelledCount, totalOrders),
+      beforeShippingCancelRate: rate(cancelledBeforeShippingCount, totalOrders),
+      afterShippingCancelRate: rate(cancelledAfterShippingCount, totalOrders),
+      afterShippingCancelRateOfShipped: rate(
+        cancelledAfterShippingCount,
+        allShippedCount,
+      ),
+    };
+  }
+
+  async getOrderStats(me: any, clientId: string) {
+    const { adminId } = await this.findClientOrThrow(me, clientId);
+
+    const [stats, tagRows] = await Promise.all([
+      this.getOrderStatsSnapshot(adminId, clientId),
       this.dataSource
         .getRepository(OrderTagEntity)
         .createQueryBuilder("ot")
@@ -624,41 +675,8 @@ export class ClientService {
         .getRawMany(),
     ]);
 
-    const totalOrders = Number(raw?.totalOrders ?? 0);
-    const confirmedCount = Number(raw?.confirmedCount ?? 0);
-    const allConfirmedCount = Number(raw?.allConfirmedCount ?? 0);
-    const shippedCount = Number(raw?.shippedCount ?? 0);
-    const cancelledCount = Number(raw?.cancelledCount ?? 0);
-    const allShippedCount = Number(raw?.allShippedCount ?? 0);
-    const cancelledBeforeShippingCount = Number(
-      raw?.cancelledBeforeShippingCount ?? 0,
-    );
-    const cancelledAfterShippingCount = Number(
-      raw?.cancelledAfterShippingCount ?? 0,
-    );
-    const rate = (count: number, denominator: number) =>
-      denominator > 0 ? Number(((count / denominator) * 100).toFixed(2)) : 0;
-
     return {
-      totalOrders,
-      confirmedCount, 
-      confirmedRate: rate(allConfirmedCount, totalOrders),
-      totalSales: Number(raw?.totalSales ?? 0),
-      deliveredCount: Number(raw?.deliveredCount ?? 0),
-      postponedCount: Number(raw?.postponedCount ?? 0),
-      deliveredRevenue: Number(raw?.deliveredRevenue ?? 0),
-      shippedCount,
-      returnedCount: Number(raw?.returnedCount ?? 0),
-      cancelledCount,
-      cancelledBeforeShippingCount,
-      cancelledAfterShippingCount,
-      cancelRate: rate(cancelledCount, totalOrders),
-      beforeShippingCancelRate: rate(cancelledBeforeShippingCount, totalOrders),
-      afterShippingCancelRate: rate(cancelledAfterShippingCount, totalOrders),
-      afterShippingCancelRateOfShipped: rate(
-        cancelledAfterShippingCount,
-        allShippedCount,
-      ),
+      ...stats,
       tags: tagRows.map((row) => ({
         id: row.id,
         name: row.name,

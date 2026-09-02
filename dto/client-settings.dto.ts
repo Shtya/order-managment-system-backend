@@ -167,4 +167,16 @@ export class UpsertClientSettingsDto {
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   @IsOptional()
   tagAutomationsRemoveUnmatched?: boolean;
+
+  @IsEnum(OrderTagMode, { message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(OrderTagMode).join(', ')], }); }})
+  @IsOptional()
+  clientTagMode?: OrderTagMode;
+
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
+  clientTagAutomationsEnabled?: boolean;
+
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
+  clientTagAutomationsRemoveUnmatched?: boolean;
 }
