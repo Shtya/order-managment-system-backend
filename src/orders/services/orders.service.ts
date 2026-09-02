@@ -4674,7 +4674,7 @@ export class OrdersService {
       .andWhere("ord.deleted_at IS NULL")
       .select("COUNT(ord.id)", "totalOrders")
       .addSelect(
-        "COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)",
+        `COUNT(CASE WHEN st.code = :confirmedCode THEN 1 END)`,
         "confirmedCount",
       )
       .addSelect(
@@ -4686,18 +4686,14 @@ export class OrdersService {
         "returnedCount",
       )
       .addSelect(
-        `(SELECT COUNT(DISTINCT so.id)
-          FROM orders so
-          INNER JOIN shipments sh ON sh."orderId" = so.id
-          WHERE so."clientId" = ${clientIdSql}
-            ${adminId ? `AND so."adminId" = :adminId` : ""}
-            AND so.deleted_at IS NULL
-            AND sh."shippedAt" IS NOT NULL)`,
+        `COUNT(CASE WHEN st.code = :shippedCode THEN 1 END)`,
         "shippedCount",
       )
       .setParameter("id", id)
+      .setParameter("confirmedCode", OrderStatus.CONFIRMED)
       .setParameter("deliveredCode", OrderStatus.DELIVERED)
-      .setParameter("returnedCode", OrderStatus.RETURNED);
+      .setParameter("returnedCode", OrderStatus.RETURNED)
+      .setParameter("shippedCode", OrderStatus.SHIPPED);
 
     if (adminId) {
       statsQb.andWhere("ord.adminId = :adminId", { adminId });

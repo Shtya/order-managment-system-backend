@@ -554,13 +554,16 @@ export class ClientService {
         .where("ord.adminId = :adminId", { adminId })
         .andWhere("ord.clientId = :clientId", { clientId })
         .select("COUNT(ord.id)", "totalOrders")
-        .addSelect("COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)", "confirmedCount")
+        .addSelect("COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)", "allConfirmedCount")
+        .addSelect(`COUNT(CASE WHEN status.code = :confirmedCode THEN 1 END)`, "confirmedCount")
         .addSelect("COALESCE(SUM(ord.finalTotal), 0)", "totalSales")
         .addSelect(`COUNT(CASE WHEN status.code = :deliveredCode THEN 1 END)`, "deliveredCount")
+        .addSelect(`COUNT(CASE WHEN status.code = :postponedCode THEN 1 END)`, "postponedCount")
         .addSelect(
           `COALESCE(SUM(CASE WHEN status.code = :deliveredCode THEN ord.finalTotal ELSE 0 END), 0)`,
           "deliveredRevenue",
         )
+        .addSelect(`COUNT(CASE WHEN status.code = :shippedCode THEN 1 END)`, "shippedCount")
         .addSelect(
           `(SELECT COUNT(DISTINCT so.id)
             FROM orders so
@@ -569,7 +572,7 @@ export class ClientService {
               AND so."adminId" = :adminId
               AND so.deleted_at IS NULL
               AND sh."shippedAt" IS NOT NULL)`,
-          "shippedCount",
+          "allShippedCount",
         )
         .addSelect(`COUNT(CASE WHEN status.code = :returnedCode THEN 1 END)`, "returnedCount")
         .addSelect(
@@ -597,7 +600,10 @@ export class ClientService {
           "cancelledAfterShippingCount",
         )
         .setParameter("deliveredCode", OrderStatus.DELIVERED)
+        .setParameter("confirmedCode", OrderStatus.CONFIRMED)
+        .setParameter("shippedCode", OrderStatus.SHIPPED)
         .setParameter("returnedCode", OrderStatus.RETURNED)
+        .setParameter("postponedCode", OrderStatus.POSTPONED)
         .getRawOne(),
       this.dataSource
         .getRepository(OrderTagEntity)
@@ -620,8 +626,10 @@ export class ClientService {
 
     const totalOrders = Number(raw?.totalOrders ?? 0);
     const confirmedCount = Number(raw?.confirmedCount ?? 0);
+    const allConfirmedCount = Number(raw?.allConfirmedCount ?? 0);
     const shippedCount = Number(raw?.shippedCount ?? 0);
     const cancelledCount = Number(raw?.cancelledCount ?? 0);
+    const allShippedCount = Number(raw?.allShippedCount ?? 0);
     const cancelledBeforeShippingCount = Number(
       raw?.cancelledBeforeShippingCount ?? 0,
     );
@@ -633,9 +641,11 @@ export class ClientService {
 
     return {
       totalOrders,
-      confirmedCount,
+      confirmedCount, 
+      confirmedRate: rate(allConfirmedCount, totalOrders),
       totalSales: Number(raw?.totalSales ?? 0),
       deliveredCount: Number(raw?.deliveredCount ?? 0),
+      postponedCount: Number(raw?.postponedCount ?? 0),
       deliveredRevenue: Number(raw?.deliveredRevenue ?? 0),
       shippedCount,
       returnedCount: Number(raw?.returnedCount ?? 0),
@@ -647,7 +657,7 @@ export class ClientService {
       afterShippingCancelRate: rate(cancelledAfterShippingCount, totalOrders),
       afterShippingCancelRateOfShipped: rate(
         cancelledAfterShippingCount,
-        shippedCount,
+        allShippedCount,
       ),
       tags: tagRows.map((row) => ({
         id: row.id,

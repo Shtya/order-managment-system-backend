@@ -1556,20 +1556,21 @@ export class OrderAssignmentService {
       }, "client_totalOrders")
       .addSelect((subQuery) => {
         return subQuery
-          .select("COUNT(confOrd.id)")
-          .from(OrderEntity, "confOrd")
-          .where("confOrd.clientId = client.id")
-          .andWhere("confOrd.deleted_at IS NULL")
-          .andWhere("confOrd.isConfirmed = true");
-      }, "client_confirmedCount")
+        .select("COUNT(confOrd.id)")
+        .from(OrderEntity, "confOrd")
+        .innerJoin("confOrd.status", "confStatus")
+        .where("confOrd.clientId = client.id")
+        .andWhere("confOrd.deleted_at IS NULL")
+        .andWhere(`confStatus.code = '${OrderStatus.CONFIRMED}'`);
+    }, "client_confirmedCount")
       .addSelect((subQuery) => {
         return subQuery
-          .select("COUNT(DISTINCT shippedOrd.id)")
-          .from(OrderEntity, "shippedOrd")
-          .innerJoin("shippedOrd.shipments", "shippedSh")
-          .where("shippedOrd.clientId = client.id")
-          .andWhere("shippedOrd.deleted_at IS NULL")
-          .andWhere("shippedSh.shippedAt IS NOT NULL");
+          .select("COUNT(shpdOrd.id)")
+          .from(OrderEntity, "shpdOrd")
+          .innerJoin("shpdOrd.status", "shpdStatus")
+          .where("shpdOrd.clientId = client.id")
+          .andWhere("shpdOrd.deleted_at IS NULL")
+          .andWhere(`shpdStatus.code = '${OrderStatus.SHIPPED}'`);
       }, "client_shippedCount")
       .addSelect((subQuery) => {
         return subQuery
