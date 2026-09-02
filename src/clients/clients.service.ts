@@ -572,6 +572,30 @@ export class ClientService {
           "shippedCount",
         )
         .addSelect(`COUNT(CASE WHEN status.code = :returnedCode THEN 1 END)`, "returnedCount")
+        .addSelect(
+          `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') THEN 1 END)`,
+          "cancelledCount",
+        )
+        .addSelect(
+          `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
+            SELECT occ."cancelledAfterShipping"
+            FROM order_cancel_causes occ
+            WHERE occ."orderId" = ord.id
+            ORDER BY occ.created_at DESC
+            LIMIT 1
+          ), ord."shippedAt" IS NOT NULL) = false THEN 1 END)`,
+          "cancelledBeforeShippingCount",
+        )
+        .addSelect(
+          `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
+            SELECT occ."cancelledAfterShipping"
+            FROM order_cancel_causes occ
+            WHERE occ."orderId" = ord.id
+            ORDER BY occ.created_at DESC
+            LIMIT 1
+          ), ord."shippedAt" IS NOT NULL) = true THEN 1 END)`,
+          "cancelledAfterShippingCount",
+        )
         .setParameter("deliveredCode", OrderStatus.DELIVERED)
         .setParameter("returnedCode", OrderStatus.RETURNED)
         .getRawOne(),
@@ -596,6 +620,16 @@ export class ClientService {
 
     const totalOrders = Number(raw?.totalOrders ?? 0);
     const confirmedCount = Number(raw?.confirmedCount ?? 0);
+    const shippedCount = Number(raw?.shippedCount ?? 0);
+    const cancelledCount = Number(raw?.cancelledCount ?? 0);
+    const cancelledBeforeShippingCount = Number(
+      raw?.cancelledBeforeShippingCount ?? 0,
+    );
+    const cancelledAfterShippingCount = Number(
+      raw?.cancelledAfterShippingCount ?? 0,
+    );
+    const rate = (count: number, denominator: number) =>
+      denominator > 0 ? Number(((count / denominator) * 100).toFixed(2)) : 0;
 
     return {
       totalOrders,
@@ -603,8 +637,18 @@ export class ClientService {
       totalSales: Number(raw?.totalSales ?? 0),
       deliveredCount: Number(raw?.deliveredCount ?? 0),
       deliveredRevenue: Number(raw?.deliveredRevenue ?? 0),
-      shippedCount: Number(raw?.shippedCount ?? 0),
+      shippedCount,
       returnedCount: Number(raw?.returnedCount ?? 0),
+      cancelledCount,
+      cancelledBeforeShippingCount,
+      cancelledAfterShippingCount,
+      cancelRate: rate(cancelledCount, totalOrders),
+      beforeShippingCancelRate: rate(cancelledBeforeShippingCount, totalOrders),
+      afterShippingCancelRate: rate(cancelledAfterShippingCount, totalOrders),
+      afterShippingCancelRateOfShipped: rate(
+        cancelledAfterShippingCount,
+        shippedCount,
+      ),
       tags: tagRows.map((row) => ({
         id: row.id,
         name: row.name,

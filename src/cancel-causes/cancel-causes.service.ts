@@ -52,7 +52,7 @@ export class CancelCausesService {
     private orderRepo: Repository<OrderEntity>,
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
-  ) {}
+  ) { }
 
   normalizeName(name: string): string {
     return String(name || "")
@@ -516,7 +516,7 @@ export class CancelCausesService {
 
   async export(me: any, q?: any) {
     const all = await this.list(me, { ...q, page: 1, limit: 1000 });
-  
+
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet(
       this.translations.t("domains.cancel_causes.excel_sheet"),
@@ -592,21 +592,21 @@ export class CancelCausesService {
       const MAX_MERGE_DEPTH = 10;
       const seen = new Set<string>([cause.id]);
       let depth = 0;
-      
+
       while (cause.mergedIntoCauseId && depth < MAX_MERGE_DEPTH) {
         if (seen.has(cause.mergedIntoCauseId)) break;
-      
+
         seen.add(cause.mergedIntoCauseId);
-      
+
         const main = await repo.findOne({
           where: {
             id: cause.mergedIntoCauseId,
             adminId: params.adminId,
           },
         });
-      
+
         if (!main) break;
-      
+
         cause = main;
         depth++;
       }
@@ -900,9 +900,13 @@ export class CancelCausesService {
     dateQ?: { startDate?: string | Date; endDate?: string | Date },
   ) {
     const { start, end } = this.eventDateBounds(q, dateQ);
-    const stats = await this.eventsQb(adminId, q, dateQ)
+
+    const statsPromise = this.eventsQb(adminId, q, dateQ)
       .select("COUNT(occ.id)::int", "totalCancellations")
-      .addSelect('COUNT(DISTINCT occ."orderId")::int', "uniqueOrdersCancelled")
+      .addSelect(
+        'COUNT(DISTINCT occ."orderId")::int',
+        "uniqueOrdersCancelled",
+      )
       .addSelect(
         `COUNT(occ.id) FILTER (WHERE occ."isCustomSubmission" = false)::int`,
         "predefinedCount",
@@ -913,30 +917,10 @@ export class CancelCausesService {
       )
       .getRawOne();
 
-    const totalCancellations = this.rawNum(
-      stats,
-      "totalCancellations",
-      "totalcancellations",
-    );
-    const uniqueOrdersCancelled = this.rawNum(
-      stats,
-      "uniqueOrdersCancelled",
-      "uniqueorderscancelled",
-    );
-    const predefinedCount = this.rawNum(
-      stats,
-      "predefinedCount",
-      "predefinedcount",
-    );
-    const customSubmissionCount = this.rawNum(
-      stats,
-      "customSubmissionCount",
-      "customsubmissioncount",
-    );
-
     const ordersQb = this.orderRepo
       .createQueryBuilder("o")
       .where("o.adminId = :adminId", { adminId });
+
     DateFilterUtil.applyToQueryBuilder(
       ordersQb,
       "o.created_at",
@@ -944,15 +928,10 @@ export class CancelCausesService {
       end || undefined,
     );
     this.applyOrderDimensionFilters(ordersQb, q, "o");
-    const totalOrdersInPeriod = await ordersQb.getCount();
-    const cancellationRate =
-      totalOrdersInPeriod === 0
-        ? 0
-        : parseFloat(
-            ((totalCancellations / totalOrdersInPeriod) * 100).toFixed(2),
-          );
 
-    const afterShippingStats = await this.eventsQb(
+    const totalOrdersPromise = ordersQb.getCount();
+
+    const afterShippingPromise = this.eventsQb(
       adminId,
       { ...q, shippingTiming: "after" },
       dateQ,
@@ -963,18 +942,8 @@ export class CancelCausesService {
         "uniqueOrdersCancelledAfterShipping",
       )
       .getRawOne();
-    const afterShippingCancellations = this.rawNum(
-      afterShippingStats,
-      "afterShippingCancellations",
-      "aftershippingcancellations",
-    );
-    const uniqueOrdersCancelledAfterShipping = this.rawNum(
-      afterShippingStats,
-      "uniqueOrdersCancelledAfterShipping",
-      "uniqueorderscancelledaftershipping",
-    );
 
-    const beforeShippingStats = await this.eventsQb(
+    const beforeShippingPromise = this.eventsQb(
       adminId,
       { ...q, shippingTiming: "before" },
       dateQ,
@@ -985,21 +954,12 @@ export class CancelCausesService {
         "uniqueOrdersCancelledBeforeShipping",
       )
       .getRawOne();
-    const beforeShippingCancellations = this.rawNum(
-      beforeShippingStats,
-      "beforeShippingCancellations",
-      "beforeshippingcancellations",
-    );
-    const uniqueOrdersCancelledBeforeShipping = this.rawNum(
-      beforeShippingStats,
-      "uniqueOrdersCancelledBeforeShipping",
-      "uniqueorderscancelledbeforeshipping",
-    );
 
     const shippedOrdersQb = this.orderRepo
       .createQueryBuilder("o")
       .where("o.adminId = :adminId", { adminId })
       .andWhere("o.shippedAt IS NOT NULL");
+
     DateFilterUtil.applyToQueryBuilder(
       shippedOrdersQb,
       "o.shippedAt",
@@ -1007,36 +967,112 @@ export class CancelCausesService {
       end || undefined,
     );
     this.applyOrderDimensionFilters(shippedOrdersQb, q, "o");
-    const shippedOrdersInPeriod = await shippedOrdersQb.getCount();
+
+    const shippedOrdersPromise = shippedOrdersQb.getCount();
+
+    const top5Promise = this.topCauses(adminId, q, 5, dateQ);
+
+    // All independent queries run in parallel
+    const [
+      stats,
+      totalOrdersInPeriod,
+      afterShippingStats,
+      beforeShippingStats,
+      shippedOrdersInPeriod,
+      top5,
+    ] = await Promise.all([
+      statsPromise,
+      totalOrdersPromise,
+      afterShippingPromise,
+      beforeShippingPromise,
+      shippedOrdersPromise,
+      top5Promise,
+    ]);
+
+    const totalCancellations = this.rawNum(
+      stats,
+      "totalCancellations",
+      "totalcancellations",
+    );
+
+    const uniqueOrdersCancelled = this.rawNum(
+      stats,
+      "uniqueOrdersCancelled",
+      "uniqueorderscancelled",
+    );
+
+    const predefinedCount = this.rawNum(
+      stats,
+      "predefinedCount",
+      "predefinedcount",
+    );
+
+    const customSubmissionCount = this.rawNum(
+      stats,
+      "customSubmissionCount",
+      "customsubmissioncount",
+    );
+
+    const afterShippingCancellations = this.rawNum(
+      afterShippingStats,
+      "afterShippingCancellations",
+      "aftershippingcancellations",
+    );
+
+    const uniqueOrdersCancelledAfterShipping = this.rawNum(
+      afterShippingStats,
+      "uniqueOrdersCancelledAfterShipping",
+      "uniqueorderscancelledaftershipping",
+    );
+
+    const beforeShippingCancellations = this.rawNum(
+      beforeShippingStats,
+      "beforeShippingCancellations",
+      "beforeshippingcancellations",
+    );
+
+    const uniqueOrdersCancelledBeforeShipping = this.rawNum(
+      beforeShippingStats,
+      "uniqueOrdersCancelledBeforeShipping",
+      "uniqueorderscancelledbeforeshipping",
+    );
+
+    const cancellationRate =
+      totalOrdersInPeriod === 0
+        ? 0
+        : parseFloat(
+          ((totalCancellations / totalOrdersInPeriod) * 100).toFixed(2),
+        );
+
     const beforeShippingCancelRate =
       totalOrdersInPeriod === 0
         ? 0
         : parseFloat(
-            (
-              (uniqueOrdersCancelledBeforeShipping / totalOrdersInPeriod) *
-              100
-            ).toFixed(2),
-          );
+          (
+            (uniqueOrdersCancelledBeforeShipping / totalOrdersInPeriod) *
+            100
+          ).toFixed(2),
+        );
+
     const afterShippingCancelRate =
       totalOrdersInPeriod === 0
         ? 0
         : parseFloat(
-            (
-              (uniqueOrdersCancelledAfterShipping / totalOrdersInPeriod) *
-              100
-            ).toFixed(2),
-          );
+          (
+            (uniqueOrdersCancelledAfterShipping / totalOrdersInPeriod) *
+            100
+          ).toFixed(2),
+        );
+
     const afterShippingCancelRateOfShipped =
       shippedOrdersInPeriod === 0
         ? 0
         : parseFloat(
-            (
-              (uniqueOrdersCancelledAfterShipping / shippedOrdersInPeriod) *
-              100
-            ).toFixed(2),
-          );
-
-    const top5 = await this.topCauses(adminId, q, 5, dateQ);
+          (
+            (uniqueOrdersCancelledAfterShipping / shippedOrdersInPeriod) *
+            100
+          ).toFixed(2),
+        );
 
     return {
       totalCancellations,
@@ -1103,9 +1139,9 @@ export class CancelCausesService {
       }),
       prev.start && prev.end
         ? this.overviewKpis(adminId, q, {
-            startDate: prev.start,
-            endDate: prev.end,
-          })
+          startDate: prev.start,
+          endDate: prev.end,
+        })
         : Promise.resolve(null),
     ]);
 
@@ -1465,16 +1501,16 @@ export class CancelCausesService {
     return {
       avgHoursToCancel: agg?.avgHoursToCancel ?? agg?.avghourstocancel
         ? parseFloat(
-            Number(agg.avgHoursToCancel ?? agg.avghourstocancel).toFixed(2),
-          )
+          Number(agg.avgHoursToCancel ?? agg.avghourstocancel).toFixed(2),
+        )
         : 0,
       medianHoursToCancel:
         agg?.medianHoursToCancel ?? agg?.medianhourstocancel
           ? parseFloat(
-              Number(
-                agg.medianHoursToCancel ?? agg.medianhourstocancel,
-              ).toFixed(2),
-            )
+            Number(
+              agg.medianHoursToCancel ?? agg.medianhourstocancel,
+            ).toFixed(2),
+          )
           : 0,
       buckets: {
         lt2h: this.rawNum(agg, "lt2h"),
@@ -1489,16 +1525,16 @@ export class CancelCausesService {
         count: this.rawNum(r, "count"),
         avgHoursToCancel: r.avgHoursToCancel ?? r.avghourstocancel
           ? parseFloat(
-              Number(r.avgHoursToCancel ?? r.avghourstocancel).toFixed(2),
-            )
+            Number(r.avgHoursToCancel ?? r.avghourstocancel).toFixed(2),
+          )
           : 0,
         medianHoursToCancel:
           r.medianHoursToCancel ?? r.medianhourstocancel
             ? parseFloat(
-                Number(
-                  r.medianHoursToCancel ?? r.medianhourstocancel,
-                ).toFixed(2),
-              )
+              Number(
+                r.medianHoursToCancel ?? r.medianhourstocancel,
+              ).toFixed(2),
+            )
             : 0,
       })),
       slaBreachCount,
