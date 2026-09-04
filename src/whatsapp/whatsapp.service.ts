@@ -1158,7 +1158,10 @@ export class WhatsappService {
       // Fetch with relations
       const finalMsg = await this.messageRepo.findOne({
         where: { id: savedMsg.id },
-        relations: ["replyTo", "reactionTo"],
+        relations: {
+          replyTo: true,
+          reactionTo: true
+        },
       });
 
       // Update conversation metadata
@@ -2238,7 +2241,10 @@ export class WhatsappService {
     // Fetch with relations to emit to frontend
     const finalMsg = await this.messageRepo.findOne({
       where: { id: savedMsg.id },
-      relations: ["replyTo", "reactionTo"],
+      relations: {
+        replyTo: true,
+        reactionTo: true
+      },
     });
 
     // Update conversation metadata and increment unread count
@@ -2515,7 +2521,9 @@ export class WhatsappService {
     const adminId = tenantId(me);
     const message = await this.messageRepo.findOne({
       where: { messageId, adminId },
-      relations: ["account"],
+      relations: {
+        account: true
+      },
     });
 
     if (!message) throw new NotFoundException("Message not found");
@@ -2663,8 +2671,10 @@ export class WhatsappService {
     const adminId = tenantId(me);
 
     const message = await this.messageRepo.findOne({
-      where: { id, adminId },
-      relations: ["account"],
+      where: { id, adminId },      
+      relations: {
+        account: true
+      },
     });
 
     if (!message) {

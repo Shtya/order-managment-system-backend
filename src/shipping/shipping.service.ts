@@ -185,7 +185,9 @@ export class ShippingService {
         adminId,
         isActive: true,
       },
-      relations: ["shippingCompany"],
+      relations: {
+        shippingCompany: true
+      },
     });
 
     const result = integrations
@@ -245,7 +247,10 @@ export class ShippingService {
           code: providerCode,
         },
       },
-      relations: ["status", "shippingCompany"],
+      relations: {
+        status: true,
+        shippingCompany: true
+      },
     });
 
     if (orders.length !== dto.orderIds.length) {
@@ -613,17 +618,25 @@ export class ShippingService {
       // Validation: Order exists
       order = await this.ordersRepo.findOne({
         where: { id: orderId, adminId },
-        relations: [
-          "status",
-          "items",
-          "items.variant",
-          "items.variant.product",
-          "replacementResult",
-          "replacementResult.items",
-          "replacementResult.items.originalOrderItem",
-          "replacementResult.items.originalOrderItem.variant",
-          "replacementResult.items.originalOrderItem.variant.product",
-        ],
+        relations: {
+          status: true,
+
+          items: {
+            variant: {
+              product: true
+            }
+          },
+
+          replacementResult: {
+            items: {
+              originalOrderItem: {
+                variant: {
+                  product: true
+                }
+              }
+            }
+          }
+        },
       });
 
       if (!order) {
@@ -652,7 +665,9 @@ export class ShippingService {
           adminId,
         },
         order: { created_at: "DESC" as any },
-        relations: ["shippingCompany"],
+        relations: {
+          shippingCompany: true
+        },
       });
 
       if (
@@ -704,7 +719,10 @@ export class ShippingService {
           try {
             const order = await manager.findOne(OrderEntity, {
               where: { id: orderId },
-              select: ["id", "adminId"],
+              select: {
+                id: true,
+                adminId: true
+              },
             });
 
             if (order) {
@@ -1011,7 +1029,11 @@ export class ShippingService {
 
     const shipment = await this.shipmentsRepo.findOne({
       where: { id: shipmentId, adminId },
-      relations: ["order", "order.items"],
+      relations: {
+        order: {
+          items: true
+        }
+      },
     });
 
     if (!shipment) {
@@ -1335,7 +1357,9 @@ export class ShippingService {
     const adminId = tenantId(me);
     const shipment = await this.shipmentsRepo.findOne({
       where: { trackingNumber, adminId },
-      relations: ["shippingCompany"],
+      relations: {
+        shippingCompany: true
+      },
     });
     if (!shipment) {
       throw new BadRequestException(
@@ -1624,7 +1648,11 @@ export class ShippingService {
             ? { trackingNumber: mapped.trackingNumber }
             : ({} as any),
 
-        relations: ["order", "order.items"],
+        relations: {
+          order: {
+            items: true
+          }
+        },
       });
 
       if (!shipment) {
@@ -1712,7 +1740,13 @@ export class ShippingService {
     return this.dataSource.transaction(async (manager) => {
       const shipment = await manager.findOne(ShipmentEntity, {
         where: { id: shipmentId, adminId },
-        relations: ["order", "order.items", "shippingCompany"],
+        relations: {
+          order: {
+            items: true
+          },
+
+          shippingCompany: true
+        },
       });
       if (!shipment) {
         throw new NotFoundException(
@@ -1760,7 +1794,9 @@ export class ShippingService {
     //get order to also update its status with shipment;
     const order = await this.ordersRepo.findOne({
       where: { id: shipment.orderId },
-      relations: ["status"],
+      relations: {
+        status: true
+      },
     });
 
     const oldStatusId = order.statusId;
@@ -1962,7 +1998,9 @@ export class ShippingService {
     const adminId = tenantId(me);
     const shipment = await this.shipmentsRepo.findOne({
       where: { id: shipmentId, adminId },
-      relations: ["shippingCompany"],
+      relations: {
+        shippingCompany: true
+      },
     });
     if (!shipment) throw new NotFoundException("Shipment not found");
     if (shipment.unifiedStatus === UnifiedShippingStatus.DELIVERED) {
@@ -2004,7 +2042,11 @@ export class ShippingService {
     });
     const refreshed = await this.shipmentsRepo.findOne({
       where: { id: shipmentId, adminId },
-      relations: ["order", "order.status"],
+      relations: {
+        order: {
+          status: true
+        }
+      },
     });
     return {
       ok: true,

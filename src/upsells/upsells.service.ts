@@ -66,7 +66,9 @@ export class UpsellsService {
 
     const upsellProduct = await this.productRepo.findOne({
       where: { id: dto.upsellProductId },
-      relations: ["variants"],
+      relations: {
+        variants: true
+      },
     });
     if (!upsellProduct) {
       throw new BadRequestException(
@@ -310,7 +312,11 @@ export class UpsellsService {
     const adminId = tenantId(me);
     const upsell = await this.upsellRepo.findOne({
       where: { id, adminId },
-      relations: ["triggerProduct", "upsellProduct", "upsellSku"],
+      relations: {
+        triggerProduct: true,
+        upsellProduct: true,
+        upsellSku: true
+      },
     });
     if (!upsell) {
       throw new NotFoundException(
@@ -416,7 +422,11 @@ export class UpsellsService {
         adminId: adminId,
         isActive: true,
       },
-      relations: ["triggerProduct", "upsellProduct", "upsellSku"],
+      relations: {
+        triggerProduct: true,
+        upsellProduct: true,
+        upsellSku: true
+      },
     });
   }
 
@@ -593,7 +603,9 @@ export class UpsellsService {
 
     const upsell = await this.upsellRepo.findOne({
       where: { id: upsellId, adminId },
-      relations: ["upsellSku"],
+      relations: {
+        upsellSku: true
+      },
     });
 
     if (!upsell) {

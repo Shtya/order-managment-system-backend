@@ -11,6 +11,7 @@ import { FirebaseService } from "./firebase.service";
 import { UsersModule } from "src/users/users.module";
 import { MailService } from "../../common/nodemailer";
 
+@Global()
 @Module({
   imports: [
     ConfigModule,
@@ -29,18 +30,6 @@ import { MailService } from "../../common/nodemailer";
   ],
   providers: [AuthService, JwtStrategy, MailService, FirebaseService],
   controllers: [AuthController],
-  exports: [JwtModule, AuthService, MailService],
+  exports: [JwtModule, AuthService, MailService, PassportModule],
 })
 export class AuthModule {}
-
-// auth-core.module.ts
-@Global()
-@Module({
-  imports: [
-    PassportModule.register({ defaultStrategy: "jwt" }),
-    forwardRef(() => AuthModule), // JwtStrategy needs AuthService
-  ],
-  providers: [JwtStrategy],
-  exports: [JwtStrategy, PassportModule],
-})
-export class AuthCoreModule {}

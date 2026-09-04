@@ -53,7 +53,9 @@ export class OrderReturnService {
       // 1. Fetch order with its items
       const order = await orderRepo.findOne({
         where: { id: dto.orderId, adminId },
-        relations: ["items"],
+        relations: {
+          items: true
+        },
       });
 
       if (!order) {

@@ -109,7 +109,10 @@ export class OrderAssignmentSubscriber
 
     const row = await event.manager.findOne(OrderAssignmentEntity, {
       where: { id },
-      select: ["id", "orderId"],
+      select: {
+        id: true,
+        orderId: true
+      },
     });
     return row?.orderId || null;
   }

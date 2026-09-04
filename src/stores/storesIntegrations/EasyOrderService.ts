@@ -1492,7 +1492,10 @@ export class EasyOrderService extends BaseStoreProvider {
   public async syncProduct({ productId }: { productId: string }) {
     const product = await this.productsRepo.findOne({
       where: { id: productId },
-      relations: ["category", "store"],
+      relations: {
+        category: true,
+        store: true
+      },
     });
     if (!product) {
       throw new Error(`Product with ID ${productId} not found`);
@@ -2255,7 +2258,14 @@ export class EasyOrderService extends BaseStoreProvider {
   public async syncBundle(bundle: BundleEntity): Promise<any> {
     const loadedBundle = await this.bundlesRepo.findOne({
       where: { id: bundle.id },
-      relations: ["category", "store", "items", "items.variant"],
+      relations: {
+        category: true,
+        store: true,
+
+        items: {
+          variant: true
+        }
+      },
     });
 
     if (!loadedBundle) {

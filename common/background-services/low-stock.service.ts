@@ -37,7 +37,7 @@ export class LowStockService {
       // Default is true if no setting exists
       const disabledReservedSettings = await this.settingsRepo.find({
         where: { reservedEnabled: false },
-        select: ['adminId']
+        select: { adminId: true }
       });
       const disabledReservedAdminIds = disabledReservedSettings.map(s => s.adminId);
 

@@ -131,7 +131,9 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
   async getTemplateById(templateId: string) {
     return this.templateRepo.findOne({
       where: { id: templateId },
-      relations: ["account"],
+      relations: {
+        account: true
+      },
     });
   }
 

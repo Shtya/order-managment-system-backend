@@ -130,7 +130,9 @@ export class AccountingService {
         },
         order: { statusUpdateDate: "DESC" },
         take: 6,
-        relations: ["supplier"],
+        relations: {
+          supplier: true
+        },
       }),
       this.expenseRepo.find({
         where: {
@@ -139,7 +141,9 @@ export class AccountingService {
         },
         order: { collectionDate: "DESC" },
         take: 6,
-        relations: ["category"],
+        relations: {
+          category: true
+        },
       }),
     ]);
 
@@ -821,7 +825,9 @@ export class AccountingService {
     const adminId = tenantId(me);
     const closing = await this.supplierClosingRepo.findOne({
       where: { id, adminId },
-      relations: ["supplier"],
+      relations: {
+        supplier: true
+      },
     });
     if (!closing) {
       throw new NotFoundException(

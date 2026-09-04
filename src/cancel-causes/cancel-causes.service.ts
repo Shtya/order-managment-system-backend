@@ -234,7 +234,9 @@ export class CancelCausesService {
     const adminId = tenantId(me);
     const order = await this.orderRepo.findOne({
       where: { id: orderId, adminId },
-      select: ["id"],
+      select: {
+        id: true
+      },
     });
     if (!order) {
       throw new NotFoundException(
@@ -341,7 +343,11 @@ export class CancelCausesService {
     const adminId = tenantId(me);
     const cause = await this.causeRepo.findOne({
       where: { id, adminId },
-      relations: ["submittedByEmployee", "reviewedBy", "mergedIntoCause"],
+      relations: {
+        submittedByEmployee: true,
+        reviewedBy: true,
+        mergedIntoCause: true
+      },
     });
     if (!cause) {
       throw new NotFoundException(

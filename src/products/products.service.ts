@@ -142,16 +142,14 @@ export class ProductsService {
   }
 
   public slugifyKey(s) {
-    return (
-      (s || "")
-        .toString()
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, "_")
-        // .replace(/[^\w]/g, '')
-        .replace(/_+/g, "_")
-        .replace(/^_+|_+$/g, "")
-    );
+    return ((s || "")
+      .toString()
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_")
+      // .replace(/[^\w]/g, '')
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, ""));
   }
 
   private generateSku(product: ProductEntity, attrs: Record<string, any>) {
@@ -873,7 +871,11 @@ export class ProductsService {
     const productsByName = await this.prodRepo.find({
       where: { adminId, name: Like(`%${searchTerm}%`) } as any,
       take: 20,
-      relations: ["category", "store", "warehouse"],
+      relations: {
+        category: true,
+        store: true,
+        warehouse: true
+      },
     });
 
     const skusByCode = await this.pvRepo.find({
@@ -887,7 +889,11 @@ export class ProductsService {
       productIdsFromSkus.length > 0
         ? await this.prodRepo.find({
             where: { adminId, id: In(productIdsFromSkus) } as any,
-            relations: ["category", "store", "warehouse"],
+            relations: {
+              category: true,
+              store: true,
+              warehouse: true
+            },
           })
         : [];
 
@@ -1064,7 +1070,9 @@ export class ProductsService {
       // Find the trigger product and its variants to get the upsellingProducts list
       const triggerProduct = await this.prodRepo.findOne({
         where: { id: q.triggerId, adminId },
-        relations: ["variants"],
+        relations: {
+          variants: true
+        },
       });
 
       if (triggerProduct) {
@@ -1557,7 +1565,10 @@ export class ProductsService {
               adminId: String(adminId),
               id: mainOrphanId,
             } as any,
-            select: ["id", "url"],
+            select: {
+              id: true,
+              url: true
+            },
           });
 
           if (!mainRow) {
@@ -1657,7 +1668,9 @@ export class ProductsService {
             adminId,
             sku: In(candidateSkus),
           },
-          select: ["sku"],
+          select: {
+            sku: true
+          },
         });
 
         if (existingVariants.length > 0) {
@@ -1700,7 +1713,9 @@ export class ProductsService {
               adminId,
               sku: In(skusToCheck),
             },
-            select: ["sku"],
+            select: {
+              sku: true
+            },
           });
 
           if (existingVariants.length > 0) {
@@ -1789,7 +1804,10 @@ export class ProductsService {
               productId: savedProduct.id,
               key: In(keys),
             } as any,
-            select: ["id", "key"],
+            select: {
+              id: true,
+              key: true
+            },
           });
 
           if (exists.length) {
@@ -1899,7 +1917,11 @@ export class ProductsService {
       // 1. Fetch existing product
       const p = await prodRepo.findOne({
         where: { id, adminId } as any,
-        relations: ["category", "store", "warehouse"],
+        relations: {
+          category: true,
+          store: true,
+          warehouse: true
+        },
       });
 
       if (!p) {
@@ -2068,7 +2090,10 @@ export class ProductsService {
         }
         const row = await orphanRepo.findOne({
           where: { adminId: String(adminId), id: oid } as any,
-          select: ["id", "url"],
+          select: {
+            id: true,
+            url: true
+          },
         });
         if (!row) {
           throw new BadRequestException(
@@ -2235,7 +2260,9 @@ export class ProductsService {
         if (skusToCheck.length > 0) {
           const conflictingVariants = await pvRepo.find({
             where: { adminId, sku: In(skusToCheck) } as any,
-            select: ["sku"],
+            select: {
+              sku: true
+            },
           });
 
           if (conflictingVariants.length > 0) {
@@ -2416,7 +2443,9 @@ export class ProductsService {
         isActive: true,
         // storeId: storeId ? storeId : IsNull()
       },
-      select: ["id"], // نختار الـ id فقط لتحسين الأداء
+      select: {
+        id: true
+      }, // نختار الـ id فقط لتحسين الأداء
     });
 
     return { isUnique: !exists };
@@ -2446,7 +2475,9 @@ export class ProductsService {
         isActive: true,
         // storeId: storeId ? storeId : IsNull()
       },
-      select: ["id"], // نختار الـ id فقط لتحسين الأداء
+      select: {
+        id: true
+      }, // نختار الـ id فقط لتحسين الأداء
     });
 
     return { isUnique: !exists };
@@ -2482,7 +2513,10 @@ export class ProductsService {
         },
       } as any,
 
-      select: ["sku", "productId"],
+      select: {
+        sku: true,
+        productId: true
+      },
     });
 
     const existingSet = new Set(

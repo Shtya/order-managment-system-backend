@@ -8585,7 +8585,9 @@ export async function seedAiModels(options: { deleteNon?: boolean } = {}) {
 
     const systemModels = await modelRepo.find({
       where: { scope: AiEntityScope.SYSTEM, adminId: IsNull() },
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
     });
 
     const staleIds = systemModels

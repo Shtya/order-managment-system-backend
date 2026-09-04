@@ -97,7 +97,9 @@ export class TagAutomationsService {
     const adminId = this.adminIdOf(me);
     const automation = await this.automationRepo.findOne({
       where: { id, adminId },
-      relations: ["tag"],
+      relations: {
+        tag: true
+      },
     });
     if (!automation) {
       throw new NotFoundException(this.translations.t("domains.tags.not_found"));

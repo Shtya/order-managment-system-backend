@@ -102,14 +102,22 @@ export class AiService {
     if (myAdminId) {
       record = await this.defaultModelRepo.findOne({
         where: { adminId: myAdminId },
-        relations: ["model", "model.provider"],
+        relations: {
+          model: {
+            provider: true
+          }
+        },
       });
     }
 
     if (!record && isSuperAdmin) {
       record = await this.defaultModelRepo.findOne({
         where: { adminId: null },
-        relations: ["model", "model.provider"],
+        relations: {
+          model: {
+            provider: true
+          }
+        },
       });
     }
 
@@ -133,7 +141,9 @@ export class AiService {
 
     const model = await this.modelRepo.findOne({
       where: { id: dto.modelId, isActive: true },
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
     });
     if (!model) {
       throw new NotFoundException(
@@ -211,7 +221,11 @@ export class AiService {
     if (myAdminId) {
       const record = await this.defaultModelRepo.findOne({
         where: { adminId: myAdminId },
-        relations: ["model", "model.provider"],
+        relations: {
+          model: {
+            provider: true
+          }
+        },
       });
       if (record?.model?.provider?.isActive) {
         return {
@@ -224,7 +238,11 @@ export class AiService {
     if (isSuperAdmin || !myAdminId) {
       const record = await this.defaultModelRepo.findOne({
         where: { adminId: null },
-        relations: ["model", "model.provider"],
+        relations: {
+          model: {
+            provider: true
+          }
+        },
       });
       if (record?.model?.provider?.isActive) {
         return {
@@ -949,7 +967,9 @@ export class AiService {
 
     const integration = await this.integrationRepo.findOne({
       where,
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
     });
     if (!integration) {
       throw new NotFoundException(
@@ -1075,20 +1095,22 @@ export class AiService {
 
     const integration = await this.integrationRepo.findOne({
       where,
-      select: [
-        "id",
-        "providerId",
-        "adminId",
-        "encryptedCredentials",
-        "authType",
-        "baseUrl",
-        "lastValidatedAt",
-        "lastError",
-        "scope",
-        "created_at",
-        "updated_ut",
-      ],
-      relations: ["provider"],
+      select: {
+        id: true,
+        providerId: true,
+        adminId: true,
+        encryptedCredentials: true,
+        authType: true,
+        baseUrl: true,
+        lastValidatedAt: true,
+        lastError: true,
+        scope: true,
+        created_at: true,
+        updated_ut: true
+      },
+      relations: {
+        provider: true
+      },
     });
 
     if (!integration) {
@@ -1343,7 +1365,10 @@ export class AiService {
 
     const existingModels = await this.modelRepo.find({
       where: { providerId },
-      select: ["modelCode", "id"],
+      select: {
+        modelCode: true,
+        id: true
+      },
     });
     const existingCodes = new Set(existingModels.map((m) => m.modelCode));
 
@@ -1482,7 +1507,10 @@ export class AiService {
   async getRequestSummary(me: any, id: string) {
     const summary = await this.summaryRepo.findOne({
       where: { id },
-      relations: ["provider", "model"],
+      relations: {
+        provider: true,
+        model: true
+      },
     });
     if (!summary) {
       throw new NotFoundException(
@@ -1495,7 +1523,10 @@ export class AiService {
   async getRequestSummaryProgress(me: any, id: string) {
     const summary = await this.summaryRepo.findOne({
       where: { id },
-      select: ["id", "progress"],
+      select: {
+        id: true,
+        progress: true
+      },
     });
     if (!summary) {
       throw new NotFoundException(
@@ -1534,7 +1565,10 @@ export class AiService {
   async getWriteToolCall(me: any, id: string) {
     const call = await this.writeCallRepo.findOne({
       where: { id },
-      relations: ["provider", "model"],
+      relations: {
+        provider: true,
+        model: true
+      },
     });
     if (!call) {
       throw new NotFoundException(
@@ -1612,7 +1646,9 @@ export class AiService {
 
   async healthCheck() {
     const providers = await this.providerRepo.find({
-      relations: ["models"],
+      relations: {
+        models: true
+      },
       order: { name: "ASC" },
     });
 

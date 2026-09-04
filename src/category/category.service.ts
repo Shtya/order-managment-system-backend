@@ -213,7 +213,9 @@ export class CategoriesService {
         adminId,
         slug: formatedSlug,
       },
-      select: ["id"], // نختار الـ id فقط لتحسين الأداء
+      select: {
+        id: true
+      }, // نختار الـ id فقط لتحسين الأداء
     });
 
     return { isUnique: !exists };

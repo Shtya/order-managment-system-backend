@@ -316,7 +316,10 @@ export class RolesService implements OnModuleInit {
 
       const users = await usersRepo.find({
         where: { roleId: role.id },
-        select: ["id", "roleId"],
+        select: {
+          id: true,
+          roleId: true
+        },
       });
 
       if (users.length > 0) {

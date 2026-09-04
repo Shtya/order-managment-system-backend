@@ -84,7 +84,9 @@ export class GettingStartedService {
 
     const achievements = await this.achievementRepo.find({
       where: { adminId },
-      select: ["type"],
+      select: {
+        type: true
+      },
     });
 
     for (const achievement of achievements) {
@@ -171,7 +173,9 @@ export class GettingStartedService {
   ): Promise<Set<GettingStartedAchievementType>> {
     const achievements = await this.achievementRepo.find({
       where: { adminId },
-      select: ["type"],
+      select: {
+        type: true
+      },
     });
     return new Set(achievements.map((achievement) => achievement.type));
   }

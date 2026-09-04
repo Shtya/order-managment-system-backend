@@ -51,7 +51,9 @@ export class TagsAssignmentService {
     await this.requireOrder(adminId, orderId);
     return this.orderTagRepo.find({
       where: { adminId, orderId },
-      relations: ["tag"],
+      relations: {
+        tag: true
+      },
       order: { created_at: "ASC" },
     });
   }
@@ -106,7 +108,9 @@ export class TagsAssignmentService {
             orderId,
             tagId: In(removeIds),
           },
-          relations: ["tag"],
+          relations: {
+            tag: true
+          },
         });
   
         for (const row of existing) {
@@ -164,7 +168,9 @@ export class TagsAssignmentService {
             clientId,
             tagId: In(removeIds),
           },
-          relations: ["tag"],
+          relations: {
+            tag: true
+          },
         });
   
         for (const row of existing) {
@@ -211,7 +217,9 @@ export class TagsAssignmentService {
     await this.requireOrder(adminId, orderId);
     const existing = await this.orderTagRepo.findOne({
       where: { adminId, orderId, tagId },
-      relations: ["tag"],
+      relations: {
+        tag: true
+      },
     });
     if (!existing) {
       throw new NotFoundException(this.translations.t("domains.tags.not_found"));
@@ -354,7 +362,9 @@ export class TagsAssignmentService {
       : this.orderTagRepo;
     return repo.find({
       where: { adminId, orderId },
-      relations: ["tag"],
+      relations: {
+        tag: true
+      },
       order: { created_at: "ASC" },
     });
   }
@@ -367,7 +377,10 @@ export class TagsAssignmentService {
     const repo = manager ? manager.getRepository(OrderEntity) : this.orderRepo;
     const order = await repo.findOne({
       where: { id: orderId, adminId },
-      select: ["id", "adminId"],
+      select: {
+        id: true,
+        adminId: true
+      },
     });
     if (!order) {
       throw new NotFoundException(this.translations.t("domains.tags.not_found"));
@@ -380,7 +393,9 @@ export class TagsAssignmentService {
     await this.requireClient(adminId, clientId);
     return this.clientTagRepo.find({
       where: { adminId, clientId },
-      relations: ["tag"],
+      relations: {
+        tag: true
+      },
       order: { created_at: "ASC" },
     });
   }
@@ -402,7 +417,9 @@ export class TagsAssignmentService {
     await this.requireClient(adminId, clientId);
     const existing = await this.clientTagRepo.findOne({
       where: { adminId, clientId, tagId },
-      relations: ["tag"],
+      relations: {
+        tag: true
+      },
     });
     if (!existing) {
       throw new NotFoundException(this.translations.t("domains.tags.not_found"));
@@ -545,7 +562,9 @@ export class TagsAssignmentService {
       : this.clientTagRepo;
     return repo.find({
       where: { adminId, clientId },
-      relations: ["tag"],
+      relations: {
+        tag: true
+      },
       order: { created_at: "ASC" },
     });
   }
@@ -558,7 +577,10 @@ export class TagsAssignmentService {
     const repo = manager ? manager.getRepository(ClientEntity) : this.clientRepo;
     const client = await repo.findOne({
       where: { id: clientId, adminId },
-      select: ["id", "adminId"],
+      select: {
+        id: true,
+        adminId: true
+      },
     });
     if (!client) {
       throw new NotFoundException(this.translations.t("domains.tags.not_found"));

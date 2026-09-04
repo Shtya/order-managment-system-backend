@@ -4,8 +4,15 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Not, Repository } from "typeorm";
-import { TagAutomationEntity, TagEntity, TagTarget, resolveTagTarget } from "entities/tag.entity";
+import { Not, Repository, SelectQueryBuilder } from "typeorm";
+import {
+  ClientTagEntity,
+  OrderTagEntity,
+  TagAutomationEntity,
+  TagEntity,
+  TagTarget,
+  resolveTagTarget,
+} from "entities/tag.entity";
 import { CreateTagDto, UpdateTagDto } from "dto/tag.dto";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
@@ -29,6 +36,54 @@ export class TagsService {
       );
     }
     return adminId;
+  }
+
+  private addTagCountSelects(qb: SelectQueryBuilder<TagEntity>) {
+    return qb
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(automation.id)")
+          .from(TagAutomationEntity, "automation")
+          .where("automation.tagId = tag.id");
+      }, "tag_automationsCount")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(orderTag.id)")
+          .from(OrderTagEntity, "orderTag")
+          .where("orderTag.tagId = tag.id");
+      }, "tag_ordersCount")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(clientTag.id)")
+          .from(ClientTagEntity, "clientTag")
+          .where("clientTag.tagId = tag.id");
+      }, "tag_clientsCount");
+  }
+
+  private attachTagCounts(entities: TagEntity[], raw: Record<string, unknown>[]) {
+    const countsById = new Map<
+      string,
+      {
+        automationsCount: number;
+        ordersCount: number;
+        clientsCount: number;
+      }
+    >();
+    for (const row of raw) {
+      const id = String(row.tag_id ?? "");
+      if (!id || countsById.has(id)) continue;
+      countsById.set(id, {
+        automationsCount: Number(row.tag_automationsCount ?? 0),
+        ordersCount: Number(row.tag_ordersCount ?? 0),
+        clientsCount: Number(row.tag_clientsCount ?? 0),
+      });
+    }
+    for (const entity of entities) {
+      const counts = countsById.get(entity.id);
+      (entity as any).automationsCount = counts?.automationsCount ?? 0;
+      (entity as any).ordersCount = counts?.ordersCount ?? 0;
+      (entity as any).clientsCount = counts?.clientsCount ?? 0;
+    }
   }
 
   async stats(me: any, q?: any) {
@@ -81,9 +136,6 @@ export class TagsService {
 
     const qb = this.tagRepo
       .createQueryBuilder("tag")
-      .loadRelationCountAndMap("tag.automationsCount", "tag.automations")
-      .loadRelationCountAndMap("tag.ordersCount", "tag.orderTags")
-      .loadRelationCountAndMap("tag.clientsCount", "tag.clientTags")
       .where("tag.adminId = :adminId", { adminId })
       .andWhere("tag.target = :target", { target });
 
@@ -114,12 +166,14 @@ export class TagsService {
     const sortOrder =
       String(q?.sortOrder || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-    const [records, total] = await qb
+    const total = await qb.getCount();
+    const { entities: records, raw } = await this.addTagCountSelects(qb)
       .orderBy(`tag.${sortBy}`, sortOrder)
       .addOrderBy("tag.created_at", "DESC")
       .skip(skip)
       .take(limit)
-      .getManyAndCount();
+      .getRawAndEntities();
+    this.attachTagCounts(records, raw);
 
     return {
       total_records: total,
@@ -152,7 +206,9 @@ export class TagsService {
     const adminId = this.adminIdOf(me);
     const tag = await this.tagRepo.findOne({
       where: { id, adminId },
-      relations: ["automations"],
+      relations: {
+        automations: true
+      },
     });
     if (!tag) {
       throw new NotFoundException(this.translations.t("domains.tags.not_found"));

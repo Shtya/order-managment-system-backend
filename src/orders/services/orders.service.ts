@@ -367,7 +367,13 @@ export class OrdersService {
       try {
         const order = await this.orderRepo.findOne({
           where: { id: params.orderId },
-          select: ["id", "adminId", "oldStatusId", "statusId", "externalId"],
+          select: {
+            id: true,
+            adminId: true,
+            oldStatusId: true,
+            statusId: true,
+            externalId: true
+          },
         });
 
         if (!order || order.oldStatusId === order.statusId) {
@@ -1899,9 +1905,7 @@ export class OrdersService {
 
     const shipmentIds = idRows.map((row) => row.id).filter(Boolean);
     const shipments = shipmentIds.length
-      ? await this.buildShippedGroupRowsQb(adminId, q)
-        .andWhere("shipment.id IN (:...shipmentIds)", { shipmentIds })
-        .getMany()
+      ? await this.loadShippedGroupRowsWithTicketCounts(adminId, q, shipmentIds)
       : [];
 
     const shipmentById = new Map(shipments.map((s) => [s.id, s]));
@@ -2261,20 +2265,49 @@ export class OrdersService {
         )`,
       )
       .leftJoinAndSelect("assignment.employee", "employee")
-      .loadRelationCountAndMap(
-        "order.openTicketsCount",
-        "order.issues",
-        "openIssue",
-        (issueQb) =>
-          issueQb
-            .innerJoin("openIssue.status", "openIssueStatus")
-            .andWhere(`"openIssueStatus".code NOT IN (:...closedIssueStatuses)`, {
-              closedIssueStatuses: [IssueStatus.SOLVED, IssueStatus.CANCELLED],
-            }),
-      );
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(openIssue.id)")
+          .from(IssueEntity, "openIssue")
+          .innerJoin("openIssue.status", "openIssueStatus")
+          .where("openIssue.orderId = order.id")
+          .andWhere(
+            "openIssueStatus.code NOT IN (:...openTicketClosedStatuses)",
+            {
+              openTicketClosedStatuses: [
+                IssueStatus.SOLVED,
+                IssueStatus.CANCELLED,
+              ],
+            },
+          );
+      }, "order_openTicketsCount");
 
     this.applyShippedGroupsFilters(qb, adminId, q, { assignmentJoined: true });
     return qb;
+  }
+
+  private async loadShippedGroupRowsWithTicketCounts(
+    adminId: string | null,
+    q: any,
+    shipmentIds: string[],
+  ) {
+    const { entities, raw } = await this.buildShippedGroupRowsQb(adminId, q)
+      .andWhere("shipment.id IN (:...shipmentIds)", { shipmentIds })
+      .getRawAndEntities();
+
+    const countsByOrderId = new Map<string, number>();
+    for (const row of raw) {
+      const orderId = String(row.order_id ?? "");
+      if (!orderId || countsByOrderId.has(orderId)) continue;
+      countsByOrderId.set(orderId, Number(row.order_openTicketsCount ?? 0));
+    }
+    for (const shipment of entities) {
+      if (shipment.order) {
+        (shipment.order as any).openTicketsCount =
+          countsByOrderId.get(shipment.order.id) ?? 0;
+      }
+    }
+    return entities;
   }
 
   /** Base QB for shipment groups — filters on shipment.shippedAt. */
@@ -2828,7 +2861,9 @@ export class OrdersService {
       // 2. Check if manifest exists
       const manifest = await manifestRepo.findOne({
         where: { id, adminId },
-        relations: ["orders"], // Assuming you need the orders tied to this manifest
+        relations: {
+          orders: true
+        }, // Assuming you need the orders tied to this manifest
       });
 
       if (!manifest) {
@@ -3174,7 +3209,13 @@ export class OrdersService {
       // 1. Validate Orders (Status must be PACKED and match Shipping Company)
       const orders = await manager.find(OrderEntity, {
         where: { id: In(dto.orderIds), adminId },
-        relations: ["status", "items", "items.variant"],
+        relations: {
+          status: true,
+
+          items: {
+            variant: true
+          }
+        },
       });
 
       if (orders.length !== dto.orderIds.length) {
@@ -3391,7 +3432,14 @@ export class OrdersService {
           adminId,
           id: In(dto.orderIds),
         },
-        relations: ["lastReturn", "lastReturn.items", "items", "status"],
+        relations: {
+          lastReturn: {
+            items: true
+          },
+
+          items: true,
+          status: true
+        },
       });
 
       const returns = orders.map((order) => order.lastReturn).filter(Boolean);
@@ -3700,18 +3748,26 @@ export class OrdersService {
 
     const manifest = await this.manifestRepo.findOne({
       where: { id, adminId },
-      relations: [
-        "shippingCompany",
-        "changedByUser",
-        "orders",
-        "orders.items",
-        "orders.items.variant",
-        "orders.items.variant.product",
-        "orders.lastReturn",
-        "orders.lastReturn.items",
-        "orders.lastReturn.items.returnedVariant",
-        "orders.lastReturn.items.returnedVariant.product",
-      ],
+      relations: {
+        shippingCompany: true,
+        changedByUser: true,
+
+        orders: {
+          items: {
+            variant: {
+              product: true
+            }
+          },
+
+          lastReturn: {
+            items: {
+              returnedVariant: {
+                product: true
+              }
+            }
+          }
+        }
+      },
     });
 
     if (!manifest) {
@@ -3962,8 +4018,16 @@ export class OrdersService {
       // 1. Fetch orders to get IDs and current Status (needed for logs)
       const orders = await manager.find(OrderEntity, {
         where: { adminId, orderNumber: In(orderNumbers) },
-        relations: ["items", "items.variant"],
-        select: ["id", "statusId", "orderNumber"],
+        relations: {
+          items: {
+            variant: true
+          }
+        },
+        select: {
+          id: true,
+          statusId: true,
+          orderNumber: true
+        },
       });
 
       if (orders.length === 0) {
@@ -4139,8 +4203,18 @@ export class OrdersService {
     return await this.dataSource.transaction(async (manager) => {
       const order = await manager.findOne(OrderEntity, {
         where: { id: orderId, adminId },
-        relations: ["items", "items.variant", "status"],
-        select: ["id", "statusId", "adminId"],
+        relations: {
+          items: {
+            variant: true
+          },
+
+          status: true
+        },
+        select: {
+          id: true,
+          statusId: true,
+          adminId: true
+        },
       });
 
       if (!order) {
@@ -4509,7 +4583,10 @@ export class OrdersService {
         phase,
       },
       // ✅ Add "order" to the relations array
-      relations: ["user", "order"],
+      relations: {
+        user: true,
+        order: true
+      },
       select: {
         user: {
           id: true,
@@ -4880,7 +4957,12 @@ export class OrdersService {
         ),
       },
       order: { created_at: "ASC" },
-      select: ["id", "orderNumber", "duplicateCount", "originalOrderNumber"],
+      select: {
+        id: true,
+        orderNumber: true,
+        duplicateCount: true,
+        originalOrderNumber: true
+      },
     });
 
     const duplicateCount = previousOrders.length;
@@ -5574,7 +5656,9 @@ export class OrdersService {
               code: dto.code,
             },
           },
-          relations: ["shippingCompany"],
+          relations: {
+            shippingCompany: true
+          },
         });
 
         if (!integration) {
@@ -5605,7 +5689,9 @@ export class OrdersService {
       if (cityIds.length > 0) {
         const cities = await manager.getRepository(CityEntity).find({
           where: { id: In(cityIds) },
-          relations: ["providerLocations"],
+          relations: {
+            providerLocations: true
+          },
         });
         cityMap = new Map(cities.map((c) => [c.id, c]));
       }
@@ -5766,7 +5852,13 @@ export class OrdersService {
     try {
       const order = await manager.findOne(OrderEntity, {
         where: { id, adminId } as any,
-        relations: ["items", "items.variant", "status"],
+        relations: {
+          items: {
+            variant: true
+          },
+
+          status: true
+        },
       });
 
       if (!order) {
@@ -5931,7 +6023,11 @@ export class OrdersService {
       const [order, rejectedStatus] = await Promise.all([
         manager.findOne(OrderEntity, {
           where: { id, adminId },
-          select: ["id", "orderNumber", "statusId"],
+          select: {
+            id: true,
+            orderNumber: true,
+            statusId: true
+          },
         }),
         this.findStatusByCode(OrderStatus.REJECTED, adminId, manager),
       ]);
@@ -6027,7 +6123,11 @@ export class OrdersService {
       const [order, confirmedStatus] = await Promise.all([
         manager.findOne(OrderEntity, {
           where: { id, adminId },
-          select: ["id", "orderNumber", "statusId"],
+          select: {
+            id: true,
+            orderNumber: true,
+            statusId: true
+          },
         }),
         this.findStatusByCode(OrderStatus.CONFIRMED, adminId, manager),
       ]);
@@ -6132,7 +6232,15 @@ export class OrdersService {
       // 1. Fetch Order and its Active Assignment for this employee
       const order = await manager.findOne(OrderEntity, {
         where: { id, adminId } as any,
-        relations: ["status", "items", "items.variant", "assignments"],
+        relations: {
+          status: true,
+
+          items: {
+            variant: true
+          },
+
+          assignments: true
+        },
       });
 
       if (!order) {
@@ -6603,7 +6711,15 @@ export class OrdersService {
   ): Promise<OrderEntity | null> {
     return this.orderRepo.findOne({
       where: { adminId, externalId },
-      relations: ["status", "items", "items.variant", "store"],
+      relations: {
+        status: true,
+
+        items: {
+          variant: true
+        },
+
+        store: true
+      },
     });
   }
 
@@ -7825,7 +7941,11 @@ export class OrdersService {
         this.shippingService.activeIntegrations(me),
         this.userRepo.findOne({
           where: { id: adminId },
-          relations: ["subscriptions", "subscriptions.plan"],
+          relations: {
+            subscriptions: {
+              plan: true
+            }
+          },
         }),
         this.storesService.listProviders(),
         this.shippingService.listProviders(),
@@ -8043,7 +8163,13 @@ export class OrdersService {
 
     const variants = await this.variantRepo.find({
       where: { adminId, sku: In([...allSkus]), isActive: true },
-      select: ["id", "sku", "stockOnHand", "reserved", "price"],
+      select: {
+        id: true,
+        sku: true,
+        stockOnHand: true,
+        reserved: true,
+        price: true
+      },
     });
 
     const variantMap = new Map(variants.map((v) => [v.sku, v]));
@@ -8749,7 +8875,13 @@ export class OrdersService {
     // 1. جلب الطلب مع التحقق من الـ adminId للأمان
     const order = await manager.getRepository(OrderEntity).findOne({
       where: { id: orderId, adminId },
-      relations: ["status", "items", "items.variant"],
+      relations: {
+        status: true,
+
+        items: {
+          variant: true
+        }
+      },
     });
 
     if (!order) {
@@ -8858,7 +8990,13 @@ export class OrdersService {
 
     const orders = await manager.getRepository(OrderEntity).find({
       where: { id: In(orderIds), adminId }, // تأكد من إضافة adminId للأمان
-      relations: ["status", "items", "items.variant"],
+      relations: {
+        status: true,
+
+        items: {
+          variant: true
+        }
+      },
     });
 
     for (const order of orders) {

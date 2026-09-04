@@ -117,12 +117,15 @@ export class OrderAssignmentService {
 
     const orders = await this.orderRepo.find({
       where: { id: In(uniqueOrderIds), adminId },
-      relations: [
-        "status",
-        "items",
-        "items.variant",
-        "items.variant.product",
-      ],
+      relations: {
+        status: true,
+
+        items: {
+          variant: {
+            product: true
+          }
+        }
+      },
     });
 
     if (!orders.length) {
@@ -175,7 +178,10 @@ export class OrderAssignmentService {
         assignedByAdminId: adminId,
         isAssignmentActive: true,
       },
-      relations: ["order", "employee"],
+      relations: {
+        order: true,
+        employee: true
+      },
     });
 
     if (!assignment) {
@@ -2184,7 +2190,11 @@ export class OrderAssignmentService {
 
     const rule = await this.autoAssignRuleRepo.findOne({
       where: { id, adminId },
-      relations: ["products", "cities", "employees"],
+      relations: {
+        products: true,
+        cities: true,
+        employees: true
+      },
     });
 
     if (!rule) {
@@ -2427,7 +2437,12 @@ export class OrderAssignmentService {
       // 1. Get active rules ordered by priority
       const rules = await manager.find(AutoAssignRuleEntity, {
         where: { adminId, isActive: true },
-        relations: ["products", "cities", "employees", "stores"],
+        relations: {
+          products: true,
+          cities: true,
+          employees: true,
+          stores: true
+        },
         order: { priority: "ASC", createdAt: "ASC" },
       });
 
@@ -2444,13 +2459,16 @@ export class OrderAssignmentService {
       // 2. Fetch orders with necessary details
       const orders = await manager.find(OrderEntity, {
         where: { id: In(orderIds), adminId },
-        relations: [
-          "items",
-          "items.variant",
-          "items.variant.product",
-          "cityDetails",
-          "status",
-        ],
+        relations: {
+          items: {
+            variant: {
+              product: true
+            }
+          },
+
+          cityDetails: true,
+          status: true
+        },
       });
       this.logger.debug(
         `Fetched ${orders.map((o) => o.orderNumber).join(", ")} orders for auto-assignment.`,
@@ -2585,7 +2603,12 @@ export class OrderAssignmentService {
     // 1. Get active rules ordered by priority
     const rules = await this.autoAssignRuleRepo.find({
       where: { adminId, isActive: true },
-      relations: ["products", "cities", "employees", "stores"],
+      relations: {
+        products: true,
+        cities: true,
+        employees: true,
+        stores: true
+      },
       order: { priority: "ASC", createdAt: "ASC" },
     });
 

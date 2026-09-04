@@ -248,7 +248,15 @@ export class PurchasesService {
 
     const inv = await this.invRepo.findOne({
       where: { id, adminId } as any,
-      relations: ["items", "items.variant", "items.variant.product", "safe"], // ✅ better details modal
+      relations: {
+        items: {
+          variant: {
+            product: true
+          }
+        },
+
+        safe: true
+      }, // ✅ better details modal
     });
 
     const supplier = await this.supplierRepo.findOne({
@@ -290,7 +298,13 @@ export class PurchasesService {
 
     const inv = await this.invRepo.findOne({
       where: { id, adminId } as any,
-      relations: ["items", "items.variant", "safe"],
+      relations: {
+        items: {
+          variant: true
+        },
+
+        safe: true
+      },
     });
     if (!inv) {
       throw new BadRequestException(
@@ -797,7 +811,11 @@ export class PurchasesService {
     const runWithManager = async (manager: EntityManager) => {
       const inv = await manager.findOne(PurchaseInvoiceEntity, {
         where: { id, adminId } as any,
-        relations: ["items", "items.variant"],
+        relations: {
+          items: {
+            variant: true
+          }
+        },
       });
       if (!inv) {
         throw new BadRequestException(
@@ -1201,7 +1219,11 @@ export class PurchasesService {
     const runWithManager = async (manager: EntityManager) => {
       const inv = await manager.findOne(PurchaseInvoiceEntity, {
         where: { id, adminId } as any,
-        relations: ["items", "items.variant"],
+        relations: {
+          items: {
+            variant: true
+          }
+        },
       });
       if (!inv) {
         throw new BadRequestException(

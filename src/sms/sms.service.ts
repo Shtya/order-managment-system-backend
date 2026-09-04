@@ -111,7 +111,9 @@ export class SmsService {
     const adminId = tenantId(me);
     const integrations = await this.integrationsRepo.find({
       where: { adminId } as any,
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
       order: { created_at: "DESC" },
     });
     return integrations.map((i) => this.withMaskedCredentials(i as any) as any);
@@ -121,7 +123,9 @@ export class SmsService {
     const adminId = tenantId(me);
     const integrations = await this.integrationsRepo.find({
       where: { adminId, isActive: true } as any,
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
       order: { created_at: "DESC" },
     });
     return integrations.map((i) => this.withMaskedCredentials(i as any) as any);
@@ -131,7 +135,9 @@ export class SmsService {
     const adminId = tenantId(me);
     const integration = await this.integrationsRepo.findOne({
       where: { providerCode: provider, adminId } as any,
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
     });
     if (!integration) {
       throw new NotFoundException(
@@ -202,7 +208,9 @@ export class SmsService {
     const adminId = tenantId(me);
     const integration = await this.integrationsRepo.findOne({
       where: { providerCode: provider, adminId } as any,
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
     });
     if (!integration) {
       throw new NotFoundException(
@@ -257,7 +265,9 @@ export class SmsService {
 
     const sender = await this.sendersRepo.findOne({
       where: { adminId, integrationId, isActive: true, isDefault: true } as any,
-      relations: ["integration"],
+      relations: {
+        integration: true
+      },
     });
     return this.withMaskedIntegration(sender as any) as any;
   }
@@ -581,7 +591,9 @@ export class SmsService {
 
     const integration = await this.integrationsRepo.findOne({
       where: { providerCode: providerCode, adminId, isActive: true } as any,
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
     });
     if (!integration) {
       throw new BadRequestException(
@@ -727,7 +739,11 @@ export class SmsService {
     const adminId = tenantId(me);
     const log = await this.logsRepo.findOne({
       where: { id, adminId } as any,
-      relations: ["provider", "sender", "integration"],
+      relations: {
+        provider: true,
+        sender: true,
+        integration: true
+      },
     });
     if (!log) {
       throw new NotFoundException(
@@ -741,7 +757,9 @@ export class SmsService {
     const adminId = tenantId(me);
     const log = await this.logsRepo.findOne({
       where: { id, adminId } as any,
-      relations: ["provider"],
+      relations: {
+        provider: true
+      },
     });
     if (!log) {
       throw new NotFoundException(

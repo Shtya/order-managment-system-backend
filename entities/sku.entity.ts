@@ -8,9 +8,6 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
-  Code,
-  OneToOne,
-  Relation,
 } from "typeorm";
 
 import { StoreEntity } from "./stores.entity";

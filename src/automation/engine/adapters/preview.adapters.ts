@@ -146,7 +146,9 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
     // In preview, we still need to fetch the actual template for validation
     return this.templateRepo.findOne({
       where: { id: templateId },
-      relations: ["account"],
+      relations: {
+        account: true
+      },
     });
   }
 

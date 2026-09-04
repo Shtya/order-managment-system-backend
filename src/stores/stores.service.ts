@@ -1105,7 +1105,9 @@ export class StoresService {
   ) {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ["store"],
+      relations: {
+        store: true
+      },
     });
 
     if (!order.store) {
@@ -2069,7 +2071,9 @@ export class StoresService {
 
     const failure = await this.failureRepo.findOne({
       where: { id, adminId },
-      relations: ["store"],
+      relations: {
+        store: true
+      },
     });
 
     if (!failure) {
@@ -3421,7 +3425,10 @@ export class StoresService {
         case ProductSyncJobs.SYNC_PRODUCT:
           const product = await this.productsRepo.findOne({
             where: { id: productId },
-            relations: ["category", "store"],
+            relations: {
+              category: true,
+              store: true
+            },
           });
 
           if (!product || !product.isActive) return;

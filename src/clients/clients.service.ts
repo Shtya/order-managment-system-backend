@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, DataSource, EntityManager, In, Not, Repository } from "typeorm";
+import { Brackets, DataSource, EntityManager, In, Not, Repository, SelectQueryBuilder } from "typeorm";
 import { ClientAddressEntity, ClientEntity, ClientStatus } from "entities/clients.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { AreaEntity, CityEntity } from "entities/cities.entity";
@@ -45,6 +45,46 @@ export class ClientService {
   ): Promise<T> {
     if (manager) return work(manager);
     return this.dataSource.transaction((mgr) => work(mgr));
+  }
+
+  private addClientCountSelects(qb: SelectQueryBuilder<ClientEntity>) {
+    return qb
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(ord.id)")
+          .from(OrderEntity, "ord")
+          .where("ord.clientId = client.id")
+          .andWhere("ord.deleted_at IS NULL");
+      }, "client_ordersCount")
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(ct.id)")
+          .from(CustomerEntity, "ct")
+          .where("ct.clientId = client.id");
+      }, "client_contactsCount");
+  }
+
+  private attachClientCounts(
+    entities: ClientEntity[],
+    raw: Record<string, unknown>[],
+  ) {
+    const countsById = new Map<
+      string,
+      { ordersCount: number; contactsCount: number }
+    >();
+    for (const row of raw) {
+      const id = String(row.client_id ?? "");
+      if (!id || countsById.has(id)) continue;
+      countsById.set(id, {
+        ordersCount: Number(row.client_ordersCount ?? 0),
+        contactsCount: Number(row.client_contactsCount ?? 0),
+      });
+    }
+    for (const entity of entities) {
+      const counts = countsById.get(entity.id);
+      (entity as any).ordersCount = counts?.ordersCount ?? 0;
+      (entity as any).contactsCount = counts?.contactsCount ?? 0;
+    }
   }
 
   private parseContacts(input: any) {
@@ -109,7 +149,11 @@ export class ClientService {
     const repo = manager ? manager.getRepository(ClientEntity) : this.clientRepo;
     const client = await repo.findOne({
       where: { id: clientId, adminId },
-      relations: ["contacts", "primaryContact", "addresses"],
+      relations: {
+        contacts: true,
+        primaryContact: true,
+        addresses: true
+      },
     });
     if (!client) {
       throw new NotFoundException(this.translations.t("domains.customer.not_found"));
@@ -301,8 +345,6 @@ export class ClientService {
       .leftJoinAndSelect("client.contacts", "contacts")
       .leftJoinAndSelect("contacts.conversation", "conversation")
       .leftJoinAndSelect("conversation.lastMessage", "lastMessage")
-      .loadRelationCountAndMap("client.ordersCount", "client.orders")
-      .loadRelationCountAndMap("client.contactsCount", "client.contacts")
       .where("client.adminId = :adminId", { adminId });
 
     if (search) {
@@ -325,10 +367,11 @@ export class ClientService {
     qb.orderBy(sortColumns[sortBy] || "client.createdAt", sortDir);
 
     const total = await qb.getCount();
-    const records = await qb
+    const { entities: records, raw } = await this.addClientCountSelects(qb)
       .skip((page - 1) * limit)
       .take(limit)
-      .getMany();
+      .getRawAndEntities();
+    this.attachClientCounts(records, raw);
 
     return {
       total_records: total,
@@ -459,19 +502,21 @@ export class ClientService {
   async findOne(me: any, clientId: string, manager?: EntityManager) {
     const { adminId } = await this.findClientOrThrow(me, clientId, manager);
     const repo = manager ? manager.getRepository(ClientEntity) : this.clientRepo;
-    const client = await repo
-      .createQueryBuilder("client")
-      .leftJoinAndSelect("client.primaryContact", "primaryContact")
-      .leftJoinAndSelect("client.contacts", "contacts")
-      .leftJoinAndSelect("contacts.conversation", "conversation")
-      .leftJoinAndSelect("conversation.lastMessage", "lastMessage")
-      .leftJoinAndSelect("client.addresses", "addresses")
-      .leftJoinAndSelect("addresses.cityDetails", "city")
-      .leftJoinAndSelect("addresses.areaDetails", "area")
-      .loadRelationCountAndMap("client.ordersCount", "client.orders")
-      .where("client.id = :clientId", { clientId })
-      .andWhere("client.adminId = :adminId", { adminId })
-      .getOne();
+    const { entities, raw } = await this.addClientCountSelects(
+      repo
+        .createQueryBuilder("client")
+        .leftJoinAndSelect("client.primaryContact", "primaryContact")
+        .leftJoinAndSelect("client.contacts", "contacts")
+        .leftJoinAndSelect("contacts.conversation", "conversation")
+        .leftJoinAndSelect("conversation.lastMessage", "lastMessage")
+        .leftJoinAndSelect("client.addresses", "addresses")
+        .leftJoinAndSelect("addresses.cityDetails", "city")
+        .leftJoinAndSelect("addresses.areaDetails", "area")
+        .where("client.id = :clientId", { clientId })
+        .andWhere("client.adminId = :adminId", { adminId }),
+    ).getRawAndEntities();
+    this.attachClientCounts(entities, raw);
+    const client = entities[0];
 
     if (!client) {
       throw new NotFoundException(this.translations.t("domains.customer.not_found"));

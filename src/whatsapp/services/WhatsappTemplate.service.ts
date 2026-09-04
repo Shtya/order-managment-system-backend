@@ -250,7 +250,9 @@ export class WhatsappTemplateService {
     const isSuperAdmin = this.isSuperAdmin(me);
     const template = await this.templateRepo.findOne({
       where: isSuperAdmin ? { id } : { id, adminId },
-      relations: ["account"],
+      relations: {
+        account: true
+      },
     });
     if (!template) {
       throw new NotFoundException(

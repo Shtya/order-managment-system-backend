@@ -98,7 +98,10 @@ export class ConversationService {
 
       const finalConversation = await repo.findOne({
         where: { id: conversation.id },
-        relations: ["customer", "lastMessage"],
+        relations: {
+          customer: true,
+          lastMessage: true
+        },
       });
 
       this.appGateway.emitNewConversation(adminId, finalConversation);
@@ -112,7 +115,10 @@ export class ConversationService {
         adminId,
         customerId,
       },
-      relations: ["customer", "lastMessage"],
+      relations: {
+        customer: true,
+        lastMessage: true
+      },
     });
   }
 
@@ -142,7 +148,10 @@ export class ConversationService {
 
       const finalConversation = await repo.findOne({
         where: { id: savedConversation.id },
-        relations: ["customer", "lastMessage"],
+        relations: {
+          customer: true,
+          lastMessage: true
+        },
       });
 
       // Emit new conversation notification
@@ -264,7 +273,15 @@ export class ConversationService {
 
     const conversation = await this.conversationRepo.findOne({
       where: { id, adminId },
-      relations: ["customer", "messages", "messages.account", "lastMessage"],
+      relations: {
+        customer: true,
+
+        messages: {
+          account: true
+        },
+
+        lastMessage: true
+      },
     });
 
     if (!conversation) {

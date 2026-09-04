@@ -216,7 +216,6 @@ export class CustomerService {
       .leftJoinAndSelect("customer.client", "client")
       .leftJoinAndSelect("customer.conversation", "conversation")
       .leftJoinAndSelect("conversation.lastMessage", "lastMessage")
-      .loadRelationCountAndMap("customer.ordersCount", "customer.orders")
       .where("customer.adminId = :adminId", { adminId });
 
     // Search (by name or phone number)
@@ -244,10 +243,28 @@ export class CustomerService {
     }
 
     const total = await qb.getCount();
-    const records = await qb
+    const { entities: records, raw } = await qb
+      .addSelect((subQuery) => {
+        return subQuery
+          .select("COUNT(ord.id)")
+          .from(OrderEntity, "ord")
+          .where("ord.adminId = customer.adminId")
+          .andWhere("ord.normalizedPhoneNumber = customer.phoneNumber")
+          .andWhere("ord.deleted_at IS NULL");
+      }, "customer_ordersCount")
       .skip((page - 1) * limit)
       .take(limit)
-      .getMany();
+      .getRawAndEntities();
+
+    const countsById = new Map<string, number>();
+    for (const row of raw) {
+      const id = String(row.customer_id ?? "");
+      if (!id || countsById.has(id)) continue;
+      countsById.set(id, Number(row.customer_ordersCount ?? 0));
+    }
+    for (const entity of records) {
+      (entity as any).ordersCount = countsById.get(entity.id) ?? 0;
+    }
 
     return {
       total_records: total,
@@ -593,7 +610,9 @@ export class CustomerService {
 
     const customer = await this.customerRepo.findOne({
       where: { id, adminId },
-      relations: ["conversation"],
+      relations: {
+        conversation: true
+      },
     });
 
     if (!customer) {

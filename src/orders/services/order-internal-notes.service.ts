@@ -202,7 +202,9 @@ export class OrderInternalNotesService {
 
     const withAuthor = await this.noteRepo.findOne({
       where: { id: saved.id } as any,
-      relations: ["author"],
+      relations: {
+        author: true
+      },
     });
 
     const note = this.withUnreadFlag(

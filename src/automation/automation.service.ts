@@ -238,7 +238,9 @@ export class AutomationService {
 
       const automation = await automationRepo.findOne({
         where: { id, adminId },
-        relations: ["latestVersion"],
+        relations: {
+          latestVersion: true
+        },
       });
 
       if (!automation) {
@@ -391,7 +393,9 @@ export class AutomationService {
 
       return await automationRepo.findOne({
         where: { id, adminId },
-        relations: ["latestVersion"],
+        relations: {
+          latestVersion: true
+        },
       });
     });
 
@@ -403,7 +407,10 @@ export class AutomationService {
 
     const run = await this.runRepo.findOne({
       where: { id: runId, automationFlow: { adminId } },
-      relations: ["automationFlow", "version"],
+      relations: {
+        automationFlow: true,
+        version: true
+      },
     });
 
     if (!run) {
@@ -422,7 +429,9 @@ export class AutomationService {
       // Load automation flow with latestVersion
       const automationFlow = await this.automationRepo.findOne({
         where: { id: run.automationFlowId },
-        relations: ["latestVersion"],
+        relations: {
+          latestVersion: true
+        },
       });
       if (automationFlow?.latestVersionId) {
         run.versionId = automationFlow.latestVersionId;
@@ -847,12 +856,14 @@ export class AutomationService {
 
     const run = await this.runRepo.findOne({
       where: { id },
-      relations: [
-        "automationFlow",
-        "automationFlow.latestVersion",
-        "version",
-        "steps",
-      ],
+      relations: {
+        automationFlow: {
+          latestVersion: true
+        },
+
+        version: true,
+        steps: true
+      },
     });
 
     if (!run) {

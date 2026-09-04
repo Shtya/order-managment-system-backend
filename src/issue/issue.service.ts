@@ -6,7 +6,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, In, Repository } from "typeorm";
+import { Brackets, FindOptionsRelations, In, Repository } from "typeorm";
 import {
   IssueActivityEntity,
   IssueActivityType,
@@ -226,9 +226,10 @@ export class IssueService implements OnModuleInit {
   private async findTenantIssue(
     me: any,
     issueId: string,
-    relations: string[] = [],
+    relations: FindOptionsRelations<IssueEntity> = {},
   ) {
     const adminId = tenantId(me);
+    // TODO(typeorm-v1): `relations` no longer accepts a string array. This value references a variable whose shape can't be determined statically — if it holds `string[]`, wrap it: `Object.fromEntries(<expr>?.map(r => [r, true]) ?? [])` (dot-paths need extra nesting handling). If it already holds the v1 object shape, no change needed.
     const issue = await this.issueRepo.findOne({
       where: { id: issueId, adminId } as any,
       relations,
@@ -1195,18 +1196,19 @@ export class IssueService implements OnModuleInit {
   }
 
   async get(me: any, issueId: string) {
-    const issue = this.findTenantIssue(me, issueId, [
-      "status",
-      "cause",
-      "assignedRole",
-      "customer",
-      "order",
-      "createdByUser",
-      "lastMessage",
-      "lastMessageByUser",
-      "users",
-      "users.user",
-    ]);
+    const issue = this.findTenantIssue(me, issueId, {
+      status: true,
+      cause: true,
+      assignedRole: true,
+      customer: true,
+      order: true,
+      createdByUser: true,
+      lastMessage: true,
+      lastMessageByUser: true,
+      users: {
+        user: true,
+      },
+    });
 
     return issue;
   }
@@ -1377,7 +1379,9 @@ export class IssueService implements OnModuleInit {
     const enriched =
       (await this.messageRepo.findOne({
         where: { id: saved.id } as any,
-        relations: ["sender"],
+        relations: {
+          sender: true
+        },
       })) ?? saved;
 
     issue.last_message_at = new Date();
@@ -1693,7 +1697,9 @@ export class IssueService implements OnModuleInit {
 
     return this.activityRepo.find({
       where: { issueId: issue.id } as any,
-      relations: ["performedByUser"],
+      relations: {
+        performedByUser: true
+      },
       order: { created_at: "DESC" } as any,
     });
   }

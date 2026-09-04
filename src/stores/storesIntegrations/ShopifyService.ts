@@ -2825,7 +2825,11 @@ export class ShopifyService extends BaseStoreProvider {
         externalStoreId: activeStore.externalStoreId,
         productId,
       },
-      relations: ["product", "product.variants"],
+      relations: {
+        product: {
+          variants: true
+        }
+      },
     });
 
     const syncState = syncStates?.[0];
@@ -2885,7 +2889,9 @@ export class ShopifyService extends BaseStoreProvider {
   public async syncProduct({ productId }: { productId: string }) {
     const product = await this.productsRepo.findOne({
       where: { id: productId },
-      relations: ["category"],
+      relations: {
+        category: true
+      },
     });
     if (!product) {
       throw new Error(`Product with ID ${productId} not found`);
@@ -4068,12 +4074,15 @@ export class ShopifyService extends BaseStoreProvider {
     }
     const returnRequest = await this.returnRequestRepo.findOne({
       where: { id: order.lastReturnId },
-      relations: [
-        "items",
-        "items.returnedVariant",
-        "items.originalItem",
-        "items.originalItem.variant",
-      ],
+      relations: {
+        items: {
+          returnedVariant: true,
+
+          originalItem: {
+            variant: true
+          }
+        }
+      },
     });
     if (!returnRequest) {
       throw new Error(
@@ -4442,7 +4451,12 @@ export class ShopifyService extends BaseStoreProvider {
     // Get local return with items
     const returnRequest = await this.returnRequestRepo.findOne({
       where: { id: order.lastReturnId },
-      relations: ["items", "items.returnedVariant", "items.originalItem"],
+      relations: {
+        items: {
+          returnedVariant: true,
+          originalItem: true
+        }
+      },
     });
 
     if (!returnRequest) {
@@ -5906,13 +5920,16 @@ export class ShopifyService extends BaseStoreProvider {
   public async syncBundle(bundle: BundleEntity): Promise<any> {
     const loadedBundle = await this.bundleRepo.findOne({
       where: { id: bundle.id },
-      relations: [
-        "category",
-        "store",
-        "items",
-        "items.variant",
-        "items.variant.product",
-      ],
+      relations: {
+        category: true,
+        store: true,
+
+        items: {
+          variant: {
+            product: true
+          }
+        }
+      },
     });
 
     if (!loadedBundle) {

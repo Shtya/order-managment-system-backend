@@ -32,7 +32,9 @@ export class OrderPostponedCronService {
         postponedDate: LessThanOrEqual(now),
         postponedNotificationSent: false,
       },
-      relations: ["status"],
+      relations: {
+        status: true
+      },
     });
 
     for (const order of ordersDueToday) {
@@ -130,7 +132,9 @@ export class OrderPostponedCronService {
         ), // Within next 24h
         oneDayBeforeNotificationSent: false,
       },
-      relations: ["status"],
+      relations: {
+        status: true
+      },
     });
 
     for (const order of ordersDueTomorrow) {

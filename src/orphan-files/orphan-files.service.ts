@@ -21,7 +21,10 @@ export class OrphanFilesService {
     const repo = mgr.getRepository(OrphanFileEntity);
     const rows = await repo.find({
       where: { adminId, id: In(ids) } as any,
-      select: ["id", "url"],
+      select: {
+        id: true,
+        url: true
+      },
     });
 
     if (rows.length !== ids.length) {
@@ -42,7 +45,9 @@ export class OrphanFilesService {
     const repo = mgr.getRepository(OrphanFileEntity);
     const files = await repo.find({
       where: { adminId, id: In(cleanIds) } as any,
-      select: ["url"],
+      select: {
+        url: true
+      },
     });
 
     await repo.delete({ adminId, id: In(cleanIds) } as any);

@@ -16,6 +16,9 @@ import { ConfigService } from "@nestjs/config";
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+  //   instrument: ObserveInstrument,
+  // });
 
   app.useGlobalFilters(
     app.get(GlobalExceptionFilter),

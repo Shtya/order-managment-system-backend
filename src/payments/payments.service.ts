@@ -143,7 +143,9 @@ export class PaymentsService {
     );
     const session = await this.sessionRepo.findOne({
       where: { id: webhookData.internalSessionId },
-      relations: ["user"],
+      relations: {
+        user: true
+      },
     });
     if (!session) {
       this.logger.warn(
@@ -350,7 +352,9 @@ export class PaymentsService {
 
         const sub = await manager.findOne(Subscription, {
           where: { id: session.subscriptionId },
-          relations: ["plan"],
+          relations: {
+            plan: true
+          },
         });
 
         if (sub && sub.status === SubscriptionStatus.PENDING) {
@@ -424,7 +428,9 @@ export class PaymentsService {
 
         const userFeat = await manager.findOne(UserFeature, {
           where: { id: session.userFeatureId },
-          relations: ["feature"],
+          relations: {
+            feature: true
+          },
         });
 
         if (userFeat && userFeat.status === SubscriptionStatus.PENDING) {

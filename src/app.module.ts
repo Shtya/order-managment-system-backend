@@ -81,7 +81,7 @@ import { AiModule } from "./ai/ai.module";
 import { ClientsModule } from "./clients/clients.module";
 import { ClientSegmentsModule } from "./client-segments/client-segments.module";
 import { AudienceModule } from "./audience/audience.module";
-
+import { observeConfig, ObserveModule } from "common/observe/bserve.config";
 
 // Load env files BEFORE the module decorator is evaluated so that
 // process.env checks at module-definition time (e.g. AI_MODULE_ENABLED)
@@ -199,6 +199,7 @@ import { AudienceModule } from "./audience/audience.module";
     AiModule,
     AudienceModule,
     ClientSegmentsModule,
+    // ObserveModule.forRoot(observeConfig),
   ],
   providers: [
     GlobalExceptionFilter,

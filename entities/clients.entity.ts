@@ -72,7 +72,7 @@ export class ClientEntity {
 
   @OneToMany(() => OrderEntity, (order) => order.client)
   orders: OrderEntity[];
-
+  
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
 

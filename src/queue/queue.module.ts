@@ -152,6 +152,9 @@ export class QueueModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(BullBoardAuthMiddleware)
-      .forRoutes({ path: "queues*", method: RequestMethod.ALL }); // covers /queues and all sub-paths
+      .forRoutes(
+        { path: "queues", method: RequestMethod.ALL },
+        { path: "queues/{*path}", method: RequestMethod.ALL },
+      );
   }
 }

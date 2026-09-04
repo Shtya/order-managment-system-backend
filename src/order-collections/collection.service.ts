@@ -170,7 +170,9 @@ export class CollectionService {
       if (dto.shippingCompanyId) {
         shippingIntegration = await manager.findOne(ShippingIntegrationEntity, {
           where: { shippingCompanyId: dto.shippingCompanyId, adminId },
-          relations: ["shippingCompany"],
+          relations: {
+            shippingCompany: true
+          },
         });
 
         if (!shippingIntegration) {

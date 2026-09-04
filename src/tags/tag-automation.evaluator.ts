@@ -74,7 +74,10 @@ export class TagAutomationEvaluator {
   async processEvaluateOrder(orderId: string) {
     const order = await this.orderRepo.findOne({
       where: { id: orderId },
-      relations: ["status", "items"],
+      relations: {
+        status: true,
+        items: true
+      },
     });
     if (!order?.adminId) return;
     const adminId = order.adminId;
@@ -83,7 +86,9 @@ export class TagAutomationEvaluator {
       this.clientSettingsService.getCachedSettings(adminId),
       this.automationRepo.find({
         where: { adminId, isEnabled: true },
-        relations: ["tag"],
+        relations: {
+          tag: true
+        },
       }),
     ]);
 
@@ -133,7 +138,9 @@ export class TagAutomationEvaluator {
       automations ??
       (await this.automationRepo.find({
         where: { adminId: order.adminId, isEnabled: true },
-        relations: ["tag"],
+        relations: {
+          tag: true
+        },
       }))
     ).filter(
       (automation) =>

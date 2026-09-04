@@ -57,7 +57,9 @@ export class GettingStartedStatsService {
     // 1. Fetch active items to know the required achievement types.
     const items = await this.itemRepo.find({
       where: { isActive: true },
-      select: ["completionType"],
+      select: {
+        completionType: true
+      },
     });
     const totalItems = items.length;
     const activeTypes = items.map((i) => i.completionType);
@@ -124,7 +126,12 @@ export class GettingStartedStatsService {
     const items = await this.itemRepo.find({
       where: { isActive: true },
       order: { sortOrder: "ASC" },
-      select: ["id", "key", "title", "completionType"],
+      select: {
+        id: true,
+        key: true,
+        title: true,
+        completionType: true
+      },
     });
 
     if (items.length === 0) return [];

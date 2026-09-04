@@ -1074,7 +1074,9 @@ export default class WooCommerceService
   public async syncProduct({ productId }: { productId: string }) {
     const product = await this.productsRepo.findOne({
       where: { id: productId },
-      relations: ["category"],
+      relations: {
+        category: true
+      },
     });
     if (!product) {
       throw new Error(`Product with ID ${productId} not found`);
@@ -2199,13 +2201,16 @@ export default class WooCommerceService
   public async syncBundle(bundle: BundleEntity): Promise<any> {
     const loadedBundle = await this.bundleRepo.findOne({
       where: { id: bundle.id },
-      relations: [
-        "category",
-        "store",
-        "items",
-        "items.variant",
-        "items.variant.product",
-      ],
+      relations: {
+        category: true,
+        store: true,
+
+        items: {
+          variant: {
+            product: true
+          }
+        }
+      },
     });
 
     if (!loadedBundle) {

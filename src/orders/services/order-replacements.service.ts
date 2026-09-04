@@ -368,7 +368,13 @@ export class OrderReplacementService {
       // 1️⃣ Get original order
       const originalOrder = await manager.findOne(OrderEntity, {
         where: { id: dto.originalOrderId, adminId },
-        relations: ["items", "items.variant", "replacementRequest"],
+        relations: {
+          items: {
+            variant: true
+          },
+
+          replacementRequest: true
+        },
       });
 
       if (originalOrder.replacementRequest) {

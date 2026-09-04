@@ -141,7 +141,13 @@ export class TransactionsService {
   async get(me: User, id: string) {
     const transaction = await this.transactionsRepo.findOne({
       where: { id },
-      relations: ["user", "subscription", "subscription.plan"],
+      relations: {
+        user: true,
+
+        subscription: {
+          plan: true
+        }
+      },
     });
 
     if (!transaction) {

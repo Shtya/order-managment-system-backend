@@ -21,7 +21,10 @@ export class OrphanFilesCleanupCronService {
 
     const rows = await this.orphanRepo.find({
       where: { created_at: LessThan(cutoff) } as any,
-      select: ["id", "url"],
+      select: {
+        id: true,
+        url: true
+      },
       take: 2000,
     });
 

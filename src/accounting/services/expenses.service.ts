@@ -112,7 +112,11 @@ export class ExpensesService {
         id,
         adminId: tenantId(me),
       },
-      relations: ["category", "user", "safe"],
+      relations: {
+        category: true,
+        user: true,
+        safe: true
+      },
     });
     if (!expense) {
       throw new NotFoundException(
@@ -313,7 +317,9 @@ export class ExpensesService {
     return this.dataSource.transaction(async (manager) => {
       const expense = await manager.findOne(ManualExpenseEntity, {
         where: { id, adminId },
-        relations: ["category"],
+        relations: {
+          category: true
+        },
       });
 
       if (!expense) {
@@ -431,7 +437,9 @@ export class ExpensesService {
     return this.dataSource.transaction(async (manager) => {
       const expense = await manager.findOne(ManualExpenseEntity, {
         where: { id, adminId },
-        relations: ["category"],
+        relations: {
+          category: true
+        },
       });
 
       if (!expense) {

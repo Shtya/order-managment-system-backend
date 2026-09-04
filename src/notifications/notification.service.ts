@@ -120,7 +120,9 @@ export class NotificationService {
     if (!adminId) {
       const user = await userRepo.findOne({
         where: { id: userId },
-        relations: ["role"],
+        relations: {
+          role: true
+        },
       });
 
       if (!user) return null;

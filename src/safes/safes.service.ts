@@ -123,7 +123,9 @@ export class SafesService {
     const adminId = tenantId(me);
     const account = await this.accountRepo.findOne({
       where: { id, adminId },
-      relations: ["managedBy"],
+      relations: {
+        managedBy: true
+      },
     });
 
     if (!account) {
@@ -271,7 +273,10 @@ export class SafesService {
     const adminId = tenantId(me);
     const trx = await this.transactionRepo.findOne({
       where: { id, account: { adminId } },
-      relations: ["account", "createdBy"],
+      relations: {
+        account: true,
+        createdBy: true
+      },
     });
 
     if (!trx) {

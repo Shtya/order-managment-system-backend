@@ -60,7 +60,13 @@ export class TriggerDispatcherService {
     ) {
       const order = await this.orderRepo.findOne({
         where: { id: trigger.entityId },
-        select: ["id", "adminId", "oldStatusId", "statusId", "externalId"],
+        select: {
+          id: true,
+          adminId: true,
+          oldStatusId: true,
+          statusId: true,
+          externalId: true
+        },
       });
       if (!order) {
         console.log(
@@ -84,7 +90,9 @@ export class TriggerDispatcherService {
         triggerType: trigger.type,
         status: AutomationStatus.PUBLISHED,
       },
-      relations: ["latestVersion"],
+      relations: {
+        latestVersion: true
+      },
     });
 
     console.log(
@@ -138,7 +146,9 @@ export class TriggerDispatcherService {
 
     const automation = await this.automationRepo.findOne({
       where: { id: automationFlowId, adminId },
-      relations: ["latestVersion"],
+      relations: {
+        latestVersion: true
+      },
     });
 
     if (!automation || !automation.latestVersion) return;
@@ -148,7 +158,9 @@ export class TriggerDispatcherService {
         automationFlowId,
         status: In([RunStatus.FAILED]), // Also retry paused ones if they need migration
       },
-      relations: ["version"],
+      relations: {
+        version: true
+      },
     });
 
     if (!failedRuns.length) return;

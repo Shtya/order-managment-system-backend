@@ -316,13 +316,15 @@ export class SupplierPaymentsService {
     const adminId = tenantId(me);
     const payment = await this.paymentRepo.findOne({
       where: { id, adminId },
-      relations: [
-        "supplier",
-        "safe",
-        "createdByUser",
-        "allocations",
-        "allocations.invoice",
-      ],
+      relations: {
+        supplier: true,
+        safe: true,
+        createdByUser: true,
+
+        allocations: {
+          invoice: true
+        }
+      },
     });
 
     if (!payment) {

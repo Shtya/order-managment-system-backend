@@ -264,7 +264,11 @@ export class AiProviderSelectorService implements OnModuleInit {
     if (tenantId) {
       const record = await this.defaultModelRepo.findOne({
         where: { adminId: tenantId },
-        relations: ["model", "model.provider"],
+        relations: {
+          model: {
+            provider: true
+          }
+        },
       });
       if (record?.model?.isActive && record?.model?.provider?.isActive) {
         return {
@@ -276,7 +280,11 @@ export class AiProviderSelectorService implements OnModuleInit {
 
     const systemDefault = await this.defaultModelRepo.findOne({
       where: { adminId: null },
-      relations: ["model", "model.provider"],
+      relations: {
+        model: {
+          provider: true
+        }
+      },
     });
     if (systemDefault?.model?.isActive && systemDefault?.model?.provider?.isActive) {
       return {

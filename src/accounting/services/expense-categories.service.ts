@@ -9,7 +9,10 @@ import {
   CreateManualExpenseCategoryDto,
   UpdateManualExpenseCategoryDto,
 } from "dto/accounting.dto";
-import { ManualExpenseCategoryEntity } from "entities/accounting.entity";
+import {
+  ManualExpenseCategoryEntity,
+  ManualExpenseEntity,
+} from "entities/accounting.entity";
 import { tenantId } from "src/category/category.service";
 import { Not, Repository } from "typeorm";
 
@@ -47,22 +50,33 @@ export class ExpenseCategoriesService {
       qb.andWhere("category.isActive = :isActive", { isActive });
     }
 
-    qb.loadRelationCountAndMap("category.expensesCount", "category.expenses");
+    qb.addSelect((subQuery) => {
+      return subQuery
+        .select("COUNT(expense.id)")
+        .from(ManualExpenseEntity, "expense")
+        .where("expense.categoryId = category.id");
+    }, "category_expensesCount");
 
     qb.addSelect(
       `COALESCE((SELECT SUM(e.amount) FROM manual_expenses e WHERE e."categoryId" = category.id), 0)`,
       "category_totalCost",
     );
 
-    // 3. Optional: Order by name
     qb.orderBy("category.name", "ASC");
 
-    const categories = await qb.getRawAndEntities();
+    const { entities, raw } = await qb.getRawAndEntities();
+    const rawById = new Map(
+      raw.map((row) => [String(row.category_id ?? ""), row]),
+    );
 
-    return categories.entities.map((cat, idx) => ({
-      ...cat,
-      totalCost: Number(categories.raw[idx]?.category_totalCost ?? 0),
-    }));
+    return entities.map((cat) => {
+      const row = rawById.get(cat.id);
+      return {
+        ...cat,
+        expensesCount: Number(row?.category_expensesCount ?? 0),
+        totalCost: Number(row?.category_totalCost ?? 0),
+      };
+    });
   }
 
   async updateCategory(

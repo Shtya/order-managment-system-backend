@@ -102,7 +102,10 @@ export class ProductSyncStateService {
 
     const record = await this.syncStateRepo.findOne({
       where: { id, adminId },
-      relations: ["store", "product"],
+      relations: {
+        store: true,
+        product: true
+      },
     });
 
     if (!record) {

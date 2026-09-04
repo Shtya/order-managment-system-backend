@@ -41,7 +41,9 @@ export class CitiesService {
   ) {
     return this.providerLocationRepo.findOne({
       where: { provider: provider as any, providerCityId },
-      relations: ["city"],
+      relations: {
+        city: true
+      },
     });
   }
 
@@ -72,7 +74,9 @@ export class CitiesService {
 
   async findAllWithProviders() {
     return this.cityRepo.find({
-      relations: ["providerLocations"],
+      relations: {
+        providerLocations: true
+      },
       where: { isActive: true },
       order: { nameEn: "ASC" },
     });
@@ -81,7 +85,9 @@ export class CitiesService {
   async findOneWithProviders(id: string) {
     return this.cityRepo.findOne({
       where: { id },
-      relations: ["providerLocations"],
+      relations: {
+        providerLocations: true
+      },
     });
   }
 

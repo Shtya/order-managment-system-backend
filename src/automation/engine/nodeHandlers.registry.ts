@@ -297,7 +297,9 @@ const loadGlobalData = async (
   try {
     const user = await userRepo.findOne({
       where: { id: adminId },
-      relations: ["company"],
+      relations: {
+        company: true
+      },
     });
     if (!user) return undefined;
     const company = user.company as Company | undefined;
@@ -438,15 +440,19 @@ export abstract class FlowNodeHandler {
     }
     const order = await this.orderRepo.findOne({
       where: { id },
-      relations: [
-        "status",
-        "items",
-        "items.variant",
-        "items.variant.product",
-        "store",
-        "shippingCompany",
-        "replacementResult",
-      ],
+      relations: {
+        status: true,
+
+        items: {
+          variant: {
+            product: true
+          }
+        },
+
+        store: true,
+        shippingCompany: true,
+        replacementResult: true
+      },
     });
     if (!order) {
       throw new NotFoundException(`Order with ID ${id} not found`);
@@ -809,7 +815,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
       const admin = await this.userRepo.findOne({
         where: { id: run.adminId },
-        relations: ["role"],
+        relations: {
+          role: true
+        },
       });
 
       if (!admin) {
@@ -933,7 +941,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
       const admin = await this.userRepo.findOne({
         where: { id: run.adminId },
-        relations: ["role"],
+        relations: {
+          role: true
+        },
       });
       if (!admin) {
         return {

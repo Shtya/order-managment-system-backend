@@ -1501,7 +1501,9 @@ export class UsersService {
       // Fetch user with existing company relation
       const user = await manager.findOne(User, {
         where: { id: me.id },
-        relations: ["company"],
+        relations: {
+          company: true
+        },
       });
 
       if (!user) {
@@ -1533,7 +1535,9 @@ export class UsersService {
     const adminId = tenantId(me);
     const user = await this.usersRepo.findOne({
       where: { id: adminId },
-      relations: ["company"],
+      relations: {
+        company: true
+      },
     });
 
     if (!user) {
@@ -1548,7 +1552,9 @@ export class UsersService {
     const adminId = tenantId(me);
     const user = await repo.findOne({
       where: { id: adminId, adminId },
-      relations: ["company"],
+      relations: {
+        company: true
+      },
     });
 
     if (!user || !user.company) {

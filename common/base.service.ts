@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Repository, Brackets, QueryFailedError } from 'typeorm';
+import { Repository, Brackets, QueryFailedError, FindOptionsRelations } from 'typeorm';
 
 
 
@@ -169,7 +169,7 @@ export class BaseService<T> {
 		};
 	}
 
-	async findOne(id: any, relations?: string[]) {
+	async findOne(id: any, relations?: FindOptionsRelations<T>) {
 		const entity: any = await this.repository.findOne({ where: { id } as any, relations });
 		if (!entity) {
 			throw new NotFoundException(`Record with id "${id}" was not found.`);

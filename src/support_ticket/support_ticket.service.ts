@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, In, Repository, SelectQueryBuilder } from "typeorm";
+import { Brackets, FindOptionsRelations, In, Repository, SelectQueryBuilder } from "typeorm";
 import {
   SupportTicketActivityEntity,
   SupportTicketActivityType,
@@ -334,9 +334,10 @@ export class SupportTicketService {
   private async findTenantTicket(
     me: any,
     ticketId: string,
-    relations: string[] = [],
+    relations: FindOptionsRelations<SupportTicketEntity> = {},
   ) {
     const adminId = tenantId(me);
+    // TODO(typeorm-v1): `relations` no longer accepts a string array. This value references a variable whose shape can't be determined statically — if it holds `string[]`, wrap it: `Object.fromEntries(<expr>?.map(r => [r, true]) ?? [])` (dot-paths need extra nesting handling). If it already holds the v1 object shape, no change needed.
     const ticket = await this.ticketRepo.findOne({
       where: { id: ticketId, adminId } as any,
       relations,
@@ -347,7 +348,8 @@ export class SupportTicketService {
     return ticket;
   }
 
-  private async requireTicket(ticketId: string, relations: string[] = []) {
+  private async requireTicket(ticketId: string, relations: FindOptionsRelations<SupportTicketEntity> = {}) {
+    // TODO(typeorm-v1): `relations` no longer accepts a string array. This value references a variable whose shape can't be determined statically — if it holds `string[]`, wrap it: `Object.fromEntries(<expr>?.map(r => [r, true]) ?? [])` (dot-paths need extra nesting handling). If it already holds the v1 object shape, no change needed.
     const ticket = await this.ticketRepo.findOne({
       where: { id: ticketId } as any,
       relations,
@@ -552,13 +554,13 @@ export class SupportTicketService {
   }
 
   async get(me: any, ticketId: string) {
-    const ticket = await this.findTenantTicket(me, ticketId, [
-      "admin",
-      "createdByUser",
-      "lastMessage",
-      "assignedSupportUser",
-      "lastMessageByUser",
-    ]);
+    const ticket = await this.findTenantTicket(me, ticketId, {
+      admin: true,
+      createdByUser: true,
+      lastMessage: true,
+      assignedSupportUser: true,
+      lastMessageByUser: true,
+    });
 
     const counts = await this.getCountsForTickets(null, ticket.adminId, true);
 
@@ -739,7 +741,10 @@ export class SupportTicketService {
 
     const withRelations = await this.messageRepo.findOne({
       where: { id: saved.id } as any,
-      relations: ["sender", "attachments"],
+      relations: {
+        sender: true,
+        attachments: true
+      },
     });
 
     const supportRecipients = await this.supportRecipientIds(ticket);
@@ -1134,7 +1139,9 @@ export class SupportTicketService {
 
     return this.activityRepo.find({
       where: { ticketId, isPublic: true } as any,
-      relations: ["performedByUser"],
+      relations: {
+        performedByUser: true
+      },
       order: { created_at: "DESC" } as any,
     });
   }
@@ -1274,15 +1281,15 @@ export class SupportTicketService {
   }
 
   async adminGet(me: any, ticketId: string) {
-    const ticket = await this.requireTicket(ticketId, [
-      "admin",
-      "createdByUser",
-      "assignedSupportUser",
-      "lastMessage",
-      "lastMessageByUser",
-      "solvedByUser",
-      "closedByUser",
-    ]);
+    const ticket = await this.requireTicket(ticketId, {
+      admin: true,
+      createdByUser: true,
+      assignedSupportUser: true,
+      lastMessage: true,
+      lastMessageByUser: true,
+      solvedByUser: true,
+      closedByUser: true,
+    });
 
     const counts = await this.getCountsForTickets(null, ticket.adminId);
 
@@ -1465,7 +1472,10 @@ export class SupportTicketService {
 
     const withRelations = await this.messageRepo.findOne({
       where: { id: saved.id } as any,
-      relations: ["sender", "attachments"],
+      relations: {
+        sender: true,
+        attachments: true
+      },
     });
 
     if (isInternalNote) {
@@ -2011,7 +2021,9 @@ export class SupportTicketService {
 
     return this.activityRepo.find({
       where: { ticketId } as any,
-      relations: ["performedByUser"],
+      relations: {
+        performedByUser: true
+      },
       order: { created_at: "ASC" } as any,
     });
   }

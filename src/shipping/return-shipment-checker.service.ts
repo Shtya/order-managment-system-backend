@@ -38,7 +38,9 @@ export class ReturnShipmentCheckerService {
     try {
       const shipments = await this.shipmentsRepo.find({
         where: { status: In(this.RETURN_STATUSES) },
-        relations: ["order"],
+        relations: {
+          order: true
+        },
       });
 
       if (shipments.length === 0) {

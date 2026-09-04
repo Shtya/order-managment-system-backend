@@ -97,7 +97,9 @@ export class BundlesService {
         sku: sku.trim(),
         isActive: true,
       },
-      select: ["id"],
+      select: {
+        id: true
+      },
     });
 
     return { isUnique: !exists };
@@ -125,7 +127,9 @@ export class BundlesService {
         slug: formattedSlug,
         isActive: true,
       },
-      select: ["id"],
+      select: {
+        id: true
+      },
     });
 
     return { isUnique: !exists };
@@ -672,7 +676,9 @@ export class BundlesService {
 
     const b = await this.bundleRepo.findOne({
       where: { id, adminId } as any,
-      relations: ["items"],
+      relations: {
+        items: true
+      },
     });
     if (!b) {
       throw new BadRequestException(
@@ -825,7 +831,9 @@ export class BundlesService {
       const ids = items.map((x) => x.variantId);
       const variants = await this.pvRepo.find({
         where: { adminId, id: In(ids) } as any,
-        select: ["id"],
+        select: {
+          id: true
+        },
       });
       const variantSet = new Set(variants.map((v) => v.id));
 

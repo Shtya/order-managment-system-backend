@@ -91,6 +91,7 @@ export class RequestTranslationService {
 @Module({
     imports: [
         I18nModule.forRootAsync({
+            imports: [],
             useFactory: () => ({
                 fallbackLanguage: 'en',
                 loaderOptions: {

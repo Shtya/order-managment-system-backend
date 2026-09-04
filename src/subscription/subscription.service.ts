@@ -148,7 +148,10 @@ export class SubscriptionsService {
   async get(me: User, id: string) {
     const subscription = await this.subscriptionsRepo.findOne({
       where: { id },
-      relations: ["user", "plan"],
+      relations: {
+        user: true,
+        plan: true
+      },
     });
 
     if (!subscription) {
@@ -195,7 +198,9 @@ export class SubscriptionsService {
     // 2. Fetch the target subscription
     const subscription = await this.subscriptionsRepo.findOne({
       where: { id },
-      relations: ["user"],
+      relations: {
+        user: true
+      },
     });
 
     if (!subscription) {
@@ -399,7 +404,9 @@ export class SubscriptionsService {
       // 1️⃣ البحث عن الاشتراك الحالي
       const sub = await manager.findOne(Subscription, {
         where: { id },
-        relations: ["user"],
+        relations: {
+          user: true
+        },
       });
       if (!sub) {
         throw new NotFoundException(
@@ -569,7 +576,9 @@ export class SubscriptionsService {
     return await this.dataSource.transaction(async (manager) => {
       const userData = await manager.findOne(User, {
         where: { id: user.id },
-        relations: ["company"],
+        relations: {
+          company: true
+        },
       });
 
       if (!userData) {
@@ -719,7 +728,9 @@ export class SubscriptionsService {
           id: subscriptionId,
           status: SubscriptionStatus.ACTIVE,
         },
-        relations: ["plan"],
+        relations: {
+          plan: true
+        },
       });
 
       if (!subscription) {
@@ -800,7 +811,9 @@ export class SubscriptionsService {
     // Find latest active subscription
     const subscription = await this.subscriptionsRepo.findOne({
       where: { userId, status: SubscriptionStatus.ACTIVE },
-      relations: ["plan"],
+      relations: {
+        plan: true
+      },
       order: { startDate: "DESC" },
     });
 
@@ -817,7 +830,9 @@ export class SubscriptionsService {
         userId: me.id,
         status: SubscriptionStatus.ACTIVE,
       },
-      relations: ["plan"],
+      relations: {
+        plan: true
+      },
       order: { startDate: "DESC" },
     });
 
