@@ -14,6 +14,12 @@ import {
 import { User } from "./user.entity";
 import { OrderEntity } from "./order.entity";
 import { ClientEntity } from "./clients.entity";
+import { ConditionLogic, ConditionOperator } from "common/condition.types";
+
+export {
+  ConditionLogic as TagConditionLogic,
+  ConditionOperator as TagConditionOperator,
+};
 
 export enum TagAssignmentSource {
   MANUAL = "manual",
@@ -25,20 +31,8 @@ export enum TagTarget {
   CLIENT = "client",
 }
 
-export enum TagConditionLogic {
-  AND = "AND",
-  OR = "OR",
-}
-
-export enum TagConditionOperator {
-  EQ = "eq",
-  NEQ = "neq",
-  IN = "in",
-  NOT_IN = "not_in",
-  IS_NULL = "is_null",
-  IS_NOT_NULL = "is_not_null",
-  GTE = "gte",
-  LTE = "lte",
+export function resolveTagTarget(value?: string | null): TagTarget {
+  return value === TagTarget.CLIENT ? TagTarget.CLIENT : TagTarget.ORDER;
 }
 
 export enum TagConditionField {
@@ -85,17 +79,13 @@ export enum TagConditionField {
 
 export interface TagConditionRule {
   field: TagConditionField | string;
-  operator: TagConditionOperator | string;
+  operator: ConditionOperator | string;
   value?: any;
 }
 
 export interface TagConditions {
-  logic: TagConditionLogic | string;
+  logic: ConditionLogic | string;
   rules: TagConditionRule[];
-}
-
-export function resolveTagTarget(value?: string | null): TagTarget {
-  return value === TagTarget.CLIENT ? TagTarget.CLIENT : TagTarget.ORDER;
 }
 
 export function isClientConditionField(field: string) {
@@ -284,7 +274,7 @@ export class TagAutomationEntity {
 
   @Column({
     type: "jsonb",
-    default: { logic: TagConditionLogic.AND, rules: [] },
+    default: { logic: ConditionLogic.AND, rules: [] },
   })
   conditions: TagConditions;
 

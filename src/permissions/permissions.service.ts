@@ -239,6 +239,14 @@ export class PermissionsService implements OnModuleInit {
       "ai.tools.shipping.write",
       "ai.tools.whatsapp.read",
       "ai.tools.whatsapp.write",
+
+      // ✅ NEW: Client segment permissions (tenant admins)
+      "client-segments.read",
+      "client-segments.create",
+      "client-segments.update",
+      "client-segments.delete",
+      "client-segments.preview",
+      "client-segments.freeze",
     ];
 
     for (const name of keys) {

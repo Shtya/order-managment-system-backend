@@ -79,7 +79,9 @@ import { TagsModule } from "./tags/tags.module";
 import { GettingStartedModule } from "./getting-started/getting-started.module";
 import { AiModule } from "./ai/ai.module";
 import { ClientsModule } from "./clients/clients.module";
-import { config as loadEnvFile } from "dotenv";
+import { ClientSegmentsModule } from "./client-segments/client-segments.module";
+import { AudienceModule } from "./audience/audience.module";
+
 
 // Load env files BEFORE the module decorator is evaluated so that
 // process.env checks at module-definition time (e.g. AI_MODULE_ENABLED)
@@ -195,6 +197,8 @@ import { config as loadEnvFile } from "dotenv";
     TagsModule,
     GettingStartedModule,
     AiModule,
+    AudienceModule,
+    ClientSegmentsModule,
   ],
   providers: [
     GlobalExceptionFilter,

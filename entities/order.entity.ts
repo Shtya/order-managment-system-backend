@@ -33,6 +33,7 @@ import {
 import { OrderTagEntity } from "./tag.entity";
 import { IssueEntity } from "./issue.entity";
 import { ClientEntity } from "./clients.entity";
+import { CampaignEntity } from "./campaigns.entity";
 
 
 // ✅ Order Status Enum
@@ -289,6 +290,17 @@ export class OrderEntity {
   })
   @JoinColumn({ name: "clientId" })
   client?: ClientEntity;
+
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  campaignId?: string | null;
+
+  @ManyToOne(() => CampaignEntity, (campaign) => campaign.orders, {
+    nullable: true,
+    onDelete: "SET NULL",
+  })
+  @JoinColumn({ name: "campaignId" })
+  campaign?: Relation<CampaignEntity | null>;
 
   @ManyToOne(() => OrderStatusEntity, { eager: true })
   @JoinColumn({ name: "statusId" })

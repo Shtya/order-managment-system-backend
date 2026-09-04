@@ -1764,6 +1764,19 @@ export type I18nTranslations = {
             "provider_disabled": string;
             "no_provider_available": string;
         };
+        "client_segments": {
+            "not_found": string;
+            "archived": string;
+            "deleted_successfully": string;
+            "name_exists": string;
+            "already_frozen": string;
+            "not_frozen": string;
+            "cannot_edit_filter_of_frozen": string;
+            "template_not_found": string;
+            "template_archived": string;
+            "template_deleted_successfully": string;
+            "template_name_exists": string;
+        };
     };
     "emails": {
         "password_reset": {

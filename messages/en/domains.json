@@ -1614,5 +1614,18 @@
     "provider_not_found_or_inactive": "AI provider '{name}' not found or inactive",
     "provider_disabled": "AI provider '{name}' is disabled",
     "no_provider_available": "No enabled AI provider is available"
+  },
+  "client_segments": {
+    "not_found": "Client segment not found",
+    "archived": "Client segment archived successfully",
+    "deleted_successfully": "Client segment deleted successfully",
+    "name_exists": "A client segment with this name already exists",
+    "already_frozen": "This segment is already frozen",
+    "not_frozen": "This segment is not frozen",
+    "cannot_edit_filter_of_frozen": "Cannot modify the audience filter of a frozen segment",
+    "template_not_found": "Segment template not found",
+    "template_archived": "Segment template archived successfully",
+    "template_deleted_successfully": "Segment template deleted successfully",
+    "template_name_exists": "A segment template with this name already exists"
   }
 }
