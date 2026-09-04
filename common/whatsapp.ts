@@ -5,5 +5,5 @@ export function normalizeEgyptianPhoneNumber(phoneNumber: string): string {
     return cleaned.startsWith('0') ? `2${cleaned}` : cleaned;
   }
 
-  return phoneNumber;
+  return cleaned;
 }
