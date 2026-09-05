@@ -205,11 +205,12 @@ export class ProductsService {
   }
 
   private async attachSkusToProducts(me: any, products: any[]) {
+    const adminId = tenantId(me);
     const productIds = (products ?? []).map((p) => p.id).filter(Boolean);
     if (!productIds.length) return products;
 
     const rows = await this.pvRepo.find({
-      where: { adminId: me.adminId, productId: In(productIds) } as any,
+      where: { adminId: adminId, productId: In(productIds) } as any,
       order: { id: "ASC" },
     });
 
@@ -414,13 +415,14 @@ export class ProductsService {
     product: any,
     manager?: EntityManager,
   ) {
+    const adminId = tenantId(me);
     if (!product?.id) return product;
 
     const repo = manager
       ? manager.getRepository(ProductVariantEntity)
       : this.pvRepo;
     const rows = await repo.find({
-      where: { adminId: me.adminId, productId: product.id } as any,
+      where: { adminId: adminId, productId: product.id } as any,
       order: { id: "ASC" },
     });
 
@@ -1168,10 +1170,11 @@ export class ProductsService {
   }
 
   async getSkus(me: any, productId: string) {
+    const adminId = tenantId(me);
     await this.get(me, productId);
 
     const rows = await this.pvRepo.find({
-      where: { adminId: me.adminId, productId } as any,
+      where: { adminId: adminId, productId } as any,
       order: { id: "ASC" },
     });
 
