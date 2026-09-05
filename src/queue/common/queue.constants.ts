@@ -5,6 +5,7 @@ export enum QueueNames {
   AUTOMATIONS = "automations",
   TAG_AUTOMATIONS = "tag-automations",
   GETTING_STARTED = "getting-started",
+  CLIENT_SEGMENTS = "client-segments",
 }
 
 export const QueueConfigs: Record<
@@ -40,6 +41,10 @@ export const QueueConfigs: Record<
     displayName: "Getting Started Queue",
     description: "Processes first-time onboarding achievements asynchronously",
   },
+  [QueueNames.CLIENT_SEGMENTS]: {
+    displayName: "Client Segments Queue",
+    description: "Freezes client segment audiences into recipient snapshots",
+  },
 };
 
 export const AutoAssignmentJobs = {
@@ -74,4 +79,8 @@ export const TagAutomationJobs = {
 
 export const GettingStartedJobs = {
   PROCESS_ACHIEVEMENT: "process_achievement",
+} as const;
+
+export const ClientSegmentJobs = {
+  FREEZE: "freeze",
 } as const;

@@ -17,7 +17,7 @@ import { CustomerEntity } from "./customers.entity";
 
 export enum ClientSegmentTemplateStatus {
   ACTIVE = "active",
-  ARCHIVED = "archived",
+  INACTIVE = "inactive",
 }
 
 @Index(["name"], { unique: true })
@@ -40,18 +40,8 @@ export class ClientSegmentTemplateEntity {
   })
   status: ClientSegmentTemplateStatus;
 
-  @Column({
-    type: "enum",
-    enum: ["dynamic", "frozen"],
-    default: "dynamic",
-  })
-  defaultType: "dynamic" | "frozen";
-
   @Column({ type: "jsonb" })
   audienceFilter: ClientAudienceFilter;
-
-  @Column({ type: "int", default: 0 })
-  sortOrder: number;
 
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
@@ -62,12 +52,14 @@ export class ClientSegmentTemplateEntity {
 
 export enum ClientSegmentStatus {
   ACTIVE = "active",
-  ARCHIVED = "archived",
+  INACTIVE = "inactive",
 }
 
 export enum ClientSegmentType {
   DYNAMIC = "dynamic",
   FROZEN = "frozen",
+  FREEZING = "freezing",
+  FREEZE_FAILED = "freeze_failed",
 }
 
 export type ClientSegmentAudienceFilter = ClientAudienceFilter;
@@ -132,6 +124,9 @@ export class ClientSegmentEntity {
 
 @Index(["adminId", "clientId"])
 @Index(["adminId", "customerId"])
+@Index("IDX_client_segment_recipients_segment_client", ["segmentId", "clientId"], {
+  unique: true,
+})
 @Entity("client_segment_recipients")
 export class ClientSegmentRecipientEntity {
   @PrimaryGeneratedColumn("uuid")

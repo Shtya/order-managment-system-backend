@@ -106,9 +106,18 @@ export class LookupsController {
     @Req() req: any,
     @Query("q") q?: string,
     @Query("limit") limit?: string,
+    @Query("cursor") cursor?: string,
+    @Query("ids") ids?: string,
   ) {
     return this.lookups.products(req.user, {
       q,
+      cursor: cursor || undefined,
+      ids: ids
+        ? ids
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean)
+        : undefined,
       limit: limit ? Math.min(Number(limit) || 50, 200) : 50,
     });
   }
@@ -120,12 +129,21 @@ export class LookupsController {
     @Query("q") q?: string,
     @Query("productId") productId?: string,
     @Query("limit") limit?: string,
-    @Query("skus") skus?: string, // 👈 Added ids parameter
+    @Query("cursor") cursor?: string,
+    @Query("skus") skus?: string,
+    @Query("ids") ids?: string,
   ) {
     return this.lookups.skus(req.user, {
       q,
       productId: productId ? productId : undefined,
       limit: limit ? Math.min(Number(limit) || 50, 200) : 50,
+      cursor: cursor || undefined,
+      ids: ids
+        ? ids
+            .split(",")
+            .map((id) => id.trim())
+            .filter(Boolean)
+        : undefined,
       skus: skus
         ? skus
             .split(",")

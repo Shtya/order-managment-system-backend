@@ -1624,16 +1624,19 @@
     "no_provider_available": "لا يوجد مزود ذكاء اصطناعي نشط متاح"
   },
   "client_segments": {
-    "not_found": "الشريحة غير موجودة",
-    "archived": "تم أرشفة الشريحة بنجاح",
-    "deleted_successfully": "تم حذف الشريحة بنجاح",
-    "name_exists": "يوجد بالفعل شريحة عميل بهذا الاسم",
-    "already_frozen": "هذه الشريحة مجمّدة بالفعل",
-    "not_frozen": "هذه الشريحة ليست مجمّدة",
-    "cannot_edit_filter_of_frozen": "لا يمكن تعديل فلتر الجمهور لشريحة مجمّدة",
-    "template_not_found": "نموذج الشريحة غير موجود",
-    "template_archived": "تم أرشفة نموذج الشريحة بنجاح",
-    "template_deleted_successfully": "تم حذف نموذج الشريحة بنجاح",
-    "template_name_exists": "يوجد بالفعل نموذج شريحة بهذا الاسم"
+    "not_found": "المجموعة غير موجودة",
+    "deactivated": "تم تعطيل المجموعة بنجاح",
+    "deleted_successfully": "تم حذف المجموعة بنجاح",
+    "name_exists": "يوجد بالفعل مجموعة بهذا الاسم",
+    "already_frozen": "هذه المجموعة مجمّدة بالفعل",
+    "not_frozen": "هذه المجموعة ليست مجمّدة",
+    "freezing_in_progress": "جاري تجميد هذه المجموعة حالياً",
+    "cannot_freeze": "يمكن تجميد المجموعات الديناميكية أو التي فشل تجميدها فقط",
+    "cannot_use_inactive_frozen": "يمكن استخدام مستلمي المجموعة المجمّدة فقط عندما تكون المجموعة نشطة",
+    "cannot_edit_filter_of_frozen": "لا يمكن تعديل فلتر الجمهور لمجموعة مجمّدة",
+    "template_not_found": "نموذج المجموعة غير موجود",
+    "template_archived": "تم أرشفة نموذج المجموعة بنجاح",
+    "template_deleted_successfully": "تم حذف نموذج المجموعة بنجاح",
+    "template_name_exists": "يوجد بالفعل نموذج مجموعة بهذا الاسم"
   }
 }

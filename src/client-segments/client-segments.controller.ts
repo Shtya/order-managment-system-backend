@@ -169,6 +169,11 @@ export class ClientSegmentTemplatesController {
     return this.service.adminList(req.user, q);
   }
 
+  @Get("admin/:id")
+  adminGet(@Req() req: any, @Param("id") id: string) {
+    return this.service.adminGet(req.user, id);
+  }
+
   @Post("admin")
   adminCreate(@Req() req: any, @Body() dto: CreateClientSegmentTemplateDto) {
     return this.service.adminCreate(req.user, dto);

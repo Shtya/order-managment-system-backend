@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { Module, forwardRef } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import {
   ClientSegmentEntity,
@@ -13,10 +13,12 @@ import {
   ClientSegmentsController,
   ClientSegmentTemplatesController,
 } from "./client-segments.controller";
+import { QueueModule } from "src/queue/queue.module";
 
 @Module({
   imports: [
     AudienceModule,
+    forwardRef(() => QueueModule),
     TypeOrmModule.forFeature([
       ClientSegmentEntity,
       ClientSegmentRecipientEntity,

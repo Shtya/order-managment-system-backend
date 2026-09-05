@@ -21,6 +21,8 @@ type UsersLookupParams = {
 type SimpleLookupParams = {
   q?: string;
   limit: number;
+  cursor?: string;
+  ids?: string[];
 };
 
 type ActiveLookupParams = {
@@ -33,7 +35,8 @@ type SkusLookupParams = {
   q?: string;
   productId?: string;
   limit: number;
-  cursor?: number;
+  cursor?: string;
+  ids?: string[];
 };
 
 @Injectable()
@@ -128,16 +131,20 @@ export class LookupsService {
 
     this.applyTenantScope(qb, "v", me);
 
-    // ⚡ Added: If specific IDs are requested, filter by them
-    if (params.skus && params.skus.length > 0) {
+    const byIds = params.ids && params.ids.length > 0;
+    const bySkus = params.skus && params.skus.length > 0;
+
+    if (byIds) {
+      qb.andWhere("v.id IN (:...ids)", { ids: params.ids });
+      qb.limit(params.ids.length);
+    } else if (bySkus) {
       qb.andWhere("v.sku IN (:...skus)", { skus: params.skus });
-      qb.limit(params.skus.length); // Get all requested IDs, bypass normal limits
+      qb.limit(params.skus.length);
     } else {
-      // Apply standard limits and cursor ONLY if we are not fetching by exact IDs
       qb.limit(fetchLimit + 1);
 
       if (params.cursor) {
-        qb.andWhere("v.id < :cursor", { cursor: Number(params.cursor) });
+        qb.andWhere("v.id < :cursor", { cursor: String(params.cursor) });
       }
     }
 
@@ -161,9 +168,8 @@ export class LookupsService {
 
     const rows = await qb.getRawMany();
 
-    // Handle pagination logic carefully depending on whether 'ids' was used
     let hasMore = false;
-    if (!params.skus || params.skus.length === 0) {
+    if (!byIds && !bySkus) {
       hasMore = rows.length > fetchLimit;
       if (hasMore) rows.pop();
     }
@@ -197,6 +203,7 @@ export class LookupsService {
   }
 
   async products(me: User, params: SimpleLookupParams) {
+    const fetchLimit = Number(params.limit) || 50;
     const qb = this.productsRepo
       .createQueryBuilder("p")
       .select([
@@ -206,10 +213,20 @@ export class LookupsService {
         'p.wholesalePrice AS "wholesalePrice"',
         'p.lowestPrice AS "lowestPrice"',
       ])
-      .orderBy("p.id", "DESC")
-      .limit(params.limit);
+      .orderBy("p.id", "DESC");
 
     this.applyTenantScope(qb, "p", me);
+
+    const byIds = params.ids && params.ids.length > 0;
+    if (byIds) {
+      qb.andWhere("p.id IN (:...ids)", { ids: params.ids });
+      qb.limit(params.ids.length);
+    } else {
+      qb.limit(fetchLimit + 1);
+      if (params.cursor) {
+        qb.andWhere("p.id < :cursor", { cursor: params.cursor });
+      }
+    }
 
     if (params.q?.trim()) {
       const q = `%${params.q.trim().toLowerCase()}%`;
@@ -217,7 +234,13 @@ export class LookupsService {
     }
 
     const rows = await qb.getRawMany();
-    return rows.map((x) => ({
+    let hasMore = false;
+    if (!byIds) {
+      hasMore = rows.length > fetchLimit;
+      if (hasMore) rows.pop();
+    }
+
+    const data = rows.map((x) => ({
       id: x.id,
       label: x.name,
       name: x.name,
@@ -225,6 +248,12 @@ export class LookupsService {
       wholesalePrice: x.wholesalePrice ?? null,
       lowestPrice: x.lowestPrice ?? null,
     }));
+
+    return {
+      data,
+      hasMore,
+      nextCursor: hasMore && data.length > 0 ? data[data.length - 1].id : null,
+    };
   }
 
   private applyTenantScope(qb: any, alias: string, me: User) {

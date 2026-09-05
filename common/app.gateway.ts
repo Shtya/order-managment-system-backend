@@ -266,6 +266,16 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.emitToUsers(userIds, "support_ticket:read", { ticket, readByUserId, side });
     }
 
+    emitClientSegmentFreezeStatus(
+        userIds: string[],
+        payload: {
+            status: "success" | "failed";
+            segment: Record<string, unknown> | null;
+        },
+    ) {
+        this.emitToUsers(userIds, "client_segment:freeze-status", payload);
+    }
+
     // --- Issues ---
 
     emitIssueCreated(userIds: string[], issue: IssueEntity) {

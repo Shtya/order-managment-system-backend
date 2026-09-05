@@ -1766,11 +1766,14 @@ export type I18nTranslations = {
         };
         "client_segments": {
             "not_found": string;
-            "archived": string;
+            "deactivated": string;
             "deleted_successfully": string;
             "name_exists": string;
             "already_frozen": string;
             "not_frozen": string;
+            "freezing_in_progress": string;
+            "cannot_freeze": string;
+            "cannot_use_inactive_frozen": string;
             "cannot_edit_filter_of_frozen": string;
             "template_not_found": string;
             "template_archived": string;

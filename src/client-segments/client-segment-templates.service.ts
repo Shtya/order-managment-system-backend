@@ -40,7 +40,7 @@ export class ClientSegmentTemplatesService {
 
   async listActive(q?: any) {
     const limit = Number(q?.limit ?? 50);
-    const sortBy = String(q?.sortBy ?? "sortOrder");
+    const sortBy = String(q?.sortBy ?? "createdAt");
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
     const cursor = q?.cursor;
@@ -59,11 +59,10 @@ export class ClientSegmentTemplatesService {
     }
 
     const sortColumns: Record<string, string> = {
-      sortOrder: "tpl.sortOrder",
       createdAt: "tpl.createdAt",
       name: "tpl.name",
     };
-    const sortCol = sortColumns[sortBy] || "tpl.sortOrder";
+    const sortCol = sortColumns[sortBy] || "tpl.createdAt";
 
     if (cursor) {
       const operator = sortDir === "DESC" ? "<" : ">";
@@ -122,7 +121,7 @@ export class ClientSegmentTemplatesService {
       adminId,
       name: dto.name ?? tpl.name,
       description: dto.description ?? tpl.description ?? undefined,
-      type: dto.type ?? tpl.defaultType as ClientSegmentType,
+      type: dto.type ?? ClientSegmentType.DYNAMIC,
       audienceFilter: tpl.audienceFilter,
     });
 
@@ -159,8 +158,7 @@ export class ClientSegmentTemplatesService {
     const limit = Math.min(100, parseInt(q?.limit) || 20);
     const skip = (page - 1) * limit;
     const [records, total] = await qb
-      .orderBy("tpl.sortOrder", "ASC")
-      .addOrderBy("tpl.name", "ASC")
+      .orderBy("tpl.createdAt", "ASC")
       .skip(skip)
       .take(limit)
       .getManyAndCount();
@@ -188,9 +186,7 @@ export class ClientSegmentTemplatesService {
     const tpl = this.templateRepo.create({
       name: dto.name,
       description: dto.description,
-      defaultType: dto.defaultType ?? ("dynamic" as any),
       audienceFilter: dto.audienceFilter as any,
-      sortOrder: dto.sortOrder ?? 0,
     });
 
     return this.templateRepo.save(tpl);
@@ -208,9 +204,8 @@ export class ClientSegmentTemplatesService {
 
     if (dto.name !== undefined) tpl.name = dto.name;
     if (dto.description !== undefined) tpl.description = dto.description;
-    if (dto.defaultType !== undefined) tpl.defaultType = dto.defaultType as any;
+    if (dto.status !== undefined) tpl.status = dto.status;
     if (dto.audienceFilter !== undefined) tpl.audienceFilter = dto.audienceFilter as any;
-    if (dto.sortOrder !== undefined) tpl.sortOrder = dto.sortOrder;
 
     return this.templateRepo.save(tpl);
   }
@@ -236,25 +231,19 @@ export class ClientSegmentTemplatesService {
         "active",
       )
       .addSelect(
-        `COUNT(*) FILTER (WHERE template.defaultType = :frozen)`,
-        "frozen",
-      )
-      .addSelect(
-        `COUNT(*) FILTER (WHERE template.defaultType = :dynamic)`,
-        "dynamic",
+        `COUNT(*) FILTER (WHERE template.status = :inactive)`,
+        "inactive",
       )
       .setParameters({
         active: ClientSegmentTemplateStatus.ACTIVE,
-        frozen: ClientSegmentType.FROZEN,
-        dynamic: ClientSegmentType.DYNAMIC,
+        inactive: ClientSegmentTemplateStatus.INACTIVE,
       })
       .getRawOne();
 
     return {
       total: Number(result.total),
       active: Number(result.active),
-      frozen: Number(result.frozen),
-      dynamic: Number(result.dynamic),
+      inactive: Number(result.inactive),
     };
   }
 
@@ -273,8 +262,6 @@ export class ClientSegmentTemplatesService {
       { header: this.translations.t("common.name"), key: "name", width: 28 },
       { header: this.translations.t("common.description"), key: "description", width: 40 },
       { header: this.translations.t("common.status"), key: "status", width: 18 },
-      { header: this.translations.t("common.type"), key: "defaultType", width: 18 },
-      { header: "Sort Order", key: "sortOrder", width: 14 },
       { header: this.translations.t("common.created_at"), key: "createdAt", width: 22 },
       { header: "Updated At", key: "updatedAt", width: 22 },
     ];
@@ -291,8 +278,6 @@ export class ClientSegmentTemplatesService {
         name: template.name || na,
         description: template.description || na,
         status: template.status || na,
-        defaultType: template.defaultType || na,
-        sortOrder: Number(template.sortOrder || 0),
         createdAt: template.createdAt ? new Date(template.createdAt).toLocaleString() : na,
         updatedAt: template.updatedAt ? new Date(template.updatedAt).toLocaleString() : na,
       });

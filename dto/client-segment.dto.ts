@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsEnum,
+  IsIn,
   IsInt,
   IsObject,
   IsOptional,
@@ -10,9 +11,10 @@ import {
   MinLength,
   ValidateNested,
 } from "class-validator";
-import { Type } from "class-transformer";
+import { plainToInstance, Transform, Type } from "class-transformer";
 import {
   ClientSegmentStatus,
+  ClientSegmentTemplateStatus,
   ClientSegmentType,
 } from "entities/clients-segments.entity";
 import {
@@ -36,6 +38,29 @@ export class ClientAudienceRuleDto {
   value?: any;
 }
 
+function transformAudienceNode(item: any):
+  | ClientAudienceRuleDto
+  | ClientAudienceGroupDto {
+  if (item?.field !== undefined && item?.operator !== undefined) {
+    return plainToInstance(ClientAudienceRuleDto, item);
+  }
+
+  return plainToInstance(ClientAudienceGroupDto, {
+    ...item,
+    rules: Array.isArray(item?.rules)
+      ? item.rules.map(transformAudienceNode)
+      : [],
+  });
+}
+
+function transformAudienceRules(value: any[]) {
+  if (!Array.isArray(value)) {
+    return value;
+  }
+
+  return value.map(transformAudienceNode);
+}
+
 export class ClientAudienceGroupDto {
   @IsEnum(ClientAudienceEntity)
   entity: ClientAudienceEntity;
@@ -45,11 +70,14 @@ export class ClientAudienceGroupDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => Object)
+  @Transform(
+    ({ value }) => transformAudienceRules(value),
+    { toClassOnly: true },
+  )
   rules: Array<ClientAudienceRuleDto | ClientAudienceGroupDto>;
 }
 
-export class ClientAudienceFilterDto extends ClientAudienceGroupDto {
+export class ClientAudienceFilterDto {
   @IsOptional()
   @IsEnum(ClientAudienceEntity)
   rootEntity?: ClientAudienceEntity.CLIENT;
@@ -62,7 +90,10 @@ export class ClientAudienceFilterDto extends ClientAudienceGroupDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => Object)
+  @Transform(
+    ({ value }) => transformAudienceRules(value),
+    { toClassOnly: true },
+  )
   rules: Array<ClientAudienceRuleDto | ClientAudienceGroupDto>;
 }
 
@@ -82,8 +113,8 @@ export class CreateClientSegmentDto {
   description?: string;
 
   @IsOptional()
-  @IsEnum(ClientSegmentType)
-  type?: ClientSegmentType;
+  @IsIn([ClientSegmentType.DYNAMIC, ClientSegmentType.FROZEN])
+  type?: ClientSegmentType.DYNAMIC | ClientSegmentType.FROZEN;
 
   @IsObject()
   @ValidateNested()
@@ -134,8 +165,8 @@ export class CreateSegmentFromTemplateDto {
   description?: string;
 
   @IsOptional()
-  @IsEnum(ClientSegmentType)
-  type?: ClientSegmentType;
+  @IsIn([ClientSegmentType.DYNAMIC, ClientSegmentType.FROZEN])
+  type?: ClientSegmentType.DYNAMIC | ClientSegmentType.FROZEN;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -153,20 +184,16 @@ export class CreateClientSegmentTemplateDto {
   @MaxLength(1000)
   description?: string;
 
-  @IsOptional()
-  @IsEnum(ClientSegmentType)
-  defaultType?: ClientSegmentType;
-
   @IsObject()
   @ValidateNested()
   @Type(() => ClientAudienceFilterDto)
   audienceFilter: ClientAudienceFilterDto;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  sortOrder?: number;
 }
 
-export class UpdateClientSegmentTemplateDto  extends PartialType(CreateClientSegmentTemplateDto) {}
+export class UpdateClientSegmentTemplateDto extends PartialType(
+  CreateClientSegmentTemplateDto,
+) {
+  @IsOptional()
+  @IsEnum(ClientSegmentTemplateStatus)
+  status?: ClientSegmentTemplateStatus;
+}

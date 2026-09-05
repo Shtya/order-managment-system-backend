@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -23,6 +25,10 @@ import {
   ClientAudienceFilter,
   ClientAudienceRecipient,
 } from "common/client-audience-filter.types";
+import { ClientSegmentQueueService } from "src/queue/queues/client-segments.queue";
+import { AppGateway } from "common/app.gateway";
+
+const FREEZE_PAGE_SIZE = 1000;
 
 @Injectable()
 export class ClientSegmentsService {
@@ -34,6 +40,9 @@ export class ClientSegmentsService {
     private readonly audienceService: AudienceService,
     private readonly translations: TranslationService,
     private readonly dataSource: DataSource,
+    @Inject(forwardRef(() => ClientSegmentQueueService))
+    private readonly clientSegmentQueue: ClientSegmentQueueService,
+    private readonly appGateway: AppGateway,
   ) { }
 
   private adminIdOf(me: any): string {
@@ -89,11 +98,12 @@ export class ClientSegmentsService {
     const adminId = this.adminIdOf(me);
     await this.ensureUniqueName(adminId, dto.name);
 
+    const wantsFrozen = dto.type === ClientSegmentType.FROZEN;
     const seg = this.segmentRepo.create({
       adminId,
       name: dto.name,
       description: dto.description,
-      type: dto.type ?? ClientSegmentType.DYNAMIC,
+      type: wantsFrozen ? ClientSegmentType.FREEZING : ClientSegmentType.DYNAMIC,
       audienceFilter: dto.audienceFilter as any,
     });
 
@@ -112,6 +122,15 @@ export class ClientSegmentsService {
       // non-fatal
     }
 
+    if (wantsFrozen) {
+      try {
+        await this.clientSegmentQueue.enqueueFreeze(adminId, saved.id, me?.id);
+      } catch (_) {
+        await this.markFreezeFailed(adminId, saved.id, me?.id);
+        saved.type = ClientSegmentType.FREEZE_FAILED;
+      }
+    }
+
     return saved;
   }
 
@@ -121,7 +140,11 @@ export class ClientSegmentsService {
     if (!seg) throw new NotFoundException(this.translations.t("domains.client_segments.not_found"));
     const shouldRefreshEstimate = dto.audienceFilter !== undefined;
 
-    if (seg.type === ClientSegmentType.FROZEN && dto.audienceFilter) {
+    if (
+      (seg.type === ClientSegmentType.FROZEN ||
+        seg.type === ClientSegmentType.FREEZING) &&
+      dto.audienceFilter
+    ) {
       throw new BadRequestException(
         this.translations.t("domains.client_segments.cannot_edit_filter_of_frozen"),
       );
@@ -179,6 +202,11 @@ export class ClientSegmentsService {
     if (!seg) throw new NotFoundException(this.translations.t("domains.client_segments.not_found"));
 
     if (seg.type === ClientSegmentType.FROZEN) {
+      if (seg.status !== ClientSegmentStatus.ACTIVE) {
+        throw new BadRequestException(
+          this.translations.t("domains.client_segments.cannot_use_inactive_frozen"),
+        );
+      }
       return this.listFrozenRecipients(adminId, id, q);
     }
 
@@ -217,11 +245,21 @@ export class ClientSegmentsService {
         `SUM(CASE WHEN segment.type = :dynamic THEN 1 ELSE 0 END)`,
         "dynamic",
       )
+      .addSelect(
+        `SUM(CASE WHEN segment.type = :freezing THEN 1 ELSE 0 END)`,
+        "freezing",
+      )
+      .addSelect(
+        `SUM(CASE WHEN segment.type = :freezeFailed THEN 1 ELSE 0 END)`,
+        "freeze_failed",
+      )
       .where("segment.adminId = :adminId", { adminId })
       .setParameters({
         active: ClientSegmentStatus.ACTIVE,
         frozen: ClientSegmentType.FROZEN,
         dynamic: ClientSegmentType.DYNAMIC,
+        freezing: ClientSegmentType.FREEZING,
+        freezeFailed: ClientSegmentType.FREEZE_FAILED,
       })
       .getRawOne();
 
@@ -230,6 +268,8 @@ export class ClientSegmentsService {
       active: Number(result.active),
       frozen: Number(result.frozen),
       dynamic: Number(result.dynamic),
+      freezing: Number(result.freezing),
+      freeze_failed: Number(result.freeze_failed),
     };
   }
   
@@ -286,61 +326,147 @@ export class ClientSegmentsService {
     const seg = await this.segmentRepo.findOne({ where: { id, adminId } });
     if (!seg) throw new NotFoundException(this.translations.t("domains.client_segments.not_found"));
 
+    if (seg.type === ClientSegmentType.FREEZING) {
+      throw new BadRequestException(
+        this.translations.t("domains.client_segments.freezing_in_progress"),
+      );
+    }
+
     if (seg.type === ClientSegmentType.FROZEN) {
       throw new BadRequestException(
         this.translations.t("domains.client_segments.already_frozen"),
       );
     }
 
-    const recipients = await this.audienceService.getAllRecipients(adminId, seg.audienceFilter);
+    if (
+      seg.type !== ClientSegmentType.DYNAMIC &&
+      seg.type !== ClientSegmentType.FREEZE_FAILED
+    ) {
+      throw new BadRequestException(
+        this.translations.t("domains.client_segments.cannot_freeze"),
+      );
+    }
+
+    await this.segmentRepo.update(id, {
+      type: ClientSegmentType.FREEZING,
+      frozenAt: null,
+      frozenRecipientsCount: 0,
+    });
+
+    try {
+      await this.clientSegmentQueue.enqueueFreeze(adminId, id, me?.id);
+    } catch (error) {
+      await this.markFreezeFailed(adminId, id, me?.id);
+      throw error;
+    }
+
+    return this.segmentRepo.findOne({ where: { id, adminId } });
+  }
+
+  async processFreezeJob(adminId: string, segmentId: string, userId?: string) {
+    const seg = await this.segmentRepo.findOne({ where: { id: segmentId, adminId } });
+    if (!seg) return;
+
+    if (
+      seg.type !== ClientSegmentType.FREEZING &&
+      seg.type !== ClientSegmentType.FREEZE_FAILED
+    ) {
+      return;
+    }
 
     await this.dataSource.transaction(async (mgr) => {
       const recipientRepo = mgr.getRepository(ClientSegmentRecipientEntity);
       const segRepo = mgr.getRepository(ClientSegmentEntity);
 
-      // Remove any previously frozen recipients (e.g., partial re-freeze)
-      await recipientRepo.delete({ segmentId: id });
+      await segRepo.update(segmentId, {
+        type: ClientSegmentType.FREEZING,
+        frozenAt: null,
+        frozenRecipientsCount: 0,
+      });
+      await recipientRepo.delete({ segmentId });
 
-      // Deduplicate by phoneNumber
       const seen = new Set<string>();
-      const rows: Partial<ClientSegmentRecipientEntity>[] = [];
+      let cursor: { value: Date; id: string } | undefined;
+      let total = 0;
 
-      for (const r of recipients) {
-        const key = r.phoneNumber ? r.phoneNumber.replace(/\D/g, "") : r.clientId;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        rows.push({
+      while (true) {
+        const page = await this.audienceService.listRecipientsPage(
           adminId,
-          segmentId: id,
-          clientId: r.clientId ?? null,
-          customerId: r.customerId ?? null,
-        });
+          seg.audienceFilter,
+          { cursor, limit: FREEZE_PAGE_SIZE },
+        );
+
+        const rows: Partial<ClientSegmentRecipientEntity>[] = [];
+        for (const r of page.records) {
+          const key = r.phoneNumber ? r.phoneNumber.replace(/\D/g, "") : r.clientId;
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          rows.push({
+            adminId,
+            segmentId,
+            clientId: r.clientId ?? null,
+            customerId: r.customerId ?? null,
+          });
+        }
+
+        if (rows.length > 0) {
+          await recipientRepo.insert(rows);
+          total += rows.length;
+        }
+
+        if (!page.hasMore || !page.nextCursor) break;
+        cursor = page.nextCursor;
       }
 
-      if (rows.length > 0) {
-        await recipientRepo.insert(rows);
-      }
-
-      await segRepo.update(id, {
+      await segRepo.update(segmentId, {
         type: ClientSegmentType.FROZEN,
         frozenAt: new Date(),
-        frozenRecipientsCount: rows.length,
+        frozenRecipientsCount: total,
       });
     });
 
-    return this.segmentRepo.findOne({ where: { id } });
+    const frozen = await this.segmentRepo.findOne({ where: { id: segmentId, adminId } });
+    this.appGateway.emitClientSegmentFreezeStatus([adminId, userId], {
+      status: "success",
+      segment: frozen as any,
+    });
   }
 
-  // ──────────────────────────────────────────────────────────────
-  // Unfreeze
-  // ──────────────────────────────────────────────────────────────
+  async markFreezeFailed(adminId: string, segmentId: string, userId?: string) {
+    await this.dataSource.transaction(async (mgr) => {
+      await mgr.getRepository(ClientSegmentRecipientEntity).delete({ segmentId });
+      await mgr.getRepository(ClientSegmentEntity).update(
+        { id: segmentId, adminId },
+        {
+          type: ClientSegmentType.FREEZE_FAILED,
+          frozenAt: null,
+          frozenRecipientsCount: 0,
+        },
+      );
+    });
+
+    const failed = await this.segmentRepo.findOne({ where: { id: segmentId, adminId } });
+    this.appGateway.emitClientSegmentFreezeStatus([adminId, userId], {
+      status: "failed",
+      segment: failed as any,
+    });
+  }
 
   async unfreeze(me: any, id: string) {
     const adminId = this.adminIdOf(me);
     const seg = await this.segmentRepo.findOne({ where: { id, adminId } });
     if (!seg) throw new NotFoundException(this.translations.t("domains.client_segments.not_found"));
 
-    if (seg.type !== ClientSegmentType.FROZEN) {
+    if (seg.type === ClientSegmentType.FREEZING) {
+      throw new BadRequestException(
+        this.translations.t("domains.client_segments.freezing_in_progress"),
+      );
+    }
+
+    if (
+      seg.type !== ClientSegmentType.FROZEN &&
+      seg.type !== ClientSegmentType.FREEZE_FAILED
+    ) {
       throw new BadRequestException(
         this.translations.t("domains.client_segments.not_frozen"),
       );
@@ -379,16 +505,22 @@ export class ClientSegmentsService {
     filter: ClientAudienceFilter,
     q?: any,
   ) {
-    if (q?.all === "true" || q?.all === true) {
-      return this.audienceService.getAllRecipients(adminId, filter, {
-        max: Number(q?.max ?? 10000),
-      });
-    }
-
+    const cursor =
+      q?.cursor ??
+      (q?.["cursor[value]"] && q?.["cursor[id]"]
+        ? {
+            value: q["cursor[value]"],
+            id: q["cursor[id]"],
+          }
+        : undefined);
+  
     return this.audienceService.listRecipients(adminId, filter, {
-      cursor: q?.cursor,
+      cursor,
       limit: Number(q?.limit ?? 10),
-      sortDir: String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC",
+      sortDir:
+        String(q?.sortDir ?? "DESC").toUpperCase() === "ASC"
+          ? "ASC"
+          : "DESC",
     });
   }
 
@@ -400,18 +532,18 @@ export class ClientSegmentsService {
       .where("recipient.adminId = :adminId", { adminId })
       .andWhere("recipient.segmentId = :segmentId", { segmentId });
 
-    if (q?.all === "true" || q?.all === true) {
-      const records = await qb
-        .orderBy("recipient.createdAt", "DESC")
-        .take(Math.min(50000, Number(q?.max ?? 10000)))
-        .getMany();
-      return records.map((record) => this.mapFrozenRecipient(record));
-    }
-
     const limit = Math.min(100, Number(q?.limit ?? 10));
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
+    const cursor =
+      q?.cursor ??
+      (q?.["cursor[value]"] && q?.["cursor[id]"]
+        ? {
+            value: q["cursor[value]"],
+            id: q["cursor[id]"],
+          }
+        : undefined);
     if (q?.cursor) {
       const operator = sortDir === "DESC" ? "<" : ">";
       qb.andWhere(
@@ -445,9 +577,11 @@ export class ClientSegmentsService {
 
   private mapFrozenRecipient(record: ClientSegmentRecipientEntity): ClientAudienceRecipient {
     return {
+      name: record.client?.name ?? null,
       clientId: record.clientId,
       customerId: record.customerId ?? null,
       phoneNumber: record.customer?.phoneNumber ?? null,
+      profilePicture: record.client?.profilePicture || record.customer?.profilePicture || null,
     };
   }
 }

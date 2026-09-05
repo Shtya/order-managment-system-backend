@@ -1,11 +1,13 @@
 import { Injectable } from "@nestjs/common";
 import { DataSource, SelectQueryBuilder } from "typeorm";
 import {
+  CLIENT_AUDIENCE_FIELD_VALUE_TYPES,
   ClientAudienceAssignmentField,
   ClientAudienceClientField,
   ClientAudienceEntity,
   ClientAudienceField,
   ClientAudienceFilter,
+  ClientAudienceKnownField,
   ClientAudienceGroup,
   ClientAudienceNode,
   ClientAudienceOrderField,
@@ -90,6 +92,43 @@ export class AudienceService {
     };
   }
 
+  async listRecipientsPage(
+    adminId: string,
+    filter: ClientAudienceFilter,
+    options?: { cursor?: any; limit?: number },
+  ): Promise<{
+    records: ClientAudienceRecipient[];
+    hasMore: boolean;
+    nextCursor?: { value: Date; id: string };
+  }> {
+    const limit = Math.min(2000, Math.max(1, Number(options?.limit ?? 1000)));
+    const qb = this.buildRecipientsQuery(adminId, filter);
+
+    if (options?.cursor) {
+      qb.andWhere(`(client."createdAt", client.id) < (:cursorValue, :cursorId)`, {
+        cursorValue: options.cursor.value,
+        cursorId: options.cursor.id,
+      });
+    }
+
+    qb.orderBy(`client."createdAt"`, "DESC").addOrderBy("client.id", "DESC");
+
+    const rows = await qb.take(limit + 1).getRawMany();
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+    return {
+      records: pageRows.map((row) => this.mapRecipientRow(row)),
+      hasMore,
+      nextCursor: hasMore
+        ? {
+            value: pageRows[pageRows.length - 1].createdAt,
+            id: pageRows[pageRows.length - 1].clientId,
+          }
+        : undefined,
+    };
+  }
+
   async getAllRecipients(
     adminId: string,
     filter: ClientAudienceFilter,
@@ -157,9 +196,12 @@ export class AudienceService {
     return this.buildClientQuery(adminId, filter)
       .leftJoin("client.primaryContact", "pc")
       .addSelect("client.id", "clientId")
+      .addSelect("client.name", "name")
+      .addSelect("client.profilePicture", "profilePicture")
       .addSelect("client.createdAt", "createdAt")
       .addSelect("pc.id", "customerId")
-      .addSelect("pc.phoneNumber", "phoneNumber");
+      .addSelect("pc.phoneNumber", "phoneNumber")
+      .addSelect("pc.profilePicture", "contactProfilePicture");
   }
 
   private buildGroupWhere(
@@ -245,7 +287,14 @@ export class AudienceService {
     const expr = this.fieldExpr(field, context);
     if (!expr) return null;
     const paramKey = `aud_${build.index++}`;
-    return this.matchExpr(expr, operator, value, paramKey, build.params);
+    return this.matchExpr(
+      expr,
+      operator,
+      value,
+      paramKey,
+      build.params,
+      this.valueTypeForField(String(field)),
+    );
   }
 
   private relationFor(
@@ -380,8 +429,6 @@ export class AudienceService {
         return `COALESCE(${alias}."unitPrice", 0)`;
       case ClientAudienceOrderItemField.LINE_TOTAL:
         return `COALESCE(${alias}."lineTotal", 0)`;
-      case ClientAudienceOrderItemField.VARIANT_ID:
-        return `${alias}."variantId"`;
       default:
         return null;
     }
@@ -391,8 +438,6 @@ export class AudienceService {
     switch (field) {
       case ClientAudienceVariantField.ID:
         return `${alias}.id`;
-      case ClientAudienceVariantField.PRODUCT_ID:
-        return `${alias}."productId"`;
       case ClientAudienceVariantField.SKU:
         return `${alias}.sku`;
       case ClientAudienceVariantField.PRICE:
@@ -460,7 +505,12 @@ export class AudienceService {
     expected: any,
     paramKey: string,
     params: Record<string, any>,
+    valueType?: ClientAudienceValueType,
   ): string {
+    if (valueType === ClientAudienceValueType.DATE) {
+      return this.matchDateExpr(actualSql, operator, expected, paramKey, params);
+    }
+
     const normalizedActual = this.normalizeSql(actualSql);
 
     switch (operator as ConditionOperator) {
@@ -489,6 +539,57 @@ export class AudienceService {
       default:
         return "FALSE";
     }
+  }
+
+  private matchDateExpr(
+    actualSql: string,
+    operator: string,
+    expected: any,
+    paramKey: string,
+    params: Record<string, any>,
+  ): string {
+    const dateSql = `(${actualSql})::date`;
+
+    switch (operator as ConditionOperator) {
+      case ConditionOperator.EQ:
+        params[paramKey] = this.normalizeDateValue(expected);
+        return `${dateSql} = CAST(:${paramKey} AS date)`;
+      case ConditionOperator.NEQ:
+        params[paramKey] = this.normalizeDateValue(expected);
+        return `${dateSql} IS DISTINCT FROM CAST(:${paramKey} AS date)`;
+      case ConditionOperator.IN:
+        params[paramKey] = this.normalizeDateList(expected);
+        return `${dateSql} IN (:...${paramKey})`;
+      case ConditionOperator.NOT_IN:
+        params[paramKey] = this.normalizeDateList(expected);
+        return `${dateSql} NOT IN (:...${paramKey})`;
+      case ConditionOperator.IS_NULL:
+        return `(${actualSql}) IS NULL`;
+      case ConditionOperator.IS_NOT_NULL:
+        return `(${actualSql}) IS NOT NULL`;
+      case ConditionOperator.GTE:
+        params[paramKey] = this.normalizeDateValue(expected);
+        return `${dateSql} >= CAST(:${paramKey} AS date)`;
+      case ConditionOperator.LTE:
+        params[paramKey] = this.normalizeDateValue(expected);
+        return `${dateSql} <= CAST(:${paramKey} AS date)`;
+      default:
+        return "FALSE";
+    }
+  }
+
+  private normalizeDateValue(value: any): string {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) {
+      return value.toISOString().slice(0, 10);
+    }
+    const raw = String(value ?? "").trim();
+    return raw.slice(0, 10);
+  }
+
+  private normalizeDateList(value: any): string[] {
+    const list = Array.isArray(value) ? value : [value];
+    const dates = list.map((item) => this.normalizeDateValue(item)).filter(Boolean);
+    return dates.length ? dates : ["1970-01-01"];
   }
 
   private normalizeSql(actualSql: string): string {
@@ -671,9 +772,11 @@ export class AudienceService {
 
   private mapRecipientRow(row: any): ClientAudienceRecipient {
     return {
+      name: row.client?.name ?? row.name ?? null,
       clientId: row.clientId,
       customerId: row.customerId ?? null,
       phoneNumber: row.phoneNumber ?? null,
+      profilePicture: row.profilePicture || row.contactProfilePicture || null,
     };
   }
 
@@ -689,30 +792,7 @@ export class AudienceService {
   }
 
   private valueTypeForField(field: string): ClientAudienceValueType {
-    if (
-      field.endsWith("Id") ||
-      field === ClientAudienceProductField.ID ||
-      field === ClientAudienceVariantField.ID
-    ) {
-      return ClientAudienceValueType.UUID;
-    }
-    if (field.endsWith("At") || field.endsWith("createdAt")) {
-      return ClientAudienceValueType.DATE;
-    }
-    if (
-      field.endsWith("Count") ||
-      field.endsWith("Percent") ||
-      field.endsWith("Rate") ||
-      field.endsWith("Total") ||
-      field.endsWith("Revenue") ||
-      field.endsWith("quantity") ||
-      field.endsWith("price")
-    ) {
-      return ClientAudienceValueType.NUMBER;
-    }
-    if (field.endsWith("valid") || field.endsWith("accepted") || field.endsWith("hasActive")) {
-      return ClientAudienceValueType.BOOLEAN;
-    }
-    return ClientAudienceValueType.STRING;
+    return CLIENT_AUDIENCE_FIELD_VALUE_TYPES[field as ClientAudienceKnownField]
+      ?? ClientAudienceValueType.STRING;
   }
 }

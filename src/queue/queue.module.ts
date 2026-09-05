@@ -43,12 +43,17 @@ import {
   OnboardingAchievementService,
   OnboardingAchievementProcessor,
 } from "./queues/onboarding-achievement.queue";
+import {
+  ClientSegmentQueueService,
+  ClientSegmentWorkerService,
+} from "./queues/client-segments.queue";
 import { StoresModule } from "src/stores/stores.module";
 import { AutomationModule } from "src/automation/automation.module";
 import { bullQueueConfig } from "./common/base-queue.config";
 import { BullBoardAuthMiddleware } from "./common/bull-board-auth-middleware";
 import { AuthModule } from "src/auth/auth.module";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { ClientSegmentsModule } from "src/client-segments/client-segments.module";
 import { MetricsTime } from "bullmq";
 
 const registeredQueues = Object.values(QueueNames).map((queueName) => ({
@@ -78,6 +83,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     forwardRef(() => AutomationModule),
     forwardRef(() => OrderAssignmentModule),
     forwardRef(() => TagsModule),
+    forwardRef(() => ClientSegmentsModule),
     BullModule.forRootAsync(bullQueueConfig),
     BullModule.registerQueue(...registeredQueues),
     BullBoardModule.forRootAsync({
@@ -129,6 +135,8 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     TagAutomationWorkerService,
     OnboardingAchievementService,
     OnboardingAchievementProcessor,
+    ClientSegmentQueueService,
+    ClientSegmentWorkerService,
     QueueDelayService,
   ],
   exports: [
@@ -143,6 +151,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     TagAutomationQueueService,
     TagAutomationWorkerService,
     OnboardingAchievementService,
+    ClientSegmentQueueService,
     QueueDelayService,
   ],
   controllers: [OpsController],
