@@ -276,6 +276,20 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         this.emitToUsers(userIds, "client_segment:freeze-status", payload);
     }
 
+    emitCampaignUpdated(
+        userId: string,
+        payload: {
+            campaign: Record<string, unknown>;
+            reason?: string;
+            recipient?: Record<string, unknown> | null;
+        },
+    ) {
+        this.server.to(`user_${userId}`).emit("campaign:updated", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
     // --- Issues ---
 
     emitIssueCreated(userIds: string[], issue: IssueEntity) {

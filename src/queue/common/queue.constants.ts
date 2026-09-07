@@ -6,6 +6,7 @@ export enum QueueNames {
   TAG_AUTOMATIONS = "tag-automations",
   GETTING_STARTED = "getting-started",
   CLIENT_SEGMENTS = "client-segments",
+  CAMPAIGNS = "campaigns",
 }
 
 export const QueueConfigs: Record<
@@ -45,6 +46,11 @@ export const QueueConfigs: Record<
     displayName: "Client Segments Queue",
     description: "Freezes client segment audiences into recipient snapshots",
   },
+  [QueueNames.CAMPAIGNS]: {
+    displayName: "Campaigns Queue",
+    description:
+      "Materializes campaign audiences, sends messages, and applies delivery/reply events",
+  },
 };
 
 export const AutoAssignmentJobs = {
@@ -83,4 +89,11 @@ export const GettingStartedJobs = {
 
 export const ClientSegmentJobs = {
   FREEZE: "freeze",
+} as const;
+
+export const CampaignJobs = {
+  MATERIALIZE: "materialize",
+  SEND_NEXT: "send-next",
+  SCHEDULE_CHECK: "schedule-check",
+  WEBHOOK_EVENT: "webhook-event",
 } as const;

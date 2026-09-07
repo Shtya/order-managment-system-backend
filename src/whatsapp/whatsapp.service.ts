@@ -74,6 +74,9 @@ import {
 } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { CampaignQueueService, type CampaignJobData } from "src/queue/queues/campaign.queue";
+import { CampaignRecipientDeliveryStatus } from "entities/campaigns.entity";
+import { WhatsappMessageCostService } from "./services/whatsapp-message-cost.service";
 
 @Injectable()
 export class WhatsappService {
@@ -114,6 +117,9 @@ export class WhatsappService {
     private readonly translations: TranslationService,
     private requestTranslations: RequestTranslationService,
     private readonly onboardingAchievementService: OnboardingAchievementService,
+    @Inject(forwardRef(() => CampaignQueueService))
+    private readonly campaignQueue: CampaignQueueService,
+    private readonly messageCostService: WhatsappMessageCostService,
   ) {}
 
   async getMessagesByTypeStats(me: any, filters: any = {}) {
@@ -880,6 +886,28 @@ export class WhatsappService {
     return response;
   }
 
+  async findTemplateForAccount(
+    adminId: string,
+    accountId: string,
+    match: { id: string } | { name: string },
+  ): Promise<WhatsappTemplateEntity | null> {
+    if (!adminId || !accountId) return null;
+    const templateAccount = await this.accountRepo.findOne({
+      where: { id: accountId, adminId },
+      select: { wabaId: true },
+    });
+    if (!templateAccount) return null;
+    return this.templateRepo.findOne({
+      where: {
+        adminId,
+        ...("id" in match ? { id: match.id } : { name: match.name }),
+        ...(templateAccount.wabaId
+          ? { account: { wabaId: templateAccount.wabaId } }
+          : { accountId }),
+      },
+    });
+  }
+
   async sendTemplate(
     me: any,
     input: {
@@ -907,9 +935,15 @@ export class WhatsappService {
       );
     }
 
-    const template = await this.templateRepo.findOne({
-      where: { id: input.templateId, adminId },
-    });
+    const resolvedAccountId = await this.getDefaultAccountId(
+      adminId,
+      accountId,
+    );
+    const template = await this.findTemplateForAccount(
+      adminId,
+      resolvedAccountId,
+      { id: input.templateId },
+    );
 
     if (!template) {
       throw new NotFoundException(
@@ -1053,7 +1087,7 @@ export class WhatsappService {
     return this.sendMessage(
       me,
       { ...payload, metadata: { ...metadata, ...templateMetadata } },
-      accountId,
+      resolvedAccountId,
       localId,
     );
   }
@@ -1106,19 +1140,11 @@ export class WhatsappService {
       // Handle Template Metadata for Frontend Preview
       let templateMetadata = null;
       if (payload.type === "template" && payload.template?.name) {
-        const templateAccount = await this.accountRepo.findOne({
-          where: { id: accountId },
-          select: { wabaId: true },
-        });
-        const template = await this.templateRepo.findOne({
-          where: {
-            name: payload.template.name,
-            adminId,
-            ...(templateAccount?.wabaId
-              ? { account: { wabaId: templateAccount.wabaId } }
-              : { accountId }),
-          },
-        });
+        const template = await this.findTemplateForAccount(
+          adminId,
+          accountId,
+          { name: payload.template.name },
+        );
         if (template) {
           templateMetadata = {
             templateConfig: template.templateConfig,
@@ -1154,6 +1180,16 @@ export class WhatsappService {
         replyToId,
       });
       const savedMsg = await this.messageRepo.save(message);
+
+      const campaignRecipientId = metadata?.campaignRecipientId;
+      if (campaignRecipientId) {
+        await this.enqueueCampaignWebhookEvent({
+          adminId,
+          kind: "link",
+          campaignRecipientId,
+          whatsappMessageId: savedMsg.id,
+        });
+      }
 
       // Fetch with relations
       const finalMsg = await this.messageRepo.findOne({
@@ -2284,7 +2320,49 @@ export class WhatsappService {
       }
     }
 
+    const parentWamid =
+      type === WhatsappMessageType.REACTION ? null : metaMsg.context?.id;
+    if (parentWamid) {
+      await this.enqueueCampaignWebhookEvent({
+        adminId: account.adminId,
+        kind: "reply",
+        providerMessageId: parentWamid,
+        at: new Date().toISOString(),
+      });
+    }
+
     await this.processMessageActions(account.adminId, metaMsg);
+  }
+
+  private async enqueueCampaignWebhookEvent(
+    data: Omit<CampaignJobData, "type">,
+  ) {
+    try {
+      await this.campaignQueue.enqueueWebhookEvent(data);
+    } catch (error) {
+      this.logger.error(
+        `Failed to enqueue campaign webhook event: ${error?.message}`,
+        error?.stack,
+      );
+    }
+  }
+
+  private toCampaignDeliveryStatus(
+    status: MessageStatus,
+  ): CampaignRecipientDeliveryStatus | null {
+    if (status === MessageStatus.SENT) {
+      return CampaignRecipientDeliveryStatus.SENT;
+    }
+    if (status === MessageStatus.DELIVERED) {
+      return CampaignRecipientDeliveryStatus.DELIVERED;
+    }
+    if (status === MessageStatus.READ || status === MessageStatus.PLAYED) {
+      return CampaignRecipientDeliveryStatus.READ;
+    }
+    if (status === MessageStatus.FAILED) {
+      return CampaignRecipientDeliveryStatus.FAILED;
+    }
+    return null;
   }
 
   private extractReplyData(metaMsg: any): { id?: string; text: string } | null {
@@ -2343,10 +2421,13 @@ export class WhatsappService {
       // Update Metadata (Pricing, Conversation, etc.)
       message.metadata = {
         ...(message.metadata || {}),
-        conversation: statusUpdate.conversation,
-        pricing: statusUpdate.pricing,
-        biz_opaque_callback_data: statusUpdate.biz_opaque_callback_data,
-        recipient_id: statusUpdate.recipient_id,
+        conversation:
+          statusUpdate.conversation ?? message.metadata?.conversation,
+        pricing: statusUpdate.pricing ?? message.metadata?.pricing,
+        biz_opaque_callback_data:
+          statusUpdate.biz_opaque_callback_data ??
+          message.metadata?.biz_opaque_callback_data,
+        recipient_id: statusUpdate.recipient_id ?? message.metadata?.recipient_id,
       };
 
       if (status === MessageStatus.SENT) {
@@ -2383,6 +2464,45 @@ export class WhatsappService {
       }
 
       await this.messageRepo.save(message);
+
+      if (
+        status === MessageStatus.DELIVERED ||
+        status === MessageStatus.READ ||
+        status === MessageStatus.PLAYED
+      ) {
+        await this.messageCostService.applyFromDelivery({
+          message,
+          pricing: message.metadata?.pricing,
+        });
+      }
+
+      if (
+        status === MessageStatus.SENT ||
+        status === MessageStatus.DELIVERED ||
+        status === MessageStatus.READ ||
+        status === MessageStatus.PLAYED ||
+        status === MessageStatus.FAILED
+      ) {
+        const error = statusUpdate.errors?.[0] || {};
+        const campaignStatus = this.toCampaignDeliveryStatus(status);
+        if (campaignStatus) {
+          await this.enqueueCampaignWebhookEvent({
+            adminId: account.adminId,
+            kind: "delivery",
+            providerMessageId: messageId,
+            campaignRecipientId: message.metadata?.campaignRecipientId,
+            status: campaignStatus,
+            at: date.toISOString(),
+            failureReason:
+              status === MessageStatus.FAILED
+                ? error.error_data?.details ||
+                  error.message ||
+                  error.title ||
+                  null
+                : null,
+          });
+        }
+      }
 
       // If an address-choice list was deleted while automation is waiting, resume as not corrected
       if (

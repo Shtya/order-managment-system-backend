@@ -47,6 +47,11 @@ import {
   ClientSegmentQueueService,
   ClientSegmentWorkerService,
 } from "./queues/client-segments.queue";
+import {
+  CampaignQueueService,
+  CampaignWorkerService,
+} from "./queues/campaign.queue";
+import { CampaignsModule } from "src/campaigns/campaigns.module";
 import { StoresModule } from "src/stores/stores.module";
 import { AutomationModule } from "src/automation/automation.module";
 import { bullQueueConfig } from "./common/base-queue.config";
@@ -84,6 +89,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     forwardRef(() => OrderAssignmentModule),
     forwardRef(() => TagsModule),
     forwardRef(() => ClientSegmentsModule),
+    forwardRef(() => CampaignsModule),
     BullModule.forRootAsync(bullQueueConfig),
     BullModule.registerQueue(...registeredQueues),
     BullBoardModule.forRootAsync({
@@ -137,6 +143,8 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     OnboardingAchievementProcessor,
     ClientSegmentQueueService,
     ClientSegmentWorkerService,
+    CampaignQueueService,
+    CampaignWorkerService,
     QueueDelayService,
   ],
   exports: [
@@ -152,6 +160,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     TagAutomationWorkerService,
     OnboardingAchievementService,
     ClientSegmentQueueService,
+    CampaignQueueService,
     QueueDelayService,
   ],
   controllers: [OpsController],

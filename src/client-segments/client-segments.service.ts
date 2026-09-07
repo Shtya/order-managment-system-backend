@@ -524,13 +524,67 @@ export class ClientSegmentsService {
     });
   }
 
-  private async listFrozenRecipients(adminId: string, segmentId: string, q?: any) {
-    const qb = this.recipientRepo
+  private frozenRecipientsBaseQb(adminId: string, segmentId: string) {
+    return this.recipientRepo
       .createQueryBuilder("recipient")
       .leftJoinAndSelect("recipient.client", "client")
       .leftJoinAndSelect("recipient.customer", "customer")
+      .leftJoinAndSelect("client.primaryContact", "primaryContact")
       .where("recipient.adminId = :adminId", { adminId })
       .andWhere("recipient.segmentId = :segmentId", { segmentId });
+  }
+
+  // Shared page reader for frozen snapshots (segment UI + campaigns).
+  // Cursor is the { value, id } tuple on (createdAt, id).
+  async listFrozenRecipientsPage(
+    adminId: string,
+    segmentId: string,
+    options?: {
+      cursor?: { value: Date | string; id: string };
+      limit?: number;
+      sortDir?: "ASC" | "DESC";
+    },
+  ) {
+    const qb = this.frozenRecipientsBaseQb(adminId, segmentId);
+
+    const limit = Math.min(2000, Math.max(1, Number(options?.limit ?? 1000)));
+    const sortDir: "ASC" | "DESC" =
+      String(options?.sortDir ?? "DESC").toUpperCase() === "ASC"
+        ? "ASC"
+        : "DESC";
+
+    const cursor = options?.cursor;
+    if (cursor) {
+      const operator = sortDir === "DESC" ? "<" : ">";
+      qb.andWhere(
+        `(recipient."createdAt", recipient.id) ${operator} (:cursorValue, :cursorId)`,
+        { cursorValue: cursor.value, cursorId: cursor.id },
+      );
+    }
+
+    const rows = await qb
+      .orderBy("recipient.createdAt", sortDir)
+      .addOrderBy("recipient.id", sortDir)
+      .take(limit + 1)
+      .getMany();
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+
+    return {
+      records: pageRows,
+      hasMore,
+      limit,
+      nextCursor: hasMore
+        ? {
+            value: pageRows[pageRows.length - 1]?.createdAt,
+            id: pageRows[pageRows.length - 1]?.id,
+          }
+        : undefined,
+    };
+  }
+
+  private async listFrozenRecipients(adminId: string, segmentId: string, q?: any) {
+    const qb = this.frozenRecipientsBaseQb(adminId, segmentId);
 
     const limit = Math.min(100, Number(q?.limit ?? 10));
     const sortDir: "ASC" | "DESC" =

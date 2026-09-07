@@ -13,6 +13,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { WhatsappApiService } from "./services/WhatsappApi.service";
 import { HttpModule } from "@nestjs/axios";
 import { WhatsappTemplateService } from "./services/WhatsappTemplate.service";
+import { WhatsappMessageCostService } from "./services/whatsapp-message-cost.service";
 import { WhatsappTemplateController } from "./controllers/WhatsappTemplate.controller";
 import { AutomationModule } from "src/automation/automation.module";
 import { OrdersModule } from "src/orders/orders.module";
@@ -53,12 +54,14 @@ import { OrderEntity } from "../../entities/order.entity";
     WhatsappAccountService,
     WhatsappApiService,
     WhatsappTemplateService,
+    WhatsappMessageCostService,
   ],
   exports: [
     WhatsappService,
     WhatsappAccountService,
     WhatsappApiService,
     WhatsappTemplateService,
+    WhatsappMessageCostService,
   ],
 })
 export class WhatsappModule {}

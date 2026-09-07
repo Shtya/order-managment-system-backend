@@ -96,6 +96,7 @@ export enum CampaignScheduleMode {
 
 export enum CampaignRecipientDeliveryStatus {
     PENDING = 'pending',
+    SENDING = 'sending',
     ACCEPTED = 'accepted',
     SENT = 'sent',
     DELIVERED = 'delivered',
@@ -112,7 +113,9 @@ export type CampaignTemplateConfigSnapshot = Pick<
     | 'headerVariables'
     | 'buttonVariables'
     | 'locationData'
->;
+> & {
+    accountId?: string | null;
+};
 
 @Index(['adminId', 'name'])
 @Index(['adminId', 'status'])
@@ -192,6 +195,12 @@ export class CampaignEntity {
     @Column({ type: 'jsonb', nullable: true })
     audienceFilter?: CampaignAudienceFilter | null;
 
+    // Normalized + deduped snapshot of the create/update manualRecipients
+    // payload. Consumed once at start/materialize; campaign_recipients
+    // is the source of truth afterwards.
+    @Column({ type: 'jsonb', nullable: true })
+    audienceManualSnapshot?: { phoneNumber: string; name?: string | null }[] | null;
+
     @Column({ type: 'int', default: 0 })
     estimatedRecipientsCount: number;
 
@@ -236,7 +245,10 @@ export class CampaignEntity {
     @Column({ type: 'varchar', length: 8, nullable: true })
     workingHoursEnd?: string | null;
 
-    // Minimum allowed: 15 seconds
+    @Column({ type: 'varchar', length: 64, nullable: true })
+    workingHoursTimezone?: string | null;
+
+    // Minimum allowed: 4 seconds
     @Column({ type: 'int', default: 30 })
     delayMinSeconds: number;
 
@@ -285,6 +297,11 @@ export class CampaignEntity {
 
     @Column({ type: 'decimal', precision: 14, scale: 2, default: 0 })
     salesAmount: number;
+
+    // Accumulated provider cost (WhatsApp/SMS/Email fees). Bump when
+    // messages are delivered; read in stats as total cost.
+    @Column({ type: 'decimal', precision: 14, scale: 4, default: 0 })
+    costAmount: number;
 
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
@@ -367,7 +384,8 @@ export class CampaignProductEntity {
 }
 
 @Index(['campaignId', 'phoneNumber'], { unique: true })
-@Index(['campaignId', 'deliveryStatus'])
+@Index(['campaignId', 'deliveryStatus', 'createdAt'])
+@Index(['adminId', 'deliveryStatus'])
 @Index(['adminId', 'phoneNumber'])
 @Entity('campaign_recipients')
 export class CampaignRecipientEntity {
@@ -473,6 +491,12 @@ export class CampaignRecipientEntity {
 
     @Column({ type: 'text', nullable: true })
     failureReason?: string | null;
+
+    @Column({ type: 'decimal', precision: 14, scale: 4, default: 0 })
+    costAmount: number;
+
+    @Column({ type: 'timestamptz', nullable: true })
+    costChargedAt?: Date | null;
 
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;

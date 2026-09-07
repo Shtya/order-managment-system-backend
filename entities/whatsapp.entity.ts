@@ -337,7 +337,9 @@ export class WhatsappAccountEntity {
     @Column({ type: 'boolean', default: false })
     isCreatedManual: boolean;
 
-    // في ملف whatsapp-account.entity.ts
+    @Column({ type: 'decimal', precision: 14, scale: 4, default: 0 })
+    costAmount: number;
+
     @Column({ type: 'text', nullable: true, select: false })
     accessToken: string; // التوكن الخاص بـ Meta Graph API
 
@@ -496,6 +498,21 @@ export class WhatsappMessageEntity {
 
     @Column({ type: 'jsonb', nullable: true })
     metadata: any; // بيانات وصفية إضافية (Pricing, Conversation, Webhook details)
+
+    @Column({ type: 'decimal', precision: 14, scale: 4, nullable: true })
+    costAmount?: number | null;
+
+    @Column({ type: 'varchar', length: 8, nullable: true })
+    costCurrency?: string | null;
+
+    @Column({ type: 'timestamptz', nullable: true })
+    costChargedAt?: Date | null;
+
+    @Column({ type: 'varchar', length: 64, nullable: true })
+    pricingCategory?: string | null;
+
+    @Column({ type: 'varchar', length: 64, nullable: true })
+    pricingType?: string | null;
 
     @Column({ type: 'varchar', nullable: true })
     error: string; // لتخزين أخطاء Meta في حال كانت الحالة FAILED

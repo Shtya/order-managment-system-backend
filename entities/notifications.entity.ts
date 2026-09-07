@@ -83,6 +83,8 @@ export enum NotificationType {
   ISSUE_PRIORITY_CHANGED = "issue_priority_changed",
   ISSUE_ASSIGNED = "issue_assigned",
   GETTING_STARTED_ACHIEVEMENT = "getting_started_achievement",
+  CAMPAIGN_COMPLETED = "campaign_completed",
+  CAMPAIGN_FAILED = "campaign_failed",
 }
 
 @Entity("notifications")

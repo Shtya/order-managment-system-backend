@@ -81,6 +81,7 @@ import { AiModule } from "./ai/ai.module";
 import { ClientsModule } from "./clients/clients.module";
 import { ClientSegmentsModule } from "./client-segments/client-segments.module";
 import { AudienceModule } from "./audience/audience.module";
+import { CampaignsModule } from "./campaigns/campaigns.module";
 import { observeConfig, ObserveModule } from "common/observe/bserve.config";
 
 // Load env files BEFORE the module decorator is evaluated so that
@@ -199,6 +200,7 @@ import { observeConfig, ObserveModule } from "common/observe/bserve.config";
     AiModule,
     AudienceModule,
     ClientSegmentsModule,
+    CampaignsModule,
     // ObserveModule.forRoot(observeConfig),
   ],
   providers: [

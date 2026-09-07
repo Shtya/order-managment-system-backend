@@ -247,6 +247,11 @@ export class PermissionsService implements OnModuleInit {
       "client-segments.delete",
       "client-segments.preview",
       "client-segments.freeze",
+      "campaigns.read",
+      "campaigns.create",
+      "campaigns.update",
+      "campaigns.delete",
+      "campaigns.start",
     ];
 
     for (const name of keys) {
