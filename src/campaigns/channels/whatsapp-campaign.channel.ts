@@ -9,6 +9,10 @@ import type { CreateCampaignDto } from "dto/campaign.dto";
 import { TranslationService } from "common/translation.service";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import {
+  hydrateCampaignLocationData,
+  hydrateCampaignVariableMap,
+} from "../campaign-placeholders";
+import {
   CampaignChannel,
   SendRecipientResult,
   ValidatedCampaignChannelData,
@@ -85,15 +89,31 @@ export class WhatsappCampaignChannel extends CampaignChannel {
     recipient: CampaignRecipientEntity,
   ): Promise<SendRecipientResult> {
     const snapshot = (campaign.templateConfigSnapshot ?? {}) as any;
+    const placeholderCtx = {
+      name: recipient.name ?? "",
+      phoneNumber: recipient.phoneNumber ?? "",
+    };
     const response = await this.whatsappService.sendTemplate(
       { id: adminId, adminId } as any,
       {
         to: recipient.phoneNumber,
         templateId: campaign.templateId as string,
-        headerVariables: snapshot.headerVariables,
-        bodyVariables: snapshot.bodyVariables,
-        buttonVariables: snapshot.buttonVariables,
-        locationData: snapshot.locationData,
+        headerVariables: hydrateCampaignVariableMap(
+          snapshot.headerVariables,
+          placeholderCtx,
+        ),
+        bodyVariables: hydrateCampaignVariableMap(
+          snapshot.bodyVariables,
+          placeholderCtx,
+        ),
+        buttonVariables: hydrateCampaignVariableMap(
+          snapshot.buttonVariables,
+          placeholderCtx,
+        ),
+        locationData: hydrateCampaignLocationData(
+          snapshot.locationData,
+          placeholderCtx,
+        ),
         headerUrl: snapshot.headerUrl,
       },
       snapshot.accountId,

@@ -1668,7 +1668,7 @@
     "audience_file_not_found": "Audience file not found, please re-upload",
     "audience_file_only_for_file": "audienceFile is only allowed when audienceType is file",
     "not_startable": "Only draft or scheduled campaigns can be started",
-    "audience_empty": "Campaign audience is empty",
+    "audience_empty": "There is no target audience for the current campaign.",
     "not_pausable": "Only running campaigns can be paused",
     "not_resumable": "Only paused campaigns can be resumed",
     "not_cancellable": "Only draft, scheduled, running or paused campaigns can be cancelled",

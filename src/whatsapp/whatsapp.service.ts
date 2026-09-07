@@ -78,6 +78,20 @@ import { CampaignQueueService, type CampaignJobData } from "src/queue/queues/cam
 import { CampaignRecipientDeliveryStatus } from "entities/campaigns.entity";
 import { WhatsappMessageCostService } from "./services/whatsapp-message-cost.service";
 
+/** Meta rejects template text/coupon params with an empty `text` / `coupon_code`. */
+function resolveWhatsappTemplateText(val: any): string {
+  if (val == null) return "-";
+  if (typeof val === "string" || typeof val === "number" || typeof val === "boolean") {
+    const text = String(val).trim();
+    return text || "-";
+  }
+  if (typeof val === "object") {
+    const text = String(val.value ?? "").trim();
+    if (text) return text;
+  }
+  return "-";
+}
+
 @Injectable()
 export class WhatsappService {
   protected readonly logger = new Logger(this.constructor.name);
@@ -916,7 +930,7 @@ export class WhatsappService {
       headerVariables?: Record<string, any>;
       bodyVariables?: Record<string, any>;
       buttonVariables?: Record<string, any>;
-      locationData: {
+      locationData?: {
         latitude: string;
         longitude: string;
         address: any;
@@ -964,12 +978,12 @@ export class WhatsappService {
             parameters.push({
               type: "text",
               parameter_name: key,
-              text: String(val?.value ?? val),
+              text: resolveWhatsappTemplateText(val),
             });
           });
         } else {
           Object.values(input.headerVariables).forEach((val) => {
-            parameters.push({ type: "text", text: String(val?.value ?? val) });
+            parameters.push({ type: "text", text: resolveWhatsappTemplateText(val) });
           });
         }
       } else if (["IMAGE", "VIDEO", "DOCUMENT"].includes(hType)) {
@@ -993,7 +1007,7 @@ export class WhatsappService {
             },
           });
         }
-      } else if (hType === "LOCATION") {
+      } else if (hType === "LOCATION" && input.locationData) {
         parameters.push({
           type: "location",
           location: {
@@ -1017,12 +1031,12 @@ export class WhatsappService {
         parameters = Object.entries(input.bodyVariables).map(([key, val]) => ({
           type: "text",
           parameter_name: key,
-          text: String(val?.value ?? val),
+          text: resolveWhatsappTemplateText(val),
         }));
       } else {
         parameters = Object.values(input.bodyVariables).map((val) => ({
           type: "text",
-          text: String(val?.value ?? val),
+          text: resolveWhatsappTemplateText(val),
         }));
       }
       if (parameters.length > 0) {
@@ -1043,7 +1057,7 @@ export class WhatsappService {
               parameters: [
                 {
                   type: "coupon_code",
-                  coupon_code: String(val?.value ?? val),
+                  coupon_code: resolveWhatsappTemplateText(val),
                 },
               ],
             });
@@ -1055,7 +1069,7 @@ export class WhatsappService {
               parameters: [
                 {
                   type: "text",
-                  text: String(val?.value ?? val),
+                  text: resolveWhatsappTemplateText(val),
                 },
               ],
             });

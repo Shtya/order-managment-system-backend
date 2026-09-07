@@ -10,6 +10,7 @@ import {
 import { TranslationService } from "common/translation.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { AudienceService } from "src/audience/audience.service";
+import { resolveClientSendPhone } from "src/audience/resolve-client-send-phone";
 import { ClientSegmentsService } from "src/client-segments/client-segments.service";
 import {
   AudienceInput,
@@ -143,19 +144,16 @@ export class SegmentCampaignAudience extends CampaignAudience {
 
     const records: NormalizedAudienceRecipient[] = [];
     for (const row of page.records) {
+      const resolved = resolveClientSendPhone((row as any).client);
       const phoneNumber = normalizeEgyptianPhoneNumber(
-        String(
-          (row as any).customer?.phoneNumber ??
-            (row as any).primaryContact?.phoneNumber ??
-            "",
-        ),
+        String(resolved.phoneNumber ?? ""),
       );
       if (!phoneNumber) continue;
       records.push({
         phoneNumber,
         name: (row as any).client?.name ?? null,
         clientId: row.clientId ?? null,
-        customerId: row.customerId ?? null,
+        customerId: resolved.customerId ?? row.customerId ?? null,
       });
     }
     return {

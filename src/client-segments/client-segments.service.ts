@@ -21,6 +21,7 @@ import {
 import { TranslationService } from "common/translation.service";
 import { tenantId } from "src/category/category.service";
 import { AudienceService } from "src/audience/audience.service";
+import { resolveClientSendPhone } from "src/audience/resolve-client-send-phone";
 import {
   ClientAudienceFilter,
   ClientAudienceRecipient,
@@ -530,6 +531,7 @@ export class ClientSegmentsService {
       .leftJoinAndSelect("recipient.client", "client")
       .leftJoinAndSelect("recipient.customer", "customer")
       .leftJoinAndSelect("client.primaryContact", "primaryContact")
+      .leftJoinAndSelect("client.contacts", "contacts")
       .where("recipient.adminId = :adminId", { adminId })
       .andWhere("recipient.segmentId = :segmentId", { segmentId });
   }
@@ -630,11 +632,12 @@ export class ClientSegmentsService {
   }
 
   private mapFrozenRecipient(record: ClientSegmentRecipientEntity): ClientAudienceRecipient {
+    const resolved = resolveClientSendPhone(record.client);
     return {
       name: record.client?.name ?? null,
       clientId: record.clientId,
-      customerId: record.customerId ?? null,
-      phoneNumber: record.customer?.phoneNumber ?? null,
+      customerId: resolved.customerId ?? record.customerId ?? null,
+      phoneNumber: resolved.phoneNumber,
       profilePicture: record.client?.profilePicture || record.customer?.profilePicture || null,
     };
   }

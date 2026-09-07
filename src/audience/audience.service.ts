@@ -21,6 +21,7 @@ import {
 } from "common/client-audience-filter.types";
 import { ConditionLogic, ConditionOperator } from "common/condition.types";
 import { ClientEntity } from "entities/clients.entity";
+import { CustomerEntity } from "entities/customers.entity";
 import { OrderStatus } from "entities/order.entity";
 import { UpsellStatus } from "entities/upsells.entity";
 
@@ -193,15 +194,34 @@ export class AudienceService {
   }
 
   private buildRecipientsQuery(adminId: string, filter: ClientAudienceFilter) {
+    // Prefer the primary contact when it has a number; otherwise the first
+    // contact with a phone. Clients with no usable contact are returned with
+    // a null phone and skipped by campaign materialization.
     return this.buildClientQuery(adminId, filter)
-      .leftJoin("client.primaryContact", "pc")
+      .leftJoin(
+        CustomerEntity,
+        "phone",
+        `phone.id = (
+          SELECT c.id FROM customers c
+          WHERE c."clientId" = client.id
+            AND NULLIF(TRIM(c."phoneNumber"), '') IS NOT NULL
+          ORDER BY
+            CASE
+              WHEN client."primaryContactId" IS NOT NULL
+                AND c.id = client."primaryContactId" THEN 0
+              ELSE 1
+            END,
+            c."createdAt" ASC
+          LIMIT 1
+        )`,
+      )
       .addSelect("client.id", "clientId")
       .addSelect("client.name", "name")
       .addSelect("client.profilePicture", "profilePicture")
       .addSelect("client.createdAt", "createdAt")
-      .addSelect("pc.id", "customerId")
-      .addSelect("pc.phoneNumber", "phoneNumber")
-      .addSelect("pc.profilePicture", "contactProfilePicture");
+      .addSelect("phone.id", "customerId")
+      .addSelect("phone.phoneNumber", "phoneNumber")
+      .addSelect("phone.profilePicture", "contactProfilePicture");
   }
 
   private buildGroupWhere(
