@@ -78,6 +78,7 @@ export class PublicCampaignOrdersService {
           city: order.city || order.cityDetails?.nameEn || "",
           cityId: order.cityId || null,
           area: order.area || "",
+          areaId: null,
           landmark: order.landmark || "",
           customerNotes: order.customerNotes || "",
         }
@@ -90,6 +91,7 @@ export class PublicCampaignOrdersService {
           city: address?.city || address?.cityDetails?.nameEn || "",
           cityId: address?.cityId || null,
           area: address?.area || address?.areaDetails?.nameEn || "",
+          areaId: address?.areaId || address?.areaDetails?.id || null,
           landmark: address?.landmark || "",
           customerNotes: "",
         };
@@ -201,6 +203,7 @@ export class PublicCampaignOrdersService {
         city: dto.city,
         cityId: dto.cityId || null,
         area: dto.area || "",
+        areaId: dto.areaId || null,
         landmark: dto.landmark || "",
         customerNotes: dto.customerNotes || "",
       });
@@ -219,6 +222,7 @@ export class PublicCampaignOrdersService {
       city: string;
       cityId: string | null;
       area: string;
+      areaId?: string | null;
       landmark: string;
       customerNotes?: string;
     },
@@ -244,6 +248,7 @@ export class PublicCampaignOrdersService {
       city: extras.city,
       cityId: extras.cityId,
       area: extras.area,
+      areaId: extras.areaId || null,
       landmark: extras.landmark,
       customerNotes: extras.customerNotes || "",
       shippingPrice: shipping,

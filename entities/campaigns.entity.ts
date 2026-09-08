@@ -20,16 +20,11 @@ import type { SendWhatsappTemplateConfig } from './automation.entity';
 import { ClientSegmentEntity } from './clients-segments.entity';
 import type { ClientAudienceFilter } from 'common/client-audience-filter.types';
 export {
-    ClientAudienceAssignmentField as CampaignAudienceAssignmentField,
     ClientAudienceClientField as CampaignAudienceClientField,
     ClientAudienceEntity as CampaignAudienceEntity,
     ClientAudienceOrderField as CampaignAudienceOrderField,
     ClientAudienceOrderItemField as CampaignAudienceOrderItemField,
-    ClientAudienceProductField as CampaignAudienceProductField,
-    ClientAudienceShipmentField as CampaignAudienceShipmentField,
-    ClientAudienceUpsellField as CampaignAudienceUpsellField,
     ClientAudienceValueType as CampaignAudienceValueType,
-    ClientAudienceVariantField as CampaignAudienceVariantField,
 } from 'common/client-audience-filter.types';
 export type {
     ClientAudienceGroup as CampaignAudienceGroup,

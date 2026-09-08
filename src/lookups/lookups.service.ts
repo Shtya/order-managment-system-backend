@@ -213,6 +213,7 @@ export class LookupsService {
         'p.wholesalePrice AS "wholesalePrice"',
         'p.lowestPrice AS "lowestPrice"',
       ])
+      .where("p.isActive = :isActive", { isActive: true })
       .orderBy("p.id", "DESC");
 
     this.applyTenantScope(qb, "p", me);

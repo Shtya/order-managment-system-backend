@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import { DataSource, SelectQueryBuilder } from "typeorm";
 import {
   CLIENT_AUDIENCE_FIELD_VALUE_TYPES,
-  ClientAudienceAssignmentField,
   ClientAudienceClientField,
   ClientAudienceEntity,
   ClientAudienceField,
@@ -12,18 +11,13 @@ import {
   ClientAudienceNode,
   ClientAudienceOrderField,
   ClientAudienceOrderItemField,
-  ClientAudienceProductField,
   ClientAudienceRecipient,
-  ClientAudienceShipmentField,
-  ClientAudienceUpsellField,
   ClientAudienceValueType,
-  ClientAudienceVariantField,
 } from "common/client-audience-filter.types";
 import { ConditionLogic, ConditionOperator } from "common/condition.types";
 import { ClientEntity } from "entities/clients.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { OrderStatus } from "entities/order.entity";
-import { UpsellStatus } from "entities/upsells.entity";
 
 type ClientQB = SelectQueryBuilder<ClientEntity>;
 
@@ -175,20 +169,8 @@ export class AudienceService {
         ]),
         this.entityMeta(ClientAudienceEntity.ORDER, Object.values(ClientAudienceOrderField), [
           ClientAudienceEntity.ORDER_ITEM,
-          ClientAudienceEntity.ASSIGNMENT,
-          ClientAudienceEntity.SHIPMENT,
-          ClientAudienceEntity.UPSELL,
         ]),
-        this.entityMeta(ClientAudienceEntity.ORDER_ITEM, Object.values(ClientAudienceOrderItemField), [
-          ClientAudienceEntity.VARIANT,
-        ]),
-        this.entityMeta(ClientAudienceEntity.VARIANT, Object.values(ClientAudienceVariantField), [
-          ClientAudienceEntity.PRODUCT,
-        ]),
-        this.entityMeta(ClientAudienceEntity.PRODUCT, Object.values(ClientAudienceProductField), []),
-        this.entityMeta(ClientAudienceEntity.ASSIGNMENT, Object.values(ClientAudienceAssignmentField), []),
-        this.entityMeta(ClientAudienceEntity.SHIPMENT, Object.values(ClientAudienceShipmentField), []),
-        this.entityMeta(ClientAudienceEntity.UPSELL, Object.values(ClientAudienceUpsellField), []),
+        this.entityMeta(ClientAudienceEntity.ORDER_ITEM, Object.values(ClientAudienceOrderItemField), []),
       ],
     };
   }
@@ -339,36 +321,6 @@ export class AudienceService {
         sql: `SELECT 1 FROM order_items ${alias} WHERE ${alias}."orderId" = ${parentAlias}.id`,
       };
     }
-    if (parent.entity === ClientAudienceEntity.ORDER && entity === ClientAudienceEntity.ASSIGNMENT) {
-      return {
-        alias,
-        sql: `SELECT 1 FROM order_assignments ${alias} WHERE ${alias}."orderId" = ${parentAlias}.id`,
-      };
-    }
-    if (parent.entity === ClientAudienceEntity.ORDER && entity === ClientAudienceEntity.SHIPMENT) {
-      return {
-        alias,
-        sql: `SELECT 1 FROM shipments ${alias} WHERE ${alias}."orderId" = ${parentAlias}.id`,
-      };
-    }
-    if (parent.entity === ClientAudienceEntity.ORDER && entity === ClientAudienceEntity.UPSELL) {
-      return {
-        alias,
-        sql: `SELECT 1 FROM upsell_history ${alias} WHERE ${alias}."orderId" = ${parentAlias}.id`,
-      };
-    }
-    if (parent.entity === ClientAudienceEntity.ORDER_ITEM && entity === ClientAudienceEntity.VARIANT) {
-      return {
-        alias,
-        sql: `SELECT 1 FROM product_variants ${alias} WHERE ${alias}.id = ${parentAlias}."variantId"`,
-      };
-    }
-    if (parent.entity === ClientAudienceEntity.VARIANT && entity === ClientAudienceEntity.PRODUCT) {
-      return {
-        alias,
-        sql: `SELECT 1 FROM products ${alias} WHERE ${alias}.id = ${parentAlias}."productId"`,
-      };
-    }
 
     return null;
   }
@@ -382,16 +334,6 @@ export class AudienceService {
         return this.orderFieldExpr(field, alias);
       case ClientAudienceEntity.ORDER_ITEM:
         return this.orderItemFieldExpr(field, alias);
-      case ClientAudienceEntity.VARIANT:
-        return this.variantFieldExpr(field, alias);
-      case ClientAudienceEntity.PRODUCT:
-        return this.productFieldExpr(field, alias);
-      case ClientAudienceEntity.ASSIGNMENT:
-        return this.assignmentFieldExpr(field, alias);
-      case ClientAudienceEntity.SHIPMENT:
-        return this.shipmentFieldExpr(field, alias);
-      case ClientAudienceEntity.UPSELL:
-        return this.upsellFieldExpr(field, alias);
       default:
         return null;
     }
@@ -408,34 +350,14 @@ export class AudienceService {
         return `${alias}."statusId"`;
       case ClientAudienceOrderField.ORDER_STORE_ID:
         return `${alias}."storeId"`;
-      case ClientAudienceOrderField.ORDER_CITY_ID:
-        return `${alias}."cityId"`;
-      case ClientAudienceOrderField.ORDER_PAYMENT_STATUS:
-        return `${alias}."paymentStatus"`;
-      case ClientAudienceOrderField.ORDER_PAYMENT_METHOD:
-        return `${alias}."paymentMethod"`;
       case ClientAudienceOrderField.ORDER_PRODUCTS_TOTAL:
         return `COALESCE(${alias}."productsTotal", 0)`;
-      case ClientAudienceOrderField.ORDER_ITEMS_QUANTITY:
-        return `(SELECT COALESCE(SUM(oi_qty.quantity), 0) FROM order_items oi_qty WHERE oi_qty."orderId" = ${alias}.id)`;
-      case ClientAudienceOrderField.ORDER_PRODUCTS_COUNT:
-        return `(SELECT COUNT(*) FROM order_items oi_cnt WHERE oi_cnt."orderId" = ${alias}.id)`;
       case ClientAudienceOrderField.ORDER_SHIPPING_COMPANY_ID:
         return `${alias}."shippingCompanyId"`;
       case ClientAudienceOrderField.ORDER_FINAL_TOTAL:
         return `COALESCE(${alias}."finalTotal", 0)`;
-      case ClientAudienceOrderField.ORDER_DISCOUNT:
-        return `COALESCE(${alias}."discount", 0)`;
-      case ClientAudienceOrderField.ORDER_IS_CONFIRMED:
-        return `(COALESCE(${alias}."isConfirmed", false) = true)`;
       case ClientAudienceOrderField.ORDER_CONFIRMATION_SOURCE:
         return `${alias}."confirmationSource"`;
-      case ClientAudienceOrderField.ORDER_ALLOW_OPEN_PACKAGE:
-        return `(COALESCE(${alias}."allowOpenPackage", false) = true)`;
-      case ClientAudienceOrderField.ORDER_DUPLICATE_COUNT:
-        return `COALESCE(${alias}."duplicateCount", 0)`;
-      case ClientAudienceOrderField.ORDER_PHONE_VALID:
-        return `(COALESCE(${alias}.normalized_phone, '') ~ '^201(0|1|2|5)\\d{8}$')`;
       default:
         return null;
     }
@@ -445,75 +367,15 @@ export class AudienceService {
     switch (field) {
       case ClientAudienceOrderItemField.QUANTITY:
         return `COALESCE(${alias}.quantity, 0)`;
-      case ClientAudienceOrderItemField.UNIT_PRICE:
-        return `COALESCE(${alias}."unitPrice", 0)`;
-      case ClientAudienceOrderItemField.LINE_TOTAL:
-        return `COALESCE(${alias}."lineTotal", 0)`;
-      default:
-        return null;
-    }
-  }
-
-  private variantFieldExpr(field: ClientAudienceField, alias: string): string | null {
-    switch (field) {
-      case ClientAudienceVariantField.ID:
-        return `${alias}.id`;
-      case ClientAudienceVariantField.SKU:
-        return `${alias}.sku`;
-      case ClientAudienceVariantField.PRICE:
-        return `COALESCE(${alias}.price, 0)`;
-      case ClientAudienceVariantField.STOCK_ON_HAND:
-        return `COALESCE(${alias}."stockOnHand", 0)`;
-      default:
-        return null;
-    }
-  }
-
-  private productFieldExpr(field: ClientAudienceField, alias: string): string | null {
-    switch (field) {
-      case ClientAudienceProductField.ID:
-        return `${alias}.id`;
-      case ClientAudienceProductField.CATEGORY_ID:
-        return `${alias}."categoryId"`;
-      case ClientAudienceProductField.NAME:
-        return `${alias}.name`;
-      case ClientAudienceProductField.SKU:
-        return `${alias}.sku`;
-      default:
-        return null;
-    }
-  }
-
-  private assignmentFieldExpr(field: ClientAudienceField, alias: string): string | null {
-    switch (field) {
-      case ClientAudienceAssignmentField.CONTACT_TRIES:
-        return `COALESCE(${alias}."contactTries", 0)`;
-      case ClientAudienceAssignmentField.HAS_ACTIVE:
-        return `(COALESCE(${alias}."isAssignmentActive", false) = true)`;
-      default:
-        return null;
-    }
-  }
-
-  private shipmentFieldExpr(field: ClientAudienceField, alias: string): string | null {
-    switch (field) {
-      case ClientAudienceShipmentField.STATUS:
-        return `${alias}.status`;
-      case ClientAudienceShipmentField.SHIPPING_COMPANY_ID:
-        return `${alias}."shippingCompanyId"`;
-      case ClientAudienceShipmentField.SHIPPED_AT:
-        return `${alias}."shippedAt"`;
-      default:
-        return null;
-    }
-  }
-
-  private upsellFieldExpr(field: ClientAudienceField, alias: string): string | null {
-    switch (field) {
-      case ClientAudienceUpsellField.ACCEPTED:
-        return `(${alias}.status = '${UpsellStatus.ACCEPTED}')`;
-      case ClientAudienceUpsellField.STATUS:
-        return `${alias}.status`;
+      case ClientAudienceOrderItemField.VARIANT_ID:
+        return `${alias}."variantId"`;
+      case ClientAudienceOrderItemField.PRODUCT_ID:
+        return `(SELECT pv."productId" FROM product_variants pv WHERE pv.id = ${alias}."variantId")`;
+      case ClientAudienceOrderItemField.CATEGORY_ID:
+        return `(SELECT p."categoryId"
+          FROM product_variants pv
+          INNER JOIN products p ON p.id = pv."productId"
+          WHERE pv.id = ${alias}."variantId")`;
       default:
         return null;
     }
@@ -677,9 +539,6 @@ export class AudienceService {
     const allConfirmedCount = this.clientOrdersAgg(
       'COUNT(CASE WHEN stat_ord."isConfirmed" = true THEN 1 END)',
     );
-    const shippedCount = this.clientOrdersAgg(
-      `COUNT(CASE WHEN os.code = '${OrderStatus.SHIPPED}' THEN 1 END)`,
-    );
     const deliveredCount = this.clientOrdersAgg(
       `COUNT(CASE WHEN os.code = '${OrderStatus.DELIVERED}' THEN 1 END)`,
     );
@@ -689,61 +548,25 @@ export class AudienceService {
     const cancelledCount = this.clientOrdersAgg(
       `COUNT(CASE WHEN os.code = '${OrderStatus.CANCELLED}' THEN 1 END)`,
     );
-    const cancelledBeforeShippingCount = this.clientOrdersAgg(
-      `COUNT(CASE WHEN os.code = '${OrderStatus.CANCELLED}' AND ${this.cancelledAfterShippingSql()} = false THEN 1 END)`,
-    );
-    const cancelledAfterShippingCount = this.clientOrdersAgg(
-      `COUNT(CASE WHEN os.code = '${OrderStatus.CANCELLED}' AND ${this.cancelledAfterShippingSql()} = true THEN 1 END)`,
-    );
-    const totalSales = this.clientOrdersAgg('COALESCE(SUM(stat_ord."finalTotal"), 0)');
     const deliveredRevenue = this.clientOrdersAgg(
       `COALESCE(SUM(CASE WHEN os.code = '${OrderStatus.DELIVERED}' THEN stat_ord."finalTotal" ELSE 0 END), 0)`,
     );
-    const allShippedCount = `(SELECT COUNT(DISTINCT so.id)
-      FROM orders so
-      INNER JOIN shipments sh ON sh."orderId" = so.id
-      WHERE so."clientId" = client.id
-        AND so."adminId" = client."adminId"
-        AND so.deleted_at IS NULL
-        AND sh."shippedAt" IS NOT NULL)`;
 
     switch (field) {
       case ClientAudienceClientField.CLIENT_TOTAL_ORDERS:
         return `COALESCE(${totalOrders}, 0)`;
       case ClientAudienceClientField.CLIENT_CONFIRMED_COUNT:
         return `COALESCE(${confirmedCount}, 0)`;
-      case ClientAudienceClientField.CLIENT_CONFIRMED_PERCENT:
-        return this.rateSql(confirmedCount, totalOrders);
       case ClientAudienceClientField.CLIENT_CONFIRMED_RATE:
         return this.rateSql(allConfirmedCount, totalOrders);
-      case ClientAudienceClientField.CLIENT_SHIPPED_COUNT:
-        return `COALESCE(${shippedCount}, 0)`;
-      case ClientAudienceClientField.CLIENT_SHIPPED_PERCENT:
-        return this.rateSql(shippedCount, totalOrders);
       case ClientAudienceClientField.CLIENT_DELIVERED_COUNT:
         return `COALESCE(${deliveredCount}, 0)`;
-      case ClientAudienceClientField.CLIENT_DELIVERED_PERCENT:
-        return this.rateSql(deliveredCount, totalOrders);
       case ClientAudienceClientField.CLIENT_RETURNED_COUNT:
         return `COALESCE(${returnedCount}, 0)`;
-      case ClientAudienceClientField.CLIENT_RETURNED_PERCENT:
-        return this.rateSql(returnedCount, totalOrders);
       case ClientAudienceClientField.CLIENT_CANCELLED_COUNT:
         return `COALESCE(${cancelledCount}, 0)`;
       case ClientAudienceClientField.CLIENT_CANCEL_RATE:
         return this.rateSql(cancelledCount, totalOrders);
-      case ClientAudienceClientField.CLIENT_CANCELLED_BEFORE_SHIPPING:
-        return `COALESCE(${cancelledBeforeShippingCount}, 0)`;
-      case ClientAudienceClientField.CLIENT_CANCELLED_BEFORE_SHIPPING_RATE:
-        return this.rateSql(cancelledBeforeShippingCount, totalOrders);
-      case ClientAudienceClientField.CLIENT_CANCELLED_AFTER_SHIPPING:
-        return `COALESCE(${cancelledAfterShippingCount}, 0)`;
-      case ClientAudienceClientField.CLIENT_CANCELLED_AFTER_SHIPPING_RATE:
-        return this.rateSql(cancelledAfterShippingCount, totalOrders);
-      case ClientAudienceClientField.CLIENT_AFTER_SHIPPING_CANCEL_RATE:
-        return this.rateSql(cancelledAfterShippingCount, allShippedCount);
-      case ClientAudienceClientField.CLIENT_TOTAL_SALES:
-        return `COALESCE(${totalSales}, 0)`;
       case ClientAudienceClientField.CLIENT_DELIVERED_REVENUE:
         return `COALESCE(${deliveredRevenue}, 0)`;
       default:
@@ -760,16 +583,6 @@ export class AudienceService {
         AND stat_ord.deleted_at IS NULL)`;
   }
 
-  private cancelledAfterShippingSql(): string {
-    return `COALESCE((
-      SELECT occ."cancelledAfterShipping"
-      FROM order_cancel_causes occ
-      WHERE occ."orderId" = stat_ord.id
-      ORDER BY occ.created_at DESC
-      LIMIT 1
-    ), stat_ord."shippedAt" IS NOT NULL)`;
-  }
-
   private rateSql(countExpr: string, denominatorExpr: string): string {
     return `CASE
       WHEN COALESCE((${denominatorExpr}), 0) <= 0 THEN 0
@@ -782,8 +595,29 @@ export class AudienceService {
       rootEntity: ClientAudienceEntity.CLIENT,
       entity: ClientAudienceEntity.CLIENT,
       logic: filter?.logic || ConditionLogic.AND,
-      rules: filter?.rules || [],
+      rules: this.flattenItemValueGroups(filter?.rules || []),
     };
+  }
+
+  /** Lift legacy variant/product relation groups onto the parent order-item rules. */
+  private flattenItemValueGroups(nodes: ClientAudienceNode[]): ClientAudienceNode[] {
+    const out: ClientAudienceNode[] = [];
+    for (const node of nodes || []) {
+      if (!this.isGroup(node)) {
+        out.push(node);
+        continue;
+      }
+      const entity = String(node.entity);
+      if (entity === "variant" || entity === "product") {
+        out.push(...this.flattenItemValueGroups(node.rules || []));
+        continue;
+      }
+      out.push({
+        ...node,
+        rules: this.flattenItemValueGroups(node.rules || []),
+      });
+    }
+    return out;
   }
 
   private isGroup(node: ClientAudienceNode): node is ClientAudienceGroup {

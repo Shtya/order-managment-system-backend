@@ -68,6 +68,9 @@ export function getActualFieldValue(
     case "replacementResult":
       // Replacement orders have isReplacement=true and/or a linked replacementResult row
       return Boolean(orderData?.isReplacement || orderData?.replacementResult);
+    case "campaignId":
+      // True when the order was created from a campaign
+      return Boolean(orderData?.campaignId);
     default:
       return orderData[field] || orderData[field?.toLowerCase()];
   }
