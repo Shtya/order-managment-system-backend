@@ -21,6 +21,10 @@ import { ManualCampaignAudience } from "./audience/manual-campaign.audience";
 import { FileCampaignAudience } from "./audience/file-campaign.audience";
 import { FilterCampaignAudience } from "./audience/filter-campaign.audience";
 import { SegmentCampaignAudience } from "./audience/segment-campaign.audience";
+import { PublicCampaignOrdersController } from "./public-campaign-orders.controller";
+import { PublicCampaignOrdersService } from "./public-campaign-orders.service";
+import { OrdersModule } from "src/orders/orders.module";
+import { ClientAddressEntity, ClientEntity } from "entities/clients.entity";
 
 @Module({
   imports: [
@@ -28,6 +32,7 @@ import { SegmentCampaignAudience } from "./audience/segment-campaign.audience";
     ClientSegmentsModule,
     forwardRef(() => WhatsappModule),
     forwardRef(() => QueueModule),
+    forwardRef(() => OrdersModule),
     OrphanFilesModule,
     TypeOrmModule.forFeature([
       CampaignEntity,
@@ -36,12 +41,15 @@ import { SegmentCampaignAudience } from "./audience/segment-campaign.audience";
       CampaignRecipientEntity,
       ClientSegmentEntity,
       WhatsappTemplateEntity,
+      ClientEntity,
+      ClientAddressEntity,
     ]),
   ],
-  controllers: [CampaignsController],
+  controllers: [CampaignsController, PublicCampaignOrdersController],
   providers: [
     CampaignsService,
     CampaignWebhookEventsService,
+    PublicCampaignOrdersService,
     WhatsappCampaignChannel,
     ManualCampaignAudience,
     FileCampaignAudience,

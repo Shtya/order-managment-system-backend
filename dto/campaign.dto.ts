@@ -224,6 +224,20 @@ export class CreateCampaignDto {
   @IsBoolean()
   enablePurchasePage?: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  orderReplyFollowupEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  orderReplyFollowupText?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  orderReplyFollowupButtonIndex?: number;
+
   @IsEnum(CampaignAudienceType)
   audienceType: CampaignAudienceType;
 
@@ -369,6 +383,20 @@ export class UpdateCampaignDto {
   @IsOptional()
   @IsBoolean()
   enablePurchasePage?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  orderReplyFollowupEnabled?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  orderReplyFollowupText?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  orderReplyFollowupButtonIndex?: number;
 
   @IsOptional()
   @IsEnum(CampaignAudienceType)

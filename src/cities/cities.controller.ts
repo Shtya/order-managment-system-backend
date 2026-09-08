@@ -17,28 +17,24 @@ import { SubscriptionGuard } from "../../common/subscription.guard";
 import { Permissions } from "../../common/permissions.decorator";
 import { UpdateCityTenantConfigDto } from "dto/cities.dto";
 
-@UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("cities")
 export class CitiesController {
   constructor(private readonly citiesService: CitiesService) {}
 
   @Get()
-  findAll(@Req() req: any) {
+  findAll() {
     return this.citiesService.findAllWithProviders();
   }
 
-  @Get(":cityId/areas")
-  findAreas(@Req() req: any, @Param("cityId") cityId: string) {
-    return this.citiesService.findAreas(cityId);
-  }
-
   @Get("my-config")
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
   @Permissions("city.read")
   findAllWithConfig(@Req() req: any, @Query() q: any) {
     return this.citiesService.findAllWithTenantConfig(req.user, q);
   }
 
   @Get("export")
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
   @Permissions("city.read")
   async export(@Req() req: any, @Query() q: any, @Res() res: any) {
     const buffer = await this.citiesService.exportCitiesConfig(req.user, q);
@@ -51,7 +47,13 @@ export class CitiesController {
     res.end(buffer);
   }
 
+  @Get(":cityId/areas")
+  findAreas(@Param("cityId") cityId: string) {
+    return this.citiesService.findAreas(cityId);
+  }
+
   @Post(":cityId/config")
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
   @Permissions("city.update")
   upsertConfig(
     @Req() req: any,
@@ -62,6 +64,7 @@ export class CitiesController {
   }
 
   @Delete(":cityId/config")
+  @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
   @Permissions("city.update")
   deleteConfig(@Req() req: any, @Param("cityId") cityId: string) {
     return this.citiesService.deleteTenantConfig(req.user, cityId);

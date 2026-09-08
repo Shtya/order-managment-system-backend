@@ -168,8 +168,23 @@ export class CampaignEntity {
     @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
     shippingPrice: number;
 
+    @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
+    discount: number;
+
     @Column({ type: 'boolean', default: true })
     enablePurchasePage: boolean;
+
+    @Column({ type: 'boolean', default: false })
+    orderReplyFollowupEnabled: boolean;
+
+    @Column({ type: 'text', nullable: true })
+    orderReplyFollowupText?: string | null;
+
+    @Column({ type: 'int', nullable: true })
+    orderReplyFollowupButtonIndex?: number | null;
+
+    @Column({ type: 'varchar', length: 200, nullable: true })
+    orderReplyFollowupButtonText?: string | null;
     // ==========================================
     // Audience
     // ==========================================
@@ -473,6 +488,13 @@ export class CampaignRecipientEntity {
     @ManyToOne(() => OrderEntity, { onDelete: 'SET NULL', nullable: true })
     @JoinColumn({ name: 'orderId' })
     order?: Relation<OrderEntity | null>;
+
+    @Index({ unique: true, where: '"accessToken" IS NOT NULL' })
+    @Column({ type: 'varchar', length: 64, nullable: true })
+    accessToken?: string | null;
+
+    @Column({ type: 'timestamptz', nullable: true })
+    orderLinkSentAt?: Date | null;
 
     @Column({ type: 'timestamptz', nullable: true })
     sentAt?: Date | null;

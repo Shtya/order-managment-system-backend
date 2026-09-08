@@ -2342,6 +2342,8 @@ export class WhatsappService {
         kind: "reply",
         providerMessageId: parentWamid,
         at: new Date().toISOString(),
+        buttonText: replyData?.text ?? null,
+        buttonId: replyData?.id ?? null,
       });
     }
 

@@ -4876,6 +4876,12 @@ export class OrdersService {
     me: any,
     dto: CreateOrderDto,
     ipAddress?: string,
+    opts?: {
+      statusCode?: OrderStatus;
+      campaignId?: string | null;
+      skipDuplicateAutoCancel?: boolean;
+      markConfirmed?: boolean;
+    },
   ) {
     // Generate order number
     const orderNumber = await this.generateOrderNumber(adminId);
@@ -4978,8 +4984,17 @@ export class OrdersService {
     const defaultStatus = await this.getDefaultStatus(adminId);
     let initialStatusId = defaultStatus.id;
 
+    if (opts?.statusCode) {
+      const forcedStatus = await this.findStatusByCode(
+        opts.statusCode,
+        adminId,
+        manager,
+      );
+      initialStatusId = forcedStatus.id;
+    }
+
     // If auto-cancel is enabled and it's a duplicate, set status to CANCELLED
-    if (autoCancel && duplicateCount > 0) {
+    if (!opts?.statusCode && !opts?.skipDuplicateAutoCancel && autoCancel && duplicateCount > 0) {
       const duplicateStatus = await this.findStatusByCode(
         OrderStatus.DUPLICATE,
         adminId,
@@ -5065,6 +5080,13 @@ export class OrdersService {
       items,
       createdByUserId: me?.id,
       shippingMetadata: dto.shippingMetadata,
+      clientId: dto.clientId ?? null,
+      campaignId: opts?.campaignId ?? null,
+      isConfirmed: opts?.markConfirmed ?? false,
+      confirmedAt: opts?.markConfirmed ? new Date() : null,
+      confirmationSource: opts?.markConfirmed
+        ? OrderConfirmationSource.WHATSAPP
+        : null,
     } as any);
 
     const saved = await manager.save(OrderEntity, order);

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import {
@@ -8,6 +8,12 @@ import {
 } from "entities/campaigns.entity";
 import { AppGateway } from "common/app.gateway";
 import { WhatsappMessageCostService } from "src/whatsapp/services/whatsapp-message-cost.service";
+import { WhatsappService } from "src/whatsapp/whatsapp.service";
+import { hydrateCampaignPlaceholders } from "./campaign-placeholders";
+import {
+  buildCampaignOrderUrl,
+  substituteFollowupOrderUrl,
+} from "./campaign-order-url";
 
 export type CampaignDeliveryEventStatus =
   | CampaignRecipientDeliveryStatus.SENT
@@ -26,6 +32,8 @@ export class CampaignWebhookEventsService {
     private readonly recipientRepo: Repository<CampaignRecipientEntity>,
     private readonly appGateway: AppGateway,
     private readonly messageCostService: WhatsappMessageCostService,
+    @Inject(forwardRef(() => WhatsappService))
+    private readonly whatsappService: WhatsappService,
   ) {}
 
   async applyDeliveryEvent(input: {
@@ -118,10 +126,19 @@ export class CampaignWebhookEventsService {
     adminId: string;
     providerMessageId: string;
     at: Date;
+    buttonText?: string | null;
+    buttonId?: string | null;
   }): Promise<void> {
     if (!input.adminId || !input.providerMessageId) return;
     try {
-      const rows = await this.queryRows<{ campaignId: string }>(
+      const rows = await this.queryRows<{
+        id: string;
+        campaignId: string;
+        phoneNumber: string;
+        name: string | null;
+        accessToken: string | null;
+        orderLinkSentAt: Date | null;
+      }>(
         `
         UPDATE campaign_recipients
         SET "hasReplied" = true, "repliedAt" = $3, "updatedAt" = NOW()
@@ -130,18 +147,22 @@ export class CampaignWebhookEventsService {
           WHERE "adminId" = $1 AND "messageId" = $2 AND "hasReplied" = false
           LIMIT 1
         )
-        RETURNING "campaignId"
+        RETURNING id, "campaignId", "phoneNumber", name, "accessToken", "orderLinkSentAt"
         `,
         [input.adminId, input.providerMessageId, input.at],
       );
-      const campaignId = rows[0]?.campaignId;
-      if (!campaignId) return;
-      await this.campaignRepo.increment({ id: campaignId }, "repliedCount", 1);
+      const recipient = rows[0];
+      if (!recipient) return;
+      await this.campaignRepo.increment({ id: recipient.campaignId }, "repliedCount", 1);
       await this.emitCampaignLiveByCampaign(
         input.adminId,
-        campaignId,
+        recipient.campaignId,
         "recipient",
       );
+      await this.maybeSendOrderLinkFollowup(input.adminId, recipient, {
+        buttonText: input.buttonText,
+        buttonId: input.buttonId,
+      });
     } catch (error) {
       this.logger.error(
         `Failed to apply campaign reply event for ${input.providerMessageId}: ${error?.message}`,
@@ -173,6 +194,81 @@ export class CampaignWebhookEventsService {
       this.logger.error(
         `Failed to link campaign recipient ${input.campaignRecipientId}: ${error?.message}`,
         error?.stack,
+      );
+      throw error;
+    }
+  }
+
+  private async maybeSendOrderLinkFollowup(
+    adminId: string,
+    recipient: {
+      id: string;
+      campaignId: string;
+      phoneNumber: string;
+      name?: string | null;
+      accessToken: string | null;
+      orderLinkSentAt: Date | null;
+    },
+    reply: { buttonText?: string | null; buttonId?: string | null },
+  ) {
+    if (recipient.orderLinkSentAt || !recipient.accessToken) return;
+    const campaign = await this.campaignRepo.findOne({
+      where: { id: recipient.campaignId, adminId },
+    });
+    if (
+      !campaign?.enablePurchasePage ||
+      !campaign.orderReplyFollowupEnabled ||
+      !campaign.orderReplyFollowupText
+    ) {
+      return;
+    }
+    const expected = String(campaign.orderReplyFollowupButtonText || "")
+      .trim()
+      .toLowerCase();
+    const incoming = String(reply.buttonText || "").trim().toLowerCase();
+    if (!expected || incoming !== expected) return;
+
+    const claimed = await this.queryRows<{ id: string }>(
+      `
+      UPDATE campaign_recipients
+      SET "orderLinkSentAt" = NOW(), "updatedAt" = NOW()
+      WHERE id = $1 AND "orderLinkSentAt" IS NULL
+      RETURNING id
+      `,
+      [recipient.id],
+    );
+    if (!claimed[0]) return;
+
+    const url = buildCampaignOrderUrl(recipient.accessToken);
+    const body = substituteFollowupOrderUrl(
+      hydrateCampaignPlaceholders(campaign.orderReplyFollowupText, {
+        name: recipient.name,
+        phoneNumber: recipient.phoneNumber,
+        orderToken: recipient.accessToken,
+        orderUrl: url,
+      }),
+      url,
+    );
+    const accountId = campaign.templateConfigSnapshot?.accountId;
+    try {
+      await this.whatsappService.sendMessage(
+        { id: adminId, adminId } as any,
+        {
+          messaging_product: "whatsapp",
+          type: "text",
+          to: recipient.phoneNumber,
+          text: { body, preview_url: true },
+        },
+        accountId,
+      );
+    } catch (error) {
+      await this.recipientRepo.query(
+        `
+        UPDATE campaign_recipients
+        SET "orderLinkSentAt" = NULL, "updatedAt" = NOW()
+        WHERE id = $1
+        `,
+        [recipient.id],
       );
       throw error;
     }

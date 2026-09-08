@@ -13,6 +13,10 @@ import {
   hydrateCampaignVariableMap,
 } from "../campaign-placeholders";
 import {
+  buildCampaignOrderUrl,
+  buttonValueNeedsOrderToken,
+} from "../campaign-order-url";
+import {
   CampaignChannel,
   SendRecipientResult,
   ValidatedCampaignChannelData,
@@ -89,10 +93,19 @@ export class WhatsappCampaignChannel extends CampaignChannel {
     recipient: CampaignRecipientEntity,
   ): Promise<SendRecipientResult> {
     const snapshot = (campaign.templateConfigSnapshot ?? {}) as any;
+    const token = recipient.accessToken || "";
+    const orderUrl = token ? buildCampaignOrderUrl(token) : "";
     const placeholderCtx = {
       name: recipient.name ?? "",
       phoneNumber: recipient.phoneNumber ?? "",
+      orderToken: token,
+      orderUrl,
     };
+    const buttonVariables = this.injectOrderUrlButtonValues(
+      hydrateCampaignVariableMap(snapshot.buttonVariables, placeholderCtx),
+      snapshot.buttonVariables,
+      campaign.enablePurchasePage ? token : "",
+    );
     const response = await this.whatsappService.sendTemplate(
       { id: adminId, adminId } as any,
       {
@@ -106,10 +119,7 @@ export class WhatsappCampaignChannel extends CampaignChannel {
           snapshot.bodyVariables,
           placeholderCtx,
         ),
-        buttonVariables: hydrateCampaignVariableMap(
-          snapshot.buttonVariables,
-          placeholderCtx,
-        ),
+        buttonVariables,
         locationData: hydrateCampaignLocationData(
           snapshot.locationData,
           placeholderCtx,
@@ -141,6 +151,30 @@ export class WhatsappCampaignChannel extends CampaignChannel {
       );
     }
     await this.assertTemplateOwned(adminId, campaign.templateId, accountId);
+  }
+
+  private injectOrderUrlButtonValues(
+    buttonVariables: Record<string, any> | undefined,
+    rawButtonVariables: Record<string, any> | undefined,
+    token: string,
+  ) {
+    if (!token || !buttonVariables) return buttonVariables;
+    const next = { ...buttonVariables };
+    for (const key of Object.keys(next)) {
+      const raw = rawButtonVariables?.[key];
+      const rawText =
+        raw && typeof raw === "object" && !Array.isArray(raw)
+          ? String(raw.value ?? "")
+          : String(raw ?? "");
+      if (!buttonValueNeedsOrderToken(rawText)) continue;
+      const current = next[key];
+      if (current && typeof current === "object" && !Array.isArray(current)) {
+        next[key] = { ...current, value: token };
+      } else {
+        next[key] = { type: "Dynamic", buttonType: "url", value: token };
+      }
+    }
+    return next;
   }
 
   private async assertTemplateOwned(

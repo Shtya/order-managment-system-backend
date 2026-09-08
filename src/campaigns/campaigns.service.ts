@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { UnrecoverableError } from "bullmq";
-import { randomInt } from "crypto";
+import { randomBytes, randomInt } from "crypto";
 import * as ExcelJS from "exceljs";
 import {
   buildAudienceFileTemplate,
@@ -46,6 +46,10 @@ import {
   CampaignChannel as CampaignChannelProvider,
 } from "./channels/campaign-channel.abstract";
 import { WhatsappCampaignChannel } from "./channels/whatsapp-campaign.channel";
+import {
+  followupTextHasOrderUrl,
+  inspectTemplateOrderLink,
+} from "./campaign-order-url";
 import {
   CreateCampaignDto,
   UpdateCampaignDto,
@@ -661,7 +665,7 @@ export class CampaignsService {
 
       this.validateSchedule(dto.scheduleMode, dto.scheduledAt);
       this.validateDelays(dto.delayMinSeconds, dto.delayMaxSeconds);
-      this.validateProducts(dto.enablePurchasePage, dto.products);
+      const offer = this.resolveOfferFields(dto, dto.whatsapp);
 
       const campaign = this.campaignRepo.create({
         adminId,
@@ -670,7 +674,12 @@ export class CampaignsService {
         channel: channelType,
         description: dto.description,
         shippingPrice: dto.shippingPrice ?? 0,
-        enablePurchasePage: dto.enablePurchasePage ?? true,
+        discount: 0,
+        enablePurchasePage: offer.enablePurchasePage,
+        orderReplyFollowupEnabled: offer.orderReplyFollowupEnabled,
+        orderReplyFollowupText: offer.orderReplyFollowupText,
+        orderReplyFollowupButtonIndex: offer.orderReplyFollowupButtonIndex,
+        orderReplyFollowupButtonText: offer.orderReplyFollowupButtonText,
         audienceType,
         audienceSegmentId: dto.audienceSegmentId ?? null,
         audienceFileUrl: storedFileUrl,
@@ -871,8 +880,53 @@ export class CampaignsService {
       if (dto.category !== undefined) campaign.category = dto.category as any;
       if (dto.description !== undefined) campaign.description = dto.description;
       if (dto.shippingPrice !== undefined) campaign.shippingPrice = dto.shippingPrice;
-      if (dto.enablePurchasePage !== undefined)
-        campaign.enablePurchasePage = dto.enablePurchasePage;
+      const templateSnapshot =
+        dto.whatsapp !== undefined
+          ? dto.whatsapp
+          : campaign.templateConfigSnapshot;
+      const offerTouched =
+        dto.enablePurchasePage !== undefined ||
+        dto.orderReplyFollowupEnabled !== undefined ||
+        dto.orderReplyFollowupText !== undefined ||
+        dto.orderReplyFollowupButtonIndex !== undefined ||
+        dto.whatsapp !== undefined ||
+        dto.products !== undefined;
+      if (offerTouched) {
+        const offer = this.resolveOfferFields(
+          {
+            enablePurchasePage:
+              dto.enablePurchasePage ?? campaign.enablePurchasePage,
+            orderReplyFollowupEnabled:
+              dto.orderReplyFollowupEnabled ?? campaign.orderReplyFollowupEnabled,
+            orderReplyFollowupText:
+              dto.orderReplyFollowupText !== undefined
+                ? dto.orderReplyFollowupText
+                : campaign.orderReplyFollowupText,
+            orderReplyFollowupButtonIndex:
+              dto.orderReplyFollowupButtonIndex !== undefined
+                ? dto.orderReplyFollowupButtonIndex
+                : campaign.orderReplyFollowupButtonIndex,
+            products:
+              dto.products ??
+              campaign.products?.map((p) => ({
+                productId: p.productId,
+                variantId: p.variantId,
+                name: p.name,
+                sku: p.sku,
+                image: p.image,
+                quantity: p.quantity,
+                price: Number(p.price),
+              })),
+          },
+          templateSnapshot,
+        );
+        campaign.enablePurchasePage = offer.enablePurchasePage;
+        campaign.discount = 0;
+        campaign.orderReplyFollowupEnabled = offer.orderReplyFollowupEnabled;
+        campaign.orderReplyFollowupText = offer.orderReplyFollowupText;
+        campaign.orderReplyFollowupButtonIndex = offer.orderReplyFollowupButtonIndex;
+        campaign.orderReplyFollowupButtonText = offer.orderReplyFollowupButtonText;
+      }
 
       const nextScheduleMode = dto.scheduleMode ?? campaign.scheduleMode;
       const nextScheduledAt =
@@ -905,10 +959,6 @@ export class CampaignsService {
         campaign.maxMessagesPerHour = dto.maxMessagesPerHour ?? null;
 
       if (dto.products !== undefined) {
-        this.validateProducts(
-          dto.enablePurchasePage ?? campaign.enablePurchasePage,
-          dto.products,
-        );
         await this.productRepo.delete({ campaignId: id });
         campaign.products = (dto.products ?? []).map((p, index) =>
           this.productRepo.create({
@@ -922,15 +972,6 @@ export class CampaignsService {
             price: p.price ?? 0,
             sortOrder: p.sortOrder ?? index,
           }),
-        );
-      } else if (dto.enablePurchasePage !== undefined) {
-        this.validateProducts(
-          dto.enablePurchasePage,
-          campaign.products?.map((p) => ({
-            name: p.name,
-            quantity: p.quantity,
-            price: Number(p.price),
-          })) as any,
         );
       }
 
@@ -1308,6 +1349,7 @@ export class CampaignsService {
             clientId: record.clientId ?? null,
             phoneNumber,
             name: record.name ?? null,
+            accessToken: randomBytes(24).toString("base64url"),
             deliveryStatus: CampaignRecipientDeliveryStatus.PENDING,
           }),
         );
@@ -1969,14 +2011,85 @@ export class CampaignsService {
       );
   }
 
-  private validateProducts(enablePurchasePage?: boolean, products?: any[]) {
-    if (enablePurchasePage && products !== undefined && products.length === 0) {
+  private resolveOfferFields(dto: any, whatsapp: any) {
+    const inspect = inspectTemplateOrderLink(whatsapp);
+    let enablePurchasePage = !!dto.enablePurchasePage;
+    if (enablePurchasePage && !inspect.orderLinkAvailable) {
+      throw new BadRequestException(
+        this.translations.t("domains.campaigns.purchase_page_not_available"),
+      );
+    }
+    if (!enablePurchasePage) {
+      return {
+        enablePurchasePage: false,
+        orderReplyFollowupEnabled: false,
+        orderReplyFollowupText: null,
+        orderReplyFollowupButtonIndex: null,
+        orderReplyFollowupButtonText: null,
+      };
+    }
+
+    const products = Array.isArray(dto.products) ? dto.products : [];
+    if (!products.length) {
       throw new BadRequestException(
         this.translations.t(
           "domains.campaigns.products_required_for_purchase_page",
         ),
       );
     }
+    if (products.some((p) => !p.variantId)) {
+      throw new BadRequestException(
+        this.translations.t(
+          "domains.campaigns.product_variant_required_for_purchase_page",
+        ),
+      );
+    }
+
+    const qrOnly = inspect.qrOnly;
+    let followupEnabled = !!dto.orderReplyFollowupEnabled;
+    if (qrOnly) followupEnabled = true;
+    if (!inspect.hasQuickReply) followupEnabled = false;
+
+    let buttonIndex =
+      dto.orderReplyFollowupButtonIndex === undefined ||
+      dto.orderReplyFollowupButtonIndex === null
+        ? null
+        : Number(dto.orderReplyFollowupButtonIndex);
+    let buttonText: string | null = null;
+    let followupText = dto.orderReplyFollowupText
+      ? String(dto.orderReplyFollowupText)
+      : null;
+
+    if (followupEnabled) {
+      if (!inspect.hasQuickReply) {
+        throw new BadRequestException(
+          this.translations.t("domains.campaigns.followup_requires_quick_reply"),
+        );
+      }
+      const chosen = inspect.quickReplies.find((btn) => btn.index === buttonIndex);
+      if (!chosen) {
+        throw new BadRequestException(
+          this.translations.t("domains.campaigns.followup_button_required"),
+        );
+      }
+      buttonText = chosen.text;
+      if (!followupTextHasOrderUrl(followupText)) {
+        throw new BadRequestException(
+          this.translations.t("domains.campaigns.followup_text_requires_order_url"),
+        );
+      }
+    } else {
+      buttonIndex = null;
+      followupText = null;
+    }
+
+    return {
+      enablePurchasePage: true,
+      orderReplyFollowupEnabled: followupEnabled,
+      orderReplyFollowupText: followupText,
+      orderReplyFollowupButtonIndex: buttonIndex,
+      orderReplyFollowupButtonText: buttonText,
+    };
   }
 
   private async replaceExclusions(

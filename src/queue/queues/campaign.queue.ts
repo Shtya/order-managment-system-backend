@@ -23,6 +23,8 @@ export type CampaignJobData = {
   at?: string;
   failureReason?: string | null;
   whatsappMessageId?: string;
+  buttonText?: string | null;
+  buttonId?: string | null;
 };
 
 export type CampaignSendTickResult = {
@@ -317,6 +319,8 @@ export class CampaignWorkerService extends WorkerHost {
         adminId: data.adminId,
         providerMessageId: data.providerMessageId,
         at,
+        buttonText: data.buttonText,
+        buttonId: data.buttonId,
       });
       return;
     }

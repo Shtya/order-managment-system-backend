@@ -1812,6 +1812,15 @@ export type I18nTranslations = {
             "delay_min_seconds_invalid": string;
             "delay_max_seconds_invalid": string;
             "products_required_for_purchase_page": string;
+            "purchase_page_not_available": string;
+            "followup_requires_quick_reply": string;
+            "followup_required_for_qr_only": string;
+            "followup_text_requires_order_url": string;
+            "followup_button_required": string;
+            "product_variant_required_for_purchase_page": string;
+            "order_link_unavailable": string;
+            "order_link_already_used": string;
+            "confirmed_status_missing": string;
             "exclusion_client_id_required": string;
             "exclusion_phone_number_required": string;
             "audience_file_not_found": string;

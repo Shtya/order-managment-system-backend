@@ -1,6 +1,8 @@
 export type CampaignPlaceholderContext = {
   name?: string | null;
   phoneNumber?: string | null;
+  orderToken?: string | null;
+  orderUrl?: string | null;
 };
 
 function rawText(input: unknown): string {
@@ -28,11 +30,14 @@ export function hydrateCampaignPlaceholders(
   input: unknown,
   ctx: CampaignPlaceholderContext,
 ): string {
-  const tokenRe = /\{\{\s*(customer\.(?:name|number))\s*\}\}/gi;
+  const tokenRe =
+    /\{\{\s*(customer\.(?:name|number)|campaign\.(?:orderToken|orderUrl))\s*\}\}/gi;
   return rawText(input).replace(tokenRe, (_m, id: string) => {
     const key = String(id).toLowerCase();
     if (key === "customer.name") return placeholderValue(ctx, "name");
     if (key === "customer.number") return placeholderValue(ctx, "number");
+    if (key === "campaign.ordertoken") return String(ctx.orderToken ?? "").trim() || "-";
+    if (key === "campaign.orderurl") return String(ctx.orderUrl ?? "").trim() || "-";
     return "-";
   });
 }
