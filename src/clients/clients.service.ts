@@ -1,7 +1,10 @@
-import {
+﻿import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
@@ -24,9 +27,38 @@ import { TranslationService } from "common/translation.service";
 import { CustomerService } from "../customer/customer.service";
 import { deleteFile } from "common/healpers";
 import * as ExcelJS from "exceljs";
+import { promises as fs } from "fs";
+import { join } from "path";
+import { randomUUID } from "crypto";
+import { plainToInstance } from "class-transformer";
+import { validate, ValidationError } from "class-validator";
+import { AppGateway } from "common/app.gateway";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
+import { RequestTranslationService } from "common/translation.service";
+import { ClientImportQueueService } from "src/queue/queues/client-import.queue";
+import {
+  ClientOrderStatsService,
+  deriveLegacyConfirmedCount,
+} from "./client-order-stats.service";
+import {
+  parseClientImportFile,
+  parseClientImportBuffer,
+  buildClientImportTemplate,
+  generateClientImportErrorReport,
+  clientImportColumnIndex,
+  CLIENT_IMPORT_BATCH_SIZE,
+  CLIENT_IMPORT_COLUMNS,
+  CLIENT_IMPORT_UPLOAD_DIR,
+  ensureClientImportUploadDir,
+  ClientImportCellErrors,
+  ClientImportRow,
+} from "./client-import-file.util";
 
 @Injectable()
 export class ClientService {
+  private readonly logger = new Logger(ClientService.name);
+
   constructor(
     @InjectRepository(ClientEntity)
     private readonly clientRepo: Repository<ClientEntity>,
@@ -36,7 +68,14 @@ export class ClientService {
     private readonly contactRepo: Repository<CustomerEntity>,
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
+    private readonly requestTranslations: RequestTranslationService,
+    @Inject(forwardRef(() => CustomerService))
     private readonly customerService: CustomerService,
+    private readonly clientOrderStatsService: ClientOrderStatsService,
+    @Inject(forwardRef(() => ClientImportQueueService))
+    private readonly clientImportQueueService: ClientImportQueueService,
+    private readonly notificationService: NotificationService,
+    private readonly appGateway: AppGateway,
   ) { }
 
   private runInTransaction<T>(
@@ -82,7 +121,8 @@ export class ClientService {
     }
     for (const entity of entities) {
       const counts = countsById.get(entity.id);
-      (entity as any).ordersCount = counts?.ordersCount ?? 0;
+      (entity as any).ordersCount =
+        (counts?.ordersCount ?? 0) + Number(entity.legacyTotalOrders ?? 0);
       (entity as any).contactsCount = counts?.contactsCount ?? 0;
     }
   }
@@ -589,118 +629,14 @@ export class ClientService {
   }
 
   async getOrderStatsSnapshot(adminId: string, clientId: string) {
-    const raw = await this.dataSource
-      .getRepository(OrderEntity)
-      .createQueryBuilder("ord")
-      .leftJoin("ord.status", "status")
-      .where("ord.adminId = :adminId", { adminId })
-      .andWhere("ord.clientId = :clientId", { clientId })
-      .select("COUNT(ord.id)", "totalOrders")
-      .addSelect("COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)", "allConfirmedCount")
-      .addSelect(`COUNT(CASE WHEN status.code = :confirmedCode THEN 1 END)`, "confirmedCount")
-      .addSelect("COALESCE(SUM(ord.finalTotal), 0)", "totalSales")
-      .addSelect(`COUNT(CASE WHEN status.code = :deliveredCode THEN 1 END)`, "deliveredCount")
-      .addSelect(`COUNT(CASE WHEN status.code = :postponedCode THEN 1 END)`, "postponedCount")
-      .addSelect(
-        `COALESCE(SUM(CASE WHEN status.code = :deliveredCode THEN ord.finalTotal ELSE 0 END), 0)`,
-        "deliveredRevenue",
-      )
-      .addSelect(`COUNT(CASE WHEN status.code = :shippedCode THEN 1 END)`, "shippedCount")
-      .addSelect(
-        `(SELECT COUNT(DISTINCT so.id)
-            FROM orders so
-            INNER JOIN shipments sh ON sh."orderId" = so.id
-            WHERE so."clientId" = :clientId
-              AND so."adminId" = :adminId
-              AND so.deleted_at IS NULL
-              AND sh."shippedAt" IS NOT NULL)`,
-        "allShippedCount",
-      )
-      .addSelect(`COUNT(CASE WHEN status.code = :returnedCode THEN 1 END)`, "returnedCount")
-      .addSelect(
-        `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') THEN 1 END)`,
-        "cancelledCount",
-      )
-      .addSelect(
-        `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
-            SELECT occ."cancelledAfterShipping"
-            FROM order_cancel_causes occ
-            WHERE occ."orderId" = ord.id
-            ORDER BY occ.created_at DESC
-            LIMIT 1
-          ), ord."shippedAt" IS NOT NULL) = false THEN 1 END)`,
-        "cancelledBeforeShippingCount",
-      )
-      .addSelect(
-        `COUNT(CASE WHEN status.code IN ('${OrderStatus.CANCELLED}') AND COALESCE((
-            SELECT occ."cancelledAfterShipping"
-            FROM order_cancel_causes occ
-            WHERE occ."orderId" = ord.id
-            ORDER BY occ.created_at DESC
-            LIMIT 1
-          ), ord."shippedAt" IS NOT NULL) = true THEN 1 END)`,
-        "cancelledAfterShippingCount",
-      )
-      .setParameter("deliveredCode", OrderStatus.DELIVERED)
-      .setParameter("confirmedCode", OrderStatus.CONFIRMED)
-      .setParameter("shippedCode", OrderStatus.SHIPPED)
-      .setParameter("returnedCode", OrderStatus.RETURNED)
-      .setParameter("postponedCode", OrderStatus.POSTPONED)
-      .getRawOne();
-
-    return this.mapClientOrderStats(raw);
-  }
-
-  private mapClientOrderStats(raw: any) {
-    const totalOrders = Number(raw?.totalOrders ?? 0);
-    const confirmedCount = Number(raw?.confirmedCount ?? 0);
-    const allConfirmedCount = Number(raw?.allConfirmedCount ?? 0);
-    const shippedCount = Number(raw?.shippedCount ?? 0);
-    const cancelledCount = Number(raw?.cancelledCount ?? 0);
-    const allShippedCount = Number(raw?.allShippedCount ?? 0);
-    const cancelledBeforeShippingCount = Number(
-      raw?.cancelledBeforeShippingCount ?? 0,
-    );
-    const cancelledAfterShippingCount = Number(
-      raw?.cancelledAfterShippingCount ?? 0,
-    );
-    const deliveredCount = Number(raw?.deliveredCount ?? 0);
-    const returnedCount = Number(raw?.returnedCount ?? 0);
-    const rate = (count: number, denominator: number) =>
-      denominator > 0 ? Number(((count / denominator) * 100).toFixed(2)) : 0;
-
-    return {
-      totalOrders,
-      confirmedCount,
-      confirmedPercent: rate(confirmedCount, totalOrders),
-      confirmedRate: rate(allConfirmedCount, totalOrders),
-      totalSales: Number(raw?.totalSales ?? 0),
-      deliveredCount,
-      deliveredPercent: rate(deliveredCount, totalOrders),
-      postponedCount: Number(raw?.postponedCount ?? 0),
-      deliveredRevenue: Number(raw?.deliveredRevenue ?? 0),
-      shippedCount,
-      shippedPercent: rate(shippedCount, totalOrders),
-      returnedCount,
-      returnedPercent: rate(returnedCount, totalOrders),
-      cancelledCount,
-      cancelledBeforeShippingCount,
-      cancelledAfterShippingCount,
-      cancelRate: rate(cancelledCount, totalOrders),
-      beforeShippingCancelRate: rate(cancelledBeforeShippingCount, totalOrders),
-      afterShippingCancelRate: rate(cancelledAfterShippingCount, totalOrders),
-      afterShippingCancelRateOfShipped: rate(
-        cancelledAfterShippingCount,
-        allShippedCount,
-      ),
-    };
+    return this.clientOrderStatsService.getOrderStatsSnapshot(adminId, clientId);
   }
 
   async getOrderStats(me: any, clientId: string) {
     const { adminId } = await this.findClientOrThrow(me, clientId);
 
     const [stats, tagRows] = await Promise.all([
-      this.getOrderStatsSnapshot(adminId, clientId),
+      this.clientOrderStatsService.getOrderStatsSnapshot(adminId, clientId),
       this.dataSource
         .getRepository(OrderTagEntity)
         .createQueryBuilder("ot")
@@ -988,5 +924,531 @@ export class ClientService {
       .andWhere("adminId = :adminId", { adminId })
       .andWhere("isDefault = :isDefault", { isDefault: true })
       .execute();
+  }
+
+  async getBulkTemplate() {
+    const workbook = buildClientImportTemplate((key) =>
+      this.translations.t(key),
+    );
+    return workbook.xlsx.writeBuffer();
+  }
+
+  private addImportCellError(
+    cellErrors: ClientImportCellErrors,
+    rowNumber: number,
+    colNumber: number,
+    message: string,
+  ) {
+    if (!cellErrors.has(rowNumber)) {
+      cellErrors.set(rowNumber, new Map<number, string[]>());
+    }
+    const rowMap = cellErrors.get(rowNumber)!;
+    if (!rowMap.has(colNumber)) {
+      rowMap.set(colNumber, []);
+    }
+    rowMap.get(colNumber)!.push(message);
+  }
+
+  private flattenValidationMessages(
+    error: ValidationError,
+    property = error.property,
+  ): { property: string; messages: string[] }[] {
+    const result: { property: string; messages: string[] }[] = [];
+    const messages: string[] = [];
+    const constraints = error.constraints || {};
+
+    if (constraints.maxLength || constraints.maxlength) {
+      const max =
+        property === "name" ? 255 : property === "phoneNumber" ? 50 : 255;
+      messages.push(
+        this.translations.t("validation.max_length", {
+          args: { property, constraints: { 0: max } },
+        }),
+      );
+    }
+    if (constraints.isEmail) {
+      messages.push(this.translations.t("validation.is_email"));
+    }
+    if (constraints.isNotEmpty) {
+      messages.push(
+        this.translations.t("validation.is_not_empty", {
+          args: { property },
+        }),
+      );
+    }
+    if (constraints.isString) {
+      messages.push(
+        this.translations.t("validation.is_string", {
+          args: { property },
+        }),
+      );
+    }
+
+    if (messages.length) {
+      result.push({ property, messages });
+    }
+
+    for (const child of error.children || []) {
+      result.push(
+        ...this.flattenValidationMessages(
+          child,
+          child.property === "phoneNumber" ? "phoneNumber" : child.property,
+        ),
+      );
+    }
+    return result;
+  }
+
+  private dtoPropertyColumn(property: string): number {
+    if (property === "name") return clientImportColumnIndex("name");
+    if (property === "email") return clientImportColumnIndex("email");
+    if (property === "notes") return clientImportColumnIndex("notes");
+    return clientImportColumnIndex("phoneNumbers");
+  }
+
+  async enqueueBulkImport(me: any, file: Express.Multer.File) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    if (!file?.buffer?.length) {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.bulk_file_required"),
+      );
+    }
+    const isXlsx =
+      file.originalname?.toLowerCase().endsWith(".xlsx") ||
+      file.mimetype ===
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    if (!isXlsx) {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.bulk_file_required"),
+      );
+    }
+
+    const rows = await parseClientImportBuffer(file.buffer);
+    if (!rows.length) {
+      throw new BadRequestException(
+        this.translations.t("domains.customer.bulk_no_valid_rows"),
+      );
+    }
+
+    const cellErrors: ClientImportCellErrors = new Map();
+    const seenPhones = new Set<string>();
+    const statKeys = CLIENT_IMPORT_COLUMNS.filter(
+      (key) =>
+        key !== "name" &&
+        key !== "email" &&
+        key !== "phoneNumbers" &&
+        key !== "notes",
+    );
+
+    for (const row of rows) {
+      const phones: string[] = [];
+      for (const rawPhone of row.phoneNumbers) {
+        const normalized = this.normalizeContactPhone(rawPhone);
+        if (!normalized) continue;
+        if (seenPhones.has(normalized)) {
+          this.addImportCellError(
+            cellErrors,
+            row.rowNumber,
+            clientImportColumnIndex("phoneNumbers"),
+            this.translations.t("domains.customer.bulk_duplicate_phone_in_file", {
+              args: { row: row.rowNumber, phoneNumber: normalized },
+            }),
+          );
+          continue;
+        }
+        seenPhones.add(normalized);
+        phones.push(normalized);
+      }
+
+      const dto = plainToInstance(CreateClientDto, {
+        name: row.name || undefined,
+        email: row.email || undefined,
+        notes: row.notes || undefined,
+        contacts: phones.map((phoneNumber, index) => ({
+          phoneNumber,
+          isPrimary: index === 0,
+        })),
+      });
+      const dtoErrors = await validate(dto);
+
+      if (!phones.length) {
+        this.addImportCellError(
+          cellErrors,
+          row.rowNumber,
+          clientImportColumnIndex("phoneNumbers"),
+          this.translations.t("domains.customer.bulk_phone_required", {
+            args: { row: row.rowNumber },
+          }),
+        );
+      }
+
+      for (const error of dtoErrors) {
+        for (const mapped of this.flattenValidationMessages(error)) {
+          for (const message of mapped.messages) {
+            this.addImportCellError(
+              cellErrors,
+              row.rowNumber,
+              this.dtoPropertyColumn(mapped.property),
+              message,
+            );
+          }
+        }
+      }
+
+      for (const key of statKeys) {
+        if (!row.statErrors?.[key]) continue;
+        const message =
+          key === "confirmedRate"
+            ? this.translations.t("domains.customer.bulk_invalid_confirmed_rate")
+            : this.translations.t("domains.customer.bulk_invalid_stat", {
+                args: { field: key },
+              });
+        this.addImportCellError(
+          cellErrors,
+          row.rowNumber,
+          clientImportColumnIndex(key),
+          message,
+        );
+      }
+    }
+
+    if (cellErrors.size > 0) {
+      const errorFileBuffer = await generateClientImportErrorReport(
+        rows,
+        cellErrors,
+        (key) => this.translations.t(key),
+      );
+      return {
+        message: this.translations.t("domains.customer.bulk_validation_failed", {
+          args: { rowCount: cellErrors.size },
+        }),
+        failed: cellErrors.size,
+        errorFileBuffer,
+      };
+    }
+
+    ensureClientImportUploadDir();
+    const filePath = join(
+      CLIENT_IMPORT_UPLOAD_DIR,
+      `clients-${Date.now()}-${Math.round(Math.random() * 1e9)}.xlsx`,
+    );
+    await fs.writeFile(filePath, file.buffer);
+
+    await this.clientImportQueueService.enqueueImport(
+      adminId,
+      me?.id,
+      filePath,
+    );
+
+    return {
+      queued: true,
+      failed: 0,
+      message: this.translations.t("domains.customer.bulk_clients_queued", {
+        args: { count: rows.length },
+      }),
+    };
+  }
+
+  private async findContactsByPhonesBatched(
+    repo: Repository<CustomerEntity>,
+    adminId: string,
+    phones: string[],
+  ): Promise<CustomerEntity[]> {
+    const found: CustomerEntity[] = [];
+    for (let i = 0; i < phones.length; i += CLIENT_IMPORT_BATCH_SIZE) {
+      const batch = phones.slice(i, i + CLIENT_IMPORT_BATCH_SIZE);
+      const digits = [
+        ...new Set(batch.map((phone) => phone.replace(/\D/g, "")).filter(Boolean)),
+      ];
+      const qb = repo
+        .createQueryBuilder("contact")
+        .where("contact.adminId = :adminId", { adminId })
+        .andWhere(
+          new Brackets((inner) => {
+            inner.where("contact.phoneNumber IN (:...phones)", { phones: batch });
+            if (digits.length) {
+              inner.orWhere(
+                "regexp_replace(contact.phoneNumber, '\\D', '', 'g') IN (:...digits)",
+                { digits },
+              );
+            }
+          }),
+        );
+      found.push(...(await qb.getMany()));
+    }
+    return found;
+  }
+
+  private contactLookupKeys(contact: CustomerEntity): string[] {
+    const keys = [contact.phoneNumber, this.normalizeContactPhone(contact.phoneNumber)];
+    const digits = String(contact.phoneNumber || "").replace(/\D/g, "");
+    if (digits) keys.push(digits);
+    return [...new Set(keys.filter(Boolean))];
+  }
+
+  async processBulkImport(adminId: string, userId: string | undefined, filePath: string) {
+    const notifyUserId = userId || adminId;
+    const errors: string[] = [];
+
+    try {
+      const rows = await parseClientImportFile(filePath);
+      if (!rows.length) {
+        throw new BadRequestException(
+          this.translations.t("domains.customer.bulk_no_valid_rows"),
+        );
+      }
+
+      type PreparedRow = {
+        row: ClientImportRow;
+        phones: string[];
+        clientId: string;
+      };
+      const prepared: PreparedRow[] = [];
+      const seenPhones = new Set<string>();
+
+      for (const row of rows) {
+        const phones: string[] = [];
+        for (const rawPhone of row.phoneNumbers) {
+          const normalized = this.normalizeContactPhone(rawPhone);
+          if (!normalized) continue;
+          if (seenPhones.has(normalized)) {
+            errors.push(
+              this.translations.t("domains.customer.bulk_duplicate_phone_in_file", {
+                args: { row: row.rowNumber, phoneNumber: normalized },
+              }),
+            );
+            continue;
+          }
+          seenPhones.add(normalized);
+          phones.push(normalized);
+        }
+
+        if (!phones.length) {
+          errors.push(
+            this.translations.t("domains.customer.bulk_phone_required", {
+              args: { row: row.rowNumber },
+            }),
+          );
+          continue;
+        }
+
+        prepared.push({ row, phones, clientId: randomUUID() });
+      }
+
+      const allPhones = [...new Set(prepared.flatMap((item) => item.phones))];
+      const existingContacts = allPhones.length
+        ? await this.findContactsByPhonesBatched(
+            this.contactRepo,
+            adminId,
+            allPhones,
+          )
+        : [];
+      const existingByPhone = new Map<string, CustomerEntity>();
+      for (const contact of existingContacts) {
+        for (const key of this.contactLookupKeys(contact)) {
+          existingByPhone.set(key, contact);
+        }
+      }
+
+      for (const item of prepared) {
+        for (const phone of item.phones) {
+          const existing =
+            existingByPhone.get(phone) ||
+            existingByPhone.get(phone.replace(/\D/g, ""));
+          if (existing?.clientId) {
+            errors.push(
+              this.translations.t("domains.customer.bulk_phone_already_linked", {
+                args: {
+                  row: item.row.rowNumber,
+                  phoneNumber: existing.phoneNumber || phone,
+                },
+              }),
+            );
+          }
+        }
+      }
+
+      if (errors.length) {
+        throw new BadRequestException(errors.slice(0, 15).join(" | "));
+      }
+
+      const createdNames: string[] = [];
+      const newCustomers: CustomerEntity[] = [];
+
+      await this.dataSource.transaction(async (manager) => {
+        const clientRepo = manager.getRepository(ClientEntity);
+        const contactRepo = manager.getRepository(CustomerEntity);
+
+        const clientValues = prepared.map((item) => ({
+          id: item.clientId,
+          adminId,
+          name: item.row.name?.trim(),
+          email: item.row.email?.toLowerCase() || null,
+          notes: item.row.notes,
+          legacyTotalOrders: item.row.totalOrders,
+          legacyConfirmedRate: item.row.confirmedRate,
+          legacyConfirmedCount: deriveLegacyConfirmedCount(
+            item.row.totalOrders,
+            item.row.confirmedRate,
+          ),
+          legacyDeliveredCount: item.row.deliveredCount,
+          legacyReturnedCount: item.row.returnedCount,
+          legacyCancelledCount: item.row.cancelledCount,
+          legacyTotalSales: item.row.totalSales,
+          legacyDeliveredRevenue: item.row.deliveredRevenue,
+        }));
+
+        for (let i = 0; i < clientValues.length; i += CLIENT_IMPORT_BATCH_SIZE) {
+          const batch = clientValues.slice(i, i + CLIENT_IMPORT_BATCH_SIZE);
+          await clientRepo
+            .createQueryBuilder()
+            .insert()
+            .into(ClientEntity)
+            .values(batch)
+            .execute();
+        }
+
+        const newContactValues: {
+          id: string;
+          adminId: string;
+          clientId: string;
+          waId: string;
+          phoneNumber: string;
+          name: string;
+        }[] = [];
+        const orphanUpdates: { contactId: string; clientId: string }[] = [];
+        const primaryByClient = new Map<string, string>();
+
+        for (const item of prepared) {
+          createdNames.push(item.row.name || item.phones[0]);
+          item.phones.forEach((phone, index) => {
+            const existing =
+              existingByPhone.get(phone) ||
+              existingByPhone.get(phone.replace(/\D/g, ""));
+            if (existing) {
+              orphanUpdates.push({ contactId: existing.id, clientId: item.clientId });
+              if (index === 0) primaryByClient.set(item.clientId, existing.id);
+              return;
+            }
+            const contactId = randomUUID();
+            newContactValues.push({
+              id: contactId,
+              adminId,
+              clientId: item.clientId,
+              waId: phone,
+              phoneNumber: phone,
+              name: item.row.name?.trim() || phone,
+            });
+            if (index === 0) primaryByClient.set(item.clientId, contactId);
+          });
+        }
+
+        for (let i = 0; i < newContactValues.length; i += CLIENT_IMPORT_BATCH_SIZE) {
+          const batch = newContactValues.slice(i, i + CLIENT_IMPORT_BATCH_SIZE);
+          const inserted = await contactRepo
+            .createQueryBuilder()
+            .insert()
+            .into(CustomerEntity)
+            .values(batch)
+            .returning("*")
+            .execute();
+          for (const raw of inserted.raw || []) {
+            newCustomers.push(contactRepo.create(raw as CustomerEntity));
+          }
+        }
+
+        if (orphanUpdates.length) {
+          for (let i = 0; i < orphanUpdates.length; i += CLIENT_IMPORT_BATCH_SIZE) {
+            const batch = orphanUpdates.slice(i, i + CLIENT_IMPORT_BATCH_SIZE);
+            await manager.query(
+              `
+                UPDATE customers AS c
+                SET "clientId" = v."clientId"
+                FROM (
+                  SELECT UNNEST($1::uuid[]) AS id, UNNEST($2::uuid[]) AS "clientId"
+                ) AS v
+                WHERE c.id = v.id
+              `,
+              [
+                batch.map((item) => item.contactId),
+                batch.map((item) => item.clientId),
+              ],
+            );
+          }
+        }
+
+        const primaryPairs = [...primaryByClient.entries()];
+        for (let i = 0; i < primaryPairs.length; i += CLIENT_IMPORT_BATCH_SIZE) {
+          const batch = primaryPairs.slice(i, i + CLIENT_IMPORT_BATCH_SIZE);
+          await manager.query(
+            `
+              UPDATE clients AS c
+              SET "primaryContactId" = v."contactId"
+              FROM (
+                SELECT UNNEST($1::uuid[]) AS id, UNNEST($2::uuid[]) AS "contactId"
+              ) AS v
+              WHERE c.id = v.id
+            `,
+            [batch.map(([clientId]) => clientId), batch.map(([, contactId]) => contactId)],
+          );
+        }
+      });
+
+      for (const customer of newCustomers) {
+        this.appGateway.emitNewCustomer(adminId, customer);
+      }
+
+      const preview = createdNames.slice(0, 5).join(", ");
+      await this.notificationService.create({
+        userId: notifyUserId,
+        type: NotificationType.BULK_CLIENTS_CREATED,
+        title: await this.requestTranslations.tAsync(
+          "domains.customer.bulk_clients_created_title",
+          adminId,
+        ),
+        message: await this.requestTranslations.tAsync(
+          "domains.customer.bulk_clients_created_message",
+          adminId,
+          {
+            args: {
+              count: createdNames.length,
+              preview,
+            },
+          },
+        ),
+      });
+    } catch (error: any) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      await this.notificationService.create({
+        userId: notifyUserId,
+        type: NotificationType.BULK_CLIENTS_FAILED,
+        title: await this.requestTranslations.tAsync(
+          "domains.customer.bulk_clients_failed_title",
+          adminId,
+        ),
+        message: await this.requestTranslations.tAsync(
+          "domains.customer.bulk_clients_failed_message",
+          adminId,
+          { args: { errorMessage } },
+        ),
+      });
+      throw error;
+    } finally {
+      try {
+        await fs.unlink(filePath);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to delete client import file ${filePath}: ${
+            error instanceof Error ? error.message : error
+          }`,
+        );
+      }
+    }
   }
 }

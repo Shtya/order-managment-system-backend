@@ -57,6 +57,45 @@ export class ClientEntity {
   @Column({ type: "jsonb", nullable: true })
   metadata: any;
 
+  @Column({ type: "int", default: 0 })
+  legacyTotalOrders: number;
+
+  @Column({ type: "int", default: 0 })
+  legacyConfirmedCount: number;
+
+  @Column({
+    type: "decimal",
+    precision: 5,
+    scale: 2,
+    default: 0,
+  })
+  legacyConfirmedRate: number;
+
+  @Column({ type: "int", default: 0 })
+  legacyDeliveredCount: number;
+
+  @Column({ type: "int", default: 0 })
+  legacyReturnedCount: number;
+
+  @Column({ type: "int", default: 0 })
+  legacyCancelledCount: number;
+
+  @Column({
+    type: "decimal",
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  legacyTotalSales: number;
+
+  @Column({
+    type: "decimal",
+    precision: 14,
+    scale: 2,
+    default: 0,
+  })
+  legacyDeliveredRevenue: number;
+
   @Column({ type: "uuid", nullable: true })
   primaryContactId: string;
 

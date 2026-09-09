@@ -59,6 +59,11 @@ import { BullBoardAuthMiddleware } from "./common/bull-board-auth-middleware";
 import { AuthModule } from "src/auth/auth.module";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { ClientSegmentsModule } from "src/client-segments/client-segments.module";
+import { ClientsModule } from "src/clients/clients.module";
+import {
+  ClientImportQueueService,
+  ClientImportWorkerService,
+} from "./queues/client-import.queue";
 import { MetricsTime } from "bullmq";
 
 const registeredQueues = Object.values(QueueNames).map((queueName) => ({
@@ -90,6 +95,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     forwardRef(() => TagsModule),
     forwardRef(() => ClientSegmentsModule),
     forwardRef(() => CampaignsModule),
+    forwardRef(() => ClientsModule),
     BullModule.forRootAsync(bullQueueConfig),
     BullModule.registerQueue(...registeredQueues),
     BullBoardModule.forRootAsync({
@@ -145,6 +151,8 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     ClientSegmentWorkerService,
     CampaignQueueService,
     CampaignWorkerService,
+    ClientImportQueueService,
+    ClientImportWorkerService,
     QueueDelayService,
   ],
   exports: [
@@ -162,6 +170,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     ClientSegmentQueueService,
     CampaignQueueService,
     QueueDelayService,
+    ClientImportQueueService,
   ],
   controllers: [OpsController],
 })

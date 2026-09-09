@@ -114,6 +114,10 @@ import { CancelCausesService } from "src/cancel-causes/cancel-causes.service";
 import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 import { CustomerEntity } from "entities/customers.entity";
 import { ClientEntity } from "entities/clients.entity";
+import {
+  applyThinClientOrderStats,
+  ClientOrderStatsService,
+} from "src/clients/client-order-stats.service";
 
 export function tenantId(me: any): any | null {
   if (!me) return null;
@@ -199,6 +203,8 @@ export class OrdersService {
     private readonly cancelCausesService: CancelCausesService,
     @Inject(forwardRef(() => TagAutomationEvaluator))
     private readonly tagAutomationEvaluator: TagAutomationEvaluator,
+    @Inject(forwardRef(() => ClientOrderStatsService))
+    private readonly clientOrderStatsService: ClientOrderStatsService,
   ) { }
 
   //private function to lock order if he delivered and has monthly closign id
@@ -4731,48 +4737,7 @@ export class OrdersService {
         }),
       );
 
-    const orderLookupSql = isUuid
-      ? `src.id = :id`
-      : `(src."orderNumber" = :id OR src."trackingNumber" = :id OR EXISTS (
-          SELECT 1 FROM shipments s
-          WHERE s."orderId" = src.id AND s."trackingNumber" = :id
-        ))`;
-    const tenantLookupSql = adminId ? ` AND src."adminId" = :adminId` : "";
-    const clientIdSql = `(SELECT src."clientId" FROM orders src WHERE ${orderLookupSql}${tenantLookupSql} AND src."clientId" IS NOT NULL LIMIT 1)`;
-
-    const statsQb = repo
-      .createQueryBuilder("ord")
-      .leftJoin("ord.status", "st")
-      .where(`ord."clientId" = ${clientIdSql}`)
-      .andWhere("ord.deleted_at IS NULL")
-      .select("COUNT(ord.id)", "totalOrders")
-      .addSelect(
-        `COUNT(CASE WHEN st.code = :confirmedCode THEN 1 END)`,
-        "confirmedCount",
-      )
-      .addSelect(
-        `COUNT(CASE WHEN st.code = :deliveredCode THEN 1 END)`,
-        "deliveredCount",
-      )
-      .addSelect(
-        `COUNT(CASE WHEN st.code = :returnedCode THEN 1 END)`,
-        "returnedCount",
-      )
-      .addSelect(
-        `COUNT(CASE WHEN st.code = :shippedCode THEN 1 END)`,
-        "shippedCount",
-      )
-      .setParameter("id", id)
-      .setParameter("confirmedCode", OrderStatus.CONFIRMED)
-      .setParameter("deliveredCode", OrderStatus.DELIVERED)
-      .setParameter("returnedCode", OrderStatus.RETURNED)
-      .setParameter("shippedCode", OrderStatus.SHIPPED);
-
-    if (adminId) {
-      statsQb.andWhere("ord.adminId = :adminId", { adminId });
-    }
-
-    const [order, stats] = await Promise.all([qb.getOne(), statsQb.getRawOne()]);
+    const order = await qb.getOne();
 
     if (!order) {
       throw new BadRequestException(
@@ -4785,13 +4750,12 @@ export class OrdersService {
     );
 
     if (order.client?.id) {
-      (order.client as any).totalOrders = Number(stats?.totalOrders ?? 0);
-      (order.client as any).confirmedCount = Number(stats?.confirmedCount ?? 0);
-      (order.client as any).shippedCount = Number(stats?.shippedCount ?? 0);
-      (order.client as any).deliveredCount = Number(stats?.deliveredCount ?? 0);
-      (order.client as any).returnedCount = Number(stats?.returnedCount ?? 0);
-      (order.client as any).primaryNumber =
-        order.client.primaryContact?.phoneNumber || null;
+      const stats = await this.clientOrderStatsService.getOrderStatsSnapshot(
+        order.adminId,
+        order.client.id,
+        order.client,
+      );
+      applyThinClientOrderStats(order.client, stats);
     }
 
     return order;

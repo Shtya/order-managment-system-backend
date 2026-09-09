@@ -17,12 +17,14 @@ import { ShippingCompanyEntity } from "entities/shipping.entity";
 import { StoreEntity } from "entities/stores.entity";
 import { TagsModule } from "src/tags/tags.module";
 import { AutomationModule } from "src/automation/automation.module";
+import { ClientsModule } from "src/clients/clients.module";
 
 @Module({
   imports: [
     forwardRef(() => OrdersModule),
     forwardRef(() => TagsModule),
     forwardRef(() => AutomationModule),
+    forwardRef(() => ClientsModule),
     RedisModule,
     TypeOrmModule.forFeature([
       OrderAssignmentEntity,

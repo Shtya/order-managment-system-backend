@@ -44,6 +44,7 @@ import { ClientSettingsEntity } from "entities/clientSettings.entity";
 import { OrderReplacemetsController } from "./controllers/order-replacements.controller";
 import { CancelCausesModule } from "src/cancel-causes/cancel-causes.module";
 import { TagsModule } from "src/tags/tags.module";
+import { ClientsModule } from "src/clients/clients.module";
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { TagsModule } from "src/tags/tags.module";
     forwardRef(() => OrderAssignmentModule),
     forwardRef(() => CancelCausesModule),
     forwardRef(() => TagsModule),
+    forwardRef(() => ClientsModule),
     TypeOrmModule.forFeature([
       OrderEntity,
       OrderItemEntity,

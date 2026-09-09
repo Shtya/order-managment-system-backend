@@ -554,21 +554,27 @@ export class AudienceService {
 
     switch (field) {
       case ClientAudienceClientField.CLIENT_TOTAL_ORDERS:
-        return `COALESCE(${totalOrders}, 0)`;
+        return `COALESCE(client."legacyTotalOrders", 0) + COALESCE(${totalOrders}, 0)`;
       case ClientAudienceClientField.CLIENT_CONFIRMED_COUNT:
         return `COALESCE(${confirmedCount}, 0)`;
       case ClientAudienceClientField.CLIENT_CONFIRMED_RATE:
-        return this.rateSql(allConfirmedCount, totalOrders);
+        return this.rateSql(
+          `COALESCE(${allConfirmedCount}, 0) + COALESCE(client."legacyConfirmedCount", 0)`,
+          `COALESCE(${totalOrders}, 0) + COALESCE(client."legacyTotalOrders", 0)`,
+        );
       case ClientAudienceClientField.CLIENT_DELIVERED_COUNT:
-        return `COALESCE(${deliveredCount}, 0)`;
+        return `COALESCE(client."legacyDeliveredCount", 0) + COALESCE(${deliveredCount}, 0)`;
       case ClientAudienceClientField.CLIENT_RETURNED_COUNT:
-        return `COALESCE(${returnedCount}, 0)`;
+        return `COALESCE(client."legacyReturnedCount", 0) + COALESCE(${returnedCount}, 0)`;
       case ClientAudienceClientField.CLIENT_CANCELLED_COUNT:
-        return `COALESCE(${cancelledCount}, 0)`;
+        return `COALESCE(client."legacyCancelledCount", 0) + COALESCE(${cancelledCount}, 0)`;
       case ClientAudienceClientField.CLIENT_CANCEL_RATE:
-        return this.rateSql(cancelledCount, totalOrders);
+        return this.rateSql(
+          `COALESCE(${cancelledCount}, 0) + COALESCE(client."legacyCancelledCount", 0)`,
+          `COALESCE(${totalOrders}, 0) + COALESCE(client."legacyTotalOrders", 0)`,
+        );
       case ClientAudienceClientField.CLIENT_DELIVERED_REVENUE:
-        return `COALESCE(${deliveredRevenue}, 0)`;
+        return `COALESCE(client."legacyDeliveredRevenue", 0) + COALESCE(${deliveredRevenue}, 0)`;
       default:
         return null;
     }

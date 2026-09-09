@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -23,6 +25,7 @@ import { deleteFile } from "common/healpers";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
 import * as ExcelJS from "exceljs";
+import { ClientOrderStatsService } from "src/clients/client-order-stats.service";
 
 @Injectable()
 export class CustomerService {
@@ -36,6 +39,8 @@ export class CustomerService {
     private readonly dataSource: DataSource,
     private readonly appGateway: AppGateway,
     private readonly translations: TranslationService,
+    @Inject(forwardRef(() => ClientOrderStatsService))
+    private readonly clientOrderStatsService: ClientOrderStatsService,
   ) {}
 
   private runInTransaction<T>(
@@ -146,9 +151,11 @@ export class CustomerService {
     }
 
     // If it wasn't inserted (already exists), fetch the customer
-    return await repo.findOne({
+    const customer = await repo.findOne({
       where: { phoneNumber: normalizedPhoneNumber, adminId },
     });
+
+    return customer;
   }
 
   async createCustomer(
@@ -351,29 +358,8 @@ export class CustomerService {
       return emptyStats;
     }
 
-    const [raw, tagRows] = await Promise.all([
-      this.dataSource
-        .getRepository(OrderEntity)
-        .createQueryBuilder("ord")
-        .leftJoin("ord.status", "status")
-        .where("ord.adminId = :adminId", { adminId })
-        .andWhere("ord.clientId = :clientId", { clientId })
-        .select("COUNT(ord.id)", "totalOrders")
-        .addSelect(
-          "COUNT(CASE WHEN ord.isConfirmed = true THEN 1 END)",
-          "confirmedCount",
-        )
-        .addSelect("COALESCE(SUM(ord.finalTotal), 0)", "totalSales")
-        .addSelect(
-          `COUNT(CASE WHEN status.code = :deliveredCode THEN 1 END)`,
-          "deliveredCount",
-        )
-        .addSelect(
-          `COALESCE(SUM(CASE WHEN status.code = :deliveredCode THEN ord.finalTotal ELSE 0 END), 0)`,
-          "deliveredRevenue",
-        )
-        .setParameter("deliveredCode", OrderStatus.DELIVERED)
-        .getRawOne(),
+    const [stats, tagRows] = await Promise.all([
+      this.clientOrderStatsService.getOrderStatsSnapshot(adminId, clientId),
       this.dataSource
         .getRepository(OrderTagEntity)
         .createQueryBuilder("ot")
@@ -393,19 +379,8 @@ export class CustomerService {
         .getRawMany(),
     ]);
 
-    const totalOrders = Number(raw?.totalOrders ?? 0);
-    const confirmedCount = Number(raw?.confirmedCount ?? 0);
-
     return {
-      totalOrders,
-      confirmedCount,
-      confirmedRate:
-        totalOrders > 0
-          ? Number(((confirmedCount / totalOrders) * 100).toFixed(2))
-          : 0,
-      totalSales: Number(raw?.totalSales ?? 0),
-      deliveredCount: Number(raw?.deliveredCount ?? 0),
-      deliveredRevenue: Number(raw?.deliveredRevenue ?? 0),
+      ...stats,
       tags: tagRows.map((row) => ({
         id: row.id,
         name: row.name,

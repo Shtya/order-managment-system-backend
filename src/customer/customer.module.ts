@@ -5,11 +5,13 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { CustomerEntity } from "entities/customers.entity";
 import { ClientAddressEntity, ClientEntity } from "entities/clients.entity";
 import { ConversationModule } from "../conversation/conversation.module";
+import { ClientsModule } from "src/clients/clients.module";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([CustomerEntity, ClientEntity, ClientAddressEntity]),
     forwardRef(() => ConversationModule),
+    forwardRef(() => ClientsModule),
   ],
   controllers: [CustomerController],
   providers: [CustomerService],

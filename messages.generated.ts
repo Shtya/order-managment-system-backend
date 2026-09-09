@@ -260,6 +260,27 @@ export type I18nTranslations = {
             "export_area": string;
             "export_landmark": string;
             "export_is_default": string;
+            "bulk_file_required": string;
+            "bulk_no_valid_rows": string;
+            "bulk_phone_required": string;
+            "bulk_duplicate_phone_in_file": string;
+            "bulk_phone_already_linked": string;
+            "bulk_clients_created_title": string;
+            "bulk_clients_created_message": string;
+            "bulk_clients_failed_title": string;
+            "bulk_clients_failed_message": string;
+            "bulk_col_phone_numbers": string;
+            "bulk_col_total_orders": string;
+            "bulk_col_confirmed_rate": string;
+            "bulk_col_delivered_count": string;
+            "bulk_col_returned_count": string;
+            "bulk_col_cancelled_count": string;
+            "bulk_col_total_sales": string;
+            "bulk_col_delivered_revenue": string;
+            "bulk_invalid_stat": string;
+            "bulk_invalid_confirmed_rate": string;
+            "bulk_validation_failed": string;
+            "bulk_clients_queued": string;
         };
         "dashboard": {
             "export_profit_report_sheet": string;

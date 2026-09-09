@@ -30,6 +30,10 @@ import {
 } from "dto/client.dto";
 import { ClientService } from "./clients.service";
 import { Response } from "express";
+import {
+  CLIENT_IMPORT_FILE_MAX_BYTES,
+  CLIENT_IMPORT_TEMPLATE_FILENAME,
+} from "./client-import-file.util";
 
 const clientAvatarStorage = diskStorage({
   destination: "./uploads/clients",
@@ -79,6 +83,63 @@ export class ClientController {
       `attachment; filename=clients-${Date.now()}.xlsx`,
     );
     res.end(buffer);
+  }
+
+  @Get("bulk/template")
+  @Permissions("customer.read")
+  @Header(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  )
+  async bulkTemplate(@Res() res: Response) {
+    const buffer = await this.clientService.getBulkTemplate();
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=${CLIENT_IMPORT_TEMPLATE_FILENAME}`,
+    );
+    res.end(buffer);
+  }
+
+  @Post("bulk")
+  @Permissions("customer.create")
+  @UseInterceptors(
+    FileInterceptor("file", { limits: { fileSize: CLIENT_IMPORT_FILE_MAX_BYTES } }),
+  )
+  async bulkImport(
+    @Req() req: any,
+    @Res() res: Response,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    try {
+      const result = await this.clientService.enqueueBulkImport(req.user, file);
+
+      if (result.failed > 0 && result.errorFileBuffer) {
+        res.setHeader(
+          "Content-Type",
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        );
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename=client_errors_${Date.now()}.xlsx`,
+        );
+        return res.send(result.errorFileBuffer);
+      }
+
+      return res.json({
+        queued: result.queued,
+        failed: result.failed,
+        message: result.message,
+      });
+    } catch (err: any) {
+      return res.status(400).json({
+        type: "validation_error",
+        message: err.message || "Excel validation failed",
+      });
+    }
   }
 
   @Get(":id/orders/stats")

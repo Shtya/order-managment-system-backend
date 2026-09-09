@@ -7,6 +7,7 @@ export enum QueueNames {
   GETTING_STARTED = "getting-started",
   CLIENT_SEGMENTS = "client-segments",
   CAMPAIGNS = "campaigns",
+  CLIENT_IMPORT = "client-import",
 }
 
 export const QueueConfigs: Record<
@@ -50,6 +51,10 @@ export const QueueConfigs: Record<
     displayName: "Campaigns Queue",
     description:
       "Materializes campaign audiences, sends messages, and applies delivery/reply events",
+  },
+  [QueueNames.CLIENT_IMPORT]: {
+    displayName: "Client Import Queue",
+    description: "Parses Excel client templates and creates clients in the background",
   },
 };
 
@@ -96,4 +101,8 @@ export const CampaignJobs = {
   SEND_NEXT: "send-next",
   SCHEDULE_CHECK: "schedule-check",
   WEBHOOK_EVENT: "webhook-event",
+} as const;
+
+export const ClientImportJobs = {
+  IMPORT: "import-clients",
 } as const;

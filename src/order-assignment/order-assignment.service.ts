@@ -55,6 +55,10 @@ import { GettingStartedAchievementType } from "entities/getting-started.entity";
 import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
 import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
 import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
+import {
+  applyThinClientOrderStats,
+  ClientOrderStatsService,
+} from "src/clients/client-order-stats.service";
 import { TriggerEntityType, TriggerType } from "entities/automation.entity";
 
 @Injectable()
@@ -103,6 +107,8 @@ export class OrderAssignmentService {
     private readonly autoAssignmentQueueService: AutoAssignmentQueueService,
     @Inject(forwardRef(() => TriggerDispatcherService))
     private readonly triggerDispatcher: TriggerDispatcherService,
+    @Inject(forwardRef(() => ClientOrderStatsService))
+    private readonly clientOrderStatsService: ClientOrderStatsService,
   ) { }
 
   private async dispatchAssignmentCancelledAutomations(
@@ -1505,7 +1511,7 @@ export class OrderAssignmentService {
       );
     }
 
-    const { entities, raw } = await this.orderRepo
+    const { entities } = await this.orderRepo
       .createQueryBuilder("order")
       .innerJoinAndSelect(
         "order.assignments",
@@ -1543,56 +1549,6 @@ export class OrderAssignmentService {
         "clientAddress",
         "clientAddress.isDefault = true",
       )
-      .addSelect((subQuery) => {
-        return subQuery
-          .select("COALESCE(SUM(clientOrder.finalTotal), 0)")
-          .from(OrderEntity, "clientOrder")
-          .where("clientOrder.clientId = client.id")
-          .andWhere("clientOrder.deleted_at IS NULL");
-      }, "client_totalSales")
-      .addSelect((subQuery) => {
-        return subQuery
-          .select("COUNT(clientOrder.id)")
-          .from(OrderEntity, "clientOrder")
-          .where("clientOrder.clientId = client.id")
-          .andWhere("clientOrder.deleted_at IS NULL");
-      }, "client_totalOrders")
-      .addSelect((subQuery) => {
-        return subQuery
-        .select("COUNT(confOrd.id)")
-        .from(OrderEntity, "confOrd")
-        .innerJoin("confOrd.status", "confStatus")
-        .where("confOrd.clientId = client.id")
-        .andWhere("confOrd.deleted_at IS NULL")
-        .andWhere(`confStatus.code = '${OrderStatus.CONFIRMED}'`);
-    }, "client_confirmedCount")
-      .addSelect((subQuery) => {
-        return subQuery
-          .select("COUNT(shpdOrd.id)")
-          .from(OrderEntity, "shpdOrd")
-          .innerJoin("shpdOrd.status", "shpdStatus")
-          .where("shpdOrd.clientId = client.id")
-          .andWhere("shpdOrd.deleted_at IS NULL")
-          .andWhere(`shpdStatus.code = '${OrderStatus.SHIPPED}'`);
-      }, "client_shippedCount")
-      .addSelect((subQuery) => {
-        return subQuery
-          .select("COUNT(delOrd.id)")
-          .from(OrderEntity, "delOrd")
-          .innerJoin("delOrd.status", "delStatus")
-          .where("delOrd.clientId = client.id")
-          .andWhere("delOrd.deleted_at IS NULL")
-          .andWhere(`delStatus.code = '${OrderStatus.DELIVERED}'`);
-      }, "client_deliveredCount")
-      .addSelect((subQuery) => {
-        return subQuery
-          .select("COUNT(retOrd.id)")
-          .from(OrderEntity, "retOrd")
-          .innerJoin("retOrd.status", "retStatus")
-          .where("retOrd.clientId = client.id")
-          .andWhere("retOrd.deleted_at IS NULL")
-          .andWhere(`retStatus.code = '${OrderStatus.RETURNED}'`);
-      }, "client_returnedCount")
       .orderBy("assignment.assignedAt", "ASC")
       .addOrderBy("order.id", "ASC")
       .getRawAndEntities();
@@ -1601,24 +1557,14 @@ export class OrderAssignmentService {
 
     if (!order) return null;
 
-    // Attach client statistics from the raw query result
-    if (order.client && raw[0]) {
-      (order.client as any).totalSales = Number(raw[0].client_totalSales || 0);
-      (order.client as any).totalOrders = Number(raw[0].client_totalOrders || 0);
-      (order.client as any).confirmedCount = Number(
-        raw[0].client_confirmedCount || 0,
+    // Attach combined client statistics (legacy + live)
+    if (order.client?.id) {
+      const stats = await this.clientOrderStatsService.getOrderStatsSnapshot(
+        adminId,
+        order.client.id,
+        order.client,
       );
-      (order.client as any).shippedCount = Number(
-        raw[0].client_shippedCount || 0,
-      );
-      (order.client as any).deliveredCount = Number(
-        raw[0].client_deliveredCount || 0,
-      );
-      (order.client as any).returnedCount = Number(
-        raw[0].client_returnedCount || 0,
-      );
-      (order.client as any).primaryNumber =
-        order.client.primaryContact?.phoneNumber || null;
+      applyThinClientOrderStats(order.client, stats);
     }
 
     (order as any).myUnreadCount = Number(

@@ -1,4 +1,4 @@
-import { Module } from "@nestjs/common";
+import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ClientAddressEntity, ClientEntity } from "entities/clients.entity";
 import { CustomerEntity } from "entities/customers.entity";
@@ -6,6 +6,7 @@ import { OrderEntity, OrderStatusEntity } from "entities/order.entity";
 import { OrderTagEntity } from "entities/tag.entity";
 import { CustomerModule } from "../customer/customer.module";
 import { ClientController } from "./clients.controller";
+import { ClientOrderStatsService } from "./client-order-stats.service";
 import { ClientService } from "./clients.service";
 
 @Module({
@@ -18,10 +19,10 @@ import { ClientService } from "./clients.service";
       OrderStatusEntity,
       OrderTagEntity,
     ]),
-    CustomerModule,
+    forwardRef(() => CustomerModule),
   ],
   controllers: [ClientController],
-  providers: [ClientService],
-  exports: [ClientService],
+  providers: [ClientService, ClientOrderStatsService],
+  exports: [ClientService, ClientOrderStatsService],
 })
 export class ClientsModule {}
