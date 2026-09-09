@@ -316,7 +316,7 @@ function mapMessage(message: {
       if (message.toolCalls?.length) {
         return {
           role: "assistant",
-          content: message.content,
+          content: message.content ?? "",
           tool_calls: message.toolCalls.map((tc) => ({
             id: tc.id,
             type: "function",

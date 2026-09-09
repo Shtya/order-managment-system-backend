@@ -14,6 +14,7 @@ import {
 import { AiProviderRequest, AiProviderResult } from "../interfaces/ai-types";
 import { AiProviderError, toAiProviderError } from "../errors/provider.errors";
 import { AiModelType } from "../../../entities/ai.entity";
+import { isChatCompletionsReasoningModel } from "../orchestrator/model-rank";
 
 @Injectable()
 export class OpenAiProvider extends AiProviderAbstract {
@@ -29,17 +30,14 @@ export class OpenAiProvider extends AiProviderAbstract {
     }
     return new OpenAI({
       apiKey: this.apiKey,
-      baseURL: this.baseUrl || undefined,
+      baseURL: "https://api.openai.com/v1",
     });
   }
 
   constructor() {
     super();
     const prefix = "AI_OPENAI";
-    this.baseUrl = strEnv(
-      process.env[`${prefix}_BASE_URL`],
-      "https://api.openai.com/v1",
-    );
+    this.baseUrl = "https://api.openai.com/v1",
     this.apiKey = strEnv(process.env[`${prefix}_API_KEY`], "");
     this.model = strEnv(process.env[`${prefix}_MODEL`], "gpt-4o-mini");
     this.maxTokens = intEnv(process.env[`${prefix}_MAX_TOKENS`], 2048);
@@ -82,15 +80,18 @@ export class OpenAiProvider extends AiProviderAbstract {
 
   protected async chat(request: AiProviderRequest): Promise<AiProviderResult> {
     const client = this.buildClient();
+    const useTools =
+      request.tools.length > 0 && request.toolChoice !== "none";
     const response = await this.withTimeout(
       client.chat.completions.create({
         model: this.model,
         messages: request.messages.map((m) => mapMessage(m)) as any,
-        max_tokens: request.maxTokens ?? this.maxTokens,
         temperature: request.temperature ?? this.temperature,
         stream: false,
-
-        ...(request.tools.length > 0 && request.toolChoice !== "none"
+        ...(useTools && isChatCompletionsReasoningModel(this.model)
+          ? { reasoning_effort: "none" as const }
+          : {}),
+        ...(useTools
           ? {
               tools: request.tools.map((t) => ({
                 type: "function" as const,
@@ -181,7 +182,7 @@ function mapMessage(message: {
       if (message.toolCalls?.length) {
         return {
           role: "assistant",
-          content: message.content,
+          content: message.content ?? "",
           tool_calls: message.toolCalls.map((tc) => ({
             id: tc.id,
             type: "function",

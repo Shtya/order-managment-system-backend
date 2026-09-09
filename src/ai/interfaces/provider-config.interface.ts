@@ -19,6 +19,7 @@ export interface AiProviderRuntimeConfig {
   capabilities?: AiProviderCapabilities;
   retries?: number;
   entityId?: string;
+  catalogCode?: string;
 }
 
 export interface AiCircuitBreakerConfig {

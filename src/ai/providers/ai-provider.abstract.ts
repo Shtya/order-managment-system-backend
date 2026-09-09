@@ -75,6 +75,7 @@ export abstract class AiProviderAbstract {
   protected apiKey: string;
   protected model: string;
   protected entityId?: string;
+  protected catalogCode?: string;
 
   protected health: AiProviderHealth = {
     healthy: true,
@@ -115,6 +116,9 @@ export abstract class AiProviderAbstract {
     }
     if (overrides.retries !== undefined) this.retries = overrides.retries;
     if (overrides.entityId !== undefined) this.entityId = overrides.entityId;
+    if (overrides.catalogCode !== undefined) {
+      this.catalogCode = overrides.catalogCode;
+    }
   }
 
   /** Clone this provider instance with runtime config applied (for per-request isolation). */
@@ -142,7 +146,13 @@ export abstract class AiProviderAbstract {
       priority: this.priority,
       retries: this.retries,
       entityId: this.entityId,
+      catalogCode: this.catalogCode,
     };
+  }
+
+  /** Catalog `code` (e.g. glm-coding) when set; otherwise protocol kind. */
+  getCatalogCode(): string {
+    return this.catalogCode || this.kind;
   }
 
   isEnabled(): boolean {
@@ -172,7 +182,7 @@ export abstract class AiProviderAbstract {
         return result;
       } catch (error) {
         lastError = error;
-        const providerError = toAiProviderError(error, this.kind);
+        const providerError = toAiProviderError(error, this.getCatalogCode());
         this.markFailure(providerError);
 
         const shouldRetry =
@@ -185,7 +195,7 @@ export abstract class AiProviderAbstract {
       }
     }
 
-    throw toAiProviderError(lastError, this.kind);
+    throw toAiProviderError(lastError, this.getCatalogCode());
   }
 
   protected abstract chat(

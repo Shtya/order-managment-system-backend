@@ -126,13 +126,16 @@ export class GoogleProvider extends AiProviderAbstract {
       }));
 
     const systemMessage = request.messages.find((m) => m.role === "system");
+    const resolvedModel = resolveGeminiChatModel(this.model);
+    const sanitizedTools = request.tools.map((t) => ({
+      ...t,
+      parameters: sanitizeGeminiParameters(t.parameters),
+    }));
 
     const response = await this.withTimeout(
       client.models.generateContent({
-        model: this.model,
-
+        model: resolvedModel,
         contents,
-
         config: {
           ...(systemMessage
             ? {
@@ -142,16 +145,13 @@ export class GoogleProvider extends AiProviderAbstract {
                   : String(systemMessage.content),
             }
             : {}),
-
           temperature: request.temperature ?? this.temperature,
-
           maxOutputTokens: request.maxTokens ?? this.maxTokens,
-
-          ...(request.tools.length > 0 && request.toolChoice !== "none"
+          ...(sanitizedTools.length > 0 && request.toolChoice !== "none"
             ? {
               tools: [
                 {
-                  functionDeclarations: request.tools.map((t) => ({
+                  functionDeclarations: sanitizedTools.map((t) => ({
                     name: t.name,
                     description: t.description,
                     parameters: t.parameters,
@@ -195,6 +195,45 @@ export class GoogleProvider extends AiProviderAbstract {
       providerModel: this.model,
     };
   }
+}
+
+const GEMINI_RETIRED_CHAT_MODELS: Record<string, string> = {
+  "gemini-2.5-pro": "gemini-3.1-pro-preview",
+};
+
+function resolveGeminiChatModel(model: string): string {
+  const code = stripGeminiModelName(model) || model;
+  return GEMINI_RETIRED_CHAT_MODELS[code] ?? code;
+}
+
+const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
+  "example",
+  "examples",
+  "$schema",
+  "$id",
+  "$ref",
+  "default",
+]);
+
+function sanitizeGeminiParameters(schema: unknown): Record<string, unknown> {
+  const cleaned = stripUnsupportedSchemaKeys(schema);
+  if (cleaned && typeof cleaned === "object" && !Array.isArray(cleaned)) {
+    return cleaned as Record<string, unknown>;
+  }
+  return { type: "object", properties: {} };
+}
+
+function stripUnsupportedSchemaKeys(node: unknown): unknown {
+  if (Array.isArray(node)) {
+    return node.map(stripUnsupportedSchemaKeys);
+  }
+  if (!node || typeof node !== "object") return node;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    if (GEMINI_UNSUPPORTED_SCHEMA_KEYS.has(key)) continue;
+    out[key] = stripUnsupportedSchemaKeys(value);
+  }
+  return out;
 }
 
 function inferGeminiModelType(modelCode: string): AiModelType {

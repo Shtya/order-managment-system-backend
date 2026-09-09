@@ -66,6 +66,8 @@ export interface AiExecutionSession {
   allowedToolNames?: string[];
   enforcePiiMasking: boolean;
   acceptWriteOperations: boolean;
+  allowProviderFailover?: boolean;
+  requireTools?: boolean;
 }
 
 export interface AiToolExecutionResult {
@@ -121,6 +123,11 @@ export interface AiOrchestrationError {
   status?: number;
 }
 
+export interface AiAttempt {
+  code: string;
+  model: string | null;
+}
+
 export interface AiOrchestrationDevInfo {
   phaseTiming: {
     totalMs: number;
@@ -140,6 +147,7 @@ export interface AiOrchestrationDevInfo {
   userRole?: string;
   providersUsed: string[];
   modelsUsed: string[];
+  aiAttempts?: AiAttempt[];
   rounds: number;
   progress: AiProgressEvent[];
 }
@@ -154,6 +162,7 @@ export interface AiOrchestrationResult {
   usage: AiUsage;
   providersUsed?: string[];
   modelsUsed?: string[];
+  aiAttempts?: AiAttempt[];
   rounds?: number;
   progress?: AiProgressEvent[];
   conversationSummary?: AiConversationSummary;

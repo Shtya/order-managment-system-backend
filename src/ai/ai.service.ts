@@ -60,6 +60,11 @@ import { AiProviderError } from "./errors/provider.errors";
 import { tenantId } from "src/category/category.service";
 import { SystemRole } from "entities/user.entity";
 import { AiModelType } from "../../entities/ai.entity";
+import {
+  pickBestModel,
+  toBestModelSummary,
+  type RankableModel,
+} from "./orchestrator/model-rank";
 
 const PROTOCOL_AUTH_MAP: Record<string, AiAuthType> = {
   [AiProviderProtocol.OPENAI_COMPATIBLE]: AiAuthType.API_KEY,
@@ -369,6 +374,7 @@ export class AiService {
         provider.integrations,
         adminId,
       );
+      const hasCredentials = !!integration?.encryptedCredentials;
 
       return {
         ...provider,
@@ -383,6 +389,11 @@ export class AiService {
           isActive: model.isActive,
           isAvailable: model.availabilities?.[0]?.isAvailable ?? true,
         })),
+        bestModel: hasCredentials
+          ? toBestModelSummary(
+              pickBestModel(this.toRankableModels(provider.models)),
+            )
+          : null,
       };
     });
 
@@ -421,6 +432,9 @@ export class AiService {
       integration: integration
         ? this.toIntegrationResponse(integration)
         : undefined,
+      bestModel: integration?.encryptedCredentials
+        ? toBestModelSummary(pickBestModel(this.toRankableModels(models)))
+        : null,
     };
   }
 
@@ -1722,6 +1736,25 @@ export class AiService {
   }
 
   // ──────────────────────────── ACCESSORS ────────────────────────────
+
+  private toRankableModels(
+    models: AiModelEntity[] | undefined,
+  ): RankableModel[] {
+    return (models ?? []).map((model) => ({
+      id: model.id,
+      name: model.name,
+      modelCode: model.modelCode,
+      isActive: model.isActive,
+      isAvailable: model.availabilities?.[0]?.isAvailable ?? true,
+      modelType: model.modelType,
+      toolsCalling: model.toolsCalling,
+      tier: model.tier,
+      contextWindow: model.contextWindow,
+      jsonMode: model.jsonMode,
+      reasoning: model.reasoning,
+      stream: model.stream,
+    }));
+  }
 
   private pickTenantIntegration(
     integrations: AiIntegrationEntity[] | undefined,

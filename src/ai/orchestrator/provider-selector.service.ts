@@ -22,6 +22,12 @@ import {
   AiModelEntity,
   AiProviderEntity,
 } from "../../../entities/ai.entity";
+import {
+  compareRankableModels,
+  isModelEligible,
+  pickBestModel,
+  type RankableModel,
+} from "./model-rank";
 import { EncryptionService } from "../../../common/encryption.service";
 import { TranslationService } from "../../../common/translation.service";
 import { Llm7Provider } from "../providers/llm7.provider";
@@ -180,29 +186,14 @@ export class AiProviderSelectorService implements OnModuleInit {
       }
     }
 
-    // Fallback: default provider from config (e.g. 'llm7')
-    const defaultKind = this.config.defaultProvider;
-    const fallback =
-      this.providersByKind.get(defaultKind) ?? this.enabledProviders()[0];
-
-    if (!fallback) {
-      throw new BadRequestException(this.translations.t("domains.ai.no_provider_available"));
+    const best = await this.resolveBestConfigured(tenantId);
+    if (!best) {
+      throw new BadRequestException(
+        this.translations.t("domains.ai.no_provider_available"),
+      );
     }
-
-    const entity = await this.providerQuery(tenantId)
-      .where("p.code = :code", { code: fallback.kind })
-      .andWhere("p.isActive = true")
-      .andWhere("p.adminId IS NULL")
-      .getOne();
-    if (entity && !this.hasIntegrationConfig(entity, tenantId)) {
-      throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: fallback.kind } }));
-    }
-    const runtime = await this.resolveRuntimeConfig(
-      entity,
-      fallback.kind,
-      tenantId,
-    );
-    return fallback.cloneWithRuntime(runtime);
+    const provider = await this.selectCustom(best.providerEntityId, tenantId);
+    return provider.cloneWithRuntime({ model: best.modelCode });
   }
 
   async selectCustom(
@@ -260,37 +251,28 @@ export class AiProviderSelectorService implements OnModuleInit {
 
   async resolveDefaultModel(
     tenantId?: string | null,
-  ): Promise<{ modelCode: string; providerEntityId: string } | null> {
+    options: { requireTools?: boolean } = {},
+  ): Promise<{
+    modelCode: string;
+    providerEntityId: string;
+    toolsCalling?: boolean | null;
+  } | null> {
+    const records: AiDefaultModelEntity[] = [];
     if (tenantId) {
-      const record = await this.defaultModelRepo.findOne({
+      const tenantDefault = await this.defaultModelRepo.findOne({
         where: { adminId: tenantId },
-        relations: {
-          model: {
-            provider: true
-          }
-        },
+        relations: { model: { provider: true } },
       });
-      if (record?.model?.isActive && record?.model?.provider?.isActive) {
-        return {
-          modelCode: record.model.modelCode,
-          providerEntityId: record.model.provider.id,
-        };
-      }
+      if (tenantDefault) records.push(tenantDefault);
     }
 
-    const systemDefault = await this.defaultModelRepo.findOne({
-      where: { adminId: null },
-      relations: {
-        model: {
-          provider: true
-        }
-      },
-    });
-    if (systemDefault?.model?.isActive && systemDefault?.model?.provider?.isActive) {
-      return {
-        modelCode: systemDefault.model.modelCode,
-        providerEntityId: systemDefault.model.provider.id,
-      };
+    for (const record of records) {
+      const usable = await this.usableDefaultModel(
+        record,
+        tenantId,
+        options.requireTools,
+      );
+      if (usable) return usable;
     }
 
     return null;
@@ -299,92 +281,120 @@ export class AiProviderSelectorService implements OnModuleInit {
   async resolveProviderByModelId(
     modelCode: string,
     tenantId?: string | null,
+    providerHint?: string | null,
   ): Promise<string | null> {
     const modelQb = this.modelRepo.createQueryBuilder("model");
     modelQb.leftJoinAndSelect("model.provider", "p");
     this.joinScopedIntegrations(modelQb, tenantId, "p.integrations", "integration");
-    const model = await modelQb.where("model.modelCode = :modelCode", { modelCode }).getOne();
+    modelQb.where("model.modelCode = :modelCode", { modelCode });
+    modelQb.andWhere("model.isActive = true");
+    modelQb.andWhere("p.isActive = true");
 
-    if (
-      model?.isActive &&
-      model?.provider?.isActive &&
-      this.hasIntegrationConfig(model.provider, tenantId)
-    ) {
-      return model.provider.id;
+    if (providerHint) {
+      if (UUID_REGEX.test(providerHint)) {
+        modelQb.andWhere("p.id = :providerHint", { providerHint });
+      } else {
+        modelQb.andWhere("LOWER(p.code) = LOWER(:providerHint)", {
+          providerHint,
+        });
+      }
     }
 
-    return null;
+    const models = await modelQb.getMany();
+    const match = models.find(
+      (model) =>
+        model.provider && this.hasIntegrationConfig(model.provider, tenantId),
+    );
+    return match?.provider?.id ?? null;
+  }
+
+  async resolveBestConfigured(
+    tenantId?: string | null,
+    options: {
+      requireTools?: boolean;
+      preferredProviderId?: string;
+      preferredProviderCode?: string;
+    } = {},
+  ): Promise<{
+    modelCode: string;
+    providerEntityId: string;
+    toolsCalling?: boolean | null;
+  } | null> {
+    const entities = await this.loadConfiguredProviderEntities(tenantId);
+    let pool = entities;
+
+    if (options.preferredProviderId || options.preferredProviderCode) {
+      const preferred = entities.find(
+        (entity) =>
+          entity.id === options.preferredProviderId ||
+          entity.code === options.preferredProviderCode,
+      );
+      pool = preferred ? [preferred] : [];
+    }
+
+    let winner: { entity: AiProviderEntity; model: RankableModel } | null =
+      null;
+    for (const entity of pool) {
+      const model = this.pickBestFromEntity(
+        entity,
+        tenantId,
+        options.requireTools,
+      );
+      if (!model) continue;
+      if (!winner || compareRankableModels(model, winner.model) < 0) {
+        winner = { entity, model };
+      }
+    }
+
+    if (!winner) return null;
+    return {
+      modelCode: winner.model.modelCode,
+      providerEntityId: winner.entity.id,
+      toolsCalling: winner.model.toolsCalling,
+    };
+  }
+
+  async hasEligibleConfiguredProvider(
+    tenantId?: string | null,
+    options: { requireTools?: boolean } = {},
+  ): Promise<boolean> {
+    const best = await this.resolveBestConfigured(tenantId, options);
+    return !!best;
   }
 
   async failoverCandidates(
     excludeName?: string,
     tenantId?: string | null,
+    options: { requireTools?: boolean } = {},
   ): Promise<AiProviderAbstract[]> {
-    const systemQb = this.providerQuery(tenantId)
-      .where("p.isActive = true")
-      .andWhere("p.adminId IS NULL");
-    if (this.allKinds.length) {
-      systemQb.andWhere("p.code IN (:...kinds)", { kinds: this.allKinds });
-    }
-    const systemEntities = await systemQb.getMany();
-
-    let customEntities: AiProviderEntity[] = [];
-    if (tenantId) {
-      customEntities = await this.providerQuery(tenantId)
-        .where("p.isActive = true")
-        .andWhere("p.adminId = :tenantAdminId", { tenantAdminId: tenantId })
-        .getMany();
-    }
-
-    const entityByKind = new Map<string, AiProviderEntity>();
-    for (const e of systemEntities) {
-      entityByKind.set(e.code, e);
-    }
-
+    const entities = await this.loadConfiguredProviderEntities(tenantId);
     const tasks: Array<Promise<AiProviderAbstract | null>> = [];
 
-    for (const kind of this.allKinds) {
-      if (kind === excludeName) continue;
-      const base = this.providersByKind.get(kind);
-      if (!base?.isEnabled()) continue;
-      const entity = entityByKind.get(kind);
-      if (entity && !this.hasIntegrationConfig(entity, tenantId)) continue;
-      tasks.push(
-        this.buildFromEntity(entity, kind, tenantId, base)
-          .then((p) => {
-            if (
-              p &&
-              p.getConfig().entityId &&
-              p.getConfig().entityId === excludeName
-            ) {
-              return null;
-            }
-            return p;
-          })
-          .catch((err) => {
-            this.logger.warn(
-              `[failoverCandidates] skip system provider '${kind}': ${err instanceof Error ? err.message : String(err)}`,
-            );
-            return null;
-          }),
-      );
-    }
-
-    for (const entity of customEntities) {
+    for (const entity of entities) {
       if (
         excludeName &&
         (entity.id === excludeName || entity.code === excludeName)
       ) {
         continue;
       }
-      if (!this.hasIntegrationConfig(entity, tenantId)) continue;
+      const best = this.pickBestFromEntity(
+        entity,
+        tenantId,
+        options.requireTools,
+      );
+      if (!best) continue;
+
       tasks.push(
-        this.buildFromEntity(entity, entity.code, tenantId).catch((err) => {
-          this.logger.warn(
-            `[failoverCandidates] skip custom provider '${entity.code}' (${entity.id}): ${err instanceof Error ? err.message : String(err)}`,
-          );
-          return null;
-        }),
+        this.buildFromEntity(entity, entity.code, tenantId)
+          .then((provider) =>
+            provider ? provider.cloneWithRuntime({ model: best.modelCode }) : null,
+          )
+          .catch((err) => {
+            this.logger.warn(
+              `[failoverCandidates] skip provider '${entity.code}' (${entity.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+            return null;
+          }),
       );
     }
 
@@ -402,16 +412,14 @@ export class AiProviderSelectorService implements OnModuleInit {
     tenantId?: string | null,
     baseHint?: AiProviderAbstract,
   ): Promise<AiProviderAbstract | null> {
-    let injectable = baseHint;
-    if (entity) {
-      if (tenantId && entity.adminId && entity.adminId !== tenantId) {
-        return null;
-      }
-      if (!this.hasIntegrationConfig(entity, tenantId)) {
-        return null;
-      }
-      injectable = injectable ?? this.pickInjectableForEntity(entity);
+    if (!entity) return null;
+    if (tenantId && entity.adminId && entity.adminId !== tenantId) {
+      return null;
     }
+    if (!this.hasIntegrationConfig(entity, tenantId)) {
+      return null;
+    }
+    const injectable = baseHint ?? this.pickInjectableForEntity(entity);
     const base = injectable ?? this.llm7;
     if (!base.isEnabled() && this.enabledProviders().length > 1) {
       return null;
@@ -433,6 +441,83 @@ export class AiProviderSelectorService implements OnModuleInit {
   }
 
   // --- private helpers ---
+
+  private async usableDefaultModel(
+    record: AiDefaultModelEntity | null,
+    tenantId?: string | null,
+    requireTools?: boolean,
+  ): Promise<{
+    modelCode: string;
+    providerEntityId: string;
+    toolsCalling?: boolean | null;
+  } | null> {
+    const model = record?.model;
+    const providerId = model?.provider?.id ?? model?.providerId;
+    if (!model?.isActive || !model.provider?.isActive || !providerId) {
+      return null;
+    }
+
+    const entity = (await this.loadConfiguredProviderEntities(tenantId)).find(
+      (item) => item.id === providerId,
+    );
+    if (!entity) return null;
+
+    const rankable = this.toRankableModel(
+      entity.models?.find((item) => item.id === model.id) ?? model,
+    );
+    if (!isModelEligible(rankable, { requireTools })) return null;
+
+    return {
+      modelCode: model.modelCode,
+      providerEntityId: providerId,
+      toolsCalling: model.toolsCalling,
+    };
+  }
+
+  private async loadConfiguredProviderEntities(
+    tenantId?: string | null,
+  ): Promise<AiProviderEntity[]> {
+    const qb = this.providerQuery(tenantId).andWhere("p.isActive = true");
+    if (tenantId) {
+      qb.andWhere("(p.adminId = :tenantAdminId OR p.adminId IS NULL)", {
+        tenantAdminId: tenantId,
+      });
+    } else {
+      qb.andWhere("p.adminId IS NULL");
+    }
+    const entities = await qb.getMany();
+    return entities.filter((entity) =>
+      this.hasIntegrationConfig(entity, tenantId),
+    );
+  }
+
+  private pickBestFromEntity(
+    entity: AiProviderEntity,
+    _tenantId?: string | null,
+    requireTools?: boolean,
+  ): RankableModel | null {
+    return pickBestModel(
+      (entity.models ?? []).map((model) => this.toRankableModel(model)),
+      { requireTools },
+    );
+  }
+
+  private toRankableModel(model: AiModelEntity): RankableModel {
+    return {
+      id: model.id,
+      name: model.name,
+      modelCode: model.modelCode,
+      isActive: model.isActive,
+      isAvailable: model.availabilities?.[0]?.isAvailable ?? true,
+      modelType: model.modelType,
+      toolsCalling: model.toolsCalling,
+      tier: model.tier,
+      contextWindow: model.contextWindow,
+      jsonMode: model.jsonMode,
+      reasoning: model.reasoning,
+      stream: model.stream,
+    };
+  }
 
   private enabledProviders(): AiProviderAbstract[] {
     return Array.from(this.providersByKind.values()).filter((p) =>
@@ -507,7 +592,10 @@ export class AiProviderSelectorService implements OnModuleInit {
 
     const runtime: AiProviderRuntimeConfig = {};
 
-    if (entity) runtime.entityId = entity.id;
+    if (entity) {
+      runtime.entityId = entity.id;
+      if (entity.code) runtime.catalogCode = entity.code;
+    }
 
     // Extract env defaults for this kind (fallback if no integration row)
     const prefix = `AI_${fallbackKind.toUpperCase().replace(/-/g, "_")}`;
@@ -575,6 +663,14 @@ export class AiProviderSelectorService implements OnModuleInit {
   private providerQuery(tenantId?: string | null) {
     const qb = this.providerRepo.createQueryBuilder("p");
     qb.leftJoinAndSelect("p.models", "models");
+    qb.leftJoinAndSelect(
+      "models.availabilities",
+      "availability",
+      tenantId
+        ? "availability.adminId = :availAdminId"
+        : "availability.adminId IS NULL",
+      { availAdminId: tenantId ?? null },
+    );
     this.joinScopedIntegrations(qb, tenantId);
     return qb;
   }

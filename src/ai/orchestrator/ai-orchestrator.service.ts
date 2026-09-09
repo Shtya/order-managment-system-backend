@@ -94,6 +94,8 @@ export interface AiChatOptions {
   metadata?: Record<string, unknown>;
   includeDevInfo?: boolean;
   tenantLang?: string;
+  allowProviderFailover?: boolean;
+  requireTools?: boolean;
 }
 
 const FORCE_ANSWER_NOTE =
@@ -145,6 +147,9 @@ export class AiOrchestratorService {
       enforcePiiMasking: options.enforcePiiMasking ?? false,
       acceptWriteOperations: options.acceptWriteOperations ?? false,
       allowedToolNames: options.allowedToolNames,
+      requireTools: options.requireTools === true,
+      allowProviderFailover:
+        options.allowProviderFailover ?? !options.model,
     };
     timer.stop();
 
@@ -249,6 +254,12 @@ export class AiOrchestratorService {
         errorKind: errorDetails?.kind,
       });
 
+      if (error && typeof error === "object") {
+        (error as any).providersUsed = execution.getProvidersUsed();
+        (error as any).modelsUsed = execution.getModelsUsed();
+        (error as any).aiAttempts = execution.getAttempts();
+      }
+
       throw error;
     }
 
@@ -285,6 +296,7 @@ export class AiOrchestratorService {
         userRole: session.userRoleName,
         providersUsed,
         modelsUsed,
+        aiAttempts: finalResult.aiAttempts ?? [],
         rounds,
         progress,
       };
@@ -354,9 +366,9 @@ export class AiOrchestratorService {
         hasContent: typeof result.content === "string",
       });
 
-      execution.trackProvider(provider.kind);
-      execution.trackModel(
-        result.providerModel ?? provider.getConfig().model ?? "",
+      execution.trackAttempt(
+        provider.getCatalogCode(),
+        result.providerModel ?? provider.getConfig().model ?? null,
       );
       execution.recordUsage(result.usage);
 
@@ -407,7 +419,7 @@ export class AiOrchestratorService {
 
         messages.push({
           role: "assistant",
-          content: null,
+          content: result.content ?? "",
           toolCalls: newToolCalls,
         });
 
@@ -457,143 +469,153 @@ export class AiOrchestratorService {
     userExplicitChoice: boolean;
     toolsCalling?: boolean;
   }> {
-    const userExplicitChoice = !!(
-      ctx.session.provider ||
-      ctx.session.providerId ||
-      ctx.session.model
-    );
-    let requested =
-      ctx.session.provider ?? ctx.session.providerId ?? this.config.defaultProvider;
+    const tenantId = ctx.session.tenantId;
+    const requireTools = ctx.session.requireTools === true;
     const requestedModel = ctx.session.model;
+    const preferredProviderId = ctx.session.providerId;
+    const preferredProviderCode = ctx.session.provider;
+    const preferredHint = preferredProviderId ?? preferredProviderCode;
+    const allowFailover = ctx.session.allowProviderFailover !== false;
+    const pinToChoice = !!requestedModel && !allowFailover;
+
+    let route: {
+      modelCode: string;
+      providerEntityId: string;
+      toolsCalling?: boolean | null;
+    } | null = null;
     let usedDefaultModel = false;
     let usedModelLookup = false;
+    let usedBestModel = false;
 
-    if (!ctx.session.provider && !ctx.session.providerId) {
-      if (requestedModel) {
-        const t0 = performance.now();
-        const providerByModel =
-          await this.providerSelector.resolveProviderByModelId(
-            requestedModel,
-            ctx.session.tenantId,
-          );
-        const ms = performance.now() - t0;
-        usedModelLookup = true;
-        this.logger.debug("[perf] resolveProviderByModelId", {
-          requestId: ctx.requestId,
-          model: requestedModel,
-          tenantId: ctx.session.tenantId ?? "system",
-          found: !!providerByModel,
-          ms,
-        });
-        if (providerByModel) {
-          requested = providerByModel;
-        }
-      } else {
-        const t0 = performance.now();
-        const resolved = await this.providerSelector.resolveDefaultModel(
-          ctx.session.tenantId,
+    if (requestedModel) {
+      const t0 = performance.now();
+      const providerByModel =
+        await this.providerSelector.resolveProviderByModelId(
+          requestedModel,
+          tenantId,
+          preferredHint,
         );
-        const ms = performance.now() - t0;
-        usedDefaultModel = true;
-        this.logger.debug("[perf] resolveDefaultModel", {
-          requestId: ctx.requestId,
-          tenantId: ctx.session.tenantId ?? "system",
-          found: !!resolved,
-          modelCode: resolved?.modelCode ?? null,
-          providerEntityId: resolved?.providerEntityId ?? null,
-          ms,
-        });
-        if (resolved) {
-          requested = resolved.providerEntityId;
-          (ctx.session as any).model = resolved.modelCode;
-        }
+      usedModelLookup = true;
+      this.logger.debug("[perf] resolveProviderByModelId", {
+        requestId: ctx.requestId,
+        model: requestedModel,
+        tenantId: tenantId ?? "system",
+        found: !!providerByModel,
+        ms: performance.now() - t0,
+      });
+      if (providerByModel) {
+        route = {
+          modelCode: requestedModel,
+          providerEntityId: providerByModel,
+        };
       }
     }
 
-    let primary: AiProviderAbstract;
-    const isUuid =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-        requested,
-      );
-    const t1 = performance.now();
-    if (requested && isUuid) {
-      primary = await this.providerSelector.selectCustom(
-        requested,
-        ctx.session.tenantId,
-      );
-    } else {
-      primary = await this.providerSelector.select(
-        requested,
-        ctx.session.tenantId,
+    if (pinToChoice && !route) {
+      throw new AiProviderError(
+        this.translations.t("domains.ai.model_inactive", {
+          args: { model: requestedModel },
+        }),
+        { kind: "CONFIG", provider: String(preferredHint ?? "none") },
       );
     }
-    const selectMs = performance.now() - t1;
-    this.logger.debug("[perf] providerSelector.select", {
-      requestId: ctx.requestId,
-      requested,
-      kind: isUuid ? "selectCustom/uuid" : "select/name",
-      providerKind: primary.kind,
-      entityId: primary.getConfig().entityId ?? null,
-      model: primary.getConfig().model ?? null,
-      ms: selectMs,
-    });
 
-    const effectiveModel = (ctx.session as any).model ?? requestedModel;
-    let toolsCalling: boolean | undefined;
-    if (effectiveModel) {
-      const qb = this.modelRepo
-        .createQueryBuilder("model")
-        .innerJoinAndSelect("model.provider", "provider")
-        .leftJoinAndSelect(
-          "model.availabilities",
-          "availability",
-          "availability.adminId = :adminId",
-          {
-            adminId:
-              ctx.session.tenantId ?? "00000000-0000-0000-0000-000000000000",
-          },
-        )
-        .where("model.modelCode = :modelCode", {
-          modelCode: effectiveModel,
-        });
-
-      const providerEntityId = primary.getConfig().entityId;
-      if (providerEntityId) {
-        qb.andWhere("model.providerId = :providerId", {
-          providerId: providerEntityId,
-        });
-      }
-
-      const modelEntity = await qb.getOne();
-
-      if (modelEntity) {
-        if (!modelEntity.provider?.isActive) {
-          throw new AiProviderError(
-            this.translations.t("domains.ai.provider_inactive_for_model", { args: { model: effectiveModel } }),
-            { kind: "CONFIG", provider: primary.kind },
-          );
-        }
-        if (!modelEntity.isActive) {
-          throw new AiProviderError(
-            this.translations.t("domains.ai.model_inactive", { args: { model: effectiveModel } }),
-            { kind: "CONFIG", provider: primary.kind },
-          );
-        }
-        if (modelEntity.availabilities?.[0]?.isAvailable === false) {
-          throw new AiProviderError(
-            this.translations.t("domains.ai.model_not_available_for_tenant", { args: { model: effectiveModel } }),
-            { kind: "CONFIG", provider: primary.kind },
-          );
-        }
-        toolsCalling = modelEntity.toolsCalling;
-      }
-
-      primary = primary.cloneWithRuntime({
-        model: effectiveModel,
+    if (!route && !requestedModel && !preferredHint) {
+      const t0 = performance.now();
+      route = await this.providerSelector.resolveDefaultModel(tenantId, {
+        requireTools,
+      });
+      usedDefaultModel = true;
+      this.logger.debug("[perf] resolveDefaultModel", {
+        requestId: ctx.requestId,
+        tenantId: tenantId ?? "system",
+        found: !!route,
+        modelCode: route?.modelCode ?? null,
+        providerEntityId: route?.providerEntityId ?? null,
+        ms: performance.now() - t0,
       });
     }
 
-    if (userExplicitChoice) {
+    if (!route && preferredHint && !requestedModel) {
+      const preferredBest = await this.providerSelector.resolveBestConfigured(
+        tenantId,
+        {
+          requireTools,
+          preferredProviderId,
+          preferredProviderCode,
+        },
+      );
+      const preferredDefault = await this.providerSelector.resolveDefaultModel(
+        tenantId,
+        { requireTools },
+      );
+      if (
+        preferredBest &&
+        preferredDefault?.providerEntityId === preferredBest.providerEntityId
+      ) {
+        route = preferredDefault;
+        usedDefaultModel = true;
+      } else if (preferredBest) {
+        route = preferredBest;
+        usedBestModel = true;
+      }
+    }
+
+    if (!route && !requestedModel) {
+      if (!usedDefaultModel) {
+        const t0 = performance.now();
+        route = await this.providerSelector.resolveDefaultModel(tenantId, {
+          requireTools,
+        });
+        usedDefaultModel = true;
+        this.logger.debug("[perf] resolveDefaultModel.fallback", {
+          requestId: ctx.requestId,
+          found: !!route,
+          ms: performance.now() - t0,
+        });
+      }
+    }
+
+    if (!route) {
+      route = await this.providerSelector.resolveBestConfigured(tenantId, {
+        requireTools,
+      });
+      usedBestModel = !!route;
+    }
+
+    if (!route) {
+      throw new AiProviderError(
+        this.translations.t("domains.ai.no_provider_available"),
+        { kind: "CONFIG", provider: preferredHint ?? "none" },
+      );
+    }
+
+    ctx.session.model = route.modelCode;
+
+    const t1 = performance.now();
+    let primary = await this.selectProvider(route.providerEntityId, tenantId);
+    const selectMs = performance.now() - t1;
+    this.logger.debug("[perf] providerSelector.select", {
+      requestId: ctx.requestId,
+      requested: route.providerEntityId,
+      providerKind: primary.kind,
+      entityId: primary.getConfig().entityId ?? null,
+      model: route.modelCode,
+      ms: selectMs,
+    });
+
+    const modelMeta = await this.loadModelForProvider(
+      route.modelCode,
+      primary.getConfig().entityId,
+      tenantId,
+    );
+    let toolsCalling = route.toolsCalling ?? undefined;
+    if (modelMeta) {
+      toolsCalling = modelMeta.toolsCalling ?? toolsCalling;
+    }
+    primary = primary.cloneWithRuntime({ model: route.modelCode });
+
+    if (pinToChoice) {
       this.logger.debug(
         "[perf] resolveProviders — user explicit choice, no failovers",
         {
@@ -605,20 +627,26 @@ export class AiOrchestratorService {
           usedModelLookup,
         },
       );
-      return { primary, candidates: [primary], userExplicitChoice: true, toolsCalling };
+      return {
+        primary,
+        candidates: [primary],
+        userExplicitChoice: true,
+        toolsCalling,
+      };
     }
 
-    const excludeKey = primary.getConfig().entityId ?? primary.getConfig().name;
+    const excludeKey = primary.getConfig().entityId ?? primary.kind;
     const t2 = performance.now();
-    const failovers = await this.providerSelector.failoverCandidates(
-      excludeKey,
-      ctx.session.tenantId,
-    );
+    const failovers = allowFailover
+      ? await this.providerSelector.failoverCandidates(excludeKey, tenantId, {
+          requireTools,
+        })
+      : [];
     const failoverMs = performance.now() - t2;
     this.logger.debug("[perf] failoverCandidates", {
       requestId: ctx.requestId,
       excludeKey,
-      tenantId: ctx.session.tenantId ?? "system",
+      tenantId: tenantId ?? "system",
       failoverCount: failovers.length,
       failoverKinds: failovers.map((p) => p.kind),
       ms: failoverMs,
@@ -633,6 +661,8 @@ export class AiOrchestratorService {
       failoverMs,
       usedDefaultModel,
       usedModelLookup,
+      usedBestModel,
+      allowFailover,
     });
 
     return {
@@ -641,6 +671,74 @@ export class AiOrchestratorService {
       userExplicitChoice: false,
       toolsCalling,
     };
+  }
+
+  private async selectProvider(
+    requested: string,
+    tenantId?: string | null,
+  ): Promise<AiProviderAbstract> {
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        requested,
+      );
+    if (isUuid) {
+      return this.providerSelector.selectCustom(requested, tenantId);
+    }
+    return this.providerSelector.select(requested, tenantId);
+  }
+
+  private async loadModelForProvider(
+    modelCode: string,
+    providerEntityId: string | undefined,
+    tenantId?: string | null,
+  ): Promise<AiModelEntity | null> {
+    const qb = this.modelRepo
+      .createQueryBuilder("model")
+      .innerJoinAndSelect("model.provider", "provider")
+      .leftJoinAndSelect(
+        "model.availabilities",
+        "availability",
+        "availability.adminId = :adminId",
+        {
+          adminId: tenantId ?? "00000000-0000-0000-0000-000000000000",
+        },
+      )
+      .where("model.modelCode = :modelCode", { modelCode });
+
+    if (providerEntityId) {
+      qb.andWhere("model.providerId = :providerId", {
+        providerId: providerEntityId,
+      });
+    }
+
+    const modelEntity = await qb.getOne();
+    if (!modelEntity) return null;
+
+    if (!modelEntity.provider?.isActive) {
+      throw new AiProviderError(
+        this.translations.t("domains.ai.provider_inactive_for_model", {
+          args: { model: modelCode },
+        }),
+        { kind: "CONFIG", provider: modelEntity.provider?.code },
+      );
+    }
+    if (!modelEntity.isActive) {
+      throw new AiProviderError(
+        this.translations.t("domains.ai.model_inactive", {
+          args: { model: modelCode },
+        }),
+        { kind: "CONFIG", provider: modelEntity.provider?.code },
+      );
+    }
+    if (modelEntity.availabilities?.[0]?.isAvailable === false) {
+      throw new AiProviderError(
+        this.translations.t("domains.ai.model_not_available_for_tenant", {
+          args: { model: modelCode },
+        }),
+        { kind: "CONFIG", provider: modelEntity.provider?.code },
+      );
+    }
+    return modelEntity;
   }
 
   private async callProviderWithFailover(
@@ -661,6 +759,7 @@ export class AiOrchestratorService {
     };
   }> {
     let lastError: unknown;
+    let firstError: unknown;
     const attemptTimes: Array<{
       provider: string;
       ms: number;
@@ -668,7 +767,23 @@ export class AiOrchestratorService {
       errorCode?: string;
     }> = [];
 
-    for (const candidate of candidates) {
+    const remaining = candidates.filter(
+      (candidate) =>
+        !execution.isCandidateFailed(
+          candidate.getCatalogCode(),
+          candidate.getConfig().model,
+        ),
+    );
+    if (!remaining.length) {
+      throw (
+        execution.getLastCandidateError() ??
+        lastError ??
+        firstError ??
+        new Error(this.translations.t("domains.ai.all_providers_failed"))
+      );
+    }
+
+    for (const candidate of remaining) {
       execution.emit({
         type: "provider_start",
         round,
@@ -703,6 +818,16 @@ export class AiOrchestratorService {
       } catch (error) {
         const ms = performance.now() - t0;
         lastError = error;
+        if (!firstError) firstError = error;
+        execution.trackAttempt(
+          candidate.getCatalogCode(),
+          candidate.getConfig().model ?? null,
+        );
+        execution.markCandidateFailed(
+          candidate.getCatalogCode(),
+          candidate.getConfig().model,
+          error,
+        );
         const code = isAiProviderError(error) ? error.kind : undefined;
         attemptTimes.push({
           provider: candidate.kind,
@@ -736,7 +861,11 @@ export class AiOrchestratorService {
       round,
       attempts: attemptTimes,
     });
-    throw lastError ?? new Error(this.translations.t("domains.ai.all_providers_failed"));
+    throw (
+      firstError ??
+      lastError ??
+      new Error(this.translations.t("domains.ai.all_providers_failed"))
+    );
   }
 
   private async executeToolCall(
@@ -1095,6 +1224,7 @@ export class AiOrchestratorService {
     const progress = execution.getEvents();
     const providersUsed = execution.getProvidersUsed();
     const modelsUsed = execution.getModelsUsed();
+    const aiAttempts = execution.getAttempts();
     const rounds = execution.currentRound;
     const finalResult: AiOrchestrationResult = {
       sessionId: execution.session.sessionId,
@@ -1106,6 +1236,11 @@ export class AiOrchestratorService {
       error: result.error,
       errorCode: result.errorCode,
       errorDetails: result.errorDetails,
+      progress,
+      providersUsed,
+      modelsUsed,
+      aiAttempts,
+      rounds,
     };
     timer.stop({
       eventsCount: progress.length,

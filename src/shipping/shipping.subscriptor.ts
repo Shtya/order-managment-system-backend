@@ -90,7 +90,7 @@ export class ShipmentSubscriber implements EntitySubscriberInterface<ShipmentEnt
           .getRepository(OrderEntity)
           .createQueryBuilder("order")
           .where("order.id = :orderId", { orderId })
-          .select(["id", "adminId"])
+          .select(["order.id", "order.adminId"])
           .getOne();
 
         if (order) {

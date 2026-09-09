@@ -187,14 +187,16 @@ export interface AssignOrderToEmployeeConfig {
 }
 
 export interface AiAddressCorrectionConfig {
-    providerId: string;
+    /** Preferred AI provider (optional). Model is chosen at runtime (default, then best, then failover). */
+    providerId?: string;
     providerName?: string;
-    modelId: string;
+    modelId?: string;
     modelName?: string;
     modelCode?: string;
     shippingCompanyId?: string;
     shippingCompany?: string;
     providerCode?: string;
+    /** Shipping courier code (e.g. bosta), not the AI vendor. */
     provider?: string;
     /** When true (default), AI may rewrite order.address. When false, only city/zone/district. */
     updateWrittenAddress?: boolean;

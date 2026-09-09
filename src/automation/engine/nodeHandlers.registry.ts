@@ -60,8 +60,8 @@ import { Language } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.service";
-import { AiOrchestrationResult } from "src/ai/interfaces/ai-types";
-import { AiModelAvailabilityEntity, AiModelEntity, AiProviderEntity } from "entities/ai.entity";
+import { AiAttempt, AiOrchestrationResult } from "src/ai/interfaces/ai-types";
+import { AiProviderSelectorService } from "src/ai/orchestrator/provider-selector.service";
 
 // Re-export for callers that previously imported from this module
 export { ADDRESS_CHOICE_DELETED_BUTTON_ID } from "./automation-helpers";
@@ -772,12 +772,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     private readonly userRepo: Repository<User>,
     private readonly aiOrchestrator: AiOrchestratorService,
     private readonly clientSettingsService: ClientSettingsService,
-    @InjectRepository(AiProviderEntity)
-    private readonly providerRepo: Repository<AiProviderEntity>,
-    @InjectRepository(AiModelEntity)
-    private readonly modelRepo: Repository<AiModelEntity>,
-    @InjectRepository(AiModelAvailabilityEntity)
-    private readonly availabilityRepo: Repository<AiModelAvailabilityEntity>,
+    private readonly providerSelector: AiProviderSelectorService,
     private readonly whatsappService?: WhatsappService,
     private readonly messageRepo?: Repository<WhatsappMessageEntity>,
   ) {
@@ -810,6 +805,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           success: false,
           chosenBranch: "address_not_corrected",
           error: "Order information not available for address correction",
+          output: usedAiFromFailure(),
         };
       }
 
@@ -825,6 +821,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           success: false,
           chosenBranch: "address_not_corrected",
           error: "Admin user not found",
+          output: usedAiFromFailure(),
         };
       }
 
@@ -835,22 +832,33 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
       const defaultLang = settings?.defaultLang || "en";
       const prompt = this.buildPrompt(orderData, config);
 
-      const chatResult = await this.aiOrchestrator.chat(admin, prompt, {
-        acceptWriteOperations: true,
-        allowedToolNames: [...ADDRESS_CORRECTION_FIRST_PASS_TOOLS],
-        metadata: {
-          orderId: orderData.id,
-          orderNumber: orderData.orderNumber,
-          shippingCompanyId: config.shippingCompanyId,
-          shippingCompany: config.shippingCompany,
-          provider: config.provider,
-          updateWrittenAddress: shouldUpdateWrittenAddress(config),
-        },
-        model: config.modelCode,
-        provider: config.providerCode,
-        includeDevInfo: true,
-        tenantLang: defaultLang,
-      });
+      let chatResult: AiOrchestrationResult | undefined;
+      try {
+        chatResult = await this.aiOrchestrator.chat(admin, prompt, {
+          ...this.addressCorrectionChatOptions(config),
+          allowedToolNames: [...ADDRESS_CORRECTION_FIRST_PASS_TOOLS],
+          metadata: {
+            orderId: orderData.id,
+            orderNumber: orderData.orderNumber,
+            shippingCompanyId: config.shippingCompanyId,
+            shippingCompany: config.shippingCompany,
+            provider: config.provider,
+            updateWrittenAddress: shouldUpdateWrittenAddress(config),
+          },
+          tenantLang: defaultLang,
+        });
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to correct order address: ${error?.message}`,
+          error?.stack,
+        );
+        return {
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: error?.message || "Address correction failed",
+          output: usedAiFromFailure(error, chatResult),
+        };
+      }
 
       const conflict = extractAddressConflict(chatResult);
       if (conflict) {
@@ -874,6 +882,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         success: false,
         chosenBranch: "address_not_corrected",
         error: error?.message || "Address correction failed",
+        output: usedAiFromFailure(error),
       };
     }
   }
@@ -935,6 +944,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             ...sanitizePrior(priorOutput),
             pendingAddressConflict: false,
             addressConflictResume: false,
+            ...usedAiFromFailure(),
           },
         };
       }
@@ -954,6 +964,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             ...sanitizePrior(priorOutput),
             pendingAddressConflict: false,
             addressConflictResume: false,
+            ...usedAiFromFailure(),
           },
         };
       }
@@ -997,24 +1008,40 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         ? await this.aiOrchestrator.getSessionHistory(priorOutput.aiSessionId)
         : [];
 
-      const chatResult = await this.aiOrchestrator.chat(admin, resumePrompt, {
-        acceptWriteOperations: true,
-        allowedToolNames: [...ADDRESS_CORRECTION_WRITE_TOOLS],
-        history,
-        metadata: {
-          orderId: orderData.id,
-          orderNumber: orderData.orderNumber,
-          shippingCompanyId: config.shippingCompanyId,
-          shippingCompany: config.shippingCompany,
-          provider: config.provider,
-          customerSelectedRowId: selected.rowId,
-          updateWrittenAddress: shouldUpdateWrittenAddress(config),
-        },
-        model: config.modelCode,
-        provider: config.providerCode,
-        includeDevInfo: true,
-        tenantLang: defaultLang,
-      });
+      let chatResult: AiOrchestrationResult | undefined;
+      try {
+        chatResult = await this.aiOrchestrator.chat(admin, resumePrompt, {
+          ...this.addressCorrectionChatOptions(config),
+          allowedToolNames: [...ADDRESS_CORRECTION_WRITE_TOOLS],
+          history,
+          metadata: {
+            orderId: orderData.id,
+            orderNumber: orderData.orderNumber,
+            shippingCompanyId: config.shippingCompanyId,
+            shippingCompany: config.shippingCompany,
+            provider: config.provider,
+            customerSelectedRowId: selected.rowId,
+            updateWrittenAddress: shouldUpdateWrittenAddress(config),
+          },
+          tenantLang: defaultLang,
+        });
+      } catch (error: any) {
+        this.logger.error(
+          `Failed to resume address correction after customer choice: ${error?.message}`,
+          error?.stack,
+        );
+        return {
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: error?.message || "Address correction resume failed",
+          output: {
+            ...sanitizePrior(priorOutput),
+            pendingAddressConflict: false,
+            addressConflictResume: false,
+            ...usedAiFromFailure(error, chatResult),
+          },
+        };
+      }
 
       const result = decideAddressCorrectionBranch(chatResult);
       result.output = {
@@ -1043,6 +1070,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           ...sanitizePrior(priorOutput),
           pendingAddressConflict: false,
           addressConflictResume: false,
+          ...usedAiFromFailure(error),
         },
       };
     }
@@ -1060,7 +1088,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         success: true,
         chosenBranch: "address_not_corrected",
         error: "Address conflict reported but fewer than 2 usable addresses",
-        output: { aiComment: chatResult.content, reason },
+        output: withUsedAi({ aiComment: chatResult.content, reason }, chatResult),
       };
     }
 
@@ -1075,7 +1103,10 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         success: true,
         chosenBranch: "address_not_corrected",
         error: "Recipient phone number not found for address conflict list",
-        output: { aiComment: chatResult.content, conflictingAddresses: candidates },
+        output: withUsedAi(
+          { aiComment: chatResult.content, conflictingAddresses: candidates },
+          chatResult,
+        ),
       };
     }
 
@@ -1084,7 +1115,10 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         success: true,
         chosenBranch: "address_not_corrected",
         error: "WhatsApp service unavailable for address conflict list",
-        output: { aiComment: chatResult.content, conflictingAddresses: candidates },
+        output: withUsedAi(
+          { aiComment: chatResult.content, conflictingAddresses: candidates },
+          chatResult,
+        ),
       };
     }
 
@@ -1132,10 +1166,13 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           success: true,
           chosenBranch: "address_not_corrected",
           error: "Failed to send address conflict list (no message id)",
-          output: {
-            aiComment: chatResult.content,
-            conflictingAddresses: candidates,
-          },
+          output: withUsedAi(
+            {
+              aiComment: chatResult.content,
+              conflictingAddresses: candidates,
+            },
+            chatResult,
+          ),
         };
       }
 
@@ -1147,18 +1184,21 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
       return {
         success: true,
         shouldPause: true,
-        output: {
-          messageId,
-          pendingAddressConflict: true,
-          conflictingAddresses: candidates,
-          conflictReason: reason,
-          // Resume loads prompt/comment from ai_request_summaries via sessionId
-          aiSessionId: chatResult.sessionId,
-          orderId: orderData.id,
-          aiComment: chatResult.content,
-          shippingCompany: config.shippingCompany,
-          provider: config.provider,
-        },
+        output: withUsedAi(
+          {
+            messageId,
+            pendingAddressConflict: true,
+            conflictingAddresses: candidates,
+            conflictReason: reason,
+            // Resume loads prompt/comment from ai_request_summaries via sessionId
+            aiSessionId: chatResult.sessionId,
+            orderId: orderData.id,
+            aiComment: chatResult.content,
+            shippingCompany: config.shippingCompany,
+            provider: config.provider,
+          },
+          chatResult,
+        ),
       };
     } catch (error) {
       this.logger.error(
@@ -1169,80 +1209,43 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         success: true,
         chosenBranch: "address_not_corrected",
         error: error?.message || "Failed to send address conflict list",
-        output: {
-          aiComment: chatResult.content,
-          conflictingAddresses: candidates,
-        },
+        output: withUsedAi(
+          {
+            aiComment: chatResult.content,
+            conflictingAddresses: candidates,
+          },
+          chatResult,
+        ),
       };
     }
   }
 
+  private addressCorrectionChatOptions(config: AiAddressCorrectionConfig) {
+    return {
+      acceptWriteOperations: true,
+      allowProviderFailover: true,
+      requireTools: true,
+      // Preferred AI vendor only — never pin a model from the step config.
+      provider: config.providerCode || undefined,
+      providerId: config.providerId || undefined,
+    };
+  }
+
   private async validateProviderAvailability(
-    config: AiAddressCorrectionConfig,
+    _config: AiAddressCorrectionConfig,
     run: AutomationRunEntity,
   ): Promise<NodeHandlerResponse | null> {
-    if (!(config.providerCode || config.providerId || config.modelCode)) {
-      return null;
-    }
-
-    const qb = this.providerRepo
-      .createQueryBuilder("provider")
-      .leftJoin(
-        "provider.models",
-        "model",
-        config.modelCode ? "model.modelCode = :modelCode" : "1 = 0",
-        { modelCode: config.modelCode },
-      )
-      .leftJoin(
-        "model.availabilities",
-        "availability",
-        run.adminId ? "availability.adminId = :adminId" : "1 = 0",
-        { adminId: run.adminId },
-      )
-      .where("provider.isActive = true");
-
-    if (config.providerCode || config.providerId) {
-      qb.andWhere(
-        "(LOWER(provider.code) = LOWER(:providerCode) OR provider.id = :providerId)",
-        {
-          providerCode: config.providerCode ?? null,
-          providerId: config.providerId ?? null,
-        },
-      );
-    }
-
-    const provider = await qb
-      .select([
-        "provider.id",
-        "provider.code",
-        "model.id",
-        "model.modelCode",
-        "availability.id",
-        "availability.isAvailable",
-      ])
-      .getOne();
-
-    if (!provider) {
-      return {
-        success: false,
-        chosenBranch: "address_not_corrected",
-        error: `AI provider '${config.providerCode || config.providerId}' not found or inactive`,
-      };
-    }
-
-    if (config.modelCode) {
-      const model = provider.models?.[0];
-      const availability = model?.availabilities?.[0];
-      if (model && availability?.isAvailable === false) {
-        return {
-          success: false,
-          chosenBranch: "address_not_corrected",
-          error: `AI model '${config.modelCode}' is not available for this tenant`,
-        };
-      }
-    }
-
-    return null;
+    const eligible = await this.providerSelector.hasEligibleConfiguredProvider(
+      run.adminId,
+      { requireTools: true },
+    );
+    if (eligible) return null;
+    return {
+      success: false,
+      chosenBranch: "address_not_corrected",
+      error: "No configured AI provider with an eligible model is available",
+      output: usedAiFromFailure(),
+    };
   }
 
   private async markAddressChoiceMessageCompleted(messageId?: string) {
@@ -1561,6 +1564,69 @@ function extractAddressConflict(chatResult: AiOrchestrationResult): {
   };
 }
 
+function zipAiAttempts(providers: string[], models: string[]): AiAttempt[] {
+  const length = Math.max(providers.length, models.length);
+  const attempts: AiAttempt[] = [];
+  for (let i = 0; i < length; i++) {
+    const code = providers[i];
+    if (!code) continue;
+    attempts.push({
+      code,
+      model: models[i] ?? null,
+    });
+  }
+  return attempts;
+}
+
+function usedAiFromChat(chatResult?: AiOrchestrationResult | null): {
+  aiAttempts: AiAttempt[];
+} {
+  if (chatResult?.aiAttempts?.length) {
+    return { aiAttempts: chatResult.aiAttempts };
+  }
+  if (chatResult?._dev?.aiAttempts?.length) {
+    return { aiAttempts: chatResult._dev.aiAttempts };
+  }
+  const providers =
+    chatResult?.providersUsed?.length
+      ? chatResult.providersUsed
+      : chatResult?._dev?.providersUsed ?? [];
+  const models =
+    chatResult?.modelsUsed?.length
+      ? chatResult.modelsUsed
+      : chatResult?._dev?.modelsUsed ?? [];
+  return { aiAttempts: zipAiAttempts(providers, models) };
+}
+
+function usedAiFromFailure(
+  error?: any,
+  chatResult?: AiOrchestrationResult | null,
+): { aiAttempts: AiAttempt[] } {
+  if (Array.isArray(error?.aiAttempts) && error.aiAttempts.length) {
+    return { aiAttempts: error.aiAttempts as AiAttempt[] };
+  }
+  const fromChat = usedAiFromChat(chatResult).aiAttempts;
+  if (fromChat.length) {
+    return { aiAttempts: fromChat };
+  }
+  return {
+    aiAttempts: zipAiAttempts(
+      Array.isArray(error?.providersUsed) ? error.providersUsed : [],
+      Array.isArray(error?.modelsUsed) ? error.modelsUsed : [],
+    ),
+  };
+}
+
+function withUsedAi(
+  output: Record<string, unknown> | undefined,
+  chatResult?: AiOrchestrationResult | null,
+) {
+  return {
+    ...(output || {}),
+    ...usedAiFromChat(chatResult),
+  };
+}
+
 function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeHandlerResponse {
   const progress = !chatResult.progress?.length ? chatResult?._dev?.progress : chatResult.progress;
   const toolResults = progress?.filter(
@@ -1575,7 +1641,13 @@ function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeH
     return {
       success: true,
       chosenBranch: "address_corrected",
-      output: { ...(updateResult.result.data as Record<string, unknown>), aiComment: chatResult.content },
+      output: withUsedAi(
+        {
+          ...(updateResult.result.data as Record<string, unknown>),
+          aiComment: chatResult.content,
+        },
+        chatResult,
+      ),
     };
   }
 
@@ -1584,16 +1656,19 @@ function decideAddressCorrectionBranch(chatResult: AiOrchestrationResult): NodeH
       success: true,
       chosenBranch: "address_not_corrected",
       error: updateResult.result?.error,
-      output: { aiComment: chatResult.content },
+      output: withUsedAi({ aiComment: chatResult.content }, chatResult),
     };
   }
 
   return {
     success: true,
     chosenBranch: "address_not_corrected",
-    output: {
-      aiComment: chatResult.content,
-    },
+    output: withUsedAi(
+      {
+        aiComment: chatResult.content,
+      },
+      chatResult,
+    ),
   };
 }
 
@@ -2794,12 +2869,7 @@ export class NodeHandlersRegistry {
     @Inject(forwardRef(() => AutomationQueueService))
     private readonly automationQueueService: AutomationQueueService,
     private readonly aiOrchestrator: AiOrchestratorService,
-    @InjectRepository(AiProviderEntity)
-    private readonly aiProviderRepo: Repository<AiProviderEntity>,
-    @InjectRepository(AiModelEntity)
-    private readonly aiModelRepo: Repository<AiModelEntity>,
-    @InjectRepository(AiModelAvailabilityEntity)
-    private readonly aiAvailabilityRepo: Repository<AiModelAvailabilityEntity>,
+    private readonly aiProviderSelector: AiProviderSelectorService,
   ) {
     this.registerHandlers();
   }
@@ -2829,9 +2899,7 @@ export class NodeHandlersRegistry {
         this.userRepo,
         this.aiOrchestrator,
         this.clientSettingsService,
-        this.aiProviderRepo,
-        this.aiModelRepo,
-        this.aiAvailabilityRepo,
+        this.aiProviderSelector,
         this.whatsappService,
         this.messageRepo,
       ),
