@@ -61,6 +61,8 @@ export class EngineRunnerService {
     private readonly stepRepo: Repository<AutomationRunStepEntity>,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @InjectRepository(OrderEntity)
+    private readonly orderRepo: Repository<OrderEntity>,
     @Inject(forwardRef(() => NodeHandlersRegistry))
     private readonly registry: NodeHandlersRegistry,
     private readonly notificationService: NotificationService,
@@ -374,8 +376,38 @@ export class EngineRunnerService {
         );
         upsellApplyResultCode = result.code;
 
-        // Send feedback message to customer
-        const orderData = run.executionState.trigger.output as OrderEntity;
+        // Trigger output is a slim snapshot (id/status only) — reload the order for phone.
+        const triggerOutput = run.executionState.trigger.output as
+          | Partial<OrderEntity>
+          | undefined;
+        const orderId = run.triggerEntityId || triggerOutput?.id;
+        const order = orderId
+          ? await this.orderRepo.findOne({
+              where: { id: orderId },
+              select: {
+                id: true,
+                phoneNumber: true,
+                normalizedPhoneNumber: true,
+              },
+            })
+          : null;
+
+        let recipientPhone =
+          order?.normalizedPhoneNumber ||
+          order?.phoneNumber ||
+          triggerOutput?.normalizedPhoneNumber ||
+          triggerOutput?.phoneNumber;
+
+        if (!recipientPhone) {
+          const originalMessage = await this.messageRepo.findOne({
+            where: { messageId: originalMessageId },
+            select: { contactNumber: true },
+          });
+          recipientPhone = originalMessage?.contactNumber;
+        }
+
+        const to = normalizeEgyptianPhoneNumber(recipientPhone);
+
         let feedbackText = "";
         if (result.success) {
           feedbackText = "✅ تمت إضافة العرض لطلبك بنجاح!";
@@ -395,14 +427,18 @@ export class EngineRunnerService {
           }
         }
 
-        await this.whatsappService.sendMessage(me, {
-          to: normalizeEgyptianPhoneNumber(
-            orderData.normalizedPhoneNumber || orderData.phoneNumber,
-          ) || orderData.phoneNumber,
-          messaging_product: "whatsapp",
-          type: "text",
-          text: { body: feedbackText },
-        });
+        if (!to) {
+          this.logger.warn(
+            `Cannot send upsell feedback for run ${run.id}: no phone number found`,
+          );
+        } else {
+          await this.whatsappService.sendMessage(me, {
+            to,
+            messaging_product: "whatsapp",
+            type: "text",
+            text: { body: feedbackText },
+          });
+        }
       }
     } catch (error) {
       this.logger.error(
