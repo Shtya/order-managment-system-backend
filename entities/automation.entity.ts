@@ -193,10 +193,11 @@ export interface AiAddressCorrectionConfig {
     modelId?: string;
     modelName?: string;
     modelCode?: string;
+    /** Empty / omitted = auto (assigning rules, then order.shippingCompanyId). */
     shippingCompanyId?: string;
     shippingCompany?: string;
     providerCode?: string;
-    /** Shipping courier code (e.g. bosta), not the AI vendor. */
+    /** Shipping courier code (e.g. bosta), not the AI vendor. Use "none" when unresolved. */
     provider?: string;
     /** When true (default), AI may rewrite order.address. When false, only city/zone/district. */
     updateWrittenAddress?: boolean;
@@ -208,6 +209,8 @@ export interface AiAddressCorrectionConfig {
 }
 
 export interface AssignShippingProviderConfig {
+    /** When true, use shippingCompanyId/provider. When false (default), use the order's company. */
+    useSpecialShippingCompany?: boolean;
     mode?: 'auto' | 'manual';
     shippingCompanyId?: string;
     shippingCompany?: string;

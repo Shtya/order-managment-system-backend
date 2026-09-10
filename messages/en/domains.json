@@ -1741,5 +1741,33 @@
     "failed_title": "Campaign failed",
     "failed_message": "Campaign {name} ended without any successful sends",
     "not_retryable": "This campaign cannot be started in its current status."
+  },
+  "shipping_assigning": {
+    "rule_name_exists": "Rule name already exists",
+    "rule_not_found": "Assigning rule not found",
+    "no_matching_rule": "No assigning rule matched this order",
+    "shipping_company_not_found": "Shipping company not found",
+    "some_shipping_companies_not_found": "Some shipping companies not found",
+    "some_stores_not_found": "Some stores not found",
+    "some_cities_not_found": "Some cities not found",
+    "shares_must_sum_100": "Company shares must sum to 100",
+    "invalid_amount_range": "Invalid amount range (min must be <= max, ranges must not overlap)",
+    "empty_mapping": "Mapping must contain at least one entry",
+    "status_active": "Active",
+    "status_inactive": "Inactive",
+    "export_sheet": "Shipping Assigning",
+    "export_rules_sheet": "Assigning Rules",
+    "export_name": "Name",
+    "export_type": "Type",
+    "export_priority": "Priority",
+    "export_description": "Description",
+    "export_status": "Status",
+    "export_strategy": "Strategy",
+    "export_target_companies": "Target Companies",
+    "export_stores": "Stores",
+    "export_cities": "Cities",
+    "export_payment_method": "Payment Method",
+    "export_min_amount": "Min Amount",
+    "export_max_amount": "Max Amount"
   }
 }

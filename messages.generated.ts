@@ -1891,6 +1891,34 @@ export type I18nTranslations = {
             "failed_message": string;
             "not_retryable": string;
         };
+        "shipping_assigning": {
+            "rule_name_exists": string;
+            "rule_not_found": string;
+            "no_matching_rule": string;
+            "shipping_company_not_found": string;
+            "some_shipping_companies_not_found": string;
+            "some_stores_not_found": string;
+            "some_cities_not_found": string;
+            "shares_must_sum_100": string;
+            "invalid_amount_range": string;
+            "empty_mapping": string;
+            "status_active": string;
+            "status_inactive": string;
+            "export_sheet": string;
+            "export_rules_sheet": string;
+            "export_name": string;
+            "export_type": string;
+            "export_priority": string;
+            "export_description": string;
+            "export_status": string;
+            "export_strategy": string;
+            "export_target_companies": string;
+            "export_stores": string;
+            "export_cities": string;
+            "export_payment_method": string;
+            "export_min_amount": string;
+            "export_max_amount": string;
+        };
     };
     "emails": {
         "password_reset": {

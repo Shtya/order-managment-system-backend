@@ -62,6 +62,8 @@ import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.service";
 import { AiAttempt, AiOrchestrationResult } from "src/ai/interfaces/ai-types";
 import { AiProviderSelectorService } from "src/ai/orchestrator/provider-selector.service";
+import { ShippingAssigningService } from "src/shipping-assigning/shipping-assigning.service";
+import { ShippingCompanyEntity } from "entities/shipping.entity";
 
 // Re-export for callers that previously imported from this module
 export { ADDRESS_CHOICE_DELETED_BUTTON_ID } from "./automation-helpers";
@@ -773,6 +775,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     private readonly aiOrchestrator: AiOrchestratorService,
     private readonly clientSettingsService: ClientSettingsService,
     private readonly providerSelector: AiProviderSelectorService,
+    private readonly shippingAssigning: ShippingAssigningService,
+    @InjectRepository(ShippingCompanyEntity)
+    private readonly shippingCompanyRepo: Repository<ShippingCompanyEntity>,
     private readonly whatsappService?: WhatsappService,
     private readonly messageRepo?: Repository<WhatsappMessageEntity>,
   ) {
@@ -830,7 +835,21 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
       const settings = await this.clientSettingsService.getSettings(admin);
       const defaultLang = settings?.defaultLang || "en";
-      const prompt = this.buildPrompt(orderData, config);
+      const shipping = await this.resolveShippingCompany(admin, orderData, config, run);
+      if (isMissingShippingCompany(shipping)) {
+        return {
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: isAutoShippingCompanyConfig(config)
+            ? "No shipping company resolved from assigning rules"
+            : "No shipping company selected",
+          output: {
+            ...usedAiFromFailure(),
+            ...shippingOutput(shipping),
+          },
+        };
+      }
+      const prompt = this.buildPrompt(orderData, config, shipping);
 
       let chatResult: AiOrchestrationResult | undefined;
       try {
@@ -840,9 +859,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           metadata: {
             orderId: orderData.id,
             orderNumber: orderData.orderNumber,
-            shippingCompanyId: config.shippingCompanyId,
-            shippingCompany: config.shippingCompany,
-            provider: config.provider,
+            shippingCompanyId: shipping.shippingCompanyId,
+            shippingCompany: shipping.shippingCompany,
+            provider: shipping.provider,
             updateWrittenAddress: shouldUpdateWrittenAddress(config),
           },
           tenantLang: defaultLang,
@@ -856,7 +875,10 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           success: false,
           chosenBranch: "address_not_corrected",
           error: error?.message || "Address correction failed",
-          output: usedAiFromFailure(error, chatResult),
+          output: {
+            ...usedAiFromFailure(error, chatResult),
+            ...shippingOutput(shipping),
+          },
         };
       }
 
@@ -868,10 +890,16 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           chatResult,
           conflict.addresses,
           conflict.reason,
+          shipping,
         );
       }
 
-      return decideAddressCorrectionBranch(chatResult);
+      const result = decideAddressCorrectionBranch(chatResult);
+      result.output = {
+        ...shippingOutput(shipping),
+        ...(result.output || {}),
+      };
+      return result;
     } catch (error) {
       this.logger.error(
         `Failed to correct order address: ${error?.message}`,
@@ -996,12 +1024,31 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
       const settings = await this.clientSettingsService.getSettings(admin);
       const defaultLang = settings?.defaultLang || "en";
+      const shipping: ResolvedShippingCompany = {
+        shippingCompanyId: priorOutput.shippingCompanyId ?? null,
+        shippingCompany: priorOutput.shippingCompany ?? null,
+        provider: priorOutput.provider ?? "",
+      };
+      if (isMissingShippingCompany(shipping)) {
+        return {
+          success: false,
+          chosenBranch: "address_not_corrected",
+          error: "No shipping company from the previous address-correction step",
+          output: {
+            ...sanitizePrior(priorOutput),
+            pendingAddressConflict: false,
+            addressConflictResume: false,
+            ...usedAiFromFailure(),
+          },
+        };
+      }
       const resumePrompt = this.buildResumePrompt(
         orderData,
         config,
         conflictingAddresses,
         selected,
         selection,
+        shipping,
       );
 
       const history = priorOutput.aiSessionId
@@ -1017,9 +1064,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           metadata: {
             orderId: orderData.id,
             orderNumber: orderData.orderNumber,
-            shippingCompanyId: config.shippingCompanyId,
-            shippingCompany: config.shippingCompany,
-            provider: config.provider,
+            shippingCompanyId: shipping.shippingCompanyId,
+            shippingCompany: shipping.shippingCompany,
+            provider: shipping.provider,
             customerSelectedRowId: selected.rowId,
             updateWrittenAddress: shouldUpdateWrittenAddress(config),
           },
@@ -1047,6 +1094,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
       result.output = {
         ...sanitizePrior(priorOutput),
         ...(result.output || {}),
+        ...shippingOutput(shipping),
         pendingAddressConflict: false,
         addressConflictResume: false,
         buttonClicked: selection.buttonText,
@@ -1081,6 +1129,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     chatResult: AiOrchestrationResult,
     rawAddresses: any[],
     reason: string | undefined,
+    shipping: ResolvedShippingCompany,
   ): Promise<NodeHandlerResponse> {
     const candidates = normalizeConflictAddresses(rawAddresses);
     if (candidates.length < 2) {
@@ -1088,7 +1137,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         success: true,
         chosenBranch: "address_not_corrected",
         error: "Address conflict reported but fewer than 2 usable addresses",
-        output: withUsedAi({ aiComment: chatResult.content, reason }, chatResult),
+        output: withUsedAi({ aiComment: chatResult.content, reason, ...shippingOutput(shipping) }, chatResult),
       };
     }
 
@@ -1104,7 +1153,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         chosenBranch: "address_not_corrected",
         error: "Recipient phone number not found for address conflict list",
         output: withUsedAi(
-          { aiComment: chatResult.content, conflictingAddresses: candidates },
+          { aiComment: chatResult.content, conflictingAddresses: candidates, ...shippingOutput(shipping) },
           chatResult,
         ),
       };
@@ -1116,7 +1165,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         chosenBranch: "address_not_corrected",
         error: "WhatsApp service unavailable for address conflict list",
         output: withUsedAi(
-          { aiComment: chatResult.content, conflictingAddresses: candidates },
+          { aiComment: chatResult.content, conflictingAddresses: candidates, ...shippingOutput(shipping) },
           chatResult,
         ),
       };
@@ -1170,6 +1219,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             {
               aiComment: chatResult.content,
               conflictingAddresses: candidates,
+              ...shippingOutput(shipping),
             },
             chatResult,
           ),
@@ -1194,8 +1244,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             aiSessionId: chatResult.sessionId,
             orderId: orderData.id,
             aiComment: chatResult.content,
-            shippingCompany: config.shippingCompany,
-            provider: config.provider,
+            shippingCompanyId: shipping.shippingCompanyId,
+            shippingCompany: shipping.shippingCompany,
+            provider: shipping.provider,
           },
           chatResult,
         ),
@@ -1213,6 +1264,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           {
             aiComment: chatResult.content,
             conflictingAddresses: candidates,
+            ...shippingOutput(shipping),
           },
           chatResult,
         ),
@@ -1263,10 +1315,68 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     }
   }
 
-  private buildPrompt(orderData: any, config: AiAddressCorrectionConfig): string {
-    const shippingCompanyInfo = config.shippingCompany
-      ? `\n- Selected Shipping Company: ${config.shippingCompany} (${config.provider})`
-      : "";
+  private async resolveShippingCompany(
+    admin: User,
+    orderData: OrderEntity,
+    config: AiAddressCorrectionConfig,
+    run: AutomationRunEntity,
+  ): Promise<ResolvedShippingCompany> {
+    const empty: ResolvedShippingCompany = {
+      shippingCompanyId: null,
+      shippingCompany: null,
+      provider: "",
+    };
+
+    if (!isAutoShippingCompanyConfig(config)) {
+      if (!config.shippingCompanyId) return empty;
+      const company = await this.shippingCompanyRepo.findOne({
+        where: { id: config.shippingCompanyId },
+      });
+      return {
+        shippingCompanyId: config.shippingCompanyId,
+        shippingCompany: config.shippingCompany || company?.name || null,
+        provider: company?.code || config.provider || "",
+      };
+    }
+
+    try {
+      const me = {
+        id: run.adminId,
+        adminId: run.adminId,
+        role: admin.role || { name: "admin" },
+      };
+      const resolved = await this.shippingAssigning.resolve(me, {
+        paymentMethod: orderData.paymentMethod as any,
+        finalTotal: orderData.finalTotal != null ? Number(orderData.finalTotal) : undefined,
+        storeId: orderData.storeId ?? undefined,
+        cityId: orderData.cityId ?? undefined,
+      });
+      if (!resolved.companyId) return empty;
+      const company = await this.shippingCompanyRepo.findOne({
+        where: { id: resolved.companyId },
+      });
+      if (!company) return empty;
+      return {
+        shippingCompanyId: company.id,
+        shippingCompany: resolved.companyName || company.name,
+        provider: company.code,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Auto shipping resolve failed: ${error?.message}`);
+      return empty;
+    }
+  }
+
+  private shippingPromptBlock(shipping: ResolvedShippingCompany): string {
+    return `\n- Selected Shipping Company: ${shipping.shippingCompany} (${shipping.provider})`;
+  }
+
+  private buildPrompt(
+    orderData: any,
+    config: AiAddressCorrectionConfig,
+    shipping: ResolvedShippingCompany,
+  ): string {
+    const shippingCompanyInfo = this.shippingPromptBlock(shipping);
     const updateWritten = shouldUpdateWrittenAddress(config);
 
     const locationAddress = orderData.locationAddress || "";
@@ -1350,32 +1460,35 @@ Important: \`isSparse: true\` on reverse geocode does **NOT** mean the map pin i
 ${writtenAddressRules}
 
 ## Conflict / choice rules (IMPORTANT)
-**Ask the customer when there are 2+ different places that are each usable for shipping (written complete address AND/OR map pin with coordinates).**
+**Ask the customer only when there are 2+ different places that are each complete and usable for shipping** (a clear written address AND a WhatsApp/map pin with coordinates).
 
-1. **Two or more different places, each usable** (example: written address in Cairo vs map pin in Arish/North Sinai) → call \`report_address_conflict\` with those candidates. Do **NOT** call \`bulk_update_orders_shipping\` in that turn.
+1. **Written address is complete and clear AND there is a WhatsApp/map pin, and they are different places** (example: written address in Cairo vs map pin in Arish/North Sinai) → call \`report_address_conflict\` with those candidates. Do **NOT** call \`bulk_update_orders_shipping\` in that turn.
    - For labels use exactly:
      - Written order address → label \`"العنوان المسجل"\`, source \`"address"\`
      - WhatsApp/map pin → label \`"عنوان الواتساب"\`, source \`"coordinates"\` or \`"locationAddress"\`, include latitude/longitude
    - \`fullAddress\` must be normal address text only (no lat/lng in the string)
-2. **One complete/accurate address and one incomplete/inaccurate text (no coordinates):**
-   - If they clearly refer to the **same place** (weaker/vaguer detail of the accurate one) → do **NOT** ask. Use the accurate one + \`bulk_update_orders_shipping\`.
-   - If they are unrelated vague text only → do **NOT** ask with invalid options; do not update.
-3. **All candidates incomplete/inaccurate** (no usable written address and no coordinates) → do **NOT** call \`report_address_conflict\`. Do not update shipping.
-4. **Single clear complete address / single map pin** → resolve city/zone/district and update with \`bulk_update_orders_shipping\`.
+2. **Written address is ambiguous, conflicted, incomplete, or not enough** (vague text, missing city/street, garbage) **AND there is a WhatsApp/map pin with valid latitude/longitude** (or a detailed \`locationAddress\` / \`locationName\`):
+   - Do **NOT** call \`report_address_conflict\`. Do **NOT** skip the update.
+   - The WhatsApp location is unique and complete enough for shipping — use it with \`bulk_update_orders_shipping\`.
+3. **Written address is complete and there is no usable WhatsApp/map pin** → use the written address + \`bulk_update_orders_shipping\`. Do **NOT** ask.
+4. **All candidates incomplete/inaccurate** (no usable written address AND no coordinates / WhatsApp pin) → do **NOT** call \`report_address_conflict\`. Do not update shipping.
+5. **Single clear complete address / single map pin** → resolve city/zone/district and update with \`bulk_update_orders_shipping\`.
 
-Never refuse to ask the customer just because reverse-geocode text for a map pin is city-only — the pin itself is still a valid choice when it conflicts with a different written address.
+Never refuse to ask the customer just because reverse-geocode text for a map pin is city-only — the pin itself is still a valid choice when it conflicts with a different **complete** written address.
+Never skip updating when the written text is weak but a WhatsApp pin exists — use the WhatsApp pin.
 
 ## Your Task (when updating shipping)
 1. Judge each address source for completeness/accuracy using the rules above
-2. If latitude/longitude are set, call \`get_location_by_coordinates\` to get the exact map location details before updating
-3. Determine the correct city using \`get_cities\`
-4. Find the provider location mapping for the shipping company
-5. Check if the city supports dropOff for this provider (if not, the order may need special handling)
-6. Fetch zones/districts using the provider's external city ID
-7. Select the correct zone/district based on the address
+2. If the written address is weak/ambiguous and a WhatsApp pin exists, use the WhatsApp pin (do not stop)
+3. If latitude/longitude are set, call \`get_location_by_coordinates\` to get the exact map location details before updating
+4. Determine the correct city using \`get_cities\`
+5. Find the provider location mapping for the shipping company
+6. Check if the city supports dropOff for this provider (if not, the order may need special handling)
+7. Fetch zones/districts using the provider's external city ID
+8. Select the correct zone/district based on the address
 ${updateTaskStep}
-9. **Do NOT update if unsure about the location**
-10. **Never invent an address**
+10. **Do NOT update if unsure about the location** — except when a WhatsApp pin exists and the written address is unusable; then use the pin
+11. **Never invent an address**
 
 ## Response
 Explain briefly what you found and what you did (or why you couldn't update). Use simple, everyday language that any user can understand. Avoid technical terms.`;
@@ -1387,10 +1500,9 @@ Explain briefly what you found and what you did (or why you couldn't update). Us
     conflictingAddresses: ConflictingAddressCandidate[],
     selected: ConflictingAddressCandidate,
     selection: { buttonId?: string; buttonText?: string },
+    shipping: ResolvedShippingCompany,
   ): string {
-    const shippingCompanyInfo = config.shippingCompany
-      ? `\n- Selected Shipping Company: ${config.shippingCompany} (${config.provider})`
-      : "";
+    const shippingCompanyInfo = this.shippingPromptBlock(shipping);
     const updateWritten = shouldUpdateWrittenAddress(config);
 
     const listText = conflictingAddresses
@@ -1446,6 +1558,36 @@ Explain briefly what you updated (or why you could not). Use simple everyday lan
 
 function shouldUpdateWrittenAddress(config: AiAddressCorrectionConfig): boolean {
   return config?.updateWrittenAddress !== false;
+}
+
+type ResolvedShippingCompany = {
+  shippingCompanyId: string | null;
+  shippingCompany: string | null;
+  provider: string;
+};
+
+function isMissingShippingCompany(shipping: ResolvedShippingCompany): boolean {
+  return !shipping?.shippingCompanyId;
+}
+
+function shippingOutput(shipping?: ResolvedShippingCompany | null) {
+  return {
+    shippingCompanyId: shipping?.shippingCompanyId ?? null,
+    shippingCompany: shipping?.shippingCompany ?? null,
+    provider: shipping?.provider || null,
+  };
+}
+
+function isAutoShippingCompanyConfig(config: AiAddressCorrectionConfig): boolean {
+  return !config?.shippingCompanyId;
+}
+
+function shouldUseSpecialShippingCompany(
+  config: AssignShippingProviderConfig,
+): boolean {
+  if (config?.useSpecialShippingCompany === true) return true;
+  if (config?.useSpecialShippingCompany === false) return false;
+  return !!config?.shippingCompanyId;
 }
 
 function truncateWhatsappText(value: string, max: number): string {
@@ -1703,14 +1845,24 @@ export class ActionAssignShippingProviderHandler extends FlowNodeHandler {
         role: run.initialPayload?.role,
       };
 
-      let selectedProvider = config.provider;
-      let selectedCompanyId = config.shippingCompanyId;
-      let selectedCompanyName = config.shippingCompany;
+      const useSpecial = shouldUseSpecialShippingCompany(config);
+      let selectedProvider = useSpecial
+        ? config.provider
+        : orderData.shippingCompany?.code;
+      let selectedCompanyId = useSpecial
+        ? config.shippingCompanyId
+        : orderData.shippingCompanyId;
+      let selectedCompanyName = useSpecial
+        ? config.shippingCompany
+        : orderData.shippingCompany?.name;
 
       if (!selectedProvider) {
         return {
           success: false,
-          error: "Selected shipping provider is unavailable",
+          chosenBranch: "failed_to_distribute",
+          error: useSpecial
+            ? "Selected shipping provider is unavailable"
+            : "Order has no shipping company to distribute with",
         };
       }
 
@@ -2870,6 +3022,9 @@ export class NodeHandlersRegistry {
     private readonly automationQueueService: AutomationQueueService,
     private readonly aiOrchestrator: AiOrchestratorService,
     private readonly aiProviderSelector: AiProviderSelectorService,
+    private readonly shippingAssigning: ShippingAssigningService,
+    @InjectRepository(ShippingCompanyEntity)
+    private readonly shippingCompanyRepo: Repository<ShippingCompanyEntity>,
   ) {
     this.registerHandlers();
   }
@@ -2900,6 +3055,8 @@ export class NodeHandlersRegistry {
         this.aiOrchestrator,
         this.clientSettingsService,
         this.aiProviderSelector,
+        this.shippingAssigning,
+        this.shippingCompanyRepo,
         this.whatsappService,
         this.messageRepo,
       ),

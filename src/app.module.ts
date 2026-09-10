@@ -66,6 +66,7 @@ import { ConversationModule } from "./conversation/conversation.module";
 import { CustomerModule } from "./customer/customer.module";
 import { CitiesModule } from "./cities/cities.module";
 import { OrderAssignmentModule } from "./order-assignment/order-assignment.module";
+import { ShippingAssigningModule } from "./shipping-assigning/shipping-assigning.module";
 import { QueueModule } from "./queue/queue.module";
 import { UserThrottlerGuard } from "common/userThrottlerGuard";
 import { createHash } from "crypto";
@@ -190,6 +191,7 @@ import { observeConfig, ObserveModule } from "common/observe/bserve.config";
     CustomerModule,
     ClientsModule,
     OrderAssignmentModule,
+    ShippingAssigningModule,
     ClientSettingsModule,
     SmsModule,
     SupportTicketModule,

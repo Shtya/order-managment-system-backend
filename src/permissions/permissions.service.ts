@@ -101,6 +101,10 @@ export class PermissionsService implements OnModuleInit {
       "shipping-companies.read",
       "shipping-companies.update",
       "shipping-companies.delete",
+      "shipping-assigning.read",
+      "shipping-assigning.create",
+      "shipping-assigning.update",
+      "shipping-assigning.delete",
 
       "notifications.read",
       "notifications.update",

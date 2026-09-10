@@ -46,8 +46,10 @@ import { SmsModule } from "src/sms/sms.module";
 import { AiModelAvailabilityEntity, AiModelEntity, AiProviderEntity } from "entities/ai.entity";
 import { IssueModule } from "src/issue/issue.module";
 import { ShippingModule } from "src/shipping/shipping.module";
+import { ShippingAssigningModule } from "src/shipping-assigning/shipping-assigning.module";
 import { AiModule } from "src/ai/ai.module";
 import { ClientsModule } from "src/clients/clients.module";
+import { ShippingCompanyEntity } from "entities/shipping.entity";
 
 @Module({
   imports: [
@@ -58,6 +60,7 @@ import { ClientsModule } from "src/clients/clients.module";
     forwardRef(() => WhatsappModule),
     forwardRef(() => OrderAssignmentModule),
     forwardRef(() => ShippingModule),
+    forwardRef(() => ShippingAssigningModule),
     forwardRef(() => AiModule),
     IssueModule,
     ClientsModule,
@@ -76,6 +79,7 @@ import { ClientsModule } from "src/clients/clients.module";
       User,
       OrderAssignmentEntity,
       WhatsappMessageEntity,
+      ShippingCompanyEntity,
       AiProviderEntity,
       AiModelEntity,
       AiModelAvailabilityEntity,

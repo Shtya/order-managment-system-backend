@@ -1749,5 +1749,33 @@
     "failed_title": "فشلت الحملة",
     "failed_message": "انتهت الحملة {name} دون أي إرسال ناجح",
     "not_retryable": "لا يمكن بدء هذه الحملة في حالتها الحالية."
+  },
+  "shipping_assigning": {
+    "rule_name_exists": "اسم القاعدة موجود بالفعل",
+    "rule_not_found": "قاعدة الإسناد غير موجودة",
+    "no_matching_rule": "لا توجد قاعدة إسناد مطابقة لهذا الطلب",
+    "shipping_company_not_found": "شركة الشحن غير موجودة",
+    "some_shipping_companies_not_found": "بعض شركات الشحن غير موجودة",
+    "some_stores_not_found": "بعض المتاجر غير موجودة",
+    "some_cities_not_found": "بعض المدن غير موجودة",
+    "shares_must_sum_100": "يجب أن يكون مجموع نسب الشركات 100",
+    "invalid_amount_range": "نطاق مبلغ غير صالح (الحد الأدنى يجب أن يكون <= الحد الأقصى، والنطاقات يجب ألا تتداخل)",
+    "empty_mapping": "يجب أن يحتوي الربط على عنصر واحد على الأقل",
+    "status_active": "نشط",
+    "status_inactive": "غير نشط",
+    "export_sheet": "إسناد الشحن",
+    "export_rules_sheet": "قواعد الإسناد",
+    "export_name": "الاسم",
+    "export_type": "النوع",
+    "export_priority": "الأولوية",
+    "export_description": "الوصف",
+    "export_status": "الحالة",
+    "export_strategy": "الاستراتيجية",
+    "export_target_companies": "الشركات المستهدفة",
+    "export_stores": "المتاجر",
+    "export_cities": "المدن",
+    "export_payment_method": "طريقة الدفع",
+    "export_min_amount": "الحد الأدنى للمبلغ",
+    "export_max_amount": "الحد الأقصى للمبلغ"
   }
 }

@@ -537,16 +537,20 @@ export class LookupsService {
     const qb = this.citiesRepo
       .createQueryBuilder("city")
       .select(["city.id AS id", 'city."nameEn"', 'city."nameAr"'])
-      .orderBy("city.nameEn", "ASC") // Cities are usually better sorted alphabetically
-      .limit(params.limit || 50);
+      .orderBy("city.nameEn", "ASC");
 
-    if (params.q?.trim()) {
-      const q = `%${params.q.trim().toLowerCase()}%`;
-      // Search in both English and Arabic names
-      qb.andWhere("(LOWER(city.nameEn) LIKE :q OR city.nameAr LIKE :q)", { q });
+    const byIds = params.ids && params.ids.length > 0;
+    if (byIds) {
+      qb.andWhere("city.id IN (:...ids)", { ids: params.ids });
+      qb.limit(params.ids.length);
+    } else {
+      qb.andWhere('city."isActive" = true');
+      qb.limit(params.limit || 50);
+      if (params.q?.trim()) {
+        const q = `%${params.q.trim().toLowerCase()}%`;
+        qb.andWhere("(LOWER(city.nameEn) LIKE :q OR city.nameAr LIKE :q)", { q });
+      }
     }
-
-    qb.andWhere('city."isActive" = true');
 
     const rows = await qb.getRawMany();
 

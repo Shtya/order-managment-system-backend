@@ -63,10 +63,20 @@ export class LookupsController {
     @Req() req: any,
     @Query("q") q?: string,
     @Query("limit") limit?: string,
+    @Query("ids") ids?: string,
   ) {
+    const idList = ids
+      ? ids
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean)
+      : undefined;
     return this.lookups.cities({
       q,
-      limit: limit ? Math.min(Number(limit) || 50, 200) : 50,
+      ids: idList,
+      limit: limit
+        ? Math.min(Number(limit) || 50, 200)
+        : idList?.length || 50,
     });
   }
 
