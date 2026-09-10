@@ -33,6 +33,7 @@ import { UpsellsService } from "src/upsells/upsells.service";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { OrderEntity } from "entities/order.entity";
 import { getErrorMessage } from "common/healpers";
+import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { RequestTranslationService } from "common/translation.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import {
@@ -395,7 +396,9 @@ export class EngineRunnerService {
         }
 
         await this.whatsappService.sendMessage(me, {
-          to: orderData.normalizedPhoneNumber,
+          to: normalizeEgyptianPhoneNumber(
+            orderData.normalizedPhoneNumber || orderData.phoneNumber,
+          ) || orderData.phoneNumber,
           messaging_product: "whatsapp",
           type: "text",
           text: { body: feedbackText },
