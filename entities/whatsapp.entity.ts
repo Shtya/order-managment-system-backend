@@ -462,15 +462,12 @@ export class WhatsappMessageEntity {
 
     // 1. العلاقات (Relationships)
     @Index()
-    @Column({ type: 'uuid' })
-    accountId: string;
+    @Column({ type: 'uuid', nullable: true })
+    accountId?: string;
 
-    @ManyToOne(() => WhatsappAccountEntity, {
-        onDelete: 'SET NULL',
-        nullable: true,
-    })
+    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'SET NULL', nullable: true })
     @JoinColumn({ name: 'accountId' })
-    account?: WhatsappAccountEntity;
+    account: WhatsappAccountEntity;
 
     @Index()
     @Column({ type: 'uuid', nullable: true })
@@ -642,7 +639,7 @@ export class WhatsappWebhookEventEntity {
 
     // 1. العلاقات (Relationships)
     @Index()
-    @Column({ type: 'uuid' })
+    @Column({ type: 'uuid', nullable: true })
     accountId: string;
 
     @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'SET NULL', nullable: true })
