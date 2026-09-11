@@ -297,7 +297,7 @@ export class ConversationEntity {
     where: `"wabaId" IS NOT NULL AND "phoneNumberId" IS NOT NULL`,
   }
 )
-@Index(["phoneNumberId"], { unique: true })
+// @Index(["phoneNumberId"], { unique: true })
 @Entity("whatsapp_accounts")
 export class WhatsappAccountEntity {
     @PrimaryGeneratedColumn('uuid')
