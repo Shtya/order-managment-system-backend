@@ -297,6 +297,7 @@ export class ConversationEntity {
     where: `"wabaId" IS NOT NULL AND "phoneNumberId" IS NOT NULL`,
   }
 )
+@Index(["phoneNumberId"], { unique: true })
 @Entity("whatsapp_accounts")
 export class WhatsappAccountEntity {
     @PrimaryGeneratedColumn('uuid')
@@ -464,9 +465,12 @@ export class WhatsappMessageEntity {
     @Column({ type: 'uuid' })
     accountId: string;
 
-    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'CASCADE' })
+    @ManyToOne(() => WhatsappAccountEntity, {
+        onDelete: 'SET NULL',
+        nullable: true,
+    })
     @JoinColumn({ name: 'accountId' })
-    account: WhatsappAccountEntity;
+    account?: WhatsappAccountEntity;
 
     @Index()
     @Column({ type: 'uuid', nullable: true })
@@ -641,9 +645,9 @@ export class WhatsappWebhookEventEntity {
     @Column({ type: 'uuid' })
     accountId: string;
 
-    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'CASCADE' })
+    @ManyToOne(() => WhatsappAccountEntity, { onDelete: 'SET NULL', nullable: true })
     @JoinColumn({ name: 'accountId' })
-    account: WhatsappAccountEntity;
+    account?: WhatsappAccountEntity;
 
     @Index()
     @Column({ type: 'varchar', length: 100, nullable: true })
