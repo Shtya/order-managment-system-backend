@@ -54,7 +54,8 @@ export class OpenAiProvider extends AiProviderAbstract {
     const client = this.buildClient();
     try {
       const models: AiProviderModelInfo[] = [];
-      for await (const model of client.models.list()) {
+      const rawModels = await client.models.list();
+      for (const model of rawModels.data) {
         const modelCode = model.id;
         if (!modelCode) continue;
         const modelType = inferOpenAiCatalogType(model.id);
