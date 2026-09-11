@@ -65,14 +65,24 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
                 secret: process.env.JWT_SECRET,
             });
 
-            const user = await this.userRepository.findOne({ where: { id: decoded.sub } });
+            const user = await this.userRepository.findOne({ where: { id: decoded.sub }, relations: {
+                role: true,
+            } });
             if (!user) return socket.disconnect();
 
             const userId = String(user.id);
+            const roleName = String(user.role?.name || "").toLowerCase();
+            const isAdmin = roleName === "admin";
+            const isSuperAdmin = roleName === "super_admin";
+
             socket.data.user = { id: userId, name: user.name };
 
             // Join personal room for direct 1-on-1 emits across cluster
             await socket.join(`user_${userId}`);
+
+            if (!isAdmin && !isSuperAdmin && user.adminId) {
+                await socket.join(`user_${String(user.adminId)}`);
+            }
 
             // FIX 1: Track connection count across ALL PM2 workers
             const activeConnections = await this.redisClient.incr(`user_sockets:${userId}`);
