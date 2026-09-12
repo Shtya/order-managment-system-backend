@@ -40,7 +40,6 @@ import {
   CreateManifestDto,
 } from "dto/order.dto";
 import { ScanLogType, ScanReason, OrderConfirmationSource } from "entities/order.entity";
-import { tenantId } from "src/category/category.service";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("orders")

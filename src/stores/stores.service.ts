@@ -94,6 +94,7 @@ import {
 } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { User } from "entities/user.entity";
 
 @Injectable()
 export class StoresService {
@@ -127,7 +128,8 @@ export class StoresService {
     private readonly ordersRepo: Repository<OrderEntity>,
     @InjectRepository(BundleEntity)
     private readonly bundleRepo: Repository<BundleEntity>,
-
+    @InjectRepository(User)
+    private readonly usersRepo: Repository<User>,
     @Inject(forwardRef(() => OrdersService))
     protected readonly ordersService: OrdersService,
     @Inject(forwardRef(() => ProductsService))
@@ -3550,11 +3552,11 @@ export class StoresService {
       failureId,
       provider,
       items,
+      userId
     } = data;
 
     try {
       const service = storeType ? this.getService(storeType) : null;
-
       switch (type) {
         case OrderSyncJobs.BULK_CREATE_ORDERS:
           if (!orders?.length) {
@@ -3564,9 +3566,17 @@ export class StoresService {
             return;
           }
           if (orders.length > 0) {
+            const me = await this.usersRepo.findOne({ where: { id: userId as string } });
+            if (!me) {
+              this.logger.warn(
+                `[Bulk Orders] User not found for userId ${userId}`,
+              );
+              return;
+            }
             const result = await this.ordersService.createBulkOrders(
               orders,
               adminId,
+              me
             );
             this.logger.log(
               `[Bulk Orders] Created ${orders.length} orders for admin ${adminId}`,

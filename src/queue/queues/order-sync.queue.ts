@@ -46,7 +46,7 @@ export class OrderSyncQueueService {
     );
   }
 
-  async enqueueBulkOrderCreate(adminId: string, orders: any[]) {
+  async enqueueBulkOrderCreate(adminId: string, userId: string, orders: any[]) {
     if (!orders?.length) return;
 
     // Extract order identifiers to generate consistent hash
@@ -69,6 +69,7 @@ export class OrderSyncQueueService {
       null,
       {
         orders,
+        userId,
         adminId,
       },
       {

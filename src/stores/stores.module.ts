@@ -30,6 +30,7 @@ import { PurchasesModule } from "src/purchases/purchases.module";
 import { SafesModule } from "src/safes/safes.module";
 import { Account } from "entities/safe.entity";
 import { ShippingModule } from "src/shipping/shipping.module";
+import { User } from "entities/user.entity";
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { ShippingModule } from "src/shipping/shipping.module";
       Account,
       ReturnRequestEntity,
       ReturnRequestItemEntity,
+      User
     ]),
   ],
   providers: [

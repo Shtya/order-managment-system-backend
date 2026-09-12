@@ -7355,79 +7355,33 @@ export class OrdersService {
     const buffer = await workbook.xlsx.writeBuffer();
     return buffer;
   }
-  async getBulkTemplate(me: any): Promise<Buffer> {
-    const adminId = tenantId(me);
 
-    // ==========================================
-    // 1. Fetch Dynamic Data (Stores, Shipping, Products)
-    // ==========================================
+  /** 1-based Excel columns. Must match `getBulkOrderExcelColumns()` order. */
+  private readonly bulkOrderExcelCol = {
+    customerName: 1,
+    phoneNumber: 2,
+    secondPhoneNumber: 3,
+    email: 4,
+    address: 5,
+    landmark: 6,
+    city: 7,
+    area: 8,
+    paymentMethod: 9,
+    paymentStatus: 10,
+    shippingCompany: 11,
+    allowOpenPackage: 12,
+    store: 13,
+    shippingCost: 14,
+    deposit: 15,
+    discount: 16,
+    additionalFees: 17,
+    notes: 18,
+    customerNotes: 19,
+    items: 20,
+  } as const;
 
-    // Fetch Stores
-    // ==========================================
-    const [storesList, shippingData, products] = await Promise.all([
-      this.storesService.list(me),
-      this.shippingService.activeIntegrations(me),
-      // Fetching only required fields to optimize database performance
-      this.productRepo
-        .createQueryBuilder("product")
-        .leftJoinAndSelect("product.variants", "variant")
-        .leftJoin(
-          ClientSettingsEntity,
-          "settings",
-          "settings.adminId = product.adminId",
-        )
-        .where("product.adminId = :adminId", { adminId: adminId.trim() })
-        .andWhere("product.isActive = :isActive", { isActive: true })
-        .andWhere("variant.isActive = :vActive", { vActive: true })
-
-        // 🔥 filter by available stock
-        .andWhere(
-          new Brackets((qb) => {
-            qb.where(
-              "COALESCE(settings.reservedEnabled, false) = true AND (variant.stockOnHand - variant.reserved) > 0",
-            ).orWhere(
-              "COALESCE(settings.reservedEnabled, false) = false AND variant.stockOnHand > 0",
-            );
-          }),
-        )
-
-        .select([
-          "product.id",
-          "product.name",
-          "product.slug",
-          "variant.id",
-          "variant.sku",
-          "variant.price",
-          "variant.stockOnHand",
-          "variant.reserved",
-        ])
-        .getMany(),
-    ]);
-
-    const storeProviders = storesList.records
-      .map((s) => s.provider)
-      .filter(Boolean);
-    const shippingProviders = shippingData.integrations
-      .map((i) => i.provider)
-      .filter(Boolean);
-    // ==========================================
-    // 2. Initialize Workbook & Main Sheet
-    // ==========================================
-
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Madar";
-    workbook.created = new Date();
-
-    const sheet = workbook.addWorksheet("Orders", {
-      views: [{ state: "frozen", ySplit: 2 }],
-    });
-
-    const columns = [
-      {
-        header: this.translations.t("domains.orders.export_items"),
-        key: "items",
-        width: 50,
-      },
+  private getBulkOrderExcelColumns(): Array<Partial<ExcelJS.Column>> {
+    return [
       {
         header: this.translations.t("domains.orders.export_customer_name"),
         key: "customerName",
@@ -7525,7 +7479,82 @@ export class OrdersService {
         key: "customerNotes",
         width: 40,
       },
+      {
+        header: this.translations.t("domains.orders.export_items"),
+        key: "items",
+        width: 50,
+      },
     ];
+  }
+
+  async getBulkTemplate(me: any): Promise<Buffer> {
+    const adminId = tenantId(me);
+
+    // ==========================================
+    // 1. Fetch Dynamic Data (Stores, Shipping, Products)
+    // ==========================================
+
+    // Fetch Stores
+    // ==========================================
+    const [storesList, shippingData, products] = await Promise.all([
+      this.storesService.list(me),
+      this.shippingService.activeIntegrations(me),
+      // Fetching only required fields to optimize database performance
+      this.productRepo
+        .createQueryBuilder("product")
+        .leftJoinAndSelect("product.variants", "variant")
+        .leftJoin(
+          ClientSettingsEntity,
+          "settings",
+          "settings.adminId = product.adminId",
+        )
+        .where("product.adminId = :adminId", { adminId: adminId.trim() })
+        .andWhere("product.isActive = :isActive", { isActive: true })
+        .andWhere("variant.isActive = :vActive", { vActive: true })
+
+        // 🔥 filter by available stock
+        .andWhere(
+          new Brackets((qb) => {
+            qb.where(
+              "COALESCE(settings.reservedEnabled, false) = true AND (variant.stockOnHand - variant.reserved) > 0",
+            ).orWhere(
+              "COALESCE(settings.reservedEnabled, false) = false AND variant.stockOnHand > 0",
+            );
+          }),
+        )
+
+        .select([
+          "product.id",
+          "product.name",
+          "product.slug",
+          "variant.id",
+          "variant.sku",
+          "variant.price",
+          "variant.stockOnHand",
+          "variant.reserved",
+        ])
+        .getMany(),
+    ]);
+
+    const storeProviders = storesList.records
+      .map((s) => s.provider)
+      .filter(Boolean);
+    const shippingProviders = shippingData.integrations
+      .map((i) => i.provider)
+      .filter(Boolean);
+    // ==========================================
+    // 2. Initialize Workbook & Main Sheet
+    // ==========================================
+
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = "Madar";
+    workbook.created = new Date();
+
+    const sheet = workbook.addWorksheet("Orders", {
+      views: [{ state: "frozen", ySplit: 2 }],
+    });
+
+    const columns = this.getBulkOrderExcelColumns();
     sheet.columns = columns;
 
     // Example Data Row
@@ -7983,6 +8012,7 @@ export class OrdersService {
     const rows: any[] = [];
     const allSkus = new Set<string>();
     const cellErrors = new Map<number, Map<number, string[]>>();
+    const col = this.bulkOrderExcelCol;
 
     sheet.eachRow((row, rowNumber) => {
       if (rowNumber <= 2) return;
@@ -7990,71 +8020,71 @@ export class OrdersService {
       const rowData: any = {
         rowNumber,
         customerName: this.convertCellValue(
-          row.getCell(1).value,
+          row.getCell(col.customerName).value,
           "customerName",
           rowNumber,
-          1,
+          col.customerName,
           cellErrors,
         ),
         phoneNumber: this.convertCellValue(
-          row.getCell(2).value,
+          row.getCell(col.phoneNumber).value,
           "phoneNumber",
           rowNumber,
-          2,
+          col.phoneNumber,
           cellErrors,
         ),
         secondPhoneNumber: this.convertCellValue(
-          row.getCell(3).value,
+          row.getCell(col.secondPhoneNumber).value,
           "secondPhoneNumber",
           rowNumber,
-          3,
+          col.secondPhoneNumber,
           cellErrors,
           true,
         ),
         email: this.convertCellValue(
-          row.getCell(4).value,
+          row.getCell(col.email).value,
           "email",
           rowNumber,
-          4,
+          col.email,
           cellErrors,
           true,
         ),
         address: this.convertCellValue(
-          row.getCell(5).value,
+          row.getCell(col.address).value,
           "address",
           rowNumber,
-          5,
+          col.address,
           cellErrors,
         ),
         landmark: this.convertCellValue(
-          row.getCell(6).value,
+          row.getCell(col.landmark).value,
           "landmark",
           rowNumber,
-          6,
+          col.landmark,
           cellErrors,
           true,
         ),
         city: this.convertCellValue(
-          row.getCell(7).value,
+          row.getCell(col.city).value,
           "city",
           rowNumber,
-          7,
+          col.city,
           cellErrors,
         ),
         area: this.convertCellValue(
-          row.getCell(8).value,
+          row.getCell(col.area).value,
           "area",
           rowNumber,
-          8,
+          col.area,
           cellErrors,
           true,
         ),
         paymentMethod: (
           this.convertCellValue(
-            row.getCell(9).value || "cod",
+            row.getCell(col.paymentMethod).value || "cod",
             "paymentMethod",
             rowNumber,
-            9,
+            col.paymentMethod,
             cellErrors,
           ) || "cod"
         )
@@ -8062,10 +8092,10 @@ export class OrdersService {
           .trim(),
         paymentStatus: (
           this.convertCellValue(
-            row.getCell(10).value || "pending",
+            row.getCell(col.paymentStatus).value || "pending",
             "paymentStatus",
             rowNumber,
-            10,
+            col.paymentStatus,
             cellErrors,
           ) || "pending"
         )
@@ -8073,10 +8103,10 @@ export class OrdersService {
           .trim(),
         shippingCompany: (
           this.convertCellValue(
-            row.getCell(11).value,
+            row.getCell(col.shippingCompany).value,
             "shippingCompany",
             rowNumber,
-            11,
+            col.shippingCompany,
             cellErrors,
             true,
           ) || ""
@@ -8086,10 +8116,10 @@ export class OrdersService {
         allowOpenPackage:
           (
             this.convertCellValue(
-              row.getCell(12).value || "false",
+              row.getCell(col.allowOpenPackage).value || "false",
               "allowOpenPackage",
               rowNumber,
-              12,
+              col.allowOpenPackage,
               cellErrors,
             ) || "false"
           )
@@ -8097,41 +8127,41 @@ export class OrdersService {
             .trim() === "true",
         store: (
           this.convertCellValue(
-            row.getCell(13).value,
+            row.getCell(col.store).value,
             "store",
             rowNumber,
-            13,
+            col.store,
             cellErrors,
             true,
           ) || ""
         )
           .toLowerCase()
           .trim(),
-        shippingCost: Number(row.getCell(14).value || 0),
-        deposit: Number(row.getCell(15).value || 0),
-        discount: Number(row.getCell(16).value || 0),
-        additionalFees: Number(row.getCell(20).value || 0),
+        shippingCost: Number(row.getCell(col.shippingCost).value || 0),
+        deposit: Number(row.getCell(col.deposit).value || 0),
+        discount: Number(row.getCell(col.discount).value || 0),
+        additionalFees: Number(row.getCell(col.additionalFees).value || 0),
         notes: this.convertCellValue(
-          row.getCell(17).value,
+          row.getCell(col.notes).value,
           "notes",
           rowNumber,
-          17,
+          col.notes,
           cellErrors,
           true,
         ),
         customerNotes: this.convertCellValue(
-          row.getCell(18).value,
+          row.getCell(col.customerNotes).value,
           "customerNotes",
           rowNumber,
-          18,
+          col.customerNotes,
           cellErrors,
           true,
         ),
         itemsRaw: this.convertCellValue(
-          row.getCell(19).value,
+          row.getCell(col.items).value,
           "items",
           rowNumber,
-          19,
+          col.items,
           cellErrors,
           true,
         ),
@@ -8191,7 +8221,7 @@ export class OrdersService {
           "domains.orders.bulk_invalid_customer_name",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 1, msg);
+        addCellError(row.rowNumber, col.customerName, msg);
       }
 
       if (!row.phoneNumber || row.phoneNumber.length > 50) {
@@ -8199,7 +8229,7 @@ export class OrdersService {
           "domains.orders.bulk_invalid_phone_number",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 2, msg);
+        addCellError(row.rowNumber, col.phoneNumber, msg);
       }
 
       if (row.secondPhoneNumber && row.secondPhoneNumber.length > 50) {
@@ -8207,42 +8237,42 @@ export class OrdersService {
           "domains.orders.bulk_invalid_second_phone",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 3, msg);
+        addCellError(row.rowNumber, col.secondPhoneNumber, msg);
       }
 
       if (row.email && !isEmail(row.email)) {
         const msg = this.translations.t("domains.orders.bulk_invalid_email");
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 4, msg);
+        addCellError(row.rowNumber, col.email, msg);
       }
       if (!row.address || row.address.length > 1000) {
         const msg = this.translations.t("domains.orders.bulk_invalid_address");
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 5, msg);
+        addCellError(row.rowNumber, col.address, msg);
       }
 
       if (row.landmark && row.landmark.length > 300) {
         const msg = this.translations.t("domains.orders.bulk_invalid_landmark");
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 6, msg);
+        addCellError(row.rowNumber, col.landmark, msg);
       }
 
       if (!row.city || row.city.length > 100) {
         const msg = this.translations.t("domains.orders.bulk_invalid_city");
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 7, msg);
+        addCellError(row.rowNumber, col.city, msg);
       }
 
       if (row.area && row.area.length > 100) {
         const msg = this.translations.t("domains.orders.bulk_invalid_area");
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 8, msg);
+        addCellError(row.rowNumber, col.area, msg);
       }
 
       if (row.notes && row.notes.length > 4000) {
         const msg = this.translations.t("domains.orders.bulk_invalid_notes");
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 17, msg);
+        addCellError(row.rowNumber, col.notes, msg);
       }
 
       if (row.customerNotes && row.customerNotes.length > 4000) {
@@ -8250,7 +8280,7 @@ export class OrdersService {
           "domains.orders.bulk_invalid_customer_notes",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 18, msg);
+        addCellError(row.rowNumber, col.customerNotes, msg);
       }
 
       let storeId: string | null = null;
@@ -8263,7 +8293,7 @@ export class OrdersService {
               { args: { provider: row.store } },
             );
             rowErrors.push(msg);
-            addCellError(row.rowNumber, 13, msg);
+            addCellError(row.rowNumber, col.store, msg);
           }
         } else {
           const msg = this.translations.t(
@@ -8271,7 +8301,7 @@ export class OrdersService {
             { args: { provider: row.store } },
           );
           rowErrors.push(msg);
-          addCellError(row.rowNumber, 13, msg);
+          addCellError(row.rowNumber, col.store, msg);
         }
       }
 
@@ -8285,7 +8315,7 @@ export class OrdersService {
               { args: { provider: row.shippingCompany } },
             );
             rowErrors.push(msg);
-            addCellError(row.rowNumber, 11, msg);
+            addCellError(row.rowNumber, col.shippingCompany, msg);
           }
         } else {
           const msg = this.translations.t(
@@ -8293,7 +8323,7 @@ export class OrdersService {
             { args: { provider: row.shippingCompany } },
           );
           rowErrors.push(msg);
-          addCellError(row.rowNumber, 11, msg);
+          addCellError(row.rowNumber, col.shippingCompany, msg);
         }
       }
 
@@ -8303,7 +8333,7 @@ export class OrdersService {
           { args: { paymentMethod: row.paymentMethod } },
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 9, msg);
+        addCellError(row.rowNumber, col.paymentMethod, msg);
       }
 
       if (!paymentStatusValues.includes(row.paymentStatus as any)) {
@@ -8312,7 +8342,7 @@ export class OrdersService {
           { args: { paymentStatus: row.paymentStatus } },
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 10, msg);
+        addCellError(row.rowNumber, col.paymentStatus, msg);
       }
 
       const deposit = Number(row.deposit) || 0;
@@ -8324,7 +8354,7 @@ export class OrdersService {
           "domains.orders.bulk_deposit_must_be_positive",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 15, msg);
+        addCellError(row.rowNumber, col.deposit, msg);
       }
 
       if (isNaN(shippingCost) || shippingCost < 0) {
@@ -8332,7 +8362,7 @@ export class OrdersService {
           "domains.orders.bulk_shipping_cost_must_be_positive",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 14, msg);
+        addCellError(row.rowNumber, col.shippingCost, msg);
       }
 
       if (isNaN(discount) || discount < 0) {
@@ -8340,7 +8370,7 @@ export class OrdersService {
           "domains.orders.bulk_discount_must_be_positive",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 16, msg);
+        addCellError(row.rowNumber, col.discount, msg);
       }
 
       const additionalFees = Number(row.additionalFees) || 0;
@@ -8349,11 +8379,13 @@ export class OrdersService {
           "domains.orders.bulk_additional_fees_must_be_positive",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 20, msg);
+        addCellError(row.rowNumber, col.additionalFees, msg);
       }
 
       const items: OrderItemDto[] = [];
-      const itemParts = row.itemsRaw.split(",").filter(Boolean);
+      const itemParts = String(row.itemsRaw || "")
+        .split(",")
+        .filter(Boolean);
 
       for (const part of itemParts) {
         const [skuRaw, qty, price] = part.split("|").map((p) => p?.trim());
@@ -8366,7 +8398,7 @@ export class OrdersService {
             args: { sku: skuRaw },
           });
           rowErrors.push(msg);
-          addCellError(row.rowNumber, 19, msg);
+          addCellError(row.rowNumber, col.items, msg);
           continue;
         }
 
@@ -8379,7 +8411,7 @@ export class OrdersService {
             { args: { sku: skuRaw } },
           );
           rowErrors.push(msg);
-          addCellError(row.rowNumber, 19, msg);
+          addCellError(row.rowNumber, col.items, msg);
           continue;
         }
 
@@ -8389,7 +8421,7 @@ export class OrdersService {
             { args: { sku: skuRaw } },
           );
           rowErrors.push(msg);
-          addCellError(row.rowNumber, 19, msg);
+          addCellError(row.rowNumber, col.items, msg);
           continue;
         }
 
@@ -8415,7 +8447,7 @@ export class OrdersService {
           "domains.orders.bulk_order_must_have_item",
         );
         rowErrors.push(msg);
-        addCellError(row.rowNumber, 19, msg);
+        addCellError(row.rowNumber, col.items, msg);
       }
 
       if (rowErrors.length === 0) {
@@ -8467,7 +8499,7 @@ export class OrdersService {
         for (const rowNumber of usageItem.rowNumbers) {
           addCellError(
             rowNumber,
-            19,
+            col.items,
             this.translations.t("domains.orders.bulk_sku_exceeds_stock", {
               args: { sku, totalQty: usageItem.totalQty, available },
             }),
@@ -8505,6 +8537,7 @@ export class OrdersService {
     if (validOrderPayloads.length > 0) {
       await this.orderSyncQueueService.enqueueBulkOrderCreate(
         adminId,
+        me.id,
         validOrderPayloads,
       );
     }
@@ -8538,120 +8571,14 @@ export class OrdersService {
       views: [{ state: "frozen", ySplit: 2 }],
     });
 
-    const columns = [
-      {
-        header: this.translations.t("domains.orders.export_items"),
-        key: "items",
-        width: 50,
-      },
-      {
-        header: this.translations.t("domains.orders.export_customer_name"),
-        key: "customerName",
-        width: 22,
-      },
-      {
-        header: this.translations.t("domains.orders.export_phone_number"),
-        key: "phoneNumber",
-        width: 16,
-      },
-      {
-        header: this.translations.t(
-          "domains.orders.export_second_phone_number",
-        ),
-        key: "secondPhoneNumber",
-        width: 40,
-      },
-      {
-        header: this.translations.t("domains.orders.export_email"),
-        key: "email",
-        width: 28,
-      },
-      {
-        header: this.translations.t("domains.orders.export_address"),
-        key: "address",
-        width: 32,
-      },
-      {
-        header: this.translations.t("domains.orders.export_landmark"),
-        key: "landmark",
-        width: 30,
-      },
-      {
-        header: this.translations.t("domains.orders.export_city"),
-        key: "city",
-        width: 14,
-      },
-      {
-        header: this.translations.t("domains.orders.export_area"),
-        key: "area",
-        width: 14,
-      },
-      {
-        header: this.translations.t("domains.orders.export_payment_method"),
-        key: "paymentMethod",
-        width: 40,
-      },
-      {
-        header: this.translations.t("domains.orders.export_payment_status"),
-        key: "paymentStatus",
-        width: 40,
-      },
-      {
-        header: this.translations.t("domains.orders.export_shipping_company"),
-        key: "shippingCompany",
-        width: 45,
-      },
-      {
-        header: this.translations.t("domains.orders.export_allow_open_package"),
-        key: "allowOpenPackage",
-        width: 45,
-      },
-      {
-        header: this.translations.t("domains.orders.export_store"),
-        key: "store",
-        width: 30,
-      },
-      {
-        header: this.translations.t("domains.orders.export_shipping_cost"),
-        key: "shippingCost",
-        width: 30,
-      },
-      {
-        header: this.translations.t("domains.orders.export_deposit"),
-        key: "deposit",
-        width: 30,
-      },
-      {
-        header: this.translations.t("domains.orders.export_discount"),
-        key: "discount",
-        width: 30,
-      },
-      {
-        header: this.translations.t("domains.orders.export_additional_fees"),
-        key: "additionalFees",
-        width: 30,
-      },
-      {
-        header: this.translations.t("domains.orders.export_notes"),
-        key: "notes",
-        width: 24,
-      },
-      {
-        header: this.translations.t("domains.orders.export_customer_notes"),
-        key: "customerNotes",
-        width: 40,
-      },
-    ];
-
+    const columns = this.getBulkOrderExcelColumns();
     sheet.columns = columns;
 
-    sheet.insertRow(1, [this.translations.t("domains.orders.export_format")]);
-    sheet.mergeCells(1, 1, 1, columns.length);
-
-    const noteRow = sheet.getRow(1);
-    noteRow.height = 30;
-    noteRow.getCell(1).font = { italic: true, color: { argb: "FF666666" } };
-    noteRow.getCell(1).alignment = { wrapText: true, vertical: "middle" };
+    this.applyNoteRow(
+      sheet,
+      this.translations.t("domains.orders.export_format"),
+      columns.length,
+    );
 
     const headerRow = sheet.getRow(2);
     headerRow.font = { bold: true };
@@ -8675,7 +8602,7 @@ export class OrdersService {
         paymentMethod: row.paymentMethod,
         paymentStatus: row.paymentStatus,
         shippingCompany: row.shippingCompany,
-        allowOpenPackage: row.allowOpenPackage,
+        allowOpenPackage: row.allowOpenPackage ? "true" : "false",
         store: row.store,
         shippingCost: row.shippingCost,
         deposit: row.deposit,
@@ -8762,8 +8689,7 @@ export class OrdersService {
     const buffer = await workbook.xlsx.writeBuffer();
     return Buffer.from(buffer);
   }
-  async createBulkOrders(orders: CreateOrderDto[], adminId: string) {
-    const me = { adminId };
+  async createBulkOrders(orders: CreateOrderDto[], adminId: string, me) {
 
     let created = 0;
     const createdOrders: { index: number; customerName: string }[] = [];
