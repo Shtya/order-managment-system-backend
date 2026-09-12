@@ -174,6 +174,7 @@ export class ClientService {
       )
       .getOne();
   }
+  
 
   async findClientIdByPhone(adminId: string, phoneNumber: string): Promise<string | null> {
     const contact = await this.findContactByPhone(this.contactRepo, adminId, phoneNumber);

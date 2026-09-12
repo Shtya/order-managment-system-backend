@@ -25,6 +25,7 @@ import { IssuePriority } from "entities/issue.entity";
 import { ShippingService } from "src/shipping/shipping.service";
 import { CreateShipmentDto } from "dto/shipping.dto";
 import { ClientService } from "src/clients/clients.service";
+import { RedisService } from "common/redis/RedisService";
 
 /**
  * Production implementation of AutomationAdapter
@@ -53,6 +54,7 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
     private readonly shippingService: ShippingService,
     @Inject(forwardRef(() => ClientService))
     private readonly clientService: ClientService,
+    private readonly redisService: RedisService,
   ) {}
 
   async changeStatus(
@@ -286,55 +288,92 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
       };
     }
 
-    let clientId = await this.clientService.findClientIdByPhone(
-      adminId,
-      phoneNumber,
-    );
-    let clientCreated = false;
+    const lockKey = `client:create:${adminId}:${phoneNumber}`;
+    const lockToken = `${order.id}:${Date.now()}:${Math.random()}`;
+    const lockTtlSeconds = 30;
+    const waitTimeoutMs = 20_000;
+    const waitIntervalMs = 150;
+    const waitStartedAt = Date.now();
+    let lockAcquired = false;
 
-    if (!clientId && options.createIfMissing) {
-      const created = await this.clientService.create(me, {
-        name: order.customerName?.trim() || phoneNumber,
-        email: order.email?.trim() || undefined,
-        contacts: [{ phoneNumber, isPrimary: true }],
-      } as any);
-      clientId = created?.id || null;
-      clientCreated = !!clientId;
+    while (!lockAcquired) {
+      const result = await this.redisService.redisClient.set(
+        lockKey,
+        lockToken,
+        "EX",
+        lockTtlSeconds,
+        "NX",
+      );
+      lockAcquired = result === "OK";
+
+      if (!lockAcquired) {
+        if (Date.now() - waitStartedAt >= waitTimeoutMs) {
+          return {
+            success: false,
+            error: "Timed out waiting to attach order to client",
+          };
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, waitIntervalMs));
+      }
     }
 
-    if (!clientId) {
-      return {
-        success: true,
-        skipped: true,
-        reason: "No client found",
-        clientId: null,
-        clientCreated: false,
-      };
-    }
+    try {
+      let clientId = await this.clientService.findClientIdByPhone(
+        adminId,
+        phoneNumber,
+      );
+      let clientCreated = false;
 
-    if (order.clientId === clientId) {
+      if (!clientId && options.createIfMissing) {
+        const created = await this.clientService.create(me, {
+          name: order.customerName?.trim() || phoneNumber,
+          email: order.email?.trim() || undefined,
+          contacts: [{ phoneNumber, isPrimary: true }],
+        } as any);
+        clientId = created?.id || null;
+        clientCreated = !!clientId;
+      }
+
+      if (!clientId) {
+        return {
+          success: true,
+          skipped: true,
+          reason: "No client found",
+          clientId: null,
+          clientCreated: false,
+        };
+      }
+
+      if (order.clientId === clientId) {
+        return {
+          success: true,
+          skipped: true,
+          reason: "Order already linked to a this client",
+          clientId,
+          clientCreated,
+        };
+      }
+
+      if (order.clientId && order.clientId !== clientId) {
+        return {
+          success: false,
+          error: "Order already linked to a different client",
+        };
+      }
+
+      await this.ordersService.update(me, order.id, { clientId } as any);
+
       return {
         success: true,
-        skipped: true,
-        reason: "Order already linked to a this client",
         clientId,
         clientCreated,
       };
+    } finally {
+      const currentToken = await this.redisService.redisClient.get(lockKey);
+      if (currentToken === lockToken) {
+        await this.redisService.redisClient.del(lockKey);
+      }
     }
-    
-    if(order.clientId && order.clientId !== clientId) {
-      return {
-        success: false,
-        error: "Order already linked to a different client",
-      };
-    }
-
-    await this.ordersService.update(me, order.id, { clientId } as any);
-
-    return {
-      success: true,
-      clientId,
-      clientCreated,
-    };
   }
 }
