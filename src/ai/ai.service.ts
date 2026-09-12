@@ -65,6 +65,7 @@ import {
   toBestModelSummary,
   type RankableModel,
 } from "./orchestrator/model-rank";
+import { enrichRemoteModelForSync } from "./catalog/enrich-model-for-sync";
 
 const PROTOCOL_AUTH_MAP: Record<string, AiAuthType> = {
   [AiProviderProtocol.OPENAI_COMPATIBLE]: AiAuthType.API_KEY,
@@ -391,8 +392,8 @@ export class AiService {
         })),
         bestModel: hasCredentials
           ? toBestModelSummary(
-              pickBestModel(this.toRankableModels(provider.models)),
-            )
+            pickBestModel(this.toRankableModels(provider.models)),
+          )
           : null,
       };
     });
@@ -622,6 +623,8 @@ export class AiService {
 
   // ──────────────────────────── MODELS ────────────────────────────
 
+  // ──────────────────────────── MODELS ────────────────────────────
+
   async listModels(me: any, query: ListModelsQueryDto) {
     const {
       providerId,
@@ -632,22 +635,30 @@ export class AiService {
       scope,
       search,
     } = query;
+
     const myAdminId = tenantId(me);
 
     const limit = Number(query.limit) || 50;
     const sortDir: "ASC" | "DESC" =
-      String(query.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+      String(query.sortDir ?? "DESC").toUpperCase() === "ASC"
+        ? "ASC"
+        : "DESC";
+
     const cursor = query.cursor;
 
     const qb = this.modelRepo.createQueryBuilder("m");
+
     qb.leftJoin("m.provider", "provider");
+
     qb.leftJoin(
       "provider.integrations",
       "providerIntegration",
       myAdminId
         ? "(providerIntegration.adminId = :integrationAdminId OR providerIntegration.adminId IS NULL)"
         : "providerIntegration.adminId IS NULL",
-      { integrationAdminId: myAdminId ?? null },
+      {
+        integrationAdminId: myAdminId ?? null,
+      },
     );
 
     qb.addSelect([
@@ -669,12 +680,23 @@ export class AiService {
         adminId: myAdminId,
       });
     }
-    if (providerId) qb.andWhere("m.providerId = :providerId", { providerId });
+
+    if (providerId) {
+      qb.andWhere("m.providerId = :providerId", { providerId });
+    }
+
     if (providerCode) {
       qb.andWhere("provider.code = :providerCode", { providerCode });
     }
-    if (modelType) qb.andWhere("m.modelType = :modelType", { modelType });
-    if (tier) qb.andWhere("m.tier = :tier", { tier });
+
+    if (modelType) {
+      qb.andWhere("m.modelType = :modelType", { modelType });
+    }
+
+    if (tier) {
+      qb.andWhere("m.tier = :tier", { tier });
+    }
+
     if (isActive !== undefined) {
       qb.andWhere("m.isActive = :isActive", { isActive });
     } else {
@@ -682,58 +704,106 @@ export class AiService {
         "((m.adminId IS NULL AND m.isActive = true AND provider.isActive = true) OR (m.adminId IS NOT NULL))",
       );
     }
+
     if (scope) {
-      if (scope === "system") qb.andWhere("m.adminId IS NULL");
-      else if (scope === "custom" && myAdminId) {
-        qb.andWhere("m.adminId = :adminId", { adminId: myAdminId });
+      if (scope === "system") {
+        qb.andWhere("m.adminId IS NULL");
+      } else if (scope === "custom" && myAdminId) {
+        qb.andWhere("m.adminId = :adminId", {
+          adminId: myAdminId,
+        });
       }
     }
 
     if (search) {
       qb.andWhere(
         `(
-					LOWER(m.name) LIKE LOWER(:search)
-					OR LOWER(m.modelCode) LIKE LOWER(:search)
-					OR LOWER(provider.name) LIKE LOWER(:search)
-					OR LOWER(provider.code) LIKE LOWER(:search)
-				)`,
-        { search: `%${search}%` },
+        LOWER(m.name) LIKE LOWER(:search)
+        OR LOWER(m.modelCode) LIKE LOWER(:search)
+        OR LOWER(provider.name) LIKE LOWER(:search)
+        OR LOWER(provider.code) LIKE LOWER(:search)
+      )`,
+        {
+          search: `%${search}%`,
+        },
       );
     }
 
+    // Cursor matches the exact sort:
+    // provider.name -> m.name -> m.id
+    //
+    // Frontend still only sends:
+    // { value, id }
+    //
+    // Backend stores provider.name + model.name in value.
     if (cursor) {
       const operator = sortDir === "DESC" ? "<" : ">";
-      qb.andWhere(`(m.created_at, m.id) ${operator} (:cursorValue, :cursorId)`, {
-        cursorValue: cursor.value,
-        cursorId: cursor.id,
-      });
+
+      qb.andWhere(
+        `(provider.name, m.name, m.id) ${operator} (
+        :cursorProviderName,
+        :cursorModelName,
+        :cursorId
+      )`,
+        {
+          cursorProviderName: cursor.value.providerName,
+          cursorModelName: cursor.value.modelName,
+          cursorId: cursor.id,
+        },
+      );
     }
 
-    qb.orderBy("m.created_at", sortDir);
+    // Same sorting as frontend:
+    // Provider name -> Model name -> ID
+    qb.orderBy("provider.name", sortDir);
+    qb.addOrderBy("m.name", sortDir);
     qb.addOrderBy("m.id", sortDir);
 
     const rows = await qb.take(limit + 1).getMany();
+
     const hasMore = rows.length > limit;
     const records = hasMore ? rows.slice(0, limit) : rows;
     const last = records[records.length - 1];
 
     let availabilityMap: Map<string, boolean> | undefined;
+
     if (myAdminId && records.length > 0) {
       const modelIds = records.map((m) => m.id);
+
       const availRows = await this.availabilityRepo.find({
-        where: modelIds.map((modelId) => ({ adminId: myAdminId, modelId })),
+        where: modelIds.map((modelId) => ({
+          adminId: myAdminId,
+          modelId,
+        })),
       });
-      availabilityMap = new Map(availRows.map((a) => [a.modelId, a.isAvailable]));
+
+      availabilityMap = new Map(
+        availRows.map((a) => [a.modelId, a.isAvailable]),
+      );
     }
 
-    const mapped = records.map((m) => this.toModelResponse(m, availabilityMap));
+    const mapped = records.map((m) =>
+      this.toModelResponse(m, availabilityMap),
+    );
 
     return {
       records: mapped,
       hasMore,
       limit,
-      nextCursor: hasMore ? { value: last.created_at, id: last.id } : undefined,
-      sortBy: "created_at",
+
+      // Frontend still receives exactly { value, id }.
+      // Only the backend changed what `value` contains.
+      nextCursor: hasMore
+        ? {
+          value: {
+            providerName: last.provider.name,
+            modelName: last.name,
+          },
+          id: last.id,
+        }
+        : undefined,
+
+      sortBy: "provider.name",
       sortDir,
     };
   }
@@ -1376,22 +1446,38 @@ export class AiService {
 
     const instance = baseProvider.cloneWithRuntime(runtimeConfig);
     const remoteModels = await instance.getModels();
+    const providerCode = provider.code ?? provider.protocol;
 
     const existingModels = await this.modelRepo.find({
       where: { providerId },
-      select: {
-        modelCode: true,
-        id: true
-      },
     });
-    const existingCodes = new Set(existingModels.map((m) => m.modelCode));
+    const existingByCode = new Map(
+      existingModels.map((model) => [model.modelCode, model]),
+    );
 
     const toCreate: AiModelEntity[] = [];
-    const skipped: string[] = [];
+    const toUpdate: AiModelEntity[] = [];
 
     for (const remote of remoteModels) {
-      if (existingCodes.has(remote.modelCode)) {
-        skipped.push(remote.modelCode);
+      const existing = existingByCode.get(remote.modelCode);
+      const enriched = await enrichRemoteModelForSync(
+        remote,
+        providerCode,
+        existing,
+      );
+
+      if (existing) {
+        existing.name = enriched.name;
+        existing.description = remote.description ?? existing.description;
+        existing.modelType = remote.modelType ?? existing.modelType;
+        existing.tier = remote.tier ?? existing.tier;
+        existing.contextWindow = enriched.contextWindow;
+        existing.stream = remote.stream ?? existing.stream;
+        existing.jsonMode = remote.jsonMode ?? existing.jsonMode;
+        existing.reasoning = remote.reasoning ?? existing.reasoning;
+        existing.toolsCalling = enriched.toolsCalling;
+        existing.metadata = enriched.metadata;
+        toUpdate.push(existing);
         continue;
       }
 
@@ -1401,27 +1487,31 @@ export class AiService {
           adminId: provider.adminId,
           scope: AiEntityScope.CUSTOM,
           modelCode: remote.modelCode,
-          name: remote.name,
+          name: enriched.name,
           description: remote.description,
           modelType: remote.modelType ?? AiModelType.TEXT,
           tier: remote.tier,
-          contextWindow: remote.contextWindow,
+          contextWindow: enriched.contextWindow,
           stream: remote.stream,
           jsonMode: remote.jsonMode,
           reasoning: remote.reasoning,
-          toolsCalling: remote.toolsCalling,
-          metadata: remote.metadata,
+          toolsCalling: enriched.toolsCalling,
+          metadata: enriched.metadata,
           isActive: true,
         }),
       );
     }
 
-    const saved = await this.modelRepo.save(toCreate);
+    const saved = await this.modelRepo.save([...toUpdate, ...toCreate]);
+    const created = saved.filter(
+      (model) => !existingByCode.has(model.modelCode),
+    );
 
     const remoteCodes = new Set(remoteModels.map((m) => m.modelCode));
+    const allModels = [...existingModels, ...created];
 
     if (adminId) {
-      const affectedModels = existingModels;
+      const affectedModels = allModels;
 
       if (affectedModels.length > 0) {
         const existingAvail = await this.availabilityRepo.find({
@@ -1468,9 +1558,10 @@ export class AiService {
       providerId,
       providerName: provider.name,
       total: remoteModels.length,
-      created: saved.length,
-      skipped: skipped.length,
-      models: saved.map((m) => ({
+      created: created.length,
+      updated: toUpdate.length,
+      skipped: 0,
+      models: created.map((m) => ({
         id: m.id,
         modelCode: m.modelCode,
         name: m.name,
@@ -1753,6 +1844,7 @@ export class AiService {
       jsonMode: model.jsonMode,
       reasoning: model.reasoning,
       stream: model.stream,
+      unhealthyUntil: model.availabilities?.[0]?.unhealthyUntil ?? null,
     }));
   }
 
@@ -1991,6 +2083,7 @@ export class AiService {
       reasoning: entity.reasoning,
       toolsCalling: entity.toolsCalling,
       modalities: entity.modalities,
+      metadata: entity.metadata,
       contextWindow: entity.contextWindow,
       provider: entity.provider
         ? {
@@ -2052,20 +2145,20 @@ export class AiService {
       lastError: entity.lastError,
       provider: entity.provider
         ? {
-            id: entity.provider.id,
-            code: entity.provider.code,
-            name: entity.provider.name,
-            scope: entity.provider.scope,
-            website: entity.provider.website,
-            logoUrl: entity.provider.logoUrl,
-            tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
-            isActive: entity.provider.isActive,
-            description: entity.provider.description,
-            protocol: entity.provider.protocol,
-            adminId: entity.provider.adminId,
-            created_at: entity.provider.created_at,
-            updated_at: entity.provider.updated_at,
-          }
+          id: entity.provider.id,
+          code: entity.provider.code,
+          name: entity.provider.name,
+          scope: entity.provider.scope,
+          website: entity.provider.website,
+          logoUrl: entity.provider.logoUrl,
+          tenantIntegrationAllowed: entity.provider.tenantIntegrationAllowed,
+          isActive: entity.provider.isActive,
+          description: entity.provider.description,
+          protocol: entity.provider.protocol,
+          adminId: entity.provider.adminId,
+          created_at: entity.provider.created_at,
+          updated_at: entity.provider.updated_at,
+        }
         : undefined,
       models,
       created_at: entity.created_at,

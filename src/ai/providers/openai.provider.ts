@@ -83,15 +83,23 @@ export class OpenAiProvider extends AiProviderAbstract {
     const client = this.buildClient();
     const useTools =
       request.tools.length > 0 && request.toolChoice !== "none";
-    const response = await this.withTimeout(
-      client.chat.completions.create({
+
+      const buildBody = (
+        includeTemperature: boolean,
+        reasoningEffort: "medium" | "none" = "medium",
+      ) => ({
         model: this.model,
         messages: request.messages.map((m) => mapMessage(m)) as any,
-        temperature: request.temperature ?? this.temperature,
-        stream: false,
-        ...(useTools && isChatCompletionsReasoningModel(this.model)
-          ? { reasoning_effort: "none" as const }
+        stream: false as const,
+      
+        ...(includeTemperature
+          ? { temperature: request.temperature ?? this.temperature }
           : {}),
+      
+        ...(useTools && isChatCompletionsReasoningModel(this.model)
+          ? { reasoning_effort: reasoningEffort }
+          : {}),
+      
         ...(useTools
           ? {
               tools: request.tools.map((t) => ({
@@ -105,10 +113,28 @@ export class OpenAiProvider extends AiProviderAbstract {
               tool_choice: request.toolChoice,
             }
           : {}),
-      }),
-      this.getTimeoutMs(),
-      this.kind,
-    );
+      });
+
+    const create = (includeTemperature: boolean, effort: "medium" | "none" = "medium") =>
+      this.withTimeout(
+        client.chat.completions.create(buildBody(includeTemperature, effort)),
+        this.getTimeoutMs(),
+        this.kind,
+      );
+
+    let response;
+
+    try {
+      response = await create(true);
+    } catch (error) {
+      if (isUnsupportedTemperatureError(error)) {
+        response = await create(false, "medium");
+      } else if (isReasoningToolsNotSupportedError(error)) {
+        response = await create(true, "none");
+      } else {
+        throw error;
+      }
+    }
 
     return this.normalizeResponse(response);
   }
@@ -204,6 +230,37 @@ function mapMessage(message: {
     default:
       return { role: message.role, content: message.content };
   }
+}
+
+function isReasoningToolsNotSupportedError(error: unknown): boolean {
+  const text = String(
+    (error as { message?: string })?.message ?? error ?? "",
+  ).toLowerCase();
+
+  return (
+    text.includes("function tools") &&
+    text.includes("reasoning_effort") &&
+    text.includes("not supported") &&
+    text.includes("chat/completions")
+  );
+}
+
+function isUnsupportedTemperatureError(error: unknown): boolean {
+  const text = String(
+    (error as { message?: string })?.message ?? error ?? "",
+  ).toLowerCase();
+  if (text.includes("temperature") && text.includes("unsupported")) {
+    return true;
+  }
+  if (!error || typeof error !== "object") return false;
+  const body = error as {
+    status?: number;
+    error?: { param?: string; code?: string; message?: string };
+  };
+  if (body.status !== 400) return false;
+  if (body.error?.param === "temperature") return true;
+  const message = String(body.error?.message ?? "").toLowerCase();
+  return message.includes("temperature") && message.includes("unsupported");
 }
 
 function inferOpenAiCatalogType(id: string): AiModelType {

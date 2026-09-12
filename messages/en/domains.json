@@ -1630,6 +1630,8 @@
     "model_not_available_for_tenant": "Model '{model}' is not available for this tenant",
     "provider_no_content_or_tools": "Provider returned neither content nor tool calls",
     "all_providers_failed": "All AI providers failed",
+    "tools_probe_failed": "Could not verify a model that supports tools",
+    "model_tools_unsupported": "Model '{model}' does not support tools",
     "provider_not_accessible_for_tenant": "AI provider '{name}' not accessible for this tenant",
     "provider_not_configured": "AI provider '{name}' is not configured",
     "provider_not_found_or_inactive": "AI provider '{name}' not found or inactive",

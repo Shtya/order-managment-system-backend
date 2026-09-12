@@ -28,7 +28,13 @@ export const PROVIDER_FUNCTION_CALLING_TIMEOUT_MS = 100_000;
 export const PROVIDER_RETRY_BASE_DELAY_MS = 750;
 export const PROVIDER_RETRY_MAX_DELAY_MS = 6_000;
 
-export const ERROR_RETRYABLE_HTTP_CODES = [408, 409, 429, 500, 502, 503, 504];
+export const MAX_TOOLING_MODELS_PER_PROVIDER = 3;
+
+export const TENANT_COOLDOWN_MS = [
+  5 * 60 * 1000,
+  15 * 60 * 1000,
+  60 * 60 * 1000,
+] as const;
 
 // Defaults applied when not set per-integration
 export const AI_PROVIDER_DEFAULTS = {

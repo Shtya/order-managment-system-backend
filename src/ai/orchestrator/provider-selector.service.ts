@@ -1,7 +1,7 @@
 import { BadRequestException, Inject, Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, SelectQueryBuilder } from "typeorm";
-import { AI_CONFIG_TOKEN, AI_PROVIDER_DEFAULTS } from "../ai.constants";
+import { AI_CONFIG_TOKEN, AI_PROVIDER_DEFAULTS, MAX_TOOLING_MODELS_PER_PROVIDER } from "../ai.constants";
 import {
   AiConfig,
   AiProviderRuntimeConfig,
@@ -25,7 +25,7 @@ import {
 import {
   compareRankableModels,
   isModelEligible,
-  pickBestModel,
+  pickRankedModels,
   type RankableModel,
 } from "./model-rank";
 import { EncryptionService } from "../../../common/encryption.service";
@@ -107,7 +107,7 @@ export class AiProviderSelectorService implements OnModuleInit {
             throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: requestedName } }));
           }
           const injectable = this.pickInjectableForEntity(entity);
-          const runtime = await this.resolveRuntimeConfig(
+          const runtime = this.resolveRuntimeConfig(
             entity,
             injectable?.kind ?? "custom",
             tenantId,
@@ -144,7 +144,7 @@ export class AiProviderSelectorService implements OnModuleInit {
           if (entity && !this.hasIntegrationConfig(entity, tenantId)) {
             throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: requestedName } }));
           }
-          const runtime = await this.resolveRuntimeConfig(
+          const runtime = this.resolveRuntimeConfig(
             entity,
             requestedName,
             tenantId,
@@ -173,7 +173,7 @@ export class AiProviderSelectorService implements OnModuleInit {
             throw new BadRequestException(this.translations.t("domains.ai.provider_not_configured", { args: { name: requestedName } }));
           }
           const resolved = this.pickInjectableForEntity(entity);
-          const runtime = await this.resolveRuntimeConfig(
+          const runtime = this.resolveRuntimeConfig(
             entity,
             resolved?.kind ?? requestedName,
             tenantId,
@@ -240,7 +240,7 @@ export class AiProviderSelectorService implements OnModuleInit {
     }
 
     const injectable = this.pickInjectableForEntity(entity);
-    const runtime = await this.resolveRuntimeConfig(
+    const runtime = this.resolveRuntimeConfig(
       entity,
       injectable?.kind ?? "custom",
       tenantId,
@@ -358,8 +358,67 @@ export class AiProviderSelectorService implements OnModuleInit {
     tenantId?: string | null,
     options: { requireTools?: boolean } = {},
   ): Promise<boolean> {
-    const best = await this.resolveBestConfigured(tenantId, options);
-    return !!best;
+    const candidates = await this.resolveToolingCandidates(tenantId, options);
+    return candidates.length > 0;
+  }
+
+  /**
+   * Shared walk for publish probe and live failover.
+   * Preferred provider first, then other configured providers.
+   * Up to MAX_TOOLING_MODELS_PER_PROVIDER models each when requireTools.
+   */
+  async resolveToolingCandidates(
+    tenantId?: string | null,
+    options: {
+      requireTools?: boolean;
+      preferredProviderId?: string;
+      preferredProviderCode?: string;
+    } = {},
+  ): Promise<AiProviderAbstract[]> {
+    const loaded = await this.loadConfiguredProviderEntities(tenantId);
+    const tenantDefault = options.requireTools
+      ? await this.resolveDefaultModel(tenantId, { requireTools: true })
+      : null;
+    const entities = this.orderProviderEntities(loaded, {
+      preferredProviderId: options.preferredProviderId,
+      preferredProviderCode: options.preferredProviderCode,
+      fallbackProviderId: tenantDefault?.providerEntityId,
+    });
+    const out: AiProviderAbstract[] = [];
+
+    for (const entity of entities) {
+      const lastHealthy = this.pickTenantIntegration(
+        entity,
+        tenantId,
+      )?.lastHealthyModelCode;
+      const preferModelCode =
+        tenantDefault?.providerEntityId === entity.id
+          ? tenantDefault.modelCode
+          : lastHealthy;
+      const ranked = pickRankedModels(
+        (entity.models ?? []).map((model) => this.toRankableModel(model)),
+        {
+          requireTools: options.requireTools,
+          preferModelCode,
+          limit: options.requireTools ? MAX_TOOLING_MODELS_PER_PROVIDER : 1,
+        },
+      );
+      if (!ranked.length) continue;
+
+      try {
+        const base = await this.buildFromEntity(entity, entity.code, tenantId);
+        if (!base) continue;
+        for (const model of ranked) {
+          out.push(base.cloneWithRuntime({ model: model.modelCode }));
+        }
+      } catch (err) {
+        this.logger.warn(
+          `[resolveToolingCandidates] skip provider '${entity.code}' (${entity.id}): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return out;
   }
 
   async failoverCandidates(
@@ -367,8 +426,17 @@ export class AiProviderSelectorService implements OnModuleInit {
     tenantId?: string | null,
     options: { requireTools?: boolean } = {},
   ): Promise<AiProviderAbstract[]> {
+    if (options.requireTools) {
+      const all = await this.resolveToolingCandidates(tenantId, options);
+      return all.filter((provider) => {
+        const entityId = provider.getConfig().entityId;
+        const code = provider.getCatalogCode();
+        if (!excludeName) return true;
+        return entityId !== excludeName && code !== excludeName;
+      });
+    }
     const entities = await this.loadConfiguredProviderEntities(tenantId);
-    const tasks: Array<Promise<AiProviderAbstract | null>> = [];
+    const tasks: Array<AiProviderAbstract | null> = [];
 
     for (const entity of entities) {
       if (
@@ -383,19 +451,8 @@ export class AiProviderSelectorService implements OnModuleInit {
         options.requireTools,
       );
       if (!best) continue;
-
-      tasks.push(
-        this.buildFromEntity(entity, entity.code, tenantId)
-          .then((provider) =>
-            provider ? provider.cloneWithRuntime({ model: best.modelCode }) : null,
-          )
-          .catch((err) => {
-            this.logger.warn(
-              `[failoverCandidates] skip provider '${entity.code}' (${entity.id}): ${err instanceof Error ? err.message : String(err)}`,
-            );
-            return null;
-          }),
-      );
+      const provider = this.buildFromEntity(entity, entity.code, tenantId);
+      tasks.push(provider ? provider.cloneWithRuntime({ model: best.modelCode }) : null);
     }
 
     const resolved = await Promise.all(tasks);
@@ -406,12 +463,12 @@ export class AiProviderSelectorService implements OnModuleInit {
     );
   }
 
-  private async buildFromEntity(
+  private buildFromEntity(
     entity: AiProviderEntity | null,
     fallbackKind: string,
     tenantId?: string | null,
     baseHint?: AiProviderAbstract,
-  ): Promise<AiProviderAbstract | null> {
+  ): AiProviderAbstract | null {
     if (!entity) return null;
     if (tenantId && entity.adminId && entity.adminId !== tenantId) {
       return null;
@@ -424,7 +481,7 @@ export class AiProviderSelectorService implements OnModuleInit {
     if (!base.isEnabled() && this.enabledProviders().length > 1) {
       return null;
     }
-    const runtime = await this.resolveRuntimeConfig(
+    const runtime = this.resolveRuntimeConfig(
       entity,
       fallbackKind,
       tenantId,
@@ -493,12 +550,23 @@ export class AiProviderSelectorService implements OnModuleInit {
 
   private pickBestFromEntity(
     entity: AiProviderEntity,
-    _tenantId?: string | null,
+    tenantId?: string | null,
     requireTools?: boolean,
+    preferModelCode?: string | null,
   ): RankableModel | null {
-    return pickBestModel(
-      (entity.models ?? []).map((model) => this.toRankableModel(model)),
-      { requireTools },
+    const lastHealthy = this.pickTenantIntegration(
+      entity,
+      tenantId,
+    )?.lastHealthyModelCode;
+    return (
+      pickRankedModels(
+        (entity.models ?? []).map((model) => this.toRankableModel(model)),
+        {
+          requireTools,
+          preferModelCode: preferModelCode || lastHealthy,
+          limit: 1,
+        },
+      )[0] ?? null
     );
   }
 
@@ -516,7 +584,53 @@ export class AiProviderSelectorService implements OnModuleInit {
       jsonMode: model.jsonMode,
       reasoning: model.reasoning,
       stream: model.stream,
+      unhealthyUntil: model.availabilities?.[0]?.unhealthyUntil ?? null,
     };
+  }
+
+  private orderProviderEntities(
+    entities: AiProviderEntity[],
+    options: {
+      preferredProviderId?: string;
+      preferredProviderCode?: string;
+      fallbackProviderId?: string;
+    } = {},
+  ): AiProviderEntity[] {
+    const preferred = entities.find(
+      (entity) =>
+        entity.id === options.preferredProviderId ||
+        (!!options.preferredProviderCode &&
+          entity.code === options.preferredProviderCode),
+    );
+    const fallback =
+      !preferred && options.fallbackProviderId
+        ? entities.find((entity) => entity.id === options.fallbackProviderId)
+        : undefined;
+    const lead = preferred ?? fallback;
+    if (!lead) return entities;
+    return [lead, ...entities.filter((entity) => entity.id !== lead.id)];
+  }
+
+  private pickTenantIntegration(
+    entity: AiProviderEntity,
+    tenantId?: string | null,
+  ): AiIntegrationEntity | undefined {
+    const candidates = entity.integrations ?? [];
+    if (tenantId) {
+      return (
+        candidates.find(
+          (item) =>
+            item.scope === AiIntegrationScope.TENANT &&
+            item.adminId === tenantId,
+        ) ??
+        candidates.find(
+          (item) => item.scope === AiIntegrationScope.SYSTEM && !item.adminId,
+        )
+      );
+    }
+    return candidates.find(
+      (item) => item.scope === AiIntegrationScope.SYSTEM && !item.adminId,
+    );
   }
 
   private enabledProviders(): AiProviderAbstract[] {
@@ -566,11 +680,11 @@ export class AiProviderSelectorService implements OnModuleInit {
     return !!integration?.encryptedCredentials;
   }
 
-  private async resolveRuntimeConfig(
+  private resolveRuntimeConfig(
     entity: AiProviderEntity | null,
     fallbackKind: string,
     tenantId?: string | null,
-  ): Promise<AiProviderRuntimeConfig> {
+  ): AiProviderRuntimeConfig {
     let integration: AiIntegrationEntity | undefined;
     if (entity) {
       const candidates = entity.integrations ?? [];

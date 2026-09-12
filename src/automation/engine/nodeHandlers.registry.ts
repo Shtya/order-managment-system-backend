@@ -873,7 +873,6 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         );
         return {
           success: false,
-          chosenBranch: "address_not_corrected",
           error: error?.message || "Address correction failed",
           output: {
             ...usedAiFromFailure(error, chatResult),
@@ -1079,7 +1078,6 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
         );
         return {
           success: false,
-          chosenBranch: "address_not_corrected",
           error: error?.message || "Address correction resume failed",
           output: {
             ...sanitizePrior(priorOutput),
@@ -1294,7 +1292,6 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     if (eligible) return null;
     return {
       success: false,
-      chosenBranch: "address_not_corrected",
       error: "No configured AI provider with an eligible model is available",
       output: usedAiFromFailure(),
     };

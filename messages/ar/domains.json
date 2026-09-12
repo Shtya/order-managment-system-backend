@@ -1638,6 +1638,8 @@
     "model_not_available_for_tenant": "النموذج '{model}' غير متاح لهذا المستأجر",
     "provider_no_content_or_tools": "لم يُرجع المزود محتوى أو استدعاءات أدوات",
     "all_providers_failed": "فشل جميع مزودات الذكاء الاصطناعي",
+    "tools_probe_failed": "تعذر التحقق من نموذج يدعم الأدوات",
+    "model_tools_unsupported": "النموذج '{model}' لا يدعم الأدوات",
     "provider_not_accessible_for_tenant": "مزود الذكاء الاصطناعي '{name}' غير متاح لهذا المستأجر",
     "provider_not_configured": "مزود الذكاء الاصطناعي '{name}' غير مُكوَّن",
     "provider_not_found_or_inactive": "لم يتم العثور على مزود الذكاء الاصطناعي '{name}' أو غير نشط",

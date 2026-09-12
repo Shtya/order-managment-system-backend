@@ -1779,6 +1779,8 @@ export type I18nTranslations = {
             "model_not_available_for_tenant": string;
             "provider_no_content_or_tools": string;
             "all_providers_failed": string;
+            "tools_probe_failed": string;
+            "model_tools_unsupported": string;
             "provider_not_accessible_for_tenant": string;
             "provider_not_configured": string;
             "provider_not_found_or_inactive": string;

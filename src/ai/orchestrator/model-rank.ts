@@ -16,6 +16,7 @@ export type RankableModel = {
   jsonMode?: boolean | null;
   reasoning?: boolean | null;
   stream?: boolean | null;
+  unhealthyUntil?: Date | string | null;
 };
 
 export type PickBestModelOptions = {
@@ -91,14 +92,19 @@ function variantScore(label: string): number {
 }
 
 /**
- * Chat Completions rejects function tools on several reasoning SKUs unless
- * reasoning_effort is none / Responses API is used (e.g. gpt-6-astra, o3).
+ * Request-param workaround only (OpenAI Chat Completions).
+ * Not used for catalog eligibility — tools truth is presets + live errors.
  */
 export function isChatCompletionsReasoningModel(label: string): boolean {
   const id = label.toLowerCase();
   if (id.includes("astra")) return true;
   if (/(^|-)o[1-4]($|-)/.test(id)) return true;
   return false;
+}
+
+function isTemporarilyUnhealthy(model: RankableModel): boolean {
+  if (!model.unhealthyUntil) return false;
+  return new Date(model.unhealthyUntil).getTime() > Date.now();
 }
 
 export function isModelEligible(
@@ -110,13 +116,7 @@ export function isModelEligible(
   if (model.isAvailable === false) return false;
   if (model.modelType && model.modelType !== AiModelType.TEXT) return false;
   if (options.requireTools && model.toolsCalling === false) return false;
-  if (
-    options.requireTools &&
-    model.toolsCalling !== true &&
-    isChatCompletionsReasoningModel(modelLabel(model))
-  ) {
-    return false;
-  }
+  if (isTemporarilyUnhealthy(model)) return false;
   return true;
 }
 
@@ -166,11 +166,61 @@ export function pickBestModel<T extends RankableModel>(
   models: T[] | null | undefined,
   options: PickBestModelOptions = {},
 ): T | null {
+  return pickRankedModels(models, { ...options, limit: 1 })[0] ?? null;
+}
+
+function movePreferredToFront<T extends RankableModel>(
+  models: T[],
+  preferModelCode?: string | null,
+): T[] {
+  if (!preferModelCode) return models;
+  const index = models.findIndex((model) => model.modelCode === preferModelCode);
+  if (index <= 0) return models;
+  const preferred = models[index];
+  // Tenant default / last-healthy only lead when tools are true or unknown.
+  if (preferred.toolsCalling === false) return models;
+  const next = [...models];
+  next.splice(index, 1);
+  next.unshift(preferred);
+  return next;
+}
+
+export function pickRankedModels<T extends RankableModel>(
+  models: T[] | null | undefined,
+  options: PickBestModelOptions & {
+    limit?: number;
+    preferModelCode?: string | null;
+  } = {},
+): T[] {
+  const limit = Math.max(1, options.limit ?? 1);
   const eligible = (models ?? []).filter((model) =>
     isModelEligible(model, options),
   );
-  if (!eligible.length) return null;
-  return [...eligible].sort(compareRankableModels)[0];
+  if (!eligible.length) return [];
+
+  // requireTools pack: confirmed true, then unknown (null).
+  // Preferred (tenant default / last-healthy) is slot 1 when toolsCalling
+  // is true or null. Proven false is never eligible, so it never leads.
+  if (options.requireTools) {
+    const confirmed = eligible
+      .filter((model) => model.toolsCalling === true)
+      .sort(compareRankableModels);
+    const unknown = eligible
+      .filter(
+        (model) => model.toolsCalling !== true && model.toolsCalling !== false,
+      )
+      .sort(compareRankableModels);
+    return movePreferredToFront(
+      [...confirmed, ...unknown],
+      options.preferModelCode,
+    ).slice(0, limit);
+  }
+
+  const ranked = movePreferredToFront(
+    [...eligible].sort(compareRankableModels),
+    options.preferModelCode,
+  );
+  return ranked.slice(0, limit);
 }
 
 export function toBestModelSummary(

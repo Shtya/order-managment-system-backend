@@ -30,6 +30,7 @@ import { AiAccessGuard } from "./security/ai-access.guard";
 import { AiController } from "./ai.controller";
 import { AiService } from "./ai.service";
 import { AiExportService } from "./ai-export.service";
+import { AiModelHealthService } from "./orchestrator/ai-model-health.service";
 
 // Concrete injectable providers (each reads its own env in constructor)
 import { Llm7Provider } from "./providers/llm7.provider";
@@ -91,6 +92,7 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
     AiLoggerService,
     AiAuditService,
     AiOrchestratorService,
+    AiModelHealthService,
     AiPiiMaskerService,
     EncryptionService,
     AiService,

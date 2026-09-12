@@ -24,11 +24,19 @@ import { AiLoggerService } from "./ai-logger.service";
 import { AiAuditService } from "./ai-audit.service";
 import { AiPiiMaskerService } from "../security/ai-pii-masker.service";
 import { AiWriteToolCallStatus } from "entities/ai.entity";
-import { isAiProviderError, AiProviderError } from "../errors/provider.errors";
+import { isAiProviderError, AiProviderError, toAiProviderError } from "../errors/provider.errors";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { AiModelAvailabilityEntity, AiModelEntity } from "../../../entities/ai.entity";
 import { TranslationService } from "../../../common/translation.service";
+import { AiModelHealthService } from "./ai-model-health.service";
+import {
+  attachAttemptsToError,
+  classifyProviderFailure,
+  errorKindOf,
+  errorMessageOf,
+  formatAttemptsSummary,
+} from "../catalog/tools-error-classify";
 
 class PhaseTimer {
   private readonly phases: Array<{
@@ -116,6 +124,7 @@ export class AiOrchestratorService {
     @InjectRepository(AiModelEntity)
     private readonly modelRepo: Repository<AiModelEntity>,
     private readonly translations: TranslationService,
+    private readonly modelHealth: AiModelHealthService,
   ) { }
 
   async chat(
@@ -304,6 +313,111 @@ export class AiOrchestratorService {
     }
 
     return finalResult;
+  }
+
+  async probeTools(
+    me: any,
+    options: {
+      preferredProviderId?: string;
+      preferredProviderCode?: string;
+    } = {},
+  ): Promise<{ ok: true; model: string; code: string }> {
+    const tenantId = this.resolveTenantId(me);
+    const candidates = await this.providerSelector.resolveToolingCandidates(
+      tenantId,
+      {
+        requireTools: true,
+        preferredProviderId: options.preferredProviderId,
+        preferredProviderCode: options.preferredProviderCode,
+      },
+    );
+    if (!candidates.length) {
+      throw new AiProviderError(
+        this.translations.t("domains.ai.no_provider_available"),
+        { kind: "CONFIG", provider: options.preferredProviderCode ?? "none" },
+      );
+    }
+
+    const dummyTools = [
+      {
+        name: "catalog_tools_ping",
+        description:
+          "Confirm this model accepts function tools. Call it with no arguments.",
+        parameters: { type: "object", properties: {} },
+      },
+    ];
+    const failedDetails: Array<{
+      provider: string;
+      model?: string | null;
+      error?: string;
+    }> = [];
+    let lastError: unknown;
+
+    for (const candidate of candidates) {
+      try {
+        await candidate.callModel({
+          messages: [
+            {
+              role: "user",
+              content: "Call catalog_tools_ping now.",
+            },
+          ],
+          tools: dummyTools,
+          toolChoice: "auto",
+        });
+        await this.modelHealth.recordCallOutcome({
+          tenantId,
+          providerEntityId: candidate.getConfig().entityId,
+          modelCode: candidate.getConfig().model,
+          classification: "SUCCESS",
+          usedTools: true,
+        });
+        return {
+          ok: true,
+          model: candidate.getConfig().model,
+          code: candidate.getCatalogCode(),
+        };
+      } catch (error) {
+        lastError = error;
+        const classified = classifyProviderFailure(error);
+        failedDetails.push({
+          provider: candidate.getCatalogCode(),
+          model: candidate.getConfig().model,
+          error: errorMessageOf(error).slice(0, 200),
+        });
+        await this.modelHealth.recordCallOutcome({
+          tenantId,
+          providerEntityId: candidate.getConfig().entityId,
+          modelCode: candidate.getConfig().model,
+          classification: classified,
+          errorKind: errorKindOf(error),
+          usedTools: true,
+        });
+      }
+    }
+
+    const summary = formatAttemptsSummary(failedDetails);
+    const wrapped = toAiProviderError(
+      lastError ??
+        new Error(this.translations.t("domains.ai.tools_probe_failed")),
+    );
+    throw attachAttemptsToError(
+      new AiProviderError(
+        summary ? `${wrapped.message} | ${summary}` : wrapped.message,
+        {
+          kind: wrapped.kind,
+          provider: wrapped.provider,
+          status: wrapped.providerStatus,
+          retryable: wrapped.retryable,
+          cause: wrapped,
+        },
+      ),
+      failedDetails.map((item) => ({
+        code: item.provider,
+        model: item.model ?? null,
+      })),
+      summary,
+    );
   }
 
   private async runLoop(
@@ -520,6 +634,36 @@ export class AiOrchestratorService {
       );
     }
 
+    if (requireTools && !pinToChoice) {
+      const tooling = await this.providerSelector.resolveToolingCandidates(
+        tenantId,
+        {
+          requireTools: true,
+          preferredProviderId,
+          preferredProviderCode,
+        },
+      );
+      if (!tooling.length) {
+        throw new AiProviderError(
+          this.translations.t("domains.ai.no_provider_available"),
+          { kind: "CONFIG", provider: preferredHint ?? "none" },
+        );
+      }
+      const primary = tooling[0];
+      const modelMeta = await this.loadModelForProvider(
+        primary.getConfig().model,
+        primary.getConfig().entityId,
+        tenantId,
+      );
+      ctx.session.model = primary.getConfig().model;
+      return {
+        primary,
+        candidates: allowFailover ? tooling : [primary],
+        userExplicitChoice: false,
+        toolsCalling: modelMeta?.toolsCalling ?? undefined,
+      };
+    }
+
     if (!route && !requestedModel && !preferredHint) {
       const t0 = performance.now();
       route = await this.providerSelector.resolveDefaultModel(tenantId, {
@@ -614,6 +758,15 @@ export class AiOrchestratorService {
       toolsCalling = modelMeta.toolsCalling ?? toolsCalling;
     }
     primary = primary.cloneWithRuntime({ model: route.modelCode });
+
+    if (requireTools && toolsCalling === false) {
+      throw new AiProviderError(
+        this.translations.t("domains.ai.model_tools_unsupported", {
+          args: { model: route.modelCode },
+        }),
+        { kind: "CONFIG", provider: primary.getCatalogCode() },
+      );
+    }
 
     if (pinToChoice) {
       this.logger.debug(
@@ -759,7 +912,11 @@ export class AiOrchestratorService {
     };
   }> {
     let lastError: unknown;
-    let firstError: unknown;
+    const failedDetails: Array<{
+      provider: string;
+      model?: string | null;
+      error?: string;
+    }> = [];
     const attemptTimes: Array<{
       provider: string;
       ms: number;
@@ -775,11 +932,31 @@ export class AiOrchestratorService {
         ),
     );
     if (!remaining.length) {
-      throw (
+      const emptySummary = formatAttemptsSummary(
+        execution.getAttempts().map((attempt) => ({
+          provider: attempt.code,
+          model: attempt.model,
+        })),
+      );
+      const emptyWrapped = toAiProviderError(
         execution.getLastCandidateError() ??
-        lastError ??
-        firstError ??
-        new Error(this.translations.t("domains.ai.all_providers_failed"))
+          new Error(this.translations.t("domains.ai.all_providers_failed")),
+      );
+      throw attachAttemptsToError(
+        new AiProviderError(
+          emptySummary
+            ? `${emptyWrapped.message} | ${emptySummary}`
+            : emptyWrapped.message,
+          {
+            kind: emptyWrapped.kind,
+            provider: emptyWrapped.provider,
+            status: emptyWrapped.providerStatus,
+            retryable: emptyWrapped.retryable,
+            cause: emptyWrapped,
+          },
+        ),
+        execution.getAttempts(),
+        emptySummary,
       );
     }
 
@@ -791,7 +968,7 @@ export class AiOrchestratorService {
       });
       const t0 = performance.now();
 
-      try {
+        try {
         const result = await candidate.callModel({
           messages,
           tools: toolSpecs,
@@ -799,6 +976,13 @@ export class AiOrchestratorService {
         });
         const ms = performance.now() - t0;
         attemptTimes.push({ provider: candidate.kind, ms, ok: true });
+        await this.modelHealth.recordCallOutcome({
+          tenantId: execution.session.tenantId,
+          providerEntityId: candidate.getConfig().entityId,
+          modelCode: result.providerModel ?? candidate.getConfig().model,
+          classification: "SUCCESS",
+          usedTools: toolSpecs.length > 0,
+        });
         const toolCallsLen =
           "toolCalls" in result ? result.toolCalls.length : 0;
         const contentLen = "content" in result ? result.content.length : 0;
@@ -818,7 +1002,7 @@ export class AiOrchestratorService {
       } catch (error) {
         const ms = performance.now() - t0;
         lastError = error;
-        if (!firstError) firstError = error;
+        const classified = classifyProviderFailure(error);
         execution.trackAttempt(
           candidate.getCatalogCode(),
           candidate.getConfig().model ?? null,
@@ -828,6 +1012,14 @@ export class AiOrchestratorService {
           candidate.getConfig().model,
           error,
         );
+        await this.modelHealth.recordCallOutcome({
+          tenantId: execution.session.tenantId,
+          providerEntityId: candidate.getConfig().entityId,
+          modelCode: candidate.getConfig().model,
+          classification: classified,
+          errorKind: errorKindOf(error),
+          usedTools: toolSpecs.length > 0,
+        });
         const code = isAiProviderError(error) ? error.kind : undefined;
         attemptTimes.push({
           provider: candidate.kind,
@@ -836,6 +1028,11 @@ export class AiOrchestratorService {
           errorCode: code,
         });
         const message = error instanceof Error ? error.message : String(error);
+        failedDetails.push({
+          provider: candidate.getCatalogCode(),
+          model: candidate.getConfig().model,
+          error: message.slice(0, 200),
+        });
         execution.emit({
           type: "provider_failover",
           round,
@@ -861,10 +1058,26 @@ export class AiOrchestratorService {
       round,
       attempts: attemptTimes,
     });
-    throw (
-      firstError ??
+    const summary = formatAttemptsSummary(failedDetails);
+    const wrapped = toAiProviderError(
       lastError ??
-      new Error(this.translations.t("domains.ai.all_providers_failed"))
+        new Error(this.translations.t("domains.ai.all_providers_failed")),
+      remaining[remaining.length - 1]?.getCatalogCode(),
+    );
+    const withSummary = new AiProviderError(
+      summary ? `${wrapped.message} | ${summary}` : wrapped.message,
+      {
+        kind: wrapped.kind,
+        provider: wrapped.provider,
+        status: wrapped.providerStatus,
+        retryable: wrapped.retryable,
+        cause: wrapped,
+      },
+    );
+    throw attachAttemptsToError(
+      withSummary,
+      execution.getAttempts(),
+      summary,
     );
   }
 

@@ -1,5 +1,6 @@
-import { Type } from 'class-transformer';
+import { plainToInstance, Transform, Type } from 'class-transformer';
 import {
+	Allow,
 	IsArray,
 	IsBoolean,
 	IsDate,
@@ -315,6 +316,52 @@ export class ProviderSyncResponseDto {
 
 // ──────────────────────────── MODELS ────────────────────────────
 
+export class ModelCursorValueDto {
+	@IsString()
+	providerName: string;
+
+	@IsString()
+	modelName: string;
+}
+
+export class ModelCursorDto {
+	@IsObject()
+	@ValidateNested()
+	@Transform(({ value }) =>
+		plainToInstance(ModelCursorValueDto, value, {
+			enableImplicitConversion: false,
+		}),
+	)
+	value: ModelCursorValueDto;
+
+	@IsUUID()
+	id: string;
+}
+
+/** Query nested objects must not use enableImplicitConversion — it turns them into []. */
+export function toModelCursorDto(value: any) {
+    if (!value) return undefined;
+
+    let parsedValue = value;
+    
+    // If it's a string, it's our stringified JSON object
+    if (typeof value === "string") {
+        try {
+            parsedValue = JSON.parse(value);
+        } catch {
+            return undefined;
+        }
+    }
+
+    if (Array.isArray(parsedValue) || typeof parsedValue !== "object") {
+        return undefined;
+    }
+
+    return plainToInstance(ModelCursorDto, parsedValue, {
+        enableImplicitConversion: false,
+    });
+}
+
 export class ListModelsQueryDto {
 	@IsOptional()
 	@IsUUID()
@@ -338,7 +385,7 @@ export class ListModelsQueryDto {
 	isActive?: boolean;
 
 	@IsOptional()
-	@IsEnum({ ...AiEntityScope, ALL: 'all' })
+	@IsEnum({ ...AiEntityScope, ALL: "all" })
 	scope?: AiEntityScope | "all";
 
 	@IsOptional()
@@ -352,12 +399,24 @@ export class ListModelsQueryDto {
 	limit?: number = 50;
 
 	@IsOptional()
-	@IsIn(['ASC', 'DESC'])
-	sortDir?: 'ASC' | 'DESC' = 'DESC';
+	@IsIn(["ASC", "DESC"])
+	sortDir?: "ASC" | "DESC" = "DESC";
 
 	@IsOptional()
 	@IsObject()
-	cursor?: { value: any; id: string };
+	@ValidateNested()
+	@Transform(({ value, obj }) => toModelCursorDto(value))
+    cursor?: ModelCursorDto;
+
+	
+	@Allow()
+    "cursor[value][providerName]"?: string;
+
+    @Allow()
+    "cursor[value][modelName]"?: string;
+
+    @Allow()
+    "cursor[id]"?: string;
 }
 
 export class CreateModelDto {
@@ -422,6 +481,7 @@ export class CreateModelDto {
 		maxInputTokens?: number;
 		maxOutputTokens?: number;
 	};
+
 }
 
 export class UpdateModelDto {
@@ -506,6 +566,7 @@ export class ModelResponseDto {
 	reasoning?: boolean;
 	toolsCalling?: boolean;
 	modalities?: Record<string, any>;
+	metadata?: Record<string, any>;
 	contextWindow?: {
 		maxInputTokens?: number;
 		maxOutputTokens?: number;

@@ -163,6 +163,9 @@ export enum AiModelType {
 
 @Entity('ai_models')
 @Index(['providerId', 'modelCode'], { unique: true })
+@Index(['adminId', 'created_at', 'id'])
+@Index(['providerId', 'created_at', 'id'])
+@Index(['providerId', 'name'])
 export class AiModelEntity {
 
     @PrimaryGeneratedColumn('uuid')
@@ -319,6 +322,15 @@ export class AiModelAvailabilityEntity {
     @Column({ default: true })
     isAvailable: boolean;
 
+    @Column({ type: 'timestamptz', nullable: true })
+    unhealthyUntil?: Date | null;
+
+    @Column({ type: 'int', default: 0 })
+    cooldownStep: number;
+
+    @Column({ type: 'varchar', length: 64, nullable: true })
+    lastErrorKind?: string | null;
+
     @CreateDateColumn({ type: 'timestamptz' })
     created_at: Date;
 
@@ -394,6 +406,9 @@ export class AiIntegrationEntity {
 
     @Column({ type: 'text', nullable: true })
     lastError?: string;
+
+    @Column({ type: 'varchar', length: 255, nullable: true })
+    lastHealthyModelCode?: string | null;
 
     @CreateDateColumn({ type: 'timestamptz' })
     created_at: Date;

@@ -9,13 +9,16 @@ export type AiProviderErrorKind =
   | "HTTP"
   | "INVALID_RESPONSE"
   | "TOOL_ERROR"
-  | "OUT_OF_ROUNDS";
+  | "OUT_OF_ROUNDS"
+  | "TOOLS_UNSUPPORTED";
 
 export class AiProviderError extends BadRequestException {
   readonly kind: AiProviderErrorKind;
   readonly provider?: string;
   readonly retryable: boolean;
   readonly providerStatus?: number;
+  aiAttempts?: Array<{ code: string; model: string | null }>;
+  attemptsSummary?: string;
 
   constructor(
     message: string,
@@ -84,6 +87,13 @@ export class AiProviderNetworkError extends AiProviderError {
   }
 }
 
+export class AiProviderToolsUnsupportedError extends AiProviderError {
+  constructor(message: string, options: { provider?: string; status?: number } = {}) {
+    super(message, { kind: "TOOLS_UNSUPPORTED", ...options });
+    this.name = "AiProviderToolsUnsupportedError";
+  }
+}
+
 export class AiProviderInvalidResponseError extends AiProviderError {
   constructor(
     message: string,
@@ -145,6 +155,14 @@ export function toAiProviderError(
     message = rawMessage;
   }
 
+  const looksUnsupported =
+    /not a chat model/i.test(message) ||
+    /tools? (is|are) not supported/i.test(message) ||
+    /tool[s]? (calling|use) is not supported/i.test(message) ||
+    /does not support (function |tool ?)?(calling|tools?)/i.test(message) ||
+    /function calling is not supported/i.test(message) ||
+    /unsupported[_ ]tool/i.test(message);
+
   if (isTimeout) return new AiProviderTimeoutError(message, { provider });
   if (isNetwork) {
     return new AiProviderNetworkError(message, { provider, cause: error });
@@ -154,6 +172,9 @@ export function toAiProviderError(
   }
   if (status === 429) {
     return new AiProviderRateLimitedError(message, { provider, status });
+  }
+  if (looksUnsupported) {
+    return new AiProviderToolsUnsupportedError(message, { provider, status });
   }
   if (status) {
     return new AiProviderError(message, {
