@@ -17,6 +17,12 @@ export class ClientSettingsController {
     return this.clientSettingsService.getSettings(req.user);
   }
 
+  @Get("campaign-order-preview")
+  @Permissions("orders.readSettings")
+  getCampaignOrderPreview(@Req() req: any) {
+    return this.clientSettingsService.getCampaignOrderPreview(req.user);
+  }
+
   @Post("")
   @Permissions("orders.updateSettings")
   upsertRetry(@Req() req: any, @Body() dto: UpsertClientSettingsDto) {

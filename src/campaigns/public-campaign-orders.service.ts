@@ -19,6 +19,9 @@ import {
 import { PublicCampaignOrderSubmitDto } from "dto/public-campaign-order.dto";
 import { TranslationService } from "common/translation.service";
 import { OrdersService } from "src/orders/services/orders.service";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
+import { DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS } from "entities/clientSettings.entity";
+import { User } from "entities/user.entity";
 
 @Injectable()
 export class PublicCampaignOrdersService {
@@ -26,6 +29,7 @@ export class PublicCampaignOrdersService {
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
     private readonly ordersService: OrdersService,
+    private readonly clientSettingsService: ClientSettingsService,
     @InjectRepository(CampaignRecipientEntity)
     private readonly recipientRepo: Repository<CampaignRecipientEntity>,
   ) {}
@@ -96,7 +100,12 @@ export class PublicCampaignOrdersService {
           customerNotes: "",
         };
 
-    return this.toPublicPayload(recipient, campaign, extras);
+    return this.toPublicPayload(
+      recipient,
+      campaign,
+      extras,
+      await this.getPublicMeta(recipient.adminId),
+    );
   }
 
   async submit(token: string, dto: PublicCampaignOrderSubmitDto) {
@@ -194,20 +203,53 @@ export class PublicCampaignOrdersService {
         [campaign.id, Number(order.finalTotal || 0)],
       );
 
-      return this.toPublicPayload(recipient, campaign, {
-        alreadyOrdered: true,
-        orderNumber: order.orderNumber,
-        customerName: dto.customerName,
-        phoneNumber: recipient.phoneNumber,
-        address: dto.address,
-        city: dto.city,
-        cityId: dto.cityId || null,
-        area: dto.area || "",
-        areaId: dto.areaId || null,
-        landmark: dto.landmark || "",
-        customerNotes: dto.customerNotes || "",
-      });
+      return this.toPublicPayload(
+        recipient,
+        campaign,
+        {
+          alreadyOrdered: true,
+          orderNumber: order.orderNumber,
+          customerName: dto.customerName,
+          phoneNumber: recipient.phoneNumber,
+          address: dto.address,
+          city: dto.city,
+          cityId: dto.cityId || null,
+          area: dto.area || "",
+          areaId: dto.areaId || null,
+          landmark: dto.landmark || "",
+          customerNotes: dto.customerNotes || "",
+        },
+        await this.getPublicMeta(recipient.adminId),
+      );
     });
+  }
+
+  private async getBranding(adminId: string) {
+    const settings = await this.clientSettingsService.getCachedSettings(adminId);
+    return {
+      ...DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS,
+      ...(settings.campaignOrderPage ?? {}),
+      favicon: {
+        ...DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS.favicon,
+        ...(settings.campaignOrderPage?.favicon ?? {}),
+      },
+    };
+  }
+
+  private async getCurrency(adminId: string) {
+    const user = await this.dataSource.getRepository(User).findOne({
+      where: { id: adminId },
+      relations: { company: true },
+    });
+    return String(user?.company?.currency || "EGP").trim();
+  }
+
+  private async getPublicMeta(adminId: string) {
+    const [branding, currency] = await Promise.all([
+      this.getBranding(adminId),
+      this.getCurrency(adminId),
+    ]);
+    return { branding, currency };
   }
 
   private toPublicPayload(
@@ -226,6 +268,10 @@ export class PublicCampaignOrdersService {
       landmark: string;
       customerNotes?: string;
     },
+    meta: {
+      branding?: typeof DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS;
+      currency?: string;
+    } = {},
   ) {
     const products = (campaign.products || []).map((p: CampaignProductEntity) => ({
       name: p.name,
@@ -254,6 +300,8 @@ export class PublicCampaignOrdersService {
       shippingPrice: shipping,
       products,
       total: Math.max(0, itemsTotal + shipping),
+      currency: String(meta.currency || "EGP").trim(),
+      branding: meta.branding || DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS,
     };
   }
 }

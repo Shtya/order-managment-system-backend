@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, forwardRef, Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { EntityManager, In, Repository } from "typeorm";
 import { OrphanFileEntity } from "entities/files.entity";
@@ -10,6 +10,7 @@ export class OrphanFilesService {
   constructor(
     @InjectRepository(OrphanFileEntity)
     private readonly orphanRepo: Repository<OrphanFileEntity>,
+    @Inject(forwardRef(() => TranslationService))
     private readonly translations: TranslationService,
   ) {}
 

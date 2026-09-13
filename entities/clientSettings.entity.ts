@@ -54,6 +54,20 @@ export enum OrderTagMode {
     | "wallet"
     | "other";
   export type NotificationSettings = Record<NotificationType, boolean>;
+export type CampaignOrderPageSettings = {
+  pageTitle: string;
+  logoUrl: string;
+  favicon: {
+    icon: string;
+  };
+};
+export const DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS: CampaignOrderPageSettings = {
+  pageTitle: "",
+  logoUrl: "",
+  favicon: {
+    icon: "",
+  },
+};
   export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
     order: true,
     store: true,
@@ -241,6 +255,12 @@ export class ClientSettingsEntity {
 
   @Column({ type: "boolean", default: false })
   clientTagAutomationsRemoveUnmatched: boolean;
+
+  @Column({
+    type: "jsonb",
+    default: DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS,
+  })
+  campaignOrderPage: CampaignOrderPageSettings;
 
   @Column({ type: "timestamptz", nullable: true })
   returnNotificationLastSentAt: Date;

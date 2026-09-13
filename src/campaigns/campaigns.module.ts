@@ -25,6 +25,7 @@ import { PublicCampaignOrdersController } from "./public-campaign-orders.control
 import { PublicCampaignOrdersService } from "./public-campaign-orders.service";
 import { OrdersModule } from "src/orders/orders.module";
 import { ClientAddressEntity, ClientEntity } from "entities/clients.entity";
+import { ClientSettingsModule } from "src/client-settings/client-settings.module";
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { ClientAddressEntity, ClientEntity } from "entities/clients.entity";
     forwardRef(() => WhatsappModule),
     forwardRef(() => QueueModule),
     forwardRef(() => OrdersModule),
+    forwardRef(() => ClientSettingsModule),
     OrphanFilesModule,
     TypeOrmModule.forFeature([
       CampaignEntity,

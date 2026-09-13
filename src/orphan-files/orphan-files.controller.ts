@@ -2,6 +2,8 @@ import {
   BadRequestException,
   Controller,
   Delete,
+  forwardRef,
+  Inject,
   Param,
   Post,
   Req,
@@ -62,6 +64,7 @@ const anyFileMulterOptions = {
 export class OrphanFilesController {
   constructor(
     private readonly orphanFiles: OrphanFilesService,
+    @Inject(forwardRef(() => TranslationService))
     private readonly translations: TranslationService,
   ) {}
 

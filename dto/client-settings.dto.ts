@@ -38,6 +38,22 @@ export class ShippingSettingsDto {
   warehouseDefaultShippingCompanyId?: string;
 }
 
+export class CampaignOrderPageSettingsDto {
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsOptional()
+  pageTitle?: string;
+
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @IsOptional()
+  logoUrl?: string;
+
+  @IsObject({message: i18nValidationMessage('validation.is_object')})
+  @IsOptional()
+  favicon?: {
+    icon?: string;
+  };
+}
+
 export class UpsertClientSettingsDto {
   @IsEnum(AssignmentMode,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(AssignmentMode).join(', ')], }); }})
   @IsOptional()
@@ -179,4 +195,14 @@ export class UpsertClientSettingsDto {
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   @IsOptional()
   clientTagAutomationsRemoveUnmatched?: boolean;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => CampaignOrderPageSettingsDto)
+  campaignOrderPage?: CampaignOrderPageSettingsDto;
+
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
+  @IsString({ each: true })
+  @IsOptional()
+  orphanFileIds?: string[];
 }
