@@ -969,6 +969,7 @@ describe("resumeFromWhatsappInteraction", () => {
       versionId: "v-2",
       adminId: "admin-1",
       triggerEntityId: "order-1",
+      whatsappAccountId: "acc-1",
       executionState: {
         trigger: { nodeId: "n-trigger", output: { adminId: "admin-1", id: "order-1" } },
         steps: { "n-up": { output: { messageId: "msg-1" } } },
@@ -1000,7 +1001,14 @@ describe("resumeFromWhatsappInteraction", () => {
     const result = await ctx.service.resumeFromWhatsappInteraction("msg-1", "Accept", "x_btn_0");
 
     expect(ctx.applyUpsellByMessageId).toHaveBeenCalledWith({ adminId: "admin-1" }, "msg-1");
-    expect(ctx.whatsappSendMessage).toHaveBeenCalled();
+    expect(ctx.whatsappSendMessage).toHaveBeenCalledWith(
+      { adminId: "admin-1" },
+      expect.objectContaining({
+        to: "201001234567",
+        type: "text",
+      }),
+      "acc-1",
+    );
     expect(resume).toHaveBeenCalledWith("run-1", "n-up", "accept");
     expect(result.success).toBe(true);
   });

@@ -43,6 +43,7 @@ import {
 } from "entities/whatsapp.entity";
 import {
   pickWhatsappAccountForRun,
+  runWhatsappAccountId,
   snapshotWhatsappAccount,
 } from "./runWhatsappAccount";
 
@@ -441,12 +442,16 @@ export class EngineRunnerService {
             `Cannot send upsell feedback for run ${run.id}: no phone number found`,
           );
         } else {
-          await this.whatsappService.sendMessage(me, {
-            to,
-            messaging_product: "whatsapp",
-            type: "text",
-            text: { body: feedbackText },
-          });
+          await this.whatsappService.sendMessage(
+            me,
+            {
+              to,
+              messaging_product: "whatsapp",
+              type: "text",
+              text: { body: feedbackText },
+            },
+            runWhatsappAccountId(run),
+          );
         }
       }
     } catch (error) {
