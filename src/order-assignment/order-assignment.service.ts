@@ -349,19 +349,20 @@ export class OrderAssignmentService {
     }
 
     if (!ordersToUpdate.length) return;
-    // Update all orders in one query using CASE statement
+    // Update all orders in one query using CASE statement.
+    // Quote camelCase columns: unquoted statusId is folded to statusid in Postgres.
     await manager
       .createQueryBuilder()
       .update(OrderEntity)
       .set({
+        oldStatusId: () => `"statusId"`,
         statusId: () => `
                         CASE 
-                            WHEN statusId = :cancelledStatusId THEN :cancelledFollowUpStatusId
-                            WHEN statusId = :noAnswerStatusId THEN :noAnswerFollowUpStatusId
-                            ELSE statusId
+                            WHEN "statusId" = :cancelledStatusId THEN :cancelledFollowUpStatusId
+                            WHEN "statusId" = :noAnswerStatusId THEN :noAnswerFollowUpStatusId
+                            ELSE "statusId"
                         END
                     `,
-        oldStatusId: "statusId",
       })
       .where("id IN (:...orderIds)", { orderIds: ordersToUpdate })
       .setParameters({
@@ -465,14 +466,14 @@ export class OrderAssignmentService {
       .createQueryBuilder()
       .update(OrderEntity)
       .set({
+        oldStatusId: () => `"statusId"`,
         statusId: () => `
                 CASE
-                    WHEN statusId = :cancelledFollowUpStatusId THEN :cancelledStatusId
-                    WHEN statusId = :noAnswerFollowUpStatusId THEN :noAnswerStatusId
-                    ELSE statusId
+                    WHEN "statusId" = :cancelledFollowUpStatusId THEN :cancelledStatusId
+                    WHEN "statusId" = :noAnswerFollowUpStatusId THEN :noAnswerStatusId
+                    ELSE "statusId"
                 END
             `,
-        oldStatusId: "statusId",
       })
       .where("id IN (:...orderIds)", { orderIds: ordersToUpdate })
       .setParameters({
