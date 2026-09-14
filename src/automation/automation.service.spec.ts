@@ -354,7 +354,39 @@ describe("AutomationService update", () => {
     );
 
     expect(result).toMatchObject({ skipped: true });
-    expect(versionTx.save).not.toHaveBeenCalled();
+    expect(versionTx.save).toHaveBeenCalledTimes(1);
+    expect(versionTx.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flow: expect.objectContaining({
+          nodes: flow.nodes,
+          edges: flow.edges,
+        }),
+      }),
+    );
+    expect(versionTx.create).not.toHaveBeenCalled();
+  });
+
+  test("saves whatsapp settings when graph is identical", async () => {
+    const flow = {
+      nodes: [{ id: "n-1", type: "action", data: { a: 1 } }],
+      edges: [],
+    };
+    const { versionTx } = txSetup(stored(AutomationStatus.PUBLISHED, flow));
+    const whatsapp = { mode: "fixed", accountId: "acc-9", acknowledged: true };
+
+    const result = await ctx.service.update(
+      ADMIN,
+      "flow-1",
+      { flow: { ...flow, whatsapp } } as never,
+    );
+
+    expect(result).toMatchObject({ skipped: true });
+    expect(versionTx.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flow: expect.objectContaining({ whatsapp }),
+      }),
+    );
+    expect(versionTx.create).not.toHaveBeenCalled();
   });
 
   test("creates major version for changed flow", async () => {

@@ -312,6 +312,13 @@ export class AutomationService {
 
         // 2- if passed flow exactly as previous so nothing to update so just skip update
         if (parentVersion && this.isFlowEqual(dto.flow, parentVersion.flow)) {
+          parentVersion.flow = {
+            ...parentVersion.flow,
+            whatsapp: dto.flow.whatsapp,
+          };
+          await versionRepo.save(parentVersion);
+          automation.latestVersion = parentVersion;
+
           return {
             ...automation,
             skipped: true,
