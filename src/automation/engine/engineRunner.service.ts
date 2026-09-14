@@ -38,8 +38,13 @@ import { RequestTranslationService } from "common/translation.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import {
   MessageStatus,
+  WhatsappAccountEntity,
   WhatsappMessageEntity,
 } from "entities/whatsapp.entity";
+import {
+  pickWhatsappAccountForRun,
+  snapshotWhatsappAccount,
+} from "./runWhatsappAccount";
 
 const RESUME_WHILE_RUNNING_DELAY_MS = 2000;
 const MAX_RESUME_WHILE_RUNNING_ATTEMPTS = 3;
@@ -61,6 +66,8 @@ export class EngineRunnerService {
     private readonly stepRepo: Repository<AutomationRunStepEntity>,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @InjectRepository(WhatsappAccountEntity)
+    private readonly whatsappAccountRepo: Repository<WhatsappAccountEntity>,
     @InjectRepository(OrderEntity)
     private readonly orderRepo: Repository<OrderEntity>,
     @Inject(forwardRef(() => NodeHandlersRegistry))
@@ -168,6 +175,8 @@ export class EngineRunnerService {
           status: RunStatus.FAILED,
         };
       }
+
+      await this.assignRunWhatsappAccount(run, version.flow);
 
       // Determine where to start!
       let startNodeId: string | null = null;
@@ -835,6 +844,11 @@ export class EngineRunnerService {
       const version = await this.versionRepo.findOne({
         where: { id: run.versionId },
       });
+      if (!version) {
+        return { success: false, message: "Version not found", runId };
+      }
+
+      await this.assignRunWhatsappAccount(run, version.flow);
 
       // عند الاستيقاظ، نتحرك فوراً إلى العقدة التالية للعقدة التي سبقت الإيقاف
       const nextNodeId = findNextNodeId(
@@ -1130,6 +1144,26 @@ export class EngineRunnerService {
       });
       await manager.getRepository(AutomationRunStepEntity).save(stepLog);
     });
+  }
+
+  private async assignRunWhatsappAccount(
+    run: AutomationRunEntity,
+    flow?: FlowDefinition | null,
+  ) {
+    if (run.whatsappAccountId) return;
+    const account = await pickWhatsappAccountForRun(
+      this.whatsappAccountRepo,
+      run.adminId,
+      flow,
+      run.whatsappAccountId,
+    );
+    const snapshot = snapshotWhatsappAccount(account);
+    run.whatsappAccountId = snapshot.whatsappAccountId;
+    run.whatsappAccountName = snapshot.whatsappAccountName;
+    run.whatsappAccountPhone = snapshot.whatsappAccountPhone;
+    if (snapshot.whatsappAccountId) {
+      await this.runRepo.save(run);
+    }
   }
 
   private async failRun(run: AutomationRunEntity, errorMessage: string) {

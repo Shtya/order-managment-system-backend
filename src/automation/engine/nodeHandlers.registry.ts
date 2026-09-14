@@ -30,6 +30,9 @@ import {
 } from "entities/automation.entity";
 import { OrderConfirmationSource, OrderEntity, OrderStatus } from "entities/order.entity";
 import {
+  runWhatsappAccountId,
+} from "./runWhatsappAccount";
+import {
   MessageActionIntent,
   MessageActionStatus,
   MessageStatus,
@@ -55,7 +58,7 @@ import { OrdersService } from "src/orders/services/orders.service";
 import { getValueByPath } from "common/whatsapp.helper";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { SmsSendStatus } from "entities/sms.entity";
-import { Company, User } from "entities/user.entity";
+import { Company, SystemRole, User } from "entities/user.entity";
 import { Language } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
@@ -154,7 +157,7 @@ const MONTH_SHORT_NAMES: Record<string, string[]> = {
     "أبريل",
     "مايو",
     "يونيو",
-    "يولي",
+    "يوليو",
     "أغسطس",
     "سبتمبر",
     "أكتوبر",
@@ -186,7 +189,7 @@ const WEEKDAY_SHORT_NAMES: Record<string, string[]> = {
  * Month, MonthShort — e.g. "Weekday D Month YYYY" -> "الأربعاء 22 يوليو 2026"
  * or "Wednesday 22 July 2026". Unknown characters pass through as-is.
  */
-const formatDateWithFormat = (
+export const formatDateWithFormat = (
   date: Date,
   format: string,
   lang: Language = Language.EN,
@@ -224,7 +227,7 @@ const isWeekend = (date: Date): boolean => {
  * distinct dates (e.g. from Monday: 4 -> Sun, 5 -> Mon, 6 -> Tue) instead
  * of several offsets collapsing onto the same weekend-adjusted date.
  */
-const computeOffsetDate = (offset: number, excludeWeekends = false): Date => {
+export const computeOffsetDate = (offset: number, excludeWeekends = false): Date => {
   const date = new Date();
   if (!Number.isFinite(offset)) return date;
 
@@ -243,7 +246,7 @@ const computeOffsetDate = (offset: number, excludeWeekends = false): Date => {
   return date;
 };
 
-interface GlobalContext {
+export interface GlobalContext {
   /** Pre-formatted "global.*" values (brand/company info + computed date). */
   values: Record<string, string>;
   /** Admin's default language, used to localize named date formats. */
@@ -257,7 +260,7 @@ interface GlobalContext {
  * - global.date.<offset>.<format> -> computed date in the admin's language
  * - otherwise reads from the pre-loaded company context map.
  */
-const resolveGlobalVariablePath = (
+export const resolveGlobalVariablePath = (
   variablePath: string,
   globalData?: GlobalContext,
 ): string => {
@@ -280,7 +283,7 @@ const resolveGlobalVariablePath = (
  * cached client settings to localize named date formats. Returns undefined
  * when unavailable (e.g. preview).
  */
-const loadGlobalData = async (
+export const loadGlobalData = async (
   userRepo?: Repository<User>,
   adminId?: string,
   clientSettingsService?: ClientSettingsService,
@@ -321,7 +324,7 @@ const loadGlobalData = async (
   }
 };
 
-const checkMessageStatus = async (
+export const checkMessageStatus = async (
   messageId: string,
   messageRepo: Repository<WhatsappMessageEntity>,
   logger: Logger,
@@ -427,7 +430,7 @@ export abstract class FlowNodeHandler {
     return data;
   }
 
-  async getOrder(orderData: any): Promise<OrderEntity> {
+  async getOrder(orderData: OrderEntity & { __mock?: boolean }): Promise<OrderEntity> {
     const id = orderData?.id;
     const isMocked = orderData?.__mock;
     if (isMocked) {
@@ -435,7 +438,7 @@ export abstract class FlowNodeHandler {
     }
 
     if (!id) {
-      throw new Error("Order ID is required");
+      throw new NotFoundException("Order ID is required");
     }
     if (!this.orderRepo) {
       throw new Error("Order repository is not available");
@@ -863,6 +866,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             shippingCompany: shipping.shippingCompany,
             provider: shipping.provider,
             updateWrittenAddress: shouldUpdateWrittenAddress(config),
+            whatsappAccountId: run.whatsappAccountId,
           },
           tenantLang: defaultLang,
         });
@@ -890,6 +894,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           conflict.addresses,
           conflict.reason,
           shipping,
+          run,
         );
       }
 
@@ -1068,6 +1073,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             provider: shipping.provider,
             customerSelectedRowId: selected.rowId,
             updateWrittenAddress: shouldUpdateWrittenAddress(config),
+            whatsappAccountId: run.whatsappAccountId,
           },
           tenantLang: defaultLang,
         });
@@ -1128,6 +1134,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     rawAddresses: any[],
     reason: string | undefined,
     shipping: ResolvedShippingCompany,
+    run?: AutomationRunEntity,
   ): Promise<NodeHandlerResponse> {
     const candidates = normalizeConflictAddresses(rawAddresses);
     if (candidates.length < 2) {
@@ -1202,7 +1209,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
       const response = await this.whatsappService.sendMessage(
         { adminId: orderData.adminId },
         payload,
-        undefined,
+        run?.whatsappAccountId || undefined,
         undefined,
         MessageActionIntent.BRANCHES,
         orderData.id,
@@ -1579,7 +1586,7 @@ function isAutoShippingCompanyConfig(config: AiAddressCorrectionConfig): boolean
   return !config?.shippingCompanyId;
 }
 
-function shouldUseSpecialShippingCompany(
+export function shouldUseSpecialShippingCompany(
   config: AssignShippingProviderConfig,
 ): boolean {
   if (config?.useSpecialShippingCompany === true) return true;
@@ -1838,8 +1845,8 @@ export class ActionAssignShippingProviderHandler extends FlowNodeHandler {
 
       const me = {
         adminId: orderData.adminId || run.initialPayload?.adminId,
-        id: run.initialPayload?.userId || null,
-        role: run.initialPayload?.role,
+        id: run.initialPayload?.userId || orderData.adminId || run.initialPayload?.adminId,
+        role: run.initialPayload?.role || SystemRole.ADMIN,
       };
 
       const useSpecial = shouldUseSpecialShippingCompany(config);
@@ -2082,7 +2089,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
 
       // 4. Send Message using adapter
       const adapterResponse = await this.adapter.sendTemplate(
-        template.accountId,
+        runWhatsappAccountId(run),
         {
           to,
           templateId: template.id,
@@ -2157,7 +2164,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
     }
   }
 
-  private mapVariablesToValues(
+  public mapVariablesToValues(
     variables: Record<string, any>,
     orderData: OrderEntity,
     globalData?: GlobalContext,
@@ -2225,7 +2232,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
     return result;
   }
 
-  private truncateToMaxLength(text: string, maxLength: number): string {
+  public truncateToMaxLength(text: string, maxLength: number): string {
     if (text.length <= maxLength) {
       return text;
     }
@@ -2233,7 +2240,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
     const words = text.split(" ");
 
     // Try removing words one by one from the end until it fits
-    while (words.length > 1) {
+    while (words.length > 1) { 
       words.pop();
       const truncated = words.join(" ");
       if (truncated.length <= maxLength) {
@@ -2277,7 +2284,8 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
       }
 
       // Check WhatsApp account
-      const account = await this.adapter.getWhatsappAccount(config.accountId);
+      const accountId = runWhatsappAccountId(run);
+      const account = await this.adapter.getWhatsappAccount(accountId);
       if (!account) {
         return { success: false, error: "WhatsApp account not found" };
       }
@@ -2338,7 +2346,7 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
         response = await this.whatsappService.sendMessage(
           { adminId: orderData.adminId },
           payload,
-          config.accountId,
+          accountId,
           null,
           config.actionIntent || MessageActionIntent.NONE,
           orderData.id,

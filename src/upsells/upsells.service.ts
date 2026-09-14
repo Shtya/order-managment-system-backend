@@ -472,6 +472,7 @@ export class UpsellsService {
         const media = await this.whatsappService.uploadMedia(
           { id: adminId, adminId },
           { url },
+          run.whatsappAccountId || undefined,
         );
         interactive.header = {
           type: config.headerType.toLowerCase(),
@@ -510,6 +511,7 @@ export class UpsellsService {
         type: "interactive",
         interactive,
       },
+      run?.whatsappAccountId || undefined,
     );
 
     // Save Upsell History record

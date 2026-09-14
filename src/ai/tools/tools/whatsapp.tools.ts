@@ -79,6 +79,15 @@ export class WhatsappAiTools {
     };
   }
 
+  private resolveAccountId(
+    ctx: AiToolContext,
+    args: Record<string, unknown>,
+  ): string | undefined {
+    if (args.accountId) return String(args.accountId);
+    const fromSession = ctx.session.metadata?.whatsappAccountId;
+    return fromSession ? String(fromSession) : undefined;
+  }
+
   private wrap<T>(
     code: string,
     fn: () => Promise<T>,
@@ -142,7 +151,7 @@ export class WhatsappAiTools {
           text: { body: String(args.text) },
           metadata: { source: "ai", orderId },
         } as any,
-        args.accountId ? String(args.accountId) : undefined,
+        this.resolveAccountId(ctx, args),
         undefined,
         undefined,
         orderId,
@@ -179,7 +188,7 @@ export class WhatsappAiTools {
             name: "",
           },
         },
-        args.accountId ? String(args.accountId) : undefined,
+        this.resolveAccountId(ctx, args),
         undefined,
         { source: "ai", orderId },
       );

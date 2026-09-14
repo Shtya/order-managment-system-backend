@@ -78,7 +78,7 @@ export class AuthController {
     if (req.user?.role?.name !== SystemRole.SUPER_ADMIN) {
       throw new ForbiddenException("Only super admins can use this endpoint");
     }
-    return this.auth.superAdminLogin(dto.email);
+    return this.auth.superAdminLogin(dto.email, req.user.id);
   }
 
   @SkipThrottle({ default: true })

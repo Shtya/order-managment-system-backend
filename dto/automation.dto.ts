@@ -1,6 +1,6 @@
 import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Validate, ValidateNested, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, NodeConfig, SendWhatsappTemplateConfig, TriggerType } from 'entities/automation.entity';
+import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, FlowWhatsappAccountMode, NodeConfig, SendWhatsappTemplateConfig, TriggerType } from 'entities/automation.entity';
 import { i18nValidationMessage } from 'nestjs-i18n';
 
 
@@ -294,6 +294,20 @@ class OrphanFilesDto {
     newIds?: string[];
 }
 
+class FlowWhatsappSettingsDto {
+    @IsOptional()
+    @IsEnum(FlowWhatsappAccountMode, { message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(FlowWhatsappAccountMode).join(', ')], }); }})
+    mode?: FlowWhatsappAccountMode;
+
+    @IsOptional()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    accountId?: string | null;
+
+    @IsOptional()
+    @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+    acknowledged?: boolean;
+}
+
 class FlowDefinitionDto {
     @Validate(ValidFlowGraphConstraint)
     @ValidateNested({ each: true })
@@ -312,6 +326,10 @@ class FlowDefinitionDto {
     @Type(() => FlowEdgeDto)
     edges: FlowEdgeDto[];
 
+    @IsOptional()
+    @ValidateNested()
+    @Type(() => FlowWhatsappSettingsDto)
+    whatsapp?: FlowWhatsappSettingsDto;
 }
 
 export class CreateAutomationDto {

@@ -201,8 +201,9 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
   }
 
   async getWhatsappAccount(
-    accountId: string,
+    accountId?: string | null,
   ): Promise<WhatsappAccountEntity | null> {
+    if (!accountId) return null;
     return this.accountRepo.findOne({
       where: { id: accountId, isActive: true },
     });

@@ -44,7 +44,10 @@ import {
 } from "entities/automation.entity";
 import { OrderEntity } from "entities/order.entity";
 import { evaluateCondition, findNextNodeId } from "./automation-helpers";
-import { PreviewAutomationAdapter } from "./adapters/preview.adapters";
+import {
+  pickWhatsappAccountForRun,
+  snapshotWhatsappAccount,
+} from "./runWhatsappAccount";
 import {
   ConditionQuickOrderStatusHandler,
   ConditionOrderCheckHandler,
@@ -74,6 +77,7 @@ import { Upsell, UpsellHistory } from "entities/upsells.entity";
 import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
 import { UpsellsService } from "src/upsells/upsells.service";
+import { PreviewAutomationAdapter } from "./adapters/preview.adapters";
 
 export interface CreatePreviewInput {
   adminId: string;
@@ -158,6 +162,9 @@ export interface PreviewRunDocument {
   createdAt: string;
   updatedAt: string;
   lastHeartbeatAt: string;
+  whatsappAccountId?: string | null;
+  whatsappAccountName?: string | null;
+  whatsappAccountPhone?: string | null;
 }
 
 @Injectable()
@@ -250,6 +257,13 @@ export class AutomationPreviewService {
       updatedAt: now,
       lastHeartbeatAt: now,
     };
+
+    const account = await pickWhatsappAccountForRun(
+      this.accountRepo,
+      input.adminId,
+      input.version.flow,
+    );
+    Object.assign(doc, snapshotWhatsappAccount(account));
 
     const newPreview = await this.savePreview(doc);
     await this.emitPreviewUpdate(newPreview);

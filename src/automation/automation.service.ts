@@ -184,6 +184,7 @@ export class AutomationService {
         flow: {
           nodes: dto.flow.nodes,
           edges: dto.flow.edges,
+          whatsapp: dto.flow.whatsapp,
         },
       });
 
@@ -267,6 +268,7 @@ export class AutomationService {
         automation.latestVersion.flow = {
           nodes: dto.flow.nodes as any,
           edges: dto.flow.edges as any,
+          whatsapp: dto.flow.whatsapp,
         };
         automation.status = AutomationStatus.PUBLISHED;
         await automationRepo.save(automation);
@@ -336,6 +338,7 @@ export class AutomationService {
           flow: {
             nodes: dto.flow.nodes as any,
             edges: dto.flow.edges as any,
+            whatsapp: dto.flow.whatsapp,
           },
           parentVersionId: parentVersion?.id || null,
         });

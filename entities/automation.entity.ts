@@ -132,9 +132,22 @@ export enum FlowNodeType {
     CONDITION = 'condition',
 }
 
+export enum FlowWhatsappAccountMode {
+    RANDOM = 'random',
+    FIXED = 'fixed',
+}
+
+export interface FlowWhatsappSettings {
+    /** Default is random: each run picks one active account and keeps it. */
+    mode?: FlowWhatsappAccountMode;
+    accountId?: string | null;
+    acknowledged?: boolean;
+}
+
 export interface FlowDefinition {
     nodes: FlowNode[];
     edges: FlowEdge[];
+    whatsapp?: FlowWhatsappSettings;
 }
 
 export interface FlowNode {
@@ -336,7 +349,7 @@ export interface SendWhatsappMessageConfig {
     messageType: MessageType,
     messageData: WhatsappMessageData,
     recipientNumber: string,
-    accountId: string,
+    accountId?: string,
     actionIntent?: MessageActionIntent,
     accountName?: string,
     branches?: {
@@ -488,6 +501,16 @@ export class AutomationRunEntity {
 
     @Column({ type: 'text', nullable: true })
     errorMessage: string;
+
+    /** WhatsApp sender locked for this run (all WhatsApp steps reuse it). */
+    @Column({ type: 'uuid', nullable: true })
+    whatsappAccountId: string | null;
+
+    @Column({ type: 'varchar', length: 255, nullable: true })
+    whatsappAccountName: string | null;
+
+    @Column({ type: 'varchar', length: 50, nullable: true })
+    whatsappAccountPhone: string | null;
 
     @CreateDateColumn({ type: 'timestamptz' })
     startedAt: Date;

@@ -53,18 +53,15 @@ export class AuthService {
 
   RESEND_COOLDOWN_SECONDS = 60;
 
-  public async sign(user: User) {
+  public sign(user: User) {
+    const {passwordHash, ...safeUser} = user;
     return {
       accessToken: this.jwt.sign({
         sub: user.id,
         isOnboarding: user.currentOnboardingStep !== OnboardingStep?.FINISHED,
       }),
-      user,
+      user: safeUser,
     };
-  }
-
-  private isSuperAdmin(me: User) {
-    return me.role?.name === SystemRole.SUPER_ADMIN;
   }
 
   async validatePayload(payload: { sub: number }) {
@@ -341,7 +338,7 @@ export class AuthService {
     // 4. Send the New Email
     await this.mail.sendRegistrationOtpEmail(email, {
       otp: newOtp,
-      userName: pendingUser.name,
+      userName: pendingUser.name || "there",
     });
 
     return { message: this.translations.t("common.verification_code_sent") };
@@ -364,11 +361,23 @@ export class AuthService {
       );
     }
 
-    const { passwordHash, ...finalUser } = user;
-    return this.sign(finalUser as User);
+    
+    return this.sign(user);
   }
 
-  async superAdminLogin(email: string) {
+  async superAdminLogin(email: string, superAdminId: string) {
+    const superAdmin = await this.usersService.getFullUser(superAdminId);
+
+    if (
+      !superAdmin ||
+      !superAdmin.isActive ||
+      superAdmin.role?.name !== SystemRole.SUPER_ADMIN
+    ) {
+      throw new UnauthorizedException(
+        this.translations.t("common.permission_denied"),
+      );
+    }
+
     const user = await this.usersService.getFullUserByEmail(email);
 
     if (!user || !user.isActive) {
@@ -377,8 +386,7 @@ export class AuthService {
       );
     }
 
-    const { passwordHash, ...finalUser } = user as any;
-    return this.sign(finalUser as User);
+    return this.sign(user);
   }
 
   // ======================
@@ -663,8 +671,7 @@ export class AuthService {
       );
     }
 
-    const result = await this.sign(user);
-
+    const result = this.sign(user);
     return result;
   }
 
@@ -835,7 +842,7 @@ export class AuthService {
     // Return new signed token because the email (and possibly payload) has changed
     return {
       message: this.translations.t("common.email_updated"),
-      ...(await this.sign(user)),
+      ...this.sign(user),
     };
   }
 }

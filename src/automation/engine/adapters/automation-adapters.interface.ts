@@ -149,7 +149,7 @@ export interface AutomationAdapter {
   /**
    * Get WhatsApp account by ID
    */
-  getWhatsappAccount(accountId: string): Promise<WhatsappAccountEntity | null>;
+  getWhatsappAccount(accountId?: string | null): Promise<WhatsappAccountEntity | null>;
 
   /**
    * Create a new issue linked to an order

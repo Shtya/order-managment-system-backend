@@ -26,9 +26,6 @@ export class TriggerDispatcherService {
     @InjectRepository(AutomationFlowEntity)
     private readonly automationRepo: Repository<AutomationFlowEntity>,
 
-    @InjectRepository(AutomationFlowVersionEntity)
-    private readonly versionRepo: Repository<AutomationFlowVersionEntity>,
-
     @InjectRepository(AutomationRunEntity)
     private readonly runRepo: Repository<AutomationRunEntity>,
 
@@ -38,8 +35,6 @@ export class TriggerDispatcherService {
     private readonly automationQueueService: AutomationQueueService,
     private readonly triggerMatchers: TriggerMatchersRegistry,
 
-    @Inject(forwardRef(() => OrdersService))
-    private readonly ordersService: OrdersService,
     private readonly clientSettingsService: ClientSettingsService,
   ) {}
 
@@ -204,7 +199,7 @@ export class TriggerDispatcherService {
   /**
    * Create run + push to queue
    */
-  private async createRunAndQueue(
+  public async createRunAndQueue(
     automation: AutomationFlowEntity,
     trigger: {
       type: TriggerType;

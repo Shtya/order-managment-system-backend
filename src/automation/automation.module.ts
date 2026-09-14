@@ -10,7 +10,6 @@ import {
 } from "entities/automation.entity";
 import { TriggerDispatcherService } from "./engine/triggerDispatcher.service";
 import { EngineRunnerService } from "./engine/engineRunner.service";
-import { VariableHydratorService } from "./engine/variableHydrator.service";
 import {
   ConditionQuickOrderStatusHandler,
   NodeHandlersRegistry,
@@ -90,7 +89,6 @@ import { ShippingCompanyEntity } from "entities/shipping.entity";
     AutomationService,
     TriggerDispatcherService,
     EngineRunnerService,
-    VariableHydratorService,
     NodeHandlersRegistry,
     ConditionQuickOrderStatusHandler,
     ProductionAutomationAdapter,
@@ -108,7 +106,6 @@ import { ShippingCompanyEntity } from "entities/shipping.entity";
     AutomationService,
     TriggerDispatcherService,
     EngineRunnerService,
-    VariableHydratorService,
     NodeHandlersRegistry,
     TriggerMatchersRegistry,
   ],
