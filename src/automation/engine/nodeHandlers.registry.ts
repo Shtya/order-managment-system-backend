@@ -1394,9 +1394,10 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
     const writtenAddressRules = updateWritten
       ? `## Writing the \`address\` field (CRITICAL)
-When calling \`bulk_update_orders_shipping\`, \`address\` must be a **normal full written shipping address** a courier can read — never append coordinates.
+When calling \`bulk_update_orders_shipping\`, \`address\` must be a **normal full written shipping address in Arabic** a courier can read — never append coordinates.
+- **Always Arabic:** \`address\` MUST be Arabic script, no matter where the text came from (\`locationAddress\`, \`locationName\`, written \`address\`, reverse-geocode, customer choice). If the source is English or mixed, translate/rewrite it into natural Arabic before sending. Do not leave English city/street names in \`address\`.
 - **Never** put latitude/longitude inside \`address\` (bad: "العريش، شمال سيناء، مصر (موقع على الخريطة: 31.135, 33.814)")
-- Coordinates stay in tools/metadata only; \`address\` is plain text only
+- Coordinates stay in tools/metadata only; \`address\` is plain Arabic text only
 - **Bad (too short):** "العريش، شمال سيناء، مصر" or only city + governorate + country — unless that is all that exists for a chosen map pin and you have no richer \`locationAddress\`/\`locationName\`
 - **Good:** street/road, neighborhood/area, landmark if available, building/details, then city/governorate — e.g. from \`locationAddress\` / \`locationName\` / reverse-geocode result
 - If \`latitude\` and \`longitude\` exist, call \`get_location_by_coordinates\`
@@ -1416,7 +1417,7 @@ The client setting **updateWrittenAddress is false**.
       ? `8. Update using \`bulk_update_orders_shipping\` with:
    - \`code\`: The provider code (e.g. "bosta", "turbo")
    - \`items\`: [{ \`id\`: orderUuid, \`address\`: fullDetailedWrittenAddress, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
-   - Always set \`address\` to normal full address text only. **Never append latitude/longitude** to \`address\``
+   - Always set \`address\` to normal full **Arabic** address text only. Translate if the source is not Arabic. **Never append latitude/longitude** to \`address\``
       : `8. Update using \`bulk_update_orders_shipping\` with:
    - \`code\`: The provider code (e.g. "bosta", "turbo")
    - \`items\`: [{ \`id\`: orderUuid, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
@@ -1520,7 +1521,7 @@ Explain briefly what you found and what you did (or why you couldn't update). Us
 
     const updateStep = updateWritten
       ? `4. Update using \`bulk_update_orders_shipping\` with:
-   - \`address\`: normal full written address from selection fullAddress / order locationAddress / detailed reverse-geocode. **Do not append lat/lng** (bad: "... (موقع على الخريطة: 31.13, 33.81)"). Never shorten to only city + governorate + country when richer text exists
+   - \`address\`: normal full written **Arabic** address from selection fullAddress / order locationAddress / detailed reverse-geocode. Translate into Arabic if the source is English or mixed. **Do not append lat/lng** (bad: "... (موقع على الخريطة: 31.13, 33.81)"). Never shorten to only city + governorate + country when richer text exists
    - \`cityId\` and \`shippingMetadata\` (zoneId, districtId) as needed`
       : `4. Update using \`bulk_update_orders_shipping\` with:
    - \`cityId\` and \`shippingMetadata\` (zoneId, districtId) as needed

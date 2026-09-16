@@ -156,7 +156,7 @@ export class BulkUpdateShippingFieldItemToolArgsDto {
 
   @SchemaProperty({
     description:
-      "Full detailed written shipping address for couriers (street/road, neighborhood, landmark, building when known, then city). Plain text only — NEVER include latitude/longitude or suffixes like '(موقع على الخريطة: 31.13, 33.81)'. Do NOT send a short city-only summary when richer text exists.",
+      "Full detailed written shipping address in Arabic for couriers (street/road, neighborhood, landmark, building when known, then city). Always Arabic script — translate if the source is English. Plain text only — NEVER include latitude/longitude or suffixes like '(موقع على الخريطة: 31.13, 33.81)'. Do NOT send a short city-only summary when richer text exists.",
     example: "شارع عباس العقاد بجانب مسجد النور، مدينة نصر، القاهرة، عمارة 12 دور 3",
   })
   @IsOptional()

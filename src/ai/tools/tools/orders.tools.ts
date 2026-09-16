@@ -113,7 +113,7 @@ export class OrdersAiTools {
       new AiTool({
         name: 'bulk_update_orders_shipping',
         description:
-          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id. You can set: address (normal full written shipping text with NO latitude/longitude in the string), cityId, and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". If reverse geocode isSparse/city-only, prefer order locationAddress/locationName. NEVER set address to only city + governorate + country when richer text exists.`,
+          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id. You can set: address (normal full written shipping text in Arabic, with NO latitude/longitude in the string; translate English/mixed sources into Arabic), cityId, and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". If reverse geocode isSparse/city-only, prefer order locationAddress/locationName. NEVER set address to only city + governorate + country when richer text exists.`,
         inputSchema: dtoToJsonSchema(BulkUpdateOrdersShippingToolArgsDto),
         argsDto: BulkUpdateOrdersShippingToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_WRITE,
@@ -474,7 +474,7 @@ export class OrdersAiTools {
         );
       }
 
-      const lang = "en";
+      const lang = "ar";
 
       const url =
         `https://nominatim.openstreetmap.org/reverse` +
