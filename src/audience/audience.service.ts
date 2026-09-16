@@ -164,13 +164,13 @@ export class AudienceService {
       rootEntity: ClientAudienceEntity.CLIENT,
       operators: Object.values(ConditionOperator),
       entities: [
-        this.entityMeta(ClientAudienceEntity.CLIENT, Object.values(ClientAudienceClientField), [
-          ClientAudienceEntity.ORDER,
-        ]),
+        this.entityMeta(ClientAudienceEntity.ORDER_ITEM, Object.values(ClientAudienceOrderItemField), []),
         this.entityMeta(ClientAudienceEntity.ORDER, Object.values(ClientAudienceOrderField), [
           ClientAudienceEntity.ORDER_ITEM,
         ]),
-        this.entityMeta(ClientAudienceEntity.ORDER_ITEM, Object.values(ClientAudienceOrderItemField), []),
+        this.entityMeta(ClientAudienceEntity.CLIENT, Object.values(ClientAudienceClientField), [
+          ClientAudienceEntity.ORDER,
+        ]),
       ],
     };
   }
@@ -286,6 +286,21 @@ export class AudienceService {
       );
     }
 
+    if (
+      context.entity === ClientAudienceEntity.ORDER &&
+      field === ClientAudienceOrderField.ORDER_CANCEL_CAUSE_ID
+    ) {
+      const paramKey = `aud_${build.index++}`;
+      return this.relationFieldClause(
+        `SELECT 1 FROM order_cancel_causes occ_sub WHERE occ_sub."orderId" = ${context.alias}.id`,
+        `occ_sub."cancelCauseId"`,
+        operator,
+        value,
+        paramKey,
+        build.params,
+      );
+    }
+
     const expr = this.fieldExpr(field, context);
     if (!expr) return null;
     const paramKey = `aud_${build.index++}`;
@@ -348,16 +363,24 @@ export class AudienceService {
     switch (field) {
       case ClientAudienceOrderField.ORDER_STATUS_ID:
         return `${alias}."statusId"`;
+      case ClientAudienceOrderField.ORDER_CREATED_AT:
+        return `${alias}."createdAt"`;
       case ClientAudienceOrderField.ORDER_STORE_ID:
         return `${alias}."storeId"`;
-      case ClientAudienceOrderField.ORDER_PRODUCTS_TOTAL:
-        return `COALESCE(${alias}."productsTotal", 0)`;
+      case ClientAudienceOrderField.ORDER_CITY_ID:
+        return `${alias}."cityId"`;
+      case ClientAudienceOrderField.ORDER_PAYMENT_METHOD:
+        return `${alias}."paymentMethod"`;
       case ClientAudienceOrderField.ORDER_SHIPPING_COMPANY_ID:
         return `${alias}."shippingCompanyId"`;
       case ClientAudienceOrderField.ORDER_FINAL_TOTAL:
         return `COALESCE(${alias}."finalTotal", 0)`;
+      case ClientAudienceOrderField.ORDER_PRODUCTS_TOTAL:
+        return `COALESCE(${alias}."productsTotal", 0)`;
       case ClientAudienceOrderField.ORDER_CONFIRMATION_SOURCE:
         return `${alias}."confirmationSource"`;
+      case ClientAudienceOrderField.ORDER_DELIVERED_AT:
+        return `${alias}."deliveredAt"`;
       default:
         return null;
     }
@@ -365,17 +388,19 @@ export class AudienceService {
 
   private orderItemFieldExpr(field: ClientAudienceField, alias: string): string | null {
     switch (field) {
-      case ClientAudienceOrderItemField.QUANTITY:
-        return `COALESCE(${alias}.quantity, 0)`;
-      case ClientAudienceOrderItemField.VARIANT_ID:
-        return `${alias}."variantId"`;
       case ClientAudienceOrderItemField.PRODUCT_ID:
         return `(SELECT pv."productId" FROM product_variants pv WHERE pv.id = ${alias}."variantId")`;
+      case ClientAudienceOrderItemField.VARIANT_ID:
+        return `${alias}."variantId"`;
       case ClientAudienceOrderItemField.CATEGORY_ID:
         return `(SELECT p."categoryId"
           FROM product_variants pv
           INNER JOIN products p ON p.id = pv."productId"
           WHERE pv.id = ${alias}."variantId")`;
+      case ClientAudienceOrderItemField.QUANTITY:
+        return `COALESCE(${alias}.quantity, 0)`;
+      case ClientAudienceOrderItemField.IS_ADDITIONAL:
+        return `${alias}."isAdditional"`;
       default:
         return null;
     }
@@ -551,6 +576,11 @@ export class AudienceService {
     const deliveredRevenue = this.clientOrdersAgg(
       `COALESCE(SUM(CASE WHEN os.code = '${OrderStatus.DELIVERED}' THEN stat_ord."finalTotal" ELSE 0 END), 0)`,
     );
+    const totalSales = this.clientOrdersAgg(`COALESCE(SUM(stat_ord."finalTotal"), 0)`);
+    const lastOrderAt = this.clientOrdersAgg(`MAX(stat_ord."createdAt")`);
+    const lastDeliveredAt = this.clientOrdersAgg(
+      `MAX(CASE WHEN os.code = '${OrderStatus.DELIVERED}' THEN COALESCE(stat_ord."deliveredAt", stat_ord."createdAt") END)`,
+    );
 
     switch (field) {
       case ClientAudienceClientField.CLIENT_TOTAL_ORDERS:
@@ -564,8 +594,18 @@ export class AudienceService {
         );
       case ClientAudienceClientField.CLIENT_DELIVERED_COUNT:
         return `COALESCE(client."legacyDeliveredCount", 0) + COALESCE(${deliveredCount}, 0)`;
+      case ClientAudienceClientField.CLIENT_DELIVERED_RATE:
+        return this.rateSql(
+          `COALESCE(${deliveredCount}, 0) + COALESCE(client."legacyDeliveredCount", 0)`,
+          `COALESCE(${totalOrders}, 0) + COALESCE(client."legacyTotalOrders", 0)`,
+        );
       case ClientAudienceClientField.CLIENT_RETURNED_COUNT:
         return `COALESCE(client."legacyReturnedCount", 0) + COALESCE(${returnedCount}, 0)`;
+      case ClientAudienceClientField.CLIENT_RETURNED_RATE:
+        return this.rateSql(
+          `COALESCE(${returnedCount}, 0) + COALESCE(client."legacyReturnedCount", 0)`,
+          `COALESCE(${totalOrders}, 0) + COALESCE(client."legacyTotalOrders", 0)`,
+        );
       case ClientAudienceClientField.CLIENT_CANCELLED_COUNT:
         return `COALESCE(client."legacyCancelledCount", 0) + COALESCE(${cancelledCount}, 0)`;
       case ClientAudienceClientField.CLIENT_CANCEL_RATE:
@@ -575,6 +615,12 @@ export class AudienceService {
         );
       case ClientAudienceClientField.CLIENT_DELIVERED_REVENUE:
         return `COALESCE(client."legacyDeliveredRevenue", 0) + COALESCE(${deliveredRevenue}, 0)`;
+      case ClientAudienceClientField.CLIENT_TOTAL_SALES:
+        return `COALESCE(client."legacyTotalSales", 0) + COALESCE(${totalSales}, 0)`;
+      case ClientAudienceClientField.CLIENT_LAST_ORDER_AT:
+        return lastOrderAt;
+      case ClientAudienceClientField.CLIENT_LAST_DELIVERED_AT:
+        return lastDeliveredAt;
       default:
         return null;
     }
