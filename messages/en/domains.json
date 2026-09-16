@@ -1734,6 +1734,7 @@
     "export_replied": "Replied",
     "export_orders": "Orders",
     "export_sales": "Sales Amount",
+    "export_profit": "Profit Amount",
     "export_started_at": "Started At",
     "export_completed_at": "Completed At",
     "export_cancelled_at": "Cancelled At",

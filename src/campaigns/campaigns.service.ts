@@ -36,6 +36,7 @@ import {
   CampaignScheduleMode,
   CampaignStatus,
 } from "entities/campaigns.entity";
+import { OrderStatus } from "entities/order.entity";
 import {
   CampaignQueueService,
   type CampaignSendTickResult,
@@ -187,6 +188,18 @@ export class CampaignsService {
       .createQueryBuilder("campaign")
       .leftJoinAndSelect("campaign.products", "products")
       .leftJoinAndSelect("campaign.template", "template")
+      .addSelect(
+        `(
+          SELECT COALESCE(SUM(o.profit), 0)
+          FROM orders o
+          JOIN order_statuses st ON st.id = o."statusId"
+          WHERE o."campaignId" = campaign.id
+            AND o."adminId" = campaign."adminId"
+            AND st.code = 'delivered'
+            AND o.deleted_at IS NULL
+        )`,
+        "profitAmount",
+      )
       .where("campaign.adminId = :adminId", { adminId });
 
     if (q?.status) qb.andWhere("campaign.status = :status", { status: q.status });
@@ -206,7 +219,25 @@ export class CampaignsService {
     );
     qb.skip((page - 1) * limit).take(limit);
 
-    const [records, total] = await qb.getManyAndCount();
+    // addSelect aliases are not mapped by getMany(); copy them from raw rows.
+    const [total, { entities, raw }] = await Promise.all([
+      qb.getCount(),
+      qb.getRawAndEntities(),
+    ]);
+    const profitById = new Map<string, number>();
+    for (const row of raw) {
+      const id = row.campaign_id;
+      if (id == null || profitById.has(String(id))) continue;
+      profitById.set(
+        String(id),
+        Number(row.profitAmount ?? row.profitamount ?? 0),
+      );
+    }
+    const records = entities.map((campaign) => {
+      (campaign as any).profitAmount = profitById.get(String(campaign.id)) ?? 0;
+      return campaign;
+    });
+
     return {
       total_records: total,
       current_page: page,
@@ -426,6 +457,11 @@ export class CampaignsService {
         width: 16,
       },
       {
+        header: t("domains.campaigns.export_profit"),
+        key: "profitAmount",
+        width: 16,
+      },
+      {
         header: t("domains.campaigns.export_started_at"),
         key: "startedAt",
         width: 22,
@@ -496,6 +532,7 @@ export class CampaignsService {
         repliedCount: Number(campaign.repliedCount || 0),
         ordersCount: Number(campaign.ordersCount || 0),
         salesAmount: Number(campaign.salesAmount || 0),
+        profitAmount: Number((campaign as any).profitAmount || 0),
         startedAt: formatDate(campaign.startedAt),
         completedAt: formatDate(campaign.completedAt),
         cancelledAt: formatDate(campaign.cancelledAt),
@@ -509,14 +546,16 @@ export class CampaignsService {
 
   async get(me: any, id: string) {
     const adminId = this.adminIdOf(me);
-    const campaign = await this.campaignRepo.findOne({
-      where: { id, adminId },
-      relations: {
-        products: true,
-        audienceSegment: true,
-        template: true,
-      },
-    });
+    // QueryBuilder (instead of findOne) so @VirtualColumn properties
+    // such as profitAmount are selected on the details payload too.
+    const qb = this.campaignRepo
+      .createQueryBuilder("campaign")
+      .leftJoinAndSelect("campaign.products", "products")
+      .leftJoinAndSelect("campaign.audienceSegment", "audienceSegment")
+      .leftJoinAndSelect("campaign.template", "template")
+      .where("campaign.id = :id", { id })
+      .andWhere("campaign.adminId = :adminId", { adminId });
+    const campaign = await qb.getOne();
     if (!campaign)
       throw new NotFoundException(
         this.translations.t("domains.campaigns.not_found"),
@@ -589,6 +628,61 @@ export class CampaignsService {
       per_page: limit,
       records,
       summary: { total: Object.values(byStatus).reduce((a, b) => a + b, 0), byStatus },
+    };
+  }
+
+  // Financial + delivery overview of the campaign's orders.
+  // Single aggregate query (indexed campaignId filter + PK status join),
+  // so it stays O(campaign orders) without loading any rows.
+  async orderPerformance(me: any, id: string) {
+    const adminId = this.adminIdOf(me);
+    const campaign = await this.campaignRepo.findOne({
+      where: { id, adminId },
+      select: { id: true },
+    });
+    if (!campaign)
+      throw new NotFoundException(
+        this.translations.t("domains.campaigns.not_found"),
+      );
+
+    const rows = await this.campaignRepo.query(
+      `
+      SELECT
+        COUNT(*) AS "total",
+        COUNT(CASE WHEN st.code = $3 THEN 1 END) AS "delivered",
+        COUNT(CASE WHEN st.code IN ($4, $6) THEN 1 END) AS "returned",
+        COUNT(CASE WHEN st.code = $5 THEN 1 END) AS "shipped",
+        COALESCE(SUM(o."finalTotal"), 0) AS "sales",
+        COALESCE(SUM(CASE WHEN st.code = $3 THEN o.profit ELSE 0 END), 0) AS "profit"
+      FROM orders o
+      JOIN order_statuses st ON st.id = o."statusId"
+      WHERE o."campaignId" = $1
+        AND o."adminId" = $2
+        AND o.deleted_at IS NULL
+      `,
+      [
+        id,
+        adminId,
+        OrderStatus.DELIVERED,
+        OrderStatus.RETURNED,
+        OrderStatus.SHIPPED,
+        OrderStatus.PARTIALLY_RETURNED,
+      ],
+    );
+    const row = rows?.[0] ?? {};
+    const totalOrders = Number(row.total ?? 0);
+    const deliveredOrders = Number(row.delivered ?? 0);
+
+    return {
+      totalOrders,
+      deliveredOrders,
+      returnedOrders: Number(row.returned ?? 0),
+      pendingOrders: Number(row.shipped ?? 0),
+      salesAmount: Number(row.sales ?? 0),
+      profitAmount: Number(row.profit ?? 0),
+      deliveryRate: totalOrders
+        ? Math.round((deliveredOrders / totalOrders) * 100)
+        : 0,
     };
   }
 

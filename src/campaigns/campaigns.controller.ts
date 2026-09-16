@@ -165,6 +165,12 @@ export class CampaignsController {
     return this.service.listRecipients(req.user, id, q);
   }
 
+  @Permissions("campaigns.read")
+  @Get(":id/order-performance")
+  orderPerformance(@Req() req: any, @Param("id") id: string) {
+    return this.service.orderPerformance(req.user, id);
+  }
+
   @Permissions("campaigns.create")
   @Post()
   @UseInterceptors(FileInterceptor("audienceFile", audienceFileMulterOptions))

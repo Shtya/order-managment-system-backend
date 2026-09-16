@@ -1742,6 +1742,7 @@
     "export_replied": "تم الرد",
     "export_orders": "الطلبات",
     "export_sales": "قيمة المبيعات",
+    "export_profit": "قيمة الربح",
     "export_started_at": "بدأت في",
     "export_completed_at": "اكتملت في",
     "export_cancelled_at": "أُلغيت في",

@@ -1883,6 +1883,7 @@ export type I18nTranslations = {
             "export_replied": string;
             "export_orders": string;
             "export_sales": string;
+            "export_profit": string;
             "export_started_at": string;
             "export_completed_at": string;
             "export_cancelled_at": string;
