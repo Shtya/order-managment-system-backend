@@ -1,6 +1,7 @@
 // src/config/bull.config.ts
 import { SharedBullAsyncConfiguration } from "@nestjs/bullmq";
 import { ConfigModule, ConfigService } from "@nestjs/config";
+import { BullMQOtel } from "bullmq-otel";
 
 export const bullQueueConfig: SharedBullAsyncConfiguration = {
   imports: [ConfigModule],
@@ -14,6 +15,11 @@ export const bullQueueConfig: SharedBullAsyncConfiguration = {
     const password =
       (configService.get<string>("REDIS_PASSWORD") || "").trim() || undefined;
 
+    const serviceName =
+      configService.get<string>("OTEL_SERVICE_NAME") || "madar-backend";
+    const serviceVersion =
+      configService.get<string>("OBSERVE_SERVICE_VERSION") || "0.0.1";
+
     return {
       connection: {
         host: configService.get<string>("REDIS_HOST"),
@@ -24,6 +30,12 @@ export const bullQueueConfig: SharedBullAsyncConfiguration = {
         ...(useTls && { tls: {} }),
       },
       skipVersionCheck: true,
+      telemetry: new BullMQOtel({
+        tracerName: serviceName,
+        meterName: serviceName,
+        version: serviceVersion,
+        enableMetrics: true,
+      }),
       defaultJobOptions: {
         attempts: Number(
           configService.get<number>("QUEUE_DEFAULT_ATTEMPTS") || 1,

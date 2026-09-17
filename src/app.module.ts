@@ -55,7 +55,8 @@ import {
   ThrottlerGuard,
   ThrottlerModule,
 } from "@nestjs/throttler";
-import { APP_GUARD } from "@nestjs/core";
+import { APP_GUARD, APP_INTERCEPTOR } from "@nestjs/core";
+import { OtelUserInterceptor } from "common/observability/otel-user.interceptor";
 import { SafesModule } from "./safes/safes.module";
 import { SupplierPaymentsModule } from "./supplier-payments/supplier-payments.module";
 import { WhatsappModule } from "./whatsapp/whatsapp.module";
@@ -212,6 +213,10 @@ import { observeConfig, ObserveModule } from "common/observe/bserve.config";
     {
       provide: APP_GUARD,
       useClass: UserThrottlerGuard,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: OtelUserInterceptor,
     },
   ],
   exports: [],

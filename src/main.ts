@@ -1,3 +1,4 @@
+import '../tracer';
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module";
 import { Logger, ValidationPipe } from "@nestjs/common";
@@ -13,9 +14,18 @@ import { I18nValidationExceptionFilter, I18nValidationPipe } from "nestjs-i18n";
 import { ValidationError } from "class-validator";
 import { RedisIoAdapter } from "common/redisIo-adapter";
 import { ConfigService } from "@nestjs/config";
+import { OtelLogger } from 'common/observability/otel-logger';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  
+  const app = await NestFactory.create<NestExpressApplication>(
+    AppModule,
+    {
+      bufferLogs: true,
+    },
+  );
+  
+  app.useLogger(new OtelLogger());
   // const app = await NestFactory.create<NestExpressApplication>(AppModule, {
   //   instrument: ObserveInstrument,
   // });

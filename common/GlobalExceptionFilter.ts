@@ -8,9 +8,15 @@ import { SystemErorrsService } from 'src/system-erorrs/system-erorrs.service';
 import { tenantId } from 'src/purchases/purchases.service';
 import { Observable } from 'rxjs';
 import { TranslationService } from './translation.service';
+import {
+  context,
+  trace,
+  SpanStatusCode,
+} from '@opentelemetry/api';
+import { HttpArgumentsHost } from 'node_modules/@nestjs/common/interfaces';
+import { OTEL_USER_ATTR } from './observability/otel-user.constants';
 
-
-function logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string, systemErorrsService: SystemErorrsService) {
+function logSystemError(exception: any, req: any, res: any, code: string | undefined, detail: string, systemErorrsService: SystemErorrsService, ctx: HttpArgumentsHost) {
   // Skip logging certain error patterns
   const skipPatterns = [
     'Cannot GET ',
@@ -114,6 +120,37 @@ function logSystemError(exception: any, req: any, res: any, code: string | undef
     };
 
     systemErorrsService.logError(errorData);
+    const span = trace.getSpan(context.active());
+    if (span) {
+      span.recordException(exception);
+
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: exception?.message,
+      });
+
+      const request = ctx.getRequest<any>();
+      span.setAttribute('error.code', code ?? 'Unknown error code');
+      span.setAttribute('error.details', detail ?? 'Unknown error details');
+
+      if (req.user?.id) {
+        span.setAttribute(OTEL_USER_ATTR.id, String(req.user.id));
+      }
+      if (req.user?.name) {
+        span.setAttribute(OTEL_USER_ATTR.name, String(req.user.name));
+      }
+      span.setAttribute('request.admin_id', adminId ?? 'Unknown adminId');
+      span.setAttribute('request.frontend_route', request.headers['x-frontend-route'] ?? 'Unknown frontendRoute');
+      span.setAttribute('request.body',  JSON.stringify(request.body) ?? 'Unknown request body');
+      span.setAttribute('request.params', JSON.stringify(request.params) ?? 'Unknown request params');
+      span.setAttribute('request.query', JSON.stringify(request.query) ?? 'Unknown request query');
+
+      span.setAttribute('response.headers', JSON.stringify(res.headers) ?? 'Unknown response headers');
+      span.setAttribute('response.body', JSON.stringify(res.body) ?? 'Unknown response body');
+      span.setAttribute('response.content_type', res.getHeader('content-type') ?? 'Unknown response content type');
+
+    }
+
   } catch (e) {
     // Silently fail to avoid infinite loops  
     console.error('Failed to log system error:', e);
@@ -137,7 +174,7 @@ export class QueryExceptionFilter implements ExceptionFilter {
     const detail = exception?.driverError?.detail ?? exception?.message;
 
     // Log the query error
-    logSystemError(exception, req, response, code, detail, this.systemErorrsService);
+    logSystemError(exception, req, response, code, detail, this.systemErorrsService, ctx);
 
 
     // Map of common Postgres error codes → friendly messages
@@ -233,7 +270,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const detail = exception?.driverError?.detail ?? exception?.message;
 
     // Log the error to database
-    logSystemError(exception, req, response, code, detail, this.systemErorrsService);
+    logSystemError(exception, req, response, code, detail, this.systemErorrsService, ctx);
 
     const status = exception instanceof HttpException
       ? exception.getStatus()
