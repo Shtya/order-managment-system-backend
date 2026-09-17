@@ -37,7 +37,7 @@ export class OrderReplacementService {
     private readonly translations: TranslationService,
     private readonly requestTranslations: RequestTranslationService,
     private readonly cancelCausesService: CancelCausesService,
-  ) {}
+  ) { }
 
   // ========================================
   // ✅ LIST REPLACEMENTS
@@ -484,26 +484,29 @@ export class OrderReplacementService {
       await manager.save(OrderEntity, newOrder);
       await manager.save(OrderReplacementEntity, replacement);
 
-      const resolvedCause =
-        await this.cancelCausesService.resolveCancellationCause(manager, {
-          adminId,
-          employeeId: me?.id,
-          dto: {
-            cancelCauseId: dto.cancelCauseId,
-            customCauseName: dto.customCauseName,
-          } as any,
-          required: true,
-        });
+      if (dto.cancelCauseId) {
+        const resolvedCause =
+          await this.cancelCausesService.resolveCancellationCause(manager, {
+            adminId,
+            employeeId: me?.id,
+            dto: {
+              cancelCauseId: dto.cancelCauseId,
+              customCauseName: dto.customCauseName,
+            } as any,
+            required: true,
+          });
 
-      if (resolvedCause) {
-        await this.cancelCausesService.applyCancellationCause(manager, {
-          adminId,
-          order: originalOrder,
-          employeeId: me?.id,
-          resolved: resolvedCause,
-          toStatusId: originalOrder.statusId,
-          markCancelled: false,
-        });
+        if (resolvedCause) {
+          await this.cancelCausesService.applyCancellationCause(manager, {
+            adminId,
+            order: originalOrder,
+            employeeId: me?.id,
+            resolved: resolvedCause,
+            toStatusId: originalOrder.statusId,
+            markCancelled: false,
+          });
+        }
+
       }
 
       await this.notificationService.create({
