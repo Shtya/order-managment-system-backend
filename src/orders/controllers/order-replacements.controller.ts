@@ -110,6 +110,8 @@ export class OrderReplacemetsController {
           ? Number(parseNumber(body.shippingCost))
           : undefined,
       items: parseJsonField(body.items, []),
+      cancelCauseId: body.cancelCauseId || undefined,
+      customCauseName: body.customCauseName || undefined,
     } as any;
 
     if (imgs.length) {

@@ -22,6 +22,7 @@ import {
   RequestTranslationService,
   TranslationService,
 } from "common/translation.service";
+import { CancelCausesService } from "src/cancel-causes/cancel-causes.service";
 
 @Injectable()
 export class OrderReplacementService {
@@ -35,6 +36,7 @@ export class OrderReplacementService {
     private readonly notificationService: NotificationService,
     private readonly translations: TranslationService,
     private readonly requestTranslations: RequestTranslationService,
+    private readonly cancelCausesService: CancelCausesService,
   ) {}
 
   // ========================================
@@ -481,6 +483,28 @@ export class OrderReplacementService {
       newOrder.isReplacement = true;
       await manager.save(OrderEntity, newOrder);
       await manager.save(OrderReplacementEntity, replacement);
+
+      const resolvedCause =
+        await this.cancelCausesService.resolveCancellationCause(manager, {
+          adminId,
+          employeeId: me?.id,
+          dto: {
+            cancelCauseId: dto.cancelCauseId,
+            customCauseName: dto.customCauseName,
+          } as any,
+          required: true,
+        });
+
+      if (resolvedCause) {
+        await this.cancelCausesService.applyCancellationCause(manager, {
+          adminId,
+          order: originalOrder,
+          employeeId: me?.id,
+          resolved: resolvedCause,
+          toStatusId: originalOrder.statusId,
+          markCancelled: false,
+        });
+      }
 
       await this.notificationService.create({
         userId: adminId,

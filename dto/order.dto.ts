@@ -510,6 +510,16 @@ export class CreateReplacementDto {
       : value;
   })
   items: ReplacementItemDto[];
+
+  @IsOptional()
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  cancelCauseId?: string;
+
+  @IsOptional()
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @MinLength(3, { message: i18nValidationMessage("validation.min_length") })
+  @MaxLength(200, { message: i18nValidationMessage("validation.max_length") })
+  customCauseName?: string;
 }
 
 export class CreateManifestDto {

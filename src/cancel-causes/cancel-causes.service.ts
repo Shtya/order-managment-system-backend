@@ -694,11 +694,13 @@ export class CancelCausesService {
       resolved: ResolvedCancelCause;
       historyId?: string | null;
       toStatusId: string;
+      markCancelled?: boolean;
     },
   ) {
     const eventRepo = manager.getRepository(OrderCancelCauseEntity);
     const orderRepo = manager.getRepository(OrderEntity);
     const now = new Date();
+    const markCancelled = params.markCancelled !== false;
 
     const event = eventRepo.create({
       adminId: params.adminId,
@@ -714,10 +716,15 @@ export class CancelCausesService {
     });
     await eventRepo.save(event);
 
-    params.order.lastCancelCauseId = params.resolved.cause.id;
-    params.order.lastCancelCauseText = params.resolved.snapshotName;
-    params.order.cancelledAt = now;
-    await orderRepo.save(params.order);
+    const orderPatch: Partial<OrderEntity> = {
+      lastCancelCauseId: params.resolved.cause.id,
+      lastCancelCauseText: params.resolved.snapshotName,
+    };
+    if (markCancelled) {
+      orderPatch.cancelledAt = now;
+    }
+    Object.assign(params.order, orderPatch);
+    await orderRepo.update(params.order.id, orderPatch);
 
     return event;
   }
