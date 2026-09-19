@@ -507,9 +507,6 @@ export class CampaignRecipientEntity {
     accessToken?: string | null;
 
     @Column({ type: 'timestamptz', nullable: true })
-    orderLinkSentAt?: Date | null;
-
-    @Column({ type: 'timestamptz', nullable: true })
     sentAt?: Date | null;
 
     @Column({ type: 'timestamptz', nullable: true })

@@ -131,29 +131,40 @@ export class CampaignWebhookEventsService {
   }): Promise<void> {
     if (!input.adminId || !input.providerMessageId) return;
     try {
+      // Every tap is processed (any button, any number of times).
+      // repliedCount still counts distinct repliers: it increments only
+      // for the recipient's first reply (wasReplied flag, atomically).
       const rows = await this.queryRows<{
         id: string;
         campaignId: string;
         phoneNumber: string;
         name: string | null;
         accessToken: string | null;
-        orderLinkSentAt: Date | null;
+        wasReplied: boolean;
       }>(
         `
-        UPDATE campaign_recipients
-        SET "hasReplied" = true, "repliedAt" = $3, "updatedAt" = NOW()
-        WHERE id = (
-          SELECT id FROM campaign_recipients
-          WHERE "adminId" = $1 AND "messageId" = $2 AND "hasReplied" = false
+        WITH target AS (
+          SELECT id, "hasReplied" AS "wasReplied"
+          FROM campaign_recipients
+          WHERE "adminId" = $1 AND "messageId" = $2
           LIMIT 1
+          FOR UPDATE
         )
-        RETURNING id, "campaignId", "phoneNumber", name, "accessToken", "orderLinkSentAt"
+        UPDATE campaign_recipients AS r
+        SET "hasReplied" = true,
+            "repliedAt" = CASE WHEN t."wasReplied" THEN r."repliedAt" ELSE $3 END,
+            "updatedAt" = NOW()
+        FROM target AS t
+        WHERE r.id = t.id
+        RETURNING r.id, r."campaignId", r."phoneNumber", r.name, r."accessToken", t."wasReplied" AS "wasReplied"
         `,
         [input.adminId, input.providerMessageId, input.at],
       );
       const recipient = rows[0];
       if (!recipient) return;
-      await this.campaignRepo.increment({ id: recipient.campaignId }, "repliedCount", 1);
+      if (!recipient.wasReplied) {
+        await this.campaignRepo.increment({ id: recipient.campaignId }, "repliedCount", 1);
+      }
       await this.emitCampaignLiveByCampaign(
         input.adminId,
         recipient.campaignId,
@@ -207,11 +218,12 @@ export class CampaignWebhookEventsService {
       phoneNumber: string;
       name?: string | null;
       accessToken: string | null;
-      orderLinkSentAt: Date | null;
     },
     reply: { buttonText?: string | null; buttonId?: string | null },
   ) {
-    if (recipient.orderLinkSentAt || !recipient.accessToken) return;
+    // No once-per-recipient guard: every tap on any button gets its
+    // configured reply, no matter how many times it is tapped.
+    if (!recipient.accessToken) return;
     const campaign = await this.campaignRepo.findOne({
       where: { id: recipient.campaignId, adminId },
     });
@@ -222,17 +234,6 @@ export class CampaignWebhookEventsService {
     if (!followupText) {
       return;
     }
-
-    const claimed = await this.queryRows<{ id: string }>(
-      `
-      UPDATE campaign_recipients
-      SET "orderLinkSentAt" = NOW(), "updatedAt" = NOW()
-      WHERE id = $1 AND "orderLinkSentAt" IS NULL
-      RETURNING id
-      `,
-      [recipient.id],
-    );
-    if (!claimed[0]) return;
 
     const url = buildCampaignOrderUrl(recipient.accessToken);
     const body = substituteFollowupOrderUrl(
@@ -245,28 +246,24 @@ export class CampaignWebhookEventsService {
       url,
     );
     const accountId = campaign.templateConfigSnapshot?.accountId;
-    try {
-      await this.whatsappService.sendMessage(
-        { id: adminId, adminId } as any,
-        {
-          messaging_product: "whatsapp",
-          type: "text",
-          to: recipient.phoneNumber,
-          text: { body, preview_url: true },
-        },
-        accountId,
-      );
-    } catch (error) {
-      await this.recipientRepo.query(
-        `
-        UPDATE campaign_recipients
-        SET "orderLinkSentAt" = NULL, "updatedAt" = NOW()
-        WHERE id = $1
-        `,
-        [recipient.id],
-      );
-      throw error;
-    }
+    await this.whatsappService.sendMessage(
+      { id: adminId, adminId } as any,
+      {
+        messaging_product: "whatsapp",
+        type: "text",
+        to: recipient.phoneNumber,
+        text: { body, preview_url: true },
+      },
+      accountId,
+    );
+    await this.recipientRepo.query(
+      `
+      UPDATE campaign_recipients
+      SET "updatedAt" = NOW()
+      WHERE id = $1
+      `,
+      [recipient.id],
+    );
   }
 
   // Matches the tapped button to its configured automatic reply.
