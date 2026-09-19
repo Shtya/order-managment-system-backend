@@ -1733,7 +1733,7 @@
     "completed_message": "Campaign {name} has finished sending",
     "failed_title": "Campaign failed",
     "failed_message": "Campaign {name} ended without any successful sends",
-    "not_retryable": "This campaign cannot be started in its current status."
+    "not_retryable": "Failed recipients can only be retried when the campaign is completed or failed."
   },
   "shipping_assigning": {
     "rule_name_exists": "Rule name already exists",

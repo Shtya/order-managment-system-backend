@@ -154,6 +154,16 @@ export class CampaignsController {
   }
 
   @Permissions("campaigns.read")
+  @Get("check-name")
+  checkName(
+    @Req() req: any,
+    @Query("name") name: string,
+    @Query("campaign") campaign?: string,
+  ) {
+    return this.service.checkName(req.user, name, campaign);
+  }
+
+  @Permissions("campaigns.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
     return this.service.get(req.user, id);

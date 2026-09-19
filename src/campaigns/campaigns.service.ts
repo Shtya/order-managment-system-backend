@@ -197,6 +197,16 @@ export class CampaignsService {
         )`,
         "profitAmount",
       )
+      .addSelect(
+        `(
+          SELECT COUNT(*)
+          FROM campaign_recipients r
+          WHERE r."campaignId" = campaign.id
+            AND r."deliveryStatus" = :failedRecipient
+        )`,
+        "failedCount",
+      )
+      .setParameter("failedRecipient", CampaignRecipientDeliveryStatus.FAILED)
       .where("campaign.adminId = :adminId", { adminId });
 
     if (q?.status) qb.andWhere("campaign.status = :status", { status: q.status });
@@ -221,17 +231,19 @@ export class CampaignsService {
       qb.getCount(),
       qb.getRawAndEntities(),
     ]);
-    const profitById = new Map<string, number>();
+    const extraById = new Map<string, { profitAmount: number; failedCount: number }>();
     for (const row of raw) {
       const id = row.campaign_id;
-      if (id == null || profitById.has(String(id))) continue;
-      profitById.set(
-        String(id),
-        Number(row.profitAmount ?? row.profitamount ?? 0),
-      );
+      if (id == null || extraById.has(String(id))) continue;
+      extraById.set(String(id), {
+        profitAmount: Number(row.profitAmount ?? row.profitamount ?? 0),
+        failedCount: Number(row.failedCount ?? row.failedcount ?? 0),
+      });
     }
     const records = entities.map((campaign) => {
-      (campaign as any).profitAmount = profitById.get(String(campaign.id)) ?? 0;
+      const extra = extraById.get(String(campaign.id));
+      (campaign as any).profitAmount = extra?.profitAmount ?? 0;
+      (campaign as any).failedCount = extra?.failedCount ?? 0;
       return campaign;
     });
 
@@ -1132,9 +1144,11 @@ export class CampaignsService {
         this.translations.t("domains.campaigns.not_found"),
       );
     }
-    if (
-      campaign.status !== CampaignStatus.FAILED
-    ) {
+    const retryableStatuses = [
+      CampaignStatus.FAILED,
+      CampaignStatus.COMPLETED,
+    ];
+    if (!retryableStatuses.includes(campaign.status)) {
       throw new BadRequestException(
         this.translations.t("domains.campaigns.not_retryable"),
       );
@@ -1158,11 +1172,12 @@ export class CampaignsService {
     await this.flipStatus(
       id,
       adminId,
-      [CampaignStatus.FAILED],
+      retryableStatuses,
       {
         status: CampaignStatus.RUNNING,
         failedAt: null,
         failureReason: null,
+        completedAt: null,
       },
     );
     await this.campaignQueue.ensureSendLoop(adminId, id);
@@ -1890,22 +1905,39 @@ export class CampaignsService {
   // Validation helpers (channel-aware, core stays agnostic)
   // ──────────────────────────────────────────────────────────────
 
+  async checkName(me: any, name: string, campaignId?: string) {
+    const adminId = this.adminIdOf(me);
+    const trimmed = String(name || "").trim();
+    if (!trimmed) return { isUnique: false };
+    const exists = await this.findCampaignByName(adminId, trimmed, campaignId);
+    return { isUnique: !exists };
+  }
+
   private async ensureUniqueName(
+    adminId: string,
+    name: string,
+    excludeId?: string,
+  ) {
+    const exists = await this.findCampaignByName(adminId, name, excludeId);
+    if (exists) {
+      throw new BadRequestException(
+        this.translations.t("domains.campaigns.name_exists"),
+      );
+    }
+  }
+
+  private findCampaignByName(
     adminId: string,
     name: string,
     excludeId?: string,
   ) {
     const qb = this.campaignRepo
       .createQueryBuilder("campaign")
+      .select("campaign.id")
       .where("campaign.adminId = :adminId", { adminId })
-      .andWhere("campaign.name = :name", { name });
+      .andWhere("campaign.name = :name", { name: String(name || "").trim() });
     if (excludeId) qb.andWhere("campaign.id != :excludeId", { excludeId });
-    const exists = await qb.getOne();
-    if (exists) {
-      throw new BadRequestException(
-        this.translations.t("domains.campaigns.name_exists"),
-      );
-    }
+    return qb.getOne();
   }
 
   private async validateAudience(

@@ -1741,7 +1741,7 @@
     "completed_message": "انتهى إرسال الحملة {name}",
     "failed_title": "فشلت الحملة",
     "failed_message": "انتهت الحملة {name} دون أي إرسال ناجح",
-    "not_retryable": "لا يمكن بدء هذه الحملة في حالتها الحالية."
+    "not_retryable": "يمكن إعادة محاولة الحملة فقط عندما تكون الحملة مكتملة أو فشلة."
   },
   "shipping_assigning": {
     "rule_name_exists": "اسم القاعدة موجود بالفعل",
