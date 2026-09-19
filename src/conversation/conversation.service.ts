@@ -131,33 +131,13 @@ export class ConversationService {
     }
 
     return this.dataSource.transaction(async (manager) => {
-      const customer = await this.customerService.createCustomer(
+      const customer = await this.customerService.getOrCreateCustomer(
         me,
         payload,
         manager,
       );
 
-      const repo = manager.getRepository(ConversationEntity);
-
-      const conversation = repo.create({
-        adminId,
-        customerId: customer.id,
-        status: ConversationStatus.OPEN,
-      });
-      const savedConversation = await repo.save(conversation);
-
-      const finalConversation = await repo.findOne({
-        where: { id: savedConversation.id },
-        relations: {
-          customer: true,
-          lastMessage: true
-        },
-      });
-
-      // Emit new conversation notification
-      this.appGateway.emitNewConversation(adminId, finalConversation);
-
-      return finalConversation;
+      return this.ensureConversationForCustomer(manager, adminId, customer.id);
     });
   }
 
