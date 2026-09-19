@@ -183,7 +183,8 @@ export class StoresService {
   /**
    * Flexible store resolution used by webhook/integration endpoints so they can
    * be addressed either by provider enum (legacy, single store) or by store id
-   * (uuid, multi-store). Falls back to a provider lookup when an id is not found.
+   * (uuid, multi-store). Never query the provider enum column with a non-enum
+   * value (Postgres rejects UUIDs as stores_provider_enum).
    */
   private async resolveStoreByTarget(
     adminId: string,
@@ -195,14 +196,8 @@ export class StoresService {
         order: { created_at: "ASC" },
       });
     }
-    const byId = await this.storesRepo.findOne({
-      where: { id: target, adminId },
-    });
-    if (byId) return byId;
-    // Fallback: treat the segment as a provider name (old static-name URLs)
     return this.storesRepo.findOne({
-      where: { provider: target as StoreProvider, adminId },
-      order: { created_at: "ASC" },
+      where: { id: target, adminId },
     });
   }
 
