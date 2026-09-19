@@ -87,10 +87,6 @@ export function inspectTemplateOrderLink(whatsapp?: any): {
   };
 }
 
-export function followupTextHasOrderUrl(text?: string | null): boolean {
-  return textHasOrderLinkVariable(text);
-}
-
 export function substituteFollowupOrderUrl(text: string, url: string): string {
   return String(text ?? "").split(ORDER_FOLLOWUP_URL_PLACEHOLDER).join(url);
 }

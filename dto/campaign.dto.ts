@@ -239,18 +239,7 @@ export class CreateCampaignDto {
   @IsBoolean()
   orderReplyFollowupEnabled?: boolean;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  orderReplyFollowupText?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  orderReplyFollowupButtonIndex?: number;
-
-  // Multi-button automatic replies (one entry per template quick-reply
-  // button). Takes precedence over the legacy single-button fields above.
+  // Automatic replies, one entry per template quick-reply button.
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
@@ -406,16 +395,6 @@ export class UpdateCampaignDto {
   @IsOptional()
   @IsBoolean()
   orderReplyFollowupEnabled?: boolean;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  orderReplyFollowupText?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  orderReplyFollowupButtonIndex?: number;
 
   @IsOptional()
   @IsArray()

@@ -1843,10 +1843,6 @@ export type I18nTranslations = {
             "delay_max_seconds_invalid": string;
             "products_required_for_purchase_page": string;
             "purchase_page_not_available": string;
-            "followup_requires_quick_reply": string;
-            "followup_required_for_qr_only": string;
-            "followup_text_requires_order_url": string;
-            "followup_button_required": string;
             "followup_reply_required": string;
             "product_variant_required_for_purchase_page": string;
             "order_link_unavailable": string;

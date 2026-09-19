@@ -270,31 +270,20 @@ export class CampaignWebhookEventsService {
   }
 
   // Matches the tapped button to its configured automatic reply.
-  // Multi-button campaigns match against orderReplyFollowups; legacy
-  // single-button rows fall back to the orderReplyFollowup* columns.
   private matchButtonReplyText(
     campaign: CampaignEntity,
     reply: { buttonText?: string | null; buttonId?: string | null },
   ): string | null {
     const incoming = String(reply.buttonText || "").trim().toLowerCase();
+    if (!incoming) return null;
     const followups = Array.isArray(campaign.orderReplyFollowups)
       ? campaign.orderReplyFollowups
       : [];
-    if (followups.length) {
-      const matched = followups.find(
-        (entry) =>
-          String(entry?.buttonText || "").trim().toLowerCase() === incoming &&
-          !!incoming,
-      );
-      return matched?.text ? String(matched.text) : null;
-    }
-    const expected = String(campaign.orderReplyFollowupButtonText || "")
-      .trim()
-      .toLowerCase();
-    if (!expected || incoming !== expected) return null;
-    return campaign.orderReplyFollowupText
-      ? String(campaign.orderReplyFollowupText)
-      : null;
+    const matched = followups.find(
+      (entry) =>
+        String(entry?.buttonText || "").trim().toLowerCase() === incoming,
+    );
+    return matched?.text ? String(matched.text) : null;
   }
 
   private async markDelivered(recipientId: string, at: Date): Promise<void> {

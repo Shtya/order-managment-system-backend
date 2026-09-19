@@ -181,18 +181,21 @@ export class CampaignEntity {
     @Column({ type: 'boolean', default: false })
     orderReplyFollowupEnabled: boolean;
 
+    // @deprecated Legacy single-button reply, superseded by
+    // orderReplyFollowups (migrated). Columns stay mapped so no schema
+    // change is needed; nothing reads or writes them anymore.
     @Column({ type: 'text', nullable: true })
     orderReplyFollowupText?: string | null;
 
+    // @deprecated See above.
     @Column({ type: 'int', nullable: true })
     orderReplyFollowupButtonIndex?: number | null;
 
+    // @deprecated See above.
     @Column({ type: 'varchar', length: 200, nullable: true })
     orderReplyFollowupButtonText?: string | null;
 
-    // Multi-button automatic replies (one entry per template quick-reply
-    // button). Legacy single-button columns above are kept for old rows;
-    // new campaigns write both (single mirrors the first entry).
+    // Automatic replies, one entry per template quick-reply button.
     @Column({ type: 'jsonb', nullable: true })
     orderReplyFollowups?: CampaignOrderReplyFollowup[] | null;
     // ==========================================

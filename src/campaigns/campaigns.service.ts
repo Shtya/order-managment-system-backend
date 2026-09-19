@@ -47,10 +47,7 @@ import {
   CampaignChannel as CampaignChannelProvider,
 } from "./channels/campaign-channel.abstract";
 import { WhatsappCampaignChannel } from "./channels/whatsapp-campaign.channel";
-import {
-  followupTextHasOrderUrl,
-  inspectTemplateOrderLink,
-} from "./campaign-order-url";
+import { inspectTemplateOrderLink } from "./campaign-order-url";
 import {
   CreateCampaignDto,
   UpdateCampaignDto,
@@ -663,9 +660,6 @@ export class CampaignsService {
         discount: 0,
         enablePurchasePage: offer.enablePurchasePage,
         orderReplyFollowupEnabled: offer.orderReplyFollowupEnabled,
-        orderReplyFollowupText: offer.orderReplyFollowupText,
-        orderReplyFollowupButtonIndex: offer.orderReplyFollowupButtonIndex,
-        orderReplyFollowupButtonText: offer.orderReplyFollowupButtonText,
         orderReplyFollowups: (offer.orderReplyFollowups as any) ?? null,
         audienceType,
         audienceSegmentId: dto.audienceSegmentId ?? null,
@@ -874,8 +868,6 @@ export class CampaignsService {
       const offerTouched =
         dto.enablePurchasePage !== undefined ||
         dto.orderReplyFollowupEnabled !== undefined ||
-        dto.orderReplyFollowupText !== undefined ||
-        dto.orderReplyFollowupButtonIndex !== undefined ||
         dto.orderReplyFollowups !== undefined ||
         dto.whatsapp !== undefined ||
         dto.products !== undefined;
@@ -886,27 +878,10 @@ export class CampaignsService {
               dto.enablePurchasePage ?? campaign.enablePurchasePage,
             orderReplyFollowupEnabled:
               dto.orderReplyFollowupEnabled ?? campaign.orderReplyFollowupEnabled,
-            orderReplyFollowupText:
-              dto.orderReplyFollowupText !== undefined
-                ? dto.orderReplyFollowupText
-                : campaign.orderReplyFollowupText,
-            orderReplyFollowupButtonIndex:
-              dto.orderReplyFollowupButtonIndex !== undefined
-                ? dto.orderReplyFollowupButtonIndex
-                : campaign.orderReplyFollowupButtonIndex,
             orderReplyFollowups:
               dto.orderReplyFollowups !== undefined
                 ? dto.orderReplyFollowups
-                : (campaign.orderReplyFollowups as any) ??
-                  (campaign.orderReplyFollowupText
-                    ? [
-                        {
-                          buttonIndex: campaign.orderReplyFollowupButtonIndex ?? 0,
-                          buttonText: campaign.orderReplyFollowupButtonText ?? null,
-                          text: campaign.orderReplyFollowupText,
-                        },
-                      ]
-                    : null),
+                : ((campaign.orderReplyFollowups as any) ?? null),
             products:
               dto.products ??
               campaign.products?.map((p) => ({
@@ -924,9 +899,6 @@ export class CampaignsService {
         campaign.enablePurchasePage = offer.enablePurchasePage;
         campaign.discount = 0;
         campaign.orderReplyFollowupEnabled = offer.orderReplyFollowupEnabled;
-        campaign.orderReplyFollowupText = offer.orderReplyFollowupText;
-        campaign.orderReplyFollowupButtonIndex = offer.orderReplyFollowupButtonIndex;
-        campaign.orderReplyFollowupButtonText = offer.orderReplyFollowupButtonText;
         campaign.orderReplyFollowups = (offer.orderReplyFollowups as any) ?? null;
       }
 
@@ -2025,9 +1997,6 @@ export class CampaignsService {
       return {
         enablePurchasePage: false,
         orderReplyFollowupEnabled: false,
-        orderReplyFollowupText: null,
-        orderReplyFollowupButtonIndex: null,
-        orderReplyFollowupButtonText: null,
         orderReplyFollowups: null,
       };
     }
@@ -2057,88 +2026,35 @@ export class CampaignsService {
       return {
         enablePurchasePage: true,
         orderReplyFollowupEnabled: false,
-        orderReplyFollowupText: null,
-        orderReplyFollowupButtonIndex: null,
-        orderReplyFollowupButtonText: null,
         orderReplyFollowups: null,
       };
     }
 
-    // Multi-button path (preferred): one reply per template quick-reply
-    // button. Every button must have a reply configured.
+    // One reply per template quick-reply button. Every button must have
+    // a reply configured.
     const multi = Array.isArray(dto.orderReplyFollowups)
       ? dto.orderReplyFollowups
-      : null;
-    if (multi && multi.length) {
-      const followups = inspect.quickReplies.map((btn) => {
-        const entry = multi.find(
-          (item) => Number(item?.buttonIndex) === btn.index,
+      : [];
+    const followups = inspect.quickReplies.map((btn) => {
+      const entry = multi.find(
+        (item) => Number(item?.buttonIndex) === btn.index,
+      );
+      const text = entry?.text ? String(entry.text) : "";
+      if (!text.trim()) {
+        throw new BadRequestException(
+          this.translations.t("domains.campaigns.followup_reply_required"),
         );
-        const text = entry?.text ? String(entry.text) : "";
-        if (!text.trim()) {
-          throw new BadRequestException(
-            this.translations.t("domains.campaigns.followup_reply_required"),
-          );
-        }
-        return {
-          buttonIndex: btn.index,
-          buttonText: btn.text,
-          text,
-        };
-      });
-      const first = followups[0];
+      }
       return {
-        enablePurchasePage: true,
-        orderReplyFollowupEnabled: true,
-        // Legacy single-button columns mirror the first entry so old
-        // readers keep working.
-        orderReplyFollowupText: first.text,
-        orderReplyFollowupButtonIndex: first.buttonIndex,
-        orderReplyFollowupButtonText: first.buttonText,
-        orderReplyFollowups: followups,
+        buttonIndex: btn.index,
+        buttonText: btn.text,
+        text,
       };
-    }
-
-    let buttonIndex =
-      dto.orderReplyFollowupButtonIndex === undefined ||
-      dto.orderReplyFollowupButtonIndex === null
-        ? null
-        : Number(dto.orderReplyFollowupButtonIndex);
-    let buttonText: string | null = null;
-    let followupText = dto.orderReplyFollowupText
-      ? String(dto.orderReplyFollowupText)
-      : null;
-
-    // Legacy single-button path (old clients): one configured button.
-    const chosen = inspect.quickReplies.find((btn) => btn.index === buttonIndex);
-    if (!chosen) {
-      throw new BadRequestException(
-        this.translations.t("domains.campaigns.followup_button_required"),
-      );
-    }
-    buttonText = chosen.text;
-    if (!followupTextHasOrderUrl(followupText)) {
-      throw new BadRequestException(
-        this.translations.t("domains.campaigns.followup_text_requires_order_url"),
-      );
-    }
-
+    });
     return {
       enablePurchasePage: true,
-      orderReplyFollowupEnabled: followupEnabled,
-      orderReplyFollowupText: followupText,
-      orderReplyFollowupButtonIndex: buttonIndex,
-      orderReplyFollowupButtonText: buttonText,
-      orderReplyFollowups:
-        followupEnabled && followupText
-          ? [
-              {
-                buttonIndex: buttonIndex as number,
-                buttonText,
-                text: followupText,
-              },
-            ]
-          : null,
+      orderReplyFollowupEnabled: true,
+      orderReplyFollowups: followups,
     };
   }
 
