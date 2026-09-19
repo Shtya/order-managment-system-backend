@@ -1365,8 +1365,8 @@ export class StoresService {
       payload,
       reason,
       externalOrderId,
-      customerName,
-      phoneNumber,
+      customerName: customerName?.trim()?.slice(0, 200),
+      phoneNumber: phoneNumber?.trim()?.slice(0, 50),
     });
     const created = await this.failureRepo.save(record);
     this.logger.warn(
