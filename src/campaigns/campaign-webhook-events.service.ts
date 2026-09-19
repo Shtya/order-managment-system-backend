@@ -215,18 +215,13 @@ export class CampaignWebhookEventsService {
     const campaign = await this.campaignRepo.findOne({
       where: { id: recipient.campaignId, adminId },
     });
-    if (
-      !campaign?.enablePurchasePage ||
-      !campaign.orderReplyFollowupEnabled ||
-      !campaign.orderReplyFollowupText
-    ) {
+    if (!campaign?.enablePurchasePage || !campaign.orderReplyFollowupEnabled) {
       return;
     }
-    const expected = String(campaign.orderReplyFollowupButtonText || "")
-      .trim()
-      .toLowerCase();
-    const incoming = String(reply.buttonText || "").trim().toLowerCase();
-    if (!expected || incoming !== expected) return;
+    const followupText = this.matchButtonReplyText(campaign, reply);
+    if (!followupText) {
+      return;
+    }
 
     const claimed = await this.queryRows<{ id: string }>(
       `
@@ -241,7 +236,7 @@ export class CampaignWebhookEventsService {
 
     const url = buildCampaignOrderUrl(recipient.accessToken);
     const body = substituteFollowupOrderUrl(
-      hydrateCampaignPlaceholders(campaign.orderReplyFollowupText, {
+      hydrateCampaignPlaceholders(followupText, {
         name: recipient.name,
         phoneNumber: recipient.phoneNumber,
         orderToken: recipient.accessToken,
@@ -272,6 +267,34 @@ export class CampaignWebhookEventsService {
       );
       throw error;
     }
+  }
+
+  // Matches the tapped button to its configured automatic reply.
+  // Multi-button campaigns match against orderReplyFollowups; legacy
+  // single-button rows fall back to the orderReplyFollowup* columns.
+  private matchButtonReplyText(
+    campaign: CampaignEntity,
+    reply: { buttonText?: string | null; buttonId?: string | null },
+  ): string | null {
+    const incoming = String(reply.buttonText || "").trim().toLowerCase();
+    const followups = Array.isArray(campaign.orderReplyFollowups)
+      ? campaign.orderReplyFollowups
+      : [];
+    if (followups.length) {
+      const matched = followups.find(
+        (entry) =>
+          String(entry?.buttonText || "").trim().toLowerCase() === incoming &&
+          !!incoming,
+      );
+      return matched?.text ? String(matched.text) : null;
+    }
+    const expected = String(campaign.orderReplyFollowupButtonText || "")
+      .trim()
+      .toLowerCase();
+    if (!expected || incoming !== expected) return null;
+    return campaign.orderReplyFollowupText
+      ? String(campaign.orderReplyFollowupText)
+      : null;
   }
 
   private async markDelivered(recipientId: string, at: Date): Promise<void> {

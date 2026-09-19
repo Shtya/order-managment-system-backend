@@ -3,7 +3,7 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { ATTR_SERVICE_NAME } from '@opentelemetry/semantic-conventions';
-import { diag, DiagConsoleLogger, DiagLogLevel, metrics } from '@opentelemetry/api';
+import { metrics } from '@opentelemetry/api';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -19,123 +19,160 @@ import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
 import { HostMetrics } from '@opentelemetry/host-metrics';
 import Pyroscope from '@pyroscope/nodejs';
 import { UserBaggageSpanProcessor } from './common/observability/user-baggage-span-processor';
+
 const env = process.env.NODE_ENV || 'development';
-const rootDir = process.cwd();
 
-// 1. Path to the environment-specific file (e.g., .env.development or .env.production)
-const envSpecificPath = path.resolve(rootDir, `.env.${env}`);
+let sdk: NodeSDK | undefined;
 
-// 2. Path to the base .env file
-const defaultEnvPath = path.resolve(rootDir, '.env');
+if (env !== 'development') {
+  const rootDir = process.cwd();
 
-// Load environment-specific file first (takes priority)
-if (fs.existsSync(envSpecificPath)) {
-  dotenv.config({ path: envSpecificPath });
-}
+  // Load environment-specific file first.
+  const envSpecificPath = path.resolve(rootDir, `.env.${env}`);
 
-// Load base .env as fallback for any shared variables (does not overwrite existing)
-if (fs.existsSync(defaultEnvPath)) {
-  dotenv.config({ path: defaultEnvPath });
-}
+  // Load base .env as fallback.
+  const defaultEnvPath = path.resolve(rootDir, '.env');
 
-const instanceId = process.env.GRAFANA_INSTANCE_ID;
-const token = process.env.GRAFANA_TOKEN;
-const authHeader = instanceId && token
-  ? `Basic ${Buffer.from(`${instanceId}:${token}`).toString('base64')}`
-  : '';
+  if (fs.existsSync(envSpecificPath)) {
+    dotenv.config({ path: envSpecificPath });
+  }
 
-const traceExporter = new OTLPTraceExporter({
-  url: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT, // Driven purely by .env now
-  headers: { Authorization: authHeader },
-});
+  if (fs.existsSync(defaultEnvPath)) {
+    dotenv.config({ path: defaultEnvPath });
+  }
 
-const logExporter = new OTLPLogExporter({
-  url: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
-  headers: {
-    Authorization: authHeader,
-  },
-});
+  const instanceId = process.env.GRAFANA_INSTANCE_ID;
+  const token = process.env.GRAFANA_TOKEN;
 
-const loggerProvider = new LoggerProvider({
-  resource: resourceFromAttributes({
+  const authHeader =
+    instanceId && token
+      ? `Basic ${Buffer.from(`${instanceId}:${token}`).toString('base64')}`
+      : '';
+
+  const resource = resourceFromAttributes({
     [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME,
-    'deployment.environment': process.env.NODE_ENV ?? 'development',
-  }),
-  processors: [
-    new BatchLogRecordProcessor({ exporter: logExporter }),
-  ],
-});
+    'deployment.environment': env,
+  });
 
-logs.setGlobalLoggerProvider(loggerProvider);
+  // -------------------------
+  // Traces
+  // -------------------------
 
-const metricExporter = new OTLPMetricExporter({
-  url: process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
-  headers: {
-    Authorization: authHeader,
-  },
-});
-
-const metricReader = new PeriodicExportingMetricReader({
-  exporter: metricExporter,
-  exportIntervalMillis: 10000,
-});
-
-// Create SDK instance with comprehensive configuration
-const sdk = new NodeSDK({
-  // 1. Identify your service in Grafana
-  resource: resourceFromAttributes({
-    [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME,
-    'deployment.environment': process.env.NODE_ENV ?? 'development',
-  }),
-
-  spanProcessors: [
-    new UserBaggageSpanProcessor(),
-    new BatchSpanProcessor(traceExporter),
-  ],
-
-  metricReader,
-
-  instrumentations: [
-    getNodeAutoInstrumentations({
-      // Disable instrumentations that might cause issues
-      '@opentelemetry/instrumentation-fs': { enabled: false },
-      // Configure HTTP instrumentation for better trace context
-      '@opentelemetry/instrumentation-http': {
-        enabled: true,
-        ignoreIncomingRequestHook: (req) => {
-          // Ignore health check endpoints
-          return req.url?.includes('/health') || req.url?.includes('/metrics') || false;
-        },
-      },
-    }),
-  ],
-});
-
-sdk.start();
-
-// Register CPU/memory/network host metrics through the same MeterProvider
-// that NodeSDK just registered globally (so they export via metricReader above).
-const hostMetrics = new HostMetrics({
-  meterProvider: metrics.getMeterProvider(),
-  name: process.env.OTEL_SERVICE_NAME,
-});
-hostMetrics.start();
-
-if (process.platform !== 'win32') {
-  Pyroscope.init({
-    serverAddress: process.env.PYROSCOPE_SERVER_ADDRESS, // e.g. Grafana Cloud Profiles URL
-    appName: process.env.OTEL_SERVICE_NAME, // reuse the same service name as your OTel resource
-    basicAuthUser: process.env.PYROSCOPE_BASIC_AUTH_USER,
-    basicAuthPassword: process.env.PYROSCOPE_BASIC_AUTH_PASSWORD,
-    tags: {
-      environment: process.env.NODE_ENV ?? 'development',
-    },
-    wall: {
-      collectCpuTime: true, // required if you want actual CPU profiles, not just wall-clock
+  const traceExporter = new OTLPTraceExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT,
+    headers: {
+      Authorization: authHeader,
     },
   });
 
-  Pyroscope.start();
+  // -------------------------
+  // Logs
+  // -------------------------
+
+  const logExporter = new OTLPLogExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT,
+    headers: {
+      Authorization: authHeader,
+    },
+  });
+
+  const loggerProvider = new LoggerProvider({
+    resource,
+    processors: [
+      new BatchLogRecordProcessor({
+        exporter: logExporter,
+      }),
+    ],
+  });
+
+  logs.setGlobalLoggerProvider(loggerProvider);
+
+  // -------------------------
+  // Metrics
+  // -------------------------
+
+  const metricExporter = new OTLPMetricExporter({
+    url: process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT,
+    headers: {
+      Authorization: authHeader,
+    },
+  });
+
+  const metricReader = new PeriodicExportingMetricReader({
+    exporter: metricExporter,
+    exportIntervalMillis: 10000,
+  });
+
+  // -------------------------
+  // OpenTelemetry SDK
+  // -------------------------
+
+  sdk = new NodeSDK({
+    resource,
+
+    spanProcessors: [
+      new UserBaggageSpanProcessor(),
+      new BatchSpanProcessor(traceExporter),
+    ],
+
+    metricReader,
+
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-fs': {
+          enabled: false,
+        },
+
+        '@opentelemetry/instrumentation-http': {
+          enabled: true,
+
+          ignoreIncomingRequestHook: (req) => {
+            return (
+              req.url?.includes('/health') ||
+              req.url?.includes('/metrics') ||
+              false
+            );
+          },
+        },
+      }),
+    ],
+  });
+
+  sdk.start();
+
+  // -------------------------
+  // Host Metrics
+  // -------------------------
+
+  const hostMetrics = new HostMetrics({
+    meterProvider: metrics.getMeterProvider(),
+    name: process.env.OTEL_SERVICE_NAME,
+  });
+
+  hostMetrics.start();
+
+  // -------------------------
+  // Pyroscope
+  // -------------------------
+
+  if (process.platform !== 'win32') {
+    Pyroscope.init({
+      serverAddress: process.env.PYROSCOPE_SERVER_ADDRESS,
+      appName: process.env.OTEL_SERVICE_NAME,
+      basicAuthUser: process.env.PYROSCOPE_BASIC_AUTH_USER,
+      basicAuthPassword: process.env.PYROSCOPE_BASIC_AUTH_PASSWORD,
+
+      tags: {
+        environment: env,
+      },
+
+      wall: {
+        collectCpuTime: true,
+      },
+    });
+
+    Pyroscope.start();
+  }
 }
 
 export default sdk;

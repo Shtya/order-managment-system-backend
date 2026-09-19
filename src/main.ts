@@ -25,7 +25,9 @@ async function bootstrap() {
     },
   );
   
-  app.useLogger(new OtelLogger());
+  if(process.env.NODE_ENV !== 'development') {
+    app.useLogger(new OtelLogger());
+  }
   // const app = await NestFactory.create<NestExpressApplication>(AppModule, {
   //   instrument: ObserveInstrument,
   // });

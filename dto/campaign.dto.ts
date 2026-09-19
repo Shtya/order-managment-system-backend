@@ -190,6 +190,17 @@ export class CampaignExclusionDto {
 // Create / Update
 // ──────────────────────────────────────────────────────────────
 
+export class CampaignOrderReplyFollowupDto {
+  @IsInt()
+  @Min(0)
+  buttonIndex: number;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(2000)
+  text: string;
+}
+
 export class CreateCampaignDto {
   @IsString()
   @MinLength(1)
@@ -237,6 +248,14 @@ export class CreateCampaignDto {
   @IsInt()
   @Min(0)
   orderReplyFollowupButtonIndex?: number;
+
+  // Multi-button automatic replies (one entry per template quick-reply
+  // button). Takes precedence over the legacy single-button fields above.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CampaignOrderReplyFollowupDto)
+  orderReplyFollowups?: CampaignOrderReplyFollowupDto[];
 
   @IsEnum(CampaignAudienceType)
   audienceType: CampaignAudienceType;
@@ -397,6 +416,12 @@ export class UpdateCampaignDto {
   @IsInt()
   @Min(0)
   orderReplyFollowupButtonIndex?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CampaignOrderReplyFollowupDto)
+  orderReplyFollowups?: CampaignOrderReplyFollowupDto[];
 
   @IsOptional()
   @IsEnum(CampaignAudienceType)

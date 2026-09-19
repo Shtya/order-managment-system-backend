@@ -112,6 +112,15 @@ export type CampaignTemplateConfigSnapshot = Pick<
     accountId?: string | null;
 };
 
+// Per-button automatic reply: one entry per WhatsApp template
+// quick-reply button (matched by buttonIndex, buttonText is a snapshot
+// taken at create/update time for display + reply matching).
+export type CampaignOrderReplyFollowup = {
+    buttonIndex: number;
+    buttonText?: string | null;
+    text: string;
+};
+
 @Index(['adminId', 'name'])
 @Index(['adminId', 'status'])
 @Index(['adminId', 'category'])
@@ -180,6 +189,12 @@ export class CampaignEntity {
 
     @Column({ type: 'varchar', length: 200, nullable: true })
     orderReplyFollowupButtonText?: string | null;
+
+    // Multi-button automatic replies (one entry per template quick-reply
+    // button). Legacy single-button columns above are kept for old rows;
+    // new campaigns write both (single mirrors the first entry).
+    @Column({ type: 'jsonb', nullable: true })
+    orderReplyFollowups?: CampaignOrderReplyFollowup[] | null;
     // ==========================================
     // Audience
     // ==========================================

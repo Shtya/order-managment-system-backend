@@ -329,8 +329,6 @@ export class CampaignsService {
       limit: 10000,
     });
     const na = this.translations.t("common.not_applicable");
-    const yes = this.translations.t("common.yes");
-    const no = this.translations.t("common.no");
     const t = (key: Parameters<TranslationService["t"]>[0]) =>
       this.translations.t(key);
 
@@ -339,28 +337,13 @@ export class CampaignsService {
       t("domains.campaigns.export_sheet"),
     );
     sheet.columns = [
-      { header: t("common.name"), key: "name", width: 28 },
-      {
-        header: t("domains.campaigns.export_description"),
-        key: "description",
-        width: 36,
-      },
+      { header: t("domains.campaigns.export_name"), key: "name", width: 28 },
       {
         header: t("domains.campaigns.export_channel"),
         key: "channel",
         width: 14,
       },
-      {
-        header: t("domains.campaigns.export_category"),
-        key: "category",
-        width: 20,
-      },
-      { header: t("common.status"), key: "status", width: 14 },
-      {
-        header: t("domains.campaigns.export_audience_type"),
-        key: "audienceType",
-        width: 16,
-      },
+      { header: t("domains.campaigns.export_status"), key: "status", width: 14 },
       {
         header: t("domains.campaigns.export_schedule_mode"),
         key: "scheduleMode",
@@ -372,58 +355,8 @@ export class CampaignsService {
         width: 22,
       },
       {
-        header: t("domains.campaigns.export_working_hours"),
-        key: "workingHours",
-        width: 18,
-      },
-      {
-        header: t("domains.campaigns.export_delay_min"),
-        key: "delayMinSeconds",
-        width: 14,
-      },
-      {
-        header: t("domains.campaigns.export_delay_max"),
-        key: "delayMaxSeconds",
-        width: 14,
-      },
-      {
-        header: t("domains.campaigns.export_max_per_hour"),
-        key: "maxMessagesPerHour",
-        width: 14,
-      },
-      {
-        header: t("domains.campaigns.export_shipping_price"),
-        key: "shippingPrice",
-        width: 16,
-      },
-      {
-        header: t("domains.campaigns.export_purchase_page"),
-        key: "enablePurchasePage",
-        width: 14,
-      },
-      {
-        header: t("domains.campaigns.export_template"),
-        key: "template",
-        width: 24,
-      },
-      {
-        header: t("domains.campaigns.export_products"),
-        key: "products",
-        width: 36,
-      },
-      {
-        header: t("domains.campaigns.export_estimated"),
-        key: "estimatedRecipientsCount",
-        width: 14,
-      },
-      {
-        header: t("domains.campaigns.export_recipients"),
+        header: t("domains.campaigns.export_audience"),
         key: "recipientsCount",
-        width: 14,
-      },
-      {
-        header: t("domains.campaigns.export_excluded"),
-        key: "excludedRecipientsCount",
         width: 14,
       },
       {
@@ -457,30 +390,14 @@ export class CampaignsService {
         width: 16,
       },
       {
-        header: t("domains.campaigns.export_profit"),
-        key: "profitAmount",
+        header: t("domains.campaigns.export_cost"),
+        key: "costAmount",
         width: 16,
       },
       {
-        header: t("domains.campaigns.export_started_at"),
-        key: "startedAt",
-        width: 22,
-      },
-      {
-        header: t("domains.campaigns.export_completed_at"),
-        key: "completedAt",
-        width: 22,
-      },
-      {
-        header: t("domains.campaigns.export_cancelled_at"),
-        key: "cancelledAt",
-        width: 22,
-      },
-      { header: t("common.created_at"), key: "createdAt", width: 22 },
-      {
-        header: t("domains.campaigns.export_updated_at"),
-        key: "updatedAt",
-        width: 22,
+        header: t("domains.campaigns.export_profit"),
+        key: "profitAmount",
+        width: 16,
       },
     ];
 
@@ -495,49 +412,24 @@ export class CampaignsService {
       value ? new Date(value).toLocaleString() : na;
 
     records.forEach((campaign) => {
-      const products = campaign.products ?? [];
       sheet.addRow({
         name: campaign.name || na,
-        description: campaign.description || na,
         channel: campaign.channel || na,
-        category: campaign.category || na,
         status: campaign.status || na,
-        audienceType: campaign.audienceType || na,
         scheduleMode: campaign.scheduleMode || na,
-        scheduledAt: formatDate(campaign.scheduledAt),
-        workingHours:
-          campaign.workingHoursStart || campaign.workingHoursEnd
-            ? `${campaign.workingHoursStart ?? na} - ${campaign.workingHoursEnd ?? na}`
+        scheduledAt:
+          campaign.scheduleMode === CampaignScheduleMode.SCHEDULED
+            ? formatDate(campaign.scheduledAt)
             : na,
-        delayMinSeconds: campaign.delayMinSeconds ?? na,
-        delayMaxSeconds: campaign.delayMaxSeconds ?? na,
-        maxMessagesPerHour: campaign.maxMessagesPerHour ?? na,
-        shippingPrice: Number(campaign.shippingPrice ?? 0),
-        enablePurchasePage: campaign.enablePurchasePage ? yes : no,
-        template:
-          (campaign as any).template?.name || campaign.templateId || na,
-        products: products.length
-          ? `${products.length} | ` +
-          products
-            .slice(0, 5)
-            .map((p) => `${p.name} x${p.quantity}`)
-            .join(", ")
-          : na,
-        estimatedRecipientsCount: Number(campaign.estimatedRecipientsCount || 0),
         recipientsCount: Number(campaign.recipientsCount || 0),
-        excludedRecipientsCount: Number(campaign.excludedRecipientsCount || 0),
         sentCount: Number(campaign.sentCount || 0),
         deliveredCount: Number(campaign.deliveredCount || 0),
         readCount: Number(campaign.readCount || 0),
         repliedCount: Number(campaign.repliedCount || 0),
         ordersCount: Number(campaign.ordersCount || 0),
         salesAmount: Number(campaign.salesAmount || 0),
+        costAmount: Number(campaign.costAmount || 0),
         profitAmount: Number((campaign as any).profitAmount || 0),
-        startedAt: formatDate(campaign.startedAt),
-        completedAt: formatDate(campaign.completedAt),
-        cancelledAt: formatDate(campaign.cancelledAt),
-        createdAt: formatDate(campaign.createdAt),
-        updatedAt: formatDate((campaign as any).updatedAt),
       });
     });
 
@@ -774,6 +666,7 @@ export class CampaignsService {
         orderReplyFollowupText: offer.orderReplyFollowupText,
         orderReplyFollowupButtonIndex: offer.orderReplyFollowupButtonIndex,
         orderReplyFollowupButtonText: offer.orderReplyFollowupButtonText,
+        orderReplyFollowups: (offer.orderReplyFollowups as any) ?? null,
         audienceType,
         audienceSegmentId: dto.audienceSegmentId ?? null,
         audienceFileUrl: storedFileUrl,
@@ -983,6 +876,7 @@ export class CampaignsService {
         dto.orderReplyFollowupEnabled !== undefined ||
         dto.orderReplyFollowupText !== undefined ||
         dto.orderReplyFollowupButtonIndex !== undefined ||
+        dto.orderReplyFollowups !== undefined ||
         dto.whatsapp !== undefined ||
         dto.products !== undefined;
       if (offerTouched) {
@@ -1000,6 +894,19 @@ export class CampaignsService {
               dto.orderReplyFollowupButtonIndex !== undefined
                 ? dto.orderReplyFollowupButtonIndex
                 : campaign.orderReplyFollowupButtonIndex,
+            orderReplyFollowups:
+              dto.orderReplyFollowups !== undefined
+                ? dto.orderReplyFollowups
+                : (campaign.orderReplyFollowups as any) ??
+                  (campaign.orderReplyFollowupText
+                    ? [
+                        {
+                          buttonIndex: campaign.orderReplyFollowupButtonIndex ?? 0,
+                          buttonText: campaign.orderReplyFollowupButtonText ?? null,
+                          text: campaign.orderReplyFollowupText,
+                        },
+                      ]
+                    : null),
             products:
               dto.products ??
               campaign.products?.map((p) => ({
@@ -1020,6 +927,7 @@ export class CampaignsService {
         campaign.orderReplyFollowupText = offer.orderReplyFollowupText;
         campaign.orderReplyFollowupButtonIndex = offer.orderReplyFollowupButtonIndex;
         campaign.orderReplyFollowupButtonText = offer.orderReplyFollowupButtonText;
+        campaign.orderReplyFollowups = (offer.orderReplyFollowups as any) ?? null;
       }
 
       const nextScheduleMode = dto.scheduleMode ?? campaign.scheduleMode;
@@ -2120,6 +2028,7 @@ export class CampaignsService {
         orderReplyFollowupText: null,
         orderReplyFollowupButtonIndex: null,
         orderReplyFollowupButtonText: null,
+        orderReplyFollowups: null,
       };
     }
 
@@ -2144,6 +2053,52 @@ export class CampaignsService {
     if (qrOnly) followupEnabled = true;
     if (!inspect.hasQuickReply) followupEnabled = false;
 
+    if (!followupEnabled) {
+      return {
+        enablePurchasePage: true,
+        orderReplyFollowupEnabled: false,
+        orderReplyFollowupText: null,
+        orderReplyFollowupButtonIndex: null,
+        orderReplyFollowupButtonText: null,
+        orderReplyFollowups: null,
+      };
+    }
+
+    // Multi-button path (preferred): one reply per template quick-reply
+    // button. Every button must have a reply configured.
+    const multi = Array.isArray(dto.orderReplyFollowups)
+      ? dto.orderReplyFollowups
+      : null;
+    if (multi && multi.length) {
+      const followups = inspect.quickReplies.map((btn) => {
+        const entry = multi.find(
+          (item) => Number(item?.buttonIndex) === btn.index,
+        );
+        const text = entry?.text ? String(entry.text) : "";
+        if (!text.trim()) {
+          throw new BadRequestException(
+            this.translations.t("domains.campaigns.followup_reply_required"),
+          );
+        }
+        return {
+          buttonIndex: btn.index,
+          buttonText: btn.text,
+          text,
+        };
+      });
+      const first = followups[0];
+      return {
+        enablePurchasePage: true,
+        orderReplyFollowupEnabled: true,
+        // Legacy single-button columns mirror the first entry so old
+        // readers keep working.
+        orderReplyFollowupText: first.text,
+        orderReplyFollowupButtonIndex: first.buttonIndex,
+        orderReplyFollowupButtonText: first.buttonText,
+        orderReplyFollowups: followups,
+      };
+    }
+
     let buttonIndex =
       dto.orderReplyFollowupButtonIndex === undefined ||
       dto.orderReplyFollowupButtonIndex === null
@@ -2154,27 +2109,18 @@ export class CampaignsService {
       ? String(dto.orderReplyFollowupText)
       : null;
 
-    if (followupEnabled) {
-      if (!inspect.hasQuickReply) {
-        throw new BadRequestException(
-          this.translations.t("domains.campaigns.followup_requires_quick_reply"),
-        );
-      }
-      const chosen = inspect.quickReplies.find((btn) => btn.index === buttonIndex);
-      if (!chosen) {
-        throw new BadRequestException(
-          this.translations.t("domains.campaigns.followup_button_required"),
-        );
-      }
-      buttonText = chosen.text;
-      if (!followupTextHasOrderUrl(followupText)) {
-        throw new BadRequestException(
-          this.translations.t("domains.campaigns.followup_text_requires_order_url"),
-        );
-      }
-    } else {
-      buttonIndex = null;
-      followupText = null;
+    // Legacy single-button path (old clients): one configured button.
+    const chosen = inspect.quickReplies.find((btn) => btn.index === buttonIndex);
+    if (!chosen) {
+      throw new BadRequestException(
+        this.translations.t("domains.campaigns.followup_button_required"),
+      );
+    }
+    buttonText = chosen.text;
+    if (!followupTextHasOrderUrl(followupText)) {
+      throw new BadRequestException(
+        this.translations.t("domains.campaigns.followup_text_requires_order_url"),
+      );
     }
 
     return {
@@ -2183,6 +2129,16 @@ export class CampaignsService {
       orderReplyFollowupText: followupText,
       orderReplyFollowupButtonIndex: buttonIndex,
       orderReplyFollowupButtonText: buttonText,
+      orderReplyFollowups:
+        followupEnabled && followupText
+          ? [
+              {
+                buttonIndex: buttonIndex as number,
+                buttonText,
+                text: followupText,
+              },
+            ]
+          : null,
     };
   }
 

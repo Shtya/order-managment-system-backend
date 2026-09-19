@@ -283,16 +283,16 @@ export class ClientSegmentsService {
     const na = this.translations.t("common.not_applicable");
 
     const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet("Client Segments");
+    const sheet = workbook.addWorksheet(
+      this.translations.t("domains.client_segments.export_sheet"),
+    );
     sheet.columns = [
-      { header: this.translations.t("common.name"), key: "name", width: 28 },
-      { header: this.translations.t("common.description"), key: "description", width: 40 },
-      { header: this.translations.t("common.status"), key: "status", width: 18 },
-      { header: this.translations.t("common.type"), key: "type", width: 18 },
-      { header: "Estimated Recipients", key: "estimatedRecipientsCount", width: 22 },
-      { header: "Frozen Recipients", key: "frozenRecipientsCount", width: 20 },
-      { header: "Frozen At", key: "frozenAt", width: 22 },
-      { header: this.translations.t("common.created_at"), key: "createdAt", width: 22 },
+      { header: this.translations.t("domains.client_segments.export_name"), key: "name", width: 28 },
+      { header: this.translations.t("domains.client_segments.export_type"), key: "type", width: 18 },
+      { header: this.translations.t("domains.client_segments.export_status"), key: "status", width: 18 },
+      { header: this.translations.t("domains.client_segments.export_customers"), key: "frozenRecipientsCount", width: 16 },
+      { header: this.translations.t("domains.client_segments.export_last_updated"), key: "frozenAt", width: 22 },
+      { header: this.translations.t("domains.client_segments.export_created_at"), key: "createdAt", width: 22 },
     ];
 
     sheet.getRow(1).font = { bold: true };
@@ -305,10 +305,8 @@ export class ClientSegmentsService {
     records.forEach((segment) => {
       sheet.addRow({
         name: segment.name || na,
-        description: segment.description || na,
-        status: segment.status || na,
         type: segment.type || na,
-        estimatedRecipientsCount: Number(segment.estimatedRecipientsCount || 0),
+        status: segment.status || na,
         frozenRecipientsCount: Number(segment.frozenRecipientsCount || 0),
         frozenAt: segment.frozenAt ? new Date(segment.frozenAt).toLocaleString() : na,
         createdAt: segment.createdAt ? new Date(segment.createdAt).toLocaleString() : na,
