@@ -60,7 +60,7 @@ export class UsersService {
     private readonly seedService: SeedService,
     private readonly translations: TranslationService,
     private readonly onboardingAchievementService: OnboardingAchievementService,
-  ) {}
+  ) { }
 
   private isSuperAdmin(me: User) {
     return me.role?.name === SystemRole.SUPER_ADMIN;
@@ -316,24 +316,24 @@ export class UsersService {
 
         role: u.role
           ? {
-              id: u.role.id,
-              name: u.role.name,
-            }
+            id: u.role.id,
+            name: u.role.name,
+          }
           : null,
 
         plan: activeSub
           ? {
-              id: activeSub.id,
-              name: activeSub.plan?.name,
-            }
+            id: activeSub.id,
+            name: activeSub.plan?.name,
+          }
           : null,
 
         admin: raw?.admin_id
           ? {
-              id: raw.admin_id,
-              name: raw.admin_name,
-              email: raw.admin_email,
-            }
+            id: raw.admin_id,
+            name: raw.admin_name,
+            email: raw.admin_email,
+          }
           : null,
 
         gettingStarted: {
@@ -822,13 +822,13 @@ export class UsersService {
           // We return the subscription object, but specifically the plan info for the FE
           subscription: activeSub
             ? {
-                id: activeSub.id,
-                status: activeSub.status,
-                planId: activeSub.planId,
-                planName: activeSub.plan?.name, // From snapshot
-                startDate: activeSub.startDate,
-                endDate: activeSub.endDate,
-              }
+              id: activeSub.id,
+              status: activeSub.status,
+              planId: activeSub.planId,
+              planName: activeSub.plan?.name, // From snapshot
+              startDate: activeSub.startDate,
+              endDate: activeSub.endDate,
+            }
             : null,
 
           type: u.employeeType, // for frontend logic
@@ -1533,6 +1533,12 @@ export class UsersService {
 
   async getCompany(me: User) {
     const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
     const user = await this.usersRepo.findOne({
       where: { id: adminId },
       relations: {
