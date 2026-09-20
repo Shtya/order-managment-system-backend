@@ -124,7 +124,7 @@ export class OrdersAiTools {
       new AiTool({
         name: "report_address_conflict",
         description:
-          "Ask the customer to choose between 2+ usable conflicting shipping locations via WhatsApp list. Labels must be exactly: \"العنوان المسجل\" (written order address) and \"عنوان الواتساب\" (WhatsApp/map pin). A map pin with latitude/longitude IS a valid option even if reverse-geocode text is sparse. fullAddress must be plain address text with NO lat/lng. Do NOT call bulk_update_orders_shipping in the same turn. Do NOT invent addresses.",
+          "Ask the customer to choose between a complete written address and a different WhatsApp/map pin via WhatsApp list. Labels must be exactly: \"العنوان المسجل\" (written order address) and \"عنوان الواتساب\" (WhatsApp/map pin). Use this ONLY for written address vs location. Do NOT use it when selected city/region disagrees with the written address. A map pin with latitude/longitude IS a valid option even if reverse-geocode text is sparse. fullAddress must be plain address text with NO lat/lng. Do NOT call bulk_update_orders_shipping in the same turn. Do NOT invent addresses.",
         inputSchema: dtoToJsonSchema(ReportAddressConflictToolArgsDto),
         argsDto: ReportAddressConflictToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_READ,

@@ -1414,16 +1414,16 @@ The client setting **updateWrittenAddress is false**.
 - Still use location/address sources to decide city / zone / district`;
 
     const updateTaskStep = updateWritten
-      ? `8. Update using \`bulk_update_orders_shipping\` with:
+      ? `10. Update using \`bulk_update_orders_shipping\` with:
    - \`code\`: The provider code (e.g. "bosta", "turbo")
    - \`items\`: [{ \`id\`: orderUuid, \`address\`: fullDetailedWrittenAddress, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
    - Always set \`address\` to normal full **Arabic** address text only. Translate if the source is not Arabic. **Never append latitude/longitude** to \`address\``
-      : `8. Update using \`bulk_update_orders_shipping\` with:
+      : `10. Update using \`bulk_update_orders_shipping\` with:
    - \`code\`: The provider code (e.g. "bosta", "turbo")
    - \`items\`: [{ \`id\`: orderUuid, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
    - **Do NOT include \`address\`** — written address must stay unchanged`;
 
-    return `You are an AI assistant that prepares order shipping information for distribution by a shipping company. Your task is to ensure the order has the correct city, and the required shipping details (zone, district) for the selected shipping company.
+    return `You are an AI assistant that prepares order shipping information for distribution by a shipping company. Your task is to ensure the order has a consistent full address, city, and region (area), plus the required shipping details (zone, district) for the selected shipping company.
 
 ## Order Data
 - Order ID: ${orderData.id}
@@ -1448,7 +1448,7 @@ ${shippingCompanyInfo}
 - \`get_shipping_districts\` - List districts for a shipping provider city
 - \`get_location_by_coordinates\` - Get location details from latitude/longitude
 - \`bulk_update_orders_shipping\` - Update order shipping fields${updateWritten ? " including written `address`," : " (city, zone, district only — do not send `address`),"} city, zone, and district
-- \`report_address_conflict\` - Send the customer a WhatsApp list to choose between 2+ **complete and accurate** conflicting addresses
+- \`report_address_conflict\` - Send the customer a WhatsApp list to choose **only** between a complete written address and a different WhatsApp/map location. Never use this tool for a city/region vs written-address mismatch
 
 ## Address Sources (priority order)
 1. Primary: \`locationAddress\`, \`locationName\`, \`latitude\`, \`longitude\`
@@ -1464,36 +1464,55 @@ Important: \`isSparse: true\` on reverse geocode does **NOT** mean the map pin i
 
 ${writtenAddressRules}
 
-## Conflict / choice rules (IMPORTANT)
-**Ask the customer only when there are 2+ different places that are each complete and usable for shipping** (a clear written address AND a WhatsApp/map pin with coordinates).
+## City / region vs written address (internal conflict — do NOT report)
+Accuracy requires the full written address, the selected city (\`city\`), and the selected region (\`area\`) to agree. Compare the city and region **named inside** the written address with the selected \`city\` and \`area\` on the order.
 
-1. **Written address is complete and clear AND there is a WhatsApp/map pin, and they are different places** (example: written address in Cairo vs map pin in Arish/North Sinai) → call \`report_address_conflict\` with those candidates. Do **NOT** call \`bulk_update_orders_shipping\` in that turn.
+If they disagree, this is an **address conflict**, but it is **internal only**:
+- **Do NOT** call \`report_address_conflict\` (do not ask the customer; that tool is only for written address vs WhatsApp/map location)
+- **Do NOT** call \`bulk_update_orders_shipping\`
+- **Do NOT** complete the address or prepare the order for distribution
+- Stop and briefly explain the mismatch
+
+Examples of this internal conflict:
+- **City mismatch:** written address says Cairo / القاهرة but selected \`city\` is a different city
+- **Region mismatch:** written address says Nasr City / مدينة نصر but selected \`area\` is a different region
+
+Do **not** treat as a conflict when selected \`city\` or \`area\` is empty / "not set" — then infer city and region from the address and complete/update as usual.
+Ignore spelling/transliteration differences that clearly mean the **same** place (Cairo vs القاهرة vs Al Qahirah).
+
+## Conflict / choice rules (IMPORTANT)
+Your main job is to **complete addresses**. Ask the customer **only** when there are 2+ different **complete places**: a clear written address **and** a WhatsApp/map pin with coordinates. Never add selected city/region as a WhatsApp choice.
+
+1. **Written address is complete and clear AND there is a WhatsApp/map pin, and they are different places** (example: written address in Cairo vs map pin in Arish/North Sinai) → call \`report_address_conflict\` with **only those two** candidates (written vs location). Do **NOT** call \`bulk_update_orders_shipping\` in that turn. Do **NOT** add selected city/region as a third option.
    - For labels use exactly:
      - Written order address → label \`"العنوان المسجل"\`, source \`"address"\`
      - WhatsApp/map pin → label \`"عنوان الواتساب"\`, source \`"coordinates"\` or \`"locationAddress"\`, include latitude/longitude
    - \`fullAddress\` must be normal address text only (no lat/lng in the string)
-2. **Written address is ambiguous, conflicted, incomplete, or not enough** (vague text, missing city/street, garbage) **AND there is a WhatsApp/map pin with valid latitude/longitude** (or a detailed \`locationAddress\` / \`locationName\`):
+2. **City or region on the order does not match the city or region named in the written address**, and there is **no** written-vs-map-pin choice to send → **internal address conflict**: do **NOT** call \`report_address_conflict\`, do **NOT** update shipping, do **NOT** complete distribution.
+3. **Written address is ambiguous, incomplete, or not enough** (vague text, missing city/street, garbage) **AND there is a WhatsApp/map pin with valid latitude/longitude** (or a detailed \`locationAddress\` / \`locationName\`):
    - Do **NOT** call \`report_address_conflict\`. Do **NOT** skip the update.
    - The WhatsApp location is unique and complete enough for shipping — use it with \`bulk_update_orders_shipping\`.
-3. **Written address is complete and there is no usable WhatsApp/map pin** → use the written address + \`bulk_update_orders_shipping\`. Do **NOT** ask.
-4. **All candidates incomplete/inaccurate** (no usable written address AND no coordinates / WhatsApp pin) → do **NOT** call \`report_address_conflict\`. Do not update shipping.
-5. **Single clear complete address / single map pin** → resolve city/zone/district and update with \`bulk_update_orders_shipping\`.
+4. **Written address is complete, city and region agree with it (or city/area unset), and there is no usable WhatsApp/map pin** → complete with the written address + \`bulk_update_orders_shipping\`. Do **NOT** ask.
+5. **All candidates incomplete/inaccurate** (no usable written address AND no coordinates / WhatsApp pin) → do **NOT** call \`report_address_conflict\`. Do not update shipping.
+6. **Single clear complete address / single map pin, and city/region agree (or city/area unset)** → resolve city/zone/district and update with \`bulk_update_orders_shipping\`.
 
 Never refuse to ask the customer just because reverse-geocode text for a map pin is city-only — the pin itself is still a valid choice when it conflicts with a different **complete** written address.
 Never skip updating when the written text is weak but a WhatsApp pin exists — use the WhatsApp pin.
+Never use \`report_address_conflict\` to ask about selected city/region vs written address.
 
 ## Your Task (when updating shipping)
-1. Judge each address source for completeness/accuracy using the rules above
-2. If the written address is weak/ambiguous and a WhatsApp pin exists, use the WhatsApp pin (do not stop)
-3. If latitude/longitude are set, call \`get_location_by_coordinates\` to get the exact map location details before updating
-4. Determine the correct city using \`get_cities\`
-5. Find the provider location mapping for the shipping company
-6. Check if the city supports dropOff for this provider (if not, the order may need special handling)
-7. Fetch zones/districts using the provider's external city ID
-8. Select the correct zone/district based on the address
+1. Judge each address source for completeness/accuracy, and check that written address, city, and region all agree
+2. If city or region disagrees with the written address and there is no written-vs-map-pin choice: stop. Do not report. Do not update.
+3. If the written address is weak/ambiguous and a WhatsApp pin exists, use the WhatsApp pin (do not stop)
+4. If latitude/longitude are set, call \`get_location_by_coordinates\` to get the exact map location details before updating
+5. Determine the correct city using \`get_cities\`
+6. Find the provider location mapping for the shipping company
+7. Check if the city supports dropOff for this provider (if not, the order may need special handling)
+8. Fetch zones/districts using the provider's external city ID
+9. Select the correct zone/district based on the address
 ${updateTaskStep}
-10. **Do NOT update if unsure about the location** — except when a WhatsApp pin exists and the written address is unusable; then use the pin
-11. **Never invent an address**
+11. **Do NOT update if unsure about the location** — except when a WhatsApp pin exists and the written address is unusable; then use the pin
+12. **Never invent an address**
 
 ## Response
 Explain briefly what you found and what you did (or why you couldn't update). Use simple, everyday language that any user can understand. Avoid technical terms.`;
