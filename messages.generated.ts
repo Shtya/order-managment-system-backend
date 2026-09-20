@@ -2067,6 +2067,7 @@ export type I18nTranslations = {
         "edge_target_not_exist": string;
         "trigger_cannot_have_incoming_edges": string;
         "duplicate_connection": string;
+        "source_handle_already_connected": string;
         "invalid_source_handle": string;
         "node_unreachable": string;
         "flow_not_fully_connected": string;

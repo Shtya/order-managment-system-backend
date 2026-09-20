@@ -168,6 +168,14 @@ export interface FlowNode {
     };
 }
 
+export interface FlowEdge {
+    id: string;
+    source: string;
+    target: string;
+    sourceHandle?: string;
+    targetHandle?: string;
+}
+
 export type NodeConfig =
     OrderCreatedConfig |
     OrderUpdatedConfig |
@@ -389,14 +397,6 @@ export interface OrderCheckConfig {
         targetValue: any;
         targetLabel?: string;
     }[];
-}
-
-export interface FlowEdge {
-    id: string;
-    source: string;
-    target: string;
-    sourceHandle?: string;
-    targetHandle?: string;
 }
 
 export type VersionIncrementType = 'major' | 'minor';

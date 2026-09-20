@@ -1,7 +1,8 @@
 import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString, Validate, ValidateNested, ValidationArguments, ValidatorConstraint, ValidatorConstraintInterface } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ActionType, ConditionType, FlowNodeDataType, FlowNodeType, FlowWhatsappAccountMode, NodeConfig, SendWhatsappTemplateConfig, TriggerType } from 'entities/automation.entity';
-import { i18nValidationMessage } from 'nestjs-i18n';
+import { i18nValidationMessage, I18nContext } from 'nestjs-i18n';
+import { findCircularDependency, formatCyclePath } from 'src/automation/engine/detect-cycles';
 
 
 @ValidatorConstraint({ name: 'UniqueNodeIds', async: false })
@@ -52,6 +53,7 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
 
         // 2. Edge source/target existence and handle validity
         const connections = new Set<string>();
+        const outgoingSourceHandles = new Set<string>();
         const incomingEdgesCount = new Map<string, number>();
         nodeIds.forEach(id => incomingEdgesCount.set(id, 0));
 
@@ -82,6 +84,14 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
                 return false;
             }
             connections.add(connKey);
+
+            const sourceHandleKey = `${edge.source}|${edge.sourceHandle || ''}`;
+            if (outgoingSourceHandles.has(sourceHandleKey)) {
+                this.errorKey = 'validation.source_handle_already_connected';
+                this.errorArgs = { source: edge.source, sourceHandle: edge.sourceHandle || 'default' };
+                return false;
+            }
+            outgoingSourceHandles.add(sourceHandleKey);
 
             incomingEdgesCount.set(edge.target, (incomingEdgesCount.get(edge.target) || 0) + 1);
 
@@ -145,26 +155,11 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
             return false;
         }
 
-        // Cycle detection using DFS
-        const hasCycle = (u: string, visited: Set<string>, recStack: Set<string>): boolean => {
-            visited.add(u);
-            recStack.add(u);
-            for (const neighbor of (adj.get(u) || [])) {
-                if (!visited.has(neighbor)) {
-                    if (hasCycle(neighbor, visited, recStack)) return true;
-                } else if (recStack.has(neighbor)) {
-                    return true;
-                }
-            }
-            recStack.delete(u);
-            return false;
-        };
-
-        const visited = new Set<string>();
-        const recStackSet = new Set<string>();
-        if (hasCycle(trigger.id, visited, recStackSet)) {
+        const cycle = findCircularDependency({ nodes, edges });
+        if (cycle) {
             this.errorKey = 'validation.flow_circular_reference';
-            this.errorArgs = {};
+            const locale = I18nContext.current()?.lang || 'ar';
+            this.errorArgs = { path: formatCyclePath(cycle, nodes, locale) };
             return false;
         }
 
@@ -172,7 +167,7 @@ export class ValidFlowGraphConstraint implements ValidatorConstraintInterface {
     }
 
     defaultMessage(args: ValidationArguments) {
-        return i18nValidationMessage(this.errorKey)({ ...(args as any), ...this.errorArgs });
+        return i18nValidationMessage(this.errorKey, this.errorArgs)(args);
     }
 }
 @ValidatorConstraint({ name: 'NodeDataMatchesNodeType', async: false })
