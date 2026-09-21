@@ -42,7 +42,7 @@ export interface JevProviderOptions {
 
 export function loadJevOptions(env: NodeJS.ProcessEnv = process.env): JevProviderOptions {
   const apiKey = env.TYPESAFE_API_KEY;
-  if (!apiKey) throw new Error('TYPESAFE_API_KEY is not set');
+  
   return {
     apiKey,
     baseUrl: (env.TYPESAFE_BASE_URL ?? 'https://api.typesafe.ai').replace(/\/+$/, ''),
