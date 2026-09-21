@@ -670,12 +670,14 @@ export class ShippingService {
         },
       });
 
-      if (
-        prevShipment &&
-        ![ShipmentStatus.CANCELLED, ShipmentStatus.FAILED].includes(
-          prevShipment.status,
-        )
-      ) {
+      const activeShipmentStatuses = [
+        ShipmentStatus.PENDING_ACTION,
+        ShipmentStatus.PREPARING,
+        ShipmentStatus.READY_TO_SHIP,
+        ShipmentStatus.OUT_FOR_DELIVERY,
+      ];
+      
+      if (prevShipment && activeShipmentStatuses.includes(prevShipment.status))  {
         try {
           if (!prevShipment.shippingCompanyId) {
             await this.cancelManualShipment(me, prevShipment.id);

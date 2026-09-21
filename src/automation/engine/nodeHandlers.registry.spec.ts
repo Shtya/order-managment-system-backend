@@ -829,6 +829,57 @@ describe("ConditionOrderCheckHandler", () => {
       expect(result.chosenBranch).toBe("false");
     });
 
+    test("treats preview orders as having no active shipment", async () => {
+      const result = await handler.execute(
+        { checks: [check("hasActiveShipment", "==", false)] } as never,
+        runWith(mockOrder()),
+      );
+
+      expect(findOne).not.toHaveBeenCalled();
+      expect(result.chosenBranch).toBe("true");
+    });
+
+    test("detects an active shipment from its status", async () => {
+      findOne.mockResolvedValue({
+        id: "order-1",
+        orderNumber: "A-1",
+        shipments: [{ status: "out_for_delivery" }, { status: "delivered" }],
+      });
+
+      const result = await handler.execute(
+        { checks: [check("hasActiveShipment", "==", true)] } as never,
+        runWith({ id: "order-1" }),
+      );
+
+      expect(result.chosenBranch).toBe("true");
+    });
+
+    test("reports no active shipment when all are terminal", async () => {
+      findOne.mockResolvedValue({
+        id: "order-1",
+        orderNumber: "A-1",
+        shipments: [{ status: "delivered" }, { status: "cancelled" }],
+      });
+
+      const result = await handler.execute(
+        { checks: [check("hasActiveShipment", "==", true)] } as never,
+        runWith({ id: "order-1" }),
+      );
+
+      expect(result.chosenBranch).toBe("false");
+    });
+
+    test("reports no active shipment when the order has none", async () => {
+      findOne.mockResolvedValue({ id: "order-1", orderNumber: "A-1" });
+
+      const result = await handler.execute(
+        { checks: [check("hasActiveShipment", "==", true)] } as never,
+        runWith({ id: "order-1" }),
+      );
+
+      expect(result.chosenBranch).toBe("false");
+    });
+
     test("wraps missing order data as evaluation failure", async () => {
       const result = await handler.execute(
         { checks: [check("status", "==", "s-1")] } as never,

@@ -68,7 +68,7 @@ import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.servi
 import { AiAttempt, AiOrchestrationResult } from "src/ai/interfaces/ai-types";
 import { AiProviderSelectorService } from "src/ai/orchestrator/provider-selector.service";
 import { ShippingAssigningService } from "src/shipping-assigning/shipping-assigning.service";
-import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { ShipmentStatus, ShippingCompanyEntity } from "entities/shipping.entity";
 import { AiDecisionService } from "src/ai-decision/ai-decision.service";
 import {
   ADDRESS_COMPLETENESS_MODEL,
@@ -462,7 +462,7 @@ export abstract class FlowNodeHandler {
             product: true
           }
         },
-
+        shipments: true,
         store: true,
         shippingCompany: true,
         replacementResult: true
@@ -543,6 +543,26 @@ export class ConditionQuickOrderStatusHandler extends FlowNodeHandler {
   }
 }
 
+/**
+ * Shipment statuses that count as an "active" shipment for the
+ * `hasActiveShipment` order check: the parcel is still moving toward the
+ * customer (created/preparing/shipped), not delivered/returned/cancelled.
+ */
+export const ACTIVE_SHIPMENT_STATUSES: ReadonlySet<string> = new Set([
+  ShipmentStatus.PENDING_ACTION,
+  ShipmentStatus.PREPARING,
+  ShipmentStatus.READY_TO_SHIP,
+  ShipmentStatus.OUT_FOR_DELIVERY,
+]);
+
+export function hasActiveShipment(orderData: {
+  shipments?: { status?: string }[] | null;
+}): boolean {
+  const shipments = orderData?.shipments;
+  if (!Array.isArray(shipments)) return false;
+  return shipments.some((s) => ACTIVE_SHIPMENT_STATUSES.has(s?.status ?? ""));
+}
+
 @Injectable()
 export class ConditionOrderCheckHandler extends FlowNodeHandler {
   private readonly logger = new Logger(ConditionOrderCheckHandler.name);
@@ -577,6 +597,15 @@ export class ConditionOrderCheckHandler extends FlowNodeHandler {
         // Replacement orders are already reserved; check physical stock like manifest/shipping.
         // Non-replacement orders use available stock (same as create/update validation).
       });
+    }
+
+    if (check.field === "hasActiveShipment") {
+      if (orderData?.__mock) {
+        return false;
+      }
+
+      // getOrder() already loads the shipments relation, no extra query.
+      return hasActiveShipment(orderData);
     }
 
     return getActualFieldValue(check.field, orderData);
