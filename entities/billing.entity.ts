@@ -131,14 +131,12 @@ export class BillingAuthorizationEntity {
   @Column({
     type: "enum",
     enum: BillingServiceKey,
-    enumName: "billing_service_key",
   })
   service: BillingServiceKey;
 
   @Column({
     type: "enum",
     enum: BillingOperationKey,
-    enumName: "billing_operation_key",
   })
   operation: BillingOperationKey;
 
@@ -148,7 +146,6 @@ export class BillingAuthorizationEntity {
   @Column({
     type: "enum",
     enum: AuthorizationStatus,
-    enumName: "billing_authorization_status",
   })
   status: AuthorizationStatus;
 
@@ -220,14 +217,12 @@ export class BillingChargeEntity {
   @Column({
     type: "enum",
     enum: BillingServiceKey,
-    enumName: "billing_service_key",
   })
   service: BillingServiceKey;
 
   @Column({
     type: "enum",
     enum: BillingOperationKey,
-    enumName: "billing_operation_key",
   })
   operation: BillingOperationKey;
 
@@ -258,7 +253,6 @@ export class BillingChargeEntity {
   @Column({
     type: "enum",
     enum: CollectionStatus,
-    enumName: "billing_collection_status",
     default: CollectionStatus.COLLECTED,
   })
   collectionStatus: CollectionStatus;
@@ -286,7 +280,6 @@ export class BillingAllowanceUsageEntity {
   @Column({
     type: "enum",
     enum: BillingServiceKey,
-    enumName: "billing_service_key",
   })
   service: BillingServiceKey;
 
