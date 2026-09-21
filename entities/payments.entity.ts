@@ -227,13 +227,13 @@ export class TransactionEntity {
     @Column({ type: 'uuid', nullable: true })
     userFeatureId: string;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2 })
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
     amount: number;
 
     @Column({ type: 'varchar', length: 10, default: 'EGP' })
     currency: string;
 
-    @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
     amountInDollars: number;
 
     @Column({
@@ -309,17 +309,19 @@ export class Wallet {
     @JoinColumn({ name: 'userId' })
     user: Relation<User>;
 
-    // 💰 Current spendable balance
-    @Column('numeric', { precision: 12, scale: 2, default: 0 })
+    // Dollar amounts with 6 decimal places (1 micro-dollar = 0.000001).
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
     currentBalance: number;
 
-    // 📈 Total ever added to the wallet (Sum of all successful top-ups)
-    @Column('numeric', { precision: 12, scale: 2, default: 0 })
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
     totalCharged: number;
 
-    // 📉 Total ever spent or withdrawn from the wallet
-    @Column('numeric', { precision: 12, scale: 2, default: 0 })
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
     totalWithdrawn: number;
+
+    // Held for in-flight billing authorizations (same unit as currentBalance).
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
+    reservedBalance: number;
 
     @UpdateDateColumn({ type: "timestamptz" })
     updatedAt: Date;

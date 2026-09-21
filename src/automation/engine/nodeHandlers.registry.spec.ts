@@ -34,6 +34,7 @@ import {
   checkMessageStatus,
   computeOffsetDate,
   ConditionOrderCheckHandler,
+  ConditionAiAddressCompletenessHandler,
   ConditionQuickOrderStatusHandler,
   FlowNodeHandler,
   formatDateWithFormat,
@@ -851,6 +852,114 @@ describe("ConditionOrderCheckHandler", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe("Condition evaluation failed: db down");
+    });
+  });
+});
+
+void ConditionAiAddressCompletenessHandler.prototype.execute;
+describe("ConditionAiAddressCompletenessHandler", () => {
+  describe("execute", () => {
+    let handler: ConditionAiAddressCompletenessHandler;
+    let findOne: ReturnType<typeof vi.fn>;
+    let decide: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      findOne = vi.fn();
+      decide = vi.fn();
+      handler = new ConditionAiAddressCompletenessHandler(
+        { findOne } as never,
+        { decide } as never,
+      );
+    });
+
+    function runWith(output: unknown, extras: Record<string, unknown> = {}) {
+      return {
+        id: "run-1",
+        adminId: "admin-1",
+        currentNodeId: "n-addr",
+        executionState: { trigger: { output } },
+        ...extras,
+      } as never;
+    }
+
+    function mockOrder(overrides: Record<string, unknown> = {}) {
+      return {
+        id: "order-1",
+        orderNumber: "A-1",
+        __mock: true,
+        city: "Cairo",
+        area: "Nasr City",
+        address: "12 Abbas El Akkad St, apt 7",
+        ...overrides,
+      } as never;
+    }
+
+    function jevAnswers(noul: number, choice: string) {
+      return {
+        answers: {
+          address_valid: { type: "noul", noul },
+          main_problem: { type: "choice", choice, confidence: 0.9, probabilities: {} },
+        },
+        modelVersion: "jev-1.13.0",
+      };
+    }
+
+    test("chooses valid when score is high and main problem is none", async () => {
+      decide.mockResolvedValue(jevAnswers(0.92, "none"));
+
+      const result = await handler.execute({} as never, runWith(mockOrder()));
+
+      expect(decide).toHaveBeenCalledWith(
+        expect.objectContaining({
+          me: expect.objectContaining({ id: "admin-1", adminId: "admin-1" }),
+          idempotencyKey: "run-1:n-addr:address-completeness",
+          model: "jev-1.13.0",
+          note: "domains.automation.ai_address_completeness",
+          state: {
+            city: "Cairo",
+            area: "Nasr City",
+            address: "12 Abbas El Akkad St, apt 7",
+          },
+        }),
+      );
+      expect(result).toMatchObject({
+        success: true,
+        chosenBranch: "valid",
+        output: {
+          orderId: "order-1",
+          problems: [],
+        },
+      });
+      expect(result.output.main_problem).toBeUndefined();
+      expect(result.output.answers).toBeUndefined();
+    });
+
+    test("exposes main_problem as problems, not the raw Jev choice object", async () => {
+      decide.mockResolvedValue(jevAnswers(0.2, "missing_street"));
+
+      const result = await handler.execute({} as never, runWith(mockOrder()));
+
+      expect(result.chosenBranch).toBe("not_valid");
+      expect(result.output.problems).toEqual(["missing_street"]);
+      expect(result.output.main_problem).toBeUndefined();
+    });
+
+    test("chooses not_sure for mid-range scores", async () => {
+      decide.mockResolvedValue(jevAnswers(0.7, "none"));
+
+      const result = await handler.execute({} as never, runWith(mockOrder()));
+
+      expect(result.chosenBranch).toBe("not_sure");
+      expect(result.output.problems).toEqual([]);
+    });
+
+    test("wraps AI decision failures", async () => {
+      decide.mockRejectedValue(new Error("wallet empty"));
+
+      const result = await handler.execute({} as never, runWith(mockOrder()));
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe("wallet empty");
     });
   });
 });

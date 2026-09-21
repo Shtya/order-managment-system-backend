@@ -122,6 +122,7 @@ export enum ActionType {
 export enum ConditionType {
     QUICK_ORDER_STATUS = 'quick_order_status',
     ORDER_CHECK = 'order_check',
+    AI_ADDRESS_COMPLETENESS = 'ai_address_completeness',
 }
 
 export type FlowNodeDataType = TriggerType | ActionType | ConditionType;
@@ -188,6 +189,7 @@ export type NodeConfig =
     SendUpsellConfig |
     QuickOrderStatusConfig |
     OrderCheckConfig |
+    AiAddressCompletenessConfig |
     AssignOrderToEmployeeConfig |
     CreateIssueConfig |
     WaitConfig;
@@ -396,6 +398,14 @@ export interface OrderCheckConfig {
         operator: OperationType;
         targetValue: any;
         targetLabel?: string;
+    }[];
+}
+
+export interface AiAddressCompletenessConfig {
+    branches?: {
+        id: string;
+        label: string;
+        condition: string;
     }[];
 }
 

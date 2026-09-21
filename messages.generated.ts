@@ -202,6 +202,10 @@ export type I18nTranslations = {
             "run_resumed_message": string;
             "run_failed_title": string;
             "run_failed_message": string;
+            "ai_address_completeness": string;
+        };
+        "billing": {
+            "ai_decision_wallet_note": string;
         };
         "bundles": {
             "not_found": string;

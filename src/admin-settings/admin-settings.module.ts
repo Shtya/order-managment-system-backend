@@ -8,5 +8,6 @@ import { AdminSettingsEntity } from "entities/adminSettings.entity";
   imports: [TypeOrmModule.forFeature([AdminSettingsEntity])],
   controllers: [AdminSettingsController],
   providers: [AdminSettingsService],
+  exports: [AdminSettingsService],
 })
 export class AdminSettingsModule {}

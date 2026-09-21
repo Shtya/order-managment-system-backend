@@ -60,7 +60,11 @@
     "run_resumed_title": "استئناف تشغيل الأتمتة",
     "run_resumed_message": "تم استئناف تشغيل أتمتة متوقفة. (الأتمتة: {automationName}, الإصدار: v{versionString})",
     "run_failed_title": "فشل تشغيل الأتمتة",
-    "run_failed_message": "فشل تنفيذ الأتمتة: {errorMessage} (الأتمتة: {automationName}, الإصدار: v{versionString})"
+    "run_failed_message": "فشل تنفيذ الأتمتة: {errorMessage} (الأتمتة: {automationName}, الإصدار: v{versionString})",
+    "ai_address_completeness": "التحقق من اكتمال ووضوح عنوان التوصيل"
+  },
+  "billing": {
+    "ai_decision_wallet_note": "استخدام الذكاء الاصطناعي — {tokens} توكن — {feature}"
   },
   "bundles": {
     "not_found": "الحزمة غير موجودة",

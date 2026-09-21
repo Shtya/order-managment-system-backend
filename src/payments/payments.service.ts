@@ -519,6 +519,7 @@ export class PaymentsService {
         currentBalance: 0,
         totalCharged: 0,
         totalWithdrawn: 0,
+        reservedBalance: 0,
       });
     }
 

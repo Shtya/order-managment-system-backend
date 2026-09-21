@@ -51,6 +51,7 @@ import {
 import {
   ConditionQuickOrderStatusHandler,
   ConditionOrderCheckHandler,
+  ConditionAiAddressCompletenessHandler,
   ActionUpdateOrderStatusHandler,
   ActionSendWhatsappTemplateMessageHandler,
   ActionSendUpsellHandler,
@@ -78,6 +79,7 @@ import { OrderAssignmentEntity } from "entities/assignment.entity";
 import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
 import { UpsellsService } from "src/upsells/upsells.service";
 import { PreviewAutomationAdapter } from "./adapters/preview.adapters";
+import { AiDecisionService } from "src/ai-decision/ai-decision.service";
 
 export interface CreatePreviewInput {
   adminId: string;
@@ -212,6 +214,7 @@ export class AutomationPreviewService {
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
     @Inject(forwardRef(() => ClientService))
     private readonly clientsService: ClientService,
+    private readonly aiDecision: AiDecisionService,
   ) {}
 
   /**
@@ -624,6 +627,7 @@ export class AutomationPreviewService {
     this.orderAssignmentRepo,
     this.ordersService,
     this.clientsService,
+    this.aiDecision,
   );
 }
 
@@ -641,6 +645,7 @@ class PreviewNodeHandlersRegistry {
     private readonly orderAssignmentRepo: Repository<OrderAssignmentEntity>,
     private readonly ordersService: OrdersService,
     private readonly clientsService: ClientService,
+    private readonly aiDecision: AiDecisionService,
   ) {
     // Use production handlers with preview adapter injected
     this.handlers.set(
@@ -653,6 +658,13 @@ class PreviewNodeHandlersRegistry {
         orderRepo,
         this.ordersService,
         this.clientsService,
+      ),
+    );
+    this.handlers.set(
+      ConditionType.AI_ADDRESS_COMPLETENESS,
+      new ConditionAiAddressCompletenessHandler(
+        orderRepo,
+        this.aiDecision,
       ),
     );
     this.handlers.set(

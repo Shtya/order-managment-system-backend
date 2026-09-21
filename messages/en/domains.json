@@ -60,7 +60,11 @@
     "run_resumed_title": "Automation Run Resumed",
     "run_resumed_message": "A paused automation execution has been resumed. (Automation: {automationName}, Version: v{versionString})",
     "run_failed_title": "Automation Run Failed",
-    "run_failed_message": "Automation execution failed: {errorMessage} (Automation: {automationName}, Version: v{versionString})"
+    "run_failed_message": "Automation execution failed: {errorMessage} (Automation: {automationName}, Version: v{versionString})",
+    "ai_address_completeness": "Verify delivery address completeness"
+  },
+  "billing": {
+    "ai_decision_wallet_note": "AI usage — {tokens} tokens — {feature}"
   },
   "bundles": {
     "not_found": "Bundle not found",

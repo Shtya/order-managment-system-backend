@@ -44,6 +44,7 @@ import { CronModule } from "./cron/cron.module";
 import { ExtraFeaturesModule } from "./extra-features/extra-features.module";
 import { RedisModule } from "common/redis/redis.module";
 import { AdminSettingsModule } from "./admin-settings/admin-settings.module";
+import { BillingModule } from "./billing/billing.module";
 import { AccountingModule } from "./accounting/accounting.module";
 import { OrphanFilesModule } from "./orphan-files/orphan-files.module";
 import { ProductSyncStateModule } from "./product-sync-state/product-sync-state.module";
@@ -85,6 +86,7 @@ import { ClientSegmentsModule } from "./client-segments/client-segments.module";
 import { AudienceModule } from "./audience/audience.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
 import { observeConfig, ObserveModule } from "common/observe/bserve.config";
+import { AiDecisionModule } from "./ai-decision/ai-decision.module";
 
 // Load env files BEFORE the module decorator is evaluated so that
 // process.env checks at module-definition time (e.g. AI_MODULE_ENABLED)
@@ -180,6 +182,8 @@ import { observeConfig, ObserveModule } from "common/observe/bserve.config";
     ExtraFeaturesModule,
     RedisModule,
     AdminSettingsModule,
+    BillingModule,
+    AiDecisionModule,
     AccountingModule,
     ProductSyncStateModule,
     SafesModule,

@@ -47,6 +47,7 @@ import { IssueModule } from "src/issue/issue.module";
 import { ShippingModule } from "src/shipping/shipping.module";
 import { ShippingAssigningModule } from "src/shipping-assigning/shipping-assigning.module";
 import { AiModule } from "src/ai/ai.module";
+import { AiDecisionModule } from "src/ai-decision/ai-decision.module";
 import { ClientsModule } from "src/clients/clients.module";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
 
@@ -61,6 +62,7 @@ import { ShippingCompanyEntity } from "entities/shipping.entity";
     forwardRef(() => ShippingModule),
     forwardRef(() => ShippingAssigningModule),
     forwardRef(() => AiModule),
+    AiDecisionModule,
     IssueModule,
     ClientsModule,
     NotificationModule,

@@ -7,6 +7,7 @@ import { User } from "entities/user.entity";
 import { PaymentsModule } from "src/payments/payments.module";
 import { TransactionsModule } from "src/transactions/transactions.module";
 import { SubscriptionsModule } from "src/subscription/subscription.module";
+import { WalletHoldService } from "./wallet-hold.service";
 
 @Module({
   imports: [
@@ -16,7 +17,7 @@ import { SubscriptionsModule } from "src/subscription/subscription.module";
     TypeOrmModule.forFeature([TransactionEntity, User, Wallet]),
   ],
   controllers: [WalletController],
-  providers: [WalletService],
-  exports: [WalletService],
+  providers: [WalletService, WalletHoldService],
+  exports: [WalletService, WalletHoldService],
 })
 export class WalletModule {}

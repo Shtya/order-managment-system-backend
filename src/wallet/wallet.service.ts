@@ -20,7 +20,7 @@ import { SystemRole, User } from "entities/user.entity";
 import { PaymentFactoryService } from "src/payments/providers/PaymentFactoryService";
 import { SubscriptionsService } from "src/subscription/subscription.service";
 import { TransactionsService } from "src/transactions/transactions.service";
-import { DataSource, EntityManager, Repository } from "typeorm";
+import { DataSource, DeepPartial, EntityManager, Repository } from "typeorm";
 import {
   RequestTranslationService,
   TranslationService,
@@ -63,6 +63,7 @@ export class WalletService {
         currentBalance: 0,
         totalCharged: 0,
         totalWithdrawn: 0,
+        reservedBalance: 0,
       });
       wallet = await repo.save(wallet);
     }
@@ -80,6 +81,37 @@ export class WalletService {
     const wallet = await this.getOrCreateWallet(userId);
 
     return wallet;
+  }
+
+  async recordTransaction(
+    manager: EntityManager,
+    input: {
+      userId: string;
+      amount: number | string;
+      purpose: PaymentPurposeEnum;
+      paymentMethod: TransactionPaymentMethod;
+      notes: string;
+      number?: string;
+      orderId?: string;
+      currency?: string;
+    },
+  ): Promise<TransactionEntity> {
+    const number =
+      input.number ??
+      (await this.transactionsService.generateTransactionNumber(input.userId));
+    const transaction = manager.create(TransactionEntity, {
+      userId: input.userId,
+      amount: input.amount,
+      amountInDollars: input.amount,
+      currency: input.currency ?? "USD",
+      purpose: input.purpose,
+      status: TransactionStatus.SUCCESS,
+      paymentMethod: input.paymentMethod,
+      number,
+      notes: input.notes,
+      orderId: input.orderId,
+    } as DeepPartial<TransactionEntity>);
+    return manager.save(transaction);
   }
 
   // 2️⃣ Top Up Wallet (Generates Payment Session)
@@ -157,24 +189,16 @@ export class WalletService {
 
       await manager.save(wallet);
 
-      const number = await this.transactionsService.generateTransactionNumber(
-        wallet.userId?.toString(),
-      );
-      // Record transaction
-      const transaction = manager.create(TransactionEntity, {
+      await this.recordTransaction(manager, {
         userId: targetUserId,
-        amount: amount,
-        amountInDollars: amount,
+        amount,
         purpose:
           amount > 0
             ? PaymentPurposeEnum.WALLET_TOP_UP
             : PaymentPurposeEnum.WALLET_WITHDRAWAL,
-        status: TransactionStatus.SUCCESS,
         paymentMethod: TransactionPaymentMethod.MANUAL_ADJUSTMENT,
-        number: number,
         notes: note.trim(),
       });
-      await manager.save(transaction);
 
       return wallet;
     });
@@ -249,20 +273,11 @@ export class WalletService {
             wallet.currentBalance = currentBalance - cost;
             wallet.totalWithdrawn = Number(wallet.totalWithdrawn) + cost;
 
-            const number =
-              await this.transactionsService.generateTransactionNumber(
-                wallet.userId?.toString(),
-              );
-
-            transaction = m.create(TransactionEntity, {
+            transaction = await this.recordTransaction(m, {
               userId: me.id,
               amount: cost,
-              currency: "USD",
-              amountInDollars: cost,
               purpose: PaymentPurposeEnum.WALLET_WITHDRAWAL,
-              status: TransactionStatus.SUCCESS,
               paymentMethod: TransactionPaymentMethod.OTHER,
-              number,
               orderId,
               notes: await this.requestTranslations.tAsync(
                 "domains.subscriptions.auto_deduction_for_extra_orders",
@@ -275,8 +290,6 @@ export class WalletService {
                 },
               ),
             });
-
-            await m.save(transaction);
           }
         }
 

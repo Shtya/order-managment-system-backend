@@ -2,6 +2,7 @@
 // The engine just says registry.execute(nodeType, hydratedConfig).
 
 import {
+  HttpException,
   Inject,
   Injectable,
   Logger,
@@ -17,6 +18,7 @@ import {
   ConditionType,
   CreateIssueConfig,
   AssignOrderToClientConfig,
+  AiAddressCompletenessConfig,
   FlowNodeDataType,
   OrderCheckConfig,
   QuickOrderStatusConfig,
@@ -67,6 +69,13 @@ import { AiAttempt, AiOrchestrationResult } from "src/ai/interfaces/ai-types";
 import { AiProviderSelectorService } from "src/ai/orchestrator/provider-selector.service";
 import { ShippingAssigningService } from "src/shipping-assigning/shipping-assigning.service";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { AiDecisionService } from "src/ai-decision/ai-decision.service";
+import {
+  ADDRESS_COMPLETENESS_MODEL,
+  ADDRESS_COMPLETENESS_QUESTIONS,
+  chooseAddressCompletenessBranch,
+  problemsFromMainProblem,
+} from "./address-completeness.prompt";
 
 // Re-export for callers that previously imported from this module
 export { ADDRESS_CHOICE_DELETED_BUTTON_ID } from "./automation-helpers";
@@ -658,6 +667,114 @@ export class ConditionOrderCheckHandler extends FlowNodeHandler {
         error: `Condition evaluation failed: ${error.message}`,
       };
     }
+  }
+}
+
+@Injectable()
+export class ConditionAiAddressCompletenessHandler extends FlowNodeHandler {
+  private readonly logger = new Logger(
+    ConditionAiAddressCompletenessHandler.name,
+  );
+
+  constructor(
+    @InjectRepository(OrderEntity)
+    protected readonly orderRepo: Repository<OrderEntity>,
+    private readonly aiDecision: AiDecisionService,
+  ) {
+    super(orderRepo);
+  }
+
+  async execute(
+    _hydratedConfig: AiAddressCompletenessConfig,
+    run: AutomationRunEntity,
+  ): Promise<NodeHandlerResponse> {
+    try {
+      const orderData = await this.getOrder(run.executionState.trigger.output);
+
+      if (!orderData) {
+        return {
+          success: false,
+          shouldPause: false,
+          error: "The order data required for this condition is unavailable.",
+        };
+      }
+
+      const state = {
+        city: orderData.city || "",
+        area: orderData.area || "",
+        address: orderData.address || "",
+      };
+
+      const { answers, modelVersion } = await this.aiDecision.decide({
+        me: {
+          id: run.adminId,
+          adminId: run.adminId,
+          role: { name: "admin" },
+        },
+        idempotencyKey: `${run.id}:${run.currentNodeId}:address-completeness`,
+        state,
+        questions: ADDRESS_COMPLETENESS_QUESTIONS,
+        model: ADDRESS_COMPLETENESS_MODEL,
+        feature: "automation-address-completeness",
+        note: "domains.automation.ai_address_completeness",
+      });
+
+      const addressValidAnswer = answers?.address_valid;
+      const mainProblemAnswer = answers?.main_problem;
+      const addressValid =
+        addressValidAnswer?.type === "noul" ? addressValidAnswer.noul : 0;
+      const mainProblem =
+        mainProblemAnswer?.type === "choice" ? mainProblemAnswer.choice : undefined;
+      const problems = problemsFromMainProblem(mainProblem);
+      const chosenBranch = chooseAddressCompletenessBranch(
+        addressValid,
+        mainProblem,
+      );
+
+      return {
+        success: true,
+        shouldPause: false,
+        chosenBranch,
+        output: {
+          orderId: orderData.id,
+          orderNumber: orderData.orderNumber,
+          city: state.city,
+          area: state.area,
+          address: state.address,
+          problems,
+          // addressValid,
+          // modelVersion,
+        },
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error executing address completeness condition: ${error?.message}`,
+        error?.stack,
+      );
+      return {
+        success: false,
+        shouldPause: false,
+        error: this.toErrorMessage(error),
+      };
+    }
+  }
+
+  private toErrorMessage(error: unknown): string {
+    if (error instanceof HttpException) {
+      const res = error.getResponse();
+      if (typeof res === "string") return res;
+      if (res && typeof res === "object" && "message" in res) {
+        const message = (res as { message?: unknown }).message;
+        return Array.isArray(message)
+          ? message.join(", ")
+          : String(message || error.message);
+      }
+      return error.message;
+    }
+    return (
+      (error as Error)?.message ||
+      "The address completeness condition could not be evaluated successfully."
+    );
   }
 }
 
@@ -3050,6 +3167,7 @@ export class NodeHandlersRegistry {
     private readonly shippingAssigning: ShippingAssigningService,
     @InjectRepository(ShippingCompanyEntity)
     private readonly shippingCompanyRepo: Repository<ShippingCompanyEntity>,
+    private readonly aiDecision: AiDecisionService,
   ) {
     this.registerHandlers();
   }
@@ -3066,6 +3184,13 @@ export class NodeHandlersRegistry {
         this.orderRepo,
         this.ordersService,
         this.clientsService,
+      ),
+    );
+    this.handlers.set(
+      ConditionType.AI_ADDRESS_COMPLETENESS,
+      new ConditionAiAddressCompletenessHandler(
+        this.orderRepo,
+        this.aiDecision,
       ),
     );
     this.handlers.set(
