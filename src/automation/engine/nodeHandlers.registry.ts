@@ -1624,7 +1624,7 @@ Required parts:
 Apartment, floor, or office number is preferred and **not** required. A house or villa with no apartment is still complete.
 
 The address is **not** complete when a required part is missing, or when it contains an error or an ambiguity:
-- the written address contradicts itself: two values for the same part ("12 or 14", "12 أو 14", "أو", "ولا", "/", "not sure"), two streets, or two building numbers
+- the written address contradicts itself only when the same part has two alternative values, joined by "or", "أو", "ولا", "/", or "not sure". Examples: "12 أو 14", "عمارة 4 أو عمارة 5", "Building 133/135", "شارع الحجاز أو شارع سوريا". A street number together with a building, floor, or apartment is one address. "12 شارع عباس العقاد، عمارة 4، الدور 3، شقة 7" is complete: 12 is the location on the street, عمارة 4 is the building, الدور 3 is the floor, and شقة 7 is the apartment.
 - \`city\` or \`area\` contradict the written address (for example city is Cairo but the text names Alexandria or North Sinai)
 - the area does not belong to the city, whether those names are inside \`address\` or in the separate \`city\` and \`area\` fields
 - gibberish, placeholder or test text, a phone number, a link, or only a landmark ("next to the mosque")
@@ -1643,7 +1643,7 @@ ${writtenAddressRules}
 Do not message the customer. \`report_address_conflict\` only records the conflict for a later step.
 
 Call \`report_address_conflict\` and do **not** call \`bulk_update_orders_shipping\` when any of these is true:
-1. **The written address contradicts itself.** Two numbers, two streets, or alternatives joined by "or", "أو", "ولا", "/", or "not sure" (for example "12 أو 14" or "شارع الحجاز أو شارع سوريا").
+1. **The written address contradicts itself.** The same part has two alternatives joined by "or", "أو", "ولا", "/", or "not sure" (for example "12 أو 14" or "شارع الحجاز أو شارع سوريا"). A street number plus a building, floor, and apartment are different parts. "12 شارع عباس العقاد، عمارة 4" is not two building numbers.
 2. **City and area do not agree.** The area does not belong to the city, or the written address names a different city or area than the selected fields. This applies when the names are inside \`address\`, in the separate \`city\` and \`area\` fields, or split between them.
 3. **Written address vs WhatsApp/map location.** They are different delivery destinations: a large geographic distance, or they name different cities or areas.
 
