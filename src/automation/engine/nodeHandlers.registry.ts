@@ -998,7 +998,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
           },
         };
       }
-      const prompt = this.buildPrompt(orderData, config, shipping);
+      const prompt = this.buildPrompt(orderData, config, shipping, defaultLang);
 
       let chatResult: AiOrchestrationResult | undefined;
       try {
@@ -1539,6 +1539,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     orderData: any,
     config: AiAddressCorrectionConfig,
     shipping: ResolvedShippingCompany,
+    lang: string,
   ): string {
     const shippingCompanyInfo = this.shippingPromptBlock(shipping);
     const updateWritten = shouldUpdateWrittenAddress(config);
@@ -1604,7 +1605,7 @@ ${shippingCompanyInfo}
 - \`get_shipping_zones\` - List zones for a shipping provider city
 - \`get_shipping_districts\` - List districts for a shipping provider city
 - \`get_location_by_coordinates\` - Reverse-geocode latitude/longitude. **Required** whenever Latitude and Longitude are set, even if Location Address or Location Name is already filled
-- \`bulk_update_orders_shipping\` - Update order shipping fields${updateWritten ? " including written `address`," : " (city, zone, district only — do not send `address`),"} city, zone, and district
+- \`bulk_update_orders_shipping\` - Update order shipping fields${updateWritten ? " including written address," : " (city, zone, district only — do not send address),"} city, zone, and district
 - \`report_address_conflict\` - Record an address conflict and stop. This does **not** message the customer. Call it when the written address contradicts itself, when the area does not belong to the city, when the written address disagrees with city or area, or when the written address disagrees with the WhatsApp/map location. Do **not** update the order in that turn
 
 ## Address sources
@@ -1680,8 +1681,38 @@ When both a written address and map coordinates exist, use distance only to deci
 8. Select the correct zone/district based on the address you are allowed to save
 ${updateTaskStep}
 
-## Response
-Explain briefly what you found and what you did (or why you left the order unchanged). Use simple, everyday language that any user can understand. Avoid technical terms.`;
+## Reply format
+Write only these three blocks, in this order. Write the headings and every label in ${lang === "ar" ? "Arabic" : "English"}. The English below is the meaning, not text to copy. Bold each title. Bold each label, and put a colon after the label. Do not mention tools.
+
+**What I found**
+- **The written address is:** ...
+- **The city is:** ...
+- **The area is:** ...
+- **The map address is:** ...
+
+**What I saved**
+- **The city is:** ...
+- **The area is:** ...
+- **The zone is:** ...
+- **The written address is:** ...
+
+**Problems**
+- **The address conflicted with:** ...
+- **Missing:** ...
+
+- The written address is the text already on the order.
+- The city and the area are the ones you judged, whether they were separate fields or written inside the address.
+- The map address is the address from the latitude and longitude. If there is no pin, write "none".
+- If a line has nothing, write "none".
+- Problems is its own block. It is not part of What I found or What I saved.
+- Every problem line needs a description, not only a short name. Name both sides and where each name came from.
+- A conflict description must say what the written address says, what the other side says, and what kind of difference it is. Good: "The registered address says Bir al-Abd, while the selected area is Rafah in North Sinai. This is an area difference." Bad: "the area".
+- A missing description must name the missing part and where you looked. Good: "The written address has no street and no building number or exact place on the street." Bad: "the street".
+- Under Problems, add **The address conflicted with:** only when there is a conflict.
+- Under Problems, add **Missing:** only when a required part is missing.
+- If there is no conflict and nothing is missing, write "none" under Problems.
+- If you save, What I saved is the final city, area, zone, and the full new written address.
+- If you do not save, What I saved is one line: "No change." plus the same description.`;
   }
 
   private buildResumePrompt(
