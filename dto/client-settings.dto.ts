@@ -43,6 +43,10 @@ export class CampaignOrderPageSettingsDto {
   @IsOptional()
   pageTitle?: string;
 
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
+  collectCityArea?: boolean;
+
   @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   logoUrl?: string;

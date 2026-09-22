@@ -20,10 +20,10 @@ export class PublicCampaignOrderSubmitDto {
   @MaxLength(1000)
   address: string;
 
+  @IsOptional()
   @IsString({ message: i18nValidationMessage("validation.is_string") })
-  @IsNotEmpty({ message: i18nValidationMessage("validation.is_not_empty") })
   @MaxLength(100)
-  city: string;
+  city?: string;
 
   @IsOptional()
   @IsString()

@@ -60,6 +60,7 @@ export type CampaignOrderPageSettings = {
   favicon: {
     icon: string;
   };
+  collectCityArea: boolean;
 };
 export const DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS: CampaignOrderPageSettings = {
   pageTitle: "",
@@ -67,6 +68,7 @@ export const DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS: CampaignOrderPageSettings = {
   favicon: {
     icon: "",
   },
+  collectCityArea: true,
 };
   export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
     order: true,

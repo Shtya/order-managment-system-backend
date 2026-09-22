@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -143,6 +144,18 @@ export class PublicCampaignOrdersService {
       }
 
       const adminId = recipient.adminId;
+      const branding = await this.getBranding(adminId);
+      const collectCityArea = branding.collectCityArea !== false;
+      if (collectCityArea) {
+        if (!String(dto.city || "").trim()) {
+          throw new BadRequestException(this.translations.t("validation.city_required"));
+        }
+      } else {
+        dto.city = undefined;
+        dto.cityId = undefined;
+        dto.area = undefined;
+        dto.areaId = undefined;
+      }
       let confirmed;
       try {
         confirmed = await this.ordersService.findStatusByCode(
@@ -171,7 +184,7 @@ export class PublicCampaignOrdersService {
           phoneNumber: recipient.phoneNumber,
           clientId: recipient.clientId || undefined,
           address: dto.address,
-          city: dto.city,
+          city: dto.city || "",
           cityId: dto.cityId,
           area: dto.area,
           areaId: dto.areaId,

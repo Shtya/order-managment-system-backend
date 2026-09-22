@@ -127,5 +127,6 @@
   "valid_time_window": "يجب أن يكون startTime قبل endTime",
   "valid_date_range": "يجب أن يكون activeFrom قبل أو يساوي activeUntil",
   "valid_week_days": "قناع weekDays غير صالح",
-  "valid_amount_range": "يجب أن يكون minAmount أقل من أو يساوي maxAmount"
+  "valid_amount_range": "يجب أن يكون minAmount أقل من أو يساوي maxAmount",
+  "city_required": "يجب أن تكون المدينة موجودة"
 }

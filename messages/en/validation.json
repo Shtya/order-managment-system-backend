@@ -127,5 +127,6 @@
     "valid_time_window": "startTime must be before endTime",
     "valid_date_range": "activeFrom must be before or equal to activeUntil",
     "valid_week_days": "Invalid weekDays bitmask",
-    "valid_amount_range": "minAmount must be less than or equal to maxAmount"
+    "valid_amount_range": "minAmount must be less than or equal to maxAmount",
+    "city_required": "City is required"
 }

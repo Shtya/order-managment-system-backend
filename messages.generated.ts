@@ -2081,6 +2081,7 @@ export type I18nTranslations = {
         "valid_date_range": string;
         "valid_week_days": string;
         "valid_amount_range": string;
+        "city_required": string;
     };
 };
 /* prettier-ignore */
