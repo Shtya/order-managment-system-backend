@@ -17,6 +17,7 @@ export type ReverseGeocodeResult = {
   postcode: string | null;
   road: string | null;
   houseNumber: string | null;
+  landmark: string | null;
   rawAddress: unknown;
 };
 
@@ -30,7 +31,7 @@ export async function reverseGeocode(
   return reverseGeocodeNominatim(lat, lon);
 }
 
-/** One address from context: street, place, region, country. */
+/** Street from Search Box reverse, plus the nearest nearby place as a landmark. */
 export async function reverseGeocodeMapbox(
   lat: number,
   lon: number,
@@ -38,30 +39,78 @@ export async function reverseGeocodeMapbox(
   const token = process.env.MAPBOX_ACCESS_TOKEN;
   if (!token) return null;
 
+  try {
+    const [streetFeatures, poiFeatures] = await Promise.all([
+      fetchMapboxReverse(lat, lon, "street", 1, token),
+      fetchMapboxReverse(lat, lon, "poi", 5, token),
+    ]);
+
+    const feature = streetFeatures[0];
+    if (!feature) return null;
+
+    const landmark = nearestMapboxLandmark(poiFeatures, lat, lon);
+    const mapped = mapMapboxReverseFeature(feature, lat, lon, landmark);
+    if (!mapped.composedAddress) return null;
+    console.log("mapped", JSON.stringify(mapped, null, 2));
+    return mapped;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchMapboxReverse(
+  lat: number,
+  lon: number,
+  types: string,
+  limit: number,
+  token: string,
+): Promise<any[]> {
   const url =
     `https://api.mapbox.com/search/searchbox/v1/reverse` +
     `?longitude=${encodeURIComponent(String(lon))}` +
     `&latitude=${encodeURIComponent(String(lat))}` +
     `&language=ar` +
-    `&types=street` +
+    `&types=${encodeURIComponent(types)}` +
+    `&limit=${limit}` +
     `&access_token=${encodeURIComponent(token)}`;
 
-  try {
-    const res = await fetch(url, {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+  }).catch(() => null);
+  if (!res?.ok) return [];
 
-    const data = await res.json();
-    const feature = data?.features?.[0];
-    if (!feature?.properties?.context) return null;
+  const data = await res.json();
+  return Array.isArray(data?.features) ? data.features : [];
+}
 
-    const mapped = mapMapboxReverseFeature(feature, lat, lon);
-    if (!mapped.composedAddress) return null;
-    return mapped;
-  } catch {
-    return null;
+function nearestMapboxLandmark(
+  features: any[],
+  lat: number,
+  lon: number,
+): string | null {
+  let nearestName: string | null = null;
+  let nearestDistance = Infinity;
+
+  for (const feature of features) {
+    const properties = feature?.properties || {};
+    const name = textOrNull(properties.name);
+    if (!name) continue;
+
+    const coordinates = properties.coordinates || {};
+    const point = feature?.geometry?.coordinates;
+    const placeLat = numberOrNull(coordinates.latitude) ?? numberOrNull(point?.[1]);
+    const placeLon = numberOrNull(coordinates.longitude) ?? numberOrNull(point?.[0]);
+    if (placeLat === null || placeLon === null) continue;
+
+    const distance = haversineMeters(lat, lon, placeLat, placeLon);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestName = name;
+    }
   }
+
+  if (!nearestName || nearestDistance > 100) return null;
+  return nearestName;
 }
 
 export async function reverseGeocodeNominatim(
@@ -183,8 +232,8 @@ export async function reverseGeocodeNominatim(
     !!city &&
     detailParts.length <= 3;
 
-  return {
-    provider: "nominatim",
+  const mapped = {
+    provider: "nominatim" as const,
     displayName,
     composedAddress,
     isSparse,
@@ -202,16 +251,21 @@ export async function reverseGeocodeNominatim(
     postcode: addr.postcode || null,
     road,
     houseNumber,
+    landmark: null,
     rawAddress: addr,
   };
+  console.log("mapped", JSON.stringify(mapped, null, 2));
+  return mapped;
 }
 
 function mapMapboxReverseFeature(
   feature: any,
   lat: number,
   lon: number,
+  landmark: string | null,
 ): ReverseGeocodeResult {
-  const context = feature?.properties?.context || {};
+  const properties = feature?.properties || {};
+  const context = properties.context || {};
   const street = textOrNull(context.street?.name);
   const neighborhood = textOrNull(context.neighborhood?.name);
   const locality = textOrNull(context.locality?.name);
@@ -225,11 +279,14 @@ function mapMapboxReverseFeature(
 
   const district = neighborhood || locality || place;
   const city = place;
-  const road = street;
+  const road = street || textOrNull(properties.name);
+  const streetLine = [houseNumber, road].filter(Boolean).join(" ");
+  const landmarkText = landmark ? `بجوار ${landmark}` : null;
   // Postcode stays in its own field. Mapbox often returns a short code such as
   // "45" here, and that is not a building number.
   const composedAddress = uniqueParts([
-    [houseNumber, road].filter(Boolean).join(" "),
+    streetLine,
+    landmarkText,
     neighborhood,
     locality,
     place,
@@ -237,13 +294,16 @@ function mapMapboxReverseFeature(
     country,
   ]).join("، ");
 
-  const hasStreetLevelDetail = !!(road || houseNumber || district);
-  const isSparse = !hasStreetLevelDetail && !!region && uniqueParts([district, region, country]).length <= 2;
+  const hasStreetLevelDetail = !!(road || houseNumber);
+  const isSparse =
+    !(road || houseNumber || district) &&
+    !!region &&
+    uniqueParts([district, region, country]).length <= 2;
 
   return {
     provider: "mapbox",
-    displayName: composedAddress,
-    composedAddress,
+    displayName: composedAddress || textOrNull(properties.full_address),
+    composedAddress: composedAddress || null,
     isSparse,
     hasStreetLevelDetail,
     detailNote: isSparse
@@ -259,8 +319,32 @@ function mapMapboxReverseFeature(
     postcode,
     road,
     houseNumber,
+    landmark,
     rawAddress: context,
   };
+}
+
+function numberOrNull(value: unknown): number | null {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function haversineMeters(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const earthRadius = 6371000;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const latDelta = toRadians(lat2 - lat1);
+  const lonDelta = toRadians(lon2 - lon1);
+  const startLat = toRadians(lat1);
+  const endLat = toRadians(lat2);
+  const a =
+    Math.sin(latDelta / 2) ** 2 +
+    Math.cos(startLat) * Math.cos(endLat) * Math.sin(lonDelta / 2) ** 2;
+  return 2 * earthRadius * Math.asin(Math.sqrt(a));
 }
 
 function textOrNull(value: unknown): string | null {
