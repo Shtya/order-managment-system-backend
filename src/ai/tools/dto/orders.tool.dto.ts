@@ -313,7 +313,7 @@ export class GetLocationByCoordinatesToolArgsDto {
 export class ReportAddressConflictAddressDto {
   @SchemaProperty({
     description:
-      'WhatsApp list row title. Use exactly "العنوان المسجل" for the written order address, or "عنوان الواتساب" for the WhatsApp/map pin location.',
+      'Candidate title. Use exactly "العنوان المسجل" for the written order address, or "عنوان الواتساب" for the WhatsApp/map pin location.',
     example: "العنوان المسجل",
   })
   @IsString()
@@ -375,7 +375,7 @@ export class ReportAddressConflictAddressDto {
 export class ReportAddressConflictToolArgsDto {
   @SchemaProperty({
     description:
-      "Two or more usable conflicting shipping locations. Each item must be deliverable: either a full written address (city + street detail) OR a map pin with latitude/longitude (map pin is valid even if reverse-geocode text is city-only/sparse). Example: written Cairo address vs Arish map coordinates. Do NOT include vague text with no city and no coordinates.",
+      "The conflicting address or addresses. For a city/area mismatch, include only the written address. For a written address that disagrees with the WhatsApp/map location, include both so a later step can offer the choice. Do not treat a map pin as permission to update the order. fullAddress is plain text with no coordinates.",
     examples: [
       [
         {

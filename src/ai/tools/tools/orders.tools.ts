@@ -27,6 +27,7 @@ import {
 } from "../../ai.constants";
 import { AiExecutionResult } from "../../interfaces/ai-types";
 import { OrderEntity } from "entities/order.entity";
+import { reverseGeocode } from "common/reverse-geocode";
 
 const ORDER_UUID_EXAMPLE = "37691350-8adc-4af9-9275-58dce66e5475";
 const ORDER_NUMBER_EXAMPLE = "ORD8VVTGTH";
@@ -102,7 +103,7 @@ export class OrdersAiTools {
       new AiTool({
         name: "get_location_by_coordinates",
         description:
-          "Get location details (address, city, district, country) from latitude and longitude using reverse geocoding. Returns displayName, composedAddress, isSparse, hasStreetLevelDetail, road, district, city, state. If isSparse is true, map data has no street-level detail — do NOT overwrite a richer order locationAddress with the short city/governorate string.",
+          "Reverse-geocode latitude and longitude. Always call this when the order has latitude and longitude, even if locationAddress or locationName is already set — those fields are not a substitute. Returns one composedAddress built from the map context (street, place, region, country), plus city, district, road, and state.",
         inputSchema: dtoToJsonSchema(GetLocationByCoordinatesToolArgsDto),
         argsDto: GetLocationByCoordinatesToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_READ,
@@ -113,7 +114,7 @@ export class OrdersAiTools {
       new AiTool({
         name: 'bulk_update_orders_shipping',
         description:
-          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id. You can set: address (normal full written shipping text in Arabic, with NO latitude/longitude in the string; translate English/mixed sources into Arabic), cityId, and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". If reverse geocode isSparse/city-only, prefer order locationAddress/locationName. NEVER set address to only city + governorate + country when richer text exists.`,
+          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id. You can set: address (normal full written shipping text in Arabic, with NO latitude/longitude in the string; translate English/mixed sources into Arabic), cityId, and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". If reverse geocode isSparse, do not save that short city string as address. NEVER set address to only city + governorate + country when a street-level composedAddress exists.`,
         inputSchema: dtoToJsonSchema(BulkUpdateOrdersShippingToolArgsDto),
         argsDto: BulkUpdateOrdersShippingToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_WRITE,
@@ -124,7 +125,7 @@ export class OrdersAiTools {
       new AiTool({
         name: "report_address_conflict",
         description:
-          "Ask the customer to choose between a complete written address and a different WhatsApp/map pin via WhatsApp list. Labels must be exactly: \"العنوان المسجل\" (written order address) and \"عنوان الواتساب\" (WhatsApp/map pin). Use this ONLY for written address vs location. Do NOT use it when selected city/region disagrees with the written address. A map pin with latitude/longitude IS a valid option even if reverse-geocode text is sparse. fullAddress must be plain address text with NO lat/lng. Do NOT call bulk_update_orders_shipping in the same turn. Do NOT invent addresses.",
+          "Record an address conflict and stop. This does not message the customer. Use it when the written address contradicts itself (two numbers, two streets, or alternatives such as \"12 أو 14\"), when the area does not belong to the city (names may be in the written address or in the city and area fields), when the written address disagrees with the selected city or area, or when the written address and the WhatsApp/map location are different places. Do not copy the WhatsApp location onto the order and do not use it to fix these conflicts. For a self-contradiction or a city/area mismatch, send the written address only (label \"العنوان المسجل\", source \"address\"). For a written-address vs WhatsApp-location mismatch, include both candidates (\"العنوان المسجل\" and \"عنوان الواتساب\") so a later step can offer the choice. fullAddress must be plain address text with NO lat/lng. Do NOT call bulk_update_orders_shipping in the same turn. Do NOT invent addresses.",
         inputSchema: dtoToJsonSchema(ReportAddressConflictToolArgsDto),
         argsDto: ReportAddressConflictToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_READ,
@@ -329,16 +330,16 @@ export class OrdersAiTools {
   ): Promise<AiExecutionResult> {
     return this.wrap("ADDRESS_CONFLICT_REPORTED", async () => {
       const addresses = Array.isArray(args.addresses) ? args.addresses : [];
-      if (addresses.length < 2) {
+      if (addresses.length < 1) {
         throw new BadRequestException(
-          "report_address_conflict requires at least 2 address candidates",
+          "report_address_conflict requires the address that conflicts",
         );
       }
       return {
         addresses,
         reason: args.reason ? String(args.reason) : undefined,
         message:
-          "Address conflict recorded. Do not update shipping until the customer chooses one address.",
+          "Address conflict recorded. Do not update the order.",
       };
     });
   }
@@ -474,146 +475,7 @@ export class OrdersAiTools {
         );
       }
 
-      const lang = "ar";
-
-      const url =
-        `https://nominatim.openstreetmap.org/reverse` +
-        `?format=json` +
-        `&lat=${lat}` +
-        `&lon=${lon}` +
-        `&accept-language=${encodeURIComponent(lang)}` +
-        `&addressdetails=1` +
-        `&zoom=18`;
-
-      let res: Response | null = null;
-      let lastError: unknown = null;
-
-      for (let attempt = 0; attempt <= 3; attempt++) {
-        if (attempt > 0) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, attempt * 1000),
-          );
-        }
-
-        try {
-          res = await fetch(url, {
-            headers: {
-              Accept: "application/json",
-              "Accept-Language": lang,
-              "User-Agent": "Madar/1.0 (https://getmadar.net)",
-            },
-          });
-
-          if (res.ok) {
-            break;
-          }
-
-          // Read the body so we know exactly why Nominatim rejected it.
-          const errorBody = await res.text();
-
-          lastError = new Error(
-            `Nominatim HTTP error: status=${res.status}, ` +
-            `statusText="${res.statusText}", ` +
-            `body="${errorBody}"`,
-          );
-
-          // Don't waste retries on client errors such as 400/403.
-          if (res.status >= 400 && res.status < 500 && res.status !== 429) {
-            throw lastError;
-          }
-
-          if (attempt === 3) {
-            throw lastError;
-          }
-        } catch (error) {
-          lastError = error;
-
-          if (attempt === 3) {
-            throw new BadRequestException(
-              `Reverse geocoding failed after ${attempt + 1} attempts: ${error instanceof Error ? error.message : String(error)
-              }`,
-            );
-          }
-        }
-      }
-
-      if (!res?.ok) {
-        throw new BadRequestException(
-          `Reverse geocoding failed: ${lastError instanceof Error
-            ? lastError.message
-            : String(lastError)
-          }`,
-        );
-      }
-
-      let data: any;
-
-      try {
-        data = await res.json();
-      } catch (error) {
-        throw new BadRequestException(
-          `Nominatim returned an invalid JSON response: ${error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-
-      const addr = data.address || {};
-      const city =
-        addr.city ||
-        addr.town ||
-        addr.village ||
-        addr.municipality ||
-        addr.county ||
-        null;
-      const district =
-        addr.suburb ||
-        addr.neighbourhood ||
-        addr.quarter ||
-        addr.city_district ||
-        null;
-      const road = addr.road || addr.pedestrian || addr.path || null;
-      const houseNumber = addr.house_number || null;
-      const state = addr.state || addr.region || null;
-      const country = addr.country || null;
-      const displayName = data.display_name || null;
-
-      const detailParts = [
-        [houseNumber, road].filter(Boolean).join(" "),
-        district,
-        city,
-        state,
-        country,
-      ]
-        .map((p) => (typeof p === "string" ? p.trim() : ""))
-        .filter(Boolean);
-
-      const composedAddress = detailParts.join("، ") || displayName;
-      const hasStreetLevelDetail = !!(road || houseNumber || district);
-      const isSparse =
-        !hasStreetLevelDetail &&
-        !!city &&
-        detailParts.length <= 3;
-
-      return {
-        displayName,
-        composedAddress,
-        isSparse,
-        hasStreetLevelDetail,
-        detailNote: isSparse
-          ? "Reverse geocode is city/governorate level only (no street/neighborhood in map data). Prefer order locationAddress/locationName if they are more detailed; do NOT overwrite a richer address with this short result."
-          : null,
-        latitude: lat,
-        longitude: lon,
-        country,
-        countryCode: addr.country_code || null,
-        state,
-        city,
-        district,
-        postcode: addr.postcode || null,
-        road,
-        houseNumber,
-        rawAddress: addr,
-      };
+      return reverseGeocode(lat, lon);
     });
   }
 
