@@ -730,8 +730,8 @@ export class ConditionAiAddressCompletenessHandler extends FlowNodeHandler {
       }
 
       const state = {
-        city: "",
-        area: "",
+        city: orderData.city || "",
+        area: orderData.area || "",
         address: orderData.address || "",
       };
 
