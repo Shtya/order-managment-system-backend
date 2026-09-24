@@ -38,9 +38,16 @@ export function problemsFromMainProblem(
   minProb = 0.25,
 ): string[] {
   if (!mainProblem) return [];
-  const top = Math.max(...Object.values(mainProblem.probabilities));
-  return Object.entries(mainProblem.probabilities)
+  const probabilities = mainProblem.probabilities ?? {};
+  const values = Object.values(probabilities);
+  const top = values.length ? Math.max(...values) : 0;
+  const fromProbs = Object.entries(probabilities)
     .filter(([key, prob]) => key !== "none" && prob >= minProb && prob >= top * 0.5)
     .sort((a, b) => b[1] - a[1])
     .map(([key]) => key);
+  const choice = mainProblem.choice;
+  if (choice && choice !== "none" && !fromProbs.includes(choice)) {
+    return [choice, ...fromProbs];
+  }
+  return fromProbs;
 }
