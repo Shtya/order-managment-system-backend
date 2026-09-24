@@ -730,8 +730,8 @@ export class ConditionAiAddressCompletenessHandler extends FlowNodeHandler {
       }
 
       const state = {
-        city: orderData.city || "",
-        area: orderData.area || "",
+        city: "",
+        area: "",
         address: orderData.address || "",
       };
 
@@ -1596,12 +1596,12 @@ The client setting **updateWrittenAddress is false**.
 - Still use location/address sources to decide city / zone / district`;
 
     const updateTaskStep = updateWritten
-      ? `9. Only when there is no conflict, update using \`bulk_update_orders_shipping\` with:
-   - \`code\`: The provider code (e.g. "bosta", "turbo")
+      ? `9. Only when there is no conflict and a zone or district was returned, update using \`bulk_update_orders_shipping\` with:
+   - \`code\`: The selected shipping company provider code, exactly as given above
    - \`items\`: [{ \`id\`: orderUuid, \`address\`: fullDetailedWrittenAddress, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
    - Always set \`address\` to normal full **Arabic** address text only. Translate if the source is not Arabic. **Never append latitude/longitude** to \`address\``
-      : `9. Only when there is no conflict, update using \`bulk_update_orders_shipping\` with:
-   - \`code\`: The provider code (e.g. "bosta", "turbo")
+      : `9. Only when there is no conflict and a zone or district was returned, update using \`bulk_update_orders_shipping\` with:
+   - \`code\`: The selected shipping company provider code, exactly as given above
    - \`items\`: [{ \`id\`: orderUuid, \`cityId\`: unifiedCityId, \`shippingMetadata\`: { zoneId, districtId } }]
    - **Do NOT include \`address\`** — written address must stay unchanged`;
 
@@ -1653,7 +1653,7 @@ These are complete. Save them:
 - \`التجمع الخامس - القاهرة الجديدة - الاندلس\`
 - \`التجمع الاول بنفسج 12 فيلا 185\`: التجمع الاول is the large area in القاهرة الجديدة, بنفسج 12 is the neighborhood, and فيلا 185 is optional. The city is القاهرة الجديدة even when it is not written.
 
-An empty city field is fine when the city name is already inside \`address\`. If the city is missing from every field, but the area is a well-known area of one city and you are sure of that city, the address is complete. Take the city from the area. Do not treat it as a missing city. Examples: المعادي is القاهرة; الدقي is الجيزة; ستانلي is الإسكندرية; الدهار and السقالة are الغردقة; التجمع الاول is القاهرة الجديدة. If you are not sure which city the area belongs to, do not guess.
+An empty \`city\` or \`area\` field is not a problem when that name is already inside \`address\`. Take the city and the area from the address text. Do not list them as missing. Example: address \`التجمع الخامس - الأندلس - عمارة 24\` with an empty area field is complete: التجمع الخامس and الأندلس are the area. If the city is missing from every field, but the area is a well-known area of one city and you are sure of that city, the address is complete. Take the city from the area. Do not treat it as a missing city. Examples: المعادي is القاهرة; الدقي is الجيزة; ستانلي is الإسكندرية; الدهار and السقالة are الغردقة; التجمع الاول is القاهرة الجديدة. If you are not sure which city the area belongs to, do not guess.
 
 The address is **not** complete when:
 - the same part has two alternatives joined by "or", "أو", "ولا", "/", or "not sure" ("12 أو 14", "عمارة 4 أو عمارة 5", "شارع الحجاز أو شارع سوريا"). A street number plus a building, floor, and apartment is one address. "12 شارع عباس العقاد، عمارة 4" is not two building numbers.
@@ -1672,7 +1672,7 @@ ${writtenAddressRules}
 Call \`report_address_conflict\` and do **not** call \`bulk_update_orders_shipping\` when any of these is true:
 1. **The written address contradicts itself.** The same part has two alternatives joined by "or", "أو", "ولا", "/", or "not sure".
 2. **The area does not belong to the city.**
-3. **Two valid addresses that are completely different places.** The written address is valid, and the WhatsApp/map address is also valid, and they are totally different delivery destinations. A large distance, or different cities or areas, is this case.
+3. **Two valid addresses that are completely different places.** The written address is valid, and the WhatsApp/map address is also valid, and they are totally different delivery destinations. A large distance, or different cities or areas, is this case. Apply the complete-address rule first: city and area inside \`address\` still count when the fields are empty. That does not block this call.
 
 Do **not** call \`report_address_conflict\` when the two addresses are nearby, differ only a little, or complete each other. A short distance, nearby streets, entrances, landmarks, normal GPS error, and a street-name mismatch alone are the same place. Save the written address.
 
@@ -1685,11 +1685,11 @@ When you call \`report_address_conflict\`, always set \`reason\` in plain langua
 - Written address contradicts itself, or the area does not belong to the city: include the written address only (label \`"العنوان المسجل"\`, source \`"address"\`).
 - Two valid but completely different addresses: include both. Written address → label \`"العنوان المسجل"\`, source \`"address"\`. WhatsApp/map pin → label \`"عنوان الواتساب"\`, source \`"coordinates"\`, with latitude and longitude. \`fullAddress\` is plain text only.
 
-Do **not** treat a missing city as a conflict when you are sure of the city from the area, or when the city name is already in \`address\`. Ignore spelling differences that clearly mean the same place.
+Ignore spelling differences that clearly mean the same place.
 
 ## When there is no conflict
 1. **Written address is complete**, the city is known (written, or sure from the area), and any WhatsApp pin is the same place, nearby, or absent → resolve city / zone / district and update with \`bulk_update_orders_shipping\`. Save the written address, not the pin. A missing street or landmark is not a reason to stop.
-2. **Written address is only missing parts** (empty, or a required part is absent) and it does not contradict itself, its city, or its area, **and** the \`get_location_by_coordinates\` result does not contradict those parts → you may use that tool result to set city / zone / district${updateWritten ? " and the Arabic \`address\` from \`composedAddress\`" : ""}. This is not a conflict. Do not use \`locationAddress\` or \`locationName\` in place of the tool. Do not use the tool result to replace an address that contradicts itself or whose area does not belong to its city.
+2. **Written address is only missing parts** (a required part is absent from \`city\`, \`area\`, and \`address\` together) and it does not contradict itself, its city, or its area, **and** the \`get_location_by_coordinates\` result does not contradict those parts → you may use that tool result to set city / zone / district${updateWritten ? " and the Arabic \`address\` from \`composedAddress\`" : ""}. This is not a conflict. Do not use \`locationAddress\` or \`locationName\` in place of the tool. Do not use the tool result to replace an address that contradicts itself or whose area does not belong to its city.
 3. **Written address is incomplete only because a required part is missing, and there is no WhatsApp pin** → do not update and do not call \`report_address_conflict\`. A missing part is not a conflict. A self-contradiction or an area that does not belong to its city is a conflict even when a part is also missing.
 4. **Anything you are unsure about** → do not update. Never invent an address.
 
@@ -1697,11 +1697,11 @@ Do **not** treat a missing city as a conflict when you are sure of the city from
 1. Judge whether \`address\`, \`city\`, and \`area\` form one complete address under the rules above
 2. If latitude/longitude are set, call \`get_location_by_coordinates\` before you decide, even when \`locationAddress\` or \`locationName\` is already set. Compare the tool result with the written address. Do not treat \`locationAddress\` or \`locationName\` as the map location
 3. If the written address contradicts itself, the area does not belong to the city, or the written address and the WhatsApp/map address are both valid and completely different places: call \`report_address_conflict\`, do not update, and do not save the WhatsApp location. Nearby or complementary addresses are not a conflict
-4. Only when there is no conflict, determine the city with \`get_cities\`
-5. Find the provider location mapping for the shipping company
+4. Only when there is no conflict, determine the city with \`get_cities\`. When القاهرة and أطراف القاهرة والجيزة could both match, choose القاهرة. التجمع الخامس, القاهرة الجديدة, and الأندلس belong to القاهرة, not أطراف القاهرة والجيزة
+5. Find the provider location mapping for the **selected** shipping company only
 6. Check if the city supports dropOff for this provider (if not, the order may need special handling)
-7. Fetch zones/districts using the provider's external city ID
-8. Select the correct zone/district based on the address you are allowed to save
+7. Fetch zones and districts for that same company. \`provider\` is its code. \`cityId\` is its \`providerCityId\`, not the location row id and not another company's id
+8. Select the zone and district from those lists. If both lists are empty, do not update. Say that under Problems: name the company and the city, and say no zone or district was returned
 ${updateTaskStep}
 
 ## Reply format
@@ -1722,6 +1722,7 @@ Write only these three blocks, in this order. Write the headings and every label
 **Problems**
 - **The address conflicted with:** ...
 - **Missing:** ...
+- **No shipping zone:** ...
 
 - The written address is the text already on the order.
 - The city and the area are the ones you judged, whether they were separate fields or written inside the address.
@@ -1732,8 +1733,9 @@ Write only these three blocks, in this order. Write the headings and every label
 - A conflict description must say what the written address says, what the other side says, and what kind of difference it is. Good: "The registered address says Bir al-Abd, while the selected area is Rafah in North Sinai. This is an area difference." Bad: "the area".
 - A missing description must name the missing part and where you looked. Good: "The written address has no street and no building number or exact place on the street." Bad: "the street".
 - Under Problems, add **The address conflicted with:** only when there is a conflict.
-- Under Problems, add **Missing:** only when a required part is missing.
-- If there is no conflict and nothing is missing, write "none" under Problems.
+- Under Problems, add **Missing:** only when a required part is absent from \`city\`, \`area\`, and \`address\` together.
+- Under Problems, add **No shipping zone:** only when the selected company returned no zones and no districts. Name the company and the city. Good: "Bosta returned no zones or districts for أطراف القاهرة والجيزة, so nothing was saved."
+- If there is no conflict, nothing is missing, and a zone was found, write "none" under Problems.
 - If you save, What I saved is the final city, area, zone, and the full new written address.
 - If you do not save, What I saved is one line: "No change." plus the same description.`;
   }
