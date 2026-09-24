@@ -955,6 +955,23 @@ describe("ConditionAiAddressCompletenessHandler", () => {
       };
     }
 
+    test("chooses valid without calling decide when latitude and longitude are set", async () => {
+      const result = await handler.execute(
+        {} as never,
+        runWith(mockOrder({ latitude: 30.0444, longitude: 31.2357 })),
+      );
+
+      expect(decide).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        success: true,
+        chosenBranch: "valid",
+        output: {
+          orderId: "order-1",
+          problems: [],
+        },
+      });
+    });
+
     test("chooses valid when score is high and main problem is none", async () => {
       decide.mockResolvedValue(jevAnswers(0.92, "none"));
 
