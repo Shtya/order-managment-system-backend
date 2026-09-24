@@ -1,4 +1,4 @@
-import type { QuestionMap } from "src/ai-decision/ai-decision.types";
+import type { ChoiceAnswer, QuestionMap } from "src/ai-decision/ai-decision.types";
 
 const request = require("./address-completeness.request.json") as {
   model: string;
@@ -23,10 +23,10 @@ export function chooseAddressCompletenessBranch(
   mainProblem?: string | null,
 ): AddressCompletenessBranch {
   const problem = mainProblem && mainProblem !== "none" ? mainProblem : "none";
-  if (addressValid >= 0.85 && problem === "none") {
+  if (addressValid >= 0.80 && problem === "none") {
     return ADDRESS_COMPLETENESS_BRANCH.VALID;
   }
-  if (addressValid < 0.5) {
+  if (addressValid < 0.50) {
     return ADDRESS_COMPLETENESS_BRANCH.NOT_VALID;
   }
   return ADDRESS_COMPLETENESS_BRANCH.NOT_SURE;
@@ -34,8 +34,13 @@ export function chooseAddressCompletenessBranch(
 
 /** Jev returns a single main_problem choice; expose it as a problems list. */
 export function problemsFromMainProblem(
-  mainProblem?: string | null,
+  mainProblem?: ChoiceAnswer | null,
+  minProb = 0.25,
 ): string[] {
-  if (!mainProblem || mainProblem === "none") return [];
-  return [mainProblem];
+  if (!mainProblem) return [];
+  const top = Math.max(...Object.values(mainProblem.probabilities));
+  return Object.entries(mainProblem.probabilities)
+    .filter(([key, prob]) => key !== "none" && prob >= minProb && prob >= top * 0.5)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key]) => key);
 }

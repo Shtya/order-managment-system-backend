@@ -128,7 +128,7 @@ export class JevDecisionProvider extends AiDecisionProvider {
           `Lower JEV_CHARS_PER_TOKEN (currently ${this.options.charsPerToken}).`,
       );
     }
-
+    console.log('json', JSON.stringify(json, null, 2));
     return {
       answers: json.answers as DecisionAnswers<Q>,
       usage,
