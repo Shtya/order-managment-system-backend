@@ -114,7 +114,7 @@ export class OrdersAiTools {
       new AiTool({
         name: 'bulk_update_orders_shipping',
         description:
-          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id. You can set: address (normal written shipping text in Arabic, with NO latitude/longitude in the string; translate English/mixed sources into Arabic), cityId, and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". City plus area in Arabic is a valid address. Do not replace a complete written address with the map text.`,
+          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id and cityId. cityId is required on every item: send the unified city id that matches the address, whether you are changing the city or not. If you chose a new city, send that new city's id. You may also set address (normal written shipping text in Arabic, with NO latitude/longitude in the string; translate English/mixed sources into Arabic) and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". City plus area in Arabic is a valid address. Do not replace a complete written address with the map text.`,
         inputSchema: dtoToJsonSchema(BulkUpdateOrdersShippingToolArgsDto),
         argsDto: BulkUpdateOrdersShippingToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_WRITE,
@@ -302,20 +302,28 @@ export class OrdersAiTools {
       const me = this.buildMe(ctx);
       const allowWrittenAddress =
         ctx.session?.metadata?.updateWrittenAddress !== false;
-      const items = Array.isArray(args.items)
-        ? args.items.map((item: any) => {
-            if (!item || typeof item !== "object") return item;
-            if (!allowWrittenAddress) {
-              const { address: _omitAddress, ...rest } = item;
-              return rest;
-            }
-            if (item.address === undefined || item.address === null) return item;
-            return {
-              ...item,
-              // address: stripCoordinatesFromAddressText(String(item.address)),
-            };
-          })
-        : [];
+      const rawItems = Array.isArray(args.items) ? args.items : [];
+      console.log("call bulk_update_orders_shipping with", rawItems);
+      for (const item of rawItems) {
+        const cityId = item && typeof item === "object" ? item.cityId : undefined;
+        if (cityId === undefined || cityId === null || String(cityId).trim() === "") {
+          throw new BadRequestException(
+            "bulk_update_orders_shipping requires cityId on every item. Send the unified city id that matches the address, whether the city is changing or not. If you chose a new city, send that city's id.",
+          );
+        }
+      }
+      const items = rawItems.map((item: any) => {
+        if (!item || typeof item !== "object") return item;
+        if (!allowWrittenAddress) {
+          const { address: _omitAddress, ...rest } = item;
+          return rest;
+        }
+        if (item.address === undefined || item.address === null) return item;
+        return {
+          ...item,
+          // address: stripCoordinatesFromAddressText(String(item.address)),
+        };
+      });
       const result = await this.ordersService.bulkUpdateShippingFields(me, {
         code: args.code ? String(args.code) : undefined,
         items,

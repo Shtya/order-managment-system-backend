@@ -164,11 +164,13 @@ export class BulkUpdateShippingFieldItemToolArgsDto {
   address?: string;
 
   @SchemaProperty({
-    description: "Unified city id to assign.",
+    description:
+      "Required. The unified city id that matches the address. Always send it, whether you are changing the city or not. If you chose a new city, send that new city's id.",
     example: "city_123",
   })
   @IsOptional()
   @IsString()
+  @MinLength(1)
   cityId?: string;
 
   @SchemaProperty({
@@ -192,7 +194,7 @@ export class BulkUpdateOrdersShippingToolArgsDto {
 
   @SchemaProperty({
     description:
-      "List of orders to update. Each item requires the order UUID id. When correcting location, set address to the full detailed map/street text (never only city + governorate + country), plus cityId / shippingMetadata.",
+      "List of orders to update. Each item requires the order UUID id and the cityId that matches the address. Always send cityId, whether the city is changing or not. If you chose a new city, send that new city's id. address and shippingMetadata are optional.",
     examples: [
       [
         {
