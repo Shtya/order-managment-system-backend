@@ -160,8 +160,13 @@ export class ConversationService {
     const sortDir: "ASC" | "DESC" =
       String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
 
-    // const lastId = q?.lastId;
-    const cursor = q?.cursor;
+    // Axios sends cursor[value]/cursor[id]; Nest does not nest those into q.cursor.
+    const cursor =
+      q?.cursor?.value != null && q?.cursor?.id != null
+        ? { value: q.cursor.value, id: q.cursor.id }
+        : q?.["cursor[value]"] != null && q?.["cursor[id]"] != null
+          ? { value: q["cursor[value]"], id: q["cursor[id]"] }
+          : undefined;
 
     const qb = this.conversationRepo
       .createQueryBuilder("conversation")
@@ -205,7 +210,6 @@ export class ConversationService {
     };
 
     const sortCol = sortColumns[sortBy] || "conversation.lastMessageAt";
-
     if (cursor) {
       const operator = sortDir === "DESC" ? "<" : ">";
 
