@@ -1916,6 +1916,25 @@ export type I18nTranslations = {
             "export_min_amount": string;
             "export_max_amount": string;
         };
+        "agents": {
+            "not_found": string;
+            "name_exists": string;
+            "provider_not_found": string;
+            "agent_required": string;
+            "deleted_successfully": string;
+            "export_sheet": string;
+            "export_name": string;
+            "export_language": string;
+            "export_provider": string;
+            "export_status": string;
+            "export_created_at": string;
+            "language_auto": string;
+            "language_arabic": string;
+            "language_english": string;
+            "provider_auto": string;
+            "status_active": string;
+            "status_inactive": string;
+        };
     };
     "emails": {
         "password_reset": {

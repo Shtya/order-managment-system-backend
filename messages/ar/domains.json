@@ -1774,5 +1774,24 @@
     "export_payment_method": "طريقة الدفع",
     "export_min_amount": "الحد الأدنى للمبلغ",
     "export_max_amount": "الحد الأقصى للمبلغ"
+  },
+  "agents": {
+    "not_found": "الوكيل غير موجود",
+    "name_exists": "يوجد وكيل بهذا الاسم بالفعل",
+    "provider_not_found": "مزود الرد غير موجود",
+    "agent_required": "اختر وكيلاً عند تفعيل الذكاء الاصطناعي",
+    "deleted_successfully": "تم حذف الوكيل بنجاح",
+    "export_sheet": "الوكلاء",
+    "export_name": "الاسم",
+    "export_language": "اللغة",
+    "export_provider": "مزود الرد",
+    "export_status": "الحالة",
+    "export_created_at": "تاريخ الإنشاء",
+    "language_auto": "تلقائي",
+    "language_arabic": "العربية",
+    "language_english": "الإنجليزية",
+    "provider_auto": "تلقائي",
+    "status_active": "نشط",
+    "status_inactive": "غير نشط"
   }
 }

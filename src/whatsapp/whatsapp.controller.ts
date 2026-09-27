@@ -23,6 +23,7 @@ import { PermissionsGuard } from "common/permissions.guard";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { Permissions } from "common/permissions.decorator";
 import { WhatsappSendMessagePayload } from "./services/WhatsappApi.service";
+import { MessageSendSource } from "entities/whatsapp.entity";
 import { FileInterceptor } from "@nestjs/platform-express";
 import {
   EmbeddedSignupDto,
@@ -174,6 +175,10 @@ export class WhatsappController {
       payload,
       accountId,
       localId,
+      undefined,
+      undefined,
+      MessageSendSource.USER,
+      req.user?.id,
     );
   }
 

@@ -1,31 +1,40 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, DataSource, EntityManager, Repository } from "typeorm";
 import {
+  ConversationAiMode,
   ConversationEntity,
   ConversationStatus,
+  MessageDirection,
+  WhatsappMessageEntity,
 } from "entities/whatsapp.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { CreateConversationDto } from "dto/whatsapp.dto";
-import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { CustomerService } from "../customer/customer.service";
 import { AppGateway } from "common/app.gateway";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
+import { AgentTurnQueueService } from "src/queue/queues/agent-turn.queue";
 
 @Injectable()
 export class ConversationService {
   constructor(
     @InjectRepository(ConversationEntity)
     private readonly conversationRepo: Repository<ConversationEntity>,
+    @InjectRepository(WhatsappMessageEntity)
+    private readonly messageRepo: Repository<WhatsappMessageEntity>,
     private readonly customerService: CustomerService,
     private readonly appGateway: AppGateway,
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
+    @Inject(forwardRef(() => AgentTurnQueueService))
+    private readonly agentTurnQueue: AgentTurnQueueService,
   ) {}
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
@@ -245,6 +254,63 @@ export class ConversationService {
       sortBy,
       sortDir,
     };
+  }
+
+  async updateAi(me: any, id: string, aiMode: ConversationAiMode) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    const conversation = await this.conversationRepo.findOne({
+      where: { id, adminId },
+    });
+    if (!conversation) {
+      throw new NotFoundException(
+        this.translations.t("domains.conversation.not_found"),
+      );
+    }
+    conversation.aiMode = aiMode;
+    return this.conversationRepo.save(conversation);
+  }
+
+  /** Ends the employee pause and runs catch-up for unanswered customer messages. */
+  async resumeAgent(me: any, id: string) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    const conversation = await this.conversationRepo.findOne({
+      where: { id, adminId },
+    });
+    if (!conversation) {
+      throw new NotFoundException(
+        this.translations.t("domains.conversation.not_found"),
+      );
+    }
+    conversation.agentPausedUntil = null;
+    const saved = await this.conversationRepo.save(conversation);
+    const lastInbound = await this.messageRepo.findOne({
+      where: {
+        adminId,
+        conversationId: saved.id,
+        direction: MessageDirection.INBOUND,
+      },
+      order: { createdAt: "DESC" },
+      select: { accountId: true },
+    });
+    await this.agentTurnQueue.schedulePauseCatchup(
+      {
+        adminId,
+        accountId: lastInbound?.accountId ?? null,
+        conversationId: saved.id,
+      },
+      new Date(),
+    );
+    return saved;
   }
 
   async findOne(me: any, id: string) {

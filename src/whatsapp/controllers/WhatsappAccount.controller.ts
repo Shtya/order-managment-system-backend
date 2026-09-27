@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Patch,
@@ -15,6 +16,7 @@ import { Permissions } from "common/permissions.decorator";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { SubscriptionGuard } from "common/subscription.guard";
+import { UpdateWhatsappAccountAiDto } from "dto/whatsapp-ai.dto";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @Controller("whatsapp-accounts")
@@ -60,6 +62,16 @@ export class WhatsappAccountController {
   }
 
   // 4. Toggle Active Status
+  @Permissions("whatsapp.manage")
+  @Patch(":id/ai")
+  async updateAi(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateWhatsappAccountAiDto,
+  ) {
+    return await this.svc.updateAi(req.user, id, dto);
+  }
+
   @Permissions("whatsapp.update_account")
   @Patch(":id/toggle-active")
   async toggleActive(@Req() req: any, @Param("id") id: string) {

@@ -1,6 +1,7 @@
 ;
 import { Column, ManyToOne, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn, JoinColumn } from "typeorm";
 import { User } from "./user.entity";
+import { AgentEntity } from "./agent.entity";
 
 export enum AutomationMigrationStrategy {
     LATEST_MAJOR = "latest_major",
@@ -197,6 +198,17 @@ export class ClientSettingsEntity {
 
   @Column({ type: "uuid", nullable: true })
   defaultWhatsAppAccountId: string;
+
+  @Column({ type: "boolean", default: false })
+  whatsappAiEnabled: boolean;
+
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  whatsappAiAgentId?: string | null;
+
+  @ManyToOne(() => AgentEntity, { nullable: true, onDelete: "SET NULL" })
+  @JoinColumn({ name: "whatsappAiAgentId" })
+  whatsappAiAgent?: AgentEntity | null;
 
   @Column({ type: "boolean", default: false })
   reservedEnabled: boolean;

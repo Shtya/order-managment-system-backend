@@ -13,7 +13,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "nodemon": "nodemon --ext json,yaml --exec npm run start",
-    "start:dev": "set NODE_ENV=development&&set NODE_OPTIONS=-r ts-node/register -r ./tracer.ts&&nest start --watch",
+    "start:dev": "set NODE_ENV=development&&set NODE_OPTIONS=-r ts-node/register -r ./tracer.ts&&nest start --debug --watch",
     "start:dev:debug": "set NODE_ENV=development&&set NODE_OPTIONS=-r ts-node/register -r ./tracer.ts&&nest start --debug --watch",
     "start:debug": "set NODE_ENV=production&&set NODE_OPTIONS=-r ts-node/register -r ./tracer.ts&&nest start --debug --watch",
     "start:prod": "set NODE_ENV=production&&set NODE_OPTIONS=-r ./dist/tracer.js&&node dist/main",

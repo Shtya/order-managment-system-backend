@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -16,6 +17,7 @@ import { PermissionsGuard } from "common/permissions.guard";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { Permissions } from "common/permissions.decorator";
 import { CreateConversationDto } from "dto/whatsapp.dto";
+import { UpdateConversationAiDto } from "dto/whatsapp-ai.dto";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path";
@@ -55,6 +57,22 @@ export class ConversationController {
   @Permissions("conversation.read")
   findAllPaginated(@Req() req: any, @Query() q: any) {
     return this.conversationService.findAllPaginated(req.user, q);
+  }
+
+  @Patch(":id/ai")
+  @Permissions("conversation.update")
+  updateAi(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateConversationAiDto,
+  ) {
+    return this.conversationService.updateAi(req.user, id, dto.aiMode);
+  }
+
+  @Patch(":id/ai/resume")
+  @Permissions("conversation.update")
+  resumeAgent(@Req() req: any, @Param("id") id: string) {
+    return this.conversationService.resumeAgent(req.user, id);
   }
 
   @Get(":id")

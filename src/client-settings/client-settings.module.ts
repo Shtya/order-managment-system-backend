@@ -6,10 +6,11 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { ClientSettingsSubscriber } from "./client-settings.subscribtor";
 import { OrphanFileEntity } from "entities/files.entity";
 import { OrphanFilesModule } from "src/orphan-files/orphan-files.module";
+import { AgentEntity } from "entities/agent.entity";
 
 @Global()
 @Module({
-  imports: [forwardRef(() => OrphanFilesModule) ,TypeOrmModule.forFeature([ClientSettingsEntity, OrphanFileEntity])],
+  imports: [forwardRef(() => OrphanFilesModule), TypeOrmModule.forFeature([ClientSettingsEntity, OrphanFileEntity, AgentEntity])],
   controllers: [ClientSettingsController],
   providers: [ClientSettingsService, ClientSettingsSubscriber],
   exports: [ClientSettingsService],

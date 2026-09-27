@@ -65,6 +65,11 @@ import {
   ClientImportWorkerService,
 } from "./queues/client-import.queue";
 import { MetricsTime } from "bullmq";
+import {
+  AgentTurnQueueService,
+  AgentTurnWorkerService,
+} from "./queues/agent-turn.queue";
+import { AgentsModule } from "src/agents/agents.module";
 
 const registeredQueues = Object.values(QueueNames).map((queueName) => ({
   name: queueName,
@@ -96,6 +101,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     forwardRef(() => ClientSegmentsModule),
     forwardRef(() => CampaignsModule),
     forwardRef(() => ClientsModule),
+    forwardRef(() => AgentsModule),
     BullModule.forRootAsync(bullQueueConfig),
     BullModule.registerQueue(...registeredQueues),
     BullBoardModule.forRootAsync({
@@ -153,6 +159,8 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     CampaignWorkerService,
     ClientImportQueueService,
     ClientImportWorkerService,
+    AgentTurnQueueService,
+    AgentTurnWorkerService,
     QueueDelayService,
   ],
   exports: [
@@ -171,6 +179,7 @@ const registeredBoardQueues = Object.values(QueueNames).map((queueName) => ({
     CampaignQueueService,
     QueueDelayService,
     ClientImportQueueService,
+    AgentTurnQueueService,
   ],
   controllers: [OpsController],
 })

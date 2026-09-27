@@ -14,6 +14,7 @@ import {
 import { User } from './user.entity';
 import { CustomerEntity } from './customers.entity';
 import { OrderEntity } from './order.entity';
+import { AgentEntity } from './agent.entity';
 
 
 export enum TemplateCategory {
@@ -216,6 +217,22 @@ export enum ConversationStatus {
     ARCHIVED = 'archived',
 }
 
+export enum ConversationAiMode {
+    INHERIT = 'inherit',
+    DISABLED = 'disabled',
+}
+
+export enum WhatsappAiResponses {
+    DEFAULT = 'default',
+    ENABLED = 'enabled',
+    DISABLED = 'disabled',
+}
+
+export enum WhatsappAiAgentSource {
+    DEFAULT = 'default',
+    SPECIFIC = 'specific',
+}
+
 @Index(['adminId', 'customerId'], { unique: true })
 @Entity('whatsapp_conversations')
 export class ConversationEntity {
@@ -278,6 +295,17 @@ export class ConversationEntity {
 
     @Column({ type: 'jsonb', nullable: true })
     metadata: any;
+
+    @Column({
+        type: 'enum',
+        enum: ConversationAiMode,
+        default: ConversationAiMode.INHERIT,
+    })
+    aiMode: ConversationAiMode;
+
+    /** The AI agent stays silent until this time because an employee replied manually. */
+    @Column({ type: 'timestamptz', nullable: true })
+    agentPausedUntil?: Date | null;
 
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
@@ -346,7 +374,28 @@ export class WhatsappAccountEntity {
 
     @Column({ type: 'varchar', length: 100, nullable: true, select: false })
     pinCode: string; // كود PIN الخاص بـ Meta Graph API
-    
+
+    @Column({
+        type: 'enum',
+        enum: WhatsappAiResponses,
+        default: WhatsappAiResponses.DEFAULT,
+    })
+    aiResponses: WhatsappAiResponses;
+
+    @Column({
+        type: 'enum',
+        enum: WhatsappAiAgentSource,
+        default: WhatsappAiAgentSource.DEFAULT,
+    })
+    aiAgentSource: WhatsappAiAgentSource;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    aiAgentId?: string | null;
+
+    @ManyToOne(() => AgentEntity, { nullable: true, onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'aiAgentId' })
+    aiAgent?: AgentEntity | null;
 
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
@@ -443,6 +492,12 @@ export enum MessageActionStatus {
     COMPLETED = 'completed',             // Customer replied and OrderEntity was updated
     EXPIRED = 'expired',                // Order changed status or timed out
     FAILED = 'failed',                 // Customer replied with invalid payload
+}
+
+export enum MessageSendSource {
+    SYSTEM = 'system',
+    USER = 'user',
+    AGENT = 'agent',
 }
 
 @Index(['messageId',"adminId"])
@@ -621,6 +676,30 @@ export class WhatsappMessageEntity {
 
     @OneToMany(() => WhatsappMessageEntity, (m) => m.reactionTo)
     reactions: WhatsappMessageEntity[];
+
+    @Column({
+        type: 'enum',
+        enum: MessageSendSource,
+        default: MessageSendSource.SYSTEM,
+    })
+    sendSource: MessageSendSource;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    sentByUserId?: string | null;
+
+    @ManyToOne(() => User, { onDelete: 'SET NULL', nullable: true })
+    @JoinColumn({ name: 'sentByUserId' })
+    sentByUser?: User | null;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    sentByAgentId?: string | null;
+
+    @ManyToOne(() => AgentEntity, { onDelete: 'SET NULL', nullable: true })
+    @JoinColumn({ name: 'sentByAgentId' })
+    sentByAgent?: AgentEntity | null;
+
 }
 
 

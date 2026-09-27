@@ -635,7 +635,10 @@ export class ClientService {
 
   async getOrderStats(me: any, clientId: string) {
     const { adminId } = await this.findClientOrThrow(me, clientId);
+    return this.getOrderStatsForAdmin(adminId, clientId);
+  }
 
+  async getOrderStatsForAdmin(adminId: string, clientId: string) {
     const [stats, tagRows] = await Promise.all([
       this.clientOrderStatsService.getOrderStatsSnapshot(adminId, clientId),
       this.dataSource
@@ -842,6 +845,10 @@ export class ClientService {
 
   async findAllAddresses(me: any, clientId: string) {
     const { adminId } = await this.findClientOrThrow(me, clientId);
+    return this.findAddressesForAdmin(adminId, clientId);
+  }
+
+  async findAddressesForAdmin(adminId: string, clientId: string) {
     return this.addressRepo.find({
       where: { clientId, adminId },
       order: { isDefault: "DESC", createdAt: "DESC" },

@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from "class-validator";
+import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, Min, ValidateIf, ValidateNested } from "class-validator";
 import { AssignmentMode, AutomationMigrationStrategy, Language, NotificationSettings, OrderFlowPath, OrderTagMode, StockDeductionStrategy, TimeUnit } from "entities/clientSettings.entity";
 import { i18nValidationMessage } from "nestjs-i18n";
 
@@ -163,6 +163,15 @@ export class UpsertClientSettingsDto {
   @IsString({message: i18nValidationMessage('validation.is_string')})
   @IsOptional()
   defaultWhatsAppAccountId?: string;
+
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
+  whatsappAiEnabled?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== "")
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  whatsappAiAgentId?: string | null;
 
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
   @IsOptional()

@@ -1,6 +1,8 @@
 import {
   BadRequestException,
   ConflictException,
+  forwardRef,
+  Inject,
   Injectable,
   NotFoundException,
 } from "@nestjs/common";
@@ -29,7 +31,9 @@ export class PublicCampaignOrdersService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
+    @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
+    @Inject(forwardRef(() => ClientSettingsService))
     private readonly clientSettingsService: ClientSettingsService,
     @InjectRepository(CampaignRecipientEntity)
     private readonly recipientRepo: Repository<CampaignRecipientEntity>,
@@ -110,12 +114,52 @@ export class PublicCampaignOrdersService {
   }
 
   async submit(token: string, dto: PublicCampaignOrderSubmitDto) {
+    return this.submitFor({ token }, dto);
+  }
+
+  /** Same as the order page submit, for a recipient found server-side (used by the WhatsApp agent). */
+  async submitForRecipient(
+    adminId: string,
+    recipientId: string,
+    dto: PublicCampaignOrderSubmitDto,
+  ) {
+    return this.submitFor({ adminId, recipientId }, dto);
+  }
+
+  /** The open offer as the order page shows it, plus the customer's saved data. */
+  async getForRecipient(adminId: string, recipientId: string) {
+    const recipient = await this.recipientRepo.findOne({
+      where: { id: recipientId, adminId },
+      select: { id: true, accessToken: true },
+    });
+    if (!recipient?.accessToken) {
+      throw new NotFoundException(
+        this.translations.t("domains.campaigns.order_link_unavailable"),
+      );
+    }
+    return this.getByToken(recipient.accessToken);
+  }
+
+  async getBrandingFor(adminId: string) {
+    return this.getBranding(adminId);
+  }
+
+  private async submitFor(
+    target: { token: string } | { adminId: string; recipientId: string },
+    dto: PublicCampaignOrderSubmitDto,
+  ) {
     return this.dataSource.transaction(async (manager) => {
-      const recipient = await manager
+      const query = manager
         .createQueryBuilder(CampaignRecipientEntity, "recipient")
-        .setLock("pessimistic_write")
-        .where('recipient."accessToken" = :token', { token })
-        .getOne();
+        .setLock("pessimistic_write");
+      if ("token" in target) {
+        query.where('recipient."accessToken" = :token', { token: target.token });
+      } else {
+        query
+          .where("recipient.id = :recipientId", { recipientId: target.recipientId })
+          .andWhere('recipient."adminId" = :adminId', { adminId: target.adminId });
+      }
+      const recipient = await query.getOne();
       if (!recipient) {
         throw new NotFoundException(
           this.translations.t("domains.campaigns.order_link_unavailable"),

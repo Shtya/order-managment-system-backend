@@ -34,6 +34,8 @@ import {
   TemplateQuality,
   MessageActionIntent,
   MessageActionStatus,
+  MessageSendSource,
+  ConversationAiMode,
 } from "entities/whatsapp.entity";
 import {
   AutomationFlowEntity,
@@ -42,7 +44,14 @@ import {
 } from "entities/automation.entity";
 import { ADDRESS_CHOICE_DELETED_BUTTON_ID } from "src/automation/engine/automation-helpers";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, Repository, Not, LessThanOrEqual, In } from "typeorm";
+import {
+  Brackets,
+  Repository,
+  Not,
+  LessThanOrEqual,
+  In,
+  SelectQueryBuilder,
+} from "typeorm";
 import { WhatsappTemplateService } from "./services/WhatsappTemplate.service";
 import {
   getErrorMessage,
@@ -77,6 +86,9 @@ import { GettingStartedAchievementType } from "entities/getting-started.entity";
 import { CampaignQueueService, type CampaignJobData } from "src/queue/queues/campaign.queue";
 import { CampaignRecipientDeliveryStatus } from "entities/campaigns.entity";
 import { WhatsappMessageCostService } from "./services/whatsapp-message-cost.service";
+import { WhatsappAiService } from "./services/whatsapp-ai.service";
+import { AgentTurnQueueService } from "src/queue/queues/agent-turn.queue";
+import { AGENT_HUMAN_PAUSE_MS } from "src/agents/runtime/agent-runtime.constants";
 
 /** Meta rejects template text/coupon params with an empty `text` / `coupon_code`. */
 function resolveWhatsappTemplateText(val: any): string {
@@ -134,6 +146,9 @@ export class WhatsappService {
     @Inject(forwardRef(() => CampaignQueueService))
     private readonly campaignQueue: CampaignQueueService,
     private readonly messageCostService: WhatsappMessageCostService,
+    private readonly whatsappAiService: WhatsappAiService,
+    @Inject(forwardRef(() => AgentTurnQueueService))
+    private readonly agentTurnQueueService: AgentTurnQueueService,
   ) {}
 
   async getMessagesByTypeStats(me: any, filters: any = {}) {
@@ -852,6 +867,8 @@ export class WhatsappService {
     localId?: string,
     actionIntent?: MessageActionIntent,
     orderId?: string,
+    sendSource: MessageSendSource = MessageSendSource.SYSTEM,
+    sendSourceId?: string,
   ) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -895,6 +912,8 @@ export class WhatsappService {
       metadata,
       actionIntent,
       orderId,
+      sendSource,
+      sendSourceId,
     );
 
     return response;
@@ -1114,6 +1133,8 @@ export class WhatsappService {
     metadata?: Record<string, any>,
     actionIntent?: MessageActionIntent,
     orderId?: string,
+    sendSource: MessageSendSource = MessageSendSource.SYSTEM,
+    sendSourceId?: string,
   ) {
     try {
       const messageId = response.messages?.[0]?.id;
@@ -1192,6 +1213,11 @@ export class WhatsappService {
         },
         reactionToId,
         replyToId,
+        sendSource,
+        sentByUserId:
+          sendSource === MessageSendSource.USER ? sendSourceId ?? null : null,
+        sentByAgentId:
+          sendSource === MessageSendSource.AGENT ? sendSourceId ?? null : null,
       });
       const savedMsg = await this.messageRepo.save(message);
 
@@ -1206,13 +1232,14 @@ export class WhatsappService {
       }
 
       // Fetch with relations
-      const finalMsg = await this.messageRepo.findOne({
-        where: { id: savedMsg.id },
-        relations: {
-          replyTo: true,
-          reactionTo: true
-        },
-      });
+      const finalMsg = await this.selectMessageSender(
+        this.messageRepo
+          .createQueryBuilder("message")
+          .leftJoinAndSelect("message.replyTo", "replyTo")
+          .leftJoinAndSelect("message.reactionTo", "reactionTo"),
+      )
+        .where("message.id = :id", { id: savedMsg.id })
+        .getOne();
 
       // Update conversation metadata
       let preview = `[${(payload.type || "MESSAGE").toUpperCase()}]`;
@@ -1222,6 +1249,8 @@ export class WhatsappService {
         preview = `Reaction: ${(payload as any).reaction?.emoji}`;
       } else if (payload.type === "template") {
         preview = `[TEMPLATE: ${payload.template?.name}]`;
+      } else if (payload.type === "image") {
+        preview = payload.image?.caption || "[IMAGE]";
       } else if (payload.type === "interactive") {
         preview = `[INTERACTIVE: ${payload.interactive?.type}]`;
       }
@@ -1232,10 +1261,26 @@ export class WhatsappService {
       conversation.lastMessagePreview = preview;
       conversation.lastMessageAt = new Date();
       conversation.lastOutgoingMessageAt = new Date();
-      await this.conversationService.save(conversation);
+      if (sendSource === MessageSendSource.USER) {
+        const pausedUntil = new Date(Date.now() + AGENT_HUMAN_PAUSE_MS);
+        conversation.agentPausedUntil = pausedUntil;
+        await this.conversationService.save(conversation);
+        await this.agentTurnQueueService.schedulePauseCatchup(
+          {
+            adminId,
+            accountId,
+            conversationId: conversation.id,
+          },
+          pausedUntil,
+        );
+      } else {
+        await this.conversationService.save(conversation);
+      }
 
       // Emit notifications
-      this.appGateway.emitNewMessage(adminId, finalMsg);
+      this.appGateway.emitNewMessage(adminId, finalMsg, {
+        agentPausedUntil: conversation.agentPausedUntil ?? null,
+      });
 
       return finalMsg;
     } catch (e) {
@@ -1960,10 +2005,12 @@ export class WhatsappService {
     signatureHeader?: string,
     accountAppSecret?: string,
   ) {
+    const isProduction = process.env.NODE_ENV === "production";
+    if(!isProduction)
+      return;
     if (!signatureHeader) {
       throw new BadRequestException("Missing X-Hub-Signature-256 header");
     }
-
     const appSecret = accountAppSecret || process.env.META_APP_SECRET;
     // this.logger.log(`WhatsApp Webhook Received - appSecret: ${appSecret} - accountAppSecret: ${accountAppSecret}`);
 
@@ -2253,22 +2300,24 @@ export class WhatsappService {
     // Handle Reactions and Replies (Context)
     let reactionToId: string = null;
     let replyToId: string = null;
+    let reactionParent: WhatsappMessageEntity | null = null;
+    let replyParent: WhatsappMessageEntity | null = null;
 
     if (type === WhatsappMessageType.REACTION && metaMsg.reaction?.message_id) {
-      const parent = await this.messageRepo.findOne({
+      reactionParent = await this.messageRepo.findOne({
         where: {
           messageId: metaMsg.reaction.message_id,
           adminId: account.adminId,
         },
       });
-      if (parent) reactionToId = parent.id;
+      if (reactionParent) reactionToId = reactionParent.id;
     }
 
     if (metaMsg.context?.id) {
-      const parent = await this.messageRepo.findOne({
+      replyParent = await this.messageRepo.findOne({
         where: { messageId: metaMsg.context.id, adminId: account.adminId },
       });
-      if (parent) replyToId = parent.id;
+      if (replyParent) replyToId = replyParent.id;
     }
 
     const message = this.messageRepo.create({
@@ -2319,10 +2368,13 @@ export class WhatsappService {
     await this.customerRepo.save(customer);
 
     // Emit notifications
-    this.appGateway.emitNewMessage(account.adminId, finalMsg);
+    this.appGateway.emitNewMessage(account.adminId, finalMsg, {
+      agentPausedUntil: conversation.agentPausedUntil ?? null,
+    });
 
     const replyData = this.extractReplyData(metaMsg);
-    if (replyData) {
+    const answersAgent = replyParent?.sendSource === MessageSendSource.AGENT;
+    if (replyData && !answersAgent) {
       const originalMessageId = metaMsg.context?.id;
       if (originalMessageId) {
         // Push resume job to queue instead of direct execution
@@ -2348,6 +2400,73 @@ export class WhatsappService {
     }
 
     await this.processMessageActions(account.adminId, metaMsg);
+
+    if (this.shouldAgentHandle(type, replyData, replyParent, reactionParent)) {
+      await this.enqueueAgentTurn(account, conversation, savedMsg.id);
+    }
+  }
+
+  /**
+   * Button/list answers to automations or ready messages belong to the automation; answers to the
+   * agent's own buttons go to the agent. Reactions only matter on the agent's confirmation summaries.
+   */
+  private shouldAgentHandle(
+    type: WhatsappMessageType,
+    replyData: { id?: string; text: string } | null,
+    replyParent: WhatsappMessageEntity | null,
+    reactionParent: WhatsappMessageEntity | null,
+  ): boolean {
+    if (type === WhatsappMessageType.REACTION) {
+      return (
+        reactionParent?.sendSource === MessageSendSource.AGENT &&
+        !!reactionParent.metadata?.agentPendingActionId
+      );
+    }
+    // this mean that he now answer for campaign or any ather message send from system
+    const isOptionAnswer =
+      !!replyParent &&
+      !!replyData &&
+      type !== WhatsappMessageType.LOCATION;
+    if (isOptionAnswer) {
+      return replyParent.sendSource === MessageSendSource.AGENT;
+    }
+    return true;
+  }
+
+  private async enqueueAgentTurn(
+    account: WhatsappAccountEntity,
+    conversation: ConversationEntity,
+    messageId: string,
+  ) {
+    try {
+      if (conversation.aiMode === ConversationAiMode.DISABLED) return;
+      // Messages received while an employee is handling the chat are saved but never answered later.
+      if (
+        conversation.agentPausedUntil &&
+        new Date(conversation.agentPausedUntil).getTime() > Date.now()
+      ) {
+        return;
+      }
+
+      const context = await this.whatsappAiService.loadContext(
+        account.adminId,
+        account.id,
+      );
+      const ai = this.whatsappAiService.resolve(context, conversation.aiMode);
+      if (!ai.enabled || !ai.agentId) return;
+
+      await this.agentTurnQueueService.enqueueMessage({
+        adminId: account.adminId,
+        accountId: account.id,
+        conversationId: conversation.id,
+        messageId,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to enqueue agent turn for conversation ${conversation.id}: ${error?.message}`,
+        error?.stack,
+      );
+    }
   }
 
   private async enqueueCampaignWebhookEvent(
@@ -2675,6 +2794,16 @@ export class WhatsappService {
     return this.sendMessage(me, message.content, message.accountId);
   }
 
+  private selectMessageSender(
+    qb: SelectQueryBuilder<WhatsappMessageEntity>,
+  ) {
+    return qb
+      .leftJoin("message.sentByUser", "sentByUser")
+      .addSelect(["sentByUser.id", "sentByUser.name", "sentByUser.avatarUrl"])
+      .leftJoin("message.sentByAgent", "sentByAgent")
+      .addSelect(["sentByAgent.id", "sentByAgent.name"]);
+  }
+
   async findAllMessages(me: any, q?: any) {
     const adminId = tenantId(me); // Basic tenant resolving
     if (!adminId) {
@@ -2695,8 +2824,9 @@ export class WhatsappService {
       q || {},
     );
 
-    const qb = this.messageRepo
-      .createQueryBuilder("message")
+    const qb = this.selectMessageSender(
+      this.messageRepo.createQueryBuilder("message"),
+    )
       .leftJoinAndSelect("message.account", "account")
       .leftJoinAndSelect("message.replyTo", "replyTo")
       .leftJoinAndSelect(

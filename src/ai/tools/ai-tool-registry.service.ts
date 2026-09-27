@@ -1,6 +1,6 @@
 import { BadRequestException, Inject, Injectable, OnModuleInit } from "@nestjs/common";
 import { AI_TOOL_NAMESPACE_TOKEN } from "../ai.constants";
-import { AiTool } from "./ai-tool.abstract";
+import { AiTool, AiToolAudience } from "./ai-tool.abstract";
 import { AiToolContext } from "./ai-tool-context";
 import { AiToolSpec } from "../interfaces/ai-types";
 
@@ -19,14 +19,19 @@ export class AiToolRegistryService implements OnModuleInit {
 
   onModuleInit() {
     for (const namespace of this.namespaces ?? []) {
-      for (const tool of namespace.getTools() ?? []) {
-        if (this.tools.has(tool.name)) {
-          throw new BadRequestException(
-            `Duplicate AI tool name '${tool.name}' registered across namespaces`,
-          );
-        }
-        this.tools.set(tool.name, tool);
+      this.registerNamespace(namespace);
+    }
+  }
+
+  /** For modules that can't be listed in AI_TOOL_NAMESPACE_TOKEN without an import cycle (e.g. the customer agent tools). */
+  registerNamespace(namespace: AiToolNamespace) {
+    for (const tool of namespace.getTools() ?? []) {
+      if (this.tools.has(tool.name)) {
+        throw new BadRequestException(
+          `Duplicate AI tool name '${tool.name}' registered across namespaces`,
+        );
       }
+      this.tools.set(tool.name, tool);
     }
   }
 
@@ -38,9 +43,12 @@ export class AiToolRegistryService implements OnModuleInit {
     return Array.from(this.tools.values());
   }
 
-  getToolSpecs(ctx: AiToolContext): AiToolSpec[] {
+  getToolSpecs(
+    ctx: AiToolContext,
+    audience: AiToolAudience = "staff",
+  ): AiToolSpec[] {
     return this.getAllTools()
-      .filter((tool) => tool.canRunFor(ctx))
+      .filter((tool) => tool.canRunFor(ctx, audience))
       .map((tool) => tool.toSpec());
   }
 }

@@ -8,6 +8,7 @@ export enum QueueNames {
   CLIENT_SEGMENTS = "client-segments",
   CAMPAIGNS = "campaigns",
   CLIENT_IMPORT = "client-import",
+  AGENT_TURNS = "agent-turns",
 }
 
 export const QueueConfigs: Record<
@@ -55,6 +56,11 @@ export const QueueConfigs: Record<
   [QueueNames.CLIENT_IMPORT]: {
     displayName: "Client Import Queue",
     description: "Parses Excel client templates and creates clients in the background",
+  },
+  [QueueNames.AGENT_TURNS]: {
+    displayName: "AI Agent Turns Queue",
+    description:
+      "Batches incoming customer messages per conversation and runs one AI agent turn at a time",
   },
 };
 
@@ -106,3 +112,15 @@ export const CampaignJobs = {
 export const ClientImportJobs = {
   IMPORT: "import-clients",
 } as const;
+
+export const AgentTurnJobs = {
+  PROCESS_TURN: "process-turn",
+  PAUSE_CATCHUP: "pause-catchup",
+} as const;
+
+export type AgentTurnJobData = {
+  adminId: string;
+  accountId: string | null;
+  conversationId: string;
+  catchUp?: boolean;
+};

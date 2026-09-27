@@ -11,7 +11,11 @@ import {
   WhatsappMessageEntity,
   MessageStatus,
   MessageDirection,
+  WhatsappAiAgentSource,
+  WhatsappAiResponses,
 } from "entities/whatsapp.entity";
+import { UpdateWhatsappAccountAiDto } from "dto/whatsapp-ai.dto";
+import { WhatsappAiService } from "./whatsapp-ai.service";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
 import { ConversationEntity } from "entities/whatsapp.entity";
@@ -27,6 +31,7 @@ export class WhatsappAccountService {
     @InjectRepository(ConversationEntity)
     private readonly conversationRepo: Repository<ConversationEntity>,
     private readonly translations: TranslationService,
+    private readonly whatsappAiService: WhatsappAiService,
   ) {}
 
   async getStats(me: any) {
@@ -262,5 +267,35 @@ export class WhatsappAccountService {
     const account = await this.findOne(me, id);
     await this.accountRepo.delete(id);
     return account;
+  }
+
+  async updateAi(me: any, id: string, dto: UpdateWhatsappAccountAiDto) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    const account = await this.findOne(me, id);
+    account.aiResponses = dto.aiResponses;
+
+    if (dto.aiResponses !== WhatsappAiResponses.ENABLED) {
+      account.aiAgentSource = WhatsappAiAgentSource.DEFAULT;
+      account.aiAgentId = null;
+    } else if (dto.aiAgentSource === WhatsappAiAgentSource.SPECIFIC) {
+      if (!dto.aiAgentId) {
+        throw new BadRequestException(
+          this.translations.t("domains.agents.agent_required"),
+        );
+      }
+      await this.whatsappAiService.assertAgent(adminId, dto.aiAgentId);
+      account.aiAgentSource = WhatsappAiAgentSource.SPECIFIC;
+      account.aiAgentId = dto.aiAgentId;
+    } else {
+      account.aiAgentSource = WhatsappAiAgentSource.DEFAULT;
+      account.aiAgentId = null;
+    }
+
+    return this.accountRepo.save(account);
   }
 }

@@ -256,6 +256,10 @@ export class PermissionsService implements OnModuleInit {
       "campaigns.update",
       "campaigns.delete",
       "campaigns.start",
+      "agents.read",
+      "agents.create",
+      "agents.update",
+      "agents.delete",
     ];
 
     for (const name of keys) {

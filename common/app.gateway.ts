@@ -215,9 +215,14 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // --- WhatsApp & Conversation Notifications ---
 
-    emitNewMessage(userId: string, message: WhatsappMessageEntity) {
+    emitNewMessage(
+        userId: string,
+        message: WhatsappMessageEntity,
+        extras?: { agentPausedUntil?: Date | null },
+    ) {
         this.server.to(`user_${userId}`).emit("whatsapp:message-new", {
             message,
+            agentPausedUntil: extras?.agentPausedUntil ?? null,
             timestamp: new Date(),
         });
     }

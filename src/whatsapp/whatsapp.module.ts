@@ -24,6 +24,9 @@ import { CustomerModule } from "../customer/customer.module";
 import { UpsellsModule } from "src/upsells/upsells.module";
 import { AutomationRunEntity } from "entities/automation.entity";
 import { OrderEntity } from "../../entities/order.entity";
+import { AgentEntity } from "entities/agent.entity";
+import { ClientSettingsEntity } from "entities/clientSettings.entity";
+import { WhatsappAiService } from "./services/whatsapp-ai.service";
 
 @Module({
   imports: [
@@ -34,6 +37,8 @@ import { OrderEntity } from "../../entities/order.entity";
     forwardRef(() => CustomerModule),
     forwardRef(() => UpsellsModule),
     TypeOrmModule.forFeature([
+      AgentEntity,
+      ClientSettingsEntity,
       WhatsappAccountEntity,
       WhatsappMessageEntity,
       WhatsappTemplateEntity,
@@ -55,6 +60,7 @@ import { OrderEntity } from "../../entities/order.entity";
     WhatsappApiService,
     WhatsappTemplateService,
     WhatsappMessageCostService,
+    WhatsappAiService,
   ],
   exports: [
     WhatsappService,
@@ -62,6 +68,8 @@ import { OrderEntity } from "../../entities/order.entity";
     WhatsappApiService,
     WhatsappTemplateService,
     WhatsappMessageCostService,
+    WhatsappAiService,
   ],
 })
+
 export class WhatsappModule {}

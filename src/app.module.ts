@@ -85,6 +85,7 @@ import { ClientsModule } from "./clients/clients.module";
 import { ClientSegmentsModule } from "./client-segments/client-segments.module";
 import { AudienceModule } from "./audience/audience.module";
 import { CampaignsModule } from "./campaigns/campaigns.module";
+import { AgentsModule } from "./agents/agents.module";
 import { observeConfig, ObserveModule } from "common/observe/bserve.config";
 import { AiDecisionModule } from "./ai-decision/ai-decision.module";
 
@@ -208,6 +209,7 @@ import { AiDecisionModule } from "./ai-decision/ai-decision.module";
     AudienceModule,
     ClientSegmentsModule,
     CampaignsModule,
+    AgentsModule,
     // ObserveModule.forRoot(observeConfig),
   ],
   providers: [

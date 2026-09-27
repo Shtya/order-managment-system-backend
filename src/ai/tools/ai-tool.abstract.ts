@@ -12,12 +12,17 @@ export type AiToolExecutor = (
   args: Record<string, unknown>,
 ) => Promise<AiExecutionResult>;
 
+/** "staff" tools serve the ERP assistant; "customer" tools serve the customer-facing agent and are scoped to the current customer. */
+export type AiToolAudience = "staff" | "customer";
+
 export interface AiToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
   argsDto?: new (...args: any[]) => object;
+  /** Checked for the staff audience only; customer tools are scoped server-side by the agent turn. */
   permission?: string;
+  audience?: AiToolAudience | AiToolAudience[];
   isWrite: boolean;
   staleRecovery: AiStaleRecoveryMode;
   run: AiToolExecutor;
@@ -35,6 +40,7 @@ export class AiTool {
   readonly description: string;
   readonly inputSchema: Record<string, unknown>;
   readonly permission?: string;
+  readonly audiences: readonly AiToolAudience[];
   readonly isWrite: boolean;
   readonly staleRecovery: AiStaleRecoveryMode;
   readonly dedup?: AiToolDedupInfo;
@@ -47,6 +53,7 @@ export class AiTool {
     this.description = def.description;
     this.inputSchema = def.inputSchema;
     this.permission = def.permission;
+    this.audiences = Array.isArray(def.audience) ? def.audience : [def.audience ?? "staff"];
     this.isWrite = def.isWrite;
     this.staleRecovery = def.staleRecovery;
     this.dedup = def.dedup;
@@ -62,11 +69,16 @@ export class AiTool {
     };
   }
 
-  canRunFor(ctx: AiToolContext): boolean {
+  serves(audience: AiToolAudience): boolean {
+    return this.audiences.includes(audience);
+  }
+
+  canRunFor(ctx: AiToolContext, audience: AiToolAudience = "staff"): boolean {
     if (!ctx.isToolAllowed(this.name)) return false;
+    if (!this.serves(audience)) return false;
 
     const requiredPermission = this.permission;
-    if (!requiredPermission) return true;
+    if (!requiredPermission || audience === "customer") return true;
 
     const role = ctx.session.userRoleName;
     const permissionNames = ctx.session.userPermissionNames ?? [];

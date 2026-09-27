@@ -61,6 +61,7 @@ import { ClientSettingsModule } from "src/client-settings/client-settings.module
   exports: [
     CampaignsService,
     CampaignWebhookEventsService,
+    PublicCampaignOrdersService,
     WhatsappCampaignChannel,
   ],
 })

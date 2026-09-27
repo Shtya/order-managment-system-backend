@@ -9,6 +9,8 @@ import {
   DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS,
 } from "entities/clientSettings.entity";
 import { OrphanFileEntity } from "entities/files.entity";
+import { AgentEntity } from "entities/agent.entity";
+import { I18nContext, I18nService } from "nestjs-i18n";
 import { OrderStatus } from "entities/order.entity";
 import { tenantId } from "src/category/category.service";
 import { User } from "entities/user.entity";
@@ -21,7 +23,36 @@ export class ClientSettingsService {
     @InjectRepository(ClientSettingsEntity)
     private readonly settingsRepo: Repository<ClientSettingsEntity>,
     private readonly redisService: RedisService,
+    @InjectRepository(AgentEntity)
+    private readonly agentRepo: Repository<AgentEntity>,
+    private readonly i18n: I18nService,
   ) {}
+  cashekey = (adminId: string) => `admin_settings_cache:${adminId}`;
+  private async applyWhatsappAi(adminId: string, settings: ClientSettingsEntity) {
+    if (!settings.whatsappAiEnabled) {
+      settings.whatsappAiAgentId = null;
+      return;
+    }
+    const agentId = settings.whatsappAiAgentId || null;
+    if (!agentId) {
+      throw new BadRequestException(
+        this.i18n.t("domains.agents.agent_required", {
+          lang: I18nContext.current()?.lang,
+        }),
+      );
+    }
+    const agent = await this.agentRepo.findOne({
+      where: { id: agentId, adminId, isActive: true },
+    });
+    if (!agent) {
+      throw new BadRequestException(
+        this.i18n.t("domains.agents.not_found", {
+          lang: I18nContext.current()?.lang,
+        }),
+      );
+    }
+    settings.whatsappAiAgentId = agentId;
+  }
 
   async upsertSettings(
     me: any,
@@ -80,6 +111,8 @@ export class ClientSettingsService {
           },
           campaignOrderPage,
         });
+        if (settings.whatsappAiAgentId === "") settings.whatsappAiAgentId = null;
+        await this.applyWhatsappAi(String(adminId), settings);
       } else {
         // Create new record for this admin
         settings = repo.create({
@@ -90,6 +123,8 @@ export class ClientSettingsService {
           },
           campaignOrderPage,
         });
+        if (settings.whatsappAiAgentId === "") settings.whatsappAiAgentId = null;
+        await this.applyWhatsappAi(String(adminId), settings);
       }
 
       const savedSettings = await repo.save(settings);
@@ -109,7 +144,7 @@ export class ClientSettingsService {
     // Invalidate cache
     await Promise.all([
       this.redisService.del(`admin_notification_settings:${adminId}`),
-      this.redisService.del(`admin_settings:${adminId}`),
+      this.redisService.del(this.cashekey(adminId)),
     ]);
 
     await Promise.all([...oldFilesToDelete].map((url) => deleteFile(url)));
@@ -140,7 +175,7 @@ export class ClientSettingsService {
     const repo = manager
       ? manager.getRepository(ClientSettingsEntity)
       : this.settingsRepo;
-    let settings = await repo.findOneBy({ adminId: adminId });
+    let settings = await repo.findOne({ where: { adminId: adminId }, relations: { whatsappAiAgent: true } });
 
     if (!settings) {
       settings = await this.settingsRepo.save({
@@ -161,7 +196,7 @@ export class ClientSettingsService {
       });
     }
     await this.redisService.set(
-      `admin_settings:${adminId}`,
+      this.cashekey(adminId),
       settings,
       3600 * 24,
     );
@@ -242,7 +277,7 @@ export class ClientSettingsService {
       return local;
     }
 
-    const cacheKey = `admin_settings:${adminId}`;
+    const cacheKey = this.cashekey(adminId);
     let settings = await this.redisService.get<ClientSettingsEntity>(cacheKey);
 
     if (!settings || typeof settings === "string") {

@@ -1766,5 +1766,24 @@
     "export_payment_method": "Payment Method",
     "export_min_amount": "Min Amount",
     "export_max_amount": "Max Amount"
+  },
+  "agents": {
+    "not_found": "Agent not found",
+    "name_exists": "An agent with this name already exists",
+    "provider_not_found": "Response provider not found",
+    "agent_required": "Select an agent when AI are enabled",
+    "deleted_successfully": "Agent deleted successfully",
+    "export_sheet": "Agents",
+    "export_name": "Name",
+    "export_language": "Language",
+    "export_provider": "Response provider",
+    "export_status": "Status",
+    "export_created_at": "Created at",
+    "language_auto": "Automatic",
+    "language_arabic": "Arabic",
+    "language_english": "English",
+    "provider_auto": "Automatic",
+    "status_active": "Active",
+    "status_inactive": "Inactive"
   }
 }

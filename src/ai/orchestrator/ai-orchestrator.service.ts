@@ -11,8 +11,15 @@ import {
   AiProgressEvent,
   AiToolCall,
   AiToolExecutionResult,
+  AiTurnEndReason,
   AiUsage,
 } from "../interfaces/ai-types";
+import {
+  AI_AGENT_ROLE,
+  AiLoopPolicy,
+  customerAgentPolicy,
+  ERP_ASSISTANT_POLICY,
+} from "./ai-loop-policy";
 import { AiProviderAbstract } from "../providers/ai-provider.abstract";
 import { AiToolRegistryService } from "../tools/ai-tool-registry.service";
 import { AiTool } from "../tools/ai-tool.abstract";
@@ -37,6 +44,9 @@ import {
   errorMessageOf,
   formatAttemptsSummary,
 } from "../catalog/tools-error-classify";
+
+/** An allow-list entry that matches no tool, so the model gets an empty tool catalog. */
+const NO_TOOLS_ALLOWED = "__no_tools__";
 
 class PhaseTimer {
   private readonly phases: Array<{
@@ -91,6 +101,7 @@ class PhaseTimer {
 }
 
 export interface AiChatOptions {
+  sessionId?: string;
   conversationId?: string;
   history?: AiChatMessage[];
   provider?: string;
@@ -106,8 +117,30 @@ export interface AiChatOptions {
   requireTools?: boolean;
 }
 
-const FORCE_ANSWER_NOTE =
-  "You have already retrieved all the information needed to answer the user's request. Do not call any more tools. Provide the final answer now using only the tool results already present in this conversation.";
+export interface AiAgentTurnInput {
+  tenantId: string;
+  /** Agent session id, so observability rows link to the conversation session. */
+  sessionId: string;
+  conversationId: string;
+  agentId: string;
+  agentName?: string;
+  providerId?: string | null;
+  model?: string | null;
+  allowProviderFailover?: boolean;
+  /** Fully built context: agent system prompt, summary, history, and the new customer input. */
+  messages: AiChatMessage[];
+  /** Customer-audience tools offered this turn (empty = every customer tool). */
+  toolNames?: string[];
+  sendToolNames: string[];
+  permissionNames?: string[];
+  writeDedupScope?: AiLoopPolicy["writeDedupScope"];
+  metadata?: Record<string, unknown>;
+}
+
+export type AiAgentTurnResult = AiOrchestrationResult & {
+  /** The input messages plus every assistant tool call and tool result of this turn. */
+  messages: AiChatMessage[];
+};
 
 @Injectable()
 export class AiOrchestratorService {
@@ -134,7 +167,7 @@ export class AiOrchestratorService {
   ): Promise<AiOrchestrationResult> {
     const timer = new PhaseTimer();
     const requestId = randomUUID();
-    const sessionId = randomUUID();
+    const sessionId = options.sessionId ?? randomUUID();
 
     timer.start("resolveTenantId");
     const tenantId = this.resolveTenantId(me);
@@ -217,6 +250,127 @@ export class AiOrchestratorService {
       totalBootstrapMs: timer.sinceStartMs(),
     });
 
+    return this.execute(ctx, execution, messages, timer, ERP_ASSISTANT_POLICY, {
+      piiPairs: masked.pairs,
+      userMessage: masked.text,
+      includeDevInfo: options.includeDevInfo,
+    });
+  }
+
+  /**
+   * One turn of the customer-facing agent. Uses the same provider selection, failover,
+   * model health, write idempotency and observability as `chat()`, with the customer
+   * loop policy: customer-scoped tools only, ordered send/write tools, replies via send tools.
+   */
+  async runAgentTurn(input: AiAgentTurnInput): Promise<AiAgentTurnResult> {
+    const timer = new PhaseTimer();
+    const requestId = randomUUID();
+
+    const session: AiExecutionSession = {
+      sessionId: input.sessionId,
+      conversationId: input.conversationId,
+      tenantId: input.tenantId,
+      userId: input.agentId,
+      userName: input.agentName,
+      userRoleName: AI_AGENT_ROLE,
+      userPermissionNames: input.permissionNames ?? [],
+      providerId: input.providerId ?? undefined,
+      model: input.model ?? undefined,
+      metadata: input.metadata,
+      enforcePiiMasking: false,
+      // Customer write tools only create pending actions; the customer confirms them in a later turn.
+      acceptWriteOperations: true,
+      allowedToolNames: input.toolNames,
+      requireTools: true,
+      allowProviderFailover: input.allowProviderFailover ?? true,
+    };
+    const execution = new AiExecutionScope(session, requestId);
+    const ctx = new AiToolContext({
+      session,
+      requestId,
+      allowedToolNames: session.allowedToolNames,
+    });
+
+    const messages = [...input.messages];
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((m) => m.role === "user")?.content;
+
+    const policy = customerAgentPolicy({
+      sendToolNames: input.sendToolNames,
+      writeDedupScope: input.writeDedupScope,
+    });
+
+    const result = await this.execute(ctx, execution, messages, timer, policy, {
+      piiPairs: [],
+      userMessage: lastUserMessage ?? undefined,
+    });
+    return { ...result, messages };
+  }
+
+  /**
+   * A plain text completion with no tools (e.g. conversation summaries), through the same
+   * provider selection, failover and observability as `chat()`.
+   */
+  async runCompletion(input: {
+    tenantId: string;
+    sessionId: string;
+    conversationId?: string;
+    userId: string;
+    providerId?: string | null;
+    system: string;
+    user: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<AiOrchestrationResult> {
+    const timer = new PhaseTimer();
+    const requestId = randomUUID();
+    const session: AiExecutionSession = {
+      sessionId: input.sessionId,
+      conversationId: input.conversationId,
+      tenantId: input.tenantId,
+      userId: input.userId,
+      userRoleName: AI_AGENT_ROLE,
+      userPermissionNames: [],
+      providerId: input.providerId ?? undefined,
+      metadata: input.metadata,
+      enforcePiiMasking: false,
+      acceptWriteOperations: false,
+      allowedToolNames: [NO_TOOLS_ALLOWED],
+      requireTools: false,
+      allowProviderFailover: true,
+    };
+    const execution = new AiExecutionScope(session, requestId);
+    const ctx = new AiToolContext({
+      session,
+      requestId,
+      allowedToolNames: session.allowedToolNames,
+    });
+    const messages: AiChatMessage[] = [
+      { role: "system", content: input.system },
+      { role: "user", content: input.user },
+    ];
+    return this.execute(ctx, execution, messages, timer, ERP_ASSISTANT_POLICY, {
+      piiPairs: [],
+      userMessage: input.user,
+    });
+  }
+
+  private async execute(
+    ctx: AiToolContext,
+    execution: AiExecutionScope,
+    messages: AiChatMessage[],
+    timer: PhaseTimer,
+    policy: AiLoopPolicy,
+    options: {
+      piiPairs: Array<{ token: string; original: string }>;
+      userMessage?: string;
+      includeDevInfo?: boolean;
+    },
+  ): Promise<AiOrchestrationResult> {
+    const session = ctx.session;
+    const requestId = ctx.requestId;
+    const sessionId = session.sessionId;
+
     let finalResult: AiOrchestrationResult;
     let providersUsed: string[] = [];
     let modelsUsed: string[] = [];
@@ -224,10 +378,11 @@ export class AiOrchestratorService {
     let progress: AiProgressEvent[] = [];
     try {
       timer.start("runLoop");
-      const result = await this.runLoop(ctx, execution, messages, timer);
+      const result = await this.runLoop(ctx, execution, messages, timer, policy);
       timer.stop({
         rounds: execution.currentRound,
         outcome: result.error ? "error" : "ok",
+        endedBy: result.endedBy,
       });
 
       timer.start("finalize");
@@ -235,9 +390,9 @@ export class AiOrchestratorService {
         ctx,
         execution,
         result,
-        masked.pairs,
+        options.piiPairs,
         timer,
-        masked.text,
+        options.userMessage,
       );
       finalResult = finalized.finalResult;
       providersUsed = finalized.providersUsed;
@@ -278,6 +433,8 @@ export class AiOrchestratorService {
       sessionId,
       userId: session.userId,
       tenantId: session.tenantId,
+      audience: policy.audience,
+      endedBy: finalResult.endedBy ?? null,
       totalMs: summary.totalMs,
       rounds,
       ok: finalResult.ok,
@@ -425,9 +582,15 @@ export class AiOrchestratorService {
     execution: AiExecutionScope,
     messages: AiChatMessage[],
     timer: PhaseTimer,
-  ): Promise<{ content?: string; error?: string; errorCode?: string }> {
+    policy: AiLoopPolicy,
+  ): Promise<{
+    content?: string;
+    error?: string;
+    errorCode?: string;
+    endedBy?: AiTurnEndReason;
+  }> {
     timer.start("runLoop.toolSpecs");
-    const allToolSpecs = this.toolRegistry.getToolSpecs(ctx);
+    const allToolSpecs = this.toolRegistry.getToolSpecs(ctx, policy.audience);
     const toolSpecs = ctx.session.allowedToolNames?.length
       ? allToolSpecs.filter((t) =>
         ctx.session.allowedToolNames!.includes(t.name),
@@ -453,12 +616,21 @@ export class AiOrchestratorService {
     const effectiveToolCatalog = modelSupportsTools ? toolSpecs : [];
 
     const maxRounds = this.config.maxProviderRoundtrips;
+    const lastRoundToolNames = new Set(policy.lastRoundToolNames);
+    const lastRoundToolCatalog = effectiveToolCatalog.filter((t) =>
+      lastRoundToolNames.has(t.name),
+    );
+    const sendToolNames = new Set(policy.sendToolNames ?? []);
+    let sentToCustomer = false;
+    let nudged = false;
 
     for (let round = 1; round <= maxRounds; round++) {
       execution.beginRound();
 
       const isLastRound = round === maxRounds;
-      const effectiveToolSpecs = isLastRound ? [] : effectiveToolCatalog;
+      const effectiveToolSpecs = isLastRound
+        ? lastRoundToolCatalog
+        : effectiveToolCatalog;
 
       timer.start(`callProvider.r${round}`, {
         round,
@@ -487,7 +659,7 @@ export class AiOrchestratorService {
       execution.recordUsage(result.usage);
 
       if (result.role === "assistant" && result.toolCalls?.length) {
-        if (isLastRound) {
+        if (isLastRound && !lastRoundToolCatalog.length) {
           break;
         }
 
@@ -496,6 +668,9 @@ export class AiOrchestratorService {
         });
         const newToolCalls: AiToolCall[] = [];
         for (const toolCall of result.toolCalls) {
+          if (isLastRound && !lastRoundToolNames.has(toolCall.name)) {
+            continue;
+          }
           const signature = `${toolCall.name}:${stableJson(toolCall.arguments)}`;
           if (seenToolCalls.has(signature)) {
             execution.emit({
@@ -542,16 +717,32 @@ export class AiOrchestratorService {
           count: newToolCalls.length,
           tools: toolNames,
         });
-        const toolMessages = await Promise.all(
-          newToolCalls.map((toolCall) =>
-            this.executeToolCall(ctx, execution, provider, toolCall, round),
-          ),
+        const toolMessages = await this.executeToolCalls(
+          ctx,
+          execution,
+          provider,
+          newToolCalls,
+          round,
+          policy,
         );
         timer.stop();
         messages.push(...toolMessages);
 
-        if (round === maxRounds - 1) {
-          messages.push({ role: "user", content: FORCE_ANSWER_NOTE });
+        if (newToolCalls.some((t) => sendToolNames.has(t.name))) {
+          sentToCustomer = true;
+        }
+        if (
+          policy.terminalToolName &&
+          newToolCalls.some((t) => t.name === policy.terminalToolName)
+        ) {
+          return { content: result.content, endedBy: "terminal_tool" };
+        }
+        if (isLastRound) {
+          return { content: result.content, endedBy: "last_round" };
+        }
+
+        if (round === maxRounds - 1 && policy.lastRoundNote) {
+          messages.push({ role: "user", content: policy.lastRoundNote });
         }
 
         continue;
@@ -564,7 +755,25 @@ export class AiOrchestratorService {
           provider: provider.kind,
           content: result.content.slice(0, 500),
         });
-        return { content: result.content };
+
+        if (policy.onAssistantText === "finish" || sentToCustomer) {
+          return { content: result.content, endedBy: "content" };
+        }
+        if (!nudged && !isLastRound) {
+          nudged = true;
+          messages.push({ role: "assistant", content: result.content });
+          messages.push({
+            role: "user",
+            content: policy.assistantTextNudge ?? "",
+          });
+          continue;
+        }
+        return {
+          content: result.content,
+          error: "The agent answered in plain text without using a send tool",
+          errorCode: "AGENT_NO_SEND_ACTION",
+          endedBy: "no_send_action",
+        };
       }
 
       throw new BadRequestException(this.translations.t("domains.ai.provider_no_content_or_tools"));
@@ -574,7 +783,44 @@ export class AiOrchestratorService {
       error:
         "Reached the maximum number of provider round-trips without a final answer",
       errorCode: "MAX_PROVIDER_ROUNDTRIPS",
+      endedBy: "max_roundtrips",
     };
+  }
+
+  private async executeToolCalls(
+    ctx: AiToolContext,
+    execution: AiExecutionScope,
+    provider: AiProviderAbstract,
+    toolCalls: AiToolCall[],
+    round: number,
+    policy: AiLoopPolicy,
+  ): Promise<AiChatMessage[]> {
+    const run = (toolCall: AiToolCall) =>
+      this.executeToolCall(ctx, execution, provider, toolCall, round, policy);
+
+    if (policy.toolExecution === "parallel") {
+      return Promise.all(toolCalls.map(run));
+    }
+
+    const toolMessages: AiChatMessage[] = [];
+    let readBatch: AiToolCall[] = [];
+    const flushReads = async () => {
+      if (!readBatch.length) return;
+      toolMessages.push(...(await Promise.all(readBatch.map(run))));
+      readBatch = [];
+    };
+
+    for (const toolCall of toolCalls) {
+      const tool = this.toolRegistry.getTool(toolCall.name);
+      if (tool && !tool.isWrite) {
+        readBatch.push(toolCall);
+        continue;
+      }
+      await flushReads();
+      toolMessages.push(await run(toolCall));
+    }
+    await flushReads();
+    return toolMessages;
   }
 
   private async resolveProviders(ctx: AiToolContext): Promise<{
@@ -1087,10 +1333,11 @@ export class AiOrchestratorService {
     provider: AiProviderAbstract,
     toolCall: AiToolCall,
     round: number,
-    _parentTimer?: PhaseTimer,
+    policy: AiLoopPolicy,
   ): Promise<AiChatMessage> {
     const t0 = performance.now();
-    const tool = this.toolRegistry.getTool(toolCall.name);
+    const registered = this.toolRegistry.getTool(toolCall.name);
+    const tool = registered?.serves(policy.audience) ? registered : undefined;
     const perToolTimer = new PhaseTimer();
 
     if (!tool) {
@@ -1112,7 +1359,7 @@ export class AiOrchestratorService {
       };
     }
 
-    if (!tool.canRunFor(ctx)) {
+    if (!tool.canRunFor(ctx, policy.audience)) {
       const ms = performance.now() - t0;
       this.logger.debug("[perf] tool.skip.TOOL_NOT_ALLOWED", {
         requestId: ctx.requestId,
@@ -1160,6 +1407,7 @@ export class AiOrchestratorService {
         tool,
         toolCall,
         perToolTimer,
+        policy,
       );
     } else {
       execution.emit({
@@ -1209,6 +1457,7 @@ export class AiOrchestratorService {
     tool: AiTool,
     toolCall: AiToolCall,
     timer: PhaseTimer,
+    policy: AiLoopPolicy,
   ): Promise<AiToolExecutionResult> {
     const adminId = ctx.session.tenantId ?? ctx.session.userId;
     const toolCallId = toolCall.id;
@@ -1226,8 +1475,13 @@ export class AiOrchestratorService {
       };
     }
     const argsHash = sha256(argsJson);
-    const dedupKey = tool.dedup?.key?.(args) ?? argsHash;
-    timer.stop({ len: argsJson.length, usedCustomDedupKey: !!tool.dedup?.key });
+    const scopedKey = policy.writeDedupScope?.(toolCall, ctx) ?? null;
+    const dedupKey = scopedKey ?? tool.dedup?.key?.(args) ?? argsHash;
+    timer.stop({
+      len: argsJson.length,
+      usedCustomDedupKey: !!tool.dedup?.key,
+      usedScopedDedupKey: !!scopedKey,
+    });
 
     timer.start("writeTool.findExisting");
     const pending = await this.auditService.findWriteCall(
@@ -1403,6 +1657,7 @@ export class AiOrchestratorService {
       error?: string;
       errorCode?: string;
       errorDetails?: AiOrchestrationError;
+      endedBy?: AiTurnEndReason;
     },
     pairs: Array<{ token: string; original: string }>,
     timer: PhaseTimer,
@@ -1445,6 +1700,7 @@ export class AiOrchestratorService {
       conversationId: execution.session.conversationId,
       ok,
       content,
+      endedBy: result.endedBy,
       usage,
       error: result.error,
       errorCode: result.errorCode,

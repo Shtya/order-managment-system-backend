@@ -152,12 +152,20 @@ export interface AiOrchestrationDevInfo {
   progress: AiProgressEvent[];
 }
 
+export type AiTurnEndReason =
+  | "content"
+  | "terminal_tool"
+  | "last_round"
+  | "no_send_action"
+  | "max_roundtrips";
+
 export interface AiOrchestrationResult {
   sessionId: string;
   requestId: string;
   conversationId?: string;
   ok: boolean;
   content?: string;
+  endedBy?: AiTurnEndReason;
   toolCalls?: AiToolCall[];
   usage: AiUsage;
   providersUsed?: string[];
