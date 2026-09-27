@@ -95,7 +95,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     private readonly customerRepo: Repository<CustomerEntity>,
     @Inject(forwardRef(() => ClientService))
     private readonly clients: ClientService,
-  ) {}
+  ) { }
 
   onModuleInit() {
     this.registry.registerNamespace(this);
@@ -625,16 +625,16 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
             deliveredAt: order.deliveredAt ?? null,
             replacedBy: replacedBy
               ? {
-                  orderNumber: replacedBy.replacementOrder?.orderNumber ?? null,
-                  status: customerStatusLabel(replacedBy.replacementOrder?.status),
-                  ...describeReplacement(replacedBy),
-                }
+                orderNumber: replacedBy.replacementOrder?.orderNumber ?? null,
+                status: customerStatusLabel(replacedBy.replacementOrder?.status),
+                ...describeReplacement(replacedBy),
+              }
               : null,
             replacementOf: replacementOf
               ? {
-                  orderNumber: replacementOf.originalOrder?.orderNumber ?? null,
-                  ...describeReplacement(replacementOf),
-                }
+                orderNumber: replacementOf.originalOrder?.orderNumber ?? null,
+                ...describeReplacement(replacementOf),
+              }
               : null,
             tags: (order.orderTags ?? []).map((t) => t.tag?.name).filter(Boolean),
           },
@@ -713,7 +713,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "search_products",
       audience: "customer",
       description:
-        "Search the store catalog (products and bundles). Filter by free text, category, price range, variant options (e.g. color/size), and in-stock only. Returns names, price range, options, and whether the item is in stock. Never invent products or prices.",
+        "Search the store catalog (products and bundles). Filter by free text, category, price range, variant options (e.g. color/size), and in-stock only. Returns records plus total_records, current_page and per_page so you know if more results remain — offer the next page when total_records > current_page * per_page. Never invent products or prices.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1234,31 +1234,31 @@ function renderOrderSummary(
     : (en ? "Payment: cash on delivery" : "الدفع عند الاستلام");
   const body = en
     ? [
-        "Please confirm your order:",
-        ...lines,
-        `Products total: ${draft.productsTotal}`,
-        shippingLine,
-        discountLine,
-        totalLine,
-        "",
-        `Name: ${data.customerName}`,
-        `Address: ${place}`,
-        data.landmark && `Landmark: ${data.landmark}`,
-        data.customerNotes && `Notes: ${data.customerNotes}`,
-      ]
+      "Please confirm your order:",
+      ...lines,
+      `Products total: ${draft.productsTotal}`,
+      shippingLine,
+      discountLine,
+      totalLine,
+      "",
+      `Name: ${data.customerName}`,
+      `Address: ${place}`,
+      data.landmark && `Landmark: ${data.landmark}`,
+      data.customerNotes && `Notes: ${data.customerNotes}`,
+    ]
     : [
-        "من فضلك أكد الطلب:",
-        ...lines,
-        `إجمالي المنتجات: ${draft.productsTotal}`,
-        shippingLine,
-        discountLine,
-        totalLine,
-        "",
-        `الاسم: ${data.customerName}`,
-        `العنوان: ${place}`,
-        data.landmark && `علامة مميزة: ${data.landmark}`,
-        data.customerNotes && `ملاحظات: ${data.customerNotes}`,
-      ];
+      "من فضلك أكد الطلب:",
+      ...lines,
+      `إجمالي المنتجات: ${draft.productsTotal}`,
+      shippingLine,
+      discountLine,
+      totalLine,
+      "",
+      `الاسم: ${data.customerName}`,
+      `العنوان: ${place}`,
+      data.landmark && `علامة مميزة: ${data.landmark}`,
+      data.customerNotes && `ملاحظات: ${data.customerNotes}`,
+    ];
   return body.filter((l) => typeof l === "string").join("\n");
 }
 
@@ -1278,26 +1278,26 @@ function renderCampaignSummary(
   const place = [data.address, data.area, data.city].filter(Boolean).join("، ");
   const lines = en
     ? [
-        "Please confirm your order:",
-        products,
-        `Shipping: ${offer.shipping ?? 0} ${currency}`,
-        `Total: ${offer.total ?? 0} ${currency} (cash on delivery)`,
-        "",
-        `Name: ${data.customerName}`,
-        `Address: ${place}`,
-        data.landmark && `Landmark: ${data.landmark}`,
-        data.customerNotes && `Notes: ${data.customerNotes}`,
-      ]
+      "Please confirm your order:",
+      products,
+      `Shipping: ${offer.shipping ?? 0} ${currency}`,
+      `Total: ${offer.total ?? 0} ${currency} (cash on delivery)`,
+      "",
+      `Name: ${data.customerName}`,
+      `Address: ${place}`,
+      data.landmark && `Landmark: ${data.landmark}`,
+      data.customerNotes && `Notes: ${data.customerNotes}`,
+    ]
     : [
-        "من فضلك أكد الطلب:",
-        products,
-        `الشحن: ${offer.shipping ?? 0} ${currency}`,
-        `الإجمالي: ${offer.total ?? 0} ${currency} (الدفع عند الاستلام)`,
-        "",
-        `الاسم: ${data.customerName}`,
-        `العنوان: ${place}`,
-        data.landmark && `علامة مميزة: ${data.landmark}`,
-        data.customerNotes && `ملاحظات: ${data.customerNotes}`,
-      ];
+      "من فضلك أكد الطلب:",
+      products,
+      `الشحن: ${offer.shipping ?? 0} ${currency}`,
+      `الإجمالي: ${offer.total ?? 0} ${currency} (الدفع عند الاستلام)`,
+      "",
+      `الاسم: ${data.customerName}`,
+      `العنوان: ${place}`,
+      data.landmark && `علامة مميزة: ${data.landmark}`,
+      data.customerNotes && `ملاحظات: ${data.customerNotes}`,
+    ];
   return lines.filter((l) => typeof l === "string").join("\n");
 }

@@ -1,6 +1,6 @@
 import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, Repository } from "typeorm";
+import { Brackets, In, Repository } from "typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
 import { ProductEntity, ProductImage, ProductVariantEntity } from "entities/sku.entity";
@@ -8,7 +8,6 @@ import { OrdersService } from "src/orders/services/orders.service";
 import { expandBundleToOrderLineItems, imageSrc } from "common/healpers";
 
 const MAX_SEARCH = 10;
-const SEARCH_CANDIDATES = 80;
 const DESC_CLIP = 240;
 const AVAILABLE_CAP = 20;
 const MAX_LINE_QTY = 50;
@@ -100,34 +99,89 @@ export class AgentCatalogService {
   ) {
     const limit = Math.min(MAX_SEARCH, Math.max(1, Number(args.limit) || 8));
     const page = Math.max(1, Number(args.page) || 1);
+    const offset = (page - 1) * limit;
     const inStockOnly = args.inStockOnly !== false;
     const kind = args.kind ?? "all";
     const reservedEnabled = await this.reservedEnabled(adminId);
     const words = splitWords(args.query);
     const optionEntries = Object.entries(args.options ?? {}).filter(([, v]) => String(v ?? "").trim());
+    const filter = { ...args, words, reservedEnabled, inStockOnly, optionEntries };
 
+    const unions: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (kind !== "bundle") {
+      const p = this.productHitsQb(adminId, filter);
+      unions.push(p.getQuery());
+      Object.assign(params, p.getParameters());
+    }
+    if (kind !== "product") {
+      const b = this.bundleHitsQb(adminId, filter);
+      unions.push(b.getQuery());
+      Object.assign(params, b.getParameters());
+    }
+    if (!unions.length) {
+      return { records: [], total_records: 0, current_page: page, per_page: limit };
+    }
+
+    const unionSql = unions.map((sql) => `(${sql})`).join(" UNION ALL ");
+    const countRow = await this.productRepo.manager
+      .createQueryBuilder()
+      .select("COUNT(*)", "count")
+      .from(`(${unionSql})`, "catalog_hits")
+      .setParameters(params)
+      .getRawOne<{ count: string }>();
+    const total = Number(countRow?.count ?? 0);
+
+    const hits = await this.productRepo.manager
+      .createQueryBuilder()
+      .select("catalog_hits.id", "id")
+      .addSelect("catalog_hits.kind", "kind")
+      .from(`(${unionSql})`, "catalog_hits")
+      .orderBy("catalog_hits.in_stock", "DESC")
+      .addOrderBy("catalog_hits.created_at", "DESC")
+      .offset(offset)
+      .limit(limit)
+      .setParameters(params)
+      .getRawMany<{ id: string; kind: string }>();
+
+    const productIds = hits.filter((h) => h.kind === "product").map((h) => h.id);
+    const bundleIds = hits.filter((h) => h.kind === "bundle").map((h) => h.id);
     const [products, bundles] = await Promise.all([
-      kind === "bundle" ? [] : this.searchProducts(adminId, { ...args, words, reservedEnabled, inStockOnly }),
-      kind === "product" ? [] : this.searchBundles(adminId, { ...args, words, reservedEnabled, inStockOnly }),
+      productIds.length
+        ? this.productRepo.find({ where: { id: In(productIds) }, relations: { category: true, variants: true } })
+        : Promise.resolve([] as ProductEntity[]),
+      bundleIds.length
+        ? this.bundleRepo.find({
+            where: { id: In(bundleIds) },
+            relations: { items: { variant: { product: true } } },
+          })
+        : Promise.resolve([] as BundleEntity[]),
     ]);
+    const productById = new Map<string, ProductEntity>();
+    for (const p of products) productById.set(p.id, p);
+    const bundleById = new Map<string, BundleEntity>();
+    for (const b of bundles) bundleById.set(b.id, b);
+    const records = hits
+      .map((hit) => {
+        if (hit.kind === "product") {
+          const product = productById.get(hit.id);
+          if (!product) return null;
+          const { createdAt: _c, ...rest } = this.toProductHit(product, reservedEnabled);
+          return rest;
+        }
+        const bundle = bundleById.get(hit.id);
+        if (!bundle) return null;
+        const { createdAt: _c, ...rest } = this.toBundleHit(bundle, reservedEnabled);
+        return rest;
+      })
+      .filter(Boolean);
 
-    const filteredProducts = optionEntries.length
-      ? products.filter((p) =>
-          p.variants.some((v) => optionEntries.every(([k, val]) => variantMatchesOption(v.attributes, k, val))),
-        )
-      : products;
-
-    const items = [
-      ...filteredProducts.map((p) => this.toProductHit(p, reservedEnabled)),
-      ...bundles.map((b) => this.toBundleHit(b, reservedEnabled)),
-    ].sort((a, b) => {
-      if (a.inStock !== b.inStock) return a.inStock ? -1 : 1;
-      return b.createdAt.localeCompare(a.createdAt);
-    });
-
-    const total = items.length;
-    const pageItems = items.slice((page - 1) * limit, page * limit).map(({ createdAt: _c, ...rest }) => rest);
-    return { total, page, hasMore: page * limit < total, items: pageItems };
+    return {
+      records,
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+    };
   }
 
   async getProductDetails(adminId: string, productId: string) {
@@ -139,18 +193,17 @@ export class AgentCatalogService {
     if (!product) throw new AgentCatalogError("NOT_FOUND", "No active product with this id");
     const variants = (product.variants ?? []).filter((v) => v.isActive);
     const options = collectOptions(variants.map((v) => v.attributes));
-    const listed = await Promise.all(
-      variants.map(async (v) => {
-        const available = await this.availableOf(adminId, v);
-        return {
-          variantId: v.id,
-          attributes: v.attributes ?? {},
-          price: unitPrice(v, product),
-          available: Math.min(AVAILABLE_CAP, available),
-          inStock: available > 0,
-        };
-      }),
-    );
+    const reservedEnabled = await this.reservedEnabled(adminId);
+    const listed = variants.map((v) => {
+      const available = availableFromCounts(v, reservedEnabled);
+      return {
+        variantId: v.id,
+        attributes: v.attributes ?? {},
+        price: unitPrice(v, product),
+        available: Math.min(AVAILABLE_CAP, available),
+        inStock: available > 0,
+      };
+    });
     const prices = listed.map((v) => v.price);
     const upsells =
       product.upsellingEnabled && Array.isArray(product.upsellingProducts)
@@ -178,18 +231,17 @@ export class AgentCatalogService {
     if (!isUuid(bundleId)) throw new AgentCatalogError("INVALID_ARGS", "bundleId must come from search_products");
     const bundle = await this.loadBundle(adminId, bundleId);
     if (!bundle) throw new AgentCatalogError("NOT_FOUND", "No active bundle with this id");
-    const items = await Promise.all(
-      (bundle.items ?? []).map(async (bi) => {
-        const variant = bi.variant;
-        const available = variant ? await this.availableOf(adminId, variant) : 0;
-        return {
-          product: variant?.product?.name ?? null,
-          attributes: variant?.attributes ?? {},
-          qtyPerBundle: bi.qty,
-          available,
-        };
-      }),
-    );
+    const reservedEnabled = await this.reservedEnabled(adminId);
+    const items = (bundle.items ?? []).map((bi) => {
+      const variant = bi.variant;
+      const available = variant ? availableFromCounts(variant, reservedEnabled) : 0;
+      return {
+        product: variant?.product?.name ?? null,
+        attributes: variant?.attributes ?? {},
+        qtyPerBundle: bi.qty,
+        available,
+      };
+    });
     const wholeBundles = items.length
       ? Math.min(...items.map((i) => (i.qtyPerBundle > 0 ? Math.floor(i.available / i.qtyPerBundle) : 0)))
       : 0;
@@ -302,7 +354,7 @@ export class AgentCatalogService {
     };
   }
 
-  private async searchProducts(
+  private productHitsQb(
     adminId: string,
     args: {
       categoryId?: string;
@@ -311,20 +363,22 @@ export class AgentCatalogService {
       words: string[];
       reservedEnabled: boolean;
       inStockOnly: boolean;
+      optionEntries: [string, string][];
     },
   ) {
+    const inStockExpr = `EXISTS (SELECT 1 FROM product_variants vs WHERE vs."productId" = p.id AND vs."isActive" = true AND ${stockSql("vs", args.reservedEnabled)} > 0)`;
     const qb = this.productRepo
       .createQueryBuilder("p")
-      .leftJoinAndSelect("p.category", "category")
-      .leftJoinAndSelect("p.variants", "v", 'v."isActive" = true')
+      .select("p.id", "id")
+      .addSelect("'product'", "kind")
+      .addSelect("p.created_at", "created_at")
+      .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")
       .where('p."adminId" = :adminId', { adminId })
-      .andWhere('p."isActive" = true')
-      .orderBy("p.created_at", "DESC")
-      .take(SEARCH_CANDIDATES);
+      .andWhere('p."isActive" = true');
 
     if (args.categoryId) {
-      if (!isUuid(args.categoryId)) return [];
-      qb.andWhere('p."categoryId" = :categoryId', { categoryId: args.categoryId });
+      if (!isUuid(args.categoryId)) qb.andWhere("1=0");
+      else qb.andWhere('p."categoryId" = :categoryId', { categoryId: args.categoryId });
     }
     for (const [i, word] of args.words.entries()) {
       const param = `pw${i}`;
@@ -334,7 +388,9 @@ export class AgentCatalogService {
             .orWhere(`${arSql("p.sku")} LIKE :${param}`)
             .orWhere(`${arSql("COALESCE(p.description, '')")} LIKE :${param}`)
             .orWhere(`${arSql('COALESCE(p."callCenterProductDescription", \'\')')} LIKE :${param}`)
-            .orWhere(`${arSql("COALESCE(category.name, '')")} LIKE :${param}`)
+            .orWhere(
+              `EXISTS (SELECT 1 FROM categories c WHERE c.id = p."categoryId" AND ${arSql("c.name")} LIKE :${param})`,
+            )
             .orWhere(
               `EXISTS (SELECT 1 FROM product_variants vx WHERE vx."productId" = p.id AND vx."isActive" = true AND ${arSql("COALESCE(vx.sku, '')")} LIKE :${param})`,
             );
@@ -348,15 +404,19 @@ export class AgentCatalogService {
         { minPrice: args.minPrice ?? 0, maxPrice: args.maxPrice ?? 1e12 },
       );
     }
-    if (args.inStockOnly) {
+    if (args.inStockOnly) qb.andWhere(inStockExpr);
+    for (const [i, [key, val]] of args.optionEntries.entries()) {
+      const k = `poptk${i}`;
+      const v = `poptv${i}`;
       qb.andWhere(
-        `EXISTS (SELECT 1 FROM product_variants vs WHERE vs."productId" = p.id AND vs."isActive" = true AND ${stockSql("vs", args.reservedEnabled)} > 0)`,
+        `EXISTS (SELECT 1 FROM product_variants vo WHERE vo."productId" = p.id AND vo."isActive" = true AND ${arSql("COALESCE(vo.attributes::text, '')")} LIKE :${k} AND ${arSql("COALESCE(vo.attributes::text, '')")} LIKE :${v})`,
+        { [k]: `%${normalizeAr(key)}%`, [v]: `%${normalizeAr(val)}%` },
       );
     }
-    return qb.getMany();
+    return qb;
   }
 
-  private async searchBundles(
+  private bundleHitsQb(
     adminId: string,
     args: {
       minPrice?: number;
@@ -366,35 +426,29 @@ export class AgentCatalogService {
       inStockOnly: boolean;
     },
   ) {
+    const inStockExpr = bundleInStockSql("b", args.reservedEnabled);
     const qb = this.bundleRepo
       .createQueryBuilder("b")
-      .leftJoinAndSelect("b.items", "bi", 'bi."isActive" = true')
-      .leftJoinAndSelect("bi.variant", "v")
-      .leftJoinAndSelect("v.product", "p")
+      .select("b.id", "id")
+      .addSelect("'bundle'", "kind")
+      .addSelect("b.created_at", "created_at")
+      .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")
       .where('b."adminId" = :adminId', { adminId })
-      .andWhere('b."isActive" = true')
-      .orderBy("b.created_at", "DESC")
-      .take(SEARCH_CANDIDATES);
+      .andWhere('b."isActive" = true');
 
     for (const [i, word] of args.words.entries()) {
       const param = `bw${i}`;
       qb.andWhere(
-        new Brackets((b) => {
-          b.where(`${arSql("b.name")} LIKE :${param}`).orWhere(`${arSql("b.sku")} LIKE :${param}`);
+        new Brackets((inner) => {
+          inner.where(`${arSql("b.name")} LIKE :${param}`).orWhere(`${arSql("b.sku")} LIKE :${param}`);
         }),
         { [param]: `%${word}%` },
       );
     }
     if (args.minPrice != null) qb.andWhere("b.price >= :bmin", { bmin: args.minPrice });
     if (args.maxPrice != null) qb.andWhere("b.price <= :bmax", { bmax: args.maxPrice });
-
-    const bundles = await qb.getMany();
-    if (!args.inStockOnly) return bundles;
-    const out: BundleEntity[] = [];
-    for (const bundle of bundles) {
-      if ((await this.wholeBundlesAvailable(adminId, bundle)) > 0) out.push(bundle);
-    }
-    return out;
+    if (args.inStockOnly) qb.andWhere(inStockExpr);
+    return qb;
   }
 
   private toProductHit(product: ProductEntity, reservedEnabled: boolean) {
@@ -420,10 +474,13 @@ export class AgentCatalogService {
       .map((i) => i.variant?.product?.name)
       .filter(Boolean)
       .slice(0, 8);
-    const inStock = (bundle.items ?? []).every((i) => {
-      const need = i.qty || 1;
-      return i.variant && availableFromCounts(i.variant, reservedEnabled) >= need;
-    });
+    const items = bundle.items ?? [];
+    const inStock =
+      items.length > 0 &&
+      items.every((i) => {
+        const need = i.qty || 1;
+        return i.variant && availableFromCounts(i.variant, reservedEnabled) >= need;
+      });
     return {
       kind: "bundle" as const,
       bundleId: bundle.id,
@@ -440,19 +497,6 @@ export class AgentCatalogService {
       where: { id: bundleId, adminId, isActive: true },
       relations: { items: { variant: { product: true } } },
     });
-  }
-
-  private async wholeBundlesAvailable(adminId: string, bundle: BundleEntity) {
-    const items = bundle.items ?? [];
-    if (!items.length) return 0;
-    let min = Infinity;
-    for (const bi of items) {
-      if (!bi.variant?.isActive || !bi.variant.product?.isActive) return 0;
-      const available = await this.availableOf(adminId, bi.variant);
-      const per = bi.qty || 1;
-      min = Math.min(min, Math.floor(available / per));
-    }
-    return Number.isFinite(min) ? Math.max(0, min) : 0;
   }
 
   private async availableOf(adminId: string, variant: ProductVariantEntity) {
@@ -475,6 +519,23 @@ function stockSql(alias: string, reservedEnabled: boolean) {
     : `GREATEST(0, COALESCE(${alias}."stockOnHand", 0))`;
 }
 
+function bundleInStockSql(alias: string, reservedEnabled: boolean) {
+  return `EXISTS (
+      SELECT 1 FROM bundle_items bi0
+      WHERE bi0."bundleId" = ${alias}.id AND bi0."isActive" = true
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM bundle_items bi
+      LEFT JOIN product_variants vs ON vs.id = bi."variantId"
+      LEFT JOIN products pr ON pr.id = vs."productId"
+      WHERE bi."bundleId" = ${alias}.id AND bi."isActive" = true
+      AND (
+        vs.id IS NULL OR vs."isActive" = false OR COALESCE(pr."isActive", false) = false
+        OR ${stockSql("vs", reservedEnabled)} < COALESCE(bi.qty, 1)
+      )
+    )`;
+}
+
 function splitWords(query?: string) {
   return normalizeAr(query ?? "")
     .split(/\s+/)
@@ -490,14 +551,6 @@ function normalizeAr(value: string) {
     .replace(/ة/g, "ه")
     .replace(/ى/g, "ي")
     .trim();
-}
-
-function variantMatchesOption(attributes: Record<string, string> | null | undefined, key: string, value: string) {
-  const wantKey = normalizeAr(key);
-  const wantVal = normalizeAr(value);
-  return Object.entries(attributes ?? {}).some(
-    ([k, v]) => normalizeAr(k) === wantKey && normalizeAr(String(v)) === wantVal,
-  );
 }
 
 function catalogImageUrls(mainImage?: string | null, images?: Array<ProductImage | string> | null): string[] {
