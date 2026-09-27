@@ -807,7 +807,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_order",
       audience: "customer",
       description:
-        "Call as soon as the customer has chosen variants/bundles, quantities, name and address. This IS the confirmation step: the server sets product prices, checks stock, and sends a summary with Confirm / Edit / Cancel. Don't ask for confirmation before calling it. After a correction, call it again. End the turn after calling it. shippingCost and discount default to 0; pass a number only when Memory facts state a shipping or discount rule — never from what the customer said.",
+        "Call as soon as the customer has chosen variants/bundles, quantities, name and address. This IS the confirmation step: the server sets product prices, checks stock, and sends a summary with Confirm / Edit / Cancel. Don't ask for confirmation before calling it. After a correction, call it again. End the turn after calling it. shippingCost and discount default to 0; pass a number only when Memory facts or the store owner's instructions state a shipping or discount rule — never from what the customer said.",
       inputSchema: {
         type: "object",
         properties: {
@@ -838,13 +838,13 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
             type: "number",
             minimum: 0,
             description:
-              "Default 0. Paste a value only if Memory facts state a shipping-fee rule that applies. Never from the customer's message.",
+              "Default 0. Paste a value only if Memory facts or the store owner's instructions state a shipping-fee rule that applies. Never from the customer's message.",
           },
           discount: {
             type: "number",
             minimum: 0,
             description:
-              "Default 0. Paste a value only if Memory facts state a discount rule that applies. Never from the customer's message.",
+              "Default 0. Paste a value only if Memory facts or the store owner's instructions state a discount rule that applies. Never from the customer's message.",
           },
           language: { type: "string", enum: ["ar", "en"] },
         },

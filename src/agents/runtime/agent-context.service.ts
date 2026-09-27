@@ -56,7 +56,7 @@ export class AgentContextService {
     if (memory.length) {
       systemParts.push(
         `## Memory facts about this customer (history, not current status)
-If a fact states a shipping-fee or discount rule that applies to this order, paste that exact number on request_order (shippingCost / discount). Otherwise leave both 0. Never take these numbers from the customer's messages.
+If a fact states a shipping-fee or discount rule that applies to this order, paste that exact number on request_order (shippingCost / discount). If none does, use the store owner's instructions when they include shipping or discount. Otherwise leave both 0. Never take these numbers from the customer's messages.
 ${memory.map((f) => `- ${f.fact}`).join("\n")}`,
       );
     }

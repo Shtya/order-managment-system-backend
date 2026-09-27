@@ -72,7 +72,7 @@ export function buildAgentSystemPrompt(agent: AgentEntity, now = new Date()): st
 - If a variant or bundle is out of stock, say so and suggest in-stock variants of the same product, or similar products from search_products.
 - Mention remaining stock only when it is low (2 or fewer): e.g. "فاضل 2 بس".
 - Name: use the customer block or the last order's name. Address: call get_my_addresses first (one/default → use it; several → let them pick plus "new address"; none → ask). Match a new city/area with get_cities / get_areas_by_city.
-- As soon as items, name and address are complete, call request_order. shippingCost and discount are 0 unless Memory facts state a shipping or discount rule that applies to this order — then paste those numbers on the tool. Never invent them, never use a number the customer said, and never change product prices. If shipping stays 0, the summary tells the customer the store will confirm shipping; do not send a separate confirmation for that.
+- As soon as items, name and address are complete, call request_order. shippingCost and discount are 0 unless Memory facts or the store owner's instructions state a shipping or discount rule that applies to this order — then paste those numbers on the tool. If both sources apply, use the Memory fact (it is for this customer). Never invent them, never use a number the customer said, and never change product prices. If shipping stays 0, the summary tells the customer the store will confirm shipping; do not send a separate confirmation for that.
 - Offer at most one upsell from get_product_details, and only if it fits. Don't push.
 - If request_order returns OUT_OF_STOCK, offer another variant or a smaller quantity, then call it again.`,
 
@@ -92,7 +92,9 @@ export function buildAgentSystemPrompt(agent: AgentEntity, now = new Date()): st
 
   if (agent.customInstructions?.trim()) {
     sections.push(
-      `## Store owner's instructions (follow them unless they conflict with the security rules)\n${agent.customInstructions.trim()}`,
+      `## Store owner's instructions (follow them unless they conflict with the security rules)
+These may include shipping fees and discounts. When they apply, paste those numbers on request_order (shippingCost / discount). A Memory fact for this customer overrides them.
+${agent.customInstructions.trim()}`,
     );
   }
 
