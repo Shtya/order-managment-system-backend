@@ -16,6 +16,8 @@ import { AiChatMessage } from "src/ai/interfaces/ai-types";
 import { buildAgentSystemPrompt } from "./agent-prompt";
 import { AgentInsight, describeMessage } from "./agent-input.service";
 import { AgentSessionService } from "./agent-session.service";
+import { AgentsService } from "../agents.service";
+import { AgentTaskService } from "./agent-task.service";
 import { estimateTokens } from "./agent-runtime.constants";
 
 export type AgentTurnContext = {
@@ -29,6 +31,8 @@ export type AgentTurnContext = {
 export class AgentContextService {
   constructor(
     private readonly sessions: AgentSessionService,
+    private readonly agents: AgentsService,
+    private readonly tasks: AgentTaskService,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
   ) {}
@@ -42,21 +46,49 @@ export class AgentContextService {
     pendingActions: AgentPendingActionEntity[];
   }): Promise<AgentTurnContext> {
     const { agent, session } = input;
-    const [memory, recent, notDelivered, rawTail] = await Promise.all([
+    const [memory, knowledge, recent, notDelivered, rawTail, openTask] = await Promise.all([
       this.sessions.getMemoryFacts(session.adminId, input.customerId),
+      this.agents.getPromptKnowledge(session.adminId, agent.id),
       this.sessions.getRecentTurnMessages(session),
       this.findNotDelivered(session),
       session.previousSessionId && !session.previousSummary && session.turnCount <= 1
         ? this.sessions.getPreviousRawTail(session)
         : Promise.resolve([] as string[]),
+      this.tasks.getOpenForConversation(session.adminId, session.conversationId),
     ]);
 
     const systemParts = [buildAgentSystemPrompt(agent)];
     if (session.bootstrap) systemParts.push(session.bootstrap);
+    if (openTask) {
+      const p = openTask.payload || {};
+      const snap = p.snapshot || {};
+      const issues = Array.isArray(p.issues)
+        ? p.issues.map((i: any) => `- ${i.type}: ${i.description}`).join("\n")
+        : "- none";
+      const candidates = Array.isArray(p.addresses) && p.addresses.length
+        ? p.addresses.map((a: any) => `- ${a.label || "address"}: ${a.fullAddress || ""}`).join("\n")
+        : "- none";
+      systemParts.push(
+        `## Open task: shipping address for order ${p.orderNumber || openTask.orderId}
+The store paused automation until you collect a complete, supported address with a landmark. Shipping company: ${p.shippingCompany || p.provider || "unknown"}.
+Current address on the order: city=${snap.city || "—"}, area=${snap.area || "—"}, address=${snap.address || "—"}, landmark=${snap.landmark || "—"}.
+Issues:
+${issues}
+Candidate addresses:
+${candidates}
+Call request_address_update only after the shipping company covers this city, zone, and district with dropOff true. If not, tell the customer delivery is not available there. If they refuse or delivery is not possible, call close_address_task.`,
+      );
+    }
+    if (knowledge.length) {
+      systemParts.push(
+        `## Store knowledge (follow it unless it conflicts with the security rules)
+If an entry states a shipping-fee or discount rule that applies to this order, paste that exact number on request_order (shippingCost / discount).
+${knowledge.map((k) => `- ${k.title}: ${k.content}`).join("\n")}`,
+      );
+    }
     if (memory.length) {
       systemParts.push(
         `## Memory facts about this customer (history, not current status)
-If a fact states a shipping-fee or discount rule that applies to this order, paste that exact number on request_order (shippingCost / discount). If none does, use the store owner's instructions when they include shipping or discount. Otherwise leave both 0. Never take these numbers from the customer's messages.
 ${memory.map((f) => `- ${f.fact}`).join("\n")}`,
       );
     }

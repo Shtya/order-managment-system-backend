@@ -50,6 +50,7 @@ import { AiModule } from "src/ai/ai.module";
 import { AiDecisionModule } from "src/ai-decision/ai-decision.module";
 import { ClientsModule } from "src/clients/clients.module";
 import { ShippingCompanyEntity } from "entities/shipping.entity";
+import { AgentsModule } from "src/agents/agents.module";
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { ShippingCompanyEntity } from "entities/shipping.entity";
     forwardRef(() => ShippingModule),
     forwardRef(() => ShippingAssigningModule),
     forwardRef(() => AiModule),
+    forwardRef(() => AgentsModule),
     AiDecisionModule,
     IssueModule,
     ClientsModule,

@@ -88,6 +88,7 @@ export const AutomationJobs = {
   START: "start",
   RESUME: "resume",
   WAIT_RESUME: "wait-resume",
+  AGENT_TASK_RESUME: "agent-task-resume",
 } as const;
 
 export const TagAutomationJobs = {
@@ -116,6 +117,7 @@ export const ClientImportJobs = {
 export const AgentTurnJobs = {
   PROCESS_TURN: "process-turn",
   PAUSE_CATCHUP: "pause-catchup",
+  TASK_START: "task-start",
 } as const;
 
 export type AgentTurnJobData = {
@@ -123,4 +125,5 @@ export type AgentTurnJobData = {
   accountId: string | null;
   conversationId: string;
   catchUp?: boolean;
+  taskId?: string;
 };

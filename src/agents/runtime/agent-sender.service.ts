@@ -13,6 +13,29 @@ import { AgentToolScope } from "./agent-runtime.constants";
 
 export class AgentSendBlockedError extends Error {}
 
+/** Meta refuses the send because the customer 24-hour session window is closed. */
+export class AgentCustomerWindowClosedError extends AgentSendBlockedError {
+  constructor() {
+    super("customer session window closed");
+    this.name = "AgentCustomerWindowClosedError";
+  }
+}
+
+function isCustomerSessionWindowError(error: unknown): boolean {
+  const anyErr = error as { message?: string; response?: { data?: any }; status?: number };
+  const payload = anyErr?.response?.data?.error ?? anyErr?.response?.data ?? {};
+  const code = Number(payload?.code ?? payload?.error_subcode ?? "");
+  const text = `${anyErr?.message ?? ""} ${payload?.message ?? ""} ${payload?.error_user_msg ?? ""} ${code}`.toLowerCase();
+  return (
+    code === 131047 ||
+    text.includes("131047") ||
+    text.includes("re-engagement") ||
+    text.includes("24 hour") ||
+    text.includes("24-hour") ||
+    text.includes("outside the allowed window")
+  );
+}
+
 @Injectable()
 export class AgentSenderService {
   constructor(
@@ -37,27 +60,34 @@ export class AgentSenderService {
   ): Promise<{ wamid: string | null }> {
     await this.assertCanSend(scope);
 
-    const response: any = await this.whatsappService.sendMessage(
-      { id: scope.adminId, adminId: scope.adminId },
-      {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: scope.phoneNumber,
-        ...data,
-        metadata: {
-          agentTurnId: scope.turnId,
-          agentSessionId: scope.sessionId,
-          ...extraMetadata,
-        },
-      } as any,
-      scope.accountId ?? undefined,
-      undefined,
-      undefined,
-      undefined,
-      MessageSendSource.AGENT,
-      scope.agentId,
-    );
-    return { wamid: response?.messages?.[0]?.id ?? null };
+    try {
+      const response: any = await this.whatsappService.sendMessage(
+        { id: scope.adminId, adminId: scope.adminId },
+        {
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: scope.phoneNumber,
+          ...data,
+          metadata: {
+            agentTurnId: scope.turnId,
+            agentSessionId: scope.sessionId,
+            ...extraMetadata,
+          },
+        } as any,
+        scope.accountId ?? undefined,
+        undefined,
+        undefined,
+        undefined,
+        MessageSendSource.AGENT,
+        scope.agentId,
+      );
+      return { wamid: response?.messages?.[0]?.id ?? null };
+    } catch (error) {
+      if (isCustomerSessionWindowError(error)) {
+        throw new AgentCustomerWindowClosedError();
+      }
+      throw error;
+    }
   }
 
   /**
@@ -111,7 +141,7 @@ export class AgentSenderService {
     }
     const context = await this.whatsappAiService.loadContext(scope.adminId, scope.accountId);
     const ai = this.whatsappAiService.resolve(context, conversation.aiMode);
-    if (!ai.enabled || !ai.agentId) {
+    if (!scope.taskId && (!ai.enabled || !ai.agentId)) {
       throw new AgentSendBlockedError("AI replies were turned off for this account");
     }
   }

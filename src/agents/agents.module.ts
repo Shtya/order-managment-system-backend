@@ -1,12 +1,13 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { AgentEntity } from "entities/agent.entity";
+import { AgentEntity,AgentKnowledgeAgentEntity, AgentKnowledgeEntity, } from "entities/agent.entity";
 import { AiProviderEntity } from "entities/ai.entity";
-import { ConversationEntity, WhatsappMessageEntity } from "entities/whatsapp.entity";
+import { ConversationEntity, WhatsappMessageEntity, } from "entities/whatsapp.entity";
 import {
   AgentMemoryFactEntity,
   AgentPendingActionEntity,
   AgentSessionEntity,
+  AgentTaskEntity,
   AgentTurnEntity,
   AgentTurnMessageEntity,
 } from "entities/agent-conversation.entity";
@@ -34,7 +35,11 @@ import { AgentCampaignOffersService } from "./runtime/agent-campaign-offers.serv
 import { AgentPendingActionsService } from "./runtime/agent-pending-actions.service";
 import { AgentCatalogService } from "./runtime/agent-catalog.service";
 import { AgentPauseCatchupService } from "./runtime/agent-pause-catchup.service";
+import { AgentTaskService } from "./runtime/agent-task.service";
 import { CustomerTools } from "src/ai/tools/tools/customer-tools";
+import { AgentWhatsappTools } from "src/ai/tools/tools/whatsapp.tools";
+import { ConversationModule } from "src/conversation/conversation.module";
+import { ShippingModule } from "src/shipping/shipping.module";
 
 @Module({
   imports: [
@@ -48,6 +53,9 @@ import { CustomerTools } from "src/ai/tools/tools/customer-tools";
       AgentTurnMessageEntity,
       AgentPendingActionEntity,
       AgentMemoryFactEntity,
+      AgentTaskEntity,
+      AgentKnowledgeEntity,
+      AgentKnowledgeAgentEntity,
       CustomerEntity,
       OrderEntity,
       User,
@@ -65,6 +73,8 @@ import { CustomerTools } from "src/ai/tools/tools/customer-tools";
     forwardRef(() => CampaignsModule),
     forwardRef(() => ClientsModule),
     forwardRef(() => OrdersModule),
+    forwardRef(() => ConversationModule),
+    forwardRef(() => ShippingModule),
   ],
   controllers: [AgentsController],
   providers: [
@@ -78,8 +88,10 @@ import { CustomerTools } from "src/ai/tools/tools/customer-tools";
     AgentPendingActionsService,
     AgentCatalogService,
     AgentPauseCatchupService,
+    AgentTaskService,
+    AgentWhatsappTools,
     CustomerTools,
   ],
-  exports: [AgentsService, AgentRuntimeService, AgentPauseCatchupService],
+  exports: [AgentsService, AgentRuntimeService, AgentPauseCatchupService, AgentTaskService],
 })
 export class AgentsModule {}

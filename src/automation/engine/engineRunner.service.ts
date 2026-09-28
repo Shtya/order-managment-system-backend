@@ -36,6 +36,7 @@ import { getErrorMessage } from "common/healpers";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { RequestTranslationService } from "common/translation.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
+import { AgentTaskService } from "src/agents/runtime/agent-task.service";
 import {
   MessageStatus,
   WhatsappAccountEntity,
@@ -82,6 +83,8 @@ export class EngineRunnerService {
     private requestTranslations: RequestTranslationService,
     @Inject(forwardRef(() => AutomationQueueService))
     private readonly automationQueueService: AutomationQueueService,
+    @Inject(forwardRef(() => AgentTaskService))
+    private readonly agentTasks: AgentTaskService,
   ) {}
 
   /**
@@ -652,6 +655,68 @@ export class EngineRunnerService {
     };
   }
 
+  async resumeFromAgentTask(
+    runId: string,
+    nodeId: string,
+    taskId?: string,
+  ): Promise<{
+    success: boolean;
+    message: string;
+    runId?: string;
+    status?: RunStatus;
+  }> {
+    const run = await this.runRepo.findOne({ where: { id: runId } });
+    if (!run) return { success: false, message: "Run not found", runId };
+    if (run.status !== RunStatus.PAUSED) {
+      return { success: false, message: "Run is not paused", runId, status: run.status };
+    }
+
+    const priorStepOutput =
+      (run.executionState.steps?.[nodeId]?.output as Record<string, any>) || {};
+    if (!priorStepOutput.pendingAgentAddressTask) {
+      return { success: false, message: "No pending agent address task on this node", runId };
+    }
+
+    const previousStep = run.executionState.steps[nodeId];
+    run.executionState.steps[nodeId] = {
+      type: ActionType.AI_ADDRESS_CORRECTION,
+      executedAt: previousStep?.executedAt || new Date().toISOString(),
+      success: false,
+      input: previousStep?.input,
+      output: {
+        ...priorStepOutput,
+        agentAddressResume: true,
+        agentTaskId: taskId || priorStepOutput.agentTaskId,
+      },
+    };
+    await this.runRepo.save(run);
+
+    const step = await this.stepRepo.findOne({
+      where: { runId: run.id, nodeId },
+      order: { executedAt: "DESC" },
+    });
+    if (step) {
+      step.outputData = run.executionState.steps[nodeId].output;
+      step.errorMessage = null;
+      step.status = StepStatus.SUCCESS;
+      await this.stepRepo.save(step);
+    }
+
+    await this.sendAutomationNotification(
+      run,
+      NotificationType.AUTOMATION_RUN_RESUMED,
+    );
+
+    await this.reenterPausedNode(run.id, nodeId);
+
+    return {
+      success: true,
+      message: "Agent address task resumed",
+      runId: run.id,
+      status: run.status,
+    };
+  }
+
   /**
    * Re-enter a paused node from the start of runLoop (same nodeId),
    * so its handler.execute runs again and saveStepResult + branching apply.
@@ -1175,6 +1240,7 @@ export class EngineRunnerService {
     run.status = RunStatus.FAILED;
     run.errorMessage = errorMessage;
     await this.runRepo.save(run);
+    await this.agentTasks.closeOpenForRun(run.id, "run_cancelled");
     await this.emitRunUpdate(run);
     this.logger.error(`Run ${run.id} failed: ${errorMessage}`);
 

@@ -1,6 +1,7 @@
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsNumber,
   IsObject,
   IsOptional,
@@ -164,6 +165,14 @@ export class BulkUpdateShippingFieldItemToolArgsDto {
   address?: string;
 
   @SchemaProperty({
+    description: "Optional landmark / nearby place the courier can use.",
+    example: "جنب مسجد النور",
+  })
+  @IsOptional()
+  @IsString()
+  landmark?: string;
+
+  @SchemaProperty({
     description:
       "Required. The unified city id that matches the address. Always send it, whether you are changing the city or not. If you chose a new city, send that new city's id.",
     example: "city_123",
@@ -269,7 +278,7 @@ export class GetShippingZonesToolArgsDto {
   provider: string;
 
   @SchemaProperty({
-    description: "The provider city id to get zones for.",
+    description: "The provider city id (from get_cities.providerLocations.providerCityId for this provider), not the unified city id.",
     example: "provider_city_456",
   })
   @IsString()
@@ -288,7 +297,7 @@ export class GetShippingDistrictsToolArgsDto {
   provider: string;
 
   @SchemaProperty({
-    description: "The provider city id to get districts for.",
+    description: "The provider city id (from get_cities.providerLocations.providerCityId for this provider), not the unified city id.",
     example: "provider_city_456",
   })
   @IsString()
@@ -405,6 +414,49 @@ export class ReportAddressConflictToolArgsDto {
   @SchemaProperty({
     description: "Optional short reason why these addresses conflict.",
     example: "Map pin and typed address point to different areas",
+  })
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class ReportAddressIssueDto {
+  @SchemaProperty({
+    description:
+      "Issue type: missing_landmark, conflict, incomplete, or unsupported_city.",
+    example: "missing_landmark",
+  })
+  @IsString()
+  @IsIn(["missing_landmark", "conflict", "incomplete", "unsupported_city"])
+  type: "missing_landmark" | "conflict" | "incomplete" | "unsupported_city";
+
+  @SchemaProperty({
+    description: "Plain-language description of the issue.",
+    example: "The written address has no landmark.",
+  })
+  @IsString()
+  @MinLength(1)
+  description: string;
+}
+
+export class ReportAddressIssuesToolArgsDto {
+  @SchemaProperty({
+    description:
+      "Every problem that blocks saving the address. Report all of them in one call.",
+  })
+  @IsArray()
+  issues: ReportAddressIssueDto[];
+
+  @SchemaProperty({
+    description:
+      "Candidate addresses when the issue is a conflict (same shape as report_address_conflict).",
+  })
+  @IsOptional()
+  @IsArray()
+  addresses?: ReportAddressConflictAddressDto[];
+
+  @SchemaProperty({
+    description: "Optional short reason covering all issues.",
   })
   @IsOptional()
   @IsString()

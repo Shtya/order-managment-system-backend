@@ -22,7 +22,8 @@ import { AgentInputService, AgentInsight } from "./runtime/agent-input.service";
 import { AgentSessionService } from "./runtime/agent-session.service";
 import { AgentContextService } from "./runtime/agent-context.service";
 import { AgentPendingActionsService } from "./runtime/agent-pending-actions.service";
-import { AgentSendBlockedError, AgentSenderService } from "./runtime/agent-sender.service";
+import { AgentTaskService } from "./runtime/agent-task.service";
+import { AgentCustomerWindowClosedError, AgentSendBlockedError, AgentSenderService } from "./runtime/agent-sender.service";
 import {
   AGENT_CANCEL_BUTTON_PREFIX,
   AGENT_COMPACTION_RATIO,
@@ -41,6 +42,7 @@ export type AgentTurnInput = {
   conversationId: string;
   messageIds: string[];
   catchUp?: boolean;
+  taskId?: string;
 };
 
 /** Tools whose successful result means the customer received something. */
@@ -71,6 +73,7 @@ export class AgentRuntimeService {
     private readonly sessions: AgentSessionService,
     private readonly contextBuilder: AgentContextService,
     private readonly actions: AgentPendingActionsService,
+    private readonly tasks: AgentTaskService,
     private readonly sender: AgentSenderService,
   ) {}
 
@@ -87,22 +90,27 @@ export class AgentRuntimeService {
       return;
     }
 
-    // Deleted messages no longer exist for the agent; a batch of only deleted messages gets no reply.
-    const messages = (
-      await this.messageRepo.find({
-        where: { id: In(job.messageIds), adminId: job.adminId, conversationId: job.conversationId },
-        relations: { replyTo: true, reactionTo: true },
-        order: { createdAt: "ASC" },
-      })
-    ).filter((m) => m.status !== MessageStatus.DELETED);
-    if (!messages.length) return;
+    const messages = job.messageIds.length
+      ? (
+          await this.messageRepo.find({
+            where: { id: In(job.messageIds), adminId: job.adminId, conversationId: job.conversationId },
+            relations: { replyTo: true, reactionTo: true },
+            order: { createdAt: "ASC" },
+          })
+        ).filter((m) => m.status !== MessageStatus.DELETED)
+      : [];
+    if (!messages.length && !job.taskId) return;
 
-    // Reply from the account the customer wrote to (the latest message's account).
-    const accountId = messages[messages.length - 1].accountId ?? job.accountId;
+    const openTask = await this.tasks.getOpenForConversation(job.adminId, conversation.id);
+    const accountId = messages.length
+      ? messages[messages.length - 1].accountId ?? job.accountId
+      : job.accountId;
     const aiContext = await this.whatsappAiService.loadContext(job.adminId, accountId);
     const ai = this.whatsappAiService.resolve(aiContext, conversation.aiMode);
-    if (!ai.enabled || !ai.agentId) return;
-    const agent = await this.agentRepo.findOne({ where: { id: ai.agentId, adminId: job.adminId } });
+    const agentId = openTask?.agentId || ai.agentId;
+    if (!openTask && (!ai.enabled || !agentId)) return;
+    if (!agentId) return;
+    const agent = await this.agentRepo.findOne({ where: { id: agentId, adminId: job.adminId } });
     if (!agent?.isActive) return;
 
     const insights = await this.input.understand(job.adminId, messages);
@@ -114,7 +122,7 @@ export class AgentRuntimeService {
     );
     const lastUnsupported = [...messages].reverse().find((m) => unsupportedIds.has(m.id));
     const hasUnsupported = !!lastUnsupported;
-    if (!meaningful.length && !hasUnsupported) return;
+    if (!meaningful.length && !hasUnsupported && !job.taskId && !openTask) return;
 
     const phoneNumber = conversation.customer.phoneNumber;
     const session = await this.sessions.resolve({
@@ -147,10 +155,17 @@ export class AgentRuntimeService {
       customerId: conversation.customerId,
       phoneNumber,
       accountId,
+      taskId: openTask?.id,
     };
 
     try {
       const events: string[] = [];
+      if (job.taskId || openTask) {
+        const orderNumber = openTask?.payload?.orderNumber || "";
+        events.push(
+          `The store asked you to fix the shipping address of order ${orderNumber || "this order"}. Start or continue that conversation. Explain the problem simply, ask one question at a time, and do not invent any part of the address.`,
+        );
+      }
       if (job.catchUp) {
         events.push(
           "Staff was handling this chat and went silent. Only reply if the customer asked for something still unanswered. If they only acknowledged (ok, تمام, thanks), call end_turn without sending.",
@@ -164,7 +179,7 @@ export class AgentRuntimeService {
             : "The customer also sent an unsupported item (image/video/file); they were told recently that it can't be read.",
         );
       }
-      if (!meaningful.length) {
+      if (!meaningful.length && !job.taskId && !openTask) {
         await this.finishTurn(turn, startedAt, { status: AgentTurnStatus.SILENT, endedBy: "unsupported_only" });
         return;
       }
@@ -198,6 +213,10 @@ export class AgentRuntimeService {
         status: AgentTurnStatus.FAILED,
         error: (error as Error)?.message ?? String(error),
       });
+      if (error instanceof AgentCustomerWindowClosedError && openTask) {
+        await this.tasks.close(openTask.id, "customer_session_window_closed");
+        return;
+      }
       throw error;
     }
   }
@@ -220,7 +239,9 @@ export class AgentRuntimeService {
         if (outcome.ok) {
           goalReached = true;
           events.push(
-            `The customer pressed Confirm on action ${actionId}; it was executed: ${JSON.stringify(outcome.result)}. Send a separate message saying it's done (with the order number).`,
+            outcome.result?.kind === "address_correction"
+              ? `The customer pressed Confirm on action ${actionId}; the corrected address was sent to the store. Tell them the store will continue preparing the order.`
+              : `The customer pressed Confirm on action ${actionId}; it was executed: ${JSON.stringify(outcome.result)}. Send a separate message saying it's done (with the order number).`,
           );
         } else {
           events.push(

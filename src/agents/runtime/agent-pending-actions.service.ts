@@ -12,6 +12,7 @@ import { OrdersService } from "src/orders/services/orders.service";
 import { AgentCampaignOffersService } from "./agent-campaign-offers.service";
 import { AgentCatalogError, AgentCatalogService } from "./agent-catalog.service";
 import { AgentSessionService } from "./agent-session.service";
+import { AgentTaskService } from "./agent-task.service";
 import { AGENT_PENDING_ACTION_TTL_MS, AgentToolScope } from "./agent-runtime.constants";
 
 export type AgentActionOutcome = {
@@ -45,6 +46,7 @@ export class AgentPendingActionsService {
     private readonly catalog: AgentCatalogService,
     private readonly dataSource: DataSource,
     private readonly sessions: AgentSessionService,
+    private readonly tasks: AgentTaskService,
   ) {}
 
   async listOpen(adminId: string, customerId: string): Promise<AgentPendingActionEntity[]> {
@@ -275,6 +277,26 @@ export class AgentPendingActionsService {
           scope.turnId,
         );
         return result;
+      }
+      case AgentPendingActionType.ADDRESS_CORRECTION: {
+        const p = action.payload;
+        if (!p?.taskId) {
+          throw Object.assign(new Error("This address task is no longer available."), { status: 404 });
+        }
+        await this.tasks.submit(p.taskId, {
+          kind: "address_correction",
+          cityId: p.cityId,
+          city: p.city,
+          areaId: p.areaId,
+          area: p.area,
+          address: p.address,
+          landmark: p.landmark,
+          zoneId: p.zoneId,
+          districtId: p.districtId,
+          latitude: p.latitude,
+          longitude: p.longitude,
+        });
+        return { kind: "address_correction", orderId: action.orderId, address: p.address };
       }
     }
     throw new Error(`Unknown action type ${action.type}`);

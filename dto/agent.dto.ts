@@ -1,4 +1,4 @@
-import { IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf } from "class-validator";
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf } from "class-validator";
 import { i18nValidationMessage } from "nestjs-i18n";
 import { AgentGender, AgentLanguage } from "entities/agent.entity";
 
@@ -41,6 +41,12 @@ export class CreateAgentDto {
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
   isActive?: boolean;
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
+  knowledgeIds?: string[];
 }
 
 export class UpdateAgentDto {
@@ -72,4 +78,57 @@ export class UpdateAgentDto {
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
   isActive?: boolean;
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
+  knowledgeIds?: string[];
+}
+
+export class CreateAgentKnowledgeDto {
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @MinLength(1, { message: i18nValidationMessage("validation.min_length") })
+  @MaxLength(255, { message: i18nValidationMessage("validation.max_length") })
+  title: string;
+
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @MinLength(1, { message: i18nValidationMessage("validation.min_length") })
+  @MaxLength(2000, { message: i18nValidationMessage("validation.max_length") })
+  content: string;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
+  agentIds?: string[];
+}
+
+export class UpdateAgentKnowledgeDto {
+  @IsOptional()
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @MinLength(1, { message: i18nValidationMessage("validation.min_length") })
+  @MaxLength(255, { message: i18nValidationMessage("validation.max_length") })
+  title?: string;
+
+  @IsOptional()
+  @IsString({ message: i18nValidationMessage("validation.is_string") })
+  @MinLength(1, { message: i18nValidationMessage("validation.min_length") })
+  @MaxLength(2000, { message: i18nValidationMessage("validation.max_length") })
+  content?: string;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  isActive?: boolean;
+}
+
+export class ResetAgentKnowledgeDto {
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
+  knowledgeIds: string[];
 }

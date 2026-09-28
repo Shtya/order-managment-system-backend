@@ -19,7 +19,13 @@ import { Permissions } from "common/permissions.decorator";
 import { RequireSubscription } from "common/require-subscription.decorator";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { AgentsService } from "./agents.service";
-import { CreateAgentDto, UpdateAgentDto } from "dto/agent.dto";
+import {
+  CreateAgentDto,
+  CreateAgentKnowledgeDto,
+  ResetAgentKnowledgeDto,
+  UpdateAgentDto,
+  UpdateAgentKnowledgeDto,
+} from "dto/agent.dto";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @RequireSubscription()
@@ -59,6 +65,65 @@ export class AgentsController {
   }
 
   @Permissions("agents.read")
+  @Get("knowledge")
+  listKnowledge(@Req() req: any, @Query() q: any) {
+    return this.service.listKnowledge(req.user, q);
+  }
+
+  @Permissions("agents.read")
+  @Get("knowledge/stats")
+  knowledgeStats(@Req() req: any) {
+    return this.service.knowledgeStats(req.user);
+  }
+
+  @Get("knowledge/export")
+  @Permissions("agents.read")
+  @Header(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  )
+  async exportKnowledge(@Req() req: any, @Query() q: any, @Res() res: Response) {
+    const buffer = await this.service.exportKnowledge(req.user, q);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename=knowledge-${Date.now()}.xlsx`,
+    );
+    res.end(buffer);
+  }
+
+  @Permissions("agents.read")
+  @Get("knowledge/:knowledgeId")
+  getKnowledge(@Req() req: any, @Param("knowledgeId") knowledgeId: string) {
+    return this.service.getKnowledge(req.user, knowledgeId);
+  }
+
+  @Permissions("agents.create")
+  @Post("knowledge")
+  createKnowledge(@Req() req: any, @Body() dto: CreateAgentKnowledgeDto) {
+    return this.service.createKnowledge(req.user, dto);
+  }
+
+  @Permissions("agents.update")
+  @Patch("knowledge/:knowledgeId")
+  updateKnowledge(
+    @Req() req: any,
+    @Param("knowledgeId") knowledgeId: string,
+    @Body() dto: UpdateAgentKnowledgeDto,
+  ) {
+    return this.service.updateKnowledge(req.user, knowledgeId, dto);
+  }
+
+  @Permissions("agents.delete")
+  @Delete("knowledge/:knowledgeId")
+  removeKnowledge(@Req() req: any, @Param("knowledgeId") knowledgeId: string) {
+    return this.service.removeKnowledge(req.user, knowledgeId);
+  }
+
+  @Permissions("agents.read")
   @Get(":id")
   get(@Req() req: any, @Param("id") id: string) {
     return this.service.get(req.user, id);
@@ -68,6 +133,16 @@ export class AgentsController {
   @Post()
   create(@Req() req: any, @Body() dto: CreateAgentDto) {
     return this.service.create(req.user, dto);
+  }
+
+  @Permissions("agents.update")
+  @Post(":agentId/knowledge/reset")
+  resetAgentKnowledge(
+    @Req() req: any,
+    @Param("agentId") agentId: string,
+    @Body() dto: ResetAgentKnowledgeDto,
+  ) {
+    return this.service.resetAgentKnowledge(req.user, agentId, dto);
   }
 
   @Permissions("agents.update")

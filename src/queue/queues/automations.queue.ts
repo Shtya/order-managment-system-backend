@@ -99,6 +99,23 @@ export class AutomationQueueService {
     );
   }
 
+  async enqueueAgentTaskResume(
+    adminId: string,
+    data: { runId: string; nodeId: string; taskId: string },
+  ) {
+    if (!adminId || !data.runId || !data.nodeId) return;
+    const jobId = `agent-task-resume-${adminId}-${data.runId}-${data.nodeId}`;
+    await this.automationsQueue.add(
+      AutomationJobs.AGENT_TASK_RESUME,
+      {
+        ...data,
+        type: AutomationJobs.AGENT_TASK_RESUME,
+        adminId,
+      },
+      { jobId },
+    );
+  }
+
   async enqueueWaitResume(
     runId: string,
     automationFlowId: string,
@@ -193,6 +210,17 @@ export class AutomationWorkerService extends WorkerHost {
           waitNodeId,
         );
         this.logger.log(`=== SUCCESS: Finished wait-resume job ${job.id}`);
+        return result;
+      } else if (type === AutomationJobs.AGENT_TASK_RESUME && runId && job.data.nodeId) {
+        this.logger.log(
+          `=== STARTING Job ${job.id} | Type: ${type} | Resuming run ${runId} from agent task`,
+        );
+        const result = await this.engineRunner.resumeFromAgentTask(
+          runId,
+          job.data.nodeId,
+          job.data.taskId,
+        );
+        this.logger.log(`=== SUCCESS: Finished agent-task-resume job ${job.id}`);
         return result;
       }
     } catch (error) {

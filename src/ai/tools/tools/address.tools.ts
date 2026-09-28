@@ -17,7 +17,8 @@ import {
   GetLatestOrderToolArgsDto,
   SearchOrdersToolArgsDto,
   BulkUpdateOrdersShippingToolArgsDto,
-  ReportAddressConflictToolArgsDto
+  ReportAddressConflictToolArgsDto,
+  ReportAddressIssuesToolArgsDto,
 } from "../dto/orders.tool.dto";
 import { dtoToJsonSchema } from "../dto-to-json-schema";
 import {
@@ -36,7 +37,7 @@ const TRACKING_NUMBER_EXAMPLE = "38098658";
 const ORDER_NUMBER_HELP = `An order number is a short code starting with "ORD" + 8 letters/digits (e.g. ${ORDER_NUMBER_EXAMPLE}). It is NOT the UUID id (e.g. ${ORDER_UUID_EXAMPLE}) and NOT a tracking number (e.g. ${TRACKING_NUMBER_EXAMPLE}).`;
 
 @Injectable()
-export class OrdersAiTools {
+export class addressAiTools {
   constructor(
     private readonly ordersService: OrdersService,
     private readonly citiesService: CitiesService,
@@ -83,10 +84,11 @@ export class OrdersAiTools {
       new AiTool({
         name: "get_shipping_zones",
         description:
-          "List the zones for a shipping provider city. Returns zone id, nameEn, nameAr, pickup, dropOff.",
+          "List the zones for a shipping provider city. cityId is the provider city id from get_cities.providerLocations for that provider (not the unified city id). Returns zone id, nameEn, nameAr, pickup, dropOff.",
         inputSchema: dtoToJsonSchema(GetShippingZonesToolArgsDto),
         argsDto: GetShippingZonesToolArgsDto,
         permission: AI_PERMISSION_TOOLS_SHIPPING_READ,
+        audience: ["staff", "customer"],
         isWrite: false,
         staleRecovery: "manual_review",
         run: (ctx, args) => this.getShippingZones(ctx, args),
@@ -94,10 +96,11 @@ export class OrdersAiTools {
       new AiTool({
         name: "get_shipping_districts",
         description:
-          "List the districts for a shipping provider city. Returns district id, nameEn, nameAr, pickup, dropOff, zoneId.",
+          "List the districts for a shipping provider city. cityId is the provider city id from get_cities.providerLocations for that provider (not the unified city id). Returns district id, nameEn, nameAr, pickup, dropOff, zoneId.",
         inputSchema: dtoToJsonSchema(GetShippingDistrictsToolArgsDto),
         argsDto: GetShippingDistrictsToolArgsDto,
         permission: AI_PERMISSION_TOOLS_SHIPPING_READ,
+        audience: ["staff", "customer"],
         isWrite: false,
         staleRecovery: "manual_review",
         run: (ctx, args) => this.getShippingDistricts(ctx, args),
@@ -116,7 +119,7 @@ export class OrdersAiTools {
       new AiTool({
         name: 'bulk_update_orders_shipping',
         description:
-          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id and cityId. cityId is required on every item: send the unified city id that matches the address, whether you are changing the city or not. If you chose a new city, send that new city's id. You may also set address (normal written shipping text in Arabic, with NO latitude/longitude in the string; translate English/mixed sources into Arabic) and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". City plus area in Arabic is a valid address. Do not replace a complete written address with the map text.`,
+          `Update shipping fields for one or more orders in a single transaction. Each item requires the order UUID id and cityId. cityId is required on every item: send the unified city id that matches the address, whether you are changing the city or not. If you chose a new city, send that new city's id. You may also set address (normal written shipping text in Arabic, with NO latitude/longitude in the string; translate English/mixed sources into Arabic), landmark, and shippingMetadata (districtId, zoneId, orderSize). Never append coords like "(موقع على الخريطة: 31.13, 33.81)". City plus area in Arabic is a valid address. Do not replace a complete written address with the map text.`,
         inputSchema: dtoToJsonSchema(BulkUpdateOrdersShippingToolArgsDto),
         argsDto: BulkUpdateOrdersShippingToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_WRITE,
@@ -136,45 +139,15 @@ export class OrdersAiTools {
         run: (ctx, args) => this.reportAddressConflict(ctx, args),
       }),
       new AiTool({
-        name: "get_latest_order",
-        description: `Get the most recent order in the current store (the tenant's own latest order). No arguments are required. Use this when the user asks for "the latest order" or "my most recent order" without naming a specific customer or order number. To find the latest order of a specific customer, use get_latest_order_by_phone instead.`,
-        inputSchema: dtoToJsonSchema(GetLatestOrderToolArgsDto),
-        argsDto: GetLatestOrderToolArgsDto,
-        permission: AI_PERMISSION_TOOLS_ORDERS_READ,
-        isWrite: false,
-        staleRecovery: "manual_review",
-        run: (ctx, args) => this.getLatestOrder(ctx, args),
-      }),
-      new AiTool({
-        name: "search_orders",
-        description: `Search orders using free-text search (order number, customer name, phone) or an explicit orderNumber, plus optional filters: status, paymentStatus, city. Returns a paginated, compact list. ${ORDER_NUMBER_HELP} Search by the order number (e.g. ${ORDER_NUMBER_EXAMPLE}) when the user gives an "ORD..." code; otherwise prefer free-text search.`,
-        inputSchema: dtoToJsonSchema(SearchOrdersToolArgsDto),
-        argsDto: SearchOrdersToolArgsDto,
-        permission: AI_PERMISSION_TOOLS_ORDERS_READ,
-        isWrite: false,
-        staleRecovery: "manual_review",
-        run: (ctx, args) => this.searchOrders(ctx, args),
-      }),
-      new AiTool({
-        name: "get_order_history",
-        description: `Retrieve the status-change history / action log for an order using the order number. ${ORDER_NUMBER_HELP}`,
-        inputSchema: dtoToJsonSchema(GetOrderHistoryToolArgsDto),
-        argsDto: GetOrderHistoryToolArgsDto,
-        permission: AI_PERMISSION_TOOLS_ORDERS_READ,
-        isWrite: false,
-        staleRecovery: "manual_review",
-        run: (ctx, args) => this.getOrderHistory(ctx, args),
-      }),
-      new AiTool({
-        name: "get_order_stats",
+        name: "report_address_issues",
         description:
-          "Get aggregate order statistics for the tenant (totals, counts by status, revenue metrics).",
-        inputSchema: dtoToJsonSchema(GetOrderStatsToolArgsDto),
-        argsDto: GetOrderStatsToolArgsDto,
+          "Record every problem that blocks saving this order's address, then stop. Do not update the order. Use when a landmark is missing, the address conflicts with itself or with the map pin, a required part is missing, or the selected shipping company does not cover the city. Send all issues in one call. Include candidate addresses when the problem is a conflict.",
+        inputSchema: dtoToJsonSchema(ReportAddressIssuesToolArgsDto),
+        argsDto: ReportAddressIssuesToolArgsDto,
         permission: AI_PERMISSION_TOOLS_ORDERS_READ,
         isWrite: false,
         staleRecovery: "manual_review",
-        run: (ctx, args) => this.getOrderStats(ctx, args),
+        run: (ctx, args) => this.reportAddressIssues(ctx, args),
       }),
     ];
   }
@@ -200,101 +173,6 @@ export class OrdersAiTools {
       }),
     );
   }
-  private async getLatestOrder(
-    ctx: AiToolContext,
-    args: Record<string, unknown>,
-  ): Promise<AiExecutionResult> {
-    return this.wrap("ORDER_FOUND", async () => {
-      const records = await this.ordersService.list(this.buildMe(ctx), {
-        limit: 1,
-        page: 1,
-      });
-      const order = (records as any)?.records?.[0];
-      if (!order) throw new BadRequestException("No orders found for this store");
-      return mapOrderCompact(order, { includeItems: false });
-    });
-  }
-  private async searchOrders(
-    ctx: AiToolContext,
-    args: Record<string, unknown>,
-  ): Promise<AiExecutionResult> {
-    return this.wrap("ORDERS_FOUND", async () => {
-      const result = await this.ordersService.list(this.buildMe(ctx), {
-        search: args.orderNumber ?? args.search,
-        status: args.status,
-        paymentStatus: args.paymentStatus,
-        city: args.city,
-        page: args.page,
-        limit: args.limit,
-      });
-      const records = (result as any)?.records ?? [];
-      return {
-        total_records: (result as any)?.total_records,
-        current_page: (result as any)?.current_page,
-        per_page: (result as any)?.per_page,
-        records: records
-          .slice(0, 20)
-          .map((o: any) => mapOrderCompact(o, { includeItems: false })),
-      };
-    });
-  }
-
-
-  private async getOrderHistory(
-    ctx: AiToolContext,
-    args: Record<string, unknown>,
-  ): Promise<AiExecutionResult> {
-    return this.wrap("ORDER_HISTORY", async () => {
-      const order: any = await this.ordersService.get(
-        this.buildMe(ctx),
-        String(args.orderNumber),
-      );
-      const history = await this.ordersService.getOrderHistory(
-        order.id,
-        this.buildMe(ctx),
-      );
-      return history;
-    });
-  }
-
-  private async getOrderShipping(
-    ctx: AiToolContext,
-    args: Record<string, unknown>,
-  ): Promise<AiExecutionResult> {
-    return this.wrap("ORDER_SHIPPING", async () => {
-      const order: any = await this.ordersService.get(
-        this.buildMe(ctx),
-        String(args.orderNumber),
-      );
-      return {
-        orderNumber: order.orderNumber,
-        city: order.city,
-        area: order.area,
-        address: order.address,
-        landmark: order.landmark,
-        shippingCompany: order.shippingCompany?.name ?? null,
-        shippingCompanyId: order.shippingCompanyId,
-        trackingNumber: order.trackingNumber,
-        shippedAt: order.shippedAt,
-        shippingMetadata: order.shippingMetadata ?? null,
-        shippingCost: order.shippingCost ?? null,
-      };
-    });
-  }
-
-  private async getOrderStats(
-    ctx: AiToolContext,
-    args: Record<string, unknown>,
-  ): Promise<AiExecutionResult> {
-    return this.wrap("ORDER_STATS", async () => {
-      const stats = await this.ordersService.getStats(this.buildMe(ctx), {
-        startDate: args.startDate,
-        endDate: args.endDate,
-        statusId: args.statusId,
-      });
-      return stats;
-    });
-  }
 
   private async bulkUpdateOrdersShipping(
     ctx: AiToolContext,
@@ -317,7 +195,7 @@ export class OrdersAiTools {
       const items = rawItems.map((item: any) => {
         if (!item || typeof item !== "object") return item;
         if (!allowWrittenAddress) {
-          const { address: _omitAddress, ...rest } = item;
+          const { address: _omitAddress, landmark: _omitLandmark, ...rest } = item;
           return rest;
         }
         if (item.address === undefined || item.address === null) return item;
@@ -350,6 +228,24 @@ export class OrdersAiTools {
         reason: args.reason ? String(args.reason) : undefined,
         message:
           "Address conflict recorded. Do not update the order.",
+      };
+    });
+  }
+
+  private async reportAddressIssues(
+    ctx: AiToolContext,
+    args: Record<string, unknown>,
+  ): Promise<AiExecutionResult> {
+    return this.wrap("ADDRESS_ISSUES_REPORTED", async () => {
+      const issues = Array.isArray(args.issues) ? args.issues : [];
+      if (issues.length < 1) {
+        throw new BadRequestException("report_address_issues requires at least one issue");
+      }
+      return {
+        issues,
+        addresses: Array.isArray(args.addresses) ? args.addresses : [],
+        reason: args.reason ? String(args.reason) : undefined,
+        message: "Address issues recorded. Do not update the order.",
       };
     });
   }

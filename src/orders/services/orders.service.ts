@@ -5728,6 +5728,14 @@ export class OrdersService {
           order.address = item.address;
         }
 
+        if (item.landmark !== undefined) {
+          order.landmark = item.landmark;
+        }
+
+        if (item.area !== undefined) {
+          order.area = item.area;
+        }
+
         if (item.cityId !== undefined && item.cityId) {
           const city = cityMap.get(item.cityId);
           if (!city) {

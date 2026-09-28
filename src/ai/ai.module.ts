@@ -17,8 +17,7 @@ import { CitiesModule } from "../cities/cities.module";
 import { AI_CONFIG_TOKEN, AI_TOOL_NAMESPACE_TOKEN } from "./ai.constants";
 import { aiConfigFactoryProvider } from "./ai.config";
 import { AiToolRegistryService } from "./tools/ai-tool-registry.service";
-import { OrdersAiTools } from "./tools/tools/orders.tools";
-import { ShippingAiTools } from "./tools/tools/shipping.tools";
+import { addressAiTools } from "./tools/tools/address.tools";
 import { WhatsappAiTools } from "./tools/tools/whatsapp.tools";
 import { AiProviderSelectorService } from "./orchestrator/provider-selector.service";
 import { AiSystemPromptService } from "./orchestrator/ai-system-prompt.service";
@@ -73,17 +72,15 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
     OpenAiCompatibleProviderImpl,
 
     // 3. Tool namespaces
-    OrdersAiTools,
-    ShippingAiTools,
+    addressAiTools,
     WhatsappAiTools,
     {
       provide: AI_TOOL_NAMESPACE_TOKEN,
       useFactory: (
-        ordersTools: OrdersAiTools,
-        shippingTools: ShippingAiTools,
+        ordersTools: addressAiTools,
         whatsappTools: WhatsappAiTools,
-      ) => [ordersTools, shippingTools, whatsappTools],
-      inject: [OrdersAiTools, ShippingAiTools, WhatsappAiTools],
+      ) => [ordersTools, whatsappTools],
+      inject: [addressAiTools, WhatsappAiTools],
     },
 
     // 4. Core orchestration services

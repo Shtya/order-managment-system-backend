@@ -11,7 +11,7 @@ export const AGENT_UNSUPPORTED_REPLY_COOLDOWN_SECONDS = 5 * 60;
 export const AGENT_CONTEXT_TOKEN_BUDGET = 48_000;
 export const AGENT_COMPACTION_RATIO = 0.65;
 export const AGENT_KEEP_RECENT_TURNS = 6;
-export const AGENT_MEMORY_FACTS_LIMIT = 50;
+export const AGENT_MEMORY_FACTS_LIMIT = 6;
 
 const AGENT_UNSUPPORTED_MESSAGES = {
   arabic: "معلش، مش قادر أفهم النوع ده من الرسائل. ممكن تكتبلي طلبك أو تبعته بطريقة تانية؟",
@@ -51,6 +51,8 @@ export type AgentToolScope = {
   customerId: string;
   phoneNumber: string;
   accountId: string | null;
+  /** When set, send even if the WhatsApp account's default AI agent is off. */
+  taskId?: string;
 };
 
 export function estimateTokens(text: string | null | undefined): number {

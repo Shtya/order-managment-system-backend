@@ -149,6 +149,26 @@ export class AgentTurnQueueService {
     // "active:<jobId>": the running worker drains this message before it releases the lane.
   }
 
+  async enqueueTaskStart(data: AgentTurnJobData, delayMs = 0) {
+    if (!data.adminId || !data.conversationId || !data.taskId) return;
+    const jobId = `agent-task-start-${data.conversationId}-${data.taskId}`;
+    const existing = await this.agentTurnsQueue.getJob(jobId);
+    if (existing) {
+      try {
+        await existing.remove();
+      } catch {
+        // Already running; a duplicate start is harmless because the task is already open.
+      }
+    }
+    await this.agentTurnsQueue.add(AgentTurnJobs.TASK_START, data, {
+      jobId,
+      delay: Math.max(0, delayMs),
+      attempts: 1,
+      removeOnComplete: true,
+      removeOnFail: 50,
+    });
+  }
+
   async schedulePauseCatchup(data: AgentTurnJobData, pausedUntil: Date) {
     if (!data.adminId || !data.conversationId) return;
     const delay = Math.max(0, pausedUntil.getTime() - Date.now());
@@ -229,6 +249,17 @@ export class AgentTurnWorkerService extends WorkerHost {
   }
 
   async process(job: Job<AgentTurnJobData>): Promise<any> {
+    if (job.name === AgentTurnJobs.TASK_START) {
+      await this.agentRuntime.runTurn({
+        adminId: job.data.adminId,
+        accountId: job.data.accountId,
+        conversationId: job.data.conversationId,
+        messageIds: [],
+        taskId: job.data.taskId,
+      });
+      return { taskStart: true };
+    }
+
     if (job.name === AgentTurnJobs.PAUSE_CATCHUP) {
       const result = await this.pauseCatchup.run(job.data);
       if (result.rescheduleUntil) {

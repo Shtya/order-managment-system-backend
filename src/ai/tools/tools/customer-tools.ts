@@ -1,4 +1,4 @@
-﻿import { BadRequestException, forwardRef, HttpException, Inject, Injectable, OnModuleInit } from "@nestjs/common";
+﻿import { forwardRef, Inject, Injectable, OnModuleInit } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, Repository, SelectQueryBuilder } from "typeorm";
 import { AiTool } from "src/ai/tools/ai-tool.abstract";
@@ -19,7 +19,9 @@ import {
 import { AreaEntity, CityEntity } from "entities/cities.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { ClientService } from "src/clients/clients.service";
-import { AgentPendingActionType } from "entities/agent-conversation.entity";
+import { ShippingService } from "src/shipping/shipping.service";
+import { AgentPendingActionType, AgentTaskStatus } from "entities/agent-conversation.entity";
+import { AgentTaskService } from "src/agents/runtime/agent-task.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import {
   AGENT_CANCEL_BUTTON_PREFIX,
@@ -27,7 +29,7 @@ import {
   AGENT_EDIT_BUTTON_PREFIX,
   AgentToolScope,
 } from "src/agents/runtime/agent-runtime.constants";
-import { AgentSendBlockedError, AgentSenderService } from "src/agents/runtime/agent-sender.service";
+import { AgentCustomerWindowClosedError, AgentSendBlockedError, AgentSenderService } from "src/agents/runtime/agent-sender.service";
 import { AgentCampaignOffersService } from "src/agents/runtime/agent-campaign-offers.service";
 import { AgentPendingActionsService } from "src/agents/runtime/agent-pending-actions.service";
 import {
@@ -37,7 +39,7 @@ import {
   AgentOrderLineInput,
 } from "src/agents/runtime/agent-catalog.service";
 
-const LIMITS = {
+export const LIMITS = {
   text: 4096,
   body: 1024,
   header: 60,
@@ -52,19 +54,19 @@ const LIMITS = {
   caption: 1024,
 };
 
-const RESERVED_ID_PREFIXES = [
+export const RESERVED_ID_PREFIXES = [
   AGENT_CONFIRM_BUTTON_PREFIX,
   AGENT_EDIT_BUTTON_PREFIX,
   AGENT_CANCEL_BUTTON_PREFIX,
 ];
 
-type Args = Record<string, any>;
+export type Args = Record<string, any>;
 
-function fail(code: string, error: string): AiToolExecutionResult {
+export function fail(code: string, error: string): AiToolExecutionResult {
   return { ok: false, code, error };
 }
 
-function str(value: unknown): string {
+export function str(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
@@ -84,6 +86,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     private readonly sender: AgentSenderService,
     private readonly offers: AgentCampaignOffersService,
     private readonly actions: AgentPendingActionsService,
+    private readonly tasks: AgentTaskService,
     private readonly catalog: AgentCatalogService,
     @InjectRepository(OrderEntity)
     private readonly orderRepo: Repository<OrderEntity>,
@@ -95,6 +98,8 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     private readonly customerRepo: Repository<CustomerEntity>,
     @Inject(forwardRef(() => ClientService))
     private readonly clients: ClientService,
+    @Inject(forwardRef(() => ShippingService))
+    private readonly shipping: ShippingService,
   ) { }
 
   onModuleInit() {
@@ -103,310 +108,34 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
 
   getTools(): AiTool[] {
     return [
-      this.sendText(),
-      this.sendImage(),
-      this.sendButtons(),
-      this.sendList(),
-      this.reactToMessage(),
-      this.requestLocation(),
+      // Messaging
       this.endTurn(),
+  
+      // Customer & Orders
       this.getMyOrders(),
       this.getOrderDetails(),
-      this.getMyCampaignOffers(),
       this.getMyAddresses(),
+  
+      // Products & Offers
       this.listCategories(),
       this.searchProducts(),
       this.getProductDetails(),
       this.getBundleDetails(),
+      this.getMyCampaignOffers(),
+  
+      // Order Creation
       this.requestOrder(),
       this.requestCampaignOrder(),
+  
+      // Address & Shipping
+      this.requestAddressUpdate(),
+      this.checkShippingCoverage(),
+      this.closeAddressTask(),
+  
+      // Pending Actions
       this.confirmPendingAction(),
       this.cancelPendingAction(),
     ];
-  }
-
-  // ---------------------------------------------------------------- send tools
-
-  private sendText() {
-    return new AiTool({
-      name: "send_text",
-      audience: "customer",
-      description:
-        "Send a text message to the customer. Optionally quote one of the customer's messages by its id (msg id from the input).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          text: { type: "string", maxLength: LIMITS.text },
-          replyToMessageId: { type: "string", description: "Optional msg id to quote." },
-        },
-        required: ["text"],
-        additionalProperties: false,
-      },
-      isWrite: true,
-      staleRecovery: "auto_recover",
-      run: async (ctx, args: Args) => {
-        const scope = agentScopeOf(ctx);
-        const text = str(args.text);
-        if (!text) return fail("INVALID_ARGS", "text is required");
-        if (text.length > LIMITS.text) return fail("INVALID_ARGS", `text must be at most ${LIMITS.text} characters`);
-        const context = await this.quoteContext(scope, args.replyToMessageId);
-        return this.deliver(scope, { type: "text", text: { body: text, preview_url: false }, ...context });
-      },
-    });
-  }
-
-  private sendImage() {
-    return new AiTool({
-      name: "send_image",
-      audience: "customer",
-      description:
-        "Send one catalog product/bundle photo. Use a url from get_product_details.images or get_bundle_details.images (first url is the main image). Optional caption. Call once per image; send the main image first unless they asked for more.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          url: { type: "string", description: "Image url to send (usually from get_product_details.images or get_bundle_details.images)." },
-          caption: { type: "string", maxLength: LIMITS.caption, description: "Optional short text under the photo." },
-          replyToMessageId: { type: "string", description: "Optional msg id to quote." },
-        },
-        required: ["url"],
-        additionalProperties: false,
-      },
-      isWrite: true,
-      staleRecovery: "auto_recover",
-      run: async (ctx, args: Args) => {
-        const scope = agentScopeOf(ctx);
-        const caption = str(args.caption);
-        if (caption.length > LIMITS.caption) {
-          return fail("INVALID_ARGS", `caption must be at most ${LIMITS.caption} characters`);
-        }
-        const url = str(args.url);
-        if (!url) return fail("INVALID_ARGS", "url is required");
-        try {
-          const extra = await this.quoteContext(scope, args.replyToMessageId);
-          await this.sender.sendImage(scope, { url, caption: caption || undefined, extra });
-          return { ok: true, code: "SENT" };
-        } catch (error) {
-          if (error instanceof AgentSendBlockedError) {
-            return fail("SEND_BLOCKED", `${error.message}. End the turn.`);
-          }
-          if (error instanceof BadRequestException || error instanceof HttpException) {
-            return fail("UPLOAD_FAILED", "Could not send this image. Try another url from get_product_details.");
-          }
-          throw error;
-        }
-      },
-    });
-  }
-
-  private sendButtons() {
-    return new AiTool({
-      name: "send_buttons",
-      audience: "customer",
-      description:
-        "Send a message with up to 3 reply buttons (yes/no or short choices). The customer's choice arrives in their next message. End the turn after sending.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          body: { type: "string", maxLength: LIMITS.body },
-          buttons: {
-            type: "array",
-            minItems: 1,
-            maxItems: LIMITS.buttons,
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string", description: "Short id you will see when the customer picks it." },
-                title: { type: "string", maxLength: LIMITS.buttonTitle },
-              },
-              required: ["title"],
-              additionalProperties: false,
-            },
-          },
-          header: { type: "string", maxLength: LIMITS.header },
-          footer: { type: "string", maxLength: LIMITS.footer },
-        },
-        required: ["body", "buttons"],
-        additionalProperties: false,
-      },
-      isWrite: true,
-      staleRecovery: "auto_recover",
-      run: async (ctx, args: Args) => {
-        const scope = agentScopeOf(ctx);
-        const body = str(args.body);
-        if (!body || body.length > LIMITS.body) return fail("INVALID_ARGS", `body is required (max ${LIMITS.body} characters)`);
-        const buttons = Array.isArray(args.buttons) ? args.buttons : [];
-        if (!buttons.length || buttons.length > LIMITS.buttons) {
-          return fail("INVALID_ARGS", `buttons must contain 1-${LIMITS.buttons} items; use send_list for more options`);
-        }
-        const replies = [];
-        for (const [index, button] of buttons.entries()) {
-          const title = str(button?.title);
-          if (!title || title.length > LIMITS.buttonTitle) {
-            return fail("INVALID_ARGS", `button titles are required and at most ${LIMITS.buttonTitle} characters ("${title}")`);
-          }
-          const id = this.optionId(button?.id, index);
-          if (typeof id !== "string") return id;
-          replies.push({ type: "reply", reply: { id, title } });
-        }
-        const header = str(args.header);
-        const footer = str(args.footer);
-        if (header.length > LIMITS.header || footer.length > LIMITS.footer) {
-          return fail("INVALID_ARGS", `header and footer are at most ${LIMITS.header} characters`);
-        }
-        return this.deliver(scope, {
-          type: "interactive",
-          interactive: {
-            type: "button",
-            ...(header ? { header: { type: "text", text: header } } : {}),
-            body: { text: body },
-            ...(footer ? { footer: { text: footer } } : {}),
-            action: { buttons: replies },
-          },
-        });
-      },
-    });
-  }
-
-  private sendList() {
-    return new AiTool({
-      name: "send_list",
-      audience: "customer",
-      description:
-        "Send a list of 1-10 options to choose from (e.g. which order or which offer). End the turn after sending.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          body: { type: "string", maxLength: LIMITS.body },
-          buttonText: { type: "string", maxLength: LIMITS.listButton, description: "Label of the button that opens the list." },
-          rows: {
-            type: "array",
-            minItems: 1,
-            maxItems: LIMITS.rows,
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string" },
-                title: { type: "string", maxLength: LIMITS.rowTitle },
-                description: { type: "string", maxLength: LIMITS.rowDescription },
-              },
-              required: ["title"],
-              additionalProperties: false,
-            },
-          },
-          sectionTitle: { type: "string", maxLength: LIMITS.rowTitle },
-          header: { type: "string", maxLength: LIMITS.header },
-          footer: { type: "string", maxLength: LIMITS.footer },
-        },
-        required: ["body", "buttonText", "rows"],
-        additionalProperties: false,
-      },
-      isWrite: true,
-      staleRecovery: "auto_recover",
-      run: async (ctx, args: Args) => {
-        const scope = agentScopeOf(ctx);
-        const body = str(args.body);
-        const buttonText = str(args.buttonText);
-        if (!body || body.length > LIMITS.body) return fail("INVALID_ARGS", `body is required (max ${LIMITS.body} characters)`);
-        if (!buttonText || buttonText.length > LIMITS.listButton) {
-          return fail("INVALID_ARGS", `buttonText is required (max ${LIMITS.listButton} characters)`);
-        }
-        const rowsIn = Array.isArray(args.rows) ? args.rows : [];
-        if (!rowsIn.length || rowsIn.length > LIMITS.rows) return fail("INVALID_ARGS", `rows must contain 1-${LIMITS.rows} items`);
-        const rows = [];
-        for (const [index, row] of rowsIn.entries()) {
-          const title = str(row?.title);
-          const description = str(row?.description);
-          if (!title || title.length > LIMITS.rowTitle) {
-            return fail("INVALID_ARGS", `row titles are required and at most ${LIMITS.rowTitle} characters ("${title}")`);
-          }
-          if (description.length > LIMITS.rowDescription) {
-            return fail("INVALID_ARGS", `row descriptions are at most ${LIMITS.rowDescription} characters`);
-          }
-          const id = this.optionId(row?.id, index);
-          if (typeof id !== "string") return id;
-          rows.push({ id, title, ...(description ? { description } : {}) });
-        }
-        const sectionTitle = str(args.sectionTitle).slice(0, LIMITS.rowTitle);
-        const header = str(args.header);
-        const footer = str(args.footer);
-        if (header.length > LIMITS.header || footer.length > LIMITS.footer) {
-          return fail("INVALID_ARGS", `header and footer are at most ${LIMITS.header} characters`);
-        }
-        return this.deliver(scope, {
-          type: "interactive",
-          interactive: {
-            type: "list",
-            ...(header ? { header: { type: "text", text: header } } : {}),
-            body: { text: body },
-            ...(footer ? { footer: { text: footer } } : {}),
-            action: {
-              button: buttonText,
-              sections: [{ ...(sectionTitle ? { title: sectionTitle } : {}), rows }],
-            },
-          },
-        });
-      },
-    });
-  }
-
-  private reactToMessage() {
-    return new AiTool({
-      name: "react_to_message",
-      audience: "customer",
-      description: "React with one emoji to a customer's message (msg id from the input).",
-      inputSchema: {
-        type: "object",
-        properties: {
-          messageId: { type: "string" },
-          emoji: { type: "string", maxLength: 16 },
-        },
-        required: ["messageId", "emoji"],
-        additionalProperties: false,
-      },
-      isWrite: true,
-      staleRecovery: "auto_recover",
-      run: async (ctx, args: Args) => {
-        const scope = agentScopeOf(ctx);
-        const emoji = str(args.emoji);
-        if (!emoji || emoji.length > 16) return fail("INVALID_ARGS", "emoji is required");
-        const target = await this.sender.findConversationMessage(scope, str(args.messageId));
-        if (!target?.messageId) return fail("NOT_FOUND", "Unknown message id in this conversation");
-        return this.deliver(scope, {
-          type: "reaction",
-          reaction: { message_id: target.messageId, emoji },
-        });
-      },
-    });
-  }
-
-  private requestLocation() {
-    return new AiTool({
-      name: "request_location",
-      audience: "customer",
-      description:
-        "Ask the customer to share their location with WhatsApp's location button (when an address is needed and they are probably at that place).",
-      inputSchema: {
-        type: "object",
-        properties: { body: { type: "string", maxLength: LIMITS.body } },
-        required: ["body"],
-        additionalProperties: false,
-      },
-      isWrite: true,
-      staleRecovery: "auto_recover",
-      run: async (ctx, args: Args) => {
-        const scope = agentScopeOf(ctx);
-        const body = str(args.body);
-        if (!body || body.length > LIMITS.body) return fail("INVALID_ARGS", `body is required (max ${LIMITS.body} characters)`);
-        return this.deliver(scope, {
-          type: "interactive",
-          interactive: {
-            type: "location_request_message",
-            body: { text: body },
-            action: { name: "send_location" },
-          },
-        });
-      },
-    });
   }
 
   private endTurn() {
@@ -414,11 +143,11 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: AGENT_END_TURN_TOOL,
       audience: "customer",
       description:
-        "End this turn. Call it after your last send, or alone when the input needs no reply (no meaningful content).",
+        "End this turn: after your last send, or alone when the input needs no reply.",
       inputSchema: {
         type: "object",
         properties: {
-          reason: { type: "string", description: "Short note, e.g. 'replied', 'no_meaningful_content', 'waiting_for_choice'." },
+          reason: { type: "string", description: "Short note, e.g. 'replied', 'waiting_for_choice'." },
         },
         additionalProperties: false,
       },
@@ -435,20 +164,19 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "get_my_orders",
       audience: "customer",
       description:
-        "Search the current customer's orders, newest first. All filters are optional and combined: statuses, part of an order number, a product name, a creation date range. Without filters it returns the latest orders.",
+        "Get the customer's orders, newest first. Optional combined filters: statuses, order number, product, date range.",
       inputSchema: {
         type: "object",
         properties: {
           statuses: {
             type: "array",
             items: { type: "string", enum: Object.values(OrderStatus) },
-            description:
-              "Order status codes to include, e.g. [\"delivered\"], [\"cancelled\",\"rejected\"], [\"shipped\",\"distributed\"] for orders on the way.",
+            description: "Status codes to include.",
           },
           orderNumber: { type: "string", description: "Full or partial order number." },
-          productName: { type: "string", description: "Only orders containing a product whose name matches." },
-          createdFrom: { type: "string", description: "Created on or after this date (YYYY-MM-DD)." },
-          createdTo: { type: "string", description: "Created on or before this date (YYYY-MM-DD)." },
+          productName: { type: "string", description: "Product name contained in the order." },
+          createdFrom: { type: "string", description: "On or after (YYYY-MM-DD)." },
+          createdTo: { type: "string", description: "On or before (YYYY-MM-DD)." },
           limit: { type: "integer", minimum: 1, maximum: 10 },
           page: { type: "integer", minimum: 1 },
         },
@@ -540,7 +268,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "get_order_details",
       audience: "customer",
       description:
-        "Details of one of the current customer's orders by order number: items, totals, address, shipping and tracking, plus replacement info (this order replaced by / replacing another order) and the order's tags. Tags are internal labels for your context only; don't mention them to the customer.",
+        "Details of one customer order by order number: items, totals, address, shipping, tracking, replacements. Tags are internal; never mention them.",
       inputSchema: {
         type: "object",
         properties: { orderNumber: { type: "string" } },
@@ -648,7 +376,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "get_my_campaign_offers",
       audience: "customer",
       description:
-        "Campaign offers this customer received (products, prices, shipping, total, saved name/address, and whether city/area are required).",
+        "Offers this customer received: products, prices, shipping, total, saved data, city/area requirements.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       isWrite: false,
       staleRecovery: "auto_recover",
@@ -664,7 +392,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "get_my_addresses",
       audience: "customer",
       description:
-        "Saved delivery addresses of the current customer, default first (address, city, area, landmark, with cityId/areaId). Use them to fill an order instead of asking for the address, city and area from scratch.",
+        "Customer's saved addresses, default first. Use them to fill an order instead of asking.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       isWrite: false,
       staleRecovery: "auto_recover",
@@ -697,7 +425,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "list_categories",
       audience: "customer",
-      description: "List the store's product categories (with how many products each has). Use when the customer asks what you sell.",
+      description: "Store product categories with product counts. Use when asked what you sell.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       isWrite: false,
       staleRecovery: "auto_recover",
@@ -713,20 +441,20 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "search_products",
       audience: "customer",
       description:
-        "Search the store catalog (products and bundles). Filter by free text, category, price range, variant options (e.g. color/size), and in-stock only. Returns records plus total_records, current_page and per_page so you know if more results remain — offer the next page when total_records > current_page * per_page. Never invent products or prices.",
+        "Search products and bundles by text, category, price, options, stock. Paged: offer the next page when total_records > current_page * per_page. Never invent products or prices.",
       inputSchema: {
         type: "object",
         properties: {
-          query: { type: "string", description: "Free-text search (product/bundle name, SKU, description, category)." },
-          categoryId: { type: "string", description: "category id from list_categories." },
+          query: { type: "string", description: "Name, SKU, description or category." },
+          categoryId: { type: "string", description: "Category id from list_categories." },
           minPrice: { type: "number", minimum: 0 },
           maxPrice: { type: "number", minimum: 0 },
           options: {
             type: "object",
             additionalProperties: { type: "string" },
-            description: 'Variant option filters, e.g. { "اللون": "أحمر", "size": "XL" }.',
+            description: "Variant option filters.",
           },
-          inStockOnly: { type: "boolean", description: "Default true. Set false to include out-of-stock items." },
+          inStockOnly: { type: "boolean", description: "Defaults true; false includes out-of-stock." },
           kind: { type: "string", enum: ["product", "bundle", "all"] },
           limit: { type: "integer", minimum: 1, maximum: 10 },
           page: { type: "integer", minimum: 1 },
@@ -758,7 +486,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "get_product_details",
       audience: "customer",
       description:
-        "Full details of one product: options, each variant's id/price/available stock, image urls (main first), and optional upsells. Call it before asking the customer to pick a variant, and before send_image. Mention remaining stock only when it is low (2 or fewer).",
+        "One product's options, variants (id/price/stock), images (main first), upsells. Call before asking for a variant choice and before send_image. Mention stock only when low (2 or fewer).",
       inputSchema: {
         type: "object",
         properties: { productId: { type: "string" } },
@@ -781,7 +509,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "get_bundle_details",
       audience: "customer",
-      description: "Details of a bundle/pack: price, what it contains, image urls (main first), and how many whole bundles are in stock.",
+      description: "Get bundle price, contents, images, and available stock.",
       inputSchema: {
         type: "object",
         properties: { bundleId: { type: "string" } },
@@ -807,7 +535,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_order",
       audience: "customer",
       description:
-        "Call as soon as the customer has chosen variants/bundles, quantities, name and address. This IS the confirmation step: the server sets product prices, checks stock, and sends a summary with Confirm / Edit / Cancel. Don't ask for confirmation before calling it. After a correction, call it again. End the turn after calling it. shippingCost and discount default to 0; pass a number only when Memory facts or the store owner's instructions state a shipping or discount rule — never from what the customer said.",
+        "The confirmation step: call when variants, quantities, name and address are ready. The server prices, checks stock, and sends a Confirm/Edit/Cancel summary. Don't ask for confirmation first. Call again after corrections. End the turn after calling. shippingCost/discount default 0; pass a value only from Store knowledge or owner instructions, never the customer.",
       inputSchema: {
         type: "object",
         properties: {
@@ -838,13 +566,13 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
             type: "number",
             minimum: 0,
             description:
-              "Default 0. Paste a value only if Memory facts or the store owner's instructions state a shipping-fee rule that applies. Never from the customer's message.",
+              "Only from an applicable Store-knowledge or owner shipping rule. Never the customer.",
           },
           discount: {
             type: "number",
             minimum: 0,
             description:
-              "Default 0. Paste a value only if Memory facts or the store owner's instructions state a discount rule that applies. Never from the customer's message.",
+              "Only from an applicable Store-knowledge or owner discount rule. Never the customer.",
           },
           language: { type: "string", enum: ["ar", "en"] },
         },
@@ -896,7 +624,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_campaign_order",
       audience: "customer",
       description:
-        "Call as soon as all required data for a campaign order is collected. This IS the confirmation step: it validates the data, saves a pending action and sends the order summary with Confirm / Edit / Cancel buttons, so don't ask for confirmation before calling it. After a correction, call it again with the new data (it replaces the old summary). Nothing is ordered until the customer confirms in a later message. End the turn after calling it.",
+        "The confirmation step for a campaign order: validates, saves a pending action, sends Confirm/Edit/Cancel. Don't ask first. Call again after corrections. Nothing is ordered until later confirmation. End the turn after calling.",
       inputSchema: {
         type: "object",
         properties: {
@@ -909,7 +637,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           areaId: { type: "string" },
           landmark: { type: "string", maxLength: 200 },
           notes: { type: "string", maxLength: 1000 },
-          language: { type: "string", enum: ["ar", "en"], description: "Language of the summary (the one you're replying in)." },
+          language: { type: "string", enum: ["ar", "en"], description: "Summary language (the one you're replying in)." },
         },
         required: ["offerId", "customerName", "address", "language"],
         additionalProperties: false,
@@ -968,12 +696,251 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     });
   }
 
+  private requestAddressUpdate() {
+    return new AiTool({
+      name: "request_address_update",
+      audience: "customer",
+      description:
+        "The confirmation step for the open address task. Call only after the task shipping company covers this city, zone, and district with dropOff true. Validates and sends Confirm/Edit/Cancel. End the turn after calling; no message about it. Never invent ids.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          cityId: { type: "string" },
+          areaId: { type: "string" },
+          area: { type: "string" },
+          address: { type: "string" },
+          landmark: { type: "string" },
+          zoneId: { type: "string", description: "Zone id from get_shipping_zones for the task shipping company." },
+          districtId: { type: "string", description: "District id from get_shipping_districts for the task shipping company." },
+          latitude: { type: "number" },
+          longitude: { type: "number" },
+          language: { type: "string", enum: ["ar", "en"] },
+        },
+        required: ["cityId", "address", "landmark", "language"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const scope = agentScopeOf(ctx);
+        const task = await this.tasks.getOpenForConversation(scope.adminId, scope.conversationId);
+        if (!task) return fail("NO_TASK", "There is no open address task for this conversation.");
+        const cityId = str(args.cityId);
+        const address = str(args.address);
+        const landmark = str(args.landmark);
+        const areaId = str(args.areaId) || undefined;
+        const areaText = str(args.area) || undefined;
+        if (!cityId) return fail("INCOMPLETE", "cityId is required from get_cities.");
+        if (!address) return fail("INCOMPLETE", "address is required.");
+        if (!landmark) return fail("LANDMARK_REQUIRED", "A named landmark is required.");
+        if (!areaId && !areaText) return fail("INCOMPLETE", "area or areaId is required.");
+
+        const city = await this.cityRepo.findOne({
+          where: { id: cityId, isActive: true },
+          relations: { providerLocations: true },
+        });
+        if (!city) return fail("INVALID_ARGS", "cityId must come from get_cities.");
+
+        if (areaId) {
+          const area = await this.areaRepo.findOne({
+            where: { id: areaId, isActive: true, cityId },
+          });
+          if (!area) return fail("AREA_NOT_IN_CITY", "areaId must belong to the chosen city.");
+        }
+
+        const provider = String(task.payload?.provider || "").toLowerCase();
+        const providerLocation = (city.providerLocations ?? []).find(
+          (pl) => String(pl.provider || "").toLowerCase() === provider,
+        );
+        if (!provider || provider === "none" || !providerLocation?.providerCityId) {
+          return fail(
+            "UNSUPPORTED_CITY",
+            `${task.payload?.shippingCompany || provider || "This company"} does not cover ${city.nameAr || city.nameEn}. Tell the customer. Do not retry this address.`,
+          );
+        }
+        if (providerLocation.dropOff === false) {
+          return fail(
+            "UNSUPPORTED_CITY",
+            `${task.payload?.shippingCompany || provider} cannot deliver to ${city.nameAr || city.nameEn} (dropOff false). Tell the customer. Do not retry this address.`,
+          );
+        }
+
+        let zones: any[] = [];
+        let districts: any[] = [];
+        try {
+          const [zoneRes, districtRes] = await Promise.all([
+            this.shipping.getZones(scope.adminId, provider, String(providerLocation.providerCityId)),
+            this.shipping.getDistricts(scope.adminId, provider, String(providerLocation.providerCityId)),
+          ]);
+          zones = Array.isArray(zoneRes?.records) ? zoneRes.records : [];
+          districts = Array.isArray(districtRes?.records) ? districtRes.records : [];
+        } catch {
+          return fail(
+            "UNSUPPORTED_CITY",
+            `${task.payload?.shippingCompany || provider} does not cover ${city.nameAr || city.nameEn}. Ask for another city or close the task.`,
+          );
+        }
+        if (!zones.length && !districts.length) {
+          return fail(
+            "UNSUPPORTED_CITY",
+            `${task.payload?.shippingCompany || provider} does not cover ${city.nameAr || city.nameEn}. Ask for another city or close the task.`,
+          );
+        }
+
+        const zoneId = str(args.zoneId) || undefined;
+        const districtId = str(args.districtId) || undefined;
+        if (zones.length) {
+          if (!zoneId) return fail("INCOMPLETE", "zoneId is required from get_shipping_zones.");
+          const zone = zones.find((z) => String(z.id) === zoneId);
+          if (!zone) {
+            return fail("INVALID_ARGS", "zoneId must come from get_shipping_zones for this city and company.");
+          }
+          if (zone.dropOff === false) {
+            return fail(
+              "UNSUPPORTED_CITY",
+              `${task.payload?.shippingCompany || provider} cannot deliver to this zone (dropOff false). Tell the customer. Do not retry this address.`,
+            );
+          }
+        }
+        if (districts.length) {
+          if (!districtId) return fail("INCOMPLETE", "districtId is required from get_shipping_districts.");
+          const district = districts.find((d) => String(d.id) === districtId);
+          if (!district) {
+            return fail("INVALID_ARGS", "districtId must come from get_shipping_districts for this city and company.");
+          }
+          if (district.dropOff === false) {
+            return fail(
+              "UNSUPPORTED_CITY",
+              `${task.payload?.shippingCompany || provider} cannot deliver to this district (dropOff false). Tell the customer. Do not retry this address.`,
+            );
+          }
+          const parent = district.zoneId ?? district.parentId;
+          if (zoneId && parent && String(parent) !== zoneId) {
+            return fail("INVALID_ARGS", "districtId must belong to the chosen zone.");
+          }
+        }
+
+        const en = args.language === "en";
+        const payload = {
+          cityId,
+          city: city.nameAr || city.nameEn,
+          areaId,
+          area: areaText,
+          address,
+          landmark,
+          zoneId,
+          districtId,
+          latitude: args.latitude != null ? Number(args.latitude) : undefined,
+          longitude: args.longitude != null ? Number(args.longitude) : undefined,
+        };
+        const summary = en
+          ? [
+              "Please confirm this delivery address:",
+              payload.address,
+              payload.landmark ? `Landmark: ${payload.landmark}` : "",
+              [payload.area, payload.city].filter(Boolean).join(" — "),
+            ]
+              .filter(Boolean)
+              .join("\n")
+          : [
+              "أكد العنوان:",
+              payload.address,
+              payload.landmark ? `علامة مميزة: ${payload.landmark}` : "",
+              [payload.area, payload.city].filter(Boolean).join(" — "),
+            ]
+              .filter(Boolean)
+              .join("\n");
+        const action = await this.actions.create(scope, {
+          type: AgentPendingActionType.ADDRESS_CORRECTION,
+          targetKey: `address:${task.orderId}`,
+          payload: { ...payload, taskId: task.id },
+          summary,
+          orderId: task.orderId,
+        });
+        return this.sendConfirmation(scope, action, summary, en);
+      },
+    });
+  }
+
+  private checkShippingCoverage() {
+    return new AiTool({
+      name: "check_shipping_coverage",
+      audience: "customer",
+      description:
+        "Check if the task's shipping company covers a cityId from get_cities, including dropOff. Not a substitute for checking zone/district dropOff.",
+      inputSchema: {
+        type: "object",
+        properties: { cityId: { type: "string" } },
+        required: ["cityId"],
+        additionalProperties: false,
+      },
+      isWrite: false,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const scope = agentScopeOf(ctx);
+        const task = await this.tasks.getOpenForConversation(scope.adminId, scope.conversationId);
+        if (!task) return fail("NO_TASK", "There is no open address task for this conversation.");
+        const cityId = str(args.cityId);
+        const city = await this.cityRepo.findOne({
+          where: { id: cityId, isActive: true },
+          relations: { providerLocations: true },
+        });
+        if (!city) return fail("INVALID_ARGS", "cityId must come from get_cities.");
+        const provider = String(task.payload?.provider || "").toLowerCase();
+        const providerLocation = (city.providerLocations ?? []).find(
+          (pl) => String(pl.provider || "").toLowerCase() === provider,
+        );
+        const dropOff = !!providerLocation && providerLocation.dropOff !== false;
+        const covered =
+          !provider ||
+          provider === "none" ||
+          dropOff;
+        return {
+          ok: true,
+          code: "COVERAGE",
+          data: {
+            cityId: city.id,
+            city: city.nameAr,
+            provider: task.payload?.provider || null,
+            shippingCompany: task.payload?.shippingCompany || null,
+            dropOff,
+            covered,
+          },
+        };
+      },
+    });
+  }
+
+  private closeAddressTask() {
+    return new AiTool({
+      name: "close_address_task",
+      audience: "customer",
+      description:
+        "Close the open address task when the customer refuses or delivery is impossible.",
+      inputSchema: {
+        type: "object",
+        properties: { reason: { type: "string" } },
+        required: ["reason"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "manual_review",
+      run: async (ctx, args: Args) => {
+        const scope = agentScopeOf(ctx);
+        const task = await this.tasks.getOpenForConversation(scope.adminId, scope.conversationId);
+        if (!task) return fail("NO_TASK", "There is no open address task for this conversation.");
+        await this.tasks.close(task.id, str(args.reason) || "customer_refused");
+        return { ok: true, code: "TASK_CLOSED", data: { taskId: task.id } };
+      },
+    });
+  }
+
   private confirmPendingAction() {
     return new AiTool({
       name: "confirm_pending_action",
       audience: "customer",
       description:
-        "Execute a pending action after the customer clearly confirmed it in their latest message (a confirmation message, or a clear positive reaction such as 👍 on the summary). The server re-checks everything and returns the result (e.g. the order number). Then send a separate message saying it's done.",
+        "Execute a pending action after clear customer confirmation (message or positive reaction on the summary). Then send a separate done message.",
       inputSchema: {
         type: "object",
         properties: { actionId: { type: "string" } },
@@ -996,7 +963,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "cancel_pending_action",
       audience: "customer",
-      description: "Cancel a pending action when the customer says they don't want it anymore.",
+      description: "Cancel a pending action the customer no longer wants.",
       inputSchema: {
         type: "object",
         properties: { actionId: { type: "string" } },
@@ -1067,6 +1034,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       await this.actions.attachSummaryMessage(action.id, wamid);
     } catch (error) {
       await this.actions.discard(action.id);
+      if (error instanceof AgentCustomerWindowClosedError) throw error;
       if (error instanceof AgentSendBlockedError) return fail("SEND_BLOCKED", `${error.message}. End the turn.`);
       throw error;
     }
@@ -1109,31 +1077,6 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return { data };
   }
 
-  private async deliver(scope: AgentToolScope, data: Record<string, any>): Promise<AiToolExecutionResult> {
-    try {
-      await this.sender.send(scope, data);
-      return { ok: true, code: "SENT" };
-    } catch (error) {
-      if (error instanceof AgentSendBlockedError) return fail("SEND_BLOCKED", `${error.message}. End the turn.`);
-      throw error;
-    }
-  }
-
-  private async quoteContext(scope: AgentToolScope, messageId: unknown) {
-    const id = str(messageId);
-    if (!id) return {};
-    const target = await this.sender.findConversationMessage(scope, id);
-    return target?.messageId ? { context: { message_id: target.messageId } } : {};
-  }
-
-  private optionId(raw: unknown, index: number): string | AiToolExecutionResult {
-    const id = str(raw) || `option_${index + 1}`;
-    if (id.length > LIMITS.optionId) return fail("INVALID_ARGS", "option ids are at most 200 characters");
-    if (RESERVED_ID_PREFIXES.some((prefix) => id.startsWith(prefix))) {
-      return fail("INVALID_ARGS", "option ids can't start with agent_confirm/agent_edit/agent_cancel");
-    }
-    return id;
-  }
 }
 
 const IN_FOLLOW_UP = { ar: "قيد المتابعة", en: "Being followed up" };

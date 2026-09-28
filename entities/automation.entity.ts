@@ -224,6 +224,11 @@ export interface AiAddressCorrectionConfig {
     provider?: string;
     /** When true (default), AI may rewrite order.address. When false, only city/zone/district. */
     updateWrittenAddress?: boolean;
+    /** WhatsApp agent that talks with the customer when the address is flagged. Empty = none unless useWhatsappAccountAgent. */
+    agentId?: string | null;
+    agentName?: string | null;
+    /** When true and agentId is empty, use the agent on the WhatsApp Business number (ai.agentId). */
+    useWhatsappAccountAgent?: boolean;
     branches?: {
         id: string;
         label: string;

@@ -1922,6 +1922,15 @@ export type I18nTranslations = {
             "provider_not_found": string;
             "agent_required": string;
             "deleted_successfully": string;
+            "knowledge_not_found": string;
+            "knowledge_deleted_successfully": string;
+            "knowledge_invalid_ids": string;
+            "agents_invalid_ids": string;
+            "export_knowledge_sheet": string;
+            "export_knowledge_title": string;
+            "export_knowledge_content": string;
+            "export_knowledge_status": string;
+            "export_knowledge_created_at": string;
             "export_sheet": string;
             "export_name": string;
             "export_language": string;

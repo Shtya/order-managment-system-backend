@@ -39,6 +39,18 @@ export enum AgentPendingActionStatus {
 export enum AgentPendingActionType {
   CAMPAIGN_ORDER = "campaign_order",
   ORDER = "order",
+  ADDRESS_CORRECTION = "address_correction",
+}
+
+export enum AgentTaskType {
+  ADDRESS_CORRECTION = "address_correction",
+}
+
+export enum AgentTaskStatus {
+  OPEN = "open",
+  SUBMITTED = "submitted",
+  COMPLETED = "completed",
+  CLOSED = "closed",
 }
 
 @Index(["adminId", "conversationId", "status"])
@@ -291,4 +303,58 @@ export class AgentMemoryFactEntity {
 
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
+}
+
+@Index(["conversationId", "status"])
+@Index(["orderId", "status"])
+@Index(["automationRunId", "status"])
+@Entity("agent_tasks")
+export class AgentTaskEntity {
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
+
+  @Index()
+  @Column({ type: "uuid" })
+  adminId: string;
+
+  @Index()
+  @Column({ type: "uuid" })
+  conversationId: string;
+
+  @Column({ type: "uuid" })
+  customerId: string;
+
+  @Column({ type: "uuid", nullable: true })
+  agentId?: string | null;
+
+  @Column({ type: "uuid" })
+  orderId: string;
+
+  @Column({ type: "varchar", length: 40, default: AgentTaskType.ADDRESS_CORRECTION })
+  type: AgentTaskType;
+
+  @Column({ type: "varchar", length: 20, default: AgentTaskStatus.OPEN })
+  status: AgentTaskStatus;
+
+  @Index()
+  @Column({ type: "uuid" })
+  automationRunId: string;
+
+  @Column({ type: "varchar", length: 120 })
+  automationNodeId: string;
+
+  @Column({ type: "jsonb", default: () => "'{}'" })
+  payload: Record<string, any>;
+
+  @Column({ type: "jsonb", nullable: true })
+  result?: Record<string, any> | null;
+
+  @Column({ type: "varchar", length: 120, nullable: true })
+  closedReason?: string | null;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: "timestamptz" })
+  updatedAt: Date;
 }

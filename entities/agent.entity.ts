@@ -74,3 +74,53 @@ export class AgentEntity {
   @UpdateDateColumn({ type: "timestamptz" })
   updatedAt: Date;
 }
+
+
+@Index(["adminId", "isActive"])
+@Index(["adminId", "title"])
+@Entity("agent_knowledge")
+export class AgentKnowledgeEntity {
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
+
+  @Index()
+  @Column({ type: "uuid" })
+  adminId: string;
+
+  @Column({ type: "varchar", length: 255 })
+  title: string;
+
+  @Column({ type: "text" })
+  content: string;
+
+  @Column({ type: "boolean", default: true })
+  isActive: boolean;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  createdAt: Date;
+
+  @UpdateDateColumn({ type: "timestamptz" })
+  updatedAt: Date;
+}
+
+@Index(["knowledgeId", "agentId"], { unique: true })
+@Entity("agent_knowledge_agents")
+export class AgentKnowledgeAgentEntity {
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
+
+  @Index()
+  @Column({ type: "uuid" })
+  knowledgeId: string;
+
+  @ManyToOne(() => AgentKnowledgeEntity, { onDelete: "CASCADE" })
+  @JoinColumn({ name: "knowledgeId" })
+  knowledge?: AgentKnowledgeEntity;
+
+  @Index()
+  @Column({ type: "uuid" })
+  agentId: string;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  createdAt: Date;
+}

@@ -111,6 +111,7 @@ function services() {
     { sendMessage: whatsappSendMessage } as never,
     { tAsync } as never,
     { enqueueWaitResume, enqueueResumeFlow, enqueueStartFlow } as never,
+    { closeOpenForRun: vi.fn().mockResolvedValue(undefined) } as never,
   );
 
   return {
