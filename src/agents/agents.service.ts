@@ -11,7 +11,13 @@ import {
   Repository,
   SelectQueryBuilder,
 } from "typeorm";
-import { AgentEntity, AgentGender, AgentLanguage } from "entities/agent.entity";
+import {
+  AgentCapability,
+  AgentEntity,
+  AgentGender,
+  AgentLanguage,
+} from "entities/agent.entity";
+import { AGENT_USER_CAPABILITIES } from "./runtime/agent-runtime.constants";
 import {
   AgentKnowledgeAgentEntity,
   AgentKnowledgeEntity,
@@ -79,6 +85,15 @@ export class AgentsService {
       ...knowledge,
       ...(agentIds !== undefined ? { agentIds } : {}),
     };
+  }
+
+  /** Dedupe + drop unknown values; undefined stays undefined (no change). */
+  private sanitizeCapabilities(
+    capabilities: AgentCapability[] | undefined,
+  ): AgentCapability[] | undefined {
+    if (capabilities === undefined) return undefined;
+    const valid = new Set<string>(AGENT_USER_CAPABILITIES);
+    return [...new Set(capabilities.filter((c) => valid.has(c as string)))] as AgentCapability[];
   }
 
   private async assertKnowledge(adminId: string, id: string) {
@@ -311,6 +326,9 @@ export class AgentsService {
       dto.knowledgeIds !== undefined
         ? await this.assertKnowledgeIds(adminId, dto.knowledgeIds)
         : undefined;
+    const capabilities = this.sanitizeCapabilities(dto.capabilities) ?? [
+      ...AGENT_USER_CAPABILITIES,
+    ];
 
     const agent = await this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(AgentEntity);
@@ -323,6 +341,7 @@ export class AgentsService {
           customInstructions: dto.customInstructions?.trim() || null,
           responseProviderId: dto.responseProviderId ?? null,
           isActive: dto.isActive ?? true,
+          capabilities,
         }),
       );
       if (knowledgeIds !== undefined) {
@@ -373,6 +392,8 @@ export class AgentsService {
       dto.knowledgeIds !== undefined
         ? await this.assertKnowledgeIds(adminId, dto.knowledgeIds)
         : undefined;
+    const capabilities = this.sanitizeCapabilities(dto.capabilities);
+    if (capabilities !== undefined) existing.capabilities = capabilities;
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(AgentEntity).save(existing);

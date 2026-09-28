@@ -10,6 +10,7 @@ import {
 import { AgentEntity } from "entities/agent.entity";
 import {
   AgentSessionEntity,
+  AgentTaskType,
   AgentTurnEntity,
   AgentTurnMessageEntity,
   AgentTurnStatus,
@@ -33,6 +34,7 @@ import {
   AGENT_SEND_TOOL_NAMES,
   AGENT_UNSUPPORTED_REPLY_COOLDOWN_SECONDS,
   AgentToolScope,
+  resolveAgentToolNames,
   unsupportedMessageFor,
 } from "./runtime/agent-runtime.constants";
 
@@ -302,6 +304,23 @@ export class AgentRuntimeService {
     return { ai, storedInput: context.storedInput };
   }
 
+  /**
+   * Tools offered this turn: always-on messaging plus the agent's enabled
+   * capabilities. Address-correction tools are added automatically — never
+   * user-controlled — only while an open address task exists.
+   */
+  private async resolveTurnToolNames(
+    scope: AgentToolScope,
+    agent: AgentEntity,
+  ): Promise<string[]> {
+    const openTask = await this.tasks
+      .getOpenForConversation(scope.adminId, scope.conversationId)
+      .catch(() => null);
+
+    const isAddressTaskOpen = openTask?.type === AgentTaskType.ADDRESS_CORRECTION;
+    return resolveAgentToolNames(agent.capabilities, isAddressTaskOpen);
+  }
+
   private async callModel(
     agent: AgentEntity,
     session: AgentSessionEntity,
@@ -317,6 +336,7 @@ export class AgentRuntimeService {
       agentName: agent.name,
       providerId: agent.responseProviderId ?? null,
       messages,
+      toolNames: await this.resolveTurnToolNames(scope, agent),
       sendToolNames: AGENT_SEND_TOOL_NAMES,
       writeDedupScope: (toolCall) => {
         if (toolCall.name === "confirm_pending_action" || toolCall.name === "cancel_pending_action") {

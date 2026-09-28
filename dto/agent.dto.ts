@@ -1,11 +1,17 @@
 import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf } from "class-validator";
 import { i18nValidationMessage } from "nestjs-i18n";
-import { AgentGender, AgentLanguage } from "entities/agent.entity";
+import { AgentCapability, AgentGender, AgentLanguage } from "entities/agent.entity";
 
 const languageEnumMessage = (args: any) =>
   i18nValidationMessage("validation.is_enum")({
     ...args,
     constraints: [Object.values(AgentLanguage).join(", ")],
+  });
+
+const capabilityEnumMessage = (args: any) =>
+  i18nValidationMessage("validation.is_enum")({
+    ...args,
+    constraints: [Object.values(AgentCapability).join(", ")],
   });
 
 const genderEnumMessage = (args: any) =>
@@ -47,6 +53,11 @@ export class CreateAgentDto {
   @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
   @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
   knowledgeIds?: string[];
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsEnum(AgentCapability, { each: true, message: capabilityEnumMessage })
+  capabilities?: AgentCapability[];
 }
 
 export class UpdateAgentDto {
@@ -84,6 +95,11 @@ export class UpdateAgentDto {
   @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
   @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
   knowledgeIds?: string[];
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsEnum(AgentCapability, { each: true, message: capabilityEnumMessage })
+  capabilities?: AgentCapability[];
 }
 
 export class CreateAgentKnowledgeDto {

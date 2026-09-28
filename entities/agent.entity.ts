@@ -22,6 +22,16 @@ export enum AgentGender {
   FEMALE = "female",
 }
 
+/** User-controllable capabilities (address correction is automatic, never stored). */
+export enum AgentCapability {
+  CREATE_ORDERS = "createOrders",
+  CAMPAIGN_ORDERS = "campaignOrders",
+  ORDER_LOOKUP = "orderLookup",
+  LOCATION = "location",
+  REACTIONS = "reactions",
+  TEMPLATES = "templates",
+}
+
 @Index(["adminId", "name"])
 @Index(["adminId", "isActive"])
 @Entity("agents")
@@ -67,6 +77,10 @@ export class AgentEntity {
 
   @Column({ type: "boolean", default: true })
   isActive: boolean;
+
+  /** Null/empty = all capabilities (pre-capability agents keep full behavior). */
+  @Column({ type: "text", array: true, nullable: true })
+  capabilities?: string[] | null;
 
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;

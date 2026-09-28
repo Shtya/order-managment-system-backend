@@ -17,6 +17,11 @@ import { buildAgentSystemPrompt } from "./agent-prompt";
 import { AgentInsight, describeMessage } from "./agent-input.service";
 import { AgentSessionService } from "./agent-session.service";
 import { AgentsService } from "../agents.service";
+import {
+  AGENT_CAPABILITY_LABELS,
+  AGENT_USER_CAPABILITIES,
+  resolveAgentCapabilities,
+} from "./agent-runtime.constants";
 import { AgentTaskService } from "./agent-task.service";
 import { estimateTokens } from "./agent-runtime.constants";
 
@@ -58,6 +63,14 @@ export class AgentContextService {
     ]);
 
     const systemParts = [buildAgentSystemPrompt(agent)];
+    const enabledCapabilities = new Set(resolveAgentCapabilities(agent.capabilities));
+    const disabledCapabilities = AGENT_USER_CAPABILITIES.filter((c) => !enabledCapabilities.has(c));
+    if (disabledCapabilities.length) {
+      systemParts.push(
+        `## Unavailable capabilities (never attempt these; say the store team will help instead)
+${disabledCapabilities.map((c) => `- ${AGENT_CAPABILITY_LABELS[c]}`).join("\n")}`,
+      );
+    }
     if (session.bootstrap) systemParts.push(session.bootstrap);
     if (openTask) {
       const p = openTask.payload || {};
