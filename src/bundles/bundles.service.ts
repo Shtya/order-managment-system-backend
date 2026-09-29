@@ -31,6 +31,18 @@ import { ProductSyncStateEntity } from "entities/product_sync_error.entity";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
+function normalizeAiKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const keyword = typeof item === "string" ? item.trim() : "";
+    if (!keyword || keyword.length > 120 || seen.has(keyword)) continue;
+    seen.add(keyword);
+    if (seen.size >= 50) break;
+  }
+  return [...seen];
+}
+
 @Injectable()
 export class BundlesService {
   constructor(
@@ -494,6 +506,9 @@ export class BundlesService {
       sku: dto.sku,
       price: dto.price,
       description: dto.description,
+      aiEnabled: dto.aiEnabled ?? true,
+      aiDescription: dto.aiDescription ?? null,
+      aiKeywords: normalizeAiKeywords(dto.aiKeywords),
       storeId: dto.storeId,
       categoryId: category ? category.id : null,
       mainImage: mainImage as any,
@@ -689,6 +704,9 @@ export class BundlesService {
     if (dto.name !== undefined) b.name = dto.name;
     if (dto.price !== undefined) b.price = dto.price;
     if (dto.description !== undefined) b.description = dto.description;
+    if (dto.aiEnabled !== undefined) b.aiEnabled = dto.aiEnabled;
+    if (dto.aiDescription !== undefined) b.aiDescription = dto.aiDescription;
+    if (dto.aiKeywords !== undefined) b.aiKeywords = normalizeAiKeywords(dto.aiKeywords);
 
     // slug update with uniqueness check
     if (dto.slug !== undefined) {

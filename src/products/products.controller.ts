@@ -255,6 +255,10 @@ export class ProductsController {
       description: body.description ?? null,
       callCenterProductDescription: body.callCenterProductDescription ?? null,
 
+      aiEnabled: parseBool(body.aiEnabled) ?? true,
+      aiDescription: body.aiDescription ?? null,
+      aiKeywords: parseJsonField(body.aiKeywords, []),
+
       upsellingEnabled: parseBool(body.upsellingEnabled) ?? false,
       upsellingProducts: parseJsonField(body.upsellingProducts, []),
 
@@ -306,6 +310,16 @@ export class ProductsController {
       description: body.description,
       isActive: body.isActive,
       callCenterProductDescription: body.callCenterProductDescription,
+
+      aiEnabled:
+        body.aiEnabled !== undefined
+          ? (parseBool(body.aiEnabled) as any)
+          : undefined,
+      aiDescription: body.aiDescription,
+      aiKeywords:
+        body.aiKeywords !== undefined
+          ? parseJsonField(body.aiKeywords, [])
+          : undefined,
 
       upsellingEnabled:
         body.upsellingEnabled !== undefined

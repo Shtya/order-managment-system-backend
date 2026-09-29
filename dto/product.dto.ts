@@ -1,6 +1,7 @@
 // --- File: src/dto/product.dto.ts ---
 import { Transform, Type } from "class-transformer";
 import {
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsInt,
@@ -174,6 +175,22 @@ export class CreateProductDto {
   @IsString({message: i18nValidationMessage('validation.is_string')})
   @MaxLength(2000, { message: i18nValidationMessage('validation.max_length') })
   callCenterProductDescription?: string | null;
+
+  @IsOptional()
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  aiEnabled?: boolean;
+
+  @IsOptional()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MaxLength(2000, { message: i18nValidationMessage('validation.max_length') })
+  aiDescription?: string | null;
+
+  @IsOptional()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
+  @IsString({ each: true, message: i18nValidationMessage('validation.is_string') })
+  @MaxLength(120, { each: true, message: i18nValidationMessage('validation.max_length') })
+  @ArrayMaxSize(50, { message: i18nValidationMessage('validation.array_max_size') })
+  aiKeywords?: string[];
 
   @IsOptional()
   @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})

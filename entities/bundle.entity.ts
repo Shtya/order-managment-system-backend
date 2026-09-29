@@ -31,6 +31,15 @@ export class BundleEntity extends ActivatableEntity {
 	@Column({ type: "text", nullable: true })
 	description?: string;
 
+	@Column({ type: "boolean", default: true })
+	aiEnabled!: boolean;
+
+	@Column({ type: "text", nullable: true })
+	aiDescription?: string | null;
+
+	@Column({ type: "simple-json", nullable: false, default: "[]" })
+	aiKeywords!: string[];
+
 	@Column({ type: "varchar", length: 500, nullable: true })
 	mainImage!: string;
 

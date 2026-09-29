@@ -1,6 +1,7 @@
 // --- File: src/dto/bundle.dto.ts ---
 import { Transform, Type } from "class-transformer";
 import {
+  ArrayMaxSize,
   ArrayMinSize,
   IsArray,
   IsBoolean,
@@ -35,6 +36,22 @@ export class CreateBundleDto {
   @IsOptional() // Description is usually optional
   @MaxLength(2000, { message: i18nValidationMessage('validation.max_length') }) // Matches your Yup schema
   description?: string;
+
+  @IsOptional()
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  aiEnabled?: boolean;
+
+  @IsOptional()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  @MaxLength(2000, { message: i18nValidationMessage('validation.max_length') })
+  aiDescription?: string | null;
+
+  @IsOptional()
+  @IsArray({message: i18nValidationMessage('validation.is_array')})
+  @IsString({ each: true, message: i18nValidationMessage('validation.is_string') })
+  @MaxLength(120, { each: true, message: i18nValidationMessage('validation.max_length') })
+  @ArrayMaxSize(50, { message: i18nValidationMessage('validation.array_max_size') })
+  aiKeywords?: string[];
 
   @IsInt({message: i18nValidationMessage('validation.is_int')})
   @Min(1, {message: i18nValidationMessage('validation.min')})

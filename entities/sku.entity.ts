@@ -106,6 +106,15 @@ export class ProductEntity extends ActivatableEntity {
   @Column({ type: "text", nullable: true })
   callCenterProductDescription?: string;
 
+  @Column({ type: "boolean", default: true })
+  aiEnabled!: boolean;
+
+  @Column({ type: "text", nullable: true })
+  aiDescription?: string | null;
+
+  @Column({ type: "simple-json", nullable: false, default: "[]" })
+  aiKeywords!: string[];
+
   @Column({ type: "boolean", default: false })
   upsellingEnabled!: boolean;
 

@@ -374,6 +374,7 @@ export class AgentCatalogService {
       .addSelect("p.created_at", "created_at")
       .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")
       .where('p."adminId" = :adminId', { adminId })
+      .where('p.aiEnabled = true')
       .andWhere('p."isActive" = true');
 
     if (args.categoryId) {
@@ -386,8 +387,7 @@ export class AgentCatalogService {
         new Brackets((b) => {
           b.where(`${arSql("p.name")} LIKE :${param}`)
             .orWhere(`${arSql("p.sku")} LIKE :${param}`)
-            .orWhere(`${arSql("COALESCE(p.description, '')")} LIKE :${param}`)
-            .orWhere(`${arSql('COALESCE(p."callCenterProductDescription", \'\')')} LIKE :${param}`)
+            .orWhere(`${arSql("p.aiKeywords")} LIKE :${param}`)
             .orWhere(
               `EXISTS (SELECT 1 FROM categories c WHERE c.id = p."categoryId" AND ${arSql("c.name")} LIKE :${param})`,
             )
@@ -434,13 +434,15 @@ export class AgentCatalogService {
       .addSelect("b.created_at", "created_at")
       .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")
       .where('b."adminId" = :adminId', { adminId })
+      .where('b.aiEnabled = true')
       .andWhere('b."isActive" = true');
 
     for (const [i, word] of args.words.entries()) {
       const param = `bw${i}`;
       qb.andWhere(
         new Brackets((inner) => {
-          inner.where(`${arSql("b.name")} LIKE :${param}`).orWhere(`${arSql("b.sku")} LIKE :${param}`);
+          inner.where(`${arSql("b.name")} LIKE :${param}`).orWhere(`${arSql("b.sku")} LIKE :${param}`)
+          .orWhere(`${arSql("b.aiKeywords")} LIKE :${param}`);
         }),
         { [param]: `%${word}%` },
       );
@@ -463,6 +465,8 @@ export class AgentCatalogService {
       priceMin: prices.length ? Math.min(...prices) : Number(product.salePrice ?? 0),
       priceMax: prices.length ? Math.max(...prices) : Number(product.salePrice ?? 0),
       inStock,
+      aiDescription: product.aiDescription,
+      aiKeywords: product.aiKeywords,
       options: collectOptions(variants.map((v) => v.attributes)),
       description: clip(product.callCenterProductDescription || product.description, DESC_CLIP),
       createdAt: (product.created_at as Date)?.toISOString?.() ?? "",
@@ -488,6 +492,8 @@ export class AgentCatalogService {
       price: Number(bundle.price ?? 0),
       inStock,
       items: names,
+      aiDescription: bundle.aiDescription,
+      aiKeywords: bundle.aiKeywords,
       createdAt: (bundle.created_at as Date)?.toISOString?.() ?? "",
     };
   }

@@ -70,6 +70,18 @@ import {
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
 
+function normalizeAiKeywords(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    const keyword = typeof item === "string" ? item.trim() : "";
+    if (!keyword || keyword.length > 120 || seen.has(keyword)) continue;
+    seen.add(keyword);
+    if (seen.size >= 50) break;
+  }
+  return [...seen];
+}
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -1549,6 +1561,10 @@ export class ProductsService {
         description: dto.description ?? null,
         callCenterProductDescription: dto.callCenterProductDescription ?? null,
 
+        aiEnabled: dto.aiEnabled ?? true,
+        aiDescription: dto.aiDescription ?? null,
+        aiKeywords: normalizeAiKeywords(dto.aiKeywords),
+
         upsellingEnabled: dto.upsellingEnabled ?? false,
         upsellingProducts: (dto.upsellingProducts as any) ?? [],
 
@@ -2154,6 +2170,10 @@ export class ProductsService {
         } as any);
       }
       delete (dto as any).imagesOrphanIds;
+
+      if (dto.aiKeywords !== undefined) {
+        dto.aiKeywords = normalizeAiKeywords(dto.aiKeywords);
+      }
 
       const patch: any = { ...dto };
       delete patch.categoryId;
