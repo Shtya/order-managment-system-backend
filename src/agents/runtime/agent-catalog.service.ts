@@ -124,35 +124,34 @@ export class AgentCatalogService {
     }
 
     const unionSql = unions.map((sql) => `(${sql})`).join(" UNION ALL ");
-    const countRow = await this.productRepo.manager
-      .createQueryBuilder()
-      .select("COUNT(*)", "count")
-      .from(`(${unionSql})`, "catalog_hits")
-      .setParameters(params)
-      .getRawOne<{ count: string }>();
-    const total = Number(countRow?.count ?? 0);
+    const hitsFrom = () =>
+      this.productRepo.manager.createQueryBuilder().from(`(${unionSql})`, "catalog_hits").setParameters(params);
 
-    const hits = await this.productRepo.manager
-      .createQueryBuilder()
-      .select("catalog_hits.id", "id")
-      .addSelect("catalog_hits.kind", "kind")
-      .from(`(${unionSql})`, "catalog_hits")
-      .orderBy("catalog_hits.in_stock", "DESC")
-      .addOrderBy("catalog_hits.created_at", "DESC")
-      .offset(offset)
-      .limit(limit)
-      .setParameters(params)
-      .getRawMany<{ id: string; kind: string }>();
+    const [countRow, hits] = await Promise.all([
+      hitsFrom().select("COUNT(*)", "count").getRawOne<{ count: string }>(),
+      hitsFrom()
+        .select("catalog_hits.id", "id")
+        .addSelect("catalog_hits.kind", "kind")
+        .orderBy("catalog_hits.in_stock", "DESC")
+        .addOrderBy("catalog_hits.created_at", "DESC")
+        .offset(offset)
+        .limit(limit)
+        .getRawMany<{ id: string; kind: string }>(),
+    ]);
+    const total = Number(countRow?.count ?? 0);
 
     const productIds = hits.filter((h) => h.kind === "product").map((h) => h.id);
     const bundleIds = hits.filter((h) => h.kind === "bundle").map((h) => h.id);
     const [products, bundles] = await Promise.all([
       productIds.length
-        ? this.productRepo.find({ where: { id: In(productIds) }, relations: { category: true, variants: true } })
+        ? this.productRepo.find({
+            where: { id: In(productIds), adminId },
+            relations: { category: true, variants: true },
+          })
         : Promise.resolve([] as ProductEntity[]),
       bundleIds.length
         ? this.bundleRepo.find({
-            where: { id: In(bundleIds) },
+            where: { id: In(bundleIds), adminId },
             relations: { items: { variant: { product: true } } },
           })
         : Promise.resolve([] as BundleEntity[]),
