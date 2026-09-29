@@ -50,7 +50,7 @@ export class CreateBundleDto {
   @IsArray({message: i18nValidationMessage('validation.is_array')})
   @IsString({ each: true, message: i18nValidationMessage('validation.is_string') })
   @MaxLength(120, { each: true, message: i18nValidationMessage('validation.max_length') })
-  @ArrayMaxSize(50, { message: i18nValidationMessage('validation.array_max_size') })
+  @ArrayMaxSize(20, { message: i18nValidationMessage('validation.array_max_size') })
   aiKeywords?: string[];
 
   @IsInt({message: i18nValidationMessage('validation.is_int')})
