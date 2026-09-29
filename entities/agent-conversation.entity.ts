@@ -40,6 +40,18 @@ export enum AgentPendingActionType {
   CAMPAIGN_ORDER = "campaign_order",
   ORDER = "order",
   ADDRESS_CORRECTION = "address_correction",
+  ADD_ORDER_ITEMS = "add_order_items",
+  REPLACE_ORDER_ITEMS = "replace_order_items",
+  UPDATE_ORDER_ITEMS = "update_order_items",
+  UPDATE_ORDER_INFO = "update_order_info",
+  CANCEL_ORDER = "cancel_order",
+  POSTPONE_ORDER = "postpone_order",
+  CONFIRM_ORDER = "confirm_order",
+  ADD_CUSTOMER_ADDRESS = "add_customer_address",
+  REMOVE_CUSTOMER_ADDRESS = "remove_customer_address",
+  UPDATE_CUSTOMER_ADDRESS = "update_customer_address",
+  SET_DEFAULT_ADDRESS = "set_default_address",
+  UPDATE_CUSTOMER = "update_customer",
 }
 
 export enum AgentTaskType {

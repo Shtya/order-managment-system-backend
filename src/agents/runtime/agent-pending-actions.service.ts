@@ -11,6 +11,7 @@ import { PublicCampaignOrdersService } from "src/campaigns/public-campaign-order
 import { OrdersService } from "src/orders/services/orders.service";
 import { AgentCampaignOffersService } from "./agent-campaign-offers.service";
 import { AgentCatalogError, AgentCatalogService } from "./agent-catalog.service";
+import { AgentCustomerEditsService } from "./agent-customer-edits.service";
 import { AgentSessionService } from "./agent-session.service";
 import { AgentTaskService } from "./agent-task.service";
 import { AGENT_PENDING_ACTION_TTL_MS, AgentToolScope } from "./agent-runtime.constants";
@@ -44,6 +45,7 @@ export class AgentPendingActionsService {
     @Inject(forwardRef(() => OrdersService))
     private readonly orders: OrdersService,
     private readonly catalog: AgentCatalogService,
+    private readonly edits: AgentCustomerEditsService,
     private readonly dataSource: DataSource,
     private readonly sessions: AgentSessionService,
     private readonly tasks: AgentTaskService,
@@ -298,8 +300,9 @@ export class AgentPendingActionsService {
         });
         return { kind: "address_correction", orderId: action.orderId, address: p.address };
       }
+      default:
+        return this.edits.execute(scope, action.type, action.payload ?? {});
     }
-    throw new Error(`Unknown action type ${action.type}`);
   }
 
   private findOwned(scope: AgentToolScope, actionId: string) {

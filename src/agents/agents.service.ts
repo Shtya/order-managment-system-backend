@@ -17,7 +17,7 @@ import {
   AgentGender,
   AgentLanguage,
 } from "entities/agent.entity";
-import { AGENT_USER_CAPABILITIES } from "./runtime/agent-runtime.constants";
+import { AGENT_USER_CAPABILITIES, expandAgentCapabilities } from "./runtime/agent-runtime.constants";
 import {
   AgentKnowledgeAgentEntity,
   AgentKnowledgeEntity,
@@ -92,8 +92,7 @@ export class AgentsService {
     capabilities: AgentCapability[] | undefined,
   ): AgentCapability[] | undefined {
     if (capabilities === undefined) return undefined;
-    const valid = new Set<string>(AGENT_USER_CAPABILITIES);
-    return [...new Set(capabilities.filter((c) => valid.has(c as string)))] as AgentCapability[];
+    return expandAgentCapabilities(capabilities);
   }
 
   private async assertKnowledge(adminId: string, id: string) {

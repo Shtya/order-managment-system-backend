@@ -23,6 +23,7 @@ import { ShippingService } from "src/shipping/shipping.service";
 import { AgentPendingActionType, AgentTaskStatus } from "entities/agent-conversation.entity";
 import { AgentTaskService } from "src/agents/runtime/agent-task.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { DateFilterUtil } from "common/date-filter.util";
 import {
   AGENT_CANCEL_BUTTON_PREFIX,
   AGENT_CONFIRM_BUTTON_PREFIX,
@@ -32,8 +33,10 @@ import {
 import { AgentCustomerWindowClosedError, AgentSendBlockedError, AgentSenderService } from "src/agents/runtime/agent-sender.service";
 import { AgentCampaignOffersService } from "src/agents/runtime/agent-campaign-offers.service";
 import { AgentPendingActionsService } from "src/agents/runtime/agent-pending-actions.service";
+import { AgentCustomerEditsService } from "src/agents/runtime/agent-customer-edits.service";
 import {
   AgentCatalogError,
+  AgentCatalogKind,
   AgentCatalogService,
   AgentOrderDraft,
   AgentOrderLineInput,
@@ -88,6 +91,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     private readonly actions: AgentPendingActionsService,
     private readonly tasks: AgentTaskService,
     private readonly catalog: AgentCatalogService,
+    private readonly edits: AgentCustomerEditsService,
     @InjectRepository(OrderEntity)
     private readonly orderRepo: Repository<OrderEntity>,
     @InjectRepository(CityEntity)
@@ -119,6 +123,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       // Products & Offers
       this.listCategories(),
       this.searchProducts(),
+      this.searchBundles(),
       this.getProductDetails(),
       this.getBundleDetails(),
       this.getMyCampaignOffers(),
@@ -126,6 +131,18 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       // Order Creation
       this.requestOrder(),
       this.requestCampaignOrder(),
+      this.requestAddOrderItems(),
+      this.requestReplaceOrderItems(),
+      this.requestUpdateOrderItems(),
+      this.requestUpdateOrderInfo(),
+      this.requestCancelOrder(),
+      this.requestPostponeOrder(),
+      this.requestConfirmOrder(),
+      this.requestAddCustomerAddress(),
+      this.requestRemoveCustomerAddress(),
+      this.requestUpdateCustomerAddress(),
+      this.requestSetDefaultAddress(),
+      this.requestUpdateCustomer(),
   
       // Address & Shipping
       this.requestAddressUpdate(),
@@ -223,13 +240,12 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           }, { productName: `%${productName}%` });
         }
 
-        for (const [key, op, endOfDay] of [["createdFrom", ">=", false], ["createdTo", "<=", true]] as const) {
-          const raw = str(args[key]);
-          if (!raw) continue;
-          const date = new Date(`${raw.slice(0, 10)}T${endOfDay ? "23:59:59.999" : "00:00:00.000"}Z`);
-          if (Number.isNaN(date.getTime())) return fail("INVALID_ARGS", `${key} must be a date (YYYY-MM-DD)`);
-          qb.andWhere(`o.created_at ${op} :${key}`, { [key]: date });
-        }
+        DateFilterUtil.applyToQueryBuilder(
+          qb,
+          "o.created_at",
+          str(args.createdFrom) || undefined,
+          str(args.createdTo) || undefined,
+        );
 
         const [orders, total] = await qb
           .orderBy("o.created_at", "DESC")
@@ -248,6 +264,10 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
               status: customerStatusLabel(o.status),
               createdAt: o.created_at,
               total: Number(o.finalTotal ?? 0),
+              productsTotal: Number(o.productsTotal ?? 0),
+              shippingCost: Number(o.shippingCost ?? 0),
+              discount: Number(o.discount ?? 0),
+              deposit: Number(o.deposit ?? 0),
               items: (o.items ?? []).map((i) => ({
                 product: i.variant?.product?.name ?? null,
                 quantity: i.quantity,
@@ -334,6 +354,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
             customerName: order.customerName,
             address: order.address,
             city: order.city,
+            cityId: order.cityId ?? null,
             area: order.area ?? null,
             landmark: order.landmark ?? null,
             paymentMethod: order.paymentMethod,
@@ -342,6 +363,8 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
               options: i.variant?.attributes ?? null,
               quantity: i.quantity,
               unitPrice: Number(i.unitPrice ?? 0),
+              variantId: i.variantId,
+              bundleId: i.bundleId ?? null,
             })),
             productsTotal: Number(order.productsTotal ?? 0),
             shippingCost: Number(order.shippingCost ?? 0),
@@ -406,6 +429,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           code: "ADDRESSES",
           data: {
             addresses: addresses.map((a) => ({
+              addressId: a.id,
               label: a.label ?? null,
               address: a.address,
               city: a.cityDetails?.nameAr ?? a.city,
@@ -441,7 +465,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "search_products",
       audience: "customer",
       description:
-        "Search products and bundles by text, category, price, options, stock. Paged: offer the next page when total_records > current_page * per_page. Never invent products or prices.",
+        "Search products by text, category, price, options, stock. Paged: offer the next page when total_records > current_page * per_page. Never invent products or prices. Use search_bundles for packs.",
       inputSchema: {
         type: "object",
         properties: {
@@ -455,7 +479,6 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
             description: "Variant option filters.",
           },
           inStockOnly: { type: "boolean", description: "Defaults true; false includes out-of-stock." },
-          kind: { type: "string", enum: ["product", "bundle", "all"] },
           limit: { type: "integer", minimum: 1, maximum: 10 },
           page: { type: "integer", minimum: 1 },
         },
@@ -463,21 +486,31 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       },
       isWrite: false,
       staleRecovery: "auto_recover",
-      run: async (ctx, args: Args) => {
-        const scope = agentScopeOf(ctx);
-        const data = await this.catalog.search(scope.adminId, {
-          query: str(args.query) || undefined,
-          categoryId: str(args.categoryId) || undefined,
-          minPrice: args.minPrice != null ? Number(args.minPrice) : undefined,
-          maxPrice: args.maxPrice != null ? Number(args.maxPrice) : undefined,
-          options: args.options && typeof args.options === "object" ? args.options : undefined,
-          inStockOnly: args.inStockOnly,
-          kind: args.kind,
-          limit: args.limit,
-          page: args.page,
-        });
-        return { ok: true, code: "CATALOG", data };
+      run: async (ctx, args: Args) => this.runCatalogSearch(ctx, args, "product"),
+    });
+  }
+
+  private searchBundles() {
+    return new AiTool({
+      name: "search_bundles",
+      audience: "customer",
+      description:
+        "Search bundles (packs/combos) by text, price, stock. Paged: offer the next page when total_records > current_page * per_page. Never invent bundles or prices. Use search_products for single products.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Name, SKU or keywords." },
+          minPrice: { type: "number", minimum: 0 },
+          maxPrice: { type: "number", minimum: 0 },
+          inStockOnly: { type: "boolean", description: "Defaults true; false includes out-of-stock." },
+          limit: { type: "integer", minimum: 1, maximum: 10 },
+          page: { type: "integer", minimum: 1 },
+        },
+        additionalProperties: false,
       },
+      isWrite: false,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => this.runCatalogSearch(ctx, args, "bundle"),
     });
   }
 
@@ -547,7 +580,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
               type: "object",
               properties: {
                 variantId: { type: "string", description: "variantId from get_product_details." },
-                bundleId: { type: "string", description: "bundleId from search_products / get_bundle_details." },
+                bundleId: { type: "string", description: "bundleId from search_bundles / get_bundle_details." },
                 quantity: { type: "integer", minimum: 1, maximum: 50 },
               },
               additionalProperties: false,
@@ -689,6 +722,517 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           type: AgentPendingActionType.CAMPAIGN_ORDER,
           targetKey: `campaign:${recipient.id}`,
           payload,
+          summary,
+        });
+        return this.sendConfirmation(scope, action, summary, en);
+      },
+    });
+  }
+
+  private catalogItemProperties() {
+    return {
+      type: "array",
+      minItems: 1,
+      maxItems: 20,
+      items: {
+        type: "object",
+        properties: {
+          variantId: { type: "string", description: "variantId from get_product_details." },
+          bundleId: { type: "string", description: "bundleId from search_bundles / get_bundle_details." },
+          quantity: { type: "integer", minimum: 1, maximum: 50 },
+        },
+        additionalProperties: false,
+      },
+      description: "Each item is a product variant or a bundle, never both.",
+    };
+  }
+
+  private requestAddOrderItems() {
+    return this.orderItemsWriteTool({
+      name: "request_add_order_items",
+      type: AgentPendingActionType.ADD_ORDER_ITEMS,
+      description:
+        "Add products or bundles to an existing order. Blocked after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      extraProperties: {},
+      extraRequired: [],
+      summary: (en, orderNumber, draft) =>
+        en
+          ? `Add to order ${orderNumber}:\n${draftLines(draft)}\nConfirm?`
+          : `إضافة لطلب ${orderNumber}:\n${draftLines(draft)}\nنأكد؟`,
+    });
+  }
+
+  private requestUpdateOrderItems() {
+    return this.orderItemsWriteTool({
+      name: "request_update_order_items",
+      type: AgentPendingActionType.UPDATE_ORDER_ITEMS,
+      description:
+        "Replace the order's items with this full list (quantities included). Blocked after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      extraProperties: {},
+      extraRequired: [],
+      summary: (en, orderNumber, draft) =>
+        en
+          ? `Update items on order ${orderNumber} to:\n${draftLines(draft)}\nConfirm?`
+          : `تحديث منتجات طلب ${orderNumber} إلى:\n${draftLines(draft)}\nنأكد؟`,
+    });
+  }
+
+  private requestReplaceOrderItems() {
+    return this.orderItemsWriteTool({
+      name: "request_replace_order_items",
+      type: AgentPendingActionType.REPLACE_ORDER_ITEMS,
+      description:
+        "Swap one item on an existing order (fromVariantId of a product line, or fromBundleId of a pack) for the items list. Blocked after warehouse/courier statuses. End the turn after calling.",
+      extraProperties: {
+        fromVariantId: { type: "string", description: "Existing product variantId from get_order_details." },
+        fromBundleId: { type: "string", description: "Existing bundleId from get_order_details." },
+      },
+      extraRequired: [],
+      summary: (en, orderNumber, draft, args) =>
+        en
+          ? `Replace ${str(args.fromBundleId) || str(args.fromVariantId)} on order ${orderNumber} with:\n${draftLines(draft)}\nConfirm?`
+          : `استبدال ${str(args.fromBundleId) || str(args.fromVariantId)} في طلب ${orderNumber} بـ:\n${draftLines(draft)}\nنأكد؟`,
+      validate: (args) => {
+        if (Boolean(str(args.fromVariantId)) === Boolean(str(args.fromBundleId))) {
+          return fail("INVALID_ARGS", "Pass either fromVariantId or fromBundleId");
+        }
+        return null;
+      },
+    });
+  }
+
+  private orderItemsWriteTool(opts: {
+    name: string;
+    type: AgentPendingActionType;
+    description: string;
+    extraProperties: Record<string, unknown>;
+    extraRequired: string[];
+    summary: (en: boolean, orderNumber: string, draft: AgentOrderDraft, args: Args) => string;
+    validate?: (args: Args) => AiToolExecutionResult | null;
+  }) {
+    return new AiTool({
+      name: opts.name,
+      audience: "customer",
+      description: opts.description,
+      inputSchema: {
+        type: "object",
+        properties: {
+          orderNumber: { type: "string" },
+          items: this.catalogItemProperties(),
+          language: { type: "string", enum: ["ar", "en"] },
+          ...opts.extraProperties,
+        },
+        required: ["orderNumber", "items", "language", ...opts.extraRequired],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const invalid = opts.validate?.(args);
+        if (invalid) return invalid;
+        const prepared = await this.prepareMutableOrder(ctx, args);
+        if ("error" in prepared) return prepared.error;
+        const requested = parseRequestedItems(args.items);
+        if ("error" in requested) return requested.error;
+        let draft: AgentOrderDraft;
+        try {
+          draft = await this.catalog.buildOrderDraft(prepared.scope.adminId, requested.items);
+        } catch (error) {
+          return catalogFail(error);
+        }
+        const en = args.language === "en";
+        const summary = opts.summary(en, prepared.order.orderNumber, draft, args);
+        const action = await this.actions.create(prepared.scope, {
+          type: opts.type,
+          targetKey: `${opts.type}:${prepared.order.id}`,
+          orderId: prepared.order.id,
+          payload: {
+            orderNumber: prepared.order.orderNumber,
+            requested: requested.items,
+            priceFingerprint: draft.priceFingerprint,
+            fromVariantId: str(args.fromVariantId) || undefined,
+            fromBundleId: str(args.fromBundleId) || undefined,
+          },
+          summary,
+        });
+        return this.sendConfirmation(prepared.scope, action, summary, en);
+      },
+    });
+  }
+
+  private requestUpdateOrderInfo() {
+    return new AiTool({
+      name: "request_update_order_info",
+      audience: "customer",
+      description:
+        "Update an existing order's name, address, city, area, landmark or notes. Not allowed after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          orderNumber: { type: "string" },
+          customerName: { type: "string", maxLength: 200 },
+          address: { type: "string", maxLength: 1000 },
+          city: { type: "string", maxLength: 100 },
+          cityId: { type: "string" },
+          area: { type: "string", maxLength: 100 },
+          areaId: { type: "string" },
+          landmark: { type: "string", maxLength: 200 },
+          notes: { type: "string", maxLength: 1000 },
+          language: { type: "string", enum: ["ar", "en"] },
+        },
+        required: ["orderNumber", "language"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const prepared = await this.prepareMutableOrder(ctx, args);
+        if ("error" in prepared) return prepared.error;
+        const patch = {
+          customerName: str(args.customerName) || undefined,
+          address: str(args.address) || undefined,
+          city: str(args.city) || undefined,
+          cityId: str(args.cityId) || undefined,
+          area: str(args.area) || undefined,
+          areaId: str(args.areaId) || undefined,
+          landmark: str(args.landmark) || undefined,
+          customerNotes: str(args.notes) || undefined,
+        };
+        if (!Object.values(patch).some(Boolean)) {
+          return fail("INVALID_ARGS", "Pass at least one field to update");
+        }
+        if (patch.cityId || patch.areaId) {
+          const checked = await this.readAddressArgs({
+            customerName: patch.customerName || prepared.order.customerName || "x",
+            address: patch.address || prepared.order.address || "x",
+            ...patch,
+          });
+          if ("error" in checked) return checked.error;
+        }
+        const en = args.language === "en";
+        const bits = [
+          patch.customerName && (en ? `Name: ${patch.customerName}` : `الاسم: ${patch.customerName}`),
+          patch.address && (en ? `Address: ${patch.address}` : `العنوان: ${patch.address}`),
+          (patch.city || patch.area) && (en ? `Area: ${[patch.area, patch.city].filter(Boolean).join(", ")}` : `المنطقة: ${[patch.area, patch.city].filter(Boolean).join("، ")}`),
+          patch.landmark && (en ? `Landmark: ${patch.landmark}` : `علامة مميزة: ${patch.landmark}`),
+          patch.customerNotes && (en ? `Notes: ${patch.customerNotes}` : `ملاحظات: ${patch.customerNotes}`),
+        ].filter(Boolean);
+        const summary = en
+          ? `Update order ${prepared.order.orderNumber}:\n${bits.join("\n")}\nConfirm?`
+          : `تحديث طلب ${prepared.order.orderNumber}:\n${bits.join("\n")}\nنأكد؟`;
+        const action = await this.actions.create(prepared.scope, {
+          type: AgentPendingActionType.UPDATE_ORDER_INFO,
+          targetKey: `update_order_info:${prepared.order.id}`,
+          orderId: prepared.order.id,
+          payload: { orderNumber: prepared.order.orderNumber, ...patch },
+          summary,
+        });
+        return this.sendConfirmation(prepared.scope, action, summary, en);
+      },
+    });
+  }
+
+  private requestCancelOrder() {
+    return this.orderStatusWriteTool({
+      name: "request_cancel_order",
+      type: AgentPendingActionType.CANCEL_ORDER,
+      description: "Cancel an existing order if it is not yet with the warehouse or courier. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      extra: {},
+      summary: (en, n) => (en ? `Cancel order ${n}?` : `إلغاء طلب ${n}؟`),
+    });
+  }
+
+  private requestConfirmOrder() {
+    return this.orderStatusWriteTool({
+      name: "request_confirm_order",
+      type: AgentPendingActionType.CONFIRM_ORDER,
+      description: "Confirm an existing order if it is not yet with the warehouse or courier. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      extra: {},
+      summary: (en, n) => (en ? `Confirm order ${n}?` : `تأكيد طلب ${n}؟`),
+    });
+  }
+
+  private requestPostponeOrder() {
+    return this.orderStatusWriteTool({
+      name: "request_postpone_order",
+      type: AgentPendingActionType.POSTPONE_ORDER,
+      description: "Postpone an existing order (YYYY-MM-DD). Not allowed after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      extra: {
+        postponedDate: { type: "string", description: "YYYY-MM-DD" },
+      },
+      extraRequired: ["postponedDate"],
+      summary: (en, n, args) =>
+        en ? `Postpone order ${n} to ${str(args.postponedDate)}?` : `تأجيل طلب ${n} ليوم ${str(args.postponedDate)}؟`,
+      validate: (args) => {
+        const raw = str(args.postponedDate);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fail("INVALID_ARGS", "postponedDate must be YYYY-MM-DD");
+        const date = new Date(`${raw}T12:00:00.000Z`);
+        if (Number.isNaN(date.getTime())) return fail("INVALID_ARGS", "postponedDate must be YYYY-MM-DD");
+        return null;
+      },
+    });
+  }
+
+  private orderStatusWriteTool(opts: {
+    name: string;
+    type: AgentPendingActionType;
+    description: string;
+    extra: Record<string, unknown>;
+    extraRequired?: string[];
+    summary: (en: boolean, orderNumber: string, args: Args) => string;
+    validate?: (args: Args) => AiToolExecutionResult | null;
+  }) {
+    return new AiTool({
+      name: opts.name,
+      audience: "customer",
+      description: opts.description,
+      inputSchema: {
+        type: "object",
+        properties: {
+          orderNumber: { type: "string" },
+          language: { type: "string", enum: ["ar", "en"] },
+          ...opts.extra,
+        },
+        required: ["orderNumber", "language", ...(opts.extraRequired ?? [])],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const invalid = opts.validate?.(args);
+        if (invalid) return invalid;
+        const prepared = await this.prepareMutableOrder(ctx, args);
+        if ("error" in prepared) return prepared.error;
+        const en = args.language === "en";
+        const summary = opts.summary(en, prepared.order.orderNumber, args);
+        const action = await this.actions.create(prepared.scope, {
+          type: opts.type,
+          targetKey: `${opts.type}:${prepared.order.id}`,
+          orderId: prepared.order.id,
+          payload: {
+            orderNumber: prepared.order.orderNumber,
+            postponedDate: str(args.postponedDate) || undefined,
+          },
+          summary,
+        });
+        return this.sendConfirmation(prepared.scope, action, summary, en);
+      },
+    });
+  }
+
+  private requestAddCustomerAddress() {
+    return new AiTool({
+      name: "request_add_customer_address",
+      audience: "customer",
+      description: "Save a new address in the customer's address book. Match city/area with get_cities / get_areas_by_city. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          label: { type: "string", maxLength: 100 },
+          address: { type: "string", maxLength: 1000 },
+          city: { type: "string", maxLength: 100 },
+          cityId: { type: "string" },
+          area: { type: "string", maxLength: 100 },
+          areaId: { type: "string" },
+          landmark: { type: "string", maxLength: 200 },
+          isDefault: { type: "boolean" },
+          language: { type: "string", enum: ["ar", "en"] },
+        },
+        required: ["address", "language"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const scope = agentScopeOf(ctx);
+        const clientId = await this.resolveClientId(scope);
+        if (!clientId) return fail("NOT_FOUND", "This customer has no address book yet.");
+        const parsed = await this.readAddressArgs({ ...args, customerName: "x" });
+        if ("error" in parsed) return parsed.error;
+        const en = args.language === "en";
+        const summary = en
+          ? `Save this address${str(args.label) ? ` (${str(args.label)})` : ""}: ${parsed.data.address}. Confirm?`
+          : `حفظ العنوان${str(args.label) ? ` (${str(args.label)})` : ""}: ${parsed.data.address}. نأكد؟`;
+        const action = await this.actions.create(scope, {
+          type: AgentPendingActionType.ADD_CUSTOMER_ADDRESS,
+          targetKey: "address:add",
+          payload: {
+            label: str(args.label) || undefined,
+            isDefault: Boolean(args.isDefault),
+            ...parsed.data,
+          },
+          summary,
+        });
+        return this.sendConfirmation(scope, action, summary, en);
+      },
+    });
+  }
+
+  private requestRemoveCustomerAddress() {
+    return new AiTool({
+      name: "request_remove_customer_address",
+      audience: "customer",
+      description: "Remove a saved address (addressId from get_my_addresses). Sends Confirm/Edit/Cancel. End the turn after calling.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          addressId: { type: "string" },
+          language: { type: "string", enum: ["ar", "en"] },
+        },
+        required: ["addressId", "language"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const prepared = await this.prepareOwnedAddress(ctx, args);
+        if ("error" in prepared) return prepared.error;
+        const en = args.language === "en";
+        const summary = en
+          ? `Remove saved address ${prepared.address.address}?`
+          : `مسح العنوان المحفوظ ${prepared.address.address}؟`;
+        const action = await this.actions.create(prepared.scope, {
+          type: AgentPendingActionType.REMOVE_CUSTOMER_ADDRESS,
+          targetKey: `address:remove:${prepared.address.id}`,
+          payload: { addressId: prepared.address.id },
+          summary,
+        });
+        return this.sendConfirmation(prepared.scope, action, summary, en);
+      },
+    });
+  }
+
+  private requestUpdateCustomerAddress() {
+    return new AiTool({
+      name: "request_update_customer_address",
+      audience: "customer",
+      description: "Edit a saved address (addressId from get_my_addresses). Sends Confirm/Edit/Cancel. End the turn after calling.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          addressId: { type: "string" },
+          label: { type: "string", maxLength: 100 },
+          address: { type: "string", maxLength: 1000 },
+          city: { type: "string", maxLength: 100 },
+          cityId: { type: "string" },
+          area: { type: "string", maxLength: 100 },
+          areaId: { type: "string" },
+          landmark: { type: "string", maxLength: 200 },
+          isDefault: { type: "boolean" },
+          language: { type: "string", enum: ["ar", "en"] },
+        },
+        required: ["addressId", "language"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const prepared = await this.prepareOwnedAddress(ctx, args);
+        if ("error" in prepared) return prepared.error;
+        const patch = {
+          label: str(args.label) || undefined,
+          address: str(args.address) || undefined,
+          cityId: str(args.cityId) || undefined,
+          areaId: str(args.areaId) || undefined,
+          landmark: str(args.landmark) || undefined,
+          isDefault: args.isDefault === undefined ? undefined : Boolean(args.isDefault),
+        };
+        if (!Object.values(patch).some((v) => v !== undefined && v !== "")) {
+          return fail("INVALID_ARGS", "Pass at least one field to update");
+        }
+        if (patch.cityId || patch.areaId) {
+          const checked = await this.readAddressArgs({
+            customerName: "x",
+            address: patch.address || prepared.address.address,
+            ...patch,
+          });
+          if ("error" in checked) return checked.error;
+        }
+        const en = args.language === "en";
+        const summary = en
+          ? `Update saved address ${prepared.address.address}. Confirm?`
+          : `تحديث العنوان المحفوظ ${prepared.address.address}. نأكد؟`;
+        const action = await this.actions.create(prepared.scope, {
+          type: AgentPendingActionType.UPDATE_CUSTOMER_ADDRESS,
+          targetKey: `address:update:${prepared.address.id}`,
+          payload: { addressId: prepared.address.id, ...patch },
+          summary,
+        });
+        return this.sendConfirmation(prepared.scope, action, summary, en);
+      },
+    });
+  }
+
+  private requestSetDefaultAddress() {
+    return new AiTool({
+      name: "request_set_default_address",
+      audience: "customer",
+      description: "Set a saved address as the default (addressId from get_my_addresses). Sends Confirm/Edit/Cancel. End the turn after calling.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          addressId: { type: "string" },
+          language: { type: "string", enum: ["ar", "en"] },
+        },
+        required: ["addressId", "language"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const prepared = await this.prepareOwnedAddress(ctx, args);
+        if ("error" in prepared) return prepared.error;
+        const en = args.language === "en";
+        const summary = en
+          ? `Make ${prepared.address.address} the default address?`
+          : `جعل ${prepared.address.address} العنوان الافتراضي؟`;
+        const action = await this.actions.create(prepared.scope, {
+          type: AgentPendingActionType.SET_DEFAULT_ADDRESS,
+          targetKey: `address:default:${prepared.address.id}`,
+          payload: { addressId: prepared.address.id },
+          summary,
+        });
+        return this.sendConfirmation(prepared.scope, action, summary, en);
+      },
+    });
+  }
+
+  private requestUpdateCustomer() {
+    return new AiTool({
+      name: "request_update_customer",
+      audience: "customer",
+      description: "Update the customer's name and/or email (email is stored on the linked client). Do not change the phone. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: { type: "string", maxLength: 200 },
+          email: { type: "string", maxLength: 200 },
+          language: { type: "string", enum: ["ar", "en"] },
+        },
+        required: ["language"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const scope = agentScopeOf(ctx);
+        const name = str(args.name) || undefined;
+        const email = str(args.email) || undefined;
+        if (!name && !email) return fail("INVALID_ARGS", "Pass name and/or email");
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail("INVALID_ARGS", "email is invalid");
+        if (email && !(await this.resolveClientId(scope))) {
+          return fail("NOT_FOUND", "This customer has no client record for email.");
+        }
+        const en = args.language === "en";
+        const bits = [
+          name && (en ? `Name: ${name}` : `الاسم: ${name}`),
+          email && (en ? `Email: ${email}` : `الإيميل: ${email}`),
+        ].filter(Boolean);
+        const summary = en ? `Update your details:\n${bits.join("\n")}\nConfirm?` : `تحديث بياناتك:\n${bits.join("\n")}\nنأكد؟`;
+        const action = await this.actions.create(scope, {
+          type: AgentPendingActionType.UPDATE_CUSTOMER,
+          targetKey: `customer:${scope.customerId}`,
+          payload: { name, email },
           summary,
         });
         return this.sendConfirmation(scope, action, summary, en);
@@ -982,6 +1526,46 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
 
   // ---------------------------------------------------------------- helpers
 
+  private async runCatalogSearch(ctx: AiToolContext, args: Args, kind: AgentCatalogKind) {
+    const scope = agentScopeOf(ctx);
+    const data = await this.catalog.search(scope.adminId, {
+      query: str(args.query) || undefined,
+      categoryId: kind === "product" ? str(args.categoryId) || undefined : undefined,
+      minPrice: args.minPrice != null ? Number(args.minPrice) : undefined,
+      maxPrice: args.maxPrice != null ? Number(args.maxPrice) : undefined,
+      options:
+        kind === "product" && args.options && typeof args.options === "object" ? args.options : undefined,
+      inStockOnly: args.inStockOnly,
+      kind,
+      limit: args.limit,
+      page: args.page,
+    });
+    return { ok: true, code: kind === "product" ? "PRODUCTS" : "BUNDLES", data };
+  }
+
+  private async prepareMutableOrder(ctx: AiToolContext, args: Args) {
+    const scope = agentScopeOf(ctx);
+    const orderNumber = str(args.orderNumber);
+    if (!orderNumber) return { error: fail("INVALID_ARGS", "orderNumber is required") };
+    const order = await this.edits.findOwnedOrder(scope, orderNumber);
+    if (!order) return { error: fail("NOT_FOUND", "No order with this number for this customer") };
+    const locked = this.edits.warehouseBlocked(order);
+    if (locked) return { error: fail("ORDER_LOCKED", locked) };
+    return { scope, order };
+  }
+
+  private async prepareOwnedAddress(ctx: AiToolContext, args: Args) {
+    const scope = agentScopeOf(ctx);
+    const addressId = str(args.addressId);
+    if (!addressId) return { error: fail("INVALID_ARGS", "addressId is required") };
+    const clientId = await this.resolveClientId(scope);
+    if (!clientId) return { error: fail("NOT_FOUND", "This customer has no address book yet.") };
+    const addresses = await this.clients.findAddressesForAdmin(scope.adminId, clientId);
+    const address = addresses.find((a) => a.id === addressId);
+    if (!address) return { error: fail("NOT_FOUND", "No saved address with this id") };
+    return { scope, address };
+  }
+
   /** The customer's client record: the WhatsApp contact's link, else a lookup by phone. */
   private async resolveClientId(scope: AgentToolScope): Promise<string | null> {
     const customer = await this.customerRepo.findOne({
@@ -1148,6 +1732,12 @@ function parseRequestedItems(raw: unknown): { items: AgentOrderLineInput[] } | {
     items.push({ variantId, bundleId, quantity });
   }
   return { items };
+}
+
+function draftLines(draft: AgentOrderDraft) {
+  return draft.lines
+    .map((l) => `• ${l.name}${formatAttributes(l.attributes)} × ${l.quantity}`)
+    .join("\n");
 }
 
 function formatAttributes(attrs: Record<string, string> | undefined) {

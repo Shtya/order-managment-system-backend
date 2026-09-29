@@ -1,6 +1,6 @@
 import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, In, Repository } from "typeorm";
+import { Brackets, Repository, SelectQueryBuilder } from "typeorm";
 import { CategoryEntity } from "entities/categories.entity";
 import { BundleEntity } from "entities/bundle.entity";
 import { ProductEntity, ProductImage, ProductVariantEntity } from "entities/sku.entity";
@@ -16,7 +16,7 @@ const MAX_CATALOG_IMAGES = 12;
 const AR_FROM = "أإآةى";
 const AR_TO = "اااهي";
 
-export type AgentCatalogKind = "product" | "bundle" | "all";
+export type AgentCatalogKind = "product" | "bundle";
 
 export type AgentOrderLineInput = {
   variantId?: string;
@@ -92,7 +92,7 @@ export class AgentCatalogService {
       maxPrice?: number;
       options?: Record<string, string>;
       inStockOnly?: boolean;
-      kind?: AgentCatalogKind;
+      kind: AgentCatalogKind;
       limit?: number;
       page?: number;
     },
@@ -101,86 +101,75 @@ export class AgentCatalogService {
     const page = Math.max(1, Number(args.page) || 1);
     const offset = (page - 1) * limit;
     const inStockOnly = args.inStockOnly !== false;
-    const kind = args.kind ?? "all";
+    const kind = args.kind;
     const reservedEnabled = await this.reservedEnabled(adminId);
     const words = splitWords(args.query);
     const optionEntries = Object.entries(args.options ?? {}).filter(([, v]) => String(v ?? "").trim());
     const filter = { ...args, words, reservedEnabled, inStockOnly, optionEntries };
 
-    const unions: string[] = [];
-    const params: Record<string, unknown> = {};
-    if (kind !== "bundle") {
-      const p = this.productHitsQb(adminId, filter);
-      unions.push(p.getQuery());
-      Object.assign(params, p.getParameters());
-    }
-    if (kind !== "product") {
-      const b = this.bundleHitsQb(adminId, filter);
-      unions.push(b.getQuery());
-      Object.assign(params, b.getParameters());
-    }
-    if (!unions.length) {
-      return { records: [], total_records: 0, current_page: page, per_page: limit };
-    }
-
-    const unionSql = unions.map((sql) => `(${sql})`).join(" UNION ALL ");
-    const hitsFrom = () =>
-      this.productRepo.manager.createQueryBuilder().from(`(${unionSql})`, "catalog_hits").setParameters(params);
-
-    const [countRow, hits] = await Promise.all([
-      hitsFrom().select("COUNT(*)", "count").getRawOne<{ count: string }>(),
-      hitsFrom()
-        .select("catalog_hits.id", "id")
-        .addSelect("catalog_hits.kind", "kind")
-        .orderBy("catalog_hits.in_stock", "DESC")
-        .addOrderBy("catalog_hits.created_at", "DESC")
+    if (kind === "product") {
+      const hitsQb = this.productHitsQb(adminId, filter);
+      const pageQb = hitsQb
+        .clone()
+        .orderBy("in_stock", "DESC")
+        .addOrderBy("p.created_at", "DESC")
         .offset(offset)
-        .limit(limit)
-        .getRawMany<{ id: string; kind: string }>(),
-    ]);
-    const total = Number(countRow?.count ?? 0);
-
-    const productIds = hits.filter((h) => h.kind === "product").map((h) => h.id);
-    const bundleIds = hits.filter((h) => h.kind === "bundle").map((h) => h.id);
-    const [products, bundles] = await Promise.all([
-      productIds.length
-        ? this.productRepo.find({
-            where: { id: In(productIds), adminId },
-            relations: { category: true, variants: true },
-          })
-        : Promise.resolve([] as ProductEntity[]),
-      bundleIds.length
-        ? this.bundleRepo.find({
-            where: { id: In(bundleIds), adminId },
-            relations: { items: { variant: { product: true } } },
-          })
-        : Promise.resolve([] as BundleEntity[]),
-    ]);
-    const productById = new Map<string, ProductEntity>();
-    for (const p of products) productById.set(p.id, p);
-    const bundleById = new Map<string, BundleEntity>();
-    for (const b of bundles) bundleById.set(b.id, b);
-    const records = hits
-      .map((hit) => {
-        if (hit.kind === "product") {
-          const product = productById.get(hit.id);
-          if (!product) return null;
+        .limit(limit);
+      const [total, products] = await Promise.all([
+        this.countHits(hitsQb),
+        this.productHitsQb(adminId, filter, true)
+          .innerJoin(`(${pageQb.getQuery()})`, "hit", `"hit"."id" = p.id`)
+          .setParameters(pageQb.getParameters())
+          .orderBy(`"hit"."in_stock"`, "DESC")
+          .addOrderBy(`"hit"."created_at"`, "DESC")
+          .getMany(),
+      ]);
+      return {
+        records: products.map((product) => {
           const { createdAt: _c, ...rest } = this.toProductHit(product, reservedEnabled);
           return rest;
-        }
-        const bundle = bundleById.get(hit.id);
-        if (!bundle) return null;
+        }),
+        total_records: total,
+        current_page: page,
+        per_page: limit,
+      };
+    }
+
+    const hitsQb = this.bundleHitsQb(adminId, filter);
+    const pageQb = hitsQb
+      .clone()
+      .orderBy("in_stock", "DESC")
+      .addOrderBy("b.created_at", "DESC")
+      .offset(offset)
+      .limit(limit);
+    const [total, bundles] = await Promise.all([
+      this.countHits(hitsQb),
+      this.bundleHitsQb(adminId, filter, true)
+        .innerJoin(`(${pageQb.getQuery()})`, "hit", `"hit"."id" = b.id`)
+        .setParameters(pageQb.getParameters())
+        .orderBy(`"hit"."in_stock"`, "DESC")
+        .addOrderBy(`"hit"."created_at"`, "DESC")
+        .getMany(),
+    ]);
+    return {
+      records: bundles.map((bundle) => {
         const { createdAt: _c, ...rest } = this.toBundleHit(bundle, reservedEnabled);
         return rest;
-      })
-      .filter(Boolean);
-
-    return {
-      records,
+      }),
       total_records: total,
       current_page: page,
       per_page: limit,
     };
+  }
+
+  private async countHits(qb: SelectQueryBuilder<ProductEntity | BundleEntity>) {
+    const row = await this.productRepo.manager
+      .createQueryBuilder()
+      .select("COUNT(*)", "count")
+      .from(`(${qb.getQuery()})`, "hits")
+      .setParameters(qb.getParameters())
+      .getRawOne<{ count: string }>();
+    return Number(row?.count ?? 0);
   }
 
   async getProductDetails(adminId: string, productId: string) {
@@ -227,7 +216,7 @@ export class AgentCatalogService {
   }
 
   async getBundleDetails(adminId: string, bundleId: string) {
-    if (!isUuid(bundleId)) throw new AgentCatalogError("INVALID_ARGS", "bundleId must come from search_products");
+    if (!isUuid(bundleId)) throw new AgentCatalogError("INVALID_ARGS", "bundleId must come from search_bundles");
     const bundle = await this.loadBundle(adminId, bundleId);
     if (!bundle) throw new AgentCatalogError("NOT_FOUND", "No active bundle with this id");
     const reservedEnabled = await this.reservedEnabled(adminId);
@@ -364,11 +353,19 @@ export class AgentCatalogService {
       inStockOnly: boolean;
       optionEntries: [string, string][];
     },
+    withRelations = false,
   ) {
     const inStockExpr = `EXISTS (SELECT 1 FROM product_variants vs WHERE vs."productId" = p.id AND vs."isActive" = true AND ${stockSql("vs", args.reservedEnabled)} > 0)`;
-    const qb = this.productRepo
-      .createQueryBuilder("p")
-      .select("p.id", "id")
+    const qb = this.productRepo.createQueryBuilder("p");
+    if (withRelations) {
+      return qb
+        .leftJoinAndSelect("p.category", "category")
+        .leftJoinAndSelect("p.variants", "variants")
+        .where('p."adminId" = :adminId', { adminId })
+        .andWhere("p.aiEnabled = true")
+        .andWhere('p."isActive" = true');
+    }
+    qb.select("p.id", "id")
       .addSelect("'product'", "kind")
       .addSelect("p.created_at", "created_at")
       .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")
@@ -424,11 +421,20 @@ export class AgentCatalogService {
       reservedEnabled: boolean;
       inStockOnly: boolean;
     },
+    withRelations = false,
   ) {
     const inStockExpr = bundleInStockSql("b", args.reservedEnabled);
-    const qb = this.bundleRepo
-      .createQueryBuilder("b")
-      .select("b.id", "id")
+    const qb = this.bundleRepo.createQueryBuilder("b");
+    if (withRelations) {
+      return qb
+        .leftJoinAndSelect("b.items", "items")
+        .leftJoinAndSelect("items.variant", "variant")
+        .leftJoinAndSelect("variant.product", "product")
+        .where('b."adminId" = :adminId', { adminId })
+        .andWhere("b.aiEnabled = true")
+        .andWhere('b."isActive" = true');
+    }
+    qb.select("b.id", "id")
       .addSelect("'bundle'", "kind")
       .addSelect("b.created_at", "created_at")
       .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")

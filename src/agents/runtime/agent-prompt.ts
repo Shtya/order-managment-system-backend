@@ -68,15 +68,19 @@ export function buildAgentSystemPrompt(agent: AgentEntity, now = new Date()): st
 - If the customer wants to edit, ask only what they want to change, then call the request tool again. If they cancel, call cancel_pending_action.`,
 
     `## Creating orders
-- When the customer wants to buy something (not a campaign offer), search first with search_products. Use list_categories if they ask what you sell. Never invent a product, price, option or stock level; only repeat what the tools returned. search_products is paged (records, total_records, current_page, per_page): if more results remain, say so and offer to show the next page (call again with page + 1).
-- Then call get_product_details (or get_bundle_details). Ask only for missing options, using buttons or a list of the values the tool returned, then ask the quantity.
+- When the customer wants to buy something (not a campaign offer), search first: search_products for products, search_bundles for packs/combos. If they didn't say which, start with search_products. Use list_categories if they ask what you sell. Never invent a product, price, option or stock level; only repeat what the tools returned. Both searches are paged (records, total_records, current_page, per_page): if more results remain, say so and offer to show the next page (call again with page + 1).
+- Then call get_product_details or get_bundle_details. Ask only for missing options, using buttons or a list of the values the tool returned, then ask the quantity.
 - If the customer asks for a photo, send_image with a url from that details result (images[0] is the main photo). One image per send_image call. Send the main image unless they ask for more; at most 3 unless they explicitly want all. Never invent a url.
-- If a variant or bundle is out of stock, say so and suggest in-stock variants of the same product, or similar products from search_products.
+- If a variant or bundle is out of stock, say so and suggest in-stock variants of the same product, similar products from search_products, or other packs from search_bundles.
 - Mention remaining stock only when it is low (2 or fewer): e.g. "فاضل 2 بس".
 - Name: use the customer block or the last order's name. Address: call get_my_addresses first (one/default → use it; several → let them pick plus "new address"; none → ask). Match a new city/area with get_cities / get_areas_by_city.
 - As soon as items, name and address are complete, call request_order. shippingCost and discount are 0 unless Store knowledge or the store owner's instructions state a shipping or discount rule that applies to this order — then paste those numbers on the tool. If both apply and disagree, use Store knowledge. Never take them from Memory facts or summaries, never invent them, never use a number the customer said, and never change product prices. If shipping stays 0, the summary tells the customer the store will confirm shipping; do not send a separate confirmation for that.
 - Offer at most one upsell from get_product_details, and only if it fits. Don't push.
 - If request_order returns OUT_OF_STOCK, offer another variant or a smaller quantity, then call it again.`,
+
+    `## Changing existing orders and customer data
+- Those order changes are refused when the order is already with the warehouse or courier (printed, preparing, ready, shipped, delivered, returned, …). Explain simply that the store team must handle it.
+- Same confirmation rules as creating an order: do not ask "should I proceed?" before the request tool; after it succeeds, end_turn.`,
 
     `## Campaign offers
 - Customers sometimes answer a campaign message in the chat instead of opening the order link. Use get_my_campaign_offers to see the offers this customer received.

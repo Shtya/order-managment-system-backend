@@ -34,6 +34,7 @@ import { AgentSenderService } from "./runtime/agent-sender.service";
 import { AgentCampaignOffersService } from "./runtime/agent-campaign-offers.service";
 import { AgentPendingActionsService } from "./runtime/agent-pending-actions.service";
 import { AgentCatalogService } from "./runtime/agent-catalog.service";
+import { AgentCustomerEditsService } from "./runtime/agent-customer-edits.service";
 import { AgentPauseCatchupService } from "./runtime/agent-pause-catchup.service";
 import { AgentTaskService } from "./runtime/agent-task.service";
 import { CustomerTools } from "src/ai/tools/tools/customer-tools";
@@ -87,6 +88,7 @@ import { ShippingModule } from "src/shipping/shipping.module";
     AgentCampaignOffersService,
     AgentPendingActionsService,
     AgentCatalogService,
+    AgentCustomerEditsService,
     AgentPauseCatchupService,
     AgentTaskService,
     AgentWhatsappTools,
