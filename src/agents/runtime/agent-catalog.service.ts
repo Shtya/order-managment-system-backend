@@ -374,7 +374,7 @@ export class AgentCatalogService {
       .addSelect("p.created_at", "created_at")
       .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")
       .where('p."adminId" = :adminId', { adminId })
-      .where('p.aiEnabled = true')
+      .andWhere("p.aiEnabled = true")
       .andWhere('p."isActive" = true');
 
     if (args.categoryId) {
@@ -434,7 +434,7 @@ export class AgentCatalogService {
       .addSelect("b.created_at", "created_at")
       .addSelect(`CASE WHEN ${inStockExpr} THEN 1 ELSE 0 END`, "in_stock")
       .where('b."adminId" = :adminId', { adminId })
-      .where('b.aiEnabled = true')
+      .andWhere("b.aiEnabled = true")
       .andWhere('b."isActive" = true');
 
     for (const [i, word] of args.words.entries()) {
