@@ -45,7 +45,7 @@ export type MadarMediaModels = {
 export const MEDIA_LIMITS = {
   imageBytes: 5 * 1024 * 1024,
   audioBytes: 16 * 1024 * 1024,
-  videoBytes: 22 * 1024 * 1024,
+  videoBytes: 50 * 1024 * 1024,
   documentBytes: 32 * 1024 * 1024,
   openaiAudioBytes: 25 * 1024 * 1024,
   maxDurationSeconds: 180,
@@ -86,9 +86,9 @@ export class MediaConfigService {
   models(): MadarMediaModels {
     return {
       apiKey: this.config.get<string>("AI_OPENAI_API_KEY") || "",
-      visionModel: this.config.get<string>("AI_MEDIA_VISION_MODEL") || "gpt-4o-mini",
+      visionModel: this.config.get<string>("AI_MEDIA_VISION_MODEL") || "gpt-5-nano",
       documentModel:
-        this.config.get<string>("AI_MEDIA_DOCUMENT_MODEL") || "gpt-4o-mini",
+        this.config.get<string>("AI_MEDIA_DOCUMENT_MODEL") || "gpt-5-nano",
       transcribeModel:
         this.config.get<string>("AI_MEDIA_TRANSCRIBE_MODEL") || "gpt-transcribe",
       timeoutMs: Number(this.config.get("AI_MEDIA_TIMEOUT_MS")) || 90_000,
