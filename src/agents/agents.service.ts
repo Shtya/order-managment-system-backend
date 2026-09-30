@@ -341,6 +341,10 @@ export class AgentsService {
           responseProviderId: dto.responseProviderId ?? null,
           isActive: dto.isActive ?? true,
           capabilities,
+          acceptImage: dto.acceptImage ?? false,
+          acceptVideo: dto.acceptVideo ?? false,
+          acceptDocument: dto.acceptDocument ?? false,
+          acceptAudio: dto.acceptAudio ?? false,
         }),
       );
       if (knowledgeIds !== undefined) {
@@ -393,6 +397,10 @@ export class AgentsService {
         : undefined;
     const capabilities = this.sanitizeCapabilities(dto.capabilities);
     if (capabilities !== undefined) existing.capabilities = capabilities;
+    if (dto.acceptImage !== undefined) existing.acceptImage = dto.acceptImage;
+    if (dto.acceptVideo !== undefined) existing.acceptVideo = dto.acceptVideo;
+    if (dto.acceptDocument !== undefined) existing.acceptDocument = dto.acceptDocument;
+    if (dto.acceptAudio !== undefined) existing.acceptAudio = dto.acceptAudio;
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(AgentEntity).save(existing);

@@ -206,6 +206,11 @@ export type I18nTranslations = {
         };
         "billing": {
             "ai_decision_wallet_note": string;
+            "ai_media_wallet_note": string;
+            "media_image": string;
+            "media_video": string;
+            "media_document": string;
+            "media_audio": string;
         };
         "bundles": {
             "not_found": string;

@@ -64,7 +64,12 @@
     "ai_address_completeness": "Verify delivery address completeness"
   },
   "billing": {
-    "ai_decision_wallet_note": "AI usage — {tokens} tokens — {feature}"
+    "ai_decision_wallet_note": "AI usage — {tokens} tokens — {feature}",
+    "ai_media_wallet_note": "AI media ({kind}) — {tokens} tokens — {audioMinutes} min — {feature}",
+    "media_image": "Image understanding",
+    "media_video": "Video understanding",
+    "media_document": "Document understanding",
+    "media_audio": "Voice transcription"
   },
   "bundles": {
     "not_found": "Bundle not found",

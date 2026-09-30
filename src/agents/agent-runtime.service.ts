@@ -25,6 +25,7 @@ import { AgentContextService } from "./runtime/agent-context.service";
 import { AgentPendingActionsService } from "./runtime/agent-pending-actions.service";
 import { AgentTaskService } from "./runtime/agent-task.service";
 import { AgentCustomerWindowClosedError, AgentSendBlockedError, AgentSenderService } from "./runtime/agent-sender.service";
+import { AgentMediaUsageService } from "src/ai/media/agent-media-usage.service";
 import {
   AGENT_CANCEL_BUTTON_PREFIX,
   AGENT_COMPACTION_RATIO,
@@ -77,6 +78,7 @@ export class AgentRuntimeService {
     private readonly actions: AgentPendingActionsService,
     private readonly tasks: AgentTaskService,
     private readonly sender: AgentSenderService,
+    private readonly mediaUsage: AgentMediaUsageService,
   ) {}
 
   async runTurn(job: AgentTurnInput): Promise<void> {
@@ -115,7 +117,7 @@ export class AgentRuntimeService {
     const agent = await this.agentRepo.findOne({ where: { id: agentId, adminId: job.adminId } });
     if (!agent?.isActive) return;
 
-    const insights = await this.input.understand(job.adminId, messages);
+    const insights = await this.input.understand(job.adminId, messages, { agent });
     const meaningful = insights.filter(
       (i) => i.kind !== "ignored" && i.kind !== "unsupported" && !isStrayReaction(i),
     );
@@ -148,6 +150,7 @@ export class AgentRuntimeService {
         status: AgentTurnStatus.RUNNING,
       }),
     );
+    await this.mediaUsage.attachTurnId(turn.id, messages.map((m) => m.id));
     const scope: AgentToolScope = {
       adminId: job.adminId,
       agentId: agent.id,

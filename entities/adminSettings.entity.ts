@@ -22,8 +22,16 @@ export interface AiDecisionBillingSettings {
   allowance?: BillingAllowanceSettings | null;
 }
 
+export interface AiMediaBillingSettings {
+  tokenPrice?: number;
+  /** Decimal dollars per minute of speech-to-text. */
+  audioMinutePrice?: number;
+  allowance?: BillingAllowanceSettings | null;
+}
+
 export interface BillingSettings {
   aiDecision?: AiDecisionBillingSettings;
+  aiMedia?: AiMediaBillingSettings;
 }
 
 @Entity('admin_settings')
@@ -50,6 +58,14 @@ export class AdminSettingsEntity {
   @Column({ type: 'jsonb', nullable: true, default: {
     aiDecision: {
       tokenPrice: 0.5,
+      allowance: {
+        units: 0,
+        durationDays: null,
+      },
+    },
+    aiMedia: {
+      tokenPrice: 0.5,
+      audioMinutePrice: 0.006,
       allowance: {
         units: 0,
         durationDays: null,

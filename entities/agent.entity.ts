@@ -103,6 +103,18 @@ export class AgentEntity {
   @Column({ type: "text", array: true, nullable: true })
   capabilities?: string[] | null;
 
+  @Column({ type: "boolean", default: false })
+  acceptImage: boolean;
+
+  @Column({ type: "boolean", default: false })
+  acceptVideo: boolean;
+
+  @Column({ type: "boolean", default: false })
+  acceptDocument: boolean;
+
+  @Column({ type: "boolean", default: false })
+  acceptAudio: boolean;
+
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;
 

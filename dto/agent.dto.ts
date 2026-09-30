@@ -58,6 +58,22 @@ export class CreateAgentDto {
   @IsArray({ message: i18nValidationMessage("validation.is_array") })
   @IsEnum(AgentCapability, { each: true, message: capabilityEnumMessage })
   capabilities?: AgentCapability[];
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptImage?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptVideo?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptDocument?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptAudio?: boolean;
 }
 
 export class UpdateAgentDto {
@@ -100,6 +116,22 @@ export class UpdateAgentDto {
   @IsArray({ message: i18nValidationMessage("validation.is_array") })
   @IsEnum(AgentCapability, { each: true, message: capabilityEnumMessage })
   capabilities?: AgentCapability[];
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptImage?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptVideo?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptDocument?: boolean;
+
+  @IsOptional()
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  acceptAudio?: boolean;
 }
 
 export class CreateAgentKnowledgeDto {

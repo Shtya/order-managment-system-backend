@@ -61,11 +61,33 @@ class AiDecisionBillingDto {
   allowance?: BillingAllowanceDto | null;
 }
 
+class AiMediaBillingDto {
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_string') })
+  @Min(0)
+  tokenPrice?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_string') })
+  @Min(0)
+  audioMinutePrice?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BillingAllowanceDto)
+  allowance?: BillingAllowanceDto | null;
+}
+
 class BillingSettingsDto {
   @IsOptional()
   @ValidateNested()
   @Type(() => AiDecisionBillingDto)
   aiDecision?: AiDecisionBillingDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AiMediaBillingDto)
+  aiMedia?: AiMediaBillingDto;
 }
 
 export class UpdateAdminSettingsDto {

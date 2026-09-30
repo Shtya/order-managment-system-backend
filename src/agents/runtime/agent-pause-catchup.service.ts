@@ -1,6 +1,7 @@
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { MoreThan, Repository } from "typeorm";
+import { AgentEntity } from "entities/agent.entity";
 import {
   ConversationAiMode,
   ConversationEntity,
@@ -28,6 +29,8 @@ export class AgentPauseCatchupService {
     private readonly conversationRepo: Repository<ConversationEntity>,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    @InjectRepository(AgentEntity)
+    private readonly agentRepo: Repository<AgentEntity>,
     @Inject(forwardRef(() => WhatsappAiService))
     private readonly whatsappAiService: WhatsappAiService,
     private readonly input: AgentInputService,
@@ -97,8 +100,10 @@ export class AgentPauseCatchupService {
     const context = await this.whatsappAiService.loadContext(data.adminId, accountId);
     const ai = this.whatsappAiService.resolve(context, conversation.aiMode);
     if (!ai.enabled || !ai.agentId) return { messageIds: [], accountId };
-
-    const insights = await this.input.understand(data.adminId, candidates);
+    const agent = await this.agentRepo.findOne({
+      where: { id: ai.agentId, adminId: data.adminId },
+    });
+    const insights = await this.input.understand(data.adminId, candidates, { agent });
     const byId = new Map(insights.map((i) => [i.messageId, i]));
     const kept = candidates.filter((m) => {
       const insight = byId.get(m.id);
@@ -138,6 +143,9 @@ export class AgentPauseCatchupService {
       insight.kind === "contacts" ||
       insight.kind === "choice" ||
       insight.kind === "audio" ||
+      insight.kind === "image" ||
+      insight.kind === "video" ||
+      insight.kind === "document" ||
       insight.kind === "failed"
     ) {
       return true;

@@ -1,0 +1,26 @@
+import { Module } from "@nestjs/common";
+import { TypeOrmModule } from "@nestjs/typeorm";
+import { AgentMediaUsageEntity } from "entities/agent-conversation.entity";
+import { BillingModule } from "src/billing/billing.module";
+import { AgentMediaUsageService } from "./agent-media-usage.service";
+import { MediaConfigService } from "./media-config.service";
+import { MediaUnderstandingService } from "./media-understanding.service";
+import { AudioMediaProcessor } from "./processors/audio.processor";
+import { DocumentMediaProcessor } from "./processors/document.processor";
+import { ImageMediaProcessor } from "./processors/image.processor";
+import { VideoMediaProcessor } from "./processors/video.processor";
+
+@Module({
+  imports: [BillingModule, TypeOrmModule.forFeature([AgentMediaUsageEntity])],
+  providers: [
+    ImageMediaProcessor,
+    VideoMediaProcessor,
+    DocumentMediaProcessor,
+    AudioMediaProcessor,
+    AgentMediaUsageService,
+    MediaConfigService,
+    MediaUnderstandingService,
+  ],
+  exports: [MediaUnderstandingService, AgentMediaUsageService],
+})
+export class MediaUnderstandingModule {}

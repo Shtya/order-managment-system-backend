@@ -46,6 +46,11 @@ export class AdminSettingsService {
             tokenPrice: 0.5,
             allowance: null,
           },
+          aiMedia: {
+            tokenPrice: 0.5,
+            audioMinutePrice: 0.006,
+            allowance: null,
+          },
         },
       });
       await this.settingsRepo.save(settings);
@@ -101,28 +106,17 @@ export class AdminSettingsService {
     // Explicit null allowance means unlimited (not limited).
     let updatedBilling = settings.billing;
     if (dto.billing) {
-      const incomingAllowance =
-        dto.billing?.aiDecision && "allowance" in dto.billing.aiDecision
-          ? (dto.billing.aiDecision as any).allowance
-          : undefined;
-      const existingAi = { ...(settings.billing?.aiDecision || {}) };
-      const incomingAi = { ...(dto.billing?.aiDecision || {}) };
       updatedBilling = {
         ...(settings.billing || {}),
         ...(dto.billing || {}),
-        aiDecision: {
-          ...existingAi,
-          ...incomingAi,
-          allowance:
-            incomingAllowance === null
-              ? null
-              : incomingAllowance === undefined
-                ? (existingAi as any)?.allowance ?? null
-                : {
-                    ...((existingAi as any)?.allowance || {}),
-                    ...incomingAllowance,
-                  },
-        },
+        aiDecision: mergeBillingBlock(
+          settings.billing?.aiDecision,
+          dto.billing.aiDecision,
+        ),
+        aiMedia: mergeBillingBlock(
+          settings.billing?.aiMedia,
+          dto.billing.aiMedia,
+        ),
       };
     }
 
@@ -139,4 +133,24 @@ export class AdminSettingsService {
     await this.cacheSettings(saved);
     return saved;
   }
+}
+
+function mergeBillingBlock(existing: any, incoming: any) {
+  if (!incoming) return existing;
+  const incomingAllowance =
+    incoming && "allowance" in incoming ? incoming.allowance : undefined;
+  const existingBlock = { ...(existing || {}) };
+  return {
+    ...existingBlock,
+    ...incoming,
+    allowance:
+      incomingAllowance === null
+        ? null
+        : incomingAllowance === undefined
+          ? existingBlock?.allowance ?? null
+          : {
+              ...(existingBlock?.allowance || {}),
+              ...incomingAllowance,
+            },
+  };
 }

@@ -1,15 +1,24 @@
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
+import { AgentEntity } from "entities/agent.entity";
 import {
   MessageDirection,
   WhatsappMessageEntity,
   WhatsappMessageType,
 } from "entities/whatsapp.entity";
 import { WhatsappApiService } from "src/whatsapp/services/WhatsappApi.service";
-import { AiTranscriptionService } from "src/ai/services/ai-transcription.service";
+import { MediaUnderstandingService } from "src/ai/media/media-understanding.service";
+import {
+  MediaInsufficientBalanceError,
+  MediaKind,
+  MediaUnderstandingError,
+} from "src/ai/media/media-config.service";
 
 export type AgentInsightKind =
   | "text"
   | "audio"
+  | "image"
+  | "video"
+  | "document"
   | "location"
   | "contacts"
   | "choice"
@@ -32,6 +41,13 @@ export type AgentInsight = {
 
 const IGNORED_TYPES = new Set(["sticker", "system", "edit", "revoke", "ephemeral", "request_welcome"]);
 
+const FAILED_LABEL: Record<MediaKind, string> = {
+  image: "[Shared image] (could not be processed right now)",
+  video: "[Shared video] (could not be processed right now)",
+  document: "[Shared document] (could not be processed right now)",
+  audio: "[Voice note] (could not be processed right now)",
+};
+
 @Injectable()
 export class AgentInputService {
   private readonly logger = new Logger(AgentInputService.name);
@@ -39,19 +55,21 @@ export class AgentInputService {
   constructor(
     @Inject(forwardRef(() => WhatsappApiService))
     private readonly whatsappApi: WhatsappApiService,
-    private readonly transcription: AiTranscriptionService,
+    private readonly media: MediaUnderstandingService,
   ) {}
 
   async understand(
     adminId: string,
     messages: WhatsappMessageEntity[],
+    options?: { agent?: AgentEntity | null },
   ): Promise<AgentInsight[]> {
-    return Promise.all(messages.map((m) => this.understandOne(adminId, m)));
+    return Promise.all(messages.map((m) => this.understandOne(adminId, m, options?.agent)));
   }
 
   private async understandOne(
     adminId: string,
     message: WhatsappMessageEntity,
+    agent?: AgentEntity | null,
   ): Promise<AgentInsight> {
     const raw: any = message.content ?? {};
     const type = String(message.messageType ?? raw.type ?? "unknown");
@@ -68,8 +86,14 @@ export class AgentInputService {
       case WhatsappMessageType.TEXT:
         return { ...base, kind: "text", text: String(raw.text?.body ?? "").trim() };
 
-      // case WhatsappMessageType.AUDIO:
-      //   return this.transcribe(adminId, message, base);
+      case WhatsappMessageType.IMAGE:
+        return this.processMedia(adminId, message, agent, "image", "acceptImage", base);
+      case WhatsappMessageType.VIDEO:
+        return this.processMedia(adminId, message, agent, "video", "acceptVideo", base);
+      case WhatsappMessageType.DOCUMENT:
+        return this.processMedia(adminId, message, agent, "document", "acceptDocument", base);
+      case WhatsappMessageType.AUDIO:
+        return this.processMedia(adminId, message, agent, "audio", "acceptAudio", base);
 
       case WhatsappMessageType.LOCATION: {
         const loc = raw.location ?? {};
@@ -125,31 +149,53 @@ export class AgentInputService {
     return { ...base, kind: "unsupported", text: "" };
   }
 
-  private async transcribe(
+  private async processMedia(
     adminId: string,
     message: WhatsappMessageEntity,
+    agent: AgentEntity | null | undefined,
+    kind: MediaKind,
+    flag: "acceptImage" | "acceptVideo" | "acceptDocument" | "acceptAudio",
     base: { messageId: string; quoted: string | null },
   ): Promise<AgentInsight> {
-    const audio: any = (message.content as any)?.audio ?? {};
+    if (!agent?.[flag]) {
+      return { ...base, kind: "unsupported", text: "" };
+    }
+    const raw: any = message.content ?? {};
+    const media = raw[kind] ?? {};
+    const mediaId = media.id;
+    const caption = String(media.caption ?? "").trim();
     try {
-      if (!audio.id || !message.accountId) throw new Error("Missing media id or account");
-      const media = await this.whatsappApi.getMediaUrl(message.accountId, audio.id);
-      const response = await this.whatsappApi.streamMedia(message.accountId, media?.url);
+      if (!mediaId || !message.accountId) {
+        throw new MediaUnderstandingError("Missing media id or account", "MISSING_MEDIA");
+      }
+      const meta = await this.whatsappApi.getMediaUrl(message.accountId, mediaId);
+      const response = await this.whatsappApi.streamMedia(message.accountId, meta?.url);
       const buffer = await readStream(response?.data ?? response);
-      const text = await this.transcription.transcribe(adminId, buffer, {
-        mimeType: audio.mime_type ?? media?.mime_type,
+      const result = await this.media.process({
+        adminId,
+        agentId: agent.id,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        idempotencyKey: `media:${message.id}`,
+        kind,
+        buffer,
+        mimeType: media.mime_type ?? meta?.mime_type,
+        filename: media.filename,
+        caption,
       });
-      if (!text) return { ...base, kind: "failed", text: "[Voice note] (empty or inaudible)" };
-      return { ...base, kind: "audio", text: `[Voice note transcript] ${text}` };
+      return { ...base, kind, text: result.text };
     } catch (error) {
       this.logger.warn(
-        `Voice transcription failed for message ${message.id}: ${(error as Error)?.message}`,
+        `${kind} processing failed for message ${message.id}: ${(error as Error)?.message}`,
       );
-      return {
-        ...base,
-        kind: "failed",
-        text: "[Voice note] (could not be processed right now)",
-      };
+      const label =
+        error instanceof MediaInsufficientBalanceError
+          ? FAILED_LABEL[kind].replace(
+              "could not be processed right now",
+              "could not be processed: insufficient wallet balance",
+            )
+          : FAILED_LABEL[kind];
+      return { ...base, kind: "failed", text: label };
     }
   }
 }

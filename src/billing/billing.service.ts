@@ -6,6 +6,7 @@ import {
   AuthorizeResult,
   BillingAuthorizationEntity,
   BillingChargeEntity,
+  BillingServiceKey,
   ChargeLine,
   ChargeResult,
   CollectionStatus,
@@ -109,13 +110,30 @@ export class BillingService {
     auth: BillingAuthorizationEntity,
     actual: unknown,
   ): Promise<string> {
-    const tokens = this.tokensFromUsage(actual).toLocaleString("en-US");
+    const usage = (actual && typeof actual === "object" ? actual : {}) as {
+      inputTokens?: bigint | number;
+      outputTokens?: bigint | number;
+      audioSeconds?: bigint | number;
+    };
+    const tokens = (
+      BigInt(usage.inputTokens ?? 0) + BigInt(usage.outputTokens ?? 0)
+    ).toLocaleString("en-US");
     const rawNote = auth.context?.note?.trim() ?? "";
     let feature = rawNote;
     if (rawNote.startsWith("domains.")) {
       feature = await this.requestTranslations.tAsync(
         rawNote as I18nKey,
         auth.adminId,
+      );
+    }
+    if (auth.service === BillingServiceKey.AI_MEDIA) {
+      const audioSeconds = Number(usage.audioSeconds ?? 0);
+      const audioMinutes = (audioSeconds / 60).toFixed(2);
+      const kind = auth.context?.mediaKind ?? "media";
+      return this.requestTranslations.tAsync(
+        "domains.billing.ai_media_wallet_note",
+        auth.adminId,
+        { args: { tokens, audioMinutes, kind, feature } },
       );
     }
     return this.requestTranslations.tAsync(

@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
+import { bigintTransformer } from "common/typeorm/bigint.transformer";
 
 export enum AgentSessionStatus {
   ACTIVE = "active",
@@ -369,4 +370,85 @@ export class AgentTaskEntity {
 
   @UpdateDateColumn({ type: "timestamptz" })
   updatedAt: Date;
+}
+
+export enum AgentMediaUsageStatus {
+  OK = "ok",
+  FAILED = "failed",
+}
+
+export enum AgentMediaKind {
+  IMAGE = "image",
+  VIDEO = "video",
+  DOCUMENT = "document",
+  AUDIO = "audio",
+}
+
+@Index("UQ_agent_media_usages_messageId", ["messageId"], { unique: true })
+@Index(["adminId", "createdAt"])
+@Entity("agent_media_usages")
+export class AgentMediaUsageEntity {
+  @PrimaryGeneratedColumn("uuid")
+  id: string;
+
+  @Index()
+  @Column({ type: "uuid" })
+  adminId: string;
+
+  @Index()
+  @Column({ type: "uuid" })
+  agentId: string;
+
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  conversationId?: string | null;
+
+  @Column({ type: "uuid" })
+  messageId: string;
+
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  turnId?: string | null;
+
+  @Column({ type: "varchar", length: 20 })
+  kind: AgentMediaKind;
+
+  @Column({ type: "varchar", length: 20 })
+  status: AgentMediaUsageStatus;
+
+  @Column({ type: "varchar", length: 80, nullable: true })
+  errorCode?: string | null;
+
+  @Column({ type: "varchar", length: 400, nullable: true })
+  error?: string | null;
+
+  @Column({ type: "int", default: 0 })
+  inputTokens: number;
+
+  @Column({ type: "int", default: 0 })
+  outputTokens: number;
+
+  @Column({ type: "int", default: 0 })
+  audioSeconds: number;
+
+  @Column({ type: "bigint", transformer: bigintTransformer, default: 0 })
+  chargedAmount: bigint;
+
+  @Column({ type: "uuid", nullable: true })
+  authorizationId?: string | null;
+
+  @Column({ type: "uuid", nullable: true })
+  chargeId?: string | null;
+
+  @Column({ type: "varchar", length: 120, nullable: true })
+  visionModel?: string | null;
+
+  @Column({ type: "varchar", length: 120, nullable: true })
+  transcribeModel?: string | null;
+
+  @Column({ type: "varchar", length: 120, nullable: true })
+  documentModel?: string | null;
+
+  @CreateDateColumn({ type: "timestamptz" })
+  createdAt: Date;
 }

@@ -60,15 +60,18 @@ export interface ReleaseInput {
 
 export enum BillingServiceKey {
   AI_DECISION = "ai_decision",
+  AI_MEDIA = "ai_media",
 }
 
 export enum BillingOperationKey {
   EVALUATE = "evaluate",
+  PROCESS = "process",
 }
 
 export enum BillingUnit {
   TOKEN = "token",
   ORDER = "order",
+  AUDIO_SECOND = "audio_second",
 }
 
 export enum AuthorizationStatus {
