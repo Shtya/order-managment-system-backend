@@ -3350,6 +3350,7 @@ export class StoresService {
       lowestPrice: p.price,
       description: p.description,
       categoryName: p.categories?.[0]?.name,
+      categorySlug: p.categories?.[0]?.slug,
       storeId: store.id,
       remoteId: String(p.id),
       mainImage: p.thumb,

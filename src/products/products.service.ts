@@ -1381,27 +1381,35 @@ export class ProductsService {
       const whRepo = mgr.getRepository(WarehouseEntity);
       const pvRepo = mgr.getRepository(ProductVariantEntity);
 
-      const categoryName = dto.categoryName;
-      const categorySlug = dto.categorySlug;
+      const categoryName = dto.categoryName?.trim();
+      const categorySlug = dto.categorySlug?.trim();
       let category: CategoryEntity | null = null;
-      if (categoryName && categoryName.trim() !== "") {
+      if (categoryName || categorySlug) {
+        const categoryWhere: Array<{
+          name?: string;
+          slug?: string;
+          adminId: string;
+        }> = [];
+        if (categoryName) {
+          categoryWhere.push({
+            name: categoryName,
+            adminId,
+          });
+        }
+        if (categorySlug) {
+          categoryWhere.push({
+            slug: categorySlug,
+            adminId,
+          });
+        }
         category = await catRepo.findOne({
-          where: [
-            {
-              name: categoryName.trim(),
-              adminId,
-            },
-            {
-              slug: categorySlug,
-              adminId,
-            },
-          ],
+          where: categoryWhere,
         });
 
-        if (!category) {
+        if (!category && categoryName) {
           const slug = generateSlug(categoryName);
           category = catRepo.create({
-            name: categoryName.trim(),
+            name: categoryName,
             slug: categorySlug
               ? categorySlug
               : slug && slug !== "-"
