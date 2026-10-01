@@ -5227,6 +5227,16 @@ export class ShopifyService extends BaseStoreProvider {
             }
           }
         }
+        featuredImage {
+          url
+        }
+        images(first: 20) {
+          nodes {
+            id
+            url
+            altText
+          }
+        }
         variants(first: 100) {
           nodes {
             id
@@ -5355,6 +5365,16 @@ export class ShopifyService extends BaseStoreProvider {
                         }
                     }
                     }
+                    featuredImage {
+                        url
+                    }
+                    images(first: 20) {
+                    nodes {
+                        id
+                        url
+                        altText
+                    }
+                    }
 
                     variants(first: 100) {
                     nodes {
@@ -5442,6 +5462,16 @@ export class ShopifyService extends BaseStoreProvider {
                   altText
                 }
               }
+            }
+          }
+          featuredImage {
+            url
+          }
+          images(first: 20) {
+            nodes {
+              id
+              url
+              altText
             }
           }
 
@@ -5678,6 +5708,16 @@ export class ShopifyService extends BaseStoreProvider {
                                         altText
                                     }
                                 }
+                            }
+                        }
+                        featuredImage {
+                            url
+                        }
+                        images(first: 20) {
+                            nodes {
+                                id
+                                url
+                                altText
                             }
                         }
                         variants(first: 100) {
