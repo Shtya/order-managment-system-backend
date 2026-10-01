@@ -26,6 +26,13 @@ import { AgentPendingActionsService } from "./runtime/agent-pending-actions.serv
 import { AgentTaskService } from "./runtime/agent-task.service";
 import { AgentCustomerWindowClosedError, AgentSendBlockedError, AgentSenderService } from "./runtime/agent-sender.service";
 import { AgentMediaUsageService } from "src/ai/media/agent-media-usage.service";
+import { AiUsageLedgerService } from "src/ai/usage/ai-usage-ledger.service";
+import {
+  AiUsageActor,
+  AiUsageBilledBy,
+  AiUsageSource,
+  AiUsageStatus,
+} from "entities/ai-usage.entity";
 import {
   AGENT_CANCEL_BUTTON_PREFIX,
   AGENT_COMPACTION_RATIO,
@@ -79,6 +86,7 @@ export class AgentRuntimeService {
     private readonly tasks: AgentTaskService,
     private readonly sender: AgentSenderService,
     private readonly mediaUsage: AgentMediaUsageService,
+    private readonly usageLedger: AiUsageLedgerService,
   ) {}
 
   async runTurn(job: AgentTurnInput): Promise<void> {
@@ -448,6 +456,30 @@ export class AgentRuntimeService {
       error: outcome.error ?? (result && !result.ok ? `${result.errorCode ?? ""} ${result.error ?? ""}`.trim() : null),
       finishedAt: new Date(),
     });
+    const tokens = (result?.usage?.promptTokens ?? 0) + (result?.usage?.completionTokens ?? 0);
+    if (tokens > 0 || outcome.status === AgentTurnStatus.FAILED) {
+      await this.usageLedger.record({
+        adminId: turn.adminId,
+        source: AiUsageSource.WHATSAPP_AGENT,
+        api: "agents.runAgentTurn",
+        actor: AiUsageActor.CUSTOMER,
+        billedBy: AiUsageBilledBy.MERCHANT,
+        providerCode: result?.providersUsed?.[result.providersUsed.length - 1] ?? turn.provider ?? null,
+        modelCode: result?.modelsUsed?.[result.modelsUsed.length - 1] ?? turn.model ?? null,
+        inputTokens: result?.usage?.promptTokens ?? 0,
+        outputTokens: result?.usage?.completionTokens ?? 0,
+        rounds: result?.rounds ?? 1,
+        status:
+          outcome.status === AgentTurnStatus.FAILED
+            ? AiUsageStatus.FAILED
+            : AiUsageStatus.OK,
+        turnId: turn.id,
+        sessionId: turn.sessionId,
+        agentId: turn.agentId ?? null,
+        conversationId: turn.conversationId,
+        requestId: result?.requestId ?? null,
+      });
+    }
   }
 }
 

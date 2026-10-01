@@ -11,6 +11,13 @@ import { DocumentMediaProcessor } from "./processors/document.processor";
 import { ImageMediaProcessor } from "./processors/image.processor";
 import { VideoMediaProcessor } from "./processors/video.processor";
 import { AgentMediaUsageService } from "./agent-media-usage.service";
+import { AiUsageLedgerService } from "src/ai/usage/ai-usage-ledger.service";
+import {
+  AiUsageActor,
+  AiUsageBilledBy,
+  AiUsageSource,
+  AiUsageStatus,
+} from "entities/ai-usage.entity";
 import {
   MEDIA_LIMITS,
   MediaInsufficientBalanceError,
@@ -40,6 +47,7 @@ export class MediaUnderstandingService {
     private readonly videos: VideoMediaProcessor,
     private readonly documents: DocumentMediaProcessor,
     private readonly audios: AudioMediaProcessor,
+    private readonly usageLedger: AiUsageLedgerService,
   ) {}
 
   async process(input: MediaProcessInput): Promise<MediaProcessResult> {
@@ -142,8 +150,9 @@ export class MediaUnderstandingService {
 
     let chargeId: string | null = null;
     let chargedAmount = 0n;
+    let charge = null as Awaited<ReturnType<BillingService["finalize"]>> | null;
     try {
-      const charge = await this.billing.finalize({
+      charge = await this.billing.finalize({
         authorizationId: auth.authorizationId,
         usage: processed.usage,
       });
@@ -172,7 +181,25 @@ export class MediaUnderstandingService {
       visionModel: processed.models?.vision ?? null,
       transcribeModel: processed.models?.transcribe ?? null,
       documentModel: processed.models?.document ?? null,
-    });
+    }).then((mediaUsageId) =>
+      this.recordLedger(input, {
+        mediaUsageId,
+        inputTokens: processed.usage.inputTokens,
+        outputTokens: processed.usage.outputTokens,
+        audioSeconds: processed.usage.audioSeconds,
+        modelCode:
+          processed.models?.vision ??
+          processed.models?.transcribe ??
+          processed.models?.document ??
+          null,
+        status: AiUsageStatus.OK,
+        chargeId,
+        grossAmount: charge?.grossAmount ?? 0n,
+        payableAmount: chargedAmount,
+        freeUnits: charge?.allowanceUnitsConsumed ?? 0n,
+        idempotencyKey: input.idempotencyKey,
+      }),
+    );
 
     return {
       status: "ok",
@@ -308,6 +335,60 @@ export class MediaUnderstandingService {
       audioSeconds: estimated.audioSeconds,
       chargedAmount: 0n,
       authorizationId,
+    }).then((mediaUsageId) =>
+      this.recordLedger(input, {
+        mediaUsageId,
+        inputTokens: estimated.inputTokens,
+        outputTokens: estimated.outputTokens,
+        audioSeconds: estimated.audioSeconds,
+        modelCode: null,
+        status: AiUsageStatus.FAILED,
+        chargeId: null,
+        grossAmount: 0n,
+        payableAmount: 0n,
+        freeUnits: 0n,
+        idempotencyKey: `${input.idempotencyKey}:failed`,
+      }),
+    );
+  }
+
+  private async recordLedger(
+    input: MediaProcessInput,
+    extras: {
+      mediaUsageId: string | null;
+      inputTokens: number;
+      outputTokens: number;
+      audioSeconds: number;
+      modelCode: string | null;
+      status: AiUsageStatus;
+      chargeId: string | null;
+      grossAmount: bigint;
+      payableAmount: bigint;
+      freeUnits: bigint;
+      idempotencyKey: string;
+    },
+  ) {
+    await this.usageLedger.record({
+      adminId: input.adminId,
+      source: AiUsageSource.MEDIA,
+      api: "media.process",
+      actor: AiUsageActor.CUSTOMER,
+      billedBy: AiUsageBilledBy.MADAR,
+      providerCode: "madar-media",
+      modelCode: extras.modelCode,
+      inputTokens: extras.inputTokens,
+      outputTokens: extras.outputTokens,
+      audioSeconds: extras.audioSeconds,
+      rounds: 1,
+      status: extras.status,
+      grossAmount: extras.grossAmount,
+      payableAmount: extras.payableAmount,
+      freeUnits: extras.freeUnits,
+      chargeId: extras.chargeId,
+      idempotencyKey: extras.idempotencyKey,
+      mediaUsageId: extras.mediaUsageId,
+      agentId: input.agentId,
+      conversationId: input.conversationId ?? null,
     });
   }
 }

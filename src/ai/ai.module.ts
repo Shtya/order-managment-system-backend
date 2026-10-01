@@ -32,6 +32,7 @@ import { AiExportService } from "./ai-export.service";
 import { AiModelHealthService } from "./orchestrator/ai-model-health.service";
 import { AiTranscriptionService } from "./services/ai-transcription.service";
 import { MediaUnderstandingModule } from "./media/media-understanding.module";
+import { AiUsageModule } from "./usage/ai-usage.module";
 
 // Concrete injectable providers (each reads its own env in constructor)
 import { Llm7Provider } from "./providers/llm7.provider";
@@ -58,6 +59,7 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
     forwardRef(() => WhatsappModule),
     forwardRef(() => CitiesModule),
     MediaUnderstandingModule,
+    AiUsageModule,
   ],
   controllers: [AiController],
   providers: [
@@ -106,6 +108,7 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
     AiToolRegistryService,
     AiProviderSelectorService,
     MediaUnderstandingModule,
+    AiUsageModule,
   ],
 })
 export class AiModule {}

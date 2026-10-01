@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BillingModule } from 'src/billing/billing.module';
+import { AiUsageModule } from 'src/ai/usage/ai-usage.module';
 import { AiDecisionController } from './ai-decision.controller';
 import { AiDecisionService } from './ai-decision.service';
 import {
@@ -10,7 +11,7 @@ import {
 import { AiDecisionProvider } from './providers/ai-decision.provider';
 
 @Module({
-  imports: [BillingModule], // must export BillingService
+  imports: [BillingModule, AiUsageModule],
   controllers: [AiDecisionController], // test endpoint, remove or protect before production
   providers: [
     // If you use @nestjs/config, replace loadJevOptions() with values from ConfigService.

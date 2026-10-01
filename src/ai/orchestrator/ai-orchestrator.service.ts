@@ -36,7 +36,14 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { AiModelAvailabilityEntity, AiModelEntity } from "../../../entities/ai.entity";
 import { TranslationService } from "../../../common/translation.service";
+import { AiUsageLedgerService } from "../usage/ai-usage-ledger.service";
 import { AiModelHealthService } from "./ai-model-health.service";
+import {
+  AiUsageActor,
+  AiUsageBilledBy,
+  AiUsageSource,
+  AiUsageStatus,
+} from "entities/ai-usage.entity";
 import {
   attachAttemptsToError,
   classifyProviderFailure,
@@ -115,6 +122,9 @@ export interface AiChatOptions {
   tenantLang?: string;
   allowProviderFailover?: boolean;
   requireTools?: boolean;
+  usageSource?: AiUsageSource;
+  usageApi?: string;
+  usageActor?: AiUsageActor;
 }
 
 export interface AiAgentTurnInput {
@@ -158,6 +168,7 @@ export class AiOrchestratorService {
     private readonly modelRepo: Repository<AiModelEntity>,
     private readonly translations: TranslationService,
     private readonly modelHealth: AiModelHealthService,
+    private readonly usageLedger: AiUsageLedgerService,
   ) { }
 
   async chat(
@@ -254,6 +265,11 @@ export class AiOrchestratorService {
       piiPairs: masked.pairs,
       userMessage: masked.text,
       includeDevInfo: options.includeDevInfo,
+      usageSource: options.usageSource,
+      usageApi: options.usageApi,
+      usageActor: options.usageActor,
+      usageOrderId:
+        typeof options.metadata?.orderId === "string" ? options.metadata.orderId : undefined,
     });
   }
 
@@ -321,6 +337,9 @@ export class AiOrchestratorService {
     system: string;
     user: string;
     metadata?: Record<string, unknown>;
+    usageSource?: AiUsageSource;
+    usageApi?: string;
+    usageActor?: AiUsageActor;
   }): Promise<AiOrchestrationResult> {
     const timer = new PhaseTimer();
     const requestId = randomUUID();
@@ -352,6 +371,9 @@ export class AiOrchestratorService {
     return this.execute(ctx, execution, messages, timer, ERP_ASSISTANT_POLICY, {
       piiPairs: [],
       userMessage: input.user,
+      usageSource: input.usageSource,
+      usageApi: input.usageApi,
+      usageActor: input.usageActor,
     });
   }
 
@@ -365,6 +387,10 @@ export class AiOrchestratorService {
       piiPairs: Array<{ token: string; original: string }>;
       userMessage?: string;
       includeDevInfo?: boolean;
+      usageSource?: AiUsageSource;
+      usageApi?: string;
+      usageActor?: AiUsageActor;
+      usageOrderId?: string;
     },
   ): Promise<AiOrchestrationResult> {
     const session = ctx.session;
@@ -393,6 +419,12 @@ export class AiOrchestratorService {
         options.piiPairs,
         timer,
         options.userMessage,
+        {
+          usageSource: options.usageSource,
+          usageApi: options.usageApi,
+          usageActor: options.usageActor,
+          usageOrderId: options.usageOrderId,
+        },
       );
       finalResult = finalized.finalResult;
       providersUsed = finalized.providersUsed;
@@ -1662,6 +1694,12 @@ export class AiOrchestratorService {
     pairs: Array<{ token: string; original: string }>,
     timer: PhaseTimer,
     userMessage?: string,
+    usageHint?: {
+      usageSource?: AiUsageSource;
+      usageApi?: string;
+      usageActor?: AiUsageActor;
+      usageOrderId?: string;
+    },
   ): Promise<{
     finalResult: AiOrchestrationResult;
     providersUsed: string[];
@@ -1732,6 +1770,7 @@ export class AiOrchestratorService {
         rounds,
         userMessage,
         content,
+        usageHint,
       );
       this.logger.debug("[perf] persistSummary", {
         requestId: ctx.requestId,
@@ -1758,6 +1797,12 @@ export class AiOrchestratorService {
     rounds: number,
     userMessage?: string,
     assistantContent?: string,
+    usageHint?: {
+      usageSource?: AiUsageSource;
+      usageApi?: string;
+      usageActor?: AiUsageActor;
+      usageOrderId?: string;
+    },
   ): Promise<number> {
     const t0 = performance.now();
     const adminId = ctx.session.tenantId ?? ctx.session.userId;
@@ -1797,6 +1842,25 @@ export class AiOrchestratorService {
       providersUsed,
       modelsUsed,
     });
+    if (usageHint?.usageSource && adminId) {
+      await this.usageLedger.record({
+        adminId,
+        source: usageHint.usageSource,
+        api: usageHint.usageApi ?? "ai.orchestrator",
+        actor: usageHint.usageActor ?? AiUsageActor.SYSTEM,
+        billedBy: AiUsageBilledBy.MERCHANT,
+        providerCode: providersUsed[providersUsed.length - 1] ?? null,
+        modelCode: modelsUsed[modelsUsed.length - 1] ?? null,
+        inputTokens: usage.promptTokens,
+        outputTokens: usage.completionTokens,
+        rounds,
+        status: ok ? AiUsageStatus.OK : AiUsageStatus.FAILED,
+        requestId: execution.requestId,
+        sessionId: execution.session.sessionId,
+        conversationId: execution.session.conversationId ?? null,
+        orderId: usageHint.usageOrderId ?? null,
+      });
+    }
     return performance.now() - t0;
   }
 

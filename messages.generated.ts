@@ -1948,6 +1948,7 @@ export type I18nTranslations = {
             "provider_auto": string;
             "status_active": string;
             "status_inactive": string;
+            "agent_not_found": string;
         };
     };
     "emails": {

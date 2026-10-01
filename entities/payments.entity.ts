@@ -309,6 +309,9 @@ export class Wallet {
     @JoinColumn({ name: 'userId' })
     user: Relation<User>;
 
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
+    aiBalance: number;
+
     // Dollar amounts with 6 decimal places (1 micro-dollar = 0.000001).
     @Column('numeric', { precision: 20, scale: 6, default: 0 })
     currentBalance: number;

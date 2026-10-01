@@ -73,6 +73,7 @@ import { AgentTaskStatus } from "entities/agent-conversation.entity";
 import { ShippingAssigningService } from "src/shipping-assigning/shipping-assigning.service";
 import { ShipmentStatus, ShippingCompanyEntity } from "entities/shipping.entity";
 import { AiDecisionService } from "src/ai-decision/ai-decision.service";
+import { AiUsageActor, AiUsageSource } from "entities/ai-usage.entity";
 import {
   ADDRESS_COMPLETENESS_BRANCH,
   ADDRESS_COMPLETENESS_MODEL,
@@ -1049,6 +1050,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             whatsappAccountId: run.whatsappAccountId,
           },
           tenantLang: defaultLang,
+          usageSource: AiUsageSource.ADDRESS_CORRECTION,
+          usageApi: "automation.addressCorrection",
+          usageActor: AiUsageActor.SYSTEM,
         });
       } catch (error: any) {
         this.logger.error(
@@ -1289,6 +1293,9 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
             whatsappAccountId: run.whatsappAccountId,
           },
           tenantLang: defaultLang,
+          usageSource: AiUsageSource.ADDRESS_CORRECTION,
+          usageApi: "automation.addressCorrection",
+          usageActor: AiUsageActor.SYSTEM,
         });
       } catch (error: any) {
         this.logger.error(

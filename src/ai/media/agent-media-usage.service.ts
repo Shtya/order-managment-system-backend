@@ -35,7 +35,7 @@ export class AgentMediaUsageService {
     visionModel?: string | null;
     transcribeModel?: string | null;
     documentModel?: string | null;
-  }): Promise<void> {
+  }): Promise<string | null> {
     try {
       const existing = await this.repo.findOne({ where: { messageId: row.messageId } });
       const payload = {
@@ -48,14 +48,16 @@ export class AgentMediaUsageService {
           ...payload,
           turnId: existing.turnId,
         });
-        return;
+        return existing.id;
       }
-      await this.repo.save(this.repo.create(payload));
+      const saved = await this.repo.save(this.repo.create(payload));
+      return saved.id;
     } catch (err) {
       this.logger.error(
         `failed to persist media usage for message ${row.messageId}`,
         err instanceof Error ? err.stack : String(err),
       );
+      return null;
     }
   }
 

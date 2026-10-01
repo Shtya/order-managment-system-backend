@@ -1,5 +1,6 @@
 import { Controller, Get, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { DashboardService } from "./dashboard.service";
+import { AiDashboardService } from "./ai-dashboard.service";
 import { JwtAuthGuard } from "src/auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
 import { Response } from "express";
@@ -11,7 +12,10 @@ import { SubscriptionGuard } from "common/subscription.guard";
 @Controller("dashboard")
 @RequireSubscription()
 export class DashboardController {
-  constructor(private readonly dashboardService: DashboardService) {}
+  constructor(
+    private readonly dashboardService: DashboardService,
+    private readonly aiDashboard: AiDashboardService,
+  ) {}
 
   @Permissions("dashboard.read")
   @Get("summary")
@@ -239,5 +243,121 @@ export class DashboardController {
     },
   ) {
     return this.dashboardService.getTopProductsStats(req.user, filters);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/overview")
+  aiOverview(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.overview(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/tokens/over-time")
+  aiTokensOverTime(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.tokensOverTime(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/tokens/by-agent")
+  aiTokensByAgent(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.tokensByAgent(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/tokens/by-model")
+  aiTokensByModel(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.tokensByModel(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/cost/over-time")
+  aiCostOverTime(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.costOverTime(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/cost/by-agent")
+  aiCostByAgent(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.costByAgent(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/cost/by-model")
+  aiCostByModel(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.costByModel(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/cost/by-media-type")
+  aiCostByMediaType(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.costByMediaType(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/cost/breakdown")
+  aiCostBreakdown(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.costBreakdown(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/credits")
+  aiCredits(@Req() req: any) {
+    return this.aiDashboard.credits(req.user);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/agents")
+  aiAgents(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.agentsTable(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/media/summary")
+  aiMediaSummary(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.mediaSummary(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/media/over-time")
+  aiMediaOverTime(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.mediaOverTime(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/tools/summary")
+  aiToolsSummary(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.toolsSummary(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/sessions/export")
+  async aiSessionsExport(
+    @Req() req: any,
+    @Query() query: any,
+    @Res() res: Response,
+  ) {
+    const csv = await this.aiDashboard.exportSessions(req.user, query);
+    const filename = `ai-sessions-${new Date().toISOString().split("T")[0]}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+    return res.send(csv);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/sessions")
+  aiSessions(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.sessions(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/customers/top")
+  aiTopCustomers(@Req() req: any, @Query() query: any) {
+    return this.aiDashboard.topCustomers(req.user, query);
+  }
+
+  @Permissions("dashboard.read")
+  @Get("ai/filters")
+  aiFilters(@Req() req: any) {
+    return this.aiDashboard.filters(req.user);
   }
 }

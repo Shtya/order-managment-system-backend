@@ -13,6 +13,7 @@ import { CustomerEntity } from "entities/customers.entity";
 import { OrderEntity } from "entities/order.entity";
 import { User } from "entities/user.entity";
 import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.service";
+import { AiUsageActor, AiUsageSource } from "entities/ai-usage.entity";
 import { ClientService } from "src/clients/clients.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { describeMessage } from "./agent-input.service";
@@ -266,6 +267,9 @@ export class AgentSessionService {
       system: SUMMARY_SYSTEM_PROMPT,
       user,
       metadata: { source: "agent_session_summary" },
+      usageSource: AiUsageSource.COMPACTION,
+      usageApi: "agents.compact",
+      usageActor: AiUsageActor.SYSTEM,
     });
     if (!result.ok || !result.content?.trim()) {
       this.logger.warn(`Summary call failed for session ${session.id}: ${result.error ?? "empty"}`);

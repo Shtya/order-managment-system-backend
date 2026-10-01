@@ -37,10 +37,12 @@ import { NotificationType } from "entities/notifications.entity";
 export class AuthService {
   constructor(
     private dataSource: DataSource,
-    @InjectRepository(User) private usersRepo: Repository<User>,
+    @InjectRepository(User) 
+    private usersRepo: Repository<User>,
     @InjectRepository(PendingUser)
     private pendingUserRepository: Repository<PendingUser>,
-    @InjectRepository(Role) private rolesRepo: Repository<Role>,
+    @InjectRepository(Role) 
+    private rolesRepo: Repository<Role>,
     private jwt: JwtService,
     private mail: MailService,
     private firebase: FirebaseService,

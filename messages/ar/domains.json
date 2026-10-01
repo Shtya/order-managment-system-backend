@@ -1806,6 +1806,7 @@
     "language_english": "الإنجليزية",
     "provider_auto": "تلقائي",
     "status_active": "نشط",
-    "status_inactive": "غير نشط"
+    "status_inactive": "غير نشط",
+    "agent_not_found": "الوكيل غير موجود"
   }
 }

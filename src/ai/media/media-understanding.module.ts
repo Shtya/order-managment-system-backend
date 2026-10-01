@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AgentMediaUsageEntity } from "entities/agent-conversation.entity";
 import { BillingModule } from "src/billing/billing.module";
+import { AiUsageModule } from "src/ai/usage/ai-usage.module";
 import { AgentMediaUsageService } from "./agent-media-usage.service";
 import { MediaConfigService } from "./media-config.service";
 import { MediaUnderstandingService } from "./media-understanding.service";
@@ -11,7 +12,11 @@ import { ImageMediaProcessor } from "./processors/image.processor";
 import { VideoMediaProcessor } from "./processors/video.processor";
 
 @Module({
-  imports: [BillingModule, TypeOrmModule.forFeature([AgentMediaUsageEntity])],
+  imports: [
+    BillingModule,
+    AiUsageModule,
+    TypeOrmModule.forFeature([AgentMediaUsageEntity]),
+  ],
   providers: [
     ImageMediaProcessor,
     VideoMediaProcessor,

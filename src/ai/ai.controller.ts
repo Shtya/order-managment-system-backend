@@ -41,6 +41,7 @@ import { AiAccessGuard } from "./security/ai-access.guard";
 import { AiService } from "./ai.service";
 import { AiExportService } from "./ai-export.service";
 import { AiOrchestratorService } from "./orchestrator/ai-orchestrator.service";
+import { AiUsageActor, AiUsageSource } from "entities/ai-usage.entity";
 import { AI_PERMISSION_CHAT, AI_CONFIG_TOKEN } from "./ai.constants";
 import {
   AiChatRequestDto,
@@ -311,6 +312,9 @@ export class AiController {
       enforcePiiMasking: dto.enforcePiiMasking,
       allowedToolNames: dto.allowedToolNames,
       metadata: dto.metadata,
+      usageSource: AiUsageSource.PLAYGROUND,
+      usageApi: "POST /ai/chat",
+      usageActor: AiUsageActor.DEVELOPER,
     });
   }
 

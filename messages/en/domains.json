@@ -1798,6 +1798,7 @@
     "language_english": "English",
     "provider_auto": "Automatic",
     "status_active": "Active",
-    "status_inactive": "Inactive"
+    "status_inactive": "Inactive",
+    "agent_not_found": "Agent not found"
   }
 }

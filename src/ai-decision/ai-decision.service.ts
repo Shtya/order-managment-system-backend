@@ -1,10 +1,18 @@
 import { HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import {
+  BillingChargeEntity,
   BillingOperationKey,
   BillingServiceKey,
 } from 'entities/billing.entity';
 import { BillingService } from 'src/billing/billing.service';
+import { AiUsageLedgerService } from 'src/ai/usage/ai-usage-ledger.service';
+import {
+  AiUsageActor,
+  AiUsageBilledBy,
+  AiUsageSource,
+  AiUsageStatus,
+} from 'entities/ai-usage.entity';
 import { BillingConflictError } from 'src/billing/billing.errors';
 import { tenantId } from 'src/category/category.service';
 import { AiDecisionProvider } from './providers/ai-decision.provider';
@@ -47,6 +55,7 @@ export class AiDecisionService {
   constructor(
     private readonly billing: BillingService,
     private readonly provider: AiDecisionProvider, // Jev today; not billing
+    private readonly usageLedger: AiUsageLedgerService,
   ) { }
 
   async decide<Q extends QuestionMap>(
@@ -115,7 +124,7 @@ export class AiDecisionService {
     try {
       result = await this.provider.decide(request, options);
     } catch (err) {
-      await this.settleAfterProviderError(auth.authorizationId, err);
+      await this.settleAfterProviderError(auth.authorizationId, err, adminId, input, estimated);
       throw err;
     }
 
@@ -132,8 +141,9 @@ export class AiDecisionService {
       );
     }
 
+    let charge: BillingChargeEntity | null = null;
     try {
-      await this.billing.finalize({
+      charge = await this.billing.finalize({
         authorizationId: auth.authorizationId,
         usage: result.usage,
       });
@@ -143,29 +153,66 @@ export class AiDecisionService {
         billingErr instanceof Error ? billingErr.stack : String(billingErr),
       );
     }
-
+    await this.recordUsage(adminId, input, result.usage, charge, AiUsageStatus.OK);
     return replay;
   }
 
-  /** Never throws: the caller rethrows the original provider error. */
-  private async settleAfterProviderError(authorizationId: string, err: unknown) {
+  private async settleAfterProviderError(
+    authorizationId: string,
+    err: unknown,
+    adminId: string,
+    input: AiDecisionInput<any>,
+    estimated: { modelId?: string; inputTokens?: number; outputTokens?: number },
+  ) {
     try {
       if (err instanceof ProviderChargedError) {
-        await this.billing.finalize({ authorizationId, usage: err.usage });
+        const charge = await this.billing.finalize({ authorizationId, usage: err.usage });
+        await this.recordUsage(adminId, input, err.usage, charge, AiUsageStatus.OK);
         return;
       }
       if (err instanceof ProviderTimeoutError) {
         this.logger.warn(`UNKNOWN_OUTCOME authorizationId=${authorizationId}`);
         await this.billing.release({ authorizationId, reason: 'PROVIDER_TIMEOUT' });
+        await this.recordUsage(adminId, input, estimated, null, AiUsageStatus.RELEASED);
         return;
       }
       await this.billing.release({ authorizationId, reason: 'PROVIDER_ERROR' });
+      await this.recordUsage(adminId, input, estimated, null, AiUsageStatus.RELEASED);
     } catch (billingErr) {
       this.logger.error(
         `billing settle failed (authorizationId=${authorizationId})`,
         billingErr instanceof Error ? billingErr.stack : String(billingErr),
       );
     }
+  }
+
+  private async recordUsage(
+    adminId: string,
+    input: AiDecisionInput<any>,
+    usage: { modelId?: string; inputTokens?: number; outputTokens?: number },
+    charge: BillingChargeEntity | null,
+    status: AiUsageStatus,
+  ) {
+    await this.usageLedger.record({
+      adminId,
+      source: AiUsageSource.ADDRESS_CHECK,
+      api: 'aiDecision.decide',
+      actor: input.feature?.startsWith('automation')
+        ? AiUsageActor.SYSTEM
+        : AiUsageActor.DEVELOPER,
+      billedBy: AiUsageBilledBy.MADAR,
+      providerCode: 'jev',
+      modelCode: usage?.modelId ?? input.model ?? null,
+      inputTokens: Number(usage?.inputTokens ?? 0),
+      outputTokens: Number(usage?.outputTokens ?? 0),
+      rounds: 1,
+      status,
+      grossAmount: charge?.grossAmount ?? 0n,
+      payableAmount: charge?.payableAmount ?? 0n,
+      freeUnits: charge?.allowanceUnitsConsumed ?? 0n,
+      chargeId: charge?.id ?? null,
+      idempotencyKey: input.idempotencyKey,
+    });
   }
 
   toHttpException(err: unknown): unknown {
