@@ -4,37 +4,37 @@ export class CreateAiUsagesAndBackfill1770000000000 implements MigrationInterfac
   name = "CreateAiUsagesAndBackfill1770000000000";
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // await queryRunner.query(`
-    //   CREATE TABLE IF NOT EXISTS "ai_usages" (
-    //     "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    //     "adminId" uuid NOT NULL,
-    //     "source" varchar(40) NOT NULL,
-    //     "api" varchar(80) NOT NULL,
-    //     "actor" varchar(20) NOT NULL,
-    //     "billedBy" varchar(20) NOT NULL,
-    //     "providerCode" varchar(80),
-    //     "modelCode" varchar(200),
-    //     "inputTokens" int NOT NULL DEFAULT 0,
-    //     "outputTokens" int NOT NULL DEFAULT 0,
-    //     "audioSeconds" int NOT NULL DEFAULT 0,
-    //     "rounds" int NOT NULL DEFAULT 1,
-    //     "status" varchar(20) NOT NULL DEFAULT 'ok',
-    //     "grossAmount" bigint NOT NULL DEFAULT 0,
-    //     "payableAmount" bigint NOT NULL DEFAULT 0,
-    //     "freeUnits" bigint NOT NULL DEFAULT 0,
-    //     "currency" varchar(8) NOT NULL DEFAULT 'USD',
-    //     "chargeId" uuid,
-    //     "idempotencyKey" varchar(200),
-    //     "requestId" uuid,
-    //     "sessionId" uuid,
-    //     "turnId" uuid,
-    //     "mediaUsageId" uuid,
-    //     "agentId" uuid,
-    //     "conversationId" uuid,
-    //     "orderId" uuid,
-    //     "createdAt" timestamptz NOT NULL DEFAULT now()
-    //   )
-    // `);
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS "ai_usages" (
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+        "adminId" uuid NOT NULL,
+        "source" varchar(40) NOT NULL,
+        "api" varchar(80) NOT NULL,
+        "actor" varchar(20) NOT NULL,
+        "billedBy" varchar(20) NOT NULL,
+        "providerCode" varchar(80),
+        "modelCode" varchar(200),
+        "inputTokens" int NOT NULL DEFAULT 0,
+        "outputTokens" int NOT NULL DEFAULT 0,
+        "audioSeconds" int NOT NULL DEFAULT 0,
+        "rounds" int NOT NULL DEFAULT 1,
+        "status" varchar(20) NOT NULL DEFAULT 'ok',
+        "grossAmount" bigint NOT NULL DEFAULT 0,
+        "payableAmount" bigint NOT NULL DEFAULT 0,
+        "freeUnits" bigint NOT NULL DEFAULT 0,
+        "currency" varchar(8) NOT NULL DEFAULT 'USD',
+        "chargeId" uuid,
+        "idempotencyKey" varchar(200),
+        "requestId" uuid,
+        "sessionId" uuid,
+        "turnId" uuid,
+        "mediaUsageId" uuid,
+        "agentId" uuid,
+        "conversationId" uuid,
+        "orderId" uuid,
+        "createdAt" timestamptz NOT NULL DEFAULT now()
+      )
+    `);
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS "IDX_ai_usages_admin_createdAt" ON "ai_usages" ("adminId", "createdAt")`,
     );
