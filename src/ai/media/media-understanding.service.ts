@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import {
   BillingOperationKey,
   BillingServiceKey,
+  BillingWalletPool,
 } from "entities/billing.entity";
 import { AgentMediaUsageStatus } from "entities/agent-conversation.entity";
 import { BillingService } from "src/billing/billing.service";
@@ -69,6 +70,7 @@ export class MediaUnderstandingService {
       operation: BillingOperationKey.PROCESS,
       idempotencyKey: input.idempotencyKey,
       estimatedUsage: estimated,
+      walletPool: BillingWalletPool.AI,
       context: {
         feature: "agent-media",
         requestHash,

@@ -307,7 +307,10 @@
     "wallet_balance_updated_message": "Successfully added {paidAmount} EGP ({dollorAmount} USD) to your wallet. Your new balance is ready to use.",
     "initial_payment_session_failed": "Initial payment session failed. Please try again.",
     "min_amount_required": "Minimum amount is {amount}",
-    "whole_number_required": "Amount must be a whole number without decimals"
+    "whole_number_required": "Amount must be a whole number without decimals",
+    "amount_must_be_positive": "Amount must be greater than zero",
+    "wallet_to_ai_note": "Move from main wallet to AI wallet",
+    "ai_to_wallet_note": "Move from AI wallet to main wallet"
   },
   "permissions": {
     "already_exists": "Permission already exists",

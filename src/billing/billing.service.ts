@@ -7,6 +7,7 @@ import {
   BillingAuthorizationEntity,
   BillingChargeEntity,
   BillingServiceKey,
+  BillingWalletPool,
   ChargeLine,
   ChargeResult,
   CollectionStatus,
@@ -149,6 +150,52 @@ export class BillingService {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TTL_MS;
   }
 
+  private walletPoolOf(auth: BillingAuthorizationEntity): BillingWalletPool {
+    return auth.walletPool === BillingWalletPool.AI
+      ? BillingWalletPool.AI
+      : BillingWalletPool.CURRENT;
+  }
+
+  private requestedWalletPool(
+    pool?: BillingWalletPool | null,
+  ): BillingWalletPool {
+    return pool === BillingWalletPool.AI
+      ? BillingWalletPool.AI
+      : BillingWalletPool.CURRENT;
+  }
+
+  private async reserveFromPool(
+    adminId: string,
+    amountToReserve: bigint,
+    em: EntityManager,
+    pool: BillingWalletPool = BillingWalletPool.CURRENT,
+  ): Promise<
+    | { reserved: true; pool: BillingWalletPool | null }
+    | {
+        reserved: false;
+        required: bigint;
+        available: bigint;
+      }
+  > {
+    if (amountToReserve <= 0n) {
+      return { reserved: true, pool: null };
+    }
+    const hold = await this.walletHoldService.reserve(
+      adminId,
+      amountToReserve,
+      em,
+      pool,
+    );
+    if (hold.reserved) {
+      return { reserved: true, pool };
+    }
+    return {
+      reserved: false,
+      required: amountToReserve,
+      available: hold.available,
+    };
+  }
+
   async authorize(input: AuthorizeInput): Promise<AuthorizeResult> {
     const operation = this.registry.get(input.service, input.operation);
     const estimated = operation.parseUsage(input.estimatedUsage);
@@ -217,14 +264,38 @@ export class BillingService {
               100n,
             );
 
+      const hold = await this.reserveFromPool(
+        input.adminId,
+        amountToReserve,
+        em,
+        this.requestedWalletPool(input.walletPool),
+      );
+      if (hold.reserved === false) {
+        if (policy.capUnits !== null && grant.remainingUnits > 0n) {
+          await this.allowanceService.releaseUnits({
+            adminId: input.adminId,
+            service: input.service,
+            operation: input.operation,
+            units: grant.remainingUnits,
+            manager: em,
+          });
+        }
+        return {
+          authorized: false as const,
+          reason: "INSUFFICIENT_BALANCE" as const,
+          required: hold.required,
+          available: hold.available,
+        };
+      }
+
       const inserted = await em.query(
         `INSERT INTO billing_authorizations (
            id, "adminId", service, operation, "idempotencyKey",
            status, "pricingVersion", "pricingSnapshot", "estimatedUsage",
            "estimatedAmount", "reservedAmount", "reservationId", "allowanceReservedUnits",
-           context, "expiresAt"
+           context, "expiresAt", "walletPool"
          ) VALUES (
-           $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,$14::jsonb,$15
+           $1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9::jsonb,$10,$11,$12,$13,$14::jsonb,$15,$16
          )
          ON CONFLICT ("adminId", "idempotencyKey") DO NOTHING
          RETURNING id`,
@@ -244,10 +315,19 @@ export class BillingService {
           grant.remainingUnits.toString(),
           JSON.stringify(context),
           new Date(Date.now() + this.ttlMs()),
+          hold.pool,
         ],
       );
       const insertedId = inserted?.[0]?.id ?? inserted?.rows?.[0]?.id;
       if (!insertedId) {
+        if (amountToReserve > 0n && hold.pool) {
+          await this.walletHoldService.releaseHold(
+            input.adminId,
+            amountToReserve,
+            em,
+            hold.pool,
+          );
+        }
         if (policy.capUnits !== null && grant.remainingUnits > 0n) {
           await this.allowanceService.releaseUnits({
             adminId: input.adminId,
@@ -271,22 +351,6 @@ export class BillingService {
           requestHash,
           input.idempotencyKey,
         );
-      }
-
-      const hold = await this.walletHoldService.reserve(
-        input.adminId,
-        amountToReserve,
-        em,
-      );
-      if (hold.reserved === false) {
-        await this.allowanceService.release(authorizationId, em);
-        await authRepo.delete({ id: authorizationId });
-        return {
-          authorized: false as const,
-          reason: "INSUFFICIENT_BALANCE" as const,
-          required: hold.required,
-          available: hold.available,
-        };
       }
 
       return {
@@ -366,6 +430,7 @@ export class BillingService {
         capturedAmount,
         em,
         await this.walletCaptureNotes(auth, actual),
+        this.walletPoolOf(auth),
       );
       await this.allowanceService.commit(auth.id, charge.allowanceUnitsConsumed, em);
 
@@ -455,6 +520,7 @@ export class BillingService {
             auth.adminId,
             auth.reservedAmount,
             em,
+            this.walletPoolOf(auth),
           );
         }
         await this.allowanceService.release(input.authorizationId, em);
@@ -597,14 +663,20 @@ export class BillingService {
          SELECT
            b."adminId",
            w."reservedBalance",
-           COALESCE(SUM(ba."reservedAmount"), 0)::text AS held
+           w."reservedAiBalance",
+           COALESCE(SUM(ba."reservedAmount") FILTER (
+             WHERE ba.status = $2 AND COALESCE(ba."walletPool", 'current') = 'current'
+           ), 0)::text AS held_current,
+           COALESCE(SUM(ba."reservedAmount") FILTER (
+             WHERE ba.status = $2 AND ba."walletPool" = 'ai'
+           ), 0)::text AS held_ai
          FROM batch b
          LEFT JOIN wallets w
            ON w."userId" = b."adminId"
          LEFT JOIN billing_authorizations ba
            ON ba."adminId" = b."adminId"
           AND ba.status = $2
-         GROUP BY b."adminId", w."reservedBalance"
+         GROUP BY b."adminId", w."reservedBalance", w."reservedAiBalance"
          ORDER BY b."adminId"`,
         [lastAdminId, AuthorizationStatus.AUTHORIZED, limit],
       );
@@ -616,16 +688,19 @@ export class BillingService {
       }
   
       for (const row of list) {
-        const walletMicros = dollarNumericToMicros(row.reservedBalance ?? 0);
-        const billingMicros = BigInt(row.held ?? 0);
-  
-        if (walletMicros !== billingMicros) {
+        const walletCurrent = dollarNumericToMicros(row.reservedBalance ?? 0);
+        const walletAi = dollarNumericToMicros(row.reservedAiBalance ?? 0);
+        const billingCurrent = BigInt(row.held_current ?? 0);
+        const billingAi = BigInt(row.held_ai ?? 0);
+
+        if (walletCurrent !== billingCurrent || walletAi !== billingAi) {
           mismatchesCount++;
-  
+
           if (mismatchesCount <= 5) {
             this.logger.error(
               `Billing reconciliation mismatch admin=${row.adminId} ` +
-              `walletReserved=${walletMicros} billingHeld=${billingMicros}`,
+              `walletReserved=${walletCurrent} billingHeld=${billingCurrent} ` +
+              `walletReservedAi=${walletAi} billingHeldAi=${billingAi}`,
             );
           }
         }
@@ -676,6 +751,7 @@ export class BillingService {
         auth.adminId,
         auth.reservedAmount,
         em,
+        this.walletPoolOf(auth),
       );
     }
     await this.allowanceService.release(authorizationId, em);
@@ -710,22 +786,30 @@ export class BillingService {
     let walletTransactionId: string | null = null;
 
     if (charge.payableAmount > 0n) {
-      const hold = await this.walletHoldService.reserve(
+      const hold = await this.reserveFromPool(
         auth.adminId,
         charge.payableAmount,
         em,
+        this.walletPoolOf(auth),
       );
-      if (hold.reserved) {
+      if (hold.reserved && hold.pool) {
         const captured = await this.walletHoldService.capture(
           auth.adminId,
           charge.payableAmount,
           charge.payableAmount,
           em,
           await this.walletCaptureNotes(auth, actual),
+          hold.pool,
         );
         capturedAmount = charge.payableAmount;
         walletTransactionId = captured.walletTransactionId;
-      } else {
+        await authRepo
+          .createQueryBuilder()
+          .update(BillingAuthorizationEntity)
+          .set({ walletPool: hold.pool })
+          .where("id = :id", { id: auth.id })
+          .execute();
+      } else if (hold.reserved === false) {
         collectionStatus = CollectionStatus.UNCOLLECTED;
         overageAmount = charge.payableAmount;
         this.logger.error(

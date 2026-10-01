@@ -5,6 +5,7 @@ import {
   BillingChargeEntity,
   BillingOperationKey,
   BillingServiceKey,
+  BillingWalletPool,
   CollectionStatus,
 } from "entities/billing.entity";
 
@@ -131,6 +132,8 @@ function createMemoryAllowance() {
 
 function createHarness(opts?: {
   available?: bigint;
+  aiAvailable?: bigint;
+  currentAvailable?: bigint;
   allowance?: unknown;
 }) {
   const auths: BillingAuthorizationEntity[] = [];
@@ -144,24 +147,52 @@ function createHarness(opts?: {
         : opts.allowance,
     ),
   };
+  const seed = opts?.available ?? 10_000_000_000_000n;
   const wallet = {
-    available: opts?.available ?? 10_000_000_000_000n,
+    aiAvailable: opts?.aiAvailable ?? seed,
+    currentAvailable: opts?.currentAvailable ?? seed,
     reserved: 0n,
+    lastReservePool: undefined as BillingWalletPool | undefined,
+    lastCapturePool: undefined as BillingWalletPool | undefined,
     lastCaptureNotes: undefined as string | undefined,
-    async reserve(_userId: string, amount: bigint) {
-      if (amount > this.available) {
+    get available() {
+      return this.aiAvailable + this.currentAvailable;
+    },
+    set available(value: bigint) {
+      this.aiAvailable = 0n;
+      this.currentAvailable = value;
+    },
+    async spendable() {
+      return {
+        ai: this.aiAvailable,
+        current: this.currentAvailable,
+        total: this.aiAvailable + this.currentAvailable,
+      };
+    },
+    async reserve(
+      _userId: string,
+      amount: bigint,
+      _em?: unknown,
+      pool: BillingWalletPool = BillingWalletPool.CURRENT,
+    ) {
+      const field =
+        pool === BillingWalletPool.AI ? "aiAvailable" : "currentAvailable";
+      if (amount > this[field]) {
         return {
           reserved: false as const,
-          available: this.available,
+          available: this[field],
           required: amount,
+          pool,
         };
       }
-      this.available -= amount;
+      this[field] -= amount;
       this.reserved += amount;
+      this.lastReservePool = pool;
       return {
         reserved: true as const,
         reservationId: "wallet-1",
-        available: this.available,
+        available: this[field],
+        pool,
       };
     },
     async capture(
@@ -170,15 +201,26 @@ function createHarness(opts?: {
       capturedMicros: bigint,
       _em?: unknown,
       notes?: string,
+      pool: BillingWalletPool = BillingWalletPool.CURRENT,
     ) {
       this.lastCaptureNotes = notes;
+      this.lastCapturePool = pool;
       this.reserved -= reservedMicros;
-      this.available += reservedMicros - capturedMicros;
+      const field =
+        pool === BillingWalletPool.AI ? "aiAvailable" : "currentAvailable";
+      this[field] += reservedMicros - capturedMicros;
       return { walletTransactionId: capturedMicros > 0n ? "tx-1" : null };
     },
-    async releaseHold(_userId: string, reservedMicros: bigint) {
+    async releaseHold(
+      _userId: string,
+      reservedMicros: bigint,
+      _em?: unknown,
+      pool: BillingWalletPool = BillingWalletPool.CURRENT,
+    ) {
       this.reserved -= reservedMicros;
-      this.available += reservedMicros;
+      const field =
+        pool === BillingWalletPool.AI ? "aiAvailable" : "currentAvailable";
+      this[field] += reservedMicros;
     },
   };
 
@@ -272,6 +314,7 @@ function createHarness(opts?: {
           allowanceReservedUnits: BigInt(params[12]),
           context: params[13] ? JSON.parse(params[13]) : null,
           expiresAt: params[14],
+          walletPool: params[15] ?? null,
         } as BillingAuthorizationEntity);
         return [{ id: params[0] }];
       }
@@ -586,6 +629,65 @@ describe("BillingService", () => {
     const n = await service.expireDue();
     expect(n).toBe(1);
     expect(auths[0].status).toBe(AuthorizationStatus.EXPIRED);
+    expect(wallet.reserved).toBe(0n);
+  });
+
+  test("authorize holds the main wallet by default", async () => {
+    const { service, auths, wallet } = createHarness();
+    const auth = await service.authorize(baseInput);
+    expect(auth.authorized).toBe(true);
+    expect(auths[0].walletPool).toBe(BillingWalletPool.CURRENT);
+    expect(wallet.lastReservePool).toBe(BillingWalletPool.CURRENT);
+  });
+
+  test("authorize holds AI when walletPool is AI", async () => {
+    const { service, auths, wallet } = createHarness();
+    const auth = await service.authorize({
+      ...baseInput,
+      walletPool: BillingWalletPool.AI,
+    });
+    expect(auth.authorized).toBe(true);
+    expect(auths[0].walletPool).toBe(BillingWalletPool.AI);
+    expect(wallet.lastReservePool).toBe(BillingWalletPool.AI);
+  });
+
+  test("authorize is insufficient when AI cannot cover the full amount", async () => {
+    const { service, auths, wallet } = createHarness({
+      aiAvailable: 1n,
+      currentAvailable: 10_000_000_000_000n,
+    });
+    const result = await service.authorize({
+      ...baseInput,
+      walletPool: BillingWalletPool.AI,
+    });
+    expect(result).toMatchObject({
+      authorized: false,
+      reason: "INSUFFICIENT_BALANCE",
+    });
+    expect(auths).toHaveLength(0);
+    expect(wallet.reserved).toBe(0n);
+    expect(wallet.currentAvailable).toBe(10_000_000_000_000n);
+  });
+
+  test("finalize leftover returns to the AI pool", async () => {
+    const startAi = 10_000_000n;
+    const { service, wallet } = createHarness({
+      aiAvailable: startAi,
+      currentAvailable: 10_000_000_000_000n,
+    });
+    const auth = await service.authorize({
+      ...baseInput,
+      walletPool: BillingWalletPool.AI,
+    });
+    expect(auth.authorized).toBe(true);
+    if (!auth.authorized) return;
+    await service.finalize({
+      authorizationId: auth.authorizationId,
+      usage,
+    });
+    expect(wallet.lastCapturePool).toBe(BillingWalletPool.AI);
+    expect(wallet.aiAvailable).toBe(startAi - 1_000_000n);
+    expect(wallet.currentAvailable).toBe(10_000_000_000_000n);
     expect(wallet.reserved).toBe(0n);
   });
 });

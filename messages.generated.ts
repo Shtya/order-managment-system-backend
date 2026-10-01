@@ -449,6 +449,9 @@ export type I18nTranslations = {
             "initial_payment_session_failed": string;
             "min_amount_required": string;
             "whole_number_required": string;
+            "amount_must_be_positive": string;
+            "wallet_to_ai_note": string;
+            "ai_to_wallet_note": string;
         };
         "permissions": {
             "already_exists": string;

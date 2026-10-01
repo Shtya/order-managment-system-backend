@@ -4,6 +4,7 @@ import {
   Controller,
   ForbiddenException,
   Get,
+  Headers,
   Param,
   ParseIntPipe,
   Post,
@@ -46,6 +47,36 @@ export class WalletController {
     if (amount <= 0) throw new BadRequestException("Amount must be positive");
     return this.walletService.topUp(req.user, amount);
   }
+
+  @Permissions("wallet.update")
+  @Post("transfer-to-ai")
+  @Throttle({
+    default: { limit: 60, ttl: minutes(1) },
+  })
+  async transferToAi(
+    @Req() req: any,
+    @Body("amount") amount: number,
+    @Headers("idempotency-key") idempotencyKey: string,
+  ) {
+    return this.walletService.transferToAi(req.user.id, amount, idempotencyKey);
+  }
+
+  // @Permissions("wallet.update")
+  // @Post("transfer-to-wallet")
+  // @Throttle({
+  //   default: { limit: 60, ttl: minutes(1) },
+  // })
+  // async transferToWallet(
+  //   @Req() req: any,
+  //   @Body("amount") amount: number,
+  //   @Headers("idempotency-key") idempotencyKey: string,
+  // ) {
+  //   return this.walletService.transferToWallet(
+  //     req.user.id,
+  //     amount,
+  //     idempotencyKey,
+  //   );
+  // }
 
   // Super Admin Balance Control
   @Permissions("wallet.update")

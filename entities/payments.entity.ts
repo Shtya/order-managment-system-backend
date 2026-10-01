@@ -66,7 +66,9 @@ export enum PaymentPurposeEnum {
     WALLET_TOP_UP = 'wallet_top_up',
     SUBSCRIPTION_PAYMENT = 'subscription_payment',
     FEATURE_PURCHASE = 'feature_purchase',
-    WALLET_WITHDRAWAL = 'wallet_withdrawal' // الميزة الجديدة
+    WALLET_WITHDRAWAL = 'wallet_withdrawal',
+    WALLET_TO_AI = 'wallet_to_ai',
+    AI_TO_WALLET = 'ai_to_wallet',
 }
 @Index('IDX_PAYMENT_SESSION_EXPIRY', ['status', 'expireAt'])
 @Entity('payment_sessions')
@@ -326,7 +328,47 @@ export class Wallet {
     @Column('numeric', { precision: 20, scale: 6, default: 0 })
     reservedBalance: number;
 
+    @Column('numeric', { precision: 20, scale: 6, default: 0 })
+    reservedAiBalance: number;
+
     @UpdateDateColumn({ type: "timestamptz" })
     updatedAt: Date;
+}
+
+export enum WalletTransferDirection {
+    TO_AI = "to_ai",
+    TO_WALLET = "to_wallet",
+}
+
+@Index("UQ_wallet_transfers_admin_idempotency", ["adminId", "idempotencyKey"], {
+    unique: true,
+})
+@Index("UQ_wallet_transfers_transactionId", ["transactionId"], {
+    unique: true,
+    where: '"transactionId" IS NOT NULL',
+})
+@Index("IDX_wallet_transfers_admin_createdAt", ["adminId", "createdAt"])
+@Entity("wallet_transfers")
+export class WalletTransferEntity {
+    @PrimaryGeneratedColumn("uuid")
+    id: string;
+
+    @Column({ type: "uuid" })
+    adminId: string;
+
+    @Column({ type: "varchar", length: 20 })
+    direction: WalletTransferDirection;
+
+    @Column("numeric", { precision: 20, scale: 6 })
+    amount: number;
+
+    @Column({ type: "varchar", length: 200 })
+    idempotencyKey: string;
+
+    @Column({ type: "uuid", nullable: true })
+    transactionId: string | null;
+
+    @CreateDateColumn({ type: "timestamptz" })
+    createdAt: Date;
 }
 

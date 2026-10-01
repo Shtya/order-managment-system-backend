@@ -4,6 +4,7 @@ import {
   BillingChargeEntity,
   BillingOperationKey,
   BillingServiceKey,
+  BillingWalletPool,
 } from 'entities/billing.entity';
 import { BillingService } from 'src/billing/billing.service';
 import { AiUsageLedgerService } from 'src/ai/usage/ai-usage-ledger.service';
@@ -90,6 +91,7 @@ export class AiDecisionService {
       operation: BillingOperationKey.EVALUATE,
       idempotencyKey: input.idempotencyKey,
       estimatedUsage: estimated,
+      walletPool: BillingWalletPool.AI,
       context: {
         feature: input.feature ?? 'ai-decision',
         requestHash,

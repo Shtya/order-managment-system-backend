@@ -307,7 +307,10 @@
     "wallet_balance_updated_message": "تمت إضافة {paidAmount} جنيه مصري ({dollorAmount} دولار) إلى محفظتك بنجاح. رصيدك الجديد جاهز للاستخدام.",
     "initial_payment_session_failed": "فشل إنشاء جلسة الدفع الأولية. يرجى المحاولة مرة أخرى.",
     "min_amount_required": "الحد الأدنى للمبلغ هو {amount}",
-    "whole_number_required": "يجب أن يكون المبلغ رقماً صحيحاً بدون أرقام عشرية"
+    "whole_number_required": "يجب أن يكون المبلغ رقماً صحيحاً بدون أرقام عشرية",
+    "amount_must_be_positive": "يجب أن يكون المبلغ أكبر من صفر",
+    "wallet_to_ai_note": "تحويل من المحفظة الرئيسية إلى محفظة الذكاء الاصطناعي",
+    "ai_to_wallet_note": "تحويل من محفظة الذكاء الاصطناعي إلى المحفظة الرئيسية"
   },
   "permissions": {
     "already_exists": "الصلاحية موجودة بالفعل",

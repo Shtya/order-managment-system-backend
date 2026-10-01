@@ -23,6 +23,11 @@ export type DecisionReplay = {
   modelVersion: string;
 };
 
+export enum BillingWalletPool {
+  AI = "ai",
+  CURRENT = "current",
+}
+
 export type AuthorizeResult =
   | {
       authorized: true;
@@ -45,6 +50,8 @@ export interface AuthorizeInput {
   idempotencyKey: string;
   estimatedUsage: unknown;
   context?: Record<string, string>;
+  /** Wallet to hold. Defaults to the main (current) wallet. */
+  walletPool?: BillingWalletPool;
 }
 
 export interface FinalizeInput {
@@ -175,6 +182,9 @@ export class BillingAuthorizationEntity {
 
   @Column({ type: "jsonb", nullable: true })
   context: Record<string, string> | null;
+
+  @Column({ type: "varchar", length: 20, nullable: true })
+  walletPool: BillingWalletPool | null;
 
   @Column({ type: "timestamptz" })
   expiresAt: Date;

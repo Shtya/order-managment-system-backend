@@ -517,9 +517,11 @@ export class PaymentsService {
       wallet = manager.create(Wallet, {
         userId,
         currentBalance: 0,
+        aiBalance: 0,
         totalCharged: 0,
         totalWithdrawn: 0,
         reservedBalance: 0,
+        reservedAiBalance: 0,
       });
     }
 

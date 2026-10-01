@@ -2,7 +2,7 @@ import { forwardRef, Module } from "@nestjs/common";
 import { WalletService } from "./wallet.service";
 import { WalletController } from "./wallet.controller";
 import { TypeOrmModule } from "@nestjs/typeorm";
-import { TransactionEntity, Wallet } from "entities/payments.entity";
+import { TransactionEntity, Wallet, WalletTransferEntity } from "entities/payments.entity";
 import { User } from "entities/user.entity";
 import { PaymentsModule } from "src/payments/payments.module";
 import { TransactionsModule } from "src/transactions/transactions.module";
@@ -14,7 +14,7 @@ import { WalletHoldService } from "./wallet-hold.service";
     forwardRef(() => PaymentsModule),
     forwardRef(() => TransactionsModule),
     forwardRef(() => SubscriptionsModule),
-    TypeOrmModule.forFeature([TransactionEntity, User, Wallet]),
+    TypeOrmModule.forFeature([TransactionEntity, User, Wallet, WalletTransferEntity]),
   ],
   controllers: [WalletController],
   providers: [WalletService, WalletHoldService],

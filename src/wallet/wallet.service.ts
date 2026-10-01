@@ -15,6 +15,7 @@ import {
   TransactionPaymentMethod,
   TransactionStatus,
   Wallet,
+  WalletTransferDirection,
 } from "entities/payments.entity";
 import { SystemRole, User } from "entities/user.entity";
 import { PaymentFactoryService } from "src/payments/providers/PaymentFactoryService";
@@ -24,8 +25,14 @@ import { DataSource, DeepPartial, EntityManager, Repository } from "typeorm";
 import {
   RequestTranslationService,
   TranslationService,
+  type I18nKey,
 } from "common/translation.service";
 import { tenantId } from "src/category/category.service";
+import {
+  executeWalletTransfer,
+  parseIdempotencyKey,
+  parseTransferAmount,
+} from "./wallet-transfer";
 
 @Injectable()
 export class WalletService {
@@ -61,9 +68,11 @@ export class WalletService {
       wallet = repo.create({
         userId,
         currentBalance: 0,
+        aiBalance: 0,
         totalCharged: 0,
         totalWithdrawn: 0,
         reservedBalance: 0,
+        reservedAiBalance: 0,
       });
       wallet = await repo.save(wallet);
     }
@@ -112,6 +121,47 @@ export class WalletService {
       orderId: input.orderId,
     } as DeepPartial<TransactionEntity>);
     return manager.save(transaction);
+  }
+
+  async transferToAi(userId: string, amount: number, idempotencyKey: string) {
+    return this.transfer(
+      userId,
+      amount,
+      idempotencyKey,
+      WalletTransferDirection.TO_AI,
+    );
+  }
+
+  async transferToWallet(userId: string, amount: number, idempotencyKey: string) {
+    return this.transfer(
+      userId,
+      amount,
+      idempotencyKey,
+      WalletTransferDirection.TO_WALLET,
+    );
+  }
+
+  private async transfer(
+    userId: string,
+    amount: number,
+    idempotencyKeyRaw: string,
+    direction: WalletTransferDirection,
+  ) {
+    const amountStr = parseTransferAmount(amount, (key) =>
+      this.translations.t(key as I18nKey),
+    );
+    const idempotencyKey = parseIdempotencyKey(idempotencyKeyRaw);
+    return this.dataSource.transaction((manager) =>
+      executeWalletTransfer(manager, {
+        userId,
+        amountStr,
+        idempotencyKey,
+        direction,
+        walletService: this,
+        translateNote: (key) =>
+          this.requestTranslations.tAsync(key as I18nKey, userId),
+      }),
+    );
   }
 
   // 2️⃣ Top Up Wallet (Generates Payment Session)
