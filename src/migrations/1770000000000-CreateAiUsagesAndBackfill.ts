@@ -35,6 +35,7 @@ export class CreateAiUsagesAndBackfill1770000000000 implements MigrationInterfac
         "createdAt" timestamptz NOT NULL DEFAULT now()
       )
     `);
+    
     await queryRunner.query(
       `CREATE INDEX IF NOT EXISTS "IDX_ai_usages_admin_createdAt" ON "ai_usages" ("adminId", "createdAt")`,
     );
