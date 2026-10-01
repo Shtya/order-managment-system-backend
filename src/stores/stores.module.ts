@@ -21,6 +21,7 @@ import { ProductsModule } from "src/products/products.module";
 import { CategoryModule } from "src/category/category.module";
 import { ShopifyService } from "./storesIntegrations/ShopifyService";
 import { StoreWebhooksController } from "./webhooks.controller";
+import { TempShopifyImageRepairController } from "./temp-shopify-image-repair.controller";
 import WooCommerceService from "./storesIntegrations/WooCommerce";
 import { WebSocketModule } from "common/websocket.module";
 import { BundleEntity } from "entities/bundle.entity";
@@ -66,7 +67,11 @@ import { User } from "entities/user.entity";
     ShopifyService,
     WooCommerceService,
   ],
-  controllers: [StoresController, StoreWebhooksController],
+  controllers: [
+    StoresController,
+    StoreWebhooksController,
+    TempShopifyImageRepairController,
+  ],
   exports: [StoresService, EasyOrderService, WooCommerceService],
 })
 export class StoresModule {}
