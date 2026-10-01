@@ -171,7 +171,14 @@ export class TempShopifyImageRepairController {
         );
       }
     }
-
+    console.log("--------------------------------");
+    console.log("Updated:", updated);
+    console.log("Skipped not linked:", skippedNotLinked);
+    console.log("Skipped no remote image:", skippedNoRemoteImage);
+    console.log("Skipped already has images:", skippedAlreadyHasImages);
+    console.log("Failed:", failed);
+    console.log("Errors:", errors);
+    console.log("--------------------------------");
     return {
       total: remoteProducts.length,
       updated,
