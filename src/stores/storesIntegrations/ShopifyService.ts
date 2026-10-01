@@ -5208,11 +5208,23 @@ export class ShopifyService extends BaseStoreProvider {
         hasOnlyDefaultVariant
         productType
         vendor
-        images(first: 20) {
+        featuredMedia {
+          ... on MediaImage {
+            image {
+              url
+              altText
+            }
+          }
+        }
+        media(first: 20) {
           nodes {
-            id
-            url
-            altText
+            ... on MediaImage {
+              id
+              image {
+                url
+                altText
+              }
+            }
           }
         }
         variants(first: 100) {
@@ -5324,11 +5336,23 @@ export class ShopifyService extends BaseStoreProvider {
                     productType
                     vendor
 
-                    images(first: 20) {
+                    featuredMedia {
+                        ... on MediaImage {
+                            image {
+                                url
+                                altText
+                            }
+                        }
+                    }
+                    media(first: 20) {
                     nodes {
-                        id
-                        url
-                        altText
+                        ... on MediaImage {
+                            id
+                            image {
+                                url
+                                altText
+                            }
+                        }
                     }
                     }
 
@@ -5401,11 +5425,23 @@ export class ShopifyService extends BaseStoreProvider {
           productType
           vendor
 
-          images(first: 20) {
+          featuredMedia {
+            ... on MediaImage {
+              image {
+                url
+                altText
+              }
+            }
+          }
+          media(first: 20) {
             nodes {
-              id
-              url
-              altText
+              ... on MediaImage {
+                id
+                image {
+                  url
+                  altText
+                }
+              }
             }
           }
 
@@ -5523,6 +5559,22 @@ export class ShopifyService extends BaseStoreProvider {
       0,
     );
 
+    const mediaUrls = (remote.media?.nodes || [])
+      .map((node: any) => node?.image?.url)
+      .filter((url: any) => typeof url === "string" && url.trim() !== "");
+    const legacyUrls = (remote.images?.nodes || [])
+      .map((img: any) => img?.url)
+      .filter((url: any) => typeof url === "string" && url.trim() !== "");
+    const imageUrls = mediaUrls.length > 0 ? mediaUrls : legacyUrls;
+    const featuredUrl =
+      remote.featuredMedia?.image?.url ||
+      remote.featuredImage?.url ||
+      imageUrls[0] ||
+      "";
+    const galleryUrls = featuredUrl
+      ? imageUrls.filter((url: string) => url !== featuredUrl)
+      : imageUrls;
+
     return {
       id: String(remote.id),
       name: remote.title?.trim(),
@@ -5533,8 +5585,8 @@ export class ShopifyService extends BaseStoreProvider {
       type: hasOnlyDefaultVariant ? ProductType.SINGLE : ProductType.VARIABLE,
       upsellings: [],
       sku: hasOnlyDefaultVariant ? firstVariant?.sku || "" : "",
-      thumb: remote.images?.nodes?.[0]?.url || "",
-      images: (remote.images?.nodes || []).slice(1).map((img: any) => img.url),
+      thumb: featuredUrl,
+      images: galleryUrls,
       categories: (remote.collections?.nodes || []).map((c: any) => ({
         id: String(c.id),
         slug: c.handle,
@@ -5609,11 +5661,23 @@ export class ShopifyService extends BaseStoreProvider {
                         hasOnlyDefaultVariant
                         productType
                         vendor
-                        images(first: 20) {
+                        featuredMedia {
+                            ... on MediaImage {
+                                image {
+                                    url
+                                    altText
+                                }
+                            }
+                        }
+                        media(first: 20) {
                             nodes {
-                                id
-                                url
-                                altText
+                                ... on MediaImage {
+                                    id
+                                    image {
+                                        url
+                                        altText
+                                    }
+                                }
                             }
                         }
                         variants(first: 100) {

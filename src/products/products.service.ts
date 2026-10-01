@@ -1607,6 +1607,8 @@ export class ProductsService {
           }
 
           p.mainImage = mainRow.url;
+        } else if (dto.skipRemoteCheck) {
+          p.mainImage = "";
         } else {
           throw new BadRequestException(
             this.translations.t(

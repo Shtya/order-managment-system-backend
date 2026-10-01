@@ -3353,7 +3353,7 @@ export class StoresService {
       categorySlug: p.categories?.[0]?.slug,
       storeId: store.id,
       remoteId: String(p.id),
-      mainImage: p.thumb,
+      mainImage: p.thumb || p.images?.[0] || "",
       images: p.images?.map((url) => ({ url })),
       combinations: combinations.length > 0 ? combinations : undefined,
     };
