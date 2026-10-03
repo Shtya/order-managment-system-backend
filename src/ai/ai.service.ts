@@ -2034,14 +2034,6 @@ export class AiService {
     const myAdminId = tenantId(me);
     if (!myAdminId) return;
 
-    const otherConnectedCount = await this.integrationRepo
-      .createQueryBuilder("i")
-      .where("i.adminId = :adminId", { adminId: myAdminId })
-      .andWhere("i.providerId != :providerId", { providerId })
-      .andWhere("i.encryptedCredentials IS NOT NULL")
-      .getCount();
-    if (otherConnectedCount > 0) return;
-
     const existingDefault = await this.defaultModelRepo.findOne({
       where: { adminId: myAdminId },
     });
