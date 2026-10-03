@@ -2,14 +2,13 @@ import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import {
-  ConversationAiMode,
   ConversationEntity,
   MessageSendSource,
   WhatsappMessageEntity,
 } from "entities/whatsapp.entity";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { WhatsappAiService } from "src/whatsapp/services/whatsapp-ai.service";
-import { AgentToolScope } from "./agent-runtime.constants";
+import { AgentToolScope, isAgentSilenced } from "./agent-runtime.constants";
 
 export class AgentSendBlockedError extends Error {}
 
@@ -131,13 +130,10 @@ export class AgentSenderService {
   private async assertCanSend(scope: AgentToolScope) {
     const conversation = await this.conversationRepo.findOne({
       where: { id: scope.conversationId, adminId: scope.adminId },
-      select: { id: true, aiMode: true, agentPausedUntil: true },
+      select: { id: true, aiMode: true, agentPausedUntil: true, humanHandoff: true },
     });
-    if (!conversation || conversation.aiMode === ConversationAiMode.DISABLED) {
+    if (!conversation || isAgentSilenced(conversation)) {
       throw new AgentSendBlockedError("AI replies were turned off for this conversation");
-    }
-    if (conversation.agentPausedUntil && conversation.agentPausedUntil.getTime() > Date.now()) {
-      throw new AgentSendBlockedError("An employee is handling this conversation");
     }
     const context = await this.whatsappAiService.loadContext(scope.adminId, scope.accountId);
     const ai = this.whatsappAiService.resolve(context, conversation.aiMode);

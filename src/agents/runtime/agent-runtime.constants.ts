@@ -1,9 +1,11 @@
 import { AgentCapability, AgentLanguage } from "entities/agent.entity";
+import { ConversationAiMode } from "entities/whatsapp.entity";
 import { AGENT_END_TURN_TOOL } from "src/ai/orchestrator/ai-loop-policy";
 
 export const AGENT_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 export const AGENT_PREVIOUS_SUMMARY_WAIT_MS = 20_000;
 export const AGENT_PREVIOUS_RAW_MESSAGES = 10;
+export const AGENT_GAP_MESSAGES = 10;
 export const AGENT_HUMAN_PAUSE_MS = 30 * 60 * 1000;
 export const AGENT_PENDING_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const AGENT_UNSUPPORTED_REPLY_COOLDOWN_SECONDS = 5 * 60;
@@ -72,6 +74,7 @@ export enum AgentToolName {
   GET_SHIPPING_DISTRICTS = "get_shipping_districts",
   CONFIRM_PENDING_ACTION = "confirm_pending_action",
   CANCEL_PENDING_ACTION = "cancel_pending_action",
+  HUMAN_HANDOFF = "human_handoff",
 }
 
 export const AGENT_SEND_TOOL_NAMES = [
@@ -153,6 +156,7 @@ export const AGENT_CAPABILITY_TOOL_NAMES: Record<AgentCapability, AgentToolName[
     AgentToolName.SEND_WHATSAPP_TEMPLATE,
     AgentToolName.LIST_WHATSAPP_TEMPLATES,
   ],
+  [AgentCapability.HUMAN_HANDOFF]: [AgentToolName.HUMAN_HANDOFF],
 };
 
 const CATALOG_READ = [
@@ -240,6 +244,7 @@ export const AGENT_CAPABILITY_LABELS: Record<AgentCapability, string> = {
   [AgentCapability.LOCATION]: "Location requests",
   [AgentCapability.REACTIONS]: "Reactions",
   [AgentCapability.TEMPLATES]: "Template messages",
+  [AgentCapability.HUMAN_HANDOFF]: "Human handoff",
 };
 
 export function expandAgentCapabilities(
@@ -301,4 +306,20 @@ export type AgentToolScope = {
 
 export function estimateTokens(text: string | null | undefined): number {
   return Math.ceil(String(text ?? "").length / 3.5);
+}
+
+export function isAgentSilenced(conversation: {
+  aiMode?: ConversationAiMode | string | null;
+  humanHandoff?: boolean | null;
+  agentPausedUntil?: Date | string | null;
+}): boolean {
+  if (conversation.aiMode === ConversationAiMode.DISABLED) return true;
+  if (conversation.humanHandoff) return true;
+  if (
+    conversation.agentPausedUntil &&
+    new Date(conversation.agentPausedUntil).getTime() > Date.now()
+  ) {
+    return true;
+  }
+  return false;
 }

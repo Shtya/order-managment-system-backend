@@ -35,7 +35,6 @@ import {
   MessageActionIntent,
   MessageActionStatus,
   MessageSendSource,
-  ConversationAiMode,
 } from "entities/whatsapp.entity";
 import {
   AutomationFlowEntity,
@@ -88,7 +87,7 @@ import { CampaignRecipientDeliveryStatus } from "entities/campaigns.entity";
 import { WhatsappMessageCostService } from "./services/whatsapp-message-cost.service";
 import { WhatsappAiService } from "./services/whatsapp-ai.service";
 import { AgentTurnQueueService } from "src/queue/queues/agent-turn.queue";
-import { AGENT_HUMAN_PAUSE_MS } from "src/agents/runtime/agent-runtime.constants";
+import { AGENT_HUMAN_PAUSE_MS, isAgentSilenced } from "src/agents/runtime/agent-runtime.constants";
 
 /** Meta rejects template text/coupon params with an empty `text` / `coupon_code`. */
 function resolveWhatsappTemplateText(val: any): string {
@@ -1280,6 +1279,7 @@ export class WhatsappService {
       // Emit notifications
       this.appGateway.emitNewMessage(adminId, finalMsg, {
         agentPausedUntil: conversation.agentPausedUntil ?? null,
+        humanHandoff: conversation.humanHandoff ?? false,
       });
 
       return finalMsg;
@@ -1894,8 +1894,16 @@ export class WhatsappService {
           }
           // Sync all locally using the latest message as reference
           await this.syncMessageReadStatus(latestInbound);
-          // We don't emit for every message for performance, frontend should refresh or we could emit a specific event
         }
+
+        if ((conversation.unreadCount || 0) !== 0) {
+          conversation.unreadCount = 0;
+          await this.conversationRepo.save(conversation);
+        }
+        this.appGateway.emitConversationRead(adminId, {
+          conversationId: conversation.id,
+          unreadCount: 0,
+        });
       }
     }
 
@@ -2370,6 +2378,8 @@ export class WhatsappService {
     // Emit notifications
     this.appGateway.emitNewMessage(account.adminId, finalMsg, {
       agentPausedUntil: conversation.agentPausedUntil ?? null,
+      humanHandoff: conversation.humanHandoff ?? false,
+      unreadCount: conversation.unreadCount ?? 0,
     });
 
     const replyData = this.extractReplyData(metaMsg);
@@ -2439,14 +2449,7 @@ export class WhatsappService {
     messageId: string,
   ) {
     try {
-      if (conversation.aiMode === ConversationAiMode.DISABLED) return;
-      // Messages received while an employee is handling the chat are saved but never answered later.
-      if (
-        conversation.agentPausedUntil &&
-        new Date(conversation.agentPausedUntil).getTime() > Date.now()
-      ) {
-        return;
-      }
+      if (isAgentSilenced(conversation)) return;
 
       const context = await this.whatsappAiService.loadContext(
         account.adminId,

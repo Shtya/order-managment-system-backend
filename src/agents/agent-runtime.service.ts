@@ -2,7 +2,6 @@ import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { In, Repository } from "typeorm";
 import {
-  ConversationAiMode,
   ConversationEntity,
   MessageStatus,
   WhatsappMessageEntity,
@@ -44,6 +43,7 @@ import {
   AgentToolScope,
   resolveAgentToolNames,
   unsupportedMessageFor,
+  isAgentSilenced,
 } from "./runtime/agent-runtime.constants";
 
 export type AgentTurnInput = {
@@ -96,9 +96,8 @@ export class AgentRuntimeService {
       relations: { customer: true },
     });
     if (!conversation?.customer) return;
-    if (conversation.aiMode === ConversationAiMode.DISABLED) return;
-    if (conversation.agentPausedUntil && conversation.agentPausedUntil.getTime() > Date.now()) {
-      this.logger.debug(`Agent paused for conversation ${conversation.id}; skipping turn`);
+    if (isAgentSilenced(conversation)) {
+      this.logger.debug(`Agent silenced for conversation ${conversation.id}; skipping turn`);
       return;
     }
 
@@ -193,28 +192,36 @@ export class AgentRuntimeService {
         );
       }
       if (!meaningful.length && !job.taskId && !openTask) {
-        await this.finishTurn(turn, startedAt, { status: AgentTurnStatus.SILENT, endedBy: "unsupported_only" });
+        await this.finishTurn(turn, startedAt, {
+          status: AgentTurnStatus.SILENT,
+          endedBy: "unsupported_only",
+          session,
+          lastSeenAt: latestCreatedAt(messages),
+        });
         return;
       }
 
       const goalReached = await this.handleButtonDecisions(scope, meaningful, events);
 
       const result = await this.runModel(agent, session, scope, meaningful, events);
-      const { ai: aiResult, storedInput } = result;
+      const { ai: aiResult, storedInput, lastSeenAt } = result;
       await this.storeTurnMessages(turn, storedInput, aiResult.newMessages);
 
       const delivered = countDelivered(aiResult.newMessages);
       const confirmedByTool = aiResult.newMessages.some(
         (m) => m.role === "tool" && /"code":"EXECUTED"/.test(m.content ?? ""),
       );
+      const status = aiResult.result.ok
+        ? delivered
+          ? AgentTurnStatus.OK
+          : AgentTurnStatus.SILENT
+        : AgentTurnStatus.FAILED;
       await this.finishTurn(turn, startedAt, {
-        status: aiResult.result.ok
-          ? delivered
-            ? AgentTurnStatus.OK
-            : AgentTurnStatus.SILENT
-          : AgentTurnStatus.FAILED,
+        status,
         endedBy: aiResult.result.endedBy ?? null,
         result: aiResult.result,
+        session,
+        lastSeenAt: laterDate(lastSeenAt, latestCreatedAt(messages)),
       });
 
       if (goalReached || confirmedByTool) {
@@ -312,7 +319,7 @@ export class AgentRuntimeService {
       const retry = await this.callModel(agent, session, scope, context.messages);
       ai = { result: retry.result, newMessages: [...ai.newMessages, ...retry.newMessages] };
     }
-    return { ai, storedInput: context.storedInput };
+    return { ai, storedInput: context.storedInput, lastSeenAt: context.lastSeenAt };
   }
 
   /**
@@ -441,6 +448,8 @@ export class AgentRuntimeService {
       endedBy?: string | null;
       error?: string | null;
       result?: AiOrchestrationResult;
+      session?: AgentSessionEntity;
+      lastSeenAt?: Date | null;
     },
   ) {
     const result = outcome.result;
@@ -456,6 +465,12 @@ export class AgentRuntimeService {
       error: outcome.error ?? (result && !result.ok ? `${result.errorCode ?? ""} ${result.error ?? ""}`.trim() : null),
       finishedAt: new Date(),
     });
+    if (
+      outcome.session &&
+      (outcome.status === AgentTurnStatus.OK || outcome.status === AgentTurnStatus.SILENT)
+    ) {
+      await this.sessions.markSeenUntil(outcome.session, outcome.lastSeenAt);
+    }
     const tokens = (result?.usage?.promptTokens ?? 0) + (result?.usage?.completionTokens ?? 0);
     if (tokens > 0 || outcome.status === AgentTurnStatus.FAILED) {
       await this.usageLedger.record({
@@ -486,6 +501,23 @@ export class AgentRuntimeService {
 /** Reactions only matter on the agent's confirmation summaries (§14); others get no reply. */
 function isStrayReaction(insight: AgentInsight) {
   return insight.kind === "reaction" && !insight.parentMetadata?.agentPendingActionId;
+}
+
+function laterDate(a?: Date | null, b?: Date | null): Date | null {
+  if (!a) return b ?? null;
+  if (!b) return a;
+  return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
+}
+
+function latestCreatedAt(messages: WhatsappMessageEntity[]): Date | null {
+  let latest: Date | null = null;
+  for (const message of messages) {
+    if (!message.createdAt) continue;
+    if (!latest || new Date(message.createdAt).getTime() > new Date(latest).getTime()) {
+      latest = message.createdAt;
+    }
+  }
+  return latest;
 }
 
 function countDelivered(messages: AiChatMessage[]): number {

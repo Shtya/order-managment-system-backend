@@ -95,6 +95,10 @@ export class AgentSessionEntity {
   @Column({ type: "timestamptz" })
   lastMessageAt: Date;
 
+  /** Last WhatsApp message createdAt the agent has already seen. Null treated as startedAt. */
+  @Column({ type: "timestamptz", nullable: true })
+  agentSeenUntil?: Date | null;
+
   @Column({ type: "timestamptz", nullable: true })
   endedAt?: Date | null;
 

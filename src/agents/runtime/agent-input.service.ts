@@ -1,7 +1,10 @@
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { AgentEntity } from "entities/agent.entity";
 import {
+  MessageActionIntent,
   MessageDirection,
+  MessageSendSource,
+  MessageStatus,
   WhatsappMessageEntity,
   WhatsappMessageType,
 } from "entities/whatsapp.entity";
@@ -200,13 +203,37 @@ export class AgentInputService {
   }
 }
 
+const formatTime = (d: Date, tz: string) =>
+  new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: tz,
+  }).format(d);
+
+export function describeMessage(m: WhatsappMessageEntity, tz = "Africa/Cairo"): string {
+  const who = speakerLabel(m);
+  const limit = who.startsWith("Staff") ? 800 : 400;
+
+  let line = `[${formatTime(m.createdAt, tz)}] ${who}: "${truncate(bodyOf(m), limit)}"`;
+
+  if (m.replyTo) line += ` (replying to: "${truncate(bodyOf(m.replyTo), 80)}")`;
+  if (m.direction === MessageDirection.OUTBOUND && m.status === MessageStatus.FAILED)
+    line += " [NOT DELIVERED]";
+  if (m.actionIntent && m.actionIntent !== MessageActionIntent.NONE)
+    line += ` [asked customer: ${m.actionIntent}, ${m.actionStatus}]`;
+
+  return line;
+}
+
+ 
 /** Short readable form of any stored message (inbound raw webhook or outbound payload). */
-export function describeMessage(message: WhatsappMessageEntity): string {
+export function bodyOf(message: WhatsappMessageEntity): string {
   const c: any = message.content ?? {};
-  const who = message.direction === MessageDirection.OUTBOUND ? "Store" : "Customer";
+  const who = speakerLabel(message);
   const type = String(message.messageType ?? c.type ?? "");
   let body = "";
   if (type === "text") body = c.text?.body ?? "";
+  else if (type === "audio")
+    return message.metadata?.transcript ?? c.audio?.transcript ?? "[voice note, no transcript]"; // adjust to where you store it
+  
   else if (type === "interactive")
     body =
       c.interactive?.body?.text ??
@@ -216,9 +243,26 @@ export function describeMessage(message: WhatsappMessageEntity): string {
   else if (type === "button") body = c.button?.text ?? "[button]";
   else if (type === "template") body = `[template ${c.template?.name ?? ""}]`;
   else if (type === "reaction") body = `[reaction ${c.reaction?.emoji ?? ""}]`;
-  else if (type === "location") body = `[location ${c.location?.name ?? ""}]`;
-  else body = `[${type || "message"}]`;
-  return `${who} message: "${truncate(String(body), 400)}"`;
+  else  if (type === "location") {
+    const l = c.location ?? {};
+    return `[location ${l.name ?? ""} ${l.address ?? ""} (${l.latitude}, ${l.longitude})]`.replace(/\s+/g, " ");
+  }
+  else if (type === "image" || type === "video" || type === "document" || type === "audio") {
+    const caption = String(c[type]?.caption ?? c.caption ?? "").trim();
+    body = caption || `[${type}]`;
+  } else body = `[${type || "message"}]`;
+  return `${who}: "${truncate(String(body), 400)}"`;
+}
+
+function speakerLabel(message: WhatsappMessageEntity): string {
+  if (message.direction !== MessageDirection.OUTBOUND) return "Customer";
+  if (message.sendSource === MessageSendSource.AGENT) return "Agent";
+  if (message.sendSource === MessageSendSource.SYSTEM) return "System";
+  if (message.sendSource === MessageSendSource.USER) {
+    const name = message.sentByUser?.name?.trim();
+    return name ? `Staff (${name})` : "Staff";
+  }
+  return "System";
 }
 
 function truncate(text: string, max: number) {

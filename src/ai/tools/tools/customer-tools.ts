@@ -41,6 +41,7 @@ import {
   AgentOrderDraft,
   AgentOrderLineInput,
 } from "src/agents/runtime/agent-catalog.service";
+import { ConversationService } from "src/conversation/conversation.service";
 
 export const LIMITS = {
   text: 4096,
@@ -104,6 +105,8 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     private readonly clients: ClientService,
     @Inject(forwardRef(() => ShippingService))
     private readonly shipping: ShippingService,
+    @Inject(forwardRef(() => ConversationService))
+    private readonly conversations: ConversationService,
   ) { }
 
   onModuleInit() {
@@ -143,6 +146,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       this.requestUpdateCustomerAddress(),
       this.requestSetDefaultAddress(),
       this.requestUpdateCustomer(),
+      this.humanHandoff(),
   
       // Address & Shipping
       this.requestAddressUpdate(),
@@ -153,6 +157,31 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       this.confirmPendingAction(),
       this.cancelPendingAction(),
     ];
+  }
+
+  private humanHandoff() {
+    return new AiTool({
+      name: "human_handoff",
+      audience: "customer",
+      description:
+        "Hand this conversation to a human employee after you have already sent the customer a message that the store team will take over. Call only when the customer asked for a human. Do not send another WhatsApp message from this tool.",
+      inputSchema: {
+        type: "object",
+        properties: { reason: { type: "string" } },
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "manual_review",
+      run: async (ctx, args: Args) => {
+        const scope = agentScopeOf(ctx);
+        const outcome = await this.conversations.startHumanHandoff({
+          adminId: scope.adminId,
+          conversationId: scope.conversationId,
+          reason: str(args.reason) || undefined,
+        });
+        return { ok: true, code: outcome.code };
+      },
+    });
   }
 
   private endTurn() {

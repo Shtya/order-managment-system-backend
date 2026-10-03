@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsUUID, ValidateIf } from "class-validator";
+import { IsBoolean, IsEnum, IsOptional, IsUUID, ValidateIf } from "class-validator";
 import { i18nValidationMessage } from "nestjs-i18n";
 import {
   ConversationAiMode,
@@ -41,4 +41,9 @@ export class UpdateConversationAiDto {
       }),
   })
   aiMode: ConversationAiMode;
+}
+
+export class UpdateConversationHandoffDto {
+  @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
+  humanHandoff: boolean;
 }

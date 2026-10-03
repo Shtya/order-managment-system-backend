@@ -307,6 +307,10 @@ export class ConversationEntity {
     @Column({ type: 'timestamptz', nullable: true })
     agentPausedUntil?: Date | null;
 
+    /** Sticky until staff cancel: customer asked for a human; agent must not reply. */
+    @Column({ type: 'boolean', default: false })
+    humanHandoff: boolean;
+
     @CreateDateColumn({ type: 'timestamptz' })
     createdAt: Date;
 

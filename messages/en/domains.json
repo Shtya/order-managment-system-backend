@@ -115,7 +115,9 @@
     "status_not_configured": "Not Configured"
   },
   "conversation": {
-    "not_found": "Conversation not found"
+    "not_found": "Conversation not found",
+    "human_handoff_title": "Customer asked for a human",
+    "human_handoff_message": "{customerName} ({phone}) asked to talk to the store team."
   },
   "customer": {
     "not_found": "Customer not found",

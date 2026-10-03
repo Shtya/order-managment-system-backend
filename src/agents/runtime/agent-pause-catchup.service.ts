@@ -1,6 +1,6 @@
 import { forwardRef, Inject, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { MoreThan, Repository } from "typeorm";
+import { MoreThan, Not, Repository } from "typeorm";
 import { AgentEntity } from "entities/agent.entity";
 import {
   ConversationAiMode,
@@ -50,6 +50,9 @@ export class AgentPauseCatchupService {
     });
     if (!conversation) return { messageIds: [], accountId: data.accountId };
 
+    if (conversation.humanHandoff) {
+      return { messageIds: [], accountId: data.accountId };
+    }
     if (conversation.agentPausedUntil && conversation.agentPausedUntil.getTime() > Date.now()) {
       return { messageIds: [], accountId: data.accountId, rescheduleUntil: conversation.agentPausedUntil };
     }
@@ -57,35 +60,34 @@ export class AgentPauseCatchupService {
       return { messageIds: [], accountId: data.accountId };
     }
 
-    const lastUser = await this.messageRepo.findOne({
+    const last = await this.messageRepo.findOne({
       where: {
         adminId: data.adminId,
         conversationId: conversation.id,
-        direction: MessageDirection.OUTBOUND,
-        sendSource: MessageSendSource.USER,
+        messageType: Not(WhatsappMessageType.REACTION),
       },
       order: { createdAt: "DESC" },
     });
-    if (!lastUser) return { messageIds: [], accountId: data.accountId };
+    if (!last || last.direction !== MessageDirection.INBOUND) {
+      return { messageIds: [], accountId: data.accountId };
+    }
 
-    const laterAgent = await this.messageRepo.findOne({
+    const lastOutbound = await this.messageRepo.findOne({
       where: {
         adminId: data.adminId,
         conversationId: conversation.id,
         direction: MessageDirection.OUTBOUND,
-        sendSource: MessageSendSource.AGENT,
-        createdAt: MoreThan(lastUser.createdAt),
+        messageType: Not(WhatsappMessageType.REACTION),
       },
-      select: { id: true },
+      order: { createdAt: "DESC" },
     });
-    if (laterAgent) return { messageIds: [], accountId: data.accountId };
 
     const inbound = await this.messageRepo.find({
       where: {
         adminId: data.adminId,
         conversationId: conversation.id,
         direction: MessageDirection.INBOUND,
-        createdAt: MoreThan(lastUser.createdAt),
+        ...(lastOutbound ? { createdAt: MoreThan(lastOutbound.createdAt) } : {}),
       },
       relations: { replyTo: true, reactionTo: true },
       order: { createdAt: "ASC" },

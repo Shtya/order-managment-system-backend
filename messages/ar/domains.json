@@ -115,7 +115,9 @@
     "status_not_configured": "غير مُهيأ"
   },
   "conversation": {
-    "not_found": "المحادثة غير موجودة"
+    "not_found": "المحادثة غير موجودة",
+    "human_handoff_title": "العميل طلب موظفاً",
+    "human_handoff_message": "{customerName} ({phone}) طلب التحدث مع فريق المتجر."
   },
   "customer": {
     "not_found": "العميل غير موجود",

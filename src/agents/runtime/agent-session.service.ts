@@ -106,6 +106,7 @@ export class AgentSessionService {
         status: AgentSessionStatus.ACTIVE,
         startedAt: now,
         lastMessageAt: now,
+        agentSeenUntil: now,
         previousSessionId: previous?.id ?? null,
         bootstrap: await this.buildBootstrap(input.adminId, input.customerId, input.phoneNumber),
       }),
@@ -139,6 +140,14 @@ export class AgentSessionService {
     await this.sessionRepo.increment({ id: session.id }, "turnCount", 1);
     session.turnCount += 1;
     return session.turnCount;
+  }
+
+  async markSeenUntil(session: AgentSessionEntity, seenUntil: Date | null | undefined) {
+    if (!seenUntil) return;
+    const current = session.agentSeenUntil ?? session.startedAt;
+    if (seenUntil.getTime() <= new Date(current).getTime()) return;
+    session.agentSeenUntil = seenUntil;
+    await this.sessionRepo.update(session.id, { agentSeenUntil: seenUntil });
   }
 
   async getMemoryFacts(adminId: string, customerId: string): Promise<AgentMemoryFactEntity[]> {

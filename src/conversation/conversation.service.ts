@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, DataSource, EntityManager, Repository } from "typeorm";
+import { Brackets, DataSource, EntityManager, MoreThan, Repository } from "typeorm";
 import {
   ConversationAiMode,
   ConversationEntity,
@@ -19,8 +19,10 @@ import { CreateConversationDto } from "dto/whatsapp.dto";
 import { CustomerService } from "../customer/customer.service";
 import { AppGateway } from "common/app.gateway";
 import { tenantId } from "src/category/category.service";
-import { TranslationService } from "common/translation.service";
+import { RequestTranslationService, TranslationService } from "common/translation.service";
 import { AgentTurnQueueService } from "src/queue/queues/agent-turn.queue";
+import { NotificationService } from "src/notifications/notification.service";
+import { NotificationType } from "entities/notifications.entity";
 
 @Injectable()
 export class ConversationService {
@@ -33,9 +35,11 @@ export class ConversationService {
     private readonly appGateway: AppGateway,
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
+    private readonly requestTranslations: RequestTranslationService,
+    private readonly notificationService: NotificationService,
     @Inject(forwardRef(() => AgentTurnQueueService))
     private readonly agentTurnQueue: AgentTurnQueueService,
-  ) {}
+  ) { }
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
     const adminId = tenantId(me);
@@ -155,6 +159,35 @@ export class ConversationService {
     return saved;
   }
 
+  async getTabCounts(me: any) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+
+    const [unread, humanHandoff] = await Promise.all([
+      this.conversationRepo.count({
+        where: {
+          adminId,
+          unreadCount: MoreThan(0),
+        },
+      }),
+      this.conversationRepo.count({
+        where: {
+          adminId,
+          humanHandoff: true,
+        },
+      }),
+    ]);
+
+    return {
+      unread,
+      humanHandoff,
+    };
+  }
+
   async findAllPaginated(me: any, q?: any) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -196,6 +229,10 @@ export class ConversationService {
 
     if (q?.unreadOnly === "true" || q?.unreadOnly === true) {
       qb.andWhere("conversation.unreadCount > 0");
+    }
+
+    if (q?.humanHandoffOnly === "true" || q?.humanHandoffOnly === true) {
+      qb.andWhere("conversation.humanHandoff = true");
     }
 
     // Search (by customer name or phone number)
@@ -247,9 +284,9 @@ export class ConversationService {
       limit,
       nextCursor: hasMore
         ? {
-            value: records?.[records.length - 1]?.[sortBy],
-            id: records?.[records.length - 1]?.id,
-          }
+          value: records?.[records.length - 1]?.[sortBy],
+          id: records?.[records.length - 1]?.id,
+        }
         : undefined,
       sortBy,
       sortDir,
@@ -293,6 +330,7 @@ export class ConversationService {
     }
     conversation.agentPausedUntil = null;
     const saved = await this.conversationRepo.save(conversation);
+    this.emitConversationAi(saved);
     const lastInbound = await this.messageRepo.findOne({
       where: {
         adminId,
@@ -311,6 +349,87 @@ export class ConversationService {
       new Date(),
     );
     return saved;
+  }
+
+  async startHumanHandoff(input: {
+    adminId: string;
+    conversationId: string;
+    reason?: string;
+  }): Promise<{ ok: true; code: "ALREADY_HANDED_OFF" | "HANDED_OFF" }> {
+    const conversation = await this.conversationRepo.findOne({
+      where: { id: input.conversationId, adminId: input.adminId },
+      relations: { customer: true },
+    });
+    if (!conversation) {
+      throw new NotFoundException(
+        this.translations.t("domains.conversation.not_found"),
+      );
+    }
+    if (conversation.humanHandoff) {
+      return { ok: true, code: "ALREADY_HANDED_OFF" };
+    }
+
+    conversation.humanHandoff = true;
+    const saved = await this.conversationRepo.save(conversation);
+    this.emitConversationAi(saved);
+
+    const customerName =
+      conversation.customer?.name?.trim() ||
+      conversation.customer?.phoneNumber ||
+      "-";
+    const phone = conversation.customer?.phoneNumber || "-";
+    const args = {
+      customerName,
+      phone,
+      ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
+    };
+    await this.notificationService.create({
+      userId: input.adminId,
+      type: NotificationType.HUMAN_HANDOFF,
+      title: await this.requestTranslations.tAsync(
+        "domains.conversation.human_handoff_title",
+        input.adminId,
+      ),
+      message: await this.requestTranslations.tAsync(
+        "domains.conversation.human_handoff_message",
+        input.adminId,
+        { args },
+      ),
+      relatedEntityType: "conversation",
+      relatedEntityId: conversation.customerId,
+    });
+
+    return { ok: true, code: "HANDED_OFF" };
+  }
+
+  async cancelHumanHandoff(me: any, id: string) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    const conversation = await this.conversationRepo.findOne({
+      where: { id, adminId },
+    });
+    if (!conversation) {
+      throw new NotFoundException(
+        this.translations.t("domains.conversation.not_found"),
+      );
+    }
+    conversation.humanHandoff = false;
+    conversation.agentPausedUntil = null;
+    const saved = await this.conversationRepo.save(conversation);
+    this.emitConversationAi(saved);
+    return saved;
+  }
+
+  private emitConversationAi(conversation: ConversationEntity) {
+    this.appGateway.emitConversationAi(conversation.adminId, {
+      conversationId: conversation.id,
+      humanHandoff: !!conversation.humanHandoff,
+      agentPausedUntil: conversation.agentPausedUntil ?? null,
+    });
   }
 
   async findOne(me: any, id: string) {

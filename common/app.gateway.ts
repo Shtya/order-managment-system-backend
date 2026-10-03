@@ -218,11 +218,38 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
     emitNewMessage(
         userId: string,
         message: WhatsappMessageEntity,
-        extras?: { agentPausedUntil?: Date | null },
+        extras?: {
+            agentPausedUntil?: Date | null;
+            humanHandoff?: boolean | null;
+            unreadCount?: number | null;
+        },
     ) {
         this.server.to(`user_${userId}`).emit("whatsapp:message-new", {
             message,
             agentPausedUntil: extras?.agentPausedUntil ?? null,
+            humanHandoff: extras?.humanHandoff ?? null,
+            unreadCount: extras?.unreadCount ?? null,
+            timestamp: new Date(),
+        });
+    }
+
+    emitConversationAi(
+        userId: string,
+        payload: {
+            conversationId: string;
+            humanHandoff: boolean;
+            agentPausedUntil?: Date | null;
+        },
+    ) {
+        this.server.to(`user_${userId}`).emit("whatsapp:conversation-ai", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
+    emitConversationRead(userId: string, payload: { conversationId: string; unreadCount: number }) {
+        this.server.to(`user_${userId}`).emit("whatsapp:conversation-read", {
+            ...payload,
             timestamp: new Date(),
         });
     }

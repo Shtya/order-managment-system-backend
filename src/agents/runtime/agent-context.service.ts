@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { MoreThanOrEqual, Repository } from "typeorm";
+import { MoreThan, MoreThanOrEqual, Not, Repository } from "typeorm";
 import { AgentEntity } from "entities/agent.entity";
 import {
   AgentPendingActionEntity,
@@ -11,6 +11,7 @@ import {
   MessageSendSource,
   MessageStatus,
   WhatsappMessageEntity,
+  WhatsappMessageType,
 } from "entities/whatsapp.entity";
 import { AiChatMessage } from "src/ai/interfaces/ai-types";
 import { buildAgentSystemPrompt } from "./agent-prompt";
@@ -19,6 +20,7 @@ import { AgentSessionService } from "./agent-session.service";
 import { AgentsService } from "../agents.service";
 import {
   AGENT_CAPABILITY_LABELS,
+  AGENT_GAP_MESSAGES,
   AGENT_USER_CAPABILITIES,
   resolveAgentCapabilities,
 } from "./agent-runtime.constants";
@@ -30,6 +32,7 @@ export type AgentTurnContext = {
   /** The part of this turn's user message that is stored in history (without volatile context). */
   storedInput: string;
   historyTokens: number;
+  lastSeenAt: Date | null;
 };
 
 @Injectable()
@@ -51,7 +54,8 @@ export class AgentContextService {
     pendingActions: AgentPendingActionEntity[];
   }): Promise<AgentTurnContext> {
     const { agent, session } = input;
-    const [memory, knowledge, recent, notDelivered, rawTail, openTask] = await Promise.all([
+    const excludeIds = new Set(input.insights.map((i) => i.messageId).filter(Boolean));
+    const [memory, knowledge, recent, notDelivered, rawTail, openTask, gap] = await Promise.all([
       this.sessions.getMemoryFacts(session.adminId, input.customerId),
       this.agents.getPromptKnowledge(session.adminId, agent.id),
       this.sessions.getRecentTurnMessages(session),
@@ -60,6 +64,7 @@ export class AgentContextService {
         ? this.sessions.getPreviousRawTail(session)
         : Promise.resolve([] as string[]),
       this.tasks.getOpenForConversation(session.adminId, session.conversationId),
+      this.loadGap(session, excludeIds),
     ]);
 
     const systemParts = [buildAgentSystemPrompt(agent)];
@@ -115,6 +120,12 @@ ${memory.map((f) => `- ${f.fact}`).join("\n")}`,
     if (session.summary) {
       systemParts.push(`## Summary of earlier turns in this session\n${session.summary}`);
     }
+    if (gap.lines.length) {
+      systemParts.push(
+        `## Messages since you last replied (Staff lines are employees, not you. Keep promises they made.)
+${gap.lines.join("\n")}`,
+      );
+    }
 
     const history = toChatHistory(recent);
     const storedInput = renderInput(input.insights, input.events);
@@ -132,7 +143,31 @@ ${memory.map((f) => `- ${f.fact}`).join("\n")}`,
         (sum, m) => sum + estimateTokens(m.content) + estimateTokens(JSON.stringify(m.toolCalls ?? "")),
         0,
       );
-    return { messages, storedInput, historyTokens };
+    return { messages, storedInput, historyTokens, lastSeenAt: gap.lastSeenAt };
+  }
+
+  async loadGap(
+    session: AgentSessionEntity,
+    excludeIds: Set<string>,
+  ): Promise<{ lines: string[]; lastSeenAt: Date | null }> {
+    const since = session.agentSeenUntil ?? session.startedAt ?? new Date();
+    const rows = await this.messageRepo.find({
+      where: {
+        adminId: session.adminId,
+        conversationId: session.conversationId,
+        createdAt: MoreThan(since),
+        messageType: Not(WhatsappMessageType.REACTION),
+      },
+      relations: { sentByUser: true },
+      order: { createdAt: "DESC" },
+      take: AGENT_GAP_MESSAGES,
+    });
+    rows.reverse();
+    const lastSeenAt = rows.length ? rows[rows.length - 1].createdAt : null;
+    const lines = rows
+      .filter((m) => !excludeIds.has(m.id))
+      .map((m) => `- ${describeMessage(m)}`);
+    return { lines, lastSeenAt };
   }
 
   private async findNotDelivered(session: AgentSessionEntity) {

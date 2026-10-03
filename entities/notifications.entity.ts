@@ -87,6 +87,7 @@ export enum NotificationType {
   GETTING_STARTED_ACHIEVEMENT = "getting_started_achievement",
   CAMPAIGN_COMPLETED = "campaign_completed",
   CAMPAIGN_FAILED = "campaign_failed",
+  HUMAN_HANDOFF = "human_handoff",
 }
 
 @Entity("notifications")

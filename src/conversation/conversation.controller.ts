@@ -17,7 +17,7 @@ import { PermissionsGuard } from "common/permissions.guard";
 import { SubscriptionGuard } from "common/subscription.guard";
 import { Permissions } from "common/permissions.decorator";
 import { CreateConversationDto } from "dto/whatsapp.dto";
-import { UpdateConversationAiDto } from "dto/whatsapp-ai.dto";
+import { UpdateConversationAiDto, UpdateConversationHandoffDto } from "dto/whatsapp-ai.dto";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { diskStorage } from "multer";
 import { extname } from "path";
@@ -59,6 +59,12 @@ export class ConversationController {
     return this.conversationService.findAllPaginated(req.user, q);
   }
 
+  @Get("counts")
+  @Permissions("conversation.read")
+  getTabCounts(@Req() req: any) {
+    return this.conversationService.getTabCounts(req.user);
+  }
+
   @Patch(":id/ai")
   @Permissions("conversation.update")
   updateAi(
@@ -73,6 +79,19 @@ export class ConversationController {
   @Permissions("conversation.update")
   resumeAgent(@Req() req: any, @Param("id") id: string) {
     return this.conversationService.resumeAgent(req.user, id);
+  }
+
+  @Patch(":id/ai/handoff")
+  @Permissions("conversation.update")
+  cancelHumanHandoff(
+    @Req() req: any,
+    @Param("id") id: string,
+    @Body() dto: UpdateConversationHandoffDto,
+  ) {
+    if (dto.humanHandoff !== false) {
+      return this.conversationService.findOne(req.user, id);
+    }
+    return this.conversationService.cancelHumanHandoff(req.user, id);
   }
 
   @Get(":id")

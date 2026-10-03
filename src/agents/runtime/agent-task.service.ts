@@ -115,6 +115,9 @@ export class AgentTaskService {
     if (conversation.aiMode === ConversationAiMode.DISABLED) {
       return { ok: false, error: "AI replies are disabled for this conversation" };
     }
+    if (conversation.humanHandoff) {
+      return { ok: false, error: "A human is handling this conversation" };
+    }
 
     await this.closeOpenForOrder(input.adminId, input.order.id, "replaced");
 

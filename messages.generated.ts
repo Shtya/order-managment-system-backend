@@ -257,6 +257,8 @@ export type I18nTranslations = {
         };
         "conversation": {
             "not_found": string;
+            "human_handoff_title": string;
+            "human_handoff_message": string;
         };
         "customer": {
             "not_found": string;
