@@ -1255,6 +1255,7 @@ export class WhatsappService {
       }
 
       conversation.lastMessageId = savedMsg.id;
+      conversation.lastMessage = savedMsg;
       conversation.lastMessageDirection = MessageDirection.OUTBOUND;
       conversation.lastMessageType = savedMsg.messageType;
       conversation.lastMessagePreview = preview;
