@@ -55,6 +55,46 @@ export class DocumentMediaProcessor {
     };
   }
 
+  compactInfo(information: unknown): string {
+    if (!information || typeof information !== "object") {
+      return "";
+    }
+  
+    const payload = Array.isArray(information)
+      ? Object.fromEntries(
+          information
+            .map((item) => {
+              if (!item || typeof item !== "object") return null;
+              const name = String((item as { name?: unknown }).name ?? "").trim();
+              const value = String((item as { value?: unknown }).value ?? "").trim();
+              if (!name || !value) return null;
+              return [name, value] as const;
+            })
+            .filter((entry): entry is readonly [string, string] => Boolean(entry)),
+        )
+      : information;
+  
+    if (
+      typeof payload === "object" &&
+      payload !== null &&
+      !Array.isArray(payload) &&
+      Object.keys(payload).length === 0
+    ) {
+      return "";
+    }
+  
+    try {
+      const json = JSON.stringify(payload);
+  
+      return json.length > 1500
+        ? `${json.slice(0, 1500)}…`
+        : json;
+    } catch(error) {
+      this.logger.error(`Error compacting information`, error);
+      return "";
+    }
+  }
+
   async process(
     buffer: Buffer,
     mimeType?: string,
@@ -123,12 +163,13 @@ export class DocumentMediaProcessor {
         outputTokens: response.usage?.output_tokens ?? 0,
         audioSeconds: 0,
       };
-
-      const info = compactInfo(understanding?.information);
+      this.logger.log(`Understanding: `, JSON.stringify(understanding, null, 2));
+      const info = this.compactInfo(understanding?.information);
+      this.logger.log(`Info: ${info}`);
       const summary = String(
         understanding?.summary ?? "",
       ).trim();
-
+      this.logger.log(`Summary: `, JSON.stringify(summary, null, 2));
       const type = String(
         understanding?.documentType ?? "document",
       );
@@ -184,41 +225,3 @@ Customer message:
 ${context}`;
 }
 
-function compactInfo(information: unknown): string {
-  if (!information || typeof information !== "object") {
-    return "";
-  }
-
-  const payload = Array.isArray(information)
-    ? Object.fromEntries(
-        information
-          .map((item) => {
-            if (!item || typeof item !== "object") return null;
-            const name = String((item as { name?: unknown }).name ?? "").trim();
-            const value = String((item as { value?: unknown }).value ?? "").trim();
-            if (!name || !value) return null;
-            return [name, value] as const;
-          })
-          .filter((entry): entry is readonly [string, string] => Boolean(entry)),
-      )
-    : information;
-
-  if (
-    typeof payload === "object" &&
-    payload !== null &&
-    !Array.isArray(payload) &&
-    Object.keys(payload).length === 0
-  ) {
-    return "";
-  }
-
-  try {
-    const json = JSON.stringify(payload);
-
-    return json.length > 1500
-      ? `${json.slice(0, 1500)}…`
-      : json;
-  } catch {
-    return "";
-  }
-}
