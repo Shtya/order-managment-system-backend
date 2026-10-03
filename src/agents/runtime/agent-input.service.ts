@@ -84,7 +84,7 @@ export class AgentInputService {
     if (IGNORED_TYPES.has(type) || raw.video?.animated || raw.image?.animated) {
       return { ...base, kind: "ignored", text: "" };
     }
-
+    this.logger.log(`Understanding message ${message.id} of type ${type}`);
     switch (type) {
       case WhatsappMessageType.TEXT:
         return { ...base, kind: "text", text: String(raw.text?.body ?? "").trim() };
@@ -168,6 +168,7 @@ export class AgentInputService {
     const mediaId = media.id;
     const caption = String(media.caption ?? "").trim();
     try {
+      this.logger.log(`Processing media ${mediaId} of type ${kind} for message ${message.id}`, JSON.stringify(message, null, 2));
       if (!mediaId || !message.accountId) {
         throw new MediaUnderstandingError("Missing media id or account", "MISSING_MEDIA");
       }
