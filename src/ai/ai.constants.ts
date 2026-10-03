@@ -21,6 +21,23 @@ export const AI_DEFAULT_PROVIDER = "llm7";
 export const AI_PROVIDERS = ["llm7", "pollinations"] as const;
 export type AiProviderName = (typeof AI_PROVIDERS)[number];
 
+/** Provider-code → catalog modelCode. Null means Madar has no recommendation. */
+export const AI_RECOMMENDED_MODEL_CODES: Record<string, string | null> = {
+  openai: "gpt-5-mini-2025-08-07",
+  anthropic: null,
+  google: null,
+  deepseek: null,
+  llm7: null,
+  pollinations: null,
+};
+
+export function getRecommendedModelCode(
+  providerCode?: string | null,
+): string | null {
+  if (!providerCode) return null;
+  return AI_RECOMMENDED_MODEL_CODES[providerCode] ?? null;
+}
+
 export const AI_USE_DEPRECATED_EXTRA_FEATURE_FLAG = false;
 
 export const PROVIDER_REQUEST_TIMEOUT_MS = 90_000;

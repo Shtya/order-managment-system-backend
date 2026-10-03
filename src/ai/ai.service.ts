@@ -51,7 +51,7 @@ import {
   WriteToolCallResponseDto,
 } from "../../dto/ai.dto";
 import { TranslationService } from "../../common/translation.service";
-import { AI_CONFIG_TOKEN } from "./ai.constants";
+import { AI_CONFIG_TOKEN, getRecommendedModelCode } from "./ai.constants";
 import { AiConfig } from "./interfaces/provider-config.interface";
 import { AiProviderCredentials } from "./interfaces/ai-types";
 import { AiProviderSelectorService } from "./orchestrator/provider-selector.service";
@@ -390,6 +390,10 @@ export class AiService {
           isActive: model.isActive,
           isAvailable: model.availabilities?.[0]?.isAvailable ?? true,
         })),
+        recommendedModel: this.resolveRecommendedModel(
+          provider.code,
+          provider.models,
+        ),
         bestModel: hasCredentials
           ? toBestModelSummary(
             pickBestModel(this.toRankableModels(provider.models)),
@@ -433,6 +437,7 @@ export class AiService {
       integration: integration
         ? this.toIntegrationResponse(integration)
         : undefined,
+      recommendedModel: this.resolveRecommendedModel(provider.code, models),
       bestModel: integration?.encryptedCredentials
         ? toBestModelSummary(pickBestModel(this.toRankableModels(models)))
         : null,
@@ -1163,6 +1168,14 @@ export class AiService {
       } catch (err) {
         this.logger.warn(`setCredentials model sync failed for providerId=${providerId}: ${err?.message}`);
       }
+    }
+
+    try {
+      await this.maybeSetRecommendedDefaultOnFirstIntegration(me, providerId);
+    } catch (err: any) {
+      this.logger.warn(
+        `setCredentials auto-default skipped for providerId=${providerId}: ${err?.message}`,
+      );
     }
 
     this.logger.log(`setCredentials completed successfully for providerId=${providerId}`);
@@ -1990,6 +2003,68 @@ export class AiService {
   }
   // ──────────────────────────── HELPERS ────────────────────────────
 
+  private resolveRecommendedModel(
+    providerCode: string | undefined,
+    models?: Array<{
+      id: string;
+      name?: string;
+      modelCode: string;
+      isActive?: boolean;
+    }> | null,
+  ): { id: string; name?: string; modelCode: string } | null {
+    const recommendedCode = getRecommendedModelCode(providerCode);
+    if (!recommendedCode) return null;
+
+    const model = (models ?? []).find(
+      (item) => item.modelCode === recommendedCode && item.isActive !== false,
+    );
+    if (!model) return null;
+
+    return {
+      id: model.id,
+      name: model.name,
+      modelCode: model.modelCode,
+    };
+  }
+
+  private async maybeSetRecommendedDefaultOnFirstIntegration(
+    me: any,
+    providerId: string,
+  ) {
+    const myAdminId = tenantId(me);
+    if (!myAdminId) return;
+
+    const otherConnectedCount = await this.integrationRepo
+      .createQueryBuilder("i")
+      .where("i.adminId = :adminId", { adminId: myAdminId })
+      .andWhere("i.providerId != :providerId", { providerId })
+      .andWhere("i.encryptedCredentials IS NOT NULL")
+      .getCount();
+    if (otherConnectedCount > 0) return;
+
+    const existingDefault = await this.defaultModelRepo.findOne({
+      where: { adminId: myAdminId },
+    });
+    if (existingDefault) return;
+
+    const provider = await this.providerRepo.findOne({
+      where: { id: providerId },
+    });
+    const recommendedCode = getRecommendedModelCode(provider?.code);
+    if (!recommendedCode) return;
+
+    const model = await this.modelRepo.findOne({
+      where: {
+        providerId,
+        modelCode: recommendedCode,
+        isActive: true,
+      },
+    });
+    if (!model) return;
+
+    await this.setDefaultModel(me, { modelId: model.id });
+  }
+
   private toProviderResponse(
     entity: AiProviderEntity,
     models?: AiModelEntity[],
@@ -2017,6 +2092,7 @@ export class AiService {
             isAvailable: availabilityMap?.get(m.id) ?? true,
           }))
         : undefined,
+      recommendedModel: this.resolveRecommendedModel(entity.code, models),
       created_at: entity.created_at,
       updated_at: entity.updated_at,
     };
@@ -2082,6 +2158,10 @@ export class AiService {
       jsonMode: entity.jsonMode,
       reasoning: entity.reasoning,
       toolsCalling: entity.toolsCalling,
+      isRecommended:
+        entity.isActive !== false &&
+        !!entity.modelCode &&
+        entity.modelCode === getRecommendedModelCode(entity.provider?.code),
       modalities: entity.modalities,
       metadata: entity.metadata,
       contextWindow: entity.contextWindow,

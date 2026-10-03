@@ -217,6 +217,12 @@ export class AiProviderModelSummaryDto {
 	isAvailable?: boolean;
 }
 
+export class RecommendedModelSummaryDto {
+	id: string;
+	name?: string;
+	modelCode: string;
+}
+
 export class ProviderResponseDto {
 	id: string;
 	code?: string;
@@ -232,6 +238,7 @@ export class ProviderResponseDto {
 	adminId?: string;
 	models?: AiProviderModelSummaryDto[];
 	integration?: { id: string; baseUrl?: string; credentials?: Record<string, any>; adminId?: string };
+	recommendedModel?: RecommendedModelSummaryDto | null;
 	created_at: Date;
 	updated_at: Date;
 }
@@ -572,6 +579,7 @@ export class ModelResponseDto {
 		maxOutputTokens?: number;
 	};
 	provider?: ProviderResponseDto;
+	isRecommended?: boolean;
 
 	created_at: Date;
 	updated_at: Date;
