@@ -168,7 +168,6 @@ export class AgentInputService {
     const mediaId = media.id;
     const caption = String(media.caption ?? "").trim();
     try {
-      this.logger.log(`Processing media ${mediaId} of type ${kind} for message ${message.id}`, JSON.stringify(message, null, 2));
       if (!mediaId || !message.accountId) {
         throw new MediaUnderstandingError("Missing media id or account", "MISSING_MEDIA");
       }

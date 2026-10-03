@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { toFile } from "openai";
 import {
   MediaConfigService,
@@ -30,6 +30,7 @@ const schema = {
 
 @Injectable()
 export class DocumentMediaProcessor {
+  private readonly logger = new Logger (DocumentMediaProcessor.name);
   constructor(private readonly mediaConfig: MediaConfigService) {}
 
   estimate(buffer: Buffer): MediaUsage {
@@ -131,10 +132,15 @@ export class DocumentMediaProcessor {
         usage,
         model: models.documentModel,
       };
-    } finally {
+    } catch(error) {
+      this.logger.error(`Error processing document ${name}`, error);
+      throw error;
+    }
+    finally {
       try {
         await client.files.delete(file.id);
-      } catch {
+      } catch(error) {
+        this.logger.error(`Error deleting file ${file.id}`, error);
         /* ignore */
       }
     }
