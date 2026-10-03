@@ -2359,6 +2359,7 @@ export class WhatsappService {
     // but user requested "handle its remaing loigc as unread count normally"
     conversation.unreadCount = (conversation.unreadCount || 0) + 1;
     conversation.lastMessageId = savedMsg.id;
+    conversation.lastMessage = savedMsg;
     conversation.lastMessageDirection = MessageDirection.INBOUND;
     conversation.lastMessageType = savedMsg.messageType;
     conversation.lastMessagePreview =

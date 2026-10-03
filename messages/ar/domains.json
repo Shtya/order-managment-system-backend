@@ -116,8 +116,8 @@
   },
   "conversation": {
     "not_found": "المحادثة غير موجودة",
-    "human_handoff_title": "العميل طلب موظفاً",
-    "human_handoff_message": "{customerName} ({phone}) طلب التحدث مع فريق المتجر."
+    "human_handoff_title": "العميل طلب تدخل بشري",
+    "human_handoff_message": "{customerName} ({phone}) طلب تدخل بشري."
   },
   "customer": {
     "not_found": "العميل غير موجود",

@@ -116,8 +116,8 @@
   },
   "conversation": {
     "not_found": "Conversation not found",
-    "human_handoff_title": "Customer asked for a human",
-    "human_handoff_message": "{customerName} ({phone}) asked to talk to the store team."
+    "human_handoff_title": "Customer asked for human intervention",
+    "human_handoff_message": "{customerName} ({phone}) asked for human intervention."
   },
   "customer": {
     "not_found": "Customer not found",
