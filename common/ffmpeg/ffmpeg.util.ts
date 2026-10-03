@@ -1,12 +1,22 @@
 import { execFile } from "child_process";
 import { promisify } from "util";
+import ffmpegStatic from "ffmpeg-static";
+import ffprobeStatic from "ffprobe-static";
 import { MediaUnderstandingError } from "src/ai/media/media-config.service";
 
 const execFileAsync = promisify(execFile);
 
+function ffmpegBin(): string {
+  return process.env.FFMPEG_PATH || ffmpegStatic || "ffmpeg";
+}
+
+function ffprobeBin(): string {
+  return process.env.FFPROBE_PATH || ffprobeStatic?.path || "ffprobe";
+}
+
 export async function runFfmpeg(args: string[]): Promise<void> {
   try {
-    await execFileAsync("ffmpeg", args, { timeout: 60_000 });
+    await execFileAsync(ffmpegBin(), args, { timeout: 60_000 });
   } catch (err: any) {
     if (err?.code === "ENOENT") {
       throw new MediaUnderstandingError("ffmpeg is not installed", "FFMPEG_MISSING");
@@ -20,7 +30,7 @@ export async function runFfmpeg(args: string[]): Promise<void> {
 
 export async function runFfprobe(args: string[]): Promise<string> {
   try {
-    const { stdout } = await execFileAsync("ffprobe", args, { timeout: 30_000 });
+    const { stdout } = await execFileAsync(ffprobeBin(), args, { timeout: 30_000 });
     return String(stdout ?? "").trim();
   } catch (err: any) {
     if (err?.code === "ENOENT") {
