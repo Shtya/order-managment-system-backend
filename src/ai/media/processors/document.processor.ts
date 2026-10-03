@@ -15,8 +15,16 @@ const schema = {
     documentType: { type: "string" },
     summary: { type: "string" },
     information: {
-      type: "object",
-      additionalProperties: true,
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string" },
+          value: { type: "string" },
+        },
+        required: ["name", "value"],
+      },
     },
   },
   required: [
@@ -158,7 +166,7 @@ Read the document and return:
 - confidence
 - documentType
 - summary
-- information
+- information: a list of {name, value} fields (empty list if none)
 
 Do NOT answer the customer.
 
@@ -181,8 +189,31 @@ function compactInfo(information: unknown): string {
     return "";
   }
 
+  const payload = Array.isArray(information)
+    ? Object.fromEntries(
+        information
+          .map((item) => {
+            if (!item || typeof item !== "object") return null;
+            const name = String((item as { name?: unknown }).name ?? "").trim();
+            const value = String((item as { value?: unknown }).value ?? "").trim();
+            if (!name || !value) return null;
+            return [name, value] as const;
+          })
+          .filter((entry): entry is readonly [string, string] => Boolean(entry)),
+      )
+    : information;
+
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    !Array.isArray(payload) &&
+    Object.keys(payload).length === 0
+  ) {
+    return "";
+  }
+
   try {
-    const json = JSON.stringify(information);
+    const json = JSON.stringify(payload);
 
     return json.length > 1500
       ? `${json.slice(0, 1500)}…`
