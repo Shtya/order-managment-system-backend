@@ -2364,6 +2364,8 @@ export class WhatsappService {
       });
     }
 
+    const bindFlowOrigin = this.shouldBindFlowOrigin(metaMsg, type, originParent);
+
     const message = this.messageRepo.create({
       adminId: account.adminId,
       accountId: account.id,
@@ -2377,9 +2379,9 @@ export class WhatsappService {
       conversationId: conversation.id,
       reactionToId,
       replyToId,
-      orderId: originParent?.orderId ?? null,
-      automationRunId: originParent?.automationRunId ?? null,
-      campaignId: originParent?.campaignId ?? null,
+      orderId: bindFlowOrigin ? originParent?.orderId ?? null : null,
+      automationRunId: bindFlowOrigin ? originParent?.automationRunId ?? null : null,
+      campaignId: bindFlowOrigin ? originParent?.campaignId ?? null : null,
     });
 
     const savedMsg = await this.messageRepo.save(message);
@@ -2518,6 +2520,29 @@ export class WhatsappService {
       return CampaignRecipientDeliveryStatus.FAILED;
     }
     return null;
+  }
+
+  /**
+   * Copy automation/campaign/order FKs only for a button/list/template-button answer,
+   * or a location pin that fulfills a pending location_request — not a free-form thread reply.
+   */
+  private shouldBindFlowOrigin(
+    metaMsg: { type?: string; interactive?: { type?: string }; button?: { text?: string } },
+    type: WhatsappMessageType,
+    originParent: WhatsappMessageEntity | null,
+  ): boolean {
+    if (!originParent) return false;
+    if (type === WhatsappMessageType.LOCATION) {
+      return (
+        originParent.actionIntent === MessageActionIntent.LOCATION_REQUEST &&
+        originParent.actionStatus === MessageActionStatus.PENDING
+      );
+    }
+    const reply = this.extractReplyData(metaMsg);
+    if (!reply) return false;
+    return (
+      type === WhatsappMessageType.INTERACTIVE || type === WhatsappMessageType.BUTTON
+    );
   }
 
   private extractReplyData(metaMsg: any): { id?: string; text: string } | null {
