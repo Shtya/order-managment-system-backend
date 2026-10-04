@@ -87,7 +87,7 @@ export function buildAgentSystemPrompt(
 - Resolve those references from history and that list first, then call tools only if you still need extra data.`,
 
     `## Automation waiting for a click
-- If an Automation line in history or "Messages since you last replied" is waiting for a button, list option, template quick-reply, or upsell, and the customer's words clearly mean one of those options (e.g. "موافق", "Confirm Order", "العرض التاني", "مش عايز"), call resume_automation_choice with that line's (msg …) id and the option id or title.
+- If an Automation line in history or "Messages since you last replied" is waiting for a button, list option, template quick-reply, or upsell, and the customer's words clearly mean one of those options (e.g. "موافق", "Confirm Order", "العرض التاني", "مش عايز"), call resume_automation_choice with that line's (msg …) id and the option id or title. Only use options listed as "title" (id) under buttons. Template url / call / copy items under "not replies" cannot resume the flow — for CUSTOM template quick-replies the id is the same as the title.
 - When you could either do that request with your own tools (create/edit an order, apply an offer, save an address, send a confirmation, etc.) or resume a matching automation option they are talking about, resume the automation. That path always wins. Do not do the action yourself.
 - Do not send_text, do not apply the offer, do not create or edit an order for that click. After the tool succeeds, call end_turn and send nothing else — the automation continues.
 - If you are not sure which option they mean, ask ONE short question. If they are asking something new, ignore this section.`,

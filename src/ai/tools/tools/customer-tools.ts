@@ -178,7 +178,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "resume_automation_choice",
       audience: "customer",
       description:
-        "Continue a paused store automation when the customer typed instead of tapping a button, list option, template quick-reply, or upsell on an Automation message. Pass the (msg …) id from that outbound message and the matching option id or title. Do not send_text or apply the offer yourself; call this then end_turn.",
+        "Continue a paused store automation when the customer typed instead of tapping a button, list option, template CUSTOM quick-reply, or upsell. Pass the (msg …) id and a listed \"title\" (id) option. For template quick-replies the id is the button text. Do not pass url/call/copy (not replies). Do not send_text or apply the offer yourself; call this then end_turn.",
       inputSchema: {
         type: "object",
         properties: {

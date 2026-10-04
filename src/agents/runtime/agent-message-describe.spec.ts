@@ -284,8 +284,8 @@ describe("describeMessage origin", () => {
         },
       }),
     );
-    expect(mixed).toContain('url "View Order" (ORDZCVNN6K)');
-    expect(mixed).toContain('"Confirm Order" (Confirm Order)');
-    expect(mixed).toContain('"Cancel Order" (Cancel Order)');
+    expect(mixed).toContain('buttons: "Confirm Order" (Confirm Order) | "Cancel Order" (Cancel Order)');
+    expect(mixed).toContain('not replies: visit_website "View Order"');
+    expect(mixed).not.toContain('url "View Order" (ORDZCVNN6K)');
   });
 });

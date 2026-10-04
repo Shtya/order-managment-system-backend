@@ -254,8 +254,9 @@ function templateExtras(c: WhatsappTemplateMessagePayload, message: WhatsappMess
   if (headerText) bits.push(`headerText="${truncate(headerText, 80)}"`);
   const bodyParams = templateParamTexts(tpl.components, "body");
   if (bodyParams.length) bits.push(`vars: ${bodyParams.join(" | ")}`);
-  const buttonBits = templateButtons(tpl.components, cfg?.buttons);
-  if (buttonBits.length) bits.push(`buttons: ${buttonBits.join(" | ")}`);
+  const { replies, others } = templateButtons(tpl.components, cfg?.buttons);
+  if (replies.length) bits.push(`buttons: ${replies.join(" | ")}`);
+  if (others.length) bits.push(`not replies: ${others.join(" | ")}`);
   return bits;
 }
 
@@ -315,31 +316,30 @@ function templateParamText(param: WhatsappTemplateParameter): string | undefined
 function templateButtons(
   components: WhatsappTemplateComponent[] | undefined,
   configButtons: TemplateConfig["buttons"],
-): string[] {
+): { replies: string[]; others: string[] } {
   if (configButtons?.length) {
-    const urlParams = (components ?? [])
-      .filter((comp): comp is Extract<WhatsappTemplateComponent, { type: "button" }> =>
-        comp.type === "button",
-      )
-      .map((comp) => (comp.parameters ?? []).map(templateParamText).filter(Boolean).join(" "));
-    let urlParamIndex = 0;
-    return configButtons
-      .map((btn) => {
-        if (!btn.text) return "";
-        if (btn.type === "CUSTOM") return `"${btn.text}" (${btn.text})`;
-        return `${btn.type.toLowerCase()} "${btn.text}"`;
-      })
-      .filter(Boolean);
+    const replies: string[] = [];
+    const others: string[] = [];
+    for (const btn of configButtons) {
+      if (!btn.text) continue;
+      if (btn.type === "CUSTOM") replies.push(`"${btn.text}" (${btn.text})`);
+      else others.push(`${btn.type.toLowerCase()} "${btn.text}"`);
+    }
+    return { replies, others };
   }
-  return (components ?? [])
-    .filter((comp): comp is Extract<WhatsappTemplateComponent, { type: "button" }> =>
-      comp.type === "button",
-    )
-    .map((comp) => {
-      const text = (comp.parameters ?? []).map(templateParamText).filter(Boolean).join(" ");
-      const label = text || comp.sub_type || "button";
-      return `"${label}" (${text || comp.index})`;
-    });
+  const replies: string[] = [];
+  const others: string[] = [];
+  for (const comp of components ?? []) {
+    if (comp.type !== "button") continue;
+    const text = (comp.parameters ?? []).map(templateParamText).filter(Boolean).join(" ");
+    if (comp.sub_type === "quick_reply") {
+      const label = text || "button";
+      replies.push(`"${label}" (${text || comp.index})`);
+    } else {
+      others.push(`${comp.sub_type || "button"} "${text || comp.sub_type}"`);
+    }
+  }
+  return { replies, others };
 }
 
 function speakerLabel(message: WhatsappMessageEntity): string {
