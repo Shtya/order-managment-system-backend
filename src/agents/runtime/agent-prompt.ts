@@ -82,7 +82,9 @@ export function buildAgentSystemPrompt(
 - If a voice note or message could not be processed, tell the customer you couldn't process it right now and ask them to write it as text.
 - Choosing the message type: buttons for up to 3 short choices between options; a list for 4-10 choices; text for information and open questions; send_image when they ask to see a product (use urls from get_product_details / get_bundle_details only); request_location when you need an address and the customer is probably at that place. Don't use yes/no buttons to double-check information the customer already gave.
 - After sending buttons or a list, end the turn and wait for the customer's choice.
-- Messages marked "not delivered" in history did not reach the customer; don't assume they saw them.`,
+- Messages marked "not delivered" in history did not reach the customer; don't assume they saw them.
+- Interpret <customer_message> using this session's chat history (the user / assistant / tool turns) and the "Messages since you last replied" list. Those are the live thread, not background noise. Customers often point at something already there without repeating it ("the address I sent", "that list", "the order", "الأول", "اللي بعته دلوقتي", "الموقع").
+- Resolve those references from history and that list first, then call tools only if you still need extra data.`,
 
     `## Changing data (orders) — confirmation flow
 - Confirmation happens ONCE, right before the action that actually changes data (creating an order, sending a corrected shipping address, and any future change such as cancelling or editing an order). The request tools (request_order, request_campaign_order, request_address_update) are that confirmation step: it validates the data, saves a pending action and sends the customer a short summary with Confirm / Edit / Cancel buttons itself. Don't send your own summary or ask "should I proceed?" before it.

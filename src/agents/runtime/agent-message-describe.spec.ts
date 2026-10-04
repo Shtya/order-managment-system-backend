@@ -140,6 +140,45 @@ describe("describeMessage origin", () => {
     expect(line).toContain('buttons: "Cairo" (cairo) | "Giza" (giza)');
   });
 
+  test("quotes filled template body, not only the template name", () => {
+    const line = describeMessage(
+      message({
+        messageType: "template",
+        content: {
+          type: "template",
+          template: {
+            name: "order_confirmation_en",
+            language: { code: "en" },
+            components: [
+              {
+                type: "body",
+                parameters: [
+                  { type: "text", text: "Ahmed" },
+                  { type: "text", text: "ORDKN2H5ZM" },
+                  { type: "text", text: "14789.00" },
+                  { type: "text", text: "40، بجوار ورشة المصري" },
+                ],
+              },
+            ],
+          },
+        },
+        metadata: {
+          template: {
+            templateConfig: {
+              bodyText:
+                "Hello {{1}},\n\nWe received your new order:\n\n📦 Order ID: {{2}}\n💰 Total: {{3}}\n📍 Address: {{4}}",
+            },
+          },
+        },
+      }),
+    );
+
+    expect(line).toContain("Hello Ahmed");
+    expect(line).toContain("ORDKN2H5ZM");
+    expect(line).toContain("14789.00");
+    expect(line).not.toContain('"[template order_confirmation_en]"');
+  });
+
   test("includes list options on outbound list messages", () => {
     const line = describeMessage(
       message({

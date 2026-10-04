@@ -136,7 +136,7 @@ export function bodyOf(message: WhatsappMessageEntity, limit: number = 1200): st
     return `[voice transcript] ${metadataOf(message).transcript ?? "[voice note, no transcript]"}`;
   } else if (isType(c, "interactive")) body = interactiveBody(c);
   else if (isType(c, "button")) body = c.button.text || "[button]";
-  else if (isType(c, "template")) body = `[template ${c.template.name}]`;
+  else if (isType(c, "template")) body = templateBody(c, message);
   else if (isType(c, "reaction")) body = `[reaction ${c.reaction.emoji}]`;
   else if (isType(c, "location")) body = locationBody(c);
   else if (isType(c, "image") || isType(c, "video") || isType(c, "document")) {
@@ -148,6 +148,23 @@ export function bodyOf(message: WhatsappMessageEntity, limit: number = 1200): st
 
 function textBody(c: WhatsappTextMessagePayload): string {
   return c.text.body ?? "";
+}
+
+function templateBody(
+  c: WhatsappTemplateMessagePayload,
+  message: WhatsappMessageEntity,
+): string {
+  const name = c.template.name || "template";
+  const bodyText = metadataOf(message).template?.templateConfig?.bodyText;
+  const params = templateParamTexts(c.template.components, "body");
+  if (bodyText) {
+    const filled = bodyText.replace(/\{\{(\d+)\}\}/g, (_, n: string) => {
+      const value = params[Number(n) - 1];
+      return value ?? `{{${n}}}`;
+    });
+    return filled.trim() || `[template ${name}]`;
+  }
+  return params.length ? params.join(" | ") : `[template ${name}]`;
 }
 
 function interactiveBody(c: WhatsappInteractiveMessagePayload): string {
