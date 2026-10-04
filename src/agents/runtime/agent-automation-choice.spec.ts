@@ -102,7 +102,11 @@ describe("prepareResumeAutomationChoice", () => {
         buttonId: "",
         buttonText: "Yes",
       }),
-    ).toMatchObject({ ok: false, code: "UNKNOWN_OPTION" });
+    ).toEqual({
+      ok: false,
+      code: "UNKNOWN_OPTION",
+      error: expect.any(String),
+    });
   });
 
   test("rejects an unknown option", () => {
@@ -112,7 +116,11 @@ describe("prepareResumeAutomationChoice", () => {
         buttonId: "nope",
         buttonText: "",
       }),
-    ).toMatchObject({ ok: false, code: "UNKNOWN_OPTION" });
+    ).toEqual({
+      ok: false,
+      code: "UNKNOWN_OPTION",
+      error: expect.any(String),
+    });
   });
 
   test("rejects a missing row", () => {
@@ -122,6 +130,10 @@ describe("prepareResumeAutomationChoice", () => {
         buttonId: "u1_btn_0",
         buttonText: "",
       }),
-    ).toMatchObject({ ok: false, code: "NOT_FOUND" });
+    ).toEqual({
+      ok: false,
+      code: "NOT_FOUND",
+      error: expect.any(String),
+    });
   });
 });
