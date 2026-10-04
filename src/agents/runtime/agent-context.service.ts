@@ -27,7 +27,7 @@ import {
   resolveAgentCapabilities,
 } from "./agent-runtime.constants";
 import { AgentTaskService } from "./agent-task.service";
-import { agentGapSince } from "./agent-gap-window";
+import { agentGapSince } from "./agent-input.service";
 import { estimateTokens } from "./agent-runtime.constants";
 
 export type AgentTurnContext = {
