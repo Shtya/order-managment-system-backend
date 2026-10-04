@@ -17,11 +17,8 @@ export class BackfillHandoffForOpenIssues1780000000000
           WHERE s.code NOT IN ('solved', 'cancelled')
             AND i."adminId" = c."adminId"
             AND (
-              i."conversationId" = c.id
-              OR (
                 i."customerId" IS NOT NULL
                 AND i."customerId" = c."customerId"
-              )
             )
         )
     `);
