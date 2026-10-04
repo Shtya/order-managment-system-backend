@@ -253,7 +253,39 @@ describe("describeMessage origin", () => {
       }),
     );
     expect(tplLine).toContain("(msg msg-tpl-1)");
-    expect(tplLine).toContain('"Confirm Order" (quick_reply:0)');
-    expect(tplLine).toContain('"Cancel Order" (quick_reply:1)');
+    expect(tplLine).toContain('"Confirm Order" (Confirm Order)');
+    expect(tplLine).toContain('"Cancel Order" (Cancel Order)');
+
+    const mixed = describeMessage(
+      message({
+        id: "msg-tpl-2",
+        messageType: "template",
+        content: {
+          type: "template",
+          template: {
+            name: "order_confirmation_en",
+            language: { code: "en" },
+            components: [
+              { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: "ORDZCVNN6K" }] },
+            ],
+          },
+        },
+        metadata: {
+          template: {
+            templateConfig: {
+              bodyText: "Hello",
+              buttons: [
+                { type: "VISIT_WEBSITE", text: "View Order" },
+                { type: "CUSTOM", text: "Confirm Order" },
+                { type: "CUSTOM", text: "Cancel Order" },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    expect(mixed).toContain('url "View Order" (ORDZCVNN6K)');
+    expect(mixed).toContain('"Confirm Order" (Confirm Order)');
+    expect(mixed).toContain('"Cancel Order" (Cancel Order)');
   });
 });

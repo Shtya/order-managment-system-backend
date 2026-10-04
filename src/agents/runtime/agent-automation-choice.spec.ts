@@ -40,6 +40,29 @@ describe("matchAutomationChoice", () => {
     });
   });
 
+  test("prefers template CUSTOM config buttons over url component index", () => {
+    expect(
+      matchAutomationChoice(
+        {
+          type: "template",
+          template: {
+            name: "t",
+            language: { code: "en" },
+            components: [
+              { type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: "ORD1" }] },
+            ],
+          },
+        } as any,
+        { buttonText: "Confirm Order" },
+        [
+          { type: "VISIT_WEBSITE", text: "View Order" },
+          { type: "CUSTOM", text: "Confirm Order" },
+          { type: "CUSTOM", text: "Cancel Order" },
+        ],
+      ),
+    ).toEqual({ id: "Confirm Order", text: "Confirm Order" });
+  });
+
   test("matches template CUSTOM button text from config", () => {
     expect(
       matchAutomationChoice(

@@ -316,21 +316,30 @@ function templateButtons(
   components: WhatsappTemplateComponent[] | undefined,
   configButtons: TemplateConfig["buttons"],
 ): string[] {
-  const fromComponents = (components ?? [])
-    .filter((comp): comp is Extract<WhatsappTemplateComponent, { type: "button" }> => comp.type === "button")
+  if (configButtons?.length) {
+    const urlParams = (components ?? [])
+      .filter((comp): comp is Extract<WhatsappTemplateComponent, { type: "button" }> =>
+        comp.type === "button",
+      )
+      .map((comp) => (comp.parameters ?? []).map(templateParamText).filter(Boolean).join(" "));
+    let urlParamIndex = 0;
+    return configButtons
+      .map((btn) => {
+        if (!btn.text) return "";
+        if (btn.type === "CUSTOM") return `"${btn.text}" (${btn.text})`;
+        return `${btn.type.toLowerCase()} "${btn.text}"`;
+      })
+      .filter(Boolean);
+  }
+  return (components ?? [])
+    .filter((comp): comp is Extract<WhatsappTemplateComponent, { type: "button" }> =>
+      comp.type === "button",
+    )
     .map((comp) => {
       const text = (comp.parameters ?? []).map(templateParamText).filter(Boolean).join(" ");
-      const label = `${comp.sub_type || "button"}${text ? ` "${text}"` : ""}`;
-      return `${label} (${comp.index})`;
+      const label = text || comp.sub_type || "button";
+      return `"${label}" (${text || comp.index})`;
     });
-  if (fromComponents.length) return fromComponents;
-  return (configButtons ?? [])
-    .map((btn, index) => {
-      if (!btn.text) return "";
-      const kind = btn.type === "CUSTOM" ? "quick_reply" : btn.type.toLowerCase();
-      return `"${btn.text}" (${kind}:${index})`;
-    })
-    .filter(Boolean);
 }
 
 function speakerLabel(message: WhatsappMessageEntity): string {

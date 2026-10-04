@@ -1,5 +1,8 @@
 import type { TemplateConfig } from "entities/whatsapp.entity";
-import type { WhatsappSendMessagePayload } from "src/whatsapp/services/WhatsappApi.service";
+import type {
+  WhatsappSendMessagePayload,
+  WhatsappTemplateComponent,
+} from "src/whatsapp/services/WhatsappApi.service";
 
 export type AutomationChoice = { id: string; text: string };
 
@@ -31,18 +34,20 @@ export function automationChoicesOf(
     return [];
   }
   if (content.type === "template") {
-    const fromComponents = (content.template.components ?? [])
-      .filter((comp) => comp.type === "button")
+    const fromConfig = choicesFromTemplateConfig(templateButtons);
+    if (fromConfig.length) return fromConfig;
+    return (content.template.components ?? [])
+      .filter((comp): comp is Extract<WhatsappTemplateComponent, { type: "button" }> =>
+        comp.type === "button" && comp.sub_type === "quick_reply",
+      )
       .map((comp) => {
         const text = (comp.parameters ?? [])
           .map((p) => (p.type === "text" ? p.text : ""))
           .filter(Boolean)
           .join(" ");
-        return { id: String(comp.index ?? ""), text };
+        return { id: text || String(comp.index ?? ""), text };
       })
       .filter((c) => c.id || c.text);
-    if (fromComponents.length) return fromComponents;
-    return choicesFromTemplateConfig(templateButtons);
   }
   return choicesFromTemplateConfig(templateButtons);
 }
