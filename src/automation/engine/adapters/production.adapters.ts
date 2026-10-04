@@ -7,6 +7,7 @@ import {
 } from "src/whatsapp/services/WhatsappApi.service";
 import { InjectRepository } from "@nestjs/typeorm";
 import {
+  MessageSendSource,
   WhatsappTemplateEntity,
   WhatsappAccountEntity,
 } from "entities/whatsapp.entity";
@@ -93,11 +94,17 @@ export class ProductionAutomationAdapter implements AutomationAdapter {
       headerUrl?: string;
     },
     adminId?: string,
+    origin?: { orderId?: string; automationRunId?: string },
   ) {
     const response = await this.whatsappService.sendTemplate(
       { id: adminId, adminId } as any,
       data,
       accountId,
+      undefined,
+      undefined,
+      MessageSendSource.AUTOMATION,
+      undefined,
+      origin,
     );
 
     const messageId = response.messages?.[0]?.id;

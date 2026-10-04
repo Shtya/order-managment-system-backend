@@ -8,6 +8,7 @@ import {
 } from "entities/campaigns.entity";
 import { AppGateway } from "common/app.gateway";
 import { WhatsappMessageCostService } from "src/whatsapp/services/whatsapp-message-cost.service";
+import { MessageSendSource } from "entities/whatsapp.entity";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { hydrateCampaignPlaceholders } from "./campaign-placeholders";
 import {
@@ -140,6 +141,7 @@ export class CampaignWebhookEventsService {
         phoneNumber: string;
         name: string | null;
         accessToken: string | null;
+        orderId: string | null;
         wasReplied: boolean;
       }>(
         `
@@ -156,7 +158,7 @@ export class CampaignWebhookEventsService {
             "updatedAt" = NOW()
         FROM target AS t
         WHERE r.id = t.id
-        RETURNING r.id, r."campaignId", r."phoneNumber", r.name, r."accessToken", t."wasReplied" AS "wasReplied"
+        RETURNING r.id, r."campaignId", r."phoneNumber", r.name, r."accessToken", r."orderId", t."wasReplied" AS "wasReplied"
         `,
         [input.adminId, input.providerMessageId, input.at],
       );
@@ -218,6 +220,7 @@ export class CampaignWebhookEventsService {
       phoneNumber: string;
       name?: string | null;
       accessToken: string | null;
+      orderId?: string | null;
     },
     reply: { buttonText?: string | null; buttonId?: string | null },
   ) {
@@ -255,6 +258,12 @@ export class CampaignWebhookEventsService {
         text: { body, preview_url: true },
       },
       accountId,
+      undefined,
+      undefined,
+      undefined,
+      MessageSendSource.COMPAIGN,
+      undefined,
+      { campaignId: campaign.id, orderId: recipient.orderId },
     );
     await this.recipientRepo.query(
       `

@@ -63,6 +63,7 @@ export interface AutomationAdapter {
       headerUrl?: string;
     },
     adminId?: string,
+    origin?: { orderId?: string; automationRunId?: string },
   ): Promise<{
     success: boolean;
     messageId?: string;

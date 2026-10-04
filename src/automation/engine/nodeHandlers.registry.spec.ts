@@ -1783,6 +1783,7 @@ describe("ActionSendWhatsappTemplateMessageHandler", () => {
           bodyVariables: { v1: "hello" },
         }),
         "admin-1",
+        { orderId: "order-1", automationRunId: "run-1" },
       );
       expect(result.success).toBe(true);
       expect(result.shouldPause).toBe(false);
@@ -1807,6 +1808,7 @@ describe("ActionSendWhatsappTemplateMessageHandler", () => {
         "acc-run",
         expect.objectContaining({ templateId: "tpl-1" }),
         "admin-1",
+        { orderId: "order-1", automationRunId: "run-1" },
       );
     });
 
@@ -3021,6 +3023,9 @@ describe("ActionSendWhatsappMessageHandler", () => {
         null,
         MessageActionIntent.NONE,
         "order-1",
+        "automation",
+        undefined,
+        { orderId: "order-1", automationRunId: "run-1" },
       );
       expect(result.success).toBe(true);
       expect(result.shouldPause).toBe(false);

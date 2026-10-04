@@ -5,10 +5,24 @@ import { AGENT_END_TURN_TOOL } from "src/ai/orchestrator/ai-loop-policy";
 export const AGENT_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 export const AGENT_PREVIOUS_SUMMARY_WAIT_MS = 20_000;
 export const AGENT_PREVIOUS_RAW_MESSAGES = 10;
-export const AGENT_GAP_MESSAGES = 10;
+export const AGENT_GAP_MESSAGES = 15;
 export const AGENT_HUMAN_PAUSE_MS = 30 * 60 * 1000;
 export const AGENT_PENDING_ACTION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const AGENT_UNSUPPORTED_REPLY_COOLDOWN_SECONDS = 5 * 60;
+
+const AGENT_MESSAGE_ORIGIN_RELATIONS = {
+  sentByUser: true,
+  order: true,
+  campaign: true,
+  automationRun: { version: { automationFlow: true } },
+};
+
+/** Relations needed so describeMessage can show automation/campaign/order origin. */
+export const AGENT_DESCRIBE_MESSAGE_RELATIONS = {
+  ...AGENT_MESSAGE_ORIGIN_RELATIONS,
+  replyTo: AGENT_MESSAGE_ORIGIN_RELATIONS,
+  reactionTo: AGENT_MESSAGE_ORIGIN_RELATIONS,
+};
 
 /** Rough token budget of the live context; compaction starts at ~65% of it. */
 export const AGENT_CONTEXT_TOKEN_BUDGET = 48_000;

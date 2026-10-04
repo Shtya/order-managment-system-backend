@@ -16,13 +16,14 @@ import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.servi
 import { AiUsageActor, AiUsageSource } from "entities/ai-usage.entity";
 import { ClientService } from "src/clients/clients.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
-import { describeMessage } from "./agent-input.service";
+import { describeMessage } from "./agent-message-describe";
 import {
   AGENT_KEEP_RECENT_TURNS,
   AGENT_MEMORY_FACTS_LIMIT,
   AGENT_PREVIOUS_RAW_MESSAGES,
   AGENT_PREVIOUS_SUMMARY_WAIT_MS,
   AGENT_SESSION_TIMEOUT_MS,
+  AGENT_DESCRIBE_MESSAGE_RELATIONS,
 } from "./agent-runtime.constants";
 
 const SUMMARY_SYSTEM_PROMPT = `You summarize a WhatsApp conversation between a store's AI assistant and a customer, for the assistant to read later (not for a human).
@@ -181,6 +182,7 @@ export class AgentSessionService {
         conversationId: session.conversationId,
         createdAt: LessThan(session.startedAt),
       },
+      relations: AGENT_DESCRIBE_MESSAGE_RELATIONS,
       order: { createdAt: "DESC" },
       take: AGENT_PREVIOUS_RAW_MESSAGES,
     });

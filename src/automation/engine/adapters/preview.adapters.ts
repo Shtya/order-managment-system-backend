@@ -95,6 +95,7 @@ export class PreviewAutomationAdapter implements AutomationAdapter {
       headerUrl?: string;
     },
     adminId?: string,
+    _origin?: { orderId?: string; automationRunId?: string },
   ) {
     this.logger.log(
       `[PREVIEW] Skipping actual WhatsApp send to ${data.to} for template ID ${data.templateId}`,

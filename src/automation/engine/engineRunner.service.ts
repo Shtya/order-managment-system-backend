@@ -38,6 +38,7 @@ import { RequestTranslationService } from "common/translation.service";
 import { AutomationQueueService } from "src/queue/queues/automations.queue";
 import { AgentTaskService } from "src/agents/runtime/agent-task.service";
 import {
+  MessageSendSource,
   MessageStatus,
   WhatsappAccountEntity,
   WhatsappMessageEntity,
@@ -454,6 +455,12 @@ export class EngineRunnerService {
               text: { body: feedbackText },
             },
             runWhatsappAccountId(run),
+            undefined,
+            undefined,
+            run.triggerEntityId,
+            MessageSendSource.AUTOMATION,
+            undefined,
+            { orderId: run.triggerEntityId, automationRunId: run.id },
           );
         }
       }

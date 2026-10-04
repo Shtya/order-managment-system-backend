@@ -19,7 +19,10 @@ import { DateFilterUtil } from "common/date-filter.util";
 import { OrdersService } from "../orders/services/orders.service";
 import { OrderEntity, OrderStatus } from "entities/order.entity";
 import { AutomationRunEntity } from "entities/automation.entity";
-import { WhatsappAccountEntity } from "entities/whatsapp.entity";
+import {
+  MessageSendSource,
+  WhatsappAccountEntity,
+} from "entities/whatsapp.entity";
 import { WhatsappService } from "../whatsapp/whatsapp.service";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
@@ -447,7 +450,9 @@ export class UpsellsService {
     upsell: Upsell,
     order: OrderEntity,
     run?: AutomationRunEntity,
+    source?: MessageSendSource,
   ) {
+    source = source || MessageSendSource.AUTOMATION;
     const adminId = order.adminId;
 
     const config = upsell.messageConfig;
@@ -512,6 +517,12 @@ export class UpsellsService {
         interactive,
       },
       run?.whatsappAccountId || undefined,
+      undefined,
+      undefined,
+      order.id,
+      source,
+      undefined,
+      { orderId: order.id, automationRunId: run?.id },
     );
 
     // Save Upsell History record

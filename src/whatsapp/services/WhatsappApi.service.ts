@@ -312,6 +312,23 @@ export interface WhatsappInteractiveSection {
   rows?: WhatsappInteractiveSectionRow[];
 }
 
+export interface WhatsappInteractiveInboundButtonReply {
+  type: "button_reply";
+  button_reply: {
+    id: string;
+    title: string;
+  };
+}
+
+export interface WhatsappInteractiveInboundListReply {
+  type: "list_reply";
+  list_reply: {
+    id: string;
+    title: string;
+    description?: string;
+  };
+}
+
 export interface WhatsappInteractiveMessagePayload extends WhatsappMessageBase {
   type: "interactive";
   interactive:
@@ -329,7 +346,17 @@ export interface WhatsappInteractiveMessagePayload extends WhatsappMessageBase {
     | WhatsappInteractiveButtonProductList
     | WhatsappInteractiveButtonCallPermission
     | WhatsappInteractiveButtonCatalog
-    | WhatsappInteractiveButtonFlow;
+    | WhatsappInteractiveButtonFlow
+    | WhatsappInteractiveInboundButtonReply
+    | WhatsappInteractiveInboundListReply;
+}
+
+export interface WhatsappButtonMessagePayload extends WhatsappMessageBase {
+  type: "button";
+  button: {
+    text: string;
+    payload?: string;
+  };
 }
 
 export interface WhatsappTemplateLanguage {
@@ -420,6 +447,7 @@ export type WhatsappSendMessagePayload =
   | WhatsappLocationMessagePayload
   | WhatsappReactionMessagePayload
   | WhatsappInteractiveMessagePayload
+  | WhatsappButtonMessagePayload
   | WhatsappTemplateMessagePayload;
 
 export type WhatsappMessageData = Omit<

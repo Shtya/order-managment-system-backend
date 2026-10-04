@@ -1009,6 +1009,12 @@ describe("resumeFromWhatsappInteraction", () => {
         type: "text",
       }),
       "acc-1",
+      undefined,
+      undefined,
+      "order-1",
+      "automation",
+      undefined,
+      { orderId: "order-1", automationRunId: "run-1" },
     );
     expect(resume).toHaveBeenCalledWith("run-1", "n-up", "accept");
     expect(result.success).toBe(true);

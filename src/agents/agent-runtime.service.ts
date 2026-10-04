@@ -37,6 +37,7 @@ import {
   AGENT_COMPACTION_RATIO,
   AGENT_CONFIRM_BUTTON_PREFIX,
   AGENT_CONTEXT_TOKEN_BUDGET,
+  AGENT_DESCRIBE_MESSAGE_RELATIONS,
   AGENT_EDIT_BUTTON_PREFIX,
   AGENT_SEND_TOOL_NAMES,
   AGENT_UNSUPPORTED_REPLY_COOLDOWN_SECONDS,
@@ -105,7 +106,7 @@ export class AgentRuntimeService {
       ? (
           await this.messageRepo.find({
             where: { id: In(job.messageIds), adminId: job.adminId, conversationId: job.conversationId },
-            relations: { replyTo: true, reactionTo: true },
+            relations: AGENT_DESCRIBE_MESSAGE_RELATIONS,
             order: { createdAt: "ASC" },
           })
         ).filter((m) => m.status !== MessageStatus.DELETED)

@@ -15,6 +15,9 @@ import { User } from './user.entity';
 import { CustomerEntity } from './customers.entity';
 import { OrderEntity } from './order.entity';
 import { AgentEntity } from './agent.entity';
+import type { AutomationRunEntity } from './automation.entity';
+import type { CampaignEntity } from './campaigns.entity';
+import { WhatsappSendMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
 
 
 export enum TemplateCategory {
@@ -499,10 +502,18 @@ export enum MessageActionStatus {
 }
 
 export enum MessageSendSource {
+    AUTOMATION = 'automation',
+    COMPAIGN = 'campaign',
     SYSTEM = 'system',
     USER = 'user',
     AGENT = 'agent',
 }
+
+export type WhatsappMessageOriginIds = {
+    orderId?: string | null;
+    automationRunId?: string | null;
+    campaignId?: string | null;
+};
 
 @Index(['messageId',"adminId"])
 @Index(['messageId',"adminId", "actionStatus"])
@@ -532,6 +543,24 @@ export class WhatsappMessageEntity {
     @Column({ type: 'uuid', nullable: true })
     automationRunId: string; // 🌟 لربط الرسالة بمسار أتمتة معين إن وُجد
 
+    @ManyToOne("AutomationRunEntity", {
+        onDelete: 'SET NULL',
+        nullable: true,
+    })
+    @JoinColumn({ name: 'automationRunId' })
+    automationRun?: Relation<AutomationRunEntity | null>;
+
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    campaignId?: string | null;
+
+    @ManyToOne("CampaignEntity", {
+        onDelete: 'SET NULL',
+        nullable: true,
+    })
+    @JoinColumn({ name: 'campaignId' })
+    campaign?: Relation<CampaignEntity | null>;
+
     // 2. معرفات ميتا (Meta Identifiers)
     @Index({ unique: true })
     @Column({ type: 'varchar', length: 255 })
@@ -554,7 +583,7 @@ export class WhatsappMessageEntity {
 
     // 4. المحتوى والأخطاء (Payloads)
     @Column({ type: 'jsonb', nullable: true })
-    content: any; // محتوى الرسالة (النص، الزر المضغوط، تفاصيل القالب)
+    content: WhatsappSendMessagePayload; // محتوى الرسالة (النص، الزر المضغوط، تفاصيل القالب)
 
     @Column({ type: 'jsonb', nullable: true })
     metadata: any; // بيانات وصفية إضافية (Pricing, Conversation, Webhook details)

@@ -4,7 +4,7 @@ import {
   CampaignEntity,
   CampaignRecipientEntity,
 } from "entities/campaigns.entity";
-import { TemplateStatus } from "entities/whatsapp.entity";
+import { MessageSendSource, TemplateStatus } from "entities/whatsapp.entity";
 import type { CreateCampaignDto } from "dto/campaign.dto";
 import { TranslationService } from "common/translation.service";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
@@ -133,6 +133,9 @@ export class WhatsappCampaignChannel extends CampaignChannel {
         campaignRecipientId: recipient.id,
         channel: "whatsapp",
       },
+      MessageSendSource.COMPAIGN,
+      undefined,
+      { campaignId: campaign.id, orderId: recipient.orderId },
     );
 
     const providerMessageId = response?.messages?.[0]?.id;

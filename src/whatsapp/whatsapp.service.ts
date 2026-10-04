@@ -35,6 +35,7 @@ import {
   MessageActionIntent,
   MessageActionStatus,
   MessageSendSource,
+  WhatsappMessageOriginIds,
 } from "entities/whatsapp.entity";
 import {
   AutomationFlowEntity,
@@ -88,6 +89,7 @@ import { WhatsappMessageCostService } from "./services/whatsapp-message-cost.ser
 import { WhatsappAiService } from "./services/whatsapp-ai.service";
 import { AgentTurnQueueService } from "src/queue/queues/agent-turn.queue";
 import { AGENT_HUMAN_PAUSE_MS, isAgentSilenced } from "src/agents/runtime/agent-runtime.constants";
+import { shouldAgentHandleInbound } from "src/agents/runtime/agent-handle-inbound";
 
 /** Meta rejects template text/coupon params with an empty `text` / `coupon_code`. */
 function resolveWhatsappTemplateText(val: any): string {
@@ -868,6 +870,7 @@ export class WhatsappService {
     orderId?: string,
     sendSource: MessageSendSource = MessageSendSource.SYSTEM,
     sendSourceId?: string,
+    origin?: WhatsappMessageOriginIds,
   ) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -910,9 +913,11 @@ export class WhatsappService {
       response,
       metadata,
       actionIntent,
-      orderId,
+      origin?.orderId ?? orderId,
       sendSource,
       sendSourceId,
+      origin?.automationRunId,
+      origin?.campaignId,
     );
 
     return response;
@@ -959,6 +964,9 @@ export class WhatsappService {
     accountId?: string,
     localId?: string,
     metadata?: Record<string, any>,
+    sendSource: MessageSendSource = MessageSendSource.SYSTEM,
+    sendSourceId?: string,
+    origin?: WhatsappMessageOriginIds,
   ) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -1121,6 +1129,11 @@ export class WhatsappService {
       { ...payload, metadata: { ...metadata, ...templateMetadata } },
       resolvedAccountId,
       localId,
+      undefined,
+      origin?.orderId,
+      sendSource,
+      sendSourceId,
+      origin,
     );
   }
 
@@ -1134,6 +1147,8 @@ export class WhatsappService {
     orderId?: string,
     sendSource: MessageSendSource = MessageSendSource.SYSTEM,
     sendSourceId?: string,
+    automationRunId?: string | null,
+    campaignId?: string | null,
   ) {
     try {
       const messageId = response.messages?.[0]?.id;
@@ -1205,6 +1220,8 @@ export class WhatsappService {
           ? MessageActionStatus.PENDING
           : MessageActionStatus.NOT_APPLICABLE,
         orderId,
+        automationRunId: automationRunId ?? null,
+        campaignId: campaignId ?? null,
         metadata: {
           ...(response.localId ? { localId: response.localId } : {}),
           ...(metadata ? metadata : {}),
@@ -2329,6 +2346,24 @@ export class WhatsappService {
       if (replyParent) replyToId = replyParent.id;
     }
 
+    let originParent = replyParent;
+    if (
+      !originParent &&
+      type === WhatsappMessageType.LOCATION &&
+      conversation.id
+    ) {
+      originParent = await this.messageRepo.findOne({
+        where: {
+          adminId: account.adminId,
+          conversationId: conversation.id,
+          direction: MessageDirection.OUTBOUND,
+          actionIntent: MessageActionIntent.LOCATION_REQUEST,
+          actionStatus: MessageActionStatus.PENDING,
+        },
+        order: { createdAt: "DESC" },
+      });
+    }
+
     const message = this.messageRepo.create({
       adminId: account.adminId,
       accountId: account.id,
@@ -2342,6 +2377,9 @@ export class WhatsappService {
       conversationId: conversation.id,
       reactionToId,
       replyToId,
+      orderId: originParent?.orderId ?? null,
+      automationRunId: originParent?.automationRunId ?? null,
+      campaignId: originParent?.campaignId ?? null,
     });
 
     const savedMsg = await this.messageRepo.save(message);
@@ -2413,36 +2451,13 @@ export class WhatsappService {
 
     await this.processMessageActions(account.adminId, metaMsg);
 
-    if (this.shouldAgentHandle(type, replyData, replyParent, reactionParent)) {
+    if (shouldAgentHandleInbound({
+      ...(finalMsg ?? savedMsg),
+      replyTo: replyParent ?? finalMsg?.replyTo,
+      reactionTo: reactionParent ?? finalMsg?.reactionTo,
+    })) {
       await this.enqueueAgentTurn(account, conversation, savedMsg.id);
     }
-  }
-
-  /**
-   * Button/list answers to automations or ready messages belong to the automation; answers to the
-   * agent's own buttons go to the agent. Reactions only matter on the agent's confirmation summaries.
-   */
-  private shouldAgentHandle(
-    type: WhatsappMessageType,
-    replyData: { id?: string; text: string } | null,
-    replyParent: WhatsappMessageEntity | null,
-    reactionParent: WhatsappMessageEntity | null,
-  ): boolean {
-    if (type === WhatsappMessageType.REACTION) {
-      return (
-        reactionParent?.sendSource === MessageSendSource.AGENT &&
-        !!reactionParent.metadata?.agentPendingActionId
-      );
-    }
-    // this mean that he now answer for campaign or any ather message send from system
-    const isOptionAnswer =
-      !!replyParent &&
-      !!replyData &&
-      type !== WhatsappMessageType.LOCATION;
-    if (isOptionAnswer) {
-      return replyParent.sendSource === MessageSendSource.AGENT;
-    }
-    return true;
   }
 
   private async enqueueAgentTurn(

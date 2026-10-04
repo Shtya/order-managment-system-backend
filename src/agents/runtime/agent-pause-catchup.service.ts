@@ -6,7 +6,6 @@ import {
   ConversationAiMode,
   ConversationEntity,
   MessageDirection,
-  MessageSendSource,
   MessageStatus,
   WhatsappMessageEntity,
   WhatsappMessageType,
@@ -14,6 +13,7 @@ import {
 import { WhatsappAiService } from "src/whatsapp/services/whatsapp-ai.service";
 import { AgentTurnJobData } from "src/queue/common/queue.constants";
 import { AgentInputService, AgentInsight } from "./agent-input.service";
+import { shouldAgentHandleInbound } from "./agent-handle-inbound";
 
 const CATCHUP_LIMIT = 20;
 
@@ -94,7 +94,7 @@ export class AgentPauseCatchupService {
       take: CATCHUP_LIMIT,
     });
     const candidates = inbound.filter(
-      (m) => m.status !== MessageStatus.DELETED && this.shouldAgentHandle(m),
+      (m) => m.status !== MessageStatus.DELETED && shouldAgentHandleInbound(m),
     );
     if (!candidates.length) return { messageIds: [], accountId: data.accountId };
 
@@ -117,24 +117,6 @@ export class AgentPauseCatchupService {
     }
 
     return { messageIds: kept.map((m) => m.id), accountId };
-  }
-
-  private shouldAgentHandle(message: WhatsappMessageEntity): boolean {
-    const type = message.messageType;
-    const raw: any = message.content ?? {};
-    if (type === WhatsappMessageType.REACTION) {
-      return (
-        message.reactionTo?.sendSource === MessageSendSource.AGENT &&
-        !!message.reactionTo.metadata?.agentPendingActionId
-      );
-    }
-    const replyData =
-      raw.interactive?.button_reply ??
-      raw.interactive?.list_reply ??
-      (raw.button ? { id: raw.button.payload, text: raw.button.text } : null);
-    const isOptionAnswer = !!message.replyTo && !!replyData && type !== WhatsappMessageType.LOCATION;
-    if (isOptionAnswer) return message.replyTo.sendSource === MessageSendSource.AGENT;
-    return true;
   }
 
   private needsReply(insight: AgentInsight): boolean {

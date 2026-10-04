@@ -15,11 +15,13 @@ import {
 } from "entities/whatsapp.entity";
 import { AiChatMessage } from "src/ai/interfaces/ai-types";
 import { buildAgentSystemPrompt } from "./agent-prompt";
-import { AgentInsight, describeMessage } from "./agent-input.service";
+import { AgentInsight } from "./agent-input.service";
+import { describeMessage } from "./agent-message-describe";
 import { AgentSessionService } from "./agent-session.service";
 import { AgentsService } from "../agents.service";
 import {
   AGENT_CAPABILITY_LABELS,
+  AGENT_DESCRIBE_MESSAGE_RELATIONS,
   AGENT_GAP_MESSAGES,
   AGENT_USER_CAPABILITIES,
   resolveAgentCapabilities,
@@ -122,7 +124,7 @@ ${memory.map((f) => `- ${f.fact}`).join("\n")}`,
     }
     if (gap.lines.length) {
       systemParts.push(
-        `## Messages since you last replied (Staff lines are employees, not you. Keep promises they made.)
+        `## Messages since you last replied (Staff lines are employees. Automation/Campaign lines are store systems, not you. Keep promises staff made.)
 ${gap.lines.join("\n")}`,
       );
     }
@@ -158,7 +160,7 @@ ${gap.lines.join("\n")}`,
         createdAt: MoreThan(since),
         messageType: Not(WhatsappMessageType.REACTION),
       },
-      relations: { sentByUser: true },
+      relations: AGENT_DESCRIBE_MESSAGE_RELATIONS,
       order: { createdAt: "DESC" },
       take: AGENT_GAP_MESSAGES,
     });

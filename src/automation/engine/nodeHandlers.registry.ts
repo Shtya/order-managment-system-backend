@@ -38,6 +38,7 @@ import {
 import {
   MessageActionIntent,
   MessageActionStatus,
+  MessageSendSource,
   MessageStatus,
   TemplateStatus,
   WhatsappMessageEntity,
@@ -2524,6 +2525,7 @@ export class ActionSendWhatsappTemplateMessageHandler extends FlowNodeHandler {
               : hydratedConfig.headerUrl,
         },
         orderData.adminId,
+        { orderId: orderData.id, automationRunId: run.id },
       );
 
       // "No response" (timeout) branch: pause the run and schedule a
@@ -2769,6 +2771,9 @@ export class ActionSendWhatsappMessageHandler extends FlowNodeHandler {
           null,
           config.actionIntent || MessageActionIntent.NONE,
           orderData.id,
+          MessageSendSource.AUTOMATION,
+          undefined,
+          { orderId: orderData.id, automationRunId: run.id },
         );
         const messageId = response.messages?.[0]?.id;
       } else {
