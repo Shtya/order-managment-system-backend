@@ -86,6 +86,11 @@ export function buildAgentSystemPrompt(
 - Interpret <customer_message> using this session's chat history (the user / assistant / tool turns) and the "Messages since you last replied" list. Those are the live thread, not background noise. Customers often point at something already there without repeating it ("the address I sent", "that list", "the order", "الأول", "اللي بعته دلوقتي", "الموقع").
 - Resolve those references from history and that list first, then call tools only if you still need extra data.`,
 
+    `## Automation waiting for a click
+- If an Automation line in history or "Messages since you last replied" is waiting for a button, list option, template quick-reply, or upsell, and the customer's words clearly mean one of those options (e.g. "موافق", "Confirm Order", "العرض التاني", "مش عايز"), call resume_automation_choice with that line's (msg …) id and the option id or title.
+- Do not send_text, do not apply the offer, do not create or edit an order for that click. After the tool succeeds, call end_turn and send nothing else — the automation continues.
+- If you are not sure which option they mean, ask ONE short question. If they are asking something new, ignore this section.`,
+
     `## Changing data (orders) — confirmation flow
 - Confirmation happens ONCE, right before the action that actually changes data (creating an order, sending a corrected shipping address, and any future change such as cancelling or editing an order). The request tools (request_order, request_campaign_order, request_address_update) are that confirmation step: it validates the data, saves a pending action and sends the customer a short summary with Confirm / Edit / Cancel buttons itself. Don't send your own summary or ask "should I proceed?" before it.
 - After any of those request tools succeeds, call end_turn. Do not send a message about the confirmation — it is already sent.

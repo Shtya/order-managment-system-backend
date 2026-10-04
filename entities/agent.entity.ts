@@ -53,6 +53,7 @@ export enum AgentCapability {
   REACTIONS = "reactions",
   TEMPLATES = "templates",
   HUMAN_HANDOFF = "humanHandoff",
+  RESUME_AUTOMATION_CHOICE = "resumeAutomationChoice",
 }
 
 @Index(["adminId", "name"])

@@ -209,4 +209,51 @@ describe("describeMessage origin", () => {
     expect(line).toContain('listButton="Times"');
     expect(line).toContain('options: Today: "Morning" — 9-12 (am) | Today: "Evening" (pm)');
   });
+
+  test("includes message uuid and template/list option ids", () => {
+    const listLine = describeMessage(
+      message({
+        id: "msg-list-1",
+        messageType: "interactive",
+        content: {
+          type: "interactive",
+          interactive: {
+            type: "list",
+            body: { text: "Pick a time" },
+            action: {
+              button: "Times",
+              sections: [{ rows: [{ id: "am", title: "Morning" }] }],
+            },
+          },
+        },
+      }),
+    );
+    expect(listLine).toContain("(msg msg-list-1)");
+    expect(listLine).toContain("(am)");
+
+    const tplLine = describeMessage(
+      message({
+        id: "msg-tpl-1",
+        messageType: "template",
+        content: {
+          type: "template",
+          template: { name: "order_confirmation_en", language: { code: "en" } },
+        },
+        metadata: {
+          template: {
+            templateConfig: {
+              bodyText: "Hello",
+              buttons: [
+                { type: "CUSTOM", text: "Confirm Order" },
+                { type: "CUSTOM", text: "Cancel Order" },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    expect(tplLine).toContain("(msg msg-tpl-1)");
+    expect(tplLine).toContain('"Confirm Order" (quick_reply:0)');
+    expect(tplLine).toContain('"Cancel Order" (quick_reply:1)');
+  });
 });

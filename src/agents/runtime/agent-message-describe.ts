@@ -34,8 +34,9 @@ const formatTime = (d: Date, tz: string) =>
 export function describeMessage(m: WhatsappMessageEntity, tz = "Africa/Cairo"): string {
   const who = speakerLabel(m);
   const type = messageTypeOf(m);
+  const idTag = m.id ? ` (msg ${m.id})` : "";
 
-  let line = `[${formatTime(m.createdAt, tz)}] [${type}] ${who}: "${truncate(bodyOf(m), 800)}"`;
+  let line = `[${formatTime(m.createdAt, tz)}] [${type}]${idTag} ${who}: "${truncate(bodyOf(m), 800)}"`;
   const extras = contentExtras(m);
   if (extras) line += ` ${extras}`;
 
@@ -52,7 +53,8 @@ export function describeMessage(m: WhatsappMessageEntity, tz = "Africa/Cairo"): 
 
 function describeRelated(m: WhatsappMessageEntity): string {
   const extras = contentExtras(m);
-  const core = `[${messageTypeOf(m)}] ${speakerLabel(m)}: "${truncate(bodyOf(m), 300)}"`;
+  const idTag = m.id ? `(msg ${m.id}) ` : "";
+  const core = `${idTag}[${messageTypeOf(m)}] ${speakerLabel(m)}: "${truncate(bodyOf(m), 300)}"`;
   return extras ? `${core} ${extras}` : core;
 }
 
@@ -318,13 +320,17 @@ function templateButtons(
     .filter((comp): comp is Extract<WhatsappTemplateComponent, { type: "button" }> => comp.type === "button")
     .map((comp) => {
       const text = (comp.parameters ?? []).map(templateParamText).filter(Boolean).join(" ");
-      return `${comp.sub_type || "button"}${text ? ` "${text}"` : ""}`;
+      const label = `${comp.sub_type || "button"}${text ? ` "${text}"` : ""}`;
+      return `${label} (${comp.index})`;
     });
   if (fromComponents.length) return fromComponents;
   return (configButtons ?? [])
-    .map((btn) => btn.text)
-    .filter(Boolean)
-    .map((text) => `"${text}"`);
+    .map((btn, index) => {
+      if (!btn.text) return "";
+      const kind = btn.type === "CUSTOM" ? "quick_reply" : btn.type.toLowerCase();
+      return `"${btn.text}" (${kind}:${index})`;
+    })
+    .filter(Boolean);
 }
 
 function speakerLabel(message: WhatsappMessageEntity): string {

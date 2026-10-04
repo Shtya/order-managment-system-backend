@@ -44,6 +44,11 @@ import {
 import { ConversationService } from "src/conversation/conversation.service";
 import { IssueService } from "src/issue/issue.service";
 import { IssuePriority } from "entities/issue.entity";
+import {
+  WhatsappMessageEntity,
+} from "entities/whatsapp.entity";
+import { AutomationQueueService } from "src/queue/queues/automations.queue";
+import { matchAutomationChoice, prepareResumeAutomationChoice } from "src/agents/runtime/agent-automation-choice";
 
 export const LIMITS = {
   text: 4096,
@@ -111,6 +116,9 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     private readonly conversations: ConversationService,
     @Inject(forwardRef(() => IssueService))
     private readonly issues: IssueService,
+    @InjectRepository(WhatsappMessageEntity)
+    private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    private readonly automationQueue: AutomationQueueService,
   ) { }
 
   onModuleInit() {
@@ -152,6 +160,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       this.requestUpdateCustomer(),
       this.humanHandoff(),
       this.listIssueCauses(),
+      this.resumeAutomationChoice(),
   
       // Address & Shipping
       this.requestAddressUpdate(),
@@ -162,6 +171,67 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       this.confirmPendingAction(),
       this.cancelPendingAction(),
     ];
+  }
+
+  private resumeAutomationChoice() {
+    return new AiTool({
+      name: "resume_automation_choice",
+      audience: "customer",
+      description:
+        "Continue a paused store automation when the customer typed instead of tapping a button, list option, template quick-reply, or upsell on an Automation message. Pass the (msg …) id from that outbound message and the matching option id or title. Do not send_text or apply the offer yourself; call this then end_turn.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          messageId: {
+            type: "string",
+            description: "Our WhatsApp row id from (msg …) on the automation message, not the Meta wamid.",
+          },
+          buttonId: { type: "string", description: "Option id from the described message." },
+          buttonText: { type: "string", description: "Option title if the customer named it in words." },
+        },
+        required: ["messageId"],
+        additionalProperties: false,
+      },
+      isWrite: true,
+      staleRecovery: "auto_recover",
+      run: async (ctx, args: Args) => {
+        const scope = agentScopeOf(ctx);
+        const messageId = str(args.messageId);
+        const buttonId = str(args.buttonId);
+        const buttonText = str(args.buttonText);
+        if (!messageId) return fail("INVALID_ARGS", "messageId is required");
+        if (!buttonId && !buttonText) {
+          return fail("INVALID_ARGS", "buttonId or buttonText is required");
+        }
+
+        const row = await this.messageRepo.findOne({
+          where: {
+            id: messageId,
+            adminId: scope.adminId,
+            conversationId: scope.conversationId,
+          },
+        });
+        const prepared = prepareResumeAutomationChoice({
+          row,
+          buttonId,
+          buttonText,
+        });
+        if (prepared.ok === false) {
+          return fail(prepared.code, prepared.error);
+        }
+
+        await this.automationQueue.enqueueResumeFlow(scope.adminId, {
+          originalMessageId: prepared.originalMessageId,
+          buttonText: prepared.buttonText,
+          buttonId: prepared.buttonId,
+        });
+        return {
+          ok: true,
+          code: "RESUMED",
+          data: { buttonId: prepared.buttonId, buttonText: prepared.buttonText },
+        };
+      },
+    });
   }
 
   private listIssueCauses() {

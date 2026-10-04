@@ -90,6 +90,7 @@ export enum AgentToolName {
   CANCEL_PENDING_ACTION = "cancel_pending_action",
   LIST_ISSUE_CAUSES = "list_issue_causes",
   HUMAN_HANDOFF = "human_handoff",
+  RESUME_AUTOMATION_CHOICE = "resume_automation_choice",
 }
 
 export const AGENT_SEND_TOOL_NAMES = [
@@ -175,6 +176,7 @@ export const AGENT_CAPABILITY_TOOL_NAMES: Record<AgentCapability, AgentToolName[
     AgentToolName.HUMAN_HANDOFF,
     AgentToolName.LIST_ISSUE_CAUSES,
   ],
+  [AgentCapability.RESUME_AUTOMATION_CHOICE]: [AgentToolName.RESUME_AUTOMATION_CHOICE],
 };
 
 const CATALOG_READ = [
@@ -267,6 +269,7 @@ export const AGENT_CAPABILITY_LABELS: Record<AgentCapability, string> = {
   [AgentCapability.REACTIONS]: "Reactions",
   [AgentCapability.TEMPLATES]: "Template messages",
   [AgentCapability.HUMAN_HANDOFF]: "Human handoff",
+  [AgentCapability.RESUME_AUTOMATION_CHOICE]: "Resume automation from chat",
 };
 
 export function expandAgentCapabilities(
