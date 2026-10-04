@@ -8,7 +8,11 @@ import {
   AgentSummaryStatus,
   AgentTurnMessageEntity,
 } from "entities/agent-conversation.entity";
-import { WhatsappMessageEntity } from "entities/whatsapp.entity";
+import {
+  MessageDirection,
+  MessageSendSource,
+  WhatsappMessageEntity,
+} from "entities/whatsapp.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { OrderEntity } from "entities/order.entity";
 import { User } from "entities/user.entity";
@@ -17,6 +21,7 @@ import { AiUsageActor, AiUsageSource } from "entities/ai-usage.entity";
 import { ClientService } from "src/clients/clients.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { describeMessage } from "./agent-message-describe";
+import { seedAgentSeenUntil } from "./agent-input.service";
 import {
   AGENT_KEEP_RECENT_TURNS,
   AGENT_MEMORY_FACTS_LIMIT,
@@ -98,6 +103,14 @@ export class AgentSessionService {
       }
     }
 
+    const lastAgentOutbound = await this.findLastAgentOutbound(
+      input.adminId,
+      input.conversationId,
+    );
+    const agentSeenUntil = seedAgentSeenUntil(
+      previous?.agentSeenUntil,
+      lastAgentOutbound?.createdAt,
+    );
     const session = await this.sessionRepo.save(
       this.sessionRepo.create({
         adminId: input.adminId,
@@ -107,10 +120,21 @@ export class AgentSessionService {
         status: AgentSessionStatus.ACTIVE,
         startedAt: now,
         lastMessageAt: now,
-        agentSeenUntil: now,
+        agentSeenUntil,
         previousSessionId: previous?.id ?? null,
         bootstrap: await this.buildBootstrap(input.adminId, input.customerId, input.phoneNumber),
       }),
+    );
+    this.logger.log(
+      `New agent session ${session.id} conversation=${input.conversationId} agentSeenUntil=${
+        agentSeenUntil?.toISOString() ?? "null"
+      } source=${
+        previous?.agentSeenUntil
+          ? "previousSession"
+          : lastAgentOutbound
+            ? "lastAgentOutbound"
+            : "none"
+      }`,
     );
 
     const summary = await Promise.race([
@@ -145,10 +169,26 @@ export class AgentSessionService {
 
   async markSeenUntil(session: AgentSessionEntity, seenUntil: Date | null | undefined) {
     if (!seenUntil) return;
-    const current = session.agentSeenUntil ?? session.startedAt;
-    if (seenUntil.getTime() <= new Date(current).getTime()) return;
+    if (
+      session.agentSeenUntil &&
+      seenUntil.getTime() <= new Date(session.agentSeenUntil).getTime()
+    ) {
+      return;
+    }
     session.agentSeenUntil = seenUntil;
     await this.sessionRepo.update(session.id, { agentSeenUntil: seenUntil });
+  }
+
+  private async findLastAgentOutbound(adminId: string, conversationId: string) {
+    return this.messageRepo.findOne({
+      where: {
+        adminId,
+        conversationId,
+        direction: MessageDirection.OUTBOUND,
+        sendSource: MessageSendSource.AGENT,
+      },
+      order: { createdAt: "DESC" },
+    });
   }
 
   async getMemoryFacts(adminId: string, customerId: string): Promise<AgentMemoryFactEntity[]> {
@@ -174,7 +214,7 @@ export class AgentSessionService {
     });
   }
 
-  /** Last raw WhatsApp messages before this session, used while the previous summary isn't ready. */
+  /** Last raw WhatsApp messages before this session (first turn, alongside previousSummary). */
   async getPreviousRawTail(session: AgentSessionEntity): Promise<string[]> {
     const rows = await this.messageRepo.find({
       where: {

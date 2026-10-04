@@ -1,6 +1,6 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { MoreThan, MoreThanOrEqual, Not, Repository } from "typeorm";
+import { FindOptionsWhere, MoreThan, MoreThanOrEqual, Not, Repository } from "typeorm";
 import { AgentEntity } from "entities/agent.entity";
 import {
   AgentPendingActionEntity,
@@ -27,6 +27,7 @@ import {
   resolveAgentCapabilities,
 } from "./agent-runtime.constants";
 import { AgentTaskService } from "./agent-task.service";
+import { agentGapSince } from "./agent-gap-window";
 import { estimateTokens } from "./agent-runtime.constants";
 
 export type AgentTurnContext = {
@@ -39,6 +40,8 @@ export type AgentTurnContext = {
 
 @Injectable()
 export class AgentContextService {
+  private readonly logger = new Logger(AgentContextService.name);
+
   constructor(
     private readonly sessions: AgentSessionService,
     private readonly agents: AgentsService,
@@ -62,7 +65,7 @@ export class AgentContextService {
       this.agents.getPromptKnowledge(session.adminId, agent.id),
       this.sessions.getRecentTurnMessages(session),
       this.findNotDelivered(session),
-      session.previousSessionId && !session.previousSummary && session.turnCount <= 1
+      session.turnCount <= 1
         ? this.sessions.getPreviousRawTail(session)
         : Promise.resolve([] as string[]),
       this.tasks.getOpenForConversation(session.adminId, session.conversationId),
@@ -114,9 +117,10 @@ ${memory.map((f) => `- ${f.fact}`).join("\n")}`,
     }
     if (session.previousSummary) {
       systemParts.push(`## Summary of the previous conversation session\n${session.previousSummary}`);
-    } else if (rawTail.length) {
+    }
+    if (rawTail.length) {
       systemParts.push(
-        `## Last messages of the previous conversation session (raw)\n${rawTail.map((l) => `- ${l}`).join("\n")}`,
+        `## Last messages before this session (raw)\n${rawTail.map((l) => `- ${l}`).join("\n")}`,
       );
     }
     if (session.summary) {
@@ -152,14 +156,15 @@ ${gap.lines.join("\n")}`,
     session: AgentSessionEntity,
     excludeIds: Set<string>,
   ): Promise<{ lines: string[]; lastSeenAt: Date | null }> {
-    const since = session.agentSeenUntil ?? session.startedAt ?? new Date();
+    const since = agentGapSince(session);
+    const where: FindOptionsWhere<WhatsappMessageEntity> = {
+      adminId: session.adminId,
+      conversationId: session.conversationId,
+      messageType: Not(WhatsappMessageType.REACTION),
+    };
+    if (since) where.createdAt = MoreThan(since);
     const rows = await this.messageRepo.find({
-      where: {
-        adminId: session.adminId,
-        conversationId: session.conversationId,
-        createdAt: MoreThan(since),
-        messageType: Not(WhatsappMessageType.REACTION),
-      },
+      where,
       relations: AGENT_DESCRIBE_MESSAGE_RELATIONS,
       order: { createdAt: "DESC" },
       take: AGENT_GAP_MESSAGES,
@@ -169,6 +174,13 @@ ${gap.lines.join("\n")}`,
     const lines = rows
       .filter((m) => !excludeIds.has(m.id))
       .map((m) => `- ${describeMessage(m)}`);
+    this.logger.log(
+      `Agent gap session=${session.id} conversation=${session.conversationId} turn=${session.turnCount} since=${
+        since?.toISOString() ?? "null"
+      } rows=${rows.length} lines=${lines.length} excluded=${excludeIds.size} lastSeenAt=${
+        lastSeenAt?.toISOString() ?? "null"
+      } previousSummary=${!!session.previousSummary}\n${lines.join("\n") || "(empty)"}`,
+    );
     return { lines, lastSeenAt };
   }
 

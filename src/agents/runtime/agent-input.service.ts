@@ -49,6 +49,20 @@ const FAILED_LABEL: Record<MediaKind, string> = {
   audio: "[Voice note] (could not be processed right now)",
 };
 
+/** Cursor for WhatsApp gap load. Null = no prior agent reply; take the latest N messages. */
+export function agentGapSince(session: { agentSeenUntil?: Date | null }): Date | null {
+  return session.agentSeenUntil ?? null;
+}
+
+/** New session inherits the last time the agent actually saw the chat, not "now". */
+export function seedAgentSeenUntil(
+  previousSeenUntil: Date | null | undefined,
+  lastAgentOutboundAt: Date | null | undefined,
+): Date | null {
+  return previousSeenUntil ?? lastAgentOutboundAt ?? null;
+}
+
+
 @Injectable()
 export class AgentInputService {
   private readonly logger = new Logger(AgentInputService.name);
