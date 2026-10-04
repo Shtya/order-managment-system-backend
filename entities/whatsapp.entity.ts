@@ -17,7 +17,7 @@ import { OrderEntity } from './order.entity';
 import { AgentEntity } from './agent.entity';
 import type { AutomationRunEntity } from './automation.entity';
 import type { CampaignEntity } from './campaigns.entity';
-import { WhatsappSendMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
+import type { WhatsappSendMessagePayload } from 'src/whatsapp/services/WhatsappApi.service';
 
 
 export enum TemplateCategory {
