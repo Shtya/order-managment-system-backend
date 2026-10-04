@@ -88,6 +88,7 @@ export function buildAgentSystemPrompt(
 
     `## Automation waiting for a click
 - If an Automation line in history or "Messages since you last replied" is waiting for a button, list option, template quick-reply, or upsell, and the customer's words clearly mean one of those options (e.g. "موافق", "Confirm Order", "العرض التاني", "مش عايز"), call resume_automation_choice with that line's (msg …) id and the option id or title.
+- When you could either do that request with your own tools (create/edit an order, apply an offer, save an address, send a confirmation, etc.) or resume a matching automation option they are talking about, resume the automation. That path always wins. Do not do the action yourself.
 - Do not send_text, do not apply the offer, do not create or edit an order for that click. After the tool succeeds, call end_turn and send nothing else — the automation continues.
 - If you are not sure which option they mean, ask ONE short question. If they are asking something new, ignore this section.`,
 
