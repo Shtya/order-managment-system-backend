@@ -1146,6 +1146,7 @@
     "access_denied": "ليس لديك صلاحية الوصول إلى هذا المشكلة",
     "role_not_found": "الدور غير موجود",
     "assigned_role_required": "الفريق المختص مطلوب",
+    "order_not_for_customer": "هذا الطلب لا يخص هذا العميل",
     "employee_not_found": "الموظف غير موجود",
     "message_or_content_required": "محتوى الرسالة مطلوب",
     "only_own_message": "يمكنك إدارة رسائلك فقط",
@@ -1812,6 +1813,7 @@
     "provider_auto": "تلقائي",
     "status_active": "نشط",
     "status_inactive": "غير نشط",
-    "agent_not_found": "الوكيل غير موجود"
+    "agent_not_found": "الوكيل غير موجود",
+    "handoff_role_required": "اختر فريقاً للتدخل البشري قبل تفعيل هذه القدرة"
   }
 }

@@ -6,7 +6,7 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Brackets, FindOptionsRelations, In, Repository } from "typeorm";
+import { Brackets, DataSource, EntityManager, FindOptionsRelations, In, Repository } from "typeorm";
 import {
   IssueActivityEntity,
   IssueActivityType,
@@ -33,6 +33,10 @@ import { AppGateway } from "common/app.gateway";
 import { CustomerService } from "../customer/customer.service";
 import * as ExcelJS from "exceljs";
 import { CreateIssueDto, UpdateIssueDto } from "dto/issue.dto";
+import { ConversationEntity } from "entities/whatsapp.entity";
+import { CustomerEntity } from "entities/customers.entity";
+import { AgentEntity } from "entities/agent.entity";
+import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 
 const TERMINAL_STATUSES = [IssueStatus.SOLVED, IssueStatus.CANCELLED];
 
@@ -116,6 +120,8 @@ const DEFAULT_ISSUE_CAUSES: {
     sortOrder: 5,
   },
   { nameEn: "Payment Issue", nameAr: "مشكلة في الدفع", sortOrder: 6 },
+  //add others
+  { nameEn: "Other", nameAr: "أخرى", sortOrder: 7 },
 ];
 
 @Injectable()
@@ -136,11 +142,14 @@ export class IssueService implements OnModuleInit {
     @InjectRepository(User) private userRepo: Repository<User>,
     @InjectRepository(Role) private roleRepo: Repository<Role>,
     @InjectRepository(OrderEntity) private orderRepo: Repository<OrderEntity>,
+    @InjectRepository(ConversationEntity)
+    private conversationRepo: Repository<ConversationEntity>,
     private customerService: CustomerService,
     private translations: TranslationService,
     private requestTranslations: RequestTranslationService,
     private notificationService: NotificationService,
     private appGateway: AppGateway,
+    private dataSource: DataSource,
   ) {}
 
   private t(key: any) {
@@ -292,9 +301,11 @@ export class IssueService implements OnModuleInit {
     performedByUserId: string,
     type: IssueActivityType,
     metadata?: Record<string, unknown>,
+    manager?: EntityManager,
   ) {
-    return this.activityRepo.save(
-      this.activityRepo.create({
+    const repo = manager?.getRepository(IssueActivityEntity) ?? this.activityRepo;
+    return repo.save(
+      repo.create({
         adminId,
         issueId,
         performedByUserId,
@@ -316,10 +327,14 @@ export class IssueService implements OnModuleInit {
     issueId: string,
     userIds: string[],
     roleId?: string | null,
+    manager?: EntityManager,
   ) {
+    const userRepo = manager?.getRepository(User) ?? this.userRepo;
+    const issueUserRepo =
+      manager?.getRepository(IssueUserEntity) ?? this.issueUserRepo;
     const uniqueIds = [...new Set(userIds)];
     if (uniqueIds.length) {
-      const users = await this.userRepo.find({
+      const users = await userRepo.find({
         where: { id: In(uniqueIds) } as any,
       });
       const found = new Set(users.map((u) => u.id));
@@ -339,21 +354,20 @@ export class IssueService implements OnModuleInit {
       }
     }
 
-    // Keep only users belonging to the given role (if any)
     let finalIds = uniqueIds;
     if (roleId) {
-      const roleUsers = await this.userRepo.find({
+      const roleUsers = await userRepo.find({
         where: { id: In(uniqueIds), roleId } as any,
         select: { id: true },
       });
       finalIds = roleUsers.map((u) => u.id);
     }
 
-    await this.issueUserRepo.delete({ issueId });
+    await issueUserRepo.delete({ issueId });
     if (finalIds.length) {
-      await this.issueUserRepo.save(
+      await issueUserRepo.save(
         finalIds.map((userId) =>
-          this.issueUserRepo.create({
+          issueUserRepo.create({
             adminId,
             issueId,
             userId,
@@ -474,7 +488,11 @@ export class IssueService implements OnModuleInit {
 
   /* ================= Issues ================= */
 
-  async create(me: any, dto: CreateIssueDto) {
+  async create(
+    me: any,
+    dto: CreateIssueDto,
+    extras?: { conversationId?: string },
+  ) {
     const adminId = tenantId(me);
     if (!adminId) {
       throw new BadRequestException(this.t("common.missing_admin_id"));
@@ -482,88 +500,156 @@ export class IssueService implements OnModuleInit {
 
     this.validateEstimate(dto.estimatedMinutes);
 
-    let status: IssueStatusEntity | null = null;
-    if (dto.statusId) {
-      status = await this.statusRepo.findOne({
-        where: { id: dto.statusId } as any,
-      });
-      if (!status || (status.system !== true && status.adminId !== adminId)) {
-        throw new NotFoundException(this.t("domains.issues.status_not_found"));
-      }
-    } else {
-      status = await this.defaultStatus();
-    }
-    if (!status) {
-      throw new BadRequestException(this.t("domains.issues.status_required"));
-    }
-
     if (!dto.assignedRoleId) {
       throw new BadRequestException(
         this.t("domains.issues.assigned_role_required"),
       );
     }
-    await this.requireRole(adminId, dto.assignedRoleId);
 
-    const cause = await this.requireCause(adminId, dto.causeId);
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const statusRepo = manager.getRepository(IssueStatusEntity);
+      const orderRepo = manager.getRepository(OrderEntity);
+      const issueRepo = manager.getRepository(IssueEntity);
 
-    let customerId: string | null = null;
-    let customerName: string | null = null;
-    let customerPhone: string | null = null;
-
-    if (dto.orderId) {
-      const order = await this.orderRepo.findOne({
-        where: { id: dto.orderId, adminId } as any,
-      });
-      if (!order) {
-        throw new NotFoundException(this.t("domains.orders.order_not_found"));
-      }
-
-      customerName = order.customerName || null;
-      customerPhone = order.normalizedPhoneNumber || order.phoneNumber || null;
-
-      if (customerPhone) {
-        const customer = await this.customerService.getOrCreateCustomer(me, {
-          phoneNumber: customerPhone,
-          name: customerName || undefined,
+      let status: IssueStatusEntity | null = null;
+      if (dto.statusId) {
+        status = await statusRepo.findOne({
+          where: { id: dto.statusId } as any,
         });
-        customerId = customer.id;
+        if (!status || (status.system !== true && status.adminId !== adminId)) {
+          throw new NotFoundException(this.t("domains.issues.status_not_found"));
+        }
+      } else {
+        status = await statusRepo.findOne({
+          where: { code: IssueStatus.OPEN, system: true } as any,
+        });
       }
-    }
+      if (!status) {
+        throw new BadRequestException(this.t("domains.issues.status_required"));
+      }
 
-    const issue = this.issueRepo.create({
-      adminId,
-      createdByUserId: me.id,
-      title: dto.title,
-      description: dto.description || null,
-      orderId: dto.orderId || null,
-      customerId,
-      customerName,
-      customerPhone,
-      priority: dto.priority || IssuePriority.MEDIUM,
-      statusId: status.id,
-      causeId: cause ? cause.id : null,
-      assignedRoleId: dto.assignedRoleId,
-      estimatedMinutes: dto.estimatedMinutes || null,
+      await this.requireRole(adminId, dto.assignedRoleId);
+      const cause = await this.requireCause(adminId, dto.causeId);
+
+      let customerId: string | null = null;
+      let customerName: string | null = null;
+      let customerPhone: string | null = null;
+      let conversation: ConversationEntity | null = extras?.conversationId
+        ? await this.loadConversation(
+            manager,
+            adminId,
+            extras.conversationId,
+          )
+        : null;
+
+      if (dto.orderId) {
+        const order = await orderRepo.findOne({
+          where: { id: dto.orderId, adminId } as any,
+        });
+        if (!order) {
+          throw new NotFoundException(this.t("domains.orders.order_not_found"));
+        }
+        if (conversation?.customer) {
+          const convPhone = normalizeEgyptianPhoneNumber(
+            conversation.customer.phoneNumber || conversation.customer.waId,
+          );
+          const orderPhone = normalizeEgyptianPhoneNumber(
+            order.normalizedPhoneNumber || order.phoneNumber,
+          );
+          if (convPhone && orderPhone && convPhone !== orderPhone) {
+            throw new BadRequestException(
+              this.t("domains.issues.order_not_for_customer"),
+            );
+          }
+        }
+
+        customerName = order.customerName || null;
+        customerPhone = order.normalizedPhoneNumber || order.phoneNumber || null;
+
+        if (customerPhone) {
+          const customer = await this.customerService.getOrCreateCustomer(
+            me,
+            {
+              phoneNumber: customerPhone,
+              name: customerName || undefined,
+            },
+            manager,
+          );
+          customerId = customer?.id ?? null;
+        }
+      } else if (conversation?.customer) {
+        customerId = conversation.customer.id;
+        customerName = conversation.customer.name || null;
+        customerPhone = conversation.customer.phoneNumber || null;
+      }
+
+      if (!conversation && customerPhone) {
+        conversation = await this.findConversationByCustomerPhone(
+          manager,
+          adminId,
+          customerPhone,
+        );
+        if (conversation?.customer && !customerId) {
+          customerId = conversation.customer.id;
+          customerName =
+            customerName || conversation.customer.name || null;
+          customerPhone =
+            customerPhone || conversation.customer.phoneNumber || null;
+        }
+      }
+
+      const issue = issueRepo.create({
+        adminId,
+        createdByUserId: me.id,
+        title: dto.title,
+        description: dto.description || null,
+        orderId: dto.orderId || null,
+        conversationId: conversation?.id ?? null,
+        customerId,
+        customerName,
+        customerPhone,
+        priority: dto.priority || IssuePriority.MEDIUM,
+        statusId: status.id,
+        causeId: cause ? cause.id : null,
+        assignedRoleId: dto.assignedRoleId,
+        estimatedMinutes: dto.estimatedMinutes || null,
+      });
+      if (issue.estimatedMinutes) {
+        issue.due_at = new Date(Date.now() + issue.estimatedMinutes * 60_000);
+      }
+
+      const row = await issueRepo.save(issue);
+      row.status = status;
+
+      if (dto.employeeIds?.length) {
+        await this.replaceIssueUsers(
+          adminId,
+          row.id,
+          dto.employeeIds,
+          undefined,
+          manager,
+        );
+      }
+
+      await this.logActivity(
+        row.id,
+        adminId,
+        me.id,
+        IssueActivityType.CREATED,
+        { title: row.title },
+        manager,
+      );
+
+      if (row.conversationId) {
+        await this.syncConversationHandoff(
+          adminId,
+          row.conversationId,
+          manager,
+        );
+      }
+
+      return row;
     });
-    if (issue.estimatedMinutes) {
-      issue.due_at = new Date(Date.now() + issue.estimatedMinutes * 60_000);
-    }
-
-    const saved = await this.issueRepo.save(issue);
-
-    if (dto.employeeIds?.length) {
-      await this.replaceIssueUsers(adminId, saved.id, dto.employeeIds);
-    }
-
-    await this.logActivity(
-      saved.id,
-      adminId,
-      me.id,
-      IssueActivityType.CREATED,
-      {
-        title: saved.title,
-      },
-    );
 
     const recipients = await this.issueRecipientIds(saved);
     await this.notifyUsers(
@@ -1529,39 +1615,55 @@ export class IssueService implements OnModuleInit {
     const issue = await this.findTenantIssue(me, issueId);
     await this.requireCanActOnIssue(me, issue);
 
-    const status = await this.statusRepo.findOne({
-      where: { id: dto.statusId } as any,
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const statusRepo = manager.getRepository(IssueStatusEntity);
+      const issueRepo = manager.getRepository(IssueEntity);
+
+      const status = await statusRepo.findOne({
+        where: { id: dto.statusId } as any,
+      });
+      if (
+        !status ||
+        (status.system !== true && status.adminId !== issue.adminId)
+      ) {
+        throw new NotFoundException(this.t("domains.issues.status_not_found"));
+      }
+
+      const oldStatusId = issue.statusId;
+      issue.statusId = status.id;
+      issue.status = status;
+      if (status.code === IssueStatus.SOLVED) {
+        issue.resolved_at = new Date();
+        issue.resolvedByUserId = me.id;
+      } else if (
+        status.code !== IssueStatus.CANCELLED &&
+        (issue.resolved_at || issue.resolvedByUserId)
+      ) {
+        issue.resolved_at = null;
+        issue.resolvedByUserId = null;
+      }
+
+      const row = await issueRepo.save(issue);
+
+      await this.logActivity(
+        issue.id,
+        issue.adminId,
+        me.id,
+        IssueActivityType.STATUS_CHANGED,
+        { oldStatusId, newStatusId: status.id, reason: dto.reason || null },
+        manager,
+      );
+
+      if (row.conversationId) {
+        await this.syncConversationHandoff(
+          row.adminId,
+          row.conversationId,
+          manager,
+        );
+      }
+
+      return row;
     });
-    if (
-      !status ||
-      (status.system !== true && status.adminId !== issue.adminId)
-    ) {
-      throw new NotFoundException(this.t("domains.issues.status_not_found"));
-    }
-
-    const oldStatusId = issue.statusId;
-    issue.statusId = status.id;
-    issue.status = status;
-    if (status.code === IssueStatus.SOLVED) {
-      issue.resolved_at = new Date();
-      issue.resolvedByUserId = me.id;
-    } else if (
-      status.code !== IssueStatus.CANCELLED &&
-      (issue.resolved_at || issue.resolvedByUserId)
-    ) {
-      issue.resolved_at = null;
-      issue.resolvedByUserId = null;
-    }
-
-    const saved = await this.issueRepo.save(issue);
-
-    await this.logActivity(
-      issue.id,
-      issue.adminId,
-      me.id,
-      IssueActivityType.STATUS_CHANGED,
-      { oldStatusId, newStatusId: status.id, reason: dto.reason || null },
-    );
 
     const recipients = await this.issueRecipientIds(saved);
     await this.notifyUsers(
@@ -1573,7 +1675,7 @@ export class IssueService implements OnModuleInit {
       "domains.issues.issue_status_changed_message",
       {
         issueTitle: saved.title,
-        status: this.statusLabel(status.code as IssueStatus),
+        status: this.statusLabel(saved.status?.code as IssueStatus),
       },
     );
 
@@ -2300,6 +2402,183 @@ export class IssueService implements OnModuleInit {
     if (results.some(Boolean)) {
       throw new BadRequestException(this.t("domains.issues.cause_name_exists"));
     }
+  }
+
+  async createFromAgentHandoff(input: {
+    adminId: string;
+    conversationId: string;
+    agent: AgentEntity;
+    title: string;
+    description: string;
+    causeId?: string | null;
+    orderId?: string | null;
+    priority?: IssuePriority;
+  }): Promise<{ issue: IssueEntity; silencesAgent: boolean }> {
+    const me = { id: input.adminId, adminId: input.adminId };
+    const result = await this.create(
+      me,
+      {
+        title: input.title,
+        description: input.description,
+        orderId: input.orderId || undefined,
+        causeId: input.causeId || undefined,
+        priority:
+          input.priority ||
+          input.agent.handoffPriority ||
+          IssuePriority.MEDIUM,
+        statusId: input.agent.handoffStatusId || undefined,
+        assignedRoleId: input.agent.handoffAssignedRoleId as string,
+        employeeIds: input.agent.handoffEmployeeIds || undefined,
+        estimatedMinutes: input.agent.handoffEstimatedMinutes || undefined,
+      },
+      { conversationId: input.conversationId },
+    );
+    const issue = result.data;
+    const statusCode = (issue.status?.code || "") as IssueStatus;
+    return {
+      issue,
+      silencesAgent: !TERMINAL_STATUSES.includes(statusCode),
+    };
+  }
+
+  async listHandoffCauses(adminId: string) {
+    const rows = await this.causeListQuery(adminId).getRawMany();
+    return rows.map((r) => ({
+      id: r.id,
+      nameEn: r.nameEn,
+      nameAr: r.nameAr,
+    }));
+  }
+
+  async resolveHandoffCauseId(adminId: string, causeId?: string | null) {
+    if (causeId) {
+      const cause = await this.requireCause(adminId, causeId);
+      if (cause) return cause.id;
+    }
+    const other = await this.causeRepo.findOne({
+      where: { nameEn: "Other", system: true } as any,
+    });
+    return other?.id ?? null;
+  }
+
+  async solveOpenConversationIssues(
+    adminId: string,
+    conversationId: string,
+    performedByUserId: string,
+  ) {
+    const solved = await this.statusRepo.findOne({
+      where: { code: IssueStatus.SOLVED, system: true } as any,
+    });
+    if (!solved) return;
+    const issues = await this.issueRepo.find({
+      where: { adminId, conversationId } as any,
+      relations: { status: true },
+    });
+    const now = new Date();
+
+    await Promise.all(
+      issues
+        .filter(
+          (issue) =>
+            !TERMINAL_STATUSES.includes(issue.status?.code as IssueStatus),
+        )
+        .map(async (issue) => {
+          issue.statusId = solved.id;
+          issue.status = solved;
+          issue.resolved_at = now;
+          issue.resolvedByUserId = performedByUserId;
+    
+          const saved = await this.issueRepo.save(issue);
+    
+          await this.logActivity(
+            saved.id,
+            adminId,
+            performedByUserId,
+            IssueActivityType.STATUS_CHANGED,
+            { newStatusId: solved.id, reason: "human_handoff_cancelled" },
+          );
+    
+          this.appGateway.emitIssueUpdated([adminId], saved);
+        }),
+    );
+    await this.syncConversationHandoff(adminId, conversationId);
+  }
+
+  async hasOpenConversationIssue(
+    adminId: string,
+    conversationId: string,
+    manager?: EntityManager,
+  ) {
+    const issueRepo = manager?.getRepository(IssueEntity) ?? this.issueRepo;
+    const count = await issueRepo
+      .createQueryBuilder("issue")
+      .innerJoin("issue.status", "status")
+      .where("issue.adminId = :adminId", { adminId })
+      .andWhere("issue.conversationId = :conversationId", { conversationId })
+      .andWhere("status.code NOT IN (:...codes)", { codes: TERMINAL_STATUSES })
+      .getCount();
+    return count > 0;
+  }
+
+  async syncConversationHandoff(
+    adminId: string,
+    conversationId: string,
+    manager?: EntityManager,
+  ) {
+    const conversationRepo =
+      manager?.getRepository(ConversationEntity) ?? this.conversationRepo;
+    const conversation = await conversationRepo.findOne({
+      where: { id: conversationId, adminId } as any,
+    });
+    if (!conversation) return;
+    const next = await this.hasOpenConversationIssue(
+      adminId,
+      conversationId,
+      manager,
+    );
+    if (conversation.humanHandoff === next) return;
+    conversation.humanHandoff = next;
+    const saved = await conversationRepo.save(conversation);
+    this.appGateway.emitConversationAi(saved.adminId, {
+      conversationId: saved.id,
+      humanHandoff: !!saved.humanHandoff,
+      agentPausedUntil: saved.agentPausedUntil ?? null,
+    });
+  }
+
+  private async loadConversation(
+    manager: EntityManager,
+    adminId: string,
+    conversationId: string,
+  ) {
+    const conversation = await manager.getRepository(ConversationEntity).findOne({
+      where: { id: conversationId, adminId } as any,
+      relations: { customer: true },
+    });
+    if (!conversation) {
+      throw new NotFoundException(this.t("domains.conversation.not_found"));
+    }
+    return conversation;
+  }
+
+  private async findConversationByCustomerPhone(
+    manager: EntityManager,
+    adminId: string,
+    customerPhone: string,
+  ) {
+    const phone = normalizeEgyptianPhoneNumber(customerPhone);
+    if (!phone) return null;
+    const customer = await manager.getRepository(CustomerEntity).findOne({
+      where: [
+        { adminId, phoneNumber: phone },
+        { adminId, waId: phone },
+      ] as any,
+    });
+    if (!customer) return null;
+    return manager.getRepository(ConversationEntity).findOne({
+      where: { adminId, customerId: customer.id } as any,
+      relations: { customer: true },
+    });
   }
 
   private async requireCause(adminId: string, causeId?: string | null) {

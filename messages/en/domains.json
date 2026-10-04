@@ -1141,6 +1141,7 @@
     "access_denied": "You do not have access to this issue",
     "role_not_found": "Role not found",
     "assigned_role_required": "Specialized team is required",
+    "order_not_for_customer": "This order does not belong to this customer",
     "employee_not_found": "Employee not found",
     "message_or_content_required": "Message content is required",
     "only_own_message": "You can only manage your own messages",
@@ -1804,6 +1805,7 @@
     "provider_auto": "Automatic",
     "status_active": "Active",
     "status_inactive": "Inactive",
-    "agent_not_found": "Agent not found"
+    "agent_not_found": "Agent not found",
+    "handoff_role_required": "Choose a team for human intervention before enabling this capability"
   }
 }

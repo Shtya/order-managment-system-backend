@@ -12,6 +12,7 @@ import { IssueService } from "./issue.service";
 import { IssueController } from "./issue.controller";
 import { Role, User } from "entities/user.entity";
 import { OrderEntity } from "entities/order.entity";
+import { ConversationEntity } from "entities/whatsapp.entity";
 import { CustomerModule } from "../customer/customer.module";
 
 @Module({
@@ -27,6 +28,7 @@ import { CustomerModule } from "../customer/customer.module";
       User,
       Role,
       OrderEntity,
+      ConversationEntity,
     ]),
   ],
   controllers: [IssueController],

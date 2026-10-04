@@ -2,6 +2,7 @@ import { BeforeInsert, BeforeUpdate, Column, CreateDateColumn, DeleteDateColumn,
 import { Role, User } from './user.entity';
 import { OrderEntity, slugify } from './order.entity';
 import { CustomerEntity } from './customers.entity';
+import { ConversationEntity } from './whatsapp.entity';
 
 
 export enum IssueStatus {
@@ -145,13 +146,21 @@ export class IssueEntity {
   @JoinColumn({ name: 'createdByUserId' })
   createdByUser: User;
 
-  // ---------- Order (required) ----------
-  @Column({ type: 'uuid', nullable: false })
-  orderId: string;
+  // ---------- Order (optional) ----------
+  @Column({ type: 'uuid', nullable: true })
+  orderId?: string | null;
 
-  @ManyToOne(() => OrderEntity, (order) => order.issues, { nullable: false, onDelete: 'RESTRICT' })
+  @ManyToOne(() => OrderEntity, (order) => order.issues, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'orderId' })
-  order: OrderEntity;
+  order?: OrderEntity | null;
+
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  conversationId?: string | null;
+
+  @ManyToOne(() => ConversationEntity, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'conversationId' })
+  conversation?: ConversationEntity | null;
 
   // ---------- Customer (optional) ----------
   @Column({ type: 'uuid', nullable: true })

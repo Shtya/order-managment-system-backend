@@ -10,10 +10,12 @@ import {
 } from "entities/whatsapp.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { CustomerModule } from "../customer/customer.module";
+import { IssueModule } from "src/issue/issue.module";
 
 @Module({
   imports: [
     forwardRef(() => CustomerModule),
+    forwardRef(() => IssueModule),
     TypeOrmModule.forFeature([
       WhatsappAccountEntity,
       WhatsappTemplateEntity,

@@ -88,6 +88,7 @@ export enum AgentToolName {
   GET_SHIPPING_DISTRICTS = "get_shipping_districts",
   CONFIRM_PENDING_ACTION = "confirm_pending_action",
   CANCEL_PENDING_ACTION = "cancel_pending_action",
+  LIST_ISSUE_CAUSES = "list_issue_causes",
   HUMAN_HANDOFF = "human_handoff",
 }
 
@@ -170,7 +171,10 @@ export const AGENT_CAPABILITY_TOOL_NAMES: Record<AgentCapability, AgentToolName[
     AgentToolName.SEND_WHATSAPP_TEMPLATE,
     AgentToolName.LIST_WHATSAPP_TEMPLATES,
   ],
-  [AgentCapability.HUMAN_HANDOFF]: [AgentToolName.HUMAN_HANDOFF],
+  [AgentCapability.HUMAN_HANDOFF]: [
+    AgentToolName.HUMAN_HANDOFF,
+    AgentToolName.LIST_ISSUE_CAUSES,
+  ],
 };
 
 const CATALOG_READ = [
@@ -209,6 +213,10 @@ export const AGENT_CAPABILITY_DEPENDENCIES: Partial<Record<AgentCapability, Agen
   [AgentCapability.UPDATE_CUSTOMER_ADDRESS]: [...ADDRESS_READ],
   [AgentCapability.REMOVE_CUSTOMER_ADDRESS]: [AgentCapability.GET_MY_ADDRESSES],
   [AgentCapability.SET_DEFAULT_ADDRESS]: [AgentCapability.GET_MY_ADDRESSES],
+  [AgentCapability.HUMAN_HANDOFF]: [
+    AgentCapability.GET_MY_ORDERS,
+    AgentCapability.GET_ORDER_DETAILS,
+  ],
 };
 
 /**

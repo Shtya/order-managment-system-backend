@@ -17,12 +17,11 @@ import {
   AgentGender,
   AgentLanguage,
 } from "entities/agent.entity";
-import { AGENT_USER_CAPABILITIES, expandAgentCapabilities } from "./runtime/agent-runtime.constants";
-import {
-  AgentKnowledgeAgentEntity,
-  AgentKnowledgeEntity,
-} from "entities/agent.entity";
+import { AgentKnowledgeAgentEntity, AgentKnowledgeEntity } from "entities/agent.entity";
 import { AiProviderEntity } from "entities/ai.entity";
+import { Role, User } from "entities/user.entity";
+import { IssuePriority, IssueStatusEntity } from "entities/issue.entity";
+import { AGENT_USER_CAPABILITIES, expandAgentCapabilities, resolveAgentCapabilities } from "./runtime/agent-runtime.constants";
 import {
   CreateAgentDto,
   CreateAgentKnowledgeDto,
@@ -50,6 +49,12 @@ export class AgentsService {
     private readonly knowledgeRepo: Repository<AgentKnowledgeEntity>,
     @InjectRepository(AgentKnowledgeAgentEntity)
     private readonly knowledgeAgentRepo: Repository<AgentKnowledgeAgentEntity>,
+    @InjectRepository(Role)
+    private readonly roleRepo: Repository<Role>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    @InjectRepository(IssueStatusEntity)
+    private readonly issueStatusRepo: Repository<IssueStatusEntity>,
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
   ) {}
@@ -93,6 +98,91 @@ export class AgentsService {
   ): AgentCapability[] | undefined {
     if (capabilities === undefined) return undefined;
     return expandAgentCapabilities(capabilities);
+  }
+
+  private async applyHandoffConfig(
+    adminId: string,
+    agent: AgentEntity,
+    dto: CreateAgentDto | UpdateAgentDto,
+    capabilities: AgentCapability[],
+  ) {
+    const enabled = capabilities.includes(AgentCapability.HUMAN_HANDOFF);
+    if (!enabled) {
+      agent.handoffAssignedRoleId = null;
+      agent.handoffEmployeeIds = null;
+      agent.handoffEstimatedMinutes = null;
+      agent.handoffPriority = IssuePriority.MEDIUM;
+      agent.handoffStatusId = null;
+      return;
+    }
+
+    const roleId =
+      dto.handoffAssignedRoleId !== undefined
+        ? dto.handoffAssignedRoleId
+        : agent.handoffAssignedRoleId;
+    if (!roleId) {
+      throw new BadRequestException(
+        this.translations.t("domains.agents.handoff_role_required"),
+      );
+    }
+    const role = await this.roleRepo.findOne({ where: { id: roleId } as any });
+    if (!role || (!role.isGlobal && role.adminId !== adminId)) {
+      throw new BadRequestException(
+        this.translations.t("domains.issues.role_not_found"),
+      );
+    }
+    agent.handoffAssignedRoleId = roleId;
+
+    const employeeIds =
+      dto.handoffEmployeeIds !== undefined
+        ? dto.handoffEmployeeIds
+        : agent.handoffEmployeeIds;
+    if (employeeIds?.length) {
+      const unique = [...new Set(employeeIds)];
+      const users = await this.userRepo.find({
+        where: { id: In(unique) } as any,
+      });
+      const ok = users.filter(
+        (u) =>
+          (u.id === adminId || u.adminId === adminId) &&
+          String(u.roleId) === String(roleId),
+      );
+      if (ok.length !== unique.length) {
+        throw new BadRequestException(
+          this.translations.t("domains.issues.employee_not_found"),
+        );
+      }
+      agent.handoffEmployeeIds = unique;
+    } else {
+      agent.handoffEmployeeIds = null;
+    }
+
+    if (dto.handoffEstimatedMinutes !== undefined) {
+      agent.handoffEstimatedMinutes = dto.handoffEstimatedMinutes || null;
+    }
+    if (dto.handoffPriority !== undefined) {
+      agent.handoffPriority = dto.handoffPriority;
+    } else if (!agent.handoffPriority) {
+      agent.handoffPriority = IssuePriority.MEDIUM;
+    }
+
+    const statusId =
+      dto.handoffStatusId !== undefined
+        ? dto.handoffStatusId
+        : agent.handoffStatusId;
+    if (statusId) {
+      const status = await this.issueStatusRepo.findOne({
+        where: { id: statusId } as any,
+      });
+      if (!status || (status.system !== true && status.adminId !== adminId)) {
+        throw new BadRequestException(
+          this.translations.t("domains.issues.status_not_found"),
+        );
+      }
+      agent.handoffStatusId = status.id;
+    } else {
+      agent.handoffStatusId = null;
+    }
   }
 
   private async assertKnowledge(adminId: string, id: string) {
@@ -331,8 +421,7 @@ export class AgentsService {
 
     const agent = await this.dataSource.transaction(async (manager) => {
       const repo = manager.getRepository(AgentEntity);
-      const saved = await repo.save(
-        repo.create({
+      const row = repo.create({
           adminId,
           name,
           language: dto.language,
@@ -345,8 +434,9 @@ export class AgentsService {
           acceptVideo: dto.acceptVideo ?? false,
           acceptDocument: dto.acceptDocument ?? false,
           acceptAudio: dto.acceptAudio ?? false,
-        }),
-      );
+        });
+      await this.applyHandoffConfig(adminId, row, dto, capabilities);
+      const saved = await repo.save(row);
       if (knowledgeIds !== undefined) {
         await this.replaceAgentKnowledgeWithManager(
           manager,
@@ -401,6 +491,14 @@ export class AgentsService {
     if (dto.acceptVideo !== undefined) existing.acceptVideo = dto.acceptVideo;
     if (dto.acceptDocument !== undefined) existing.acceptDocument = dto.acceptDocument;
     if (dto.acceptAudio !== undefined) existing.acceptAudio = dto.acceptAudio;
+    await this.applyHandoffConfig(
+      adminId,
+      existing,
+      dto,
+      resolveAgentCapabilities(
+        capabilities !== undefined ? capabilities : existing.capabilities,
+      ),
+    );
 
     await this.dataSource.transaction(async (manager) => {
       await manager.getRepository(AgentEntity).save(existing);

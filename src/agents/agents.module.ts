@@ -13,7 +13,8 @@ import {
 } from "entities/agent-conversation.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { OrderEntity } from "entities/order.entity";
-import { User } from "entities/user.entity";
+import { Role, User } from "entities/user.entity";
+import { IssueStatusEntity } from "entities/issue.entity";
 import { CampaignRecipientEntity } from "entities/campaigns.entity";
 import { AreaEntity, CityEntity } from "entities/cities.entity";
 import { CategoryEntity } from "entities/categories.entity";
@@ -41,6 +42,7 @@ import { CustomerTools } from "src/ai/tools/tools/customer-tools";
 import { AgentWhatsappTools } from "src/ai/tools/tools/whatsapp.tools";
 import { ConversationModule } from "src/conversation/conversation.module";
 import { ShippingModule } from "src/shipping/shipping.module";
+import { IssueModule } from "src/issue/issue.module";
 
 @Module({
   imports: [
@@ -57,9 +59,11 @@ import { ShippingModule } from "src/shipping/shipping.module";
       AgentTaskEntity,
       AgentKnowledgeEntity,
       AgentKnowledgeAgentEntity,
+      Role,
+      User,
+      IssueStatusEntity,
       CustomerEntity,
       OrderEntity,
-      User,
       CampaignRecipientEntity,
       CityEntity,
       AreaEntity,
@@ -76,6 +80,7 @@ import { ShippingModule } from "src/shipping/shipping.module";
     forwardRef(() => OrdersModule),
     forwardRef(() => ConversationModule),
     forwardRef(() => ShippingModule),
+    forwardRef(() => IssueModule),
   ],
   controllers: [AgentsController],
   providers: [

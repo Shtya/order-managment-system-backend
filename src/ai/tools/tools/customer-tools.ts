@@ -42,6 +42,8 @@ import {
   AgentOrderLineInput,
 } from "src/agents/runtime/agent-catalog.service";
 import { ConversationService } from "src/conversation/conversation.service";
+import { IssueService } from "src/issue/issue.service";
+import { IssuePriority } from "entities/issue.entity";
 
 export const LIMITS = {
   text: 4096,
@@ -107,6 +109,8 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     private readonly shipping: ShippingService,
     @Inject(forwardRef(() => ConversationService))
     private readonly conversations: ConversationService,
+    @Inject(forwardRef(() => IssueService))
+    private readonly issues: IssueService,
   ) { }
 
   onModuleInit() {
@@ -147,6 +151,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       this.requestSetDefaultAddress(),
       this.requestUpdateCustomer(),
       this.humanHandoff(),
+      this.listIssueCauses(),
   
       // Address & Shipping
       this.requestAddressUpdate(),
@@ -159,27 +164,91 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     ];
   }
 
+  private listIssueCauses() {
+    return new AiTool({
+      name: "list_issue_causes",
+      audience: "customer",
+      description:
+        "List issue types (causes) for human_handoff. Pick the closest id. If none fit, use Other / أخرى.",
+      inputSchema: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+      isWrite: false,
+      staleRecovery: "auto_recover",
+      run: async (ctx) => {
+        const scope = agentScopeOf(ctx);
+        const records = await this.issues.listHandoffCauses(scope.adminId);
+        return { ok: true, code: "OK", records };
+      },
+    });
+  }
+
   private humanHandoff() {
     return new AiTool({
       name: "human_handoff",
       audience: "customer",
       description:
-        "Hand this conversation to a human employee after you have already sent the customer a message that the store team will take over. Call only when the customer asked for a human. Do not send another WhatsApp message from this tool.",
+        "Create an issue for the store team after you already told the customer that staff will take over. Write title and description in Arabic for the team: a short case title and a briefing they can act on (what the customer wants, what you already checked, order number if any). Do not dump the chat. Call list_issue_causes first and pass causeId (or Other). If the customer named a specific order, call get_my_orders or get_order_details first and pass that orderId; otherwise omit orderId. Do not send another WhatsApp message from this tool.",
       inputSchema: {
         type: "object",
-        properties: { reason: { type: "string" } },
+        properties: {
+          title: {
+            type: "string",
+            description: "Arabic one-line case title for the store team.",
+          },
+          description: {
+            type: "string",
+            description:
+              "Arabic briefing: problem, customer request, what you checked, IDs/numbers.",
+          },
+          causeId: {
+            type: "string",
+            description: "UUID from list_issue_causes. Use Other if unsure.",
+          },
+          orderId: {
+            type: "string",
+            description: "Order UUID from get_my_orders / get_order_details, only if the customer named that order.",
+          },
+          priority: {
+            type: "string",
+            enum: Object.values(IssuePriority),
+            description: "Only if store instructions say to override the default.",
+          },
+        },
+        required: ["title", "description"],
         additionalProperties: false,
       },
       isWrite: true,
       staleRecovery: "manual_review",
       run: async (ctx, args: Args) => {
         const scope = agentScopeOf(ctx);
+        const title = str(args.title);
+        const description = str(args.description);
+        if (!title || !description) {
+          return fail("MISSING_FIELDS", "title and description are required in Arabic.");
+        }
+        const priorityRaw = str(args.priority).toLowerCase();
+        const priority = (Object.values(IssuePriority) as string[]).includes(priorityRaw)
+          ? (priorityRaw as IssuePriority)
+          : undefined;
         const outcome = await this.conversations.startHumanHandoff({
           adminId: scope.adminId,
           conversationId: scope.conversationId,
-          reason: str(args.reason) || undefined,
+          agentId: scope.agentId,
+          title,
+          description,
+          causeId: str(args.causeId) || undefined,
+          orderId: str(args.orderId) || undefined,
+          priority,
         });
-        return { ok: true, code: outcome.code };
+        return {
+          ok: true,
+          code: outcome.code,
+          issueId: outcome.issueId,
+          humanHandoff: outcome.humanHandoff,
+        };
       },
     });
   }

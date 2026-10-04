@@ -23,9 +23,9 @@ export class CreateIssueDto {
 	@IsString()
 	description?: string;
 
+	@IsOptional()
 	@IsUUID()
-	@IsNotEmpty()
-	orderId: string;
+	orderId?: string | null;
 
 	@IsOptional()
 	@IsUUID()

@@ -8,8 +8,9 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from "typeorm";
-import { User } from "./user.entity";
+import { Role, User } from "./user.entity";
 import { AiProviderEntity } from "./ai.entity";
+import { IssuePriority, IssueStatusEntity } from "./issue.entity";
 
 export enum AgentLanguage {
   AUTO = "auto",
@@ -115,6 +116,36 @@ export class AgentEntity {
 
   @Column({ type: "boolean", default: false })
   acceptAudio: boolean;
+
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  handoffAssignedRoleId?: string | null;
+
+  @ManyToOne(() => Role, { nullable: true, onDelete: "SET NULL" })
+  @JoinColumn({ name: "handoffAssignedRoleId" })
+  handoffAssignedRole?: Role | null;
+
+  @Column({ type: "uuid", array: true, nullable: true })
+  handoffEmployeeIds?: string[] | null;
+
+  @Column({ type: "int", nullable: true })
+  handoffEstimatedMinutes?: number | null;
+
+  @Column({
+    type: "enum",
+    enum: IssuePriority,
+    nullable: true,
+    default: IssuePriority.MEDIUM,
+  })
+  handoffPriority?: IssuePriority | null;
+
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  handoffStatusId?: string | null;
+
+  @ManyToOne(() => IssueStatusEntity, { nullable: true, onDelete: "SET NULL" })
+  @JoinColumn({ name: "handoffStatusId" })
+  handoffStatus?: IssueStatusEntity | null;
 
   @CreateDateColumn({ type: "timestamptz" })
   createdAt: Date;

@@ -1,6 +1,7 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateIf } from "class-validator";
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsPositive, IsString, IsUUID, MaxLength, MinLength, ValidateIf } from "class-validator";
 import { i18nValidationMessage } from "nestjs-i18n";
 import { AgentCapability, AgentGender, AgentLanguage } from "entities/agent.entity";
+import { IssuePriority } from "entities/issue.entity";
 
 const languageEnumMessage = (args: any) =>
   i18nValidationMessage("validation.is_enum")({
@@ -74,6 +75,32 @@ export class CreateAgentDto {
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
   acceptAudio?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  handoffAssignedRoleId?: string | null;
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
+  handoffEmployeeIds?: string[];
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsInt({ message: i18nValidationMessage("validation.is_int") })
+  @IsPositive({ message: i18nValidationMessage("validation.is_positive") })
+  handoffEstimatedMinutes?: number | null;
+
+  @IsOptional()
+  @IsEnum(IssuePriority, { message: i18nValidationMessage("validation.is_enum") })
+  handoffPriority?: IssuePriority;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  handoffStatusId?: string | null;
 }
 
 export class UpdateAgentDto {
@@ -132,6 +159,32 @@ export class UpdateAgentDto {
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
   acceptAudio?: boolean;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  handoffAssignedRoleId?: string | null;
+
+  @IsOptional()
+  @IsArray({ message: i18nValidationMessage("validation.is_array") })
+  @IsUUID("4", { each: true, message: i18nValidationMessage("validation.is_uuid") })
+  @ArrayMaxSize(100, { message: i18nValidationMessage("validation.array_max_size") })
+  handoffEmployeeIds?: string[];
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsInt({ message: i18nValidationMessage("validation.is_int") })
+  @IsPositive({ message: i18nValidationMessage("validation.is_positive") })
+  handoffEstimatedMinutes?: number | null;
+
+  @IsOptional()
+  @IsEnum(IssuePriority, { message: i18nValidationMessage("validation.is_enum") })
+  handoffPriority?: IssuePriority;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  handoffStatusId?: string | null;
 }
 
 export class CreateAgentKnowledgeDto {

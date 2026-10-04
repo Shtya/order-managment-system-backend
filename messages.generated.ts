@@ -1287,6 +1287,7 @@ export type I18nTranslations = {
             "access_denied": string;
             "role_not_found": string;
             "assigned_role_required": string;
+            "order_not_for_customer": string;
             "employee_not_found": string;
             "message_or_content_required": string;
             "only_own_message": string;
@@ -1954,6 +1955,7 @@ export type I18nTranslations = {
             "status_active": string;
             "status_inactive": string;
             "agent_not_found": string;
+            "handoff_role_required": string;
         };
     };
     "emails": {

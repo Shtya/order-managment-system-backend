@@ -23,6 +23,9 @@ import { RequestTranslationService, TranslationService } from "common/translatio
 import { AgentTurnQueueService } from "src/queue/queues/agent-turn.queue";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
+import { IssueService } from "src/issue/issue.service";
+import { AgentEntity } from "entities/agent.entity";
+import { IssuePriority } from "entities/issue.entity";
 
 @Injectable()
 export class ConversationService {
@@ -39,6 +42,8 @@ export class ConversationService {
     private readonly notificationService: NotificationService,
     @Inject(forwardRef(() => AgentTurnQueueService))
     private readonly agentTurnQueue: AgentTurnQueueService,
+    @Inject(forwardRef(() => IssueService))
+    private readonly issues: IssueService,
   ) { }
 
   async getOrCreateConversation(me: any, payload: CreateConversationDto) {
@@ -354,8 +359,18 @@ export class ConversationService {
   async startHumanHandoff(input: {
     adminId: string;
     conversationId: string;
-    reason?: string;
-  }): Promise<{ ok: true; code: "ALREADY_HANDED_OFF" | "HANDED_OFF" }> {
+    agentId: string;
+    title: string;
+    description: string;
+    causeId?: string | null;
+    orderId?: string | null;
+    priority?: IssuePriority;
+  }): Promise<{
+    ok: true;
+    code: "ALREADY_HANDED_OFF" | "HANDED_OFF" | "ISSUE_CREATED";
+    issueId?: string;
+    humanHandoff: boolean;
+  }> {
     const conversation = await this.conversationRepo.findOne({
       where: { id: input.conversationId, adminId: input.adminId },
       relations: { customer: true },
@@ -365,41 +380,80 @@ export class ConversationService {
         this.translations.t("domains.conversation.not_found"),
       );
     }
-    if (conversation.humanHandoff) {
-      return { ok: true, code: "ALREADY_HANDED_OFF" };
+    const alreadyOpen = await this.issues.hasOpenConversationIssue(
+      input.adminId,
+      input.conversationId,
+    );
+    if (conversation.humanHandoff || alreadyOpen) {
+      return {
+        ok: true,
+        code: "ALREADY_HANDED_OFF",
+        humanHandoff: true,
+      };
     }
 
-    conversation.humanHandoff = true;
-    const saved = await this.conversationRepo.save(conversation);
-    this.emitConversationAi(saved);
+    const agent = await this.dataSource.getRepository(AgentEntity).findOne({
+      where: { id: input.agentId, adminId: input.adminId },
+    });
+    if (!agent?.handoffAssignedRoleId) {
+      throw new BadRequestException(
+        this.translations.t("domains.agents.handoff_role_required"),
+      );
+    }
 
-    const customerName =
-      conversation.customer?.name?.trim() ||
-      conversation.customer?.phoneNumber ||
-      "-";
-    const phone = conversation.customer?.phoneNumber || "-";
-    const args = {
-      customerName,
-      phone,
-      ...(input.reason?.trim() ? { reason: input.reason.trim() } : {}),
-    };
-    await this.notificationService.create({
-      userId: input.adminId,
-      type: NotificationType.HUMAN_HANDOFF,
-      title: await this.requestTranslations.tAsync(
-        "domains.conversation.human_handoff_title",
-        input.adminId,
-      ),
-      message: await this.requestTranslations.tAsync(
-        "domains.conversation.human_handoff_message",
-        input.adminId,
-        { args },
-      ),
-      relatedEntityType: "conversation",
-      relatedEntityId: conversation.customerId,
+    const causeId = await this.issues.resolveHandoffCauseId(
+      input.adminId,
+      input.causeId,
+    );
+    const { issue, silencesAgent } = await this.issues.createFromAgentHandoff({
+      adminId: input.adminId,
+      conversationId: conversation.id,
+      agent,
+      title: input.title,
+      description: input.description,
+      causeId,
+      orderId: input.orderId,
+      priority: input.priority,
     });
 
-    return { ok: true, code: "HANDED_OFF" };
+    if (silencesAgent && !conversation.humanHandoff) {
+      conversation.humanHandoff = true;
+      const saved = await this.conversationRepo.save(conversation);
+      this.emitConversationAi(saved);
+      const customerName =
+        conversation.customer?.name?.trim() ||
+        conversation.customer?.phoneNumber ||
+        "-";
+      const phone = conversation.customer?.phoneNumber || "-";
+      await this.notificationService.create({
+        userId: input.adminId,
+        type: NotificationType.HUMAN_HANDOFF,
+        title: await this.requestTranslations.tAsync(
+          "domains.conversation.human_handoff_title",
+          input.adminId,
+        ),
+        message: await this.requestTranslations.tAsync(
+          "domains.conversation.human_handoff_message",
+          input.adminId,
+          {
+            args: {
+              customerName,
+              phone,
+              ...(input.title.trim() ? { reason: input.title.trim() } : {}),
+            },
+          },
+        ),
+        relatedEntityType: "conversation",
+        relatedEntityId: conversation.customerId,
+      });
+    }
+
+    return {
+      ok: true,
+      code: silencesAgent ? "HANDED_OFF" : "ISSUE_CREATED",
+      issueId: issue.id,
+      humanHandoff: silencesAgent,
+    };
   }
 
   async cancelHumanHandoff(me: any, id: string) {
@@ -417,6 +471,7 @@ export class ConversationService {
         this.translations.t("domains.conversation.not_found"),
       );
     }
+    await this.issues.solveOpenConversationIssues(adminId, id, me.id);
     conversation.humanHandoff = false;
     conversation.agentPausedUntil = null;
     const saved = await this.conversationRepo.save(conversation);
