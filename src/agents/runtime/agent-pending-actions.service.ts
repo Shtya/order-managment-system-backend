@@ -134,8 +134,9 @@ export class AgentPendingActionsService {
   /**
    * Server checks before executing: the action belongs to this customer, is still pending and not
    * expired, was created in an earlier turn (the customer has seen the summary), and its data is still valid.
+   * Pass immediate when the request tool applies in the same turn with no summary buttons.
    */
-  async confirm(scope: AgentToolScope, actionId: string): Promise<AgentActionOutcome> {
+  async confirm(scope: AgentToolScope, actionId: string, opts?: { immediate?: boolean }): Promise<AgentActionOutcome> {
     const action = await this.findOwned(scope, actionId);
     if (!action) return { ok: false, code: "NOT_FOUND", error: "No such pending action for this customer." };
 
@@ -154,7 +155,7 @@ export class AgentPendingActionsService {
       await this.actionRepo.update(action.id, { status: AgentPendingActionStatus.EXPIRED });
       return { ok: false, code: "EXPIRED", actionId, error: "The confirmation expired. Collect the data and request it again." };
     }
-    if (action.createdInTurnId === scope.turnId) {
+    if (action.createdInTurnId === scope.turnId && !opts?.immediate) {
       return {
         ok: false,
         code: "NOT_SEEN_YET",
@@ -178,7 +179,7 @@ export class AgentPendingActionsService {
       const text = Array.isArray(message) ? message.join("; ") : String(message);
       const invalid = [400, 404, 409].includes((error as any)?.status);
       await this.actionRepo.update(action.id, {
-        status: invalid ? AgentPendingActionStatus.FAILED : AgentPendingActionStatus.PENDING,
+        status: invalid || opts?.immediate ? AgentPendingActionStatus.FAILED : AgentPendingActionStatus.PENDING,
         error: text,
       });
       this.logger.warn(`Pending action ${action.id} failed: ${text}`);

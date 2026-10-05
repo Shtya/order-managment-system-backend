@@ -736,7 +736,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_order",
       audience: "customer",
       description:
-        "The confirmation step: call when variants, quantities, name and address are ready. The server prices, checks stock, and sends a Confirm/Edit/Cancel summary. Don't ask for confirmation first. Call again after corrections. End the turn after calling. shippingCost/discount default 0; pass a value only from Store knowledge or owner instructions, never the customer.",
+        "The confirmation step: call when variants, quantities, name and address are ready. The server prices, checks stock, and sends a confirmation summary with buttons. Don't ask for confirmation first. Call again after corrections. End the turn after calling. shippingCost/discount default 0; pass a value only from Store knowledge or owner instructions, never the customer.",
       inputSchema: {
         type: "object",
         properties: {
@@ -825,7 +825,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_campaign_order",
       audience: "customer",
       description:
-        "The confirmation step for a campaign order: validates, saves a pending action, sends Confirm/Edit/Cancel. Don't ask first. Call again after corrections. Nothing is ordered until later confirmation. End the turn after calling.",
+        "The confirmation step for a campaign order: validates, saves a pending action, sends a confirmation summary with buttons. Don't ask first. Call again after corrections. Nothing is ordered until later confirmation. End the turn after calling.",
       inputSchema: {
         type: "object",
         properties: {
@@ -920,13 +920,13 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_add_order_items",
       type: AgentPendingActionType.ADD_ORDER_ITEMS,
       description:
-        "Add products or bundles to an existing order. Blocked after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+        "Add products or bundles to an existing order. Blocked after warehouse/courier statuses. Sends a confirmation summary with buttons. End the turn after calling.",
       extraProperties: {},
       extraRequired: [],
       summary: (en, orderNumber, draft) =>
         en
           ? `Add to order ${orderNumber}:\n${draftLines(draft)}\nConfirm?`
-          : `إضافة لطلب ${orderNumber}:\n${draftLines(draft)}\nنأكد؟`,
+          : `هضيف ده على طلب ${orderNumber}:\n${draftLines(draft)}\nتمام كده؟`,
     });
   }
 
@@ -935,13 +935,13 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_update_order_items",
       type: AgentPendingActionType.UPDATE_ORDER_ITEMS,
       description:
-        "Replace the order's items with this full list (quantities included). Blocked after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+        "Replace the order's items with this full list (quantities included). Blocked after warehouse/courier statuses. Sends a confirmation summary with buttons. End the turn after calling.",
       extraProperties: {},
       extraRequired: [],
       summary: (en, orderNumber, draft) =>
         en
           ? `Update items on order ${orderNumber} to:\n${draftLines(draft)}\nConfirm?`
-          : `تحديث منتجات طلب ${orderNumber} إلى:\n${draftLines(draft)}\nنأكد؟`,
+          : `هخلي منتجات طلب ${orderNumber} كده:\n${draftLines(draft)}\nتمام كده؟`,
     });
   }
 
@@ -958,8 +958,8 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       extraRequired: [],
       summary: (en, orderNumber, draft, args) =>
         en
-          ? `Replace ${str(args.fromBundleId) || str(args.fromVariantId)} on order ${orderNumber} with:\n${draftLines(draft)}\nConfirm?`
-          : `استبدال ${str(args.fromBundleId) || str(args.fromVariantId)} في طلب ${orderNumber} بـ:\n${draftLines(draft)}\nنأكد؟`,
+          ? `Replace ${str(args.replacedName) || "that item"} on order ${orderNumber} with:\n${draftLines(draft)}\nConfirm?`
+          : `هبدل ${str(args.replacedName) || "المنتج ده"} في طلب ${orderNumber} بـ:\n${draftLines(draft)}\nتمام كده؟`,
       validate: (args) => {
         if (Boolean(str(args.fromVariantId)) === Boolean(str(args.fromBundleId))) {
           return fail("INVALID_ARGS", "Pass either fromVariantId or fromBundleId");
@@ -1009,7 +1009,10 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           return catalogFail(error);
         }
         const en = args.language === "en";
-        const summary = opts.summary(en, prepared.order.orderNumber, draft, args);
+        const summary = opts.summary(en, prepared.order.orderNumber, draft, {
+          ...args,
+          replacedName: describeOrderLine(prepared.order, args),
+        });
         const action = await this.actions.create(prepared.scope, {
           type: opts.type,
           targetKey: `${opts.type}:${prepared.order.id}`,
@@ -1033,7 +1036,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_update_order_info",
       audience: "customer",
       description:
-        "Update an existing order's name, address, city, area, landmark or notes. Not allowed after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+        "Update an existing order's name, address, city, area, landmark or notes. Not allowed after warehouse/courier statuses. Sends a confirmation summary with buttons. End the turn after calling.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1082,12 +1085,12 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           patch.customerName && (en ? `Name: ${patch.customerName}` : `الاسم: ${patch.customerName}`),
           patch.address && (en ? `Address: ${patch.address}` : `العنوان: ${patch.address}`),
           (patch.city || patch.area) && (en ? `Area: ${[patch.area, patch.city].filter(Boolean).join(", ")}` : `المنطقة: ${[patch.area, patch.city].filter(Boolean).join("، ")}`),
-          patch.landmark && (en ? `Landmark: ${patch.landmark}` : `علامة مميزة: ${patch.landmark}`),
+          patch.landmark && (en ? `Landmark: ${patch.landmark}` : `أقرب علامة مميزة: ${patch.landmark}`),
           patch.customerNotes && (en ? `Notes: ${patch.customerNotes}` : `ملاحظات: ${patch.customerNotes}`),
         ].filter(Boolean);
         const summary = en
           ? `Update order ${prepared.order.orderNumber}:\n${bits.join("\n")}\nConfirm?`
-          : `تحديث طلب ${prepared.order.orderNumber}:\n${bits.join("\n")}\nنأكد؟`;
+          : `هعدل طلب ${prepared.order.orderNumber} كده:\n${bits.join("\n")}\nتمام كده؟`;
         const action = await this.actions.create(prepared.scope, {
           type: AgentPendingActionType.UPDATE_ORDER_INFO,
           targetKey: `update_order_info:${prepared.order.id}`,
@@ -1104,9 +1107,9 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return this.orderStatusWriteTool({
       name: "request_cancel_order",
       type: AgentPendingActionType.CANCEL_ORDER,
-      description: "Cancel an existing order if it is not yet with the warehouse or courier. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Cancel an existing order if it is not yet with the warehouse or courier. Sends a confirmation summary with buttons. End the turn after calling.",
       extra: {},
-      summary: (en, n) => (en ? `Cancel order ${n}?` : `إلغاء طلب ${n}؟`),
+      summary: (en, n) => (en ? `Cancel order ${n}?` : `هلغي طلب ${n}، تمام؟`),
     });
   }
 
@@ -1114,9 +1117,10 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return this.orderStatusWriteTool({
       name: "request_confirm_order",
       type: AgentPendingActionType.CONFIRM_ORDER,
-      description: "Confirm an existing order if it is not yet with the warehouse or courier. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Confirm an existing order if it is not yet with the warehouse or courier. Applies immediately — no confirmation buttons. After it succeeds, send a short done message and end the turn.",
       extra: {},
-      summary: (en, n) => (en ? `Confirm order ${n}?` : `تأكيد طلب ${n}؟`),
+      summary: (en, n) => (en ? `Confirm order ${n}` : `تأكيد طلب ${n}`),
+      immediate: true,
     });
   }
 
@@ -1124,13 +1128,13 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return this.orderStatusWriteTool({
       name: "request_postpone_order",
       type: AgentPendingActionType.POSTPONE_ORDER,
-      description: "Postpone an existing order (YYYY-MM-DD). Not allowed after warehouse/courier statuses. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Postpone an existing order (YYYY-MM-DD). Not allowed after warehouse/courier statuses. Sends a confirmation summary with buttons. End the turn after calling.",
       extra: {
         postponedDate: { type: "string", description: "YYYY-MM-DD" },
       },
       extraRequired: ["postponedDate"],
       summary: (en, n, args) =>
-        en ? `Postpone order ${n} to ${str(args.postponedDate)}?` : `تأجيل طلب ${n} ليوم ${str(args.postponedDate)}؟`,
+        en ? `Postpone order ${n} to ${str(args.postponedDate)}?` : `هأجل طلب ${n} ليوم ${friendlyDateAr(str(args.postponedDate))}، تمام؟`,
       validate: (args) => {
         const raw = str(args.postponedDate);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fail("INVALID_ARGS", "postponedDate must be YYYY-MM-DD");
@@ -1149,6 +1153,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     extraRequired?: string[];
     summary: (en: boolean, orderNumber: string, args: Args) => string;
     validate?: (args: Args) => AiToolExecutionResult | null;
+    immediate?: boolean;
   }) {
     return new AiTool({
       name: opts.name,
@@ -1183,6 +1188,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           },
           summary,
         });
+        if (opts.immediate) return this.applyImmediately(prepared.scope, action);
         return this.sendConfirmation(prepared.scope, action, summary, en);
       },
     });
@@ -1192,7 +1198,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "request_add_customer_address",
       audience: "customer",
-      description: "Save a new address in the customer's address book. Match city/area with get_cities / get_areas_by_city. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Save a new address in the customer's address book. Match city/area with get_cities / get_areas_by_city. Sends a confirmation summary with buttons. End the turn after calling.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1220,7 +1226,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
         const en = args.language === "en";
         const summary = en
           ? `Save this address${str(args.label) ? ` (${str(args.label)})` : ""}: ${parsed.data.address}. Confirm?`
-          : `حفظ العنوان${str(args.label) ? ` (${str(args.label)})` : ""}: ${parsed.data.address}. نأكد؟`;
+          : `هحفظ العنوان${str(args.label) ? ` (${str(args.label)})` : ""}: ${parsed.data.address}. تمام كده؟`;
         const action = await this.actions.create(scope, {
           type: AgentPendingActionType.ADD_CUSTOMER_ADDRESS,
           targetKey: "address:add",
@@ -1240,7 +1246,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "request_remove_customer_address",
       audience: "customer",
-      description: "Remove a saved address (addressId from get_my_addresses). Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Remove a saved address (addressId from get_my_addresses). Sends a confirmation summary with buttons. End the turn after calling.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1258,7 +1264,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
         const en = args.language === "en";
         const summary = en
           ? `Remove saved address ${prepared.address.address}?`
-          : `مسح العنوان المحفوظ ${prepared.address.address}؟`;
+          : `همسح العنوان المحفوظ ${prepared.address.address}، تمام؟`;
         const action = await this.actions.create(prepared.scope, {
           type: AgentPendingActionType.REMOVE_CUSTOMER_ADDRESS,
           targetKey: `address:remove:${prepared.address.id}`,
@@ -1274,7 +1280,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "request_update_customer_address",
       audience: "customer",
-      description: "Edit a saved address (addressId from get_my_addresses). Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Edit a saved address (addressId from get_my_addresses). Sends a confirmation summary with buttons. End the turn after calling.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1319,7 +1325,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
         const en = args.language === "en";
         const summary = en
           ? `Update saved address ${prepared.address.address}. Confirm?`
-          : `تحديث العنوان المحفوظ ${prepared.address.address}. نأكد؟`;
+          : `هعدل العنوان المحفوظ ${prepared.address.address}. تمام كده؟`;
         const action = await this.actions.create(prepared.scope, {
           type: AgentPendingActionType.UPDATE_CUSTOMER_ADDRESS,
           targetKey: `address:update:${prepared.address.id}`,
@@ -1335,7 +1341,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "request_set_default_address",
       audience: "customer",
-      description: "Set a saved address as the default (addressId from get_my_addresses). Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Set a saved address as the default (addressId from get_my_addresses). Applies immediately — no confirmation buttons. After it succeeds, send a short done message and end the turn.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1352,15 +1358,15 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
         if ("error" in prepared) return prepared.error;
         const en = args.language === "en";
         const summary = en
-          ? `Make ${prepared.address.address} the default address?`
-          : `جعل ${prepared.address.address} العنوان الافتراضي؟`;
+          ? `Make ${prepared.address.address} the default address`
+          : `العنوان الأساسي: ${prepared.address.address}`;
         const action = await this.actions.create(prepared.scope, {
           type: AgentPendingActionType.SET_DEFAULT_ADDRESS,
           targetKey: `address:default:${prepared.address.id}`,
           payload: { addressId: prepared.address.id },
           summary,
         });
-        return this.sendConfirmation(prepared.scope, action, summary, en);
+        return this.applyImmediately(prepared.scope, action);
       },
     });
   }
@@ -1369,7 +1375,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     return new AiTool({
       name: "request_update_customer",
       audience: "customer",
-      description: "Update the customer's name and/or email (email is stored on the linked client). Do not change the phone. Sends Confirm/Edit/Cancel. End the turn after calling.",
+      description: "Update the customer's name and/or email (email is stored on the linked client). Do not change the phone. Sends a confirmation summary with buttons. End the turn after calling.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1396,7 +1402,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
           name && (en ? `Name: ${name}` : `الاسم: ${name}`),
           email && (en ? `Email: ${email}` : `الإيميل: ${email}`),
         ].filter(Boolean);
-        const summary = en ? `Update your details:\n${bits.join("\n")}\nConfirm?` : `تحديث بياناتك:\n${bits.join("\n")}\nنأكد؟`;
+        const summary = en ? `Update your details:\n${bits.join("\n")}\nConfirm?` : `هحدث بياناتك:\n${bits.join("\n")}\nتمام كده؟`;
         const action = await this.actions.create(scope, {
           type: AgentPendingActionType.UPDATE_CUSTOMER,
           targetKey: `customer:${scope.customerId}`,
@@ -1413,7 +1419,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       name: "request_address_update",
       audience: "customer",
       description:
-        "The confirmation step for the open address task. Call only after the task shipping company covers this city, zone, and district with dropOff true. Validates and sends Confirm/Edit/Cancel. End the turn after calling; no message about it. Never invent ids.",
+        "The confirmation step for the open address task. Call only after the task shipping company covers this city, zone, and district with dropOff true. Validates and sends a confirmation summary with buttons. End the turn after calling; no message about it. Never invent ids.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1555,9 +1561,9 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
               .filter(Boolean)
               .join("\n")
           : [
-              "أكد العنوان:",
+              "هسجل العنوان ده، تمام؟",
               payload.address,
-              payload.landmark ? `علامة مميزة: ${payload.landmark}` : "",
+              payload.landmark ? `أقرب علامة مميزة: ${payload.landmark}` : "",
               [payload.area, payload.city].filter(Boolean).join(" — "),
             ]
               .filter(Boolean)
@@ -1758,9 +1764,28 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
     );
   }
 
-  private async sendConfirmation(
+  private async applyImmediately(
     scope: AgentToolScope,
     action: { id: string },
+  ): Promise<AiToolExecutionResult> {
+    const outcome = await this.actions.confirm(scope, action.id, { immediate: true });
+    if (outcome.ok) {
+      return {
+        ok: true,
+        code: outcome.code,
+        data: {
+          actionId: outcome.actionId,
+          ...outcome.result,
+          next: "The change is done. Send a short message saying so, then end the turn. Do not send confirmation buttons.",
+        },
+      };
+    }
+    return fail(outcome.code, outcome.error);
+  }
+
+  private async sendConfirmation(
+    scope: AgentToolScope,
+    action: { id: string; type?: AgentPendingActionType },
     summary: string,
     en: boolean,
   ): Promise<AiToolExecutionResult> {
@@ -1773,11 +1798,10 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
             type: "button",
             body: { text: summary.slice(0, LIMITS.body) },
             action: {
-              buttons: [
-                { type: "reply", reply: { id: `${AGENT_CONFIRM_BUTTON_PREFIX}${action.id}`, title: en ? "Confirm" : "تأكيد" } },
-                { type: "reply", reply: { id: `${AGENT_EDIT_BUTTON_PREFIX}${action.id}`, title: en ? "Edit" : "تعديل" } },
-                { type: "reply", reply: { id: `${AGENT_CANCEL_BUTTON_PREFIX}${action.id}`, title: en ? "Cancel" : "إلغاء" } },
-              ],
+              buttons: confirmationButtons(action.id, action.type, en).map((b) => ({
+                type: "reply",
+                reply: { id: b.id, title: b.title.slice(0, LIMITS.buttonTitle) },
+              })),
             },
           },
         },
@@ -1796,7 +1820,7 @@ export class CustomerTools implements AiToolNamespace, OnModuleInit {
       data: {
         actionId: action.id,
         sentSummary: summary,
-        next: "Summary with Confirm/Edit/Cancel sent. End the turn and wait for the customer.",
+        next: "Summary with confirmation buttons sent. End the turn and wait for the customer.",
       },
     };
   }
@@ -1902,6 +1926,67 @@ function parseRequestedItems(raw: unknown): { items: AgentOrderLineInput[] } | {
   return { items };
 }
 
+type ConfirmationButton = { id: string; title: string };
+
+/** Button ids keep the existing prefixes; only the visible titles and the set of buttons depend on the action type. */
+function confirmationButtons(
+  actionId: string,
+  type: AgentPendingActionType | undefined,
+  en: boolean,
+): ConfirmationButton[] {
+  const confirm = (ar: string, e: string): ConfirmationButton => ({
+    id: `${AGENT_CONFIRM_BUTTON_PREFIX}${actionId}`,
+    title: en ? e : ar,
+  });
+  const edit = (ar: string, e: string): ConfirmationButton => ({
+    id: `${AGENT_EDIT_BUTTON_PREFIX}${actionId}`,
+    title: en ? e : ar,
+  });
+  const cancel = (ar: string, e: string): ConfirmationButton => ({
+    id: `${AGENT_CANCEL_BUTTON_PREFIX}${actionId}`,
+    title: en ? e : ar,
+  });
+  switch (type) {
+    case AgentPendingActionType.CANCEL_ORDER:
+      return [confirm("أيوه، إلغاء الطلب", "Yes, cancel it"), cancel("لأ، بلاش", "No, keep it")];
+    case AgentPendingActionType.REMOVE_CUSTOMER_ADDRESS:
+      return [confirm("أيوه، مسح العنوان", "Yes, remove it"), cancel("لأ، بلاش", "No, keep it")];
+    case AgentPendingActionType.POSTPONE_ORDER:
+      return [
+        confirm("أيوه، تأجيل الطلب", "Yes, postpone"),
+        edit("ميعاد تاني", "Other date"),
+        cancel("لأ، بلاش", "Never mind"),
+      ];
+    case AgentPendingActionType.ADDRESS_CORRECTION:
+      return [
+        confirm("أيوه، العنوان صح", "Yes, that's right"),
+        edit("فيه تعديل", "Edit"),
+        cancel("لأ، إلغاء", "Cancel"),
+      ];
+    default:
+      return [confirm("تمام كده ✅", "Confirm"), edit("فيه تعديل", "Edit"), cancel("لأ، إلغاء", "Cancel")];
+  }
+}
+
+/** Product name of the order line being replaced; empty string when it can't be resolved (never an id). */
+function describeOrderLine(order: any, args: Args): string {
+  if (str(args.fromBundleId)) return "";
+  const variantId = str(args.fromVariantId);
+  const item = (order?.items ?? []).find((i: any) => i.variantId === variantId && !i.bundleId);
+  const name = item?.variant?.product?.name;
+  return name ? String(name) : "";
+}
+
+function friendlyDateAr(iso: string): string {
+  const d = new Date(`${iso}T12:00:00.000Z`);
+  if (Number.isNaN(d.getTime())) return iso;
+  try {
+    return new Intl.DateTimeFormat("ar-EG", { day: "numeric", month: "long", timeZone: "UTC" }).format(d);
+  } catch {
+    return iso;
+  }
+}
+
 function draftLines(draft: AgentOrderDraft) {
   return draft.lines
     .map((l) => `• ${l.name}${formatAttributes(l.attributes)} × ${l.quantity}`)
@@ -1925,40 +2010,44 @@ function renderOrderSummary(
   const place = [data.address, data.area, data.city].filter(Boolean).join("، ");
   const shippingLine = extras.shippingCost > 0
     ? (en ? `Shipping: ${roundMoney(extras.shippingCost)}` : `الشحن: ${roundMoney(extras.shippingCost)}`)
-    : (en ? "Shipping fee will be confirmed by the store" : "مصاريف الشحن هيتم تأكيدها من المتجر");
+    : (en ? "The store will confirm the shipping fee with you" : "مصاريف الشحن المتجر هيأكدها معاك");
   const discountLine = extras.discount > 0
     ? (en ? `Discount: ${roundMoney(extras.discount)}` : `الخصم: ${roundMoney(extras.discount)}`)
     : null;
   const payable = roundMoney(draft.productsTotal + extras.shippingCost - extras.discount);
   const totalLine = extras.shippingCost > 0 || extras.discount > 0
-    ? (en ? `Total: ${payable} (cash on delivery)` : `الإجمالي: ${payable} (الدفع عند الاستلام)`)
-    : (en ? "Payment: cash on delivery" : "الدفع عند الاستلام");
+    ? (en ? `Total: ${payable}, cash on delivery` : `الإجمالي: ${payable} والدفع عند الاستلام`)
+    : (en ? "Payment is cash on delivery" : "الدفع عند الاستلام");
   const body = en
     ? [
-      "Please confirm your order:",
+      "Here's your order:",
       ...lines,
-      `Products total: ${draft.productsTotal}`,
+      `Products: ${draft.productsTotal}`,
       shippingLine,
       discountLine,
       totalLine,
       "",
       `Name: ${data.customerName}`,
       `Address: ${place}`,
-      data.landmark && `Landmark: ${data.landmark}`,
-      data.customerNotes && `Notes: ${data.customerNotes}`,
+      data.landmark ? `Landmark: ${data.landmark}` : null,
+      data.customerNotes ? `Notes: ${data.customerNotes}` : null,
+      "",
+      "All good?",
     ]
     : [
-      "من فضلك أكد الطلب:",
+      "تمام، ده طلبك:",
       ...lines,
-      `إجمالي المنتجات: ${draft.productsTotal}`,
+      `المنتجات: ${draft.productsTotal}`,
       shippingLine,
       discountLine,
       totalLine,
       "",
       `الاسم: ${data.customerName}`,
       `العنوان: ${place}`,
-      data.landmark && `علامة مميزة: ${data.landmark}`,
-      data.customerNotes && `ملاحظات: ${data.customerNotes}`,
+      data.landmark ? `أقرب علامة مميزة: ${data.landmark}` : null,
+      data.customerNotes ? `ملاحظات: ${data.customerNotes}` : null,
+      "",
+      "كده تمام؟",
     ];
   return body.filter((l) => typeof l === "string").join("\n");
 }
@@ -1979,26 +2068,30 @@ function renderCampaignSummary(
   const place = [data.address, data.area, data.city].filter(Boolean).join("، ");
   const lines = en
     ? [
-      "Please confirm your order:",
+      "Here's your order:",
       products,
       `Shipping: ${offer.shipping ?? 0} ${currency}`,
-      `Total: ${offer.total ?? 0} ${currency} (cash on delivery)`,
+      `Total: ${offer.total ?? 0} ${currency}, cash on delivery`,
       "",
       `Name: ${data.customerName}`,
       `Address: ${place}`,
-      data.landmark && `Landmark: ${data.landmark}`,
-      data.customerNotes && `Notes: ${data.customerNotes}`,
+      data.landmark ? `Landmark: ${data.landmark}` : null,
+      data.customerNotes ? `Notes: ${data.customerNotes}` : null,
+      "",
+      "All good?",
     ]
     : [
-      "من فضلك أكد الطلب:",
+      "تمام، ده طلبك:",
       products,
       `الشحن: ${offer.shipping ?? 0} ${currency}`,
-      `الإجمالي: ${offer.total ?? 0} ${currency} (الدفع عند الاستلام)`,
+      `الإجمالي: ${offer.total ?? 0} ${currency} والدفع عند الاستلام`,
       "",
       `الاسم: ${data.customerName}`,
       `العنوان: ${place}`,
-      data.landmark && `علامة مميزة: ${data.landmark}`,
-      data.customerNotes && `ملاحظات: ${data.customerNotes}`,
+      data.landmark ? `أقرب علامة مميزة: ${data.landmark}` : null,
+      data.customerNotes ? `ملاحظات: ${data.customerNotes}` : null,
+      "",
+      "كده تمام؟",
     ];
   return lines.filter((l) => typeof l === "string").join("\n");
 }
