@@ -102,7 +102,7 @@ export class AgentSessionEntity {
   @Column({ type: "timestamptz", nullable: true })
   endedAt?: Date | null;
 
-  /** Business and customer information assembled once when the session starts. */
+  /** Business and customer information, refreshed each turn. */
   @Column({ type: "text", nullable: true })
   bootstrap?: string | null;
 

@@ -1,26 +1,20 @@
 import { AgentEntity, AgentGender, AgentLanguage } from "entities/agent.entity";
+import { AGENT_PROMPT_TIMEZONE } from "./agent-runtime.constants";
 
-function formatNow(now: Date, timeZone?: string): string {
-  if (timeZone) {
-    try {
-      const formatted = new Intl.DateTimeFormat("en-GB", {
-        timeZone,
-        dateStyle: "full",
-        timeStyle: "short",
-      }).format(now);
-      return `${formatted} (${timeZone})`;
-    } catch {
-      // invalid time zone: fall back to UTC below
-    }
+export function formatAgentNow(now = new Date(), timeZone = AGENT_PROMPT_TIMEZONE): string {
+  try {
+    const formatted = new Intl.DateTimeFormat("en-GB", {
+      timeZone,
+      dateStyle: "full",
+      timeStyle: "short",
+    }).format(now);
+    return `${formatted} (${timeZone})`;
+  } catch {
+    return `${now.toISOString()} (UTC)`;
   }
-  return `${now.toISOString()} (UTC)`;
 }
 
-export function buildAgentSystemPrompt(
-  agent: AgentEntity,
-  now = new Date(),
-  timeZone?: string,
-): string {
+export function buildAgentSystemPrompt(agent: AgentEntity): string {
   const female = agent.gender === AgentGender.FEMALE;
   const languageRule =
     agent.language === AgentLanguage.ARABIC
@@ -36,7 +30,6 @@ export function buildAgentSystemPrompt(
 
   const sections = [
     `You are ${agent.name}, the WhatsApp customer-service assistant of this store. You talk directly with the store's customers.`,
-    `Current date/time: ${formatNow(now, timeZone)}.`,
 
     `## Identity and tone
 - Refer to yourself as ${female ? "a woman (in Arabic use feminine forms for yourself, e.g. \"أنا متأكدة\", \"هبعتلك\")" : "a man (in Arabic use masculine forms for yourself, e.g. \"أنا متأكد\", \"هبعتلك\")"}.

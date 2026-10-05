@@ -6,6 +6,8 @@ import { RedisService } from "common/redis/RedisService";
 import { AgentRuntimeService } from "src/agents/agent-runtime.service";
 import { AgentPauseCatchupService } from "src/agents/runtime/agent-pause-catchup.service";
 import { AgentTurnJobs, AgentTurnJobData, QueueNames } from "../common/queue.constants";
+import { AGENT_SESSION_TIMEOUT_MS } from "src/agents/runtime/agent-runtime.constants";
+import { AgentSessionService } from "src/agents/runtime/agent-session.service";
 
 export type { AgentTurnJobData };
 
@@ -27,6 +29,7 @@ const PENDING_TTL_SECONDS = 24 * 3600; // delete forgotten message lists after 1
 
 const pauseCatchupJobId = (conversationId: string) => `agent-pause-catchup-${conversationId}`;
 const pauseCatchupRetryJobId = (conversationId: string) => `agent-pause-catchup-${conversationId}-retry`;
+const idleCloseJobId = (sessionId: string) => `agent-idle-${sessionId}`;
 
 const agentTurnKeys = (conversationId: string) => ({
   pending: `agent-turn:pending:${conversationId}`,
@@ -195,6 +198,41 @@ export class AgentTurnQueueService {
     }
   }
 
+  async scheduleIdleClose(data: {
+    adminId: string;
+    conversationId: string;
+    sessionId: string;
+    providerId?: string | null;
+  }) {
+    if (!data.sessionId) return;
+    const jobId = idleCloseJobId(data.sessionId);
+    const existing = await this.agentTurnsQueue.getJob(jobId);
+    if (existing) {
+      try {
+        await existing.remove();
+      } catch {
+        // Job already active; a second close is a no-op if the session is ended.
+      }
+    }
+    await this.agentTurnsQueue.add(
+      AgentTurnJobs.CLOSE_IDLE_SESSION,
+      {
+        adminId: data.adminId,
+        accountId: null,
+        conversationId: data.conversationId,
+        sessionId: data.sessionId,
+        providerId: data.providerId ?? null,
+      },
+      {
+        jobId,
+        delay: AGENT_SESSION_TIMEOUT_MS,
+        attempts: 1,
+        removeOnComplete: true,
+        removeOnFail: 20,
+      },
+    );
+  }
+
   private async removePauseCatchupJobs(conversationId: string) {
     for (const jobId of [pauseCatchupJobId(conversationId), pauseCatchupRetryJobId(conversationId)]) {
       const existing = await this.agentTurnsQueue.getJob(jobId);
@@ -244,11 +282,19 @@ export class AgentTurnWorkerService extends WorkerHost {
     private readonly pauseCatchup: AgentPauseCatchupService,
     @Inject(forwardRef(() => AgentTurnQueueService))
     private readonly agentTurnQueue: AgentTurnQueueService,
+    @Inject(forwardRef(() => AgentSessionService))
+    private readonly sessions: AgentSessionService,
   ) {
     super();
   }
 
   async process(job: Job<AgentTurnJobData>): Promise<any> {
+    if (job.name === AgentTurnJobs.CLOSE_IDLE_SESSION) {
+      if (!job.data.sessionId) return { closed: false };
+      const closed = await this.sessions.closeIdleIfDue(job.data.sessionId, job.data.providerId);
+      return { closed };
+    }
+
     if (job.name === AgentTurnJobs.TASK_START) {
       await this.agentRuntime.runTurn({
         adminId: job.data.adminId,

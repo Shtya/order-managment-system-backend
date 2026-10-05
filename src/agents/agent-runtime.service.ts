@@ -24,6 +24,7 @@ import { AgentContextService } from "./runtime/agent-context.service";
 import { AgentPendingActionsService } from "./runtime/agent-pending-actions.service";
 import { AgentTaskService } from "./runtime/agent-task.service";
 import { AgentCustomerWindowClosedError, AgentSendBlockedError, AgentSenderService } from "./runtime/agent-sender.service";
+import { AgentTurnQueueService } from "src/queue/queues/agent-turn.queue";
 import { AgentMediaUsageService } from "src/ai/media/agent-media-usage.service";
 import { AiUsageLedgerService } from "src/ai/usage/ai-usage-ledger.service";
 import {
@@ -88,6 +89,8 @@ export class AgentRuntimeService {
     private readonly sender: AgentSenderService,
     private readonly mediaUsage: AgentMediaUsageService,
     private readonly usageLedger: AiUsageLedgerService,
+    @Inject(forwardRef(() => AgentTurnQueueService))
+    private readonly agentTurns: AgentTurnQueueService,
   ) {}
 
   async runTurn(job: AgentTurnInput): Promise<void> {
@@ -226,13 +229,13 @@ export class AgentRuntimeService {
       });
 
       if (goalReached || confirmedByTool) {
-        await this.sessions.refreshBootstrap(session, phoneNumber);
         await this.safeCompact(session, 0, agent.responseProviderId);
       }
     } catch (error) {
       await this.finishTurn(turn, startedAt, {
         status: AgentTurnStatus.FAILED,
         error: (error as Error)?.message ?? String(error),
+        session,
       });
       if (error instanceof AgentCustomerWindowClosedError && openTask) {
         await this.tasks.close(openTask.id, "customer_session_window_closed");
@@ -295,6 +298,7 @@ export class AgentRuntimeService {
     events: string[],
   ) {
     const pendingActions = await this.actions.listOpen(scope.adminId, scope.customerId);
+    await this.sessions.refreshBootstrap(session, scope.phoneNumber);
     const buildContext = () =>
       this.contextBuilder.build({
         agent,
@@ -471,6 +475,15 @@ export class AgentRuntimeService {
       (outcome.status === AgentTurnStatus.OK || outcome.status === AgentTurnStatus.SILENT)
     ) {
       await this.sessions.markSeenUntil(outcome.session, outcome.lastSeenAt);
+    }
+    if (outcome.session) {
+      await this.agentTurns.scheduleIdleClose({
+        adminId: outcome.session.adminId,
+        conversationId: outcome.session.conversationId,
+        sessionId: outcome.session.id,
+      }).catch((error) =>
+        this.logger.warn(`Could not schedule idle close for session ${outcome.session?.id}: ${error?.message}`),
+      );
     }
     const tokens = (result?.usage?.promptTokens ?? 0) + (result?.usage?.completionTokens ?? 0);
     if (tokens > 0 || outcome.status === AgentTurnStatus.FAILED) {

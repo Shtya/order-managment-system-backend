@@ -5,7 +5,6 @@ import { AgentEntity } from "entities/agent.entity";
 import {
   AgentPendingActionEntity,
   AgentSessionEntity,
-  AgentTurnMessageEntity,
 } from "entities/agent-conversation.entity";
 import {
   MessageSendSource,
@@ -14,7 +13,7 @@ import {
   WhatsappMessageType,
 } from "entities/whatsapp.entity";
 import { AiChatMessage } from "src/ai/interfaces/ai-types";
-import { buildAgentSystemPrompt } from "./agent-prompt";
+import { buildAgentSystemPrompt, formatAgentNow } from "./agent-prompt";
 import { AgentInsight } from "./agent-input.service";
 import { describeMessage } from "./agent-message-describe";
 import { AgentSessionService } from "./agent-session.service";
@@ -23,6 +22,7 @@ import {
   AGENT_CAPABILITY_LABELS,
   AGENT_DESCRIBE_MESSAGE_RELATIONS,
   AGENT_GAP_MESSAGES,
+  AGENT_PROMPT_TIMEZONE,
   AGENT_USER_CAPABILITIES,
   resolveAgentCapabilities,
 } from "./agent-runtime.constants";
@@ -67,7 +67,7 @@ export class AgentContextService {
       this.findNotDelivered(session),
       session.turnCount <= 1
         ? this.sessions.getPreviousRawTail(session)
-        : Promise.resolve([] as string[]),
+        : Promise.resolve([] as { id: string; line: string }[]),
       this.tasks.getOpenForConversation(session.adminId, session.conversationId),
       this.loadGap(session, excludeIds),
     ]);
@@ -118,9 +118,11 @@ ${memory.map((f) => `- ${f.fact}`).join("\n")}`,
     if (session.previousSummary) {
       systemParts.push(`## Summary of the previous conversation session\n${session.previousSummary}`);
     }
-    if (rawTail.length) {
+    const seenIds = new Set([...excludeIds, ...gap.ids]);
+    const uniqueRawTail = rawTail.filter((row) => row.id && !seenIds.has(row.id));
+    if (uniqueRawTail.length) {
       systemParts.push(
-        `## Last messages before this session (raw)\n${rawTail.map((l) => `- ${l}`).join("\n")}`,
+        `## Last messages before this session (raw)\n${uniqueRawTail.map((l) => `- ${l.line}`).join("\n")}`,
       );
     }
     if (session.summary) {
@@ -155,7 +157,7 @@ ${gap.lines.join("\n")}`,
   async loadGap(
     session: AgentSessionEntity,
     excludeIds: Set<string>,
-  ): Promise<{ lines: string[]; lastSeenAt: Date | null }> {
+  ): Promise<{ lines: string[]; lastSeenAt: Date | null; ids: string[] }> {
     const since = agentGapSince(session);
     const where: FindOptionsWhere<WhatsappMessageEntity> = {
       adminId: session.adminId,
@@ -171,9 +173,8 @@ ${gap.lines.join("\n")}`,
     });
     rows.reverse();
     const lastSeenAt = rows.length ? rows[rows.length - 1].createdAt : null;
-    const lines = rows
-      .filter((m) => !excludeIds.has(m.id))
-      .map((m) => `- ${describeMessage(m)}`);
+    const kept = rows.filter((m) => !excludeIds.has(m.id));
+    const lines = kept.map((m) => `- ${describeMessage(m, AGENT_PROMPT_TIMEZONE)}`);
     this.logger.log(
       `Agent gap session=${session.id} conversation=${session.conversationId} turn=${session.turnCount} since=${
         since?.toISOString() ?? "null"
@@ -181,7 +182,7 @@ ${gap.lines.join("\n")}`,
         lastSeenAt?.toISOString() ?? "null"
       } previousSummary=${!!session.previousSummary}\n${lines.join("\n") || "(empty)"}`,
     );
-    return { lines, lastSeenAt };
+    return { lines, lastSeenAt, ids: kept.map((m) => m.id) };
   }
 
   private async findNotDelivered(session: AgentSessionEntity) {
@@ -222,7 +223,7 @@ function renderVolatileContext(
   pending: AgentPendingActionEntity[],
   notDelivered: WhatsappMessageEntity[],
 ): string {
-  const parts: string[] = [];
+  const parts: string[] = [`Current date/time: ${formatAgentNow(new Date(), AGENT_PROMPT_TIMEZONE)}.`];
   if (pending.length) {
     parts.push(
       `[Open pending actions waiting for the customer's confirmation]\n${pending
@@ -238,23 +239,45 @@ function renderVolatileContext(
   if (notDelivered.length) {
     parts.push(
       `[Your messages that were NOT delivered to the customer]\n${notDelivered
-        .map((m) => `- ${describeMessage(m)}${m.error ? ` (error: ${m.error})` : ""}`)
+        .map((m) => `- ${describeMessage(m, AGENT_PROMPT_TIMEZONE)}${m.error ? ` (error: ${m.error})` : ""}`)
         .join("\n")}`,
     );
   }
   return parts.join("\n\n");
 }
 
+
+
+const FRESH_READ_TURNS = 3;
+
+type HistoryRow = {
+  role: string;
+  seq?: number;
+  content?: string | null;
+  toolCallId?: string | null;
+  toolCalls?: Array<{ id: string; name: string; arguments?: Record<string, unknown> }> | null;
+};
+
 /** Rebuilds the stored turns, dropping any tool call without its result (and vice versa). */
-function toChatHistory(rows: AgentTurnMessageEntity[]): AiChatMessage[] {
+export function toChatHistory(rows: HistoryRow[]): AiChatMessage[] {
   const resultIds = new Set(rows.filter((r) => r.role === "tool").map((r) => r.toolCallId));
   const callIds = new Set<string>();
+  const toolNameById = new Map<string, string>();
+  for (const row of rows) {
+    for (const call of row.toolCalls ?? []) {
+      if (call.id) toolNameById.set(call.id, call.name);
+    }
+  }
+  const maxSeq = rows.reduce((max, row) => Math.max(max, row.seq ?? 0), 0);
+  const freshFrom = maxSeq - FRESH_READ_TURNS + 1;
   const out: AiChatMessage[] = [];
   for (const row of rows) {
     if (row.role === "user") {
       out.push({ role: "user", content: row.content ?? "" });
     } else if (row.role === "assistant") {
-      const calls = (row.toolCalls ?? []).filter((c) => resultIds.has(c.id));
+      const calls = (row.toolCalls ?? [])
+        .filter((c) => resultIds.has(c.id))
+        .map((c) => ({ id: c.id, name: c.name, arguments: c.arguments ?? {} }));
       calls.forEach((c) => callIds.add(c.id));
       if (!calls.length && !row.content?.trim()) continue;
       out.push({
@@ -263,8 +286,20 @@ function toChatHistory(rows: AgentTurnMessageEntity[]): AiChatMessage[] {
         ...(calls.length ? { toolCalls: calls } : {}),
       });
     } else if (row.role === "tool" && row.toolCallId && callIds.has(row.toolCallId)) {
-      out.push({ role: "tool", toolCallId: row.toolCallId, content: row.content ?? "" });
+      const name = toolNameById.get(row.toolCallId) ?? "";
+      const staleRead = (row.seq ?? 0) < freshFrom && isReadToolName(name);
+      out.push({
+        role: "tool",
+        toolCallId: row.toolCallId,
+        content: staleRead
+          ? "[Stale read result. Call the tool again if you need current data.]"
+          : row.content ?? "",
+      });
     }
   }
   return out;
+}
+
+function isReadToolName(name: string) {
+  return /^(get_|search_|list_)/.test(name);
 }

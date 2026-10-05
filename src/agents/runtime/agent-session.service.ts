@@ -32,8 +32,9 @@ import {
 } from "./agent-runtime.constants";
 
 const SUMMARY_SYSTEM_PROMPT = `You summarize a WhatsApp conversation between a store's AI assistant and a customer, for the assistant to read later (not for a human).
-Keep: what the customer asked for, what the assistant answered or promised, meaningful tool outcomes, order numbers and other reference ids, data the customer gave (name, address, city...), and anything still pending or unresolved (including actions waiting for confirmation).
-Drop greetings and small talk. Write short factual bullet points in English. Never add facts that aren't in the transcript.`;
+Keep: what the customer asked for, what the assistant answered or promised, meaningful tool outcomes, order numbers and other reference ids, data the customer gave (name, address, city...), the customer's dialect if it is clear, any open complaint, and promises the assistant made that are still relevant.
+Drop greetings, small talk, items that are already finished, and anything about pending confirmation buttons (those are injected separately and stay current).
+Write at most 12 short factual bullet points in English. Never add facts that aren't in the transcript.`;
 
 @Injectable()
 export class AgentSessionService {
@@ -100,6 +101,11 @@ export class AgentSessionService {
       });
       if (previous?.summaryStatus === AgentSummaryStatus.READY) {
         previousSummary = Promise.resolve(previous.summary ?? null);
+      } else if (
+        previous?.summaryStatus === AgentSummaryStatus.FAILED ||
+        previous?.summaryStatus === AgentSummaryStatus.PENDING
+      ) {
+        previousSummary = this.summarizeEndedSession(previous, input.providerId);
       }
     }
 
@@ -161,6 +167,20 @@ export class AgentSessionService {
     await this.sessionRepo.update(session.id, { bootstrap: session.bootstrap });
   }
 
+  /** Ends an idle ACTIVE session and writes its summary so the next customer message does not wait. */
+  async closeIdleIfDue(sessionId: string, providerId?: string | null): Promise<boolean> {
+    const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
+    if (!session || session.status !== AgentSessionStatus.ACTIVE) return false;
+    if (Date.now() - session.lastMessageAt.getTime() < AGENT_SESSION_TIMEOUT_MS) return false;
+    const now = new Date();
+    session.status = AgentSessionStatus.ENDED;
+    session.endedAt = now;
+    session.summaryStatus = AgentSummaryStatus.PENDING;
+    await this.sessionRepo.save(session);
+    await this.summarizeEndedSession(session, providerId);
+    return true;
+  }
+
   async nextTurnSeq(session: AgentSessionEntity): Promise<number> {
     await this.sessionRepo.increment({ id: session.id }, "turnCount", 1);
     session.turnCount += 1;
@@ -215,7 +235,7 @@ export class AgentSessionService {
   }
 
   /** Last raw WhatsApp messages before this session (first turn, alongside previousSummary). */
-  async getPreviousRawTail(session: AgentSessionEntity): Promise<string[]> {
+  async getPreviousRawTail(session: AgentSessionEntity): Promise<{ id: string; line: string }[]> {
     const rows = await this.messageRepo.find({
       where: {
         adminId: session.adminId,
@@ -226,7 +246,7 @@ export class AgentSessionService {
       order: { createdAt: "DESC" },
       take: AGENT_PREVIOUS_RAW_MESSAGES,
     });
-    return rows.reverse().map((m) => describeMessage(m));
+    return rows.reverse().map((m) => ({ id: m.id, line: describeMessage(m) }));
   }
 
   /**
@@ -249,7 +269,7 @@ export class AgentSessionService {
     if (!toFold.length) return false;
 
     const summary = await this.summarize(session, {
-      earlierSummary: session.summary ?? null,
+      earlierSummary: session.summary ?? session.previousSummary ?? null,
       transcript: renderTranscript(toFold),
       providerId: options.providerId,
     });
@@ -304,7 +324,7 @@ export class AgentSessionService {
     const user = [
       input.earlierSummary ? `Earlier summary:\n${input.earlierSummary}` : null,
       `Transcript to add:\n${input.transcript}`,
-      "Return the updated summary only.",
+      "Return the updated summary only. At most 12 bullets. Drop resolved items.",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -343,9 +363,8 @@ export class AgentSessionService {
       customer?.clientId ?? (await this.clients.findClientIdByPhone(adminId, normalizedPhone));
 
     const orderScope = clientId ? { adminId, clientId } : { adminId, normalizedPhoneNumber: normalizedPhone };
-    const [stats, orderCount, lastOrder] = await Promise.all([
-      clientId ? this.clients.getOrderStatsForAdmin(adminId, clientId).catch(() => null) : null,
-      clientId ? null : this.orderRepo.count({ where: orderScope }),
+    const [orderCount, lastOrder] = await Promise.all([
+      this.orderRepo.count({ where: orderScope }),
       this.orderRepo.findOne({
         where: orderScope,
         order: { created_at: "DESC" },
@@ -364,23 +383,11 @@ export class AgentSessionService {
       company?.country && `Country: ${company.country}`,
     ].filter(Boolean);
 
-    const currency = company?.currency ? ` ${company.currency}` : "";
-    const statsLines = stats
-      ? [
-          `Orders with the store: ${stats.totalOrders}`,
-          `Delivered: ${stats.deliveredCount} (${stats.deliveredPercent}%) — returned: ${stats.returnedCount} (${stats.returnedPercent}%) — cancelled: ${stats.cancelledCount} (${stats.cancelRate}%)`,
-          `Confirmation rate: ${stats.confirmedRate}%`,
-          `Total sales: ${stats.totalSales}${currency} — delivered revenue: ${stats.deliveredRevenue}${currency}`,
-          stats.tags.length > 0 &&
-            `Order tags: ${stats.tags.map((t) => `${t.name} (${t.count})`).join(", ")}`,
-        ]
-      : [orderCount !== null && `Orders with the store: ${orderCount}`];
-
     const customerLines = [
       `Name on WhatsApp: ${customer?.name ?? "-"}`,
       customer?.client?.name && `Client record name: ${customer.client.name}`,
       `Phone: ${normalizedPhone}`,
-      ...statsLines,
+      `Orders with the store: ${orderCount}`,
       lastOrder &&
         `Last order: ${lastOrder.orderNumber} — status "${lastOrder.status?.name ?? lastOrder.statusId}" — ${lastOrder.created_at ? new Date(lastOrder.created_at).toISOString().slice(0, 10) : ""}`,
     ].filter(Boolean);

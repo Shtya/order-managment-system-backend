@@ -60,7 +60,7 @@ export const QueueConfigs: Record<
   [QueueNames.AGENT_TURNS]: {
     displayName: "AI Agent Turns Queue",
     description:
-      "Batches incoming customer messages per conversation and runs one AI agent turn at a time",
+      "Batches incoming customer messages per conversation, runs one AI agent turn at a time, and closes idle sessions after 12 hours",
   },
 };
 
@@ -118,6 +118,7 @@ export const AgentTurnJobs = {
   PROCESS_TURN: "process-turn",
   PAUSE_CATCHUP: "pause-catchup",
   TASK_START: "task-start",
+  CLOSE_IDLE_SESSION: "close-idle-session",
 } as const;
 
 export type AgentTurnJobData = {
@@ -126,4 +127,6 @@ export type AgentTurnJobData = {
   conversationId: string;
   catchUp?: boolean;
   taskId?: string;
+  sessionId?: string;
+  providerId?: string | null;
 };

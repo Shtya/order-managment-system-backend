@@ -99,6 +99,6 @@ import { IssueModule } from "src/issue/issue.module";
     AgentWhatsappTools,
     CustomerTools,
   ],
-  exports: [AgentsService, AgentRuntimeService, AgentPauseCatchupService, AgentTaskService],
+  exports: [AgentsService, AgentRuntimeService, AgentPauseCatchupService, AgentTaskService, AgentSessionService],
 })
 export class AgentsModule {}

@@ -3,7 +3,14 @@ import { ConversationAiMode } from "entities/whatsapp.entity";
 import { AGENT_END_TURN_TOOL } from "src/ai/orchestrator/ai-loop-policy";
 
 export const AGENT_SESSION_TIMEOUT_MS = 12 * 60 * 60 * 1000;
-export const AGENT_PREVIOUS_SUMMARY_WAIT_MS = 20_000;
+export const AGENT_PREVIOUS_SUMMARY_WAIT_MS = 5_000;
+export const AGENT_PROMPT_TIMEZONE = "Africa/Cairo";
+export const AGENT_FRESH_READ_TURNS = 3;
+/**
+ * After shipping a new agent prompt, end leftover ACTIVE sessions so the model
+ * does not copy old-style replies from live history:
+ * UPDATE agent_sessions SET status = 'ended', "endedAt" = NOW() WHERE status = 'active';
+ */
 export const AGENT_PREVIOUS_RAW_MESSAGES = 10;
 export const AGENT_GAP_MESSAGES = 15;
 export const AGENT_HUMAN_PAUSE_MS = 30 * 60 * 1000;
@@ -330,7 +337,7 @@ export type AgentToolScope = {
 };
 
 export function estimateTokens(text: string | null | undefined): number {
-  return Math.ceil(String(text ?? "").length / 3.5);
+  return Math.ceil(String(text ?? "").length / 2.5);
 }
 
 export function isAgentSilenced(conversation: {
