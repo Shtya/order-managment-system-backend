@@ -21,14 +21,15 @@ import { AgentsService } from "../agents.service";
 import {
   AGENT_CAPABILITY_LABELS,
   AGENT_DESCRIBE_MESSAGE_RELATIONS,
+  AGENT_FRESH_READ_TURNS,
   AGENT_GAP_MESSAGES,
   AGENT_PROMPT_TIMEZONE,
   AGENT_USER_CAPABILITIES,
+  estimateTokens,
   resolveAgentCapabilities,
 } from "./agent-runtime.constants";
 import { AgentTaskService } from "./agent-task.service";
 import { agentGapSince } from "./agent-input.service";
-import { estimateTokens } from "./agent-runtime.constants";
 
 export type AgentTurnContext = {
   messages: AiChatMessage[];
@@ -246,10 +247,6 @@ function renderVolatileContext(
   return parts.join("\n\n");
 }
 
-
-
-const FRESH_READ_TURNS = 3;
-
 type HistoryRow = {
   role: string;
   seq?: number;
@@ -269,7 +266,7 @@ export function toChatHistory(rows: HistoryRow[]): AiChatMessage[] {
     }
   }
   const maxSeq = rows.reduce((max, row) => Math.max(max, row.seq ?? 0), 0);
-  const freshFrom = maxSeq - FRESH_READ_TURNS + 1;
+  const freshFrom = maxSeq - AGENT_FRESH_READ_TURNS + 1;
   const out: AiChatMessage[] = [];
   for (const row of rows) {
     if (row.role === "user") {
