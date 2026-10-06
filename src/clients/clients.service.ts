@@ -22,6 +22,7 @@ import {
   UpdateClientDto,
 } from "dto/client.dto";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { resolveClientSendPhone } from "src/audience/resolve-client-send-phone";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
 import { CustomerService } from "../customer/customer.service";
@@ -125,6 +126,52 @@ export class ClientService {
         (counts?.ordersCount ?? 0) + Number(entity.legacyTotalOrders ?? 0);
       (entity as any).contactsCount = counts?.contactsCount ?? 0;
     }
+  }
+
+  private queryFlag(value: unknown): boolean {
+    const raw = String(value ?? "").trim().toLowerCase();
+    return raw === "1" || raw === "true" || raw === "yes";
+  }
+
+  private applyHasPhoneFilter(qb: SelectQueryBuilder<ClientEntity>) {
+    qb.andWhere(
+      `EXISTS (
+        SELECT 1 FROM customers contact
+        WHERE contact."clientId" = client.id
+          AND NULLIF(BTRIM(contact."phoneNumber"), '') IS NOT NULL
+      )`,
+    );
+  }
+
+  private async withResolvedPhones(adminId: string, rows: ClientEntity[]) {
+    const missingIds = rows
+      .filter((row) => !String(row.primaryContact?.phoneNumber ?? "").trim())
+      .map((row) => row.id);
+    const extras = missingIds.length
+      ? await this.contactRepo.find({
+          where: { adminId, clientId: In(missingIds) },
+          select: { id: true, clientId: true, phoneNumber: true },
+        })
+      : [];
+    const byClient = new Map<string, CustomerEntity[]>();
+    for (const contact of extras) {
+      if (!contact.clientId) continue;
+      const list = byClient.get(contact.clientId) ?? [];
+      list.push(contact);
+      byClient.set(contact.clientId, list);
+    }
+
+    return rows.map((row) => {
+      const contacts = row.contacts?.length ? row.contacts : byClient.get(row.id) ?? [];
+      const resolved = resolveClientSendPhone({
+        primaryContactId: row.primaryContactId,
+        primaryContact: row.primaryContact,
+        contacts,
+      });
+      (row as any).phoneNumber = resolved.phoneNumber;
+      (row as any).customerId = resolved.customerId;
+      return row;
+    });
   }
 
   private parseContacts(input: any) {
@@ -407,6 +454,10 @@ export class ClientService {
     };
     qb.orderBy(sortColumns[sortBy] || "client.createdAt", sortDir);
 
+    if (this.queryFlag(q?.hasPhone)) {
+      this.applyHasPhoneFilter(qb);
+    }
+
     const total = await qb.getCount();
     const { entities: records, raw } = await this.addClientCountSelects(qb)
       .skip((page - 1) * limit)
@@ -440,6 +491,7 @@ export class ClientService {
         "client.email",
         "client.profilePicture",
         "client.createdAt",
+        "client.primaryContactId",
         "primaryContact.id",
         "primaryContact.phoneNumber",
       ])
@@ -448,6 +500,10 @@ export class ClientService {
       .orderBy("client.createdAt", "DESC")
       .addOrderBy("client.id", "DESC")
       .take(fetchLimit + 1);
+
+    if (this.queryFlag(q?.hasPhone)) {
+      this.applyHasPhoneFilter(qb);
+    }
 
     if (search) {
       qb.andWhere(
@@ -481,7 +537,10 @@ export class ClientService {
       }
     }
 
-    const rows = await qb.getMany();
+    const fetched = await qb.getMany();
+    const rows = this.queryFlag(q?.resolvePhones)
+      ? await this.withResolvedPhones(adminId, fetched)
+      : fetched;
     const hasMore = rows.length > fetchLimit;
     if (hasMore) rows.pop();
 
@@ -639,7 +698,7 @@ export class ClientService {
   }
 
   async getOrderStatsForAdmin(adminId: string, clientId: string) {
-    const [stats, tagRows] = await Promise.all([
+    const [stats, tagRows, lastOrder] = await Promise.all([
       this.clientOrderStatsService.getOrderStatsSnapshot(adminId, clientId),
       this.dataSource
         .getRepository(OrderTagEntity)
@@ -658,10 +717,23 @@ export class ClientService {
         .orderBy("count", "DESC")
         .addOrderBy("tag.name", "ASC")
         .getRawMany(),
+      this.dataSource.getRepository(OrderEntity).findOne({
+        where: { adminId, clientId },
+        order: { created_at: "DESC" },
+        relations: { status: true },
+      }),
     ]);
 
     return {
       ...stats,
+      lastOrder: lastOrder
+        ? {
+            id: lastOrder.id,
+            orderNumber: lastOrder.orderNumber,
+            status: lastOrder.status?.name ?? null,
+            createdAt: lastOrder.created_at,
+          }
+        : null,
       tags: tagRows.map((row) => ({
         id: row.id,
         name: row.name,

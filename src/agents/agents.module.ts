@@ -32,6 +32,7 @@ import { AgentInputService } from "./runtime/agent-input.service";
 import { AgentSessionService } from "./runtime/agent-session.service";
 import { AgentContextService } from "./runtime/agent-context.service";
 import { AgentSenderService } from "./runtime/agent-sender.service";
+import { AgentPlaygroundService } from "./runtime/agent-playground.service";
 import { AgentCampaignOffersService } from "./runtime/agent-campaign-offers.service";
 import { AgentPendingActionsService } from "./runtime/agent-pending-actions.service";
 import { AgentCatalogService } from "./runtime/agent-catalog.service";
@@ -90,6 +91,7 @@ import { IssueModule } from "src/issue/issue.module";
     AgentSessionService,
     AgentContextService,
     AgentSenderService,
+    AgentPlaygroundService,
     AgentCampaignOffersService,
     AgentPendingActionsService,
     AgentCatalogService,
@@ -99,6 +101,13 @@ import { IssueModule } from "src/issue/issue.module";
     AgentWhatsappTools,
     CustomerTools,
   ],
-  exports: [AgentsService, AgentRuntimeService, AgentPauseCatchupService, AgentTaskService, AgentSessionService],
+  exports: [
+    AgentsService,
+    AgentRuntimeService,
+    AgentPauseCatchupService,
+    AgentTaskService,
+    AgentSessionService,
+    AgentPlaygroundService,
+  ],
 })
 export class AgentsModule {}

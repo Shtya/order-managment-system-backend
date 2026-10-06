@@ -116,6 +116,7 @@ export const ClientImportJobs = {
 
 export const AgentTurnJobs = {
   PROCESS_TURN: "process-turn",
+  PROCESS_PLAYGROUND: "process-playground",
   PAUSE_CATCHUP: "pause-catchup",
   TASK_START: "task-start",
   CLOSE_IDLE_SESSION: "close-idle-session",
@@ -130,3 +131,11 @@ export type AgentTurnJobData = {
   sessionId?: string;
   providerId?: string | null;
 };
+
+export type AgentPlaygroundJobData = {
+  adminId: string;
+  dashboardUserId: string;
+  hashId: string;
+};
+
+export type AgentTurnsJobData = AgentTurnJobData | AgentPlaygroundJobData;

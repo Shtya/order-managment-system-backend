@@ -25,8 +25,10 @@ export class AudioMediaProcessor {
     const models = this.mediaConfig.models();
     const usage = await this.estimate(buffer, mimeType);
     const client = this.mediaConfig.createOpenAi();
-    const mime = mimeType?.split(";")[0]?.trim() || "audio/ogg";
-    const file = await toFile(buffer, `voice.${extensionFor(mime)}`, { type: mime });
+    const sniffed = sniffAudio(buffer, mimeType);
+    const mime = sniffed.mime;
+    const ext = sniffed.ext;
+    const file = await toFile(buffer, `voice.${ext}`, { type: mime });
     const result = await client.audio.transcriptions.create({
       file,
       model: models.transcribeModel,
@@ -44,7 +46,7 @@ export class AudioMediaProcessor {
   }
 
   private async durationOf(buffer: Buffer, mimeType?: string): Promise<number> {
-    const ext = extensionFor(mimeType || "audio/ogg");
+    const ext = sniffAudio(buffer, mimeType).ext;
     const filePath = writeTempFile(buffer, ext);
     try {
       const duration = await probeDurationSeconds(filePath);
@@ -59,6 +61,27 @@ export class AudioMediaProcessor {
       removeTempPath(filePath);
     }
   }
+}
+
+function sniffAudio(buffer: Buffer, mimeType?: string): { mime: string; ext: string } {
+  const magic = buffer.subarray(0, 4);
+  if (magic.length >= 4 && magic[0] === 0x1a && magic[1] === 0x45 && magic[2] === 0xdf && magic[3] === 0xa3) {
+    return { mime: "audio/webm", ext: "webm" };
+  }
+  if (magic.toString("ascii") === "OggS") {
+    return { mime: "audio/ogg", ext: "ogg" };
+  }
+  if (magic.toString("ascii") === "RIFF") {
+    return { mime: "audio/wav", ext: "wav" };
+  }
+  if (magic.toString("ascii") === "fLaC") {
+    return { mime: "audio/flac", ext: "flac" };
+  }
+  if (magic[0] === 0xff && magic[1] === 0xfb) {
+    return { mime: "audio/mpeg", ext: "mp3" };
+  }
+  const mime = mimeType?.split(";")[0]?.trim() || "audio/ogg";
+  return { mime, ext: extensionFor(mime) };
 }
 
 function extensionFor(mimeType: string): string {

@@ -6,7 +6,8 @@ import {
   Injectable,
   OnModuleInit,
 } from "@nestjs/common";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
+import { RedisService } from "common/redis/RedisService";
 import { WhatsappService } from "../../../whatsapp/whatsapp.service";
 import { WhatsappTemplateService } from "../../../whatsapp/services/WhatsappTemplate.service";
 import { AiTool } from "../ai-tool.abstract";
@@ -17,6 +18,10 @@ import {
 } from "../ai-tool-registry.service";
 import { AiToolExecutionResult } from "../../interfaces/ai-types";
 import { AgentToolScope } from "../../../agents/runtime/agent-runtime.constants";
+import {
+  appendPlaygroundBubble,
+  playgroundBubbleFromSend,
+} from "../../../agents/runtime/agent-playground.session";
 import {
   AgentCustomerWindowClosedError,
   AgentSendBlockedError,
@@ -47,6 +52,7 @@ export class WhatsappAiTools {
   constructor(
     private readonly whatsappService: WhatsappService,
     private readonly whatsappTemplateService: WhatsappTemplateService,
+    private readonly redis: RedisService,
   ) {}
 
   getTools(): AiTool[] {
@@ -154,6 +160,24 @@ export class WhatsappAiTools {
     args: Record<string, unknown>,
   ): Promise<AiExecutionResult> {
     return this.wrap("WHATSAPP_TEMPLATE_SENT", async () => {
+      const scope = ctx.session.metadata?.agentScope as AgentToolScope | undefined;
+      if (scope?.playgroundKey) {
+        const wamid = `playground:${randomUUID()}`;
+        await appendPlaygroundBubble(
+          this.redis,
+          scope.playgroundKey,
+          playgroundBubbleFromSend(
+            {
+              type: "template",
+              templateId: args.templateId,
+              name: args.templateId,
+            },
+            wamid,
+          ),
+          scope.playgroundHashId,
+        );
+        return { messageId: wamid, status: "accepted" };
+      }
       const orderId = args.orderId ? String(args.orderId) : undefined;
       const response = await this.whatsappService.sendTemplate(
         this.buildMe(ctx),

@@ -319,6 +319,56 @@ export function resolveAgentToolNames(
   return [...names];
 }
 
+const PLAYGROUND_WRITE_TOOL_NAMES = new Set<string>([
+  AgentToolName.REQUEST_ORDER,
+  AgentToolName.REQUEST_CAMPAIGN_ORDER,
+  AgentToolName.REQUEST_ADD_ORDER_ITEMS,
+  AgentToolName.REQUEST_REPLACE_ORDER_ITEMS,
+  AgentToolName.REQUEST_UPDATE_ORDER_ITEMS,
+  AgentToolName.REQUEST_UPDATE_ORDER_INFO,
+  AgentToolName.REQUEST_CANCEL_ORDER,
+  AgentToolName.REQUEST_POSTPONE_ORDER,
+  AgentToolName.REQUEST_CONFIRM_ORDER,
+  AgentToolName.REQUEST_ADD_CUSTOMER_ADDRESS,
+  AgentToolName.REQUEST_UPDATE_CUSTOMER_ADDRESS,
+  AgentToolName.REQUEST_REMOVE_CUSTOMER_ADDRESS,
+  AgentToolName.REQUEST_SET_DEFAULT_ADDRESS,
+  AgentToolName.REQUEST_UPDATE_CUSTOMER,
+  AgentToolName.REQUEST_ADDRESS_UPDATE,
+  AgentToolName.CLOSE_ADDRESS_TASK,
+  AgentToolName.CONFIRM_PENDING_ACTION,
+  AgentToolName.CANCEL_PENDING_ACTION,
+  AgentToolName.HUMAN_HANDOFF,
+  AgentToolName.RESUME_AUTOMATION_CHOICE,
+]);
+
+const PLAYGROUND_CUSTOMER_READ_TOOL_NAMES = new Set<string>([
+  AgentToolName.GET_MY_ORDERS,
+  AgentToolName.GET_ORDER_DETAILS,
+  AgentToolName.GET_MY_ADDRESSES,
+  AgentToolName.GET_MY_CAMPAIGN_OFFERS,
+]);
+
+/** Send tools the playground still exposes (same names as WhatsApp; delivery is Redis). */
+export const PLAYGROUND_SEND_TOOL_NAMES = [
+  ...AGENT_SEND_TOOL_NAMES,
+  AgentToolName.SEND_WHATSAPP_TEMPLATE,
+];
+
+/** Read-only ∩ capabilities ∩ optional customer; send tools stay so the model can reply in the sidebar. */
+export function resolvePlaygroundToolNames(
+  capabilities: Array<string | AgentCapability> | null | undefined,
+  hasCustomer: boolean,
+): string[] {
+  const keep = new Set<string>(AGENT_ALWAYS_ON_TOOL_NAMES);
+  return resolveAgentToolNames(capabilities, false).filter((name) => {
+    if (keep.has(name)) return true;
+    if (PLAYGROUND_WRITE_TOOL_NAMES.has(name)) return false;
+    if (!hasCustomer && PLAYGROUND_CUSTOMER_READ_TOOL_NAMES.has(name)) return false;
+    return true;
+  });
+}
+
 /**
  * Everything a customer tool is allowed to act on. Set by the runtime from the server-side
  * session and passed as `session.metadata.agentScope`; never taken from model arguments.
@@ -334,6 +384,10 @@ export type AgentToolScope = {
   accountId: string | null;
   /** When set, send even if the WhatsApp account's default AI agent is off. */
   taskId?: string;
+  /** When set, send tools write Redis bubbles instead of WhatsApp. */
+  playgroundKey?: string;
+  /** Playground session hash; send tools no-op if Redis moved to another session. */
+  playgroundHashId?: string;
 };
 
 export function estimateTokens(text: string | null | undefined): number {

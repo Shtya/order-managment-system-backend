@@ -10,8 +10,12 @@ import {
   Query,
   Req,
   Res,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { memoryStorage } from "multer";
 import { Response } from "express";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { PermissionsGuard } from "common/permissions.guard";
@@ -23,15 +27,21 @@ import {
   CreateAgentDto,
   CreateAgentKnowledgeDto,
   ResetAgentKnowledgeDto,
+  TryMeMessageDto,
+  TryMeSessionDto,
   UpdateAgentDto,
   UpdateAgentKnowledgeDto,
 } from "dto/agent.dto";
+import { AgentPlaygroundService } from "./runtime/agent-playground.service";
 
 @UseGuards(JwtAuthGuard, PermissionsGuard, SubscriptionGuard)
 @RequireSubscription()
 @Controller("agents")
 export class AgentsController {
-  constructor(private readonly service: AgentsService) {}
+  constructor(
+    private readonly service: AgentsService,
+    private readonly playground: AgentPlaygroundService,
+  ) {}
 
   @Permissions("agents.read")
   @Get()
@@ -43,6 +53,40 @@ export class AgentsController {
   @Get("stats")
   stats(@Req() req: any) {
     return this.service.stats(req.user);
+  }
+
+  @Permissions("agents.read")
+  @Post("try-me/session")
+  startTryMe(@Req() req: any, @Body() dto: TryMeSessionDto) {
+    return this.playground.startSession(req.user, dto);
+  }
+
+  @Permissions("agents.read")
+  @Get("try-me/session")
+  getTryMe(@Req() req: any) {
+    return this.playground.getSession(req.user);
+  }
+
+  @Permissions("agents.read")
+  @Post("try-me/message")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: memoryStorage(),
+      limits: { fileSize: 100 * 1024 * 1024 },
+    }),
+  )
+  sendTryMe(
+    @Req() req: any,
+    @Body() dto: TryMeMessageDto,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.playground.runMessage(req.user, dto ?? ({} as TryMeMessageDto), file);
+  }
+
+  @Permissions("agents.read")
+  @Delete("try-me/session")
+  endTryMe(@Req() req: any) {
+    return this.playground.endSession(req.user);
   }
 
   @Get("export")

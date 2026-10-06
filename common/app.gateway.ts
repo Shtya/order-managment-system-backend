@@ -139,6 +139,13 @@ export class AppGateway implements OnGatewayConnection, OnGatewayDisconnect {
         });
     }
 
+    emitTryMe(userId: string, payload: Record<string, unknown> & { hashId: string; kind: string }) {
+        this.server.to(`user_${userId}`).emit("agents:try-me", {
+            ...payload,
+            timestamp: new Date(),
+        });
+    }
+
     emitWebhookRetryStatus(
         userId: string,
         payload: {

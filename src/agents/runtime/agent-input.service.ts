@@ -34,6 +34,8 @@ export type AgentInsight = {
   /** Normalized, channel-agnostic text the agent reads. Empty for ignored/unsupported items. */
   text: string;
   quoted?: string | null;
+  /** Set when kind is failed (wallet, processor, missing media). */
+  errorCode?: string;
   /** Button/list option id when the customer picked an option. */
   choiceId?: string | null;
   /** The agent message a choice or reaction answers (for pending-action routing). */
@@ -180,21 +182,28 @@ export class AgentInputService {
     const mediaId = media.id;
     const caption = String(media.caption ?? "").trim();
     try {
-      if (!mediaId || !message.accountId) {
+      const inlineBuffer = Buffer.isBuffer(media.buffer) ? media.buffer : null;
+      if (!inlineBuffer && (!mediaId || !message.accountId)) {
         throw new MediaUnderstandingError("Missing media id or account", "MISSING_MEDIA");
       }
-      const meta = await this.whatsappApi.getMediaUrl(message.accountId, mediaId);
-      const response = await this.whatsappApi.streamMedia(message.accountId, meta?.url);
-      const buffer = await readStream(response?.data ?? response);
+      let mimeType = media.mime_type ?? undefined;
+      const buffer = inlineBuffer
+        ? inlineBuffer
+        : await (async () => {
+            const meta = await this.whatsappApi.getMediaUrl(message.accountId!, mediaId);
+            mimeType = mimeType ?? meta?.mime_type;
+            const response = await this.whatsappApi.streamMedia(message.accountId!, meta?.url);
+            return readStream(response?.data ?? response);
+          })();
       const result = await this.media.process({
         adminId,
         agentId: agent.id,
         conversationId: message.conversationId,
         messageId: message.id,
-        idempotencyKey: `media:${message.id}`,
+        idempotencyKey: inlineBuffer ? `playground:${message.id}` : `media:${message.id}`,
         kind,
         buffer,
-        mimeType: media.mime_type ?? meta?.mime_type,
+        mimeType,
         filename: media.filename,
         caption,
       });
@@ -203,14 +212,16 @@ export class AgentInputService {
       this.logger.warn(
         `${kind} processing failed for message ${message.id}: ${(error as Error)?.message}`,
       );
-      const label =
-        error instanceof MediaInsufficientBalanceError
-          ? FAILED_LABEL[kind].replace(
-              "could not be processed right now",
-              "could not be processed: insufficient wallet balance",
-            )
-          : FAILED_LABEL[kind];
-      return { ...base, kind: "failed", text: label };
+      const insufficient = error instanceof MediaInsufficientBalanceError;
+      const label = insufficient
+        ? FAILED_LABEL[kind].replace(
+            "could not be processed right now",
+            "could not be processed: insufficient wallet balance",
+          )
+        : FAILED_LABEL[kind];
+      const errorCode =
+        error instanceof MediaUnderstandingError ? error.code : "MEDIA_FAILED";
+      return { ...base, kind: "failed", text: label, errorCode };
     }
   }
 }

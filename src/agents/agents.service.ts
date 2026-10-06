@@ -696,6 +696,20 @@ export class AgentsService {
     }));
   }
 
+  async getKnowledgeByIds(adminId: string, ids: string[]) {
+    const rows = await this.knowledgeRepo.find({
+      where: { id: In(ids), adminId, isActive: true },
+      order: { createdAt: "ASC" },
+    });
+    return rows.map((row) => ({
+      title: row.title,
+      content:
+        row.content.length > AGENT_KNOWLEDGE_CONTENT_CLIP
+          ? `${row.content.slice(0, AGENT_KNOWLEDGE_CONTENT_CLIP)}…`
+          : row.content,
+    }));
+  }
+
   async stats(me: any) {
     const adminId = this.adminIdOf(me);
     const result = await this.agentRepo

@@ -167,6 +167,10 @@ export class AgentSessionService {
     await this.sessionRepo.update(session.id, { bootstrap: session.bootstrap });
   }
 
+  async getBootstrap(adminId: string, customerId: string, phoneNumber: string) {
+    return this.buildBootstrap(adminId, customerId, phoneNumber);
+  }
+
   /** Ends an idle ACTIVE session and writes its summary so the next customer message does not wait. */
   async closeIdleIfDue(sessionId: string, providerId?: string | null): Promise<boolean> {
     const session = await this.sessionRepo.findOne({ where: { id: sessionId } });
@@ -268,7 +272,11 @@ export class AgentSessionService {
     const toFold = rows.filter((r) => r.seq <= cutoffSeq);
     if (!toFold.length) return false;
 
-    const summary = await this.summarize(session, {
+    const summary = await this.summarizeTranscript({
+      adminId: session.adminId,
+      sessionId: session.id,
+      conversationId: session.conversationId,
+      agentId: session.agentId ?? session.adminId,
       earlierSummary: session.summary ?? session.previousSummary ?? null,
       transcript: renderTranscript(toFold),
       providerId: options.providerId,
@@ -294,7 +302,11 @@ export class AgentSessionService {
         order: { seq: "ASC", position: "ASC" },
       });
       const summary = rows.length
-        ? await this.summarize(session, {
+        ? await this.summarizeTranscript({
+            adminId: session.adminId,
+            sessionId: session.id,
+            conversationId: session.conversationId,
+            agentId: session.agentId ?? session.adminId,
             earlierSummary: session.summary ?? session.previousSummary ?? null,
             transcript: renderTranscript(rows),
             providerId,
@@ -317,10 +329,15 @@ export class AgentSessionService {
     }
   }
 
-  private async summarize(
-    session: AgentSessionEntity,
-    input: { earlierSummary: string | null; transcript: string; providerId?: string | null },
-  ): Promise<string | null> {
+  async summarizeTranscript(input: {
+    adminId: string;
+    sessionId: string;
+    conversationId: string;
+    agentId: string;
+    earlierSummary: string | null;
+    transcript: string;
+    providerId?: string | null;
+  }): Promise<string | null> {
     const user = [
       input.earlierSummary ? `Earlier summary:\n${input.earlierSummary}` : null,
       `Transcript to add:\n${input.transcript}`,
@@ -330,10 +347,10 @@ export class AgentSessionService {
       .join("\n\n");
 
     const result = await this.orchestrator.runCompletion({
-      tenantId: session.adminId,
-      sessionId: session.id,
-      conversationId: session.conversationId,
-      userId: session.agentId ?? session.adminId,
+      tenantId: input.adminId,
+      sessionId: input.sessionId,
+      conversationId: input.conversationId,
+      userId: input.agentId,
       providerId: input.providerId,
       system: SUMMARY_SYSTEM_PROMPT,
       user,
@@ -343,7 +360,7 @@ export class AgentSessionService {
       usageActor: AiUsageActor.SYSTEM,
     });
     if (!result.ok || !result.content?.trim()) {
-      this.logger.warn(`Summary call failed for session ${session.id}: ${result.error ?? "empty"}`);
+      this.logger.warn(`Summary call failed for session ${input.sessionId}: ${result.error ?? "empty"}`);
       return null;
     }
     return result.content.trim();

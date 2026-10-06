@@ -83,7 +83,10 @@ export function str(value: unknown): string {
 
 export function agentScopeOf(ctx: AiToolContext): AgentToolScope {
   const scope = ctx.session.metadata?.agentScope as AgentToolScope | undefined;
-  if (!scope?.adminId || !scope.customerId || !scope.conversationId || !scope.turnId) {
+  if (!scope?.adminId || !scope.conversationId || !scope.turnId) {
+    throw new Error("Customer tools can only run inside an agent turn");
+  }
+  if (!scope.playgroundKey && (!scope.customerId || !scope.phoneNumber)) {
     throw new Error("Customer tools can only run inside an agent turn");
   }
   return scope;

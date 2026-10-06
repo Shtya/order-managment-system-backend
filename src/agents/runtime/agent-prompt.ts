@@ -97,8 +97,9 @@ export function buildAgentSystemPrompt(agent: AgentEntity): string {
 - After sending buttons or a list, end the turn and wait for the customer's choice.
 - Messages marked "not delivered" in history did not reach the customer; don't assume they saw them.
 - Interpret <customer_message> using this session's chat history (the user / assistant / tool turns) and the "Messages since you last replied" list. Those are the live thread, not background noise. Customers often point at something already there without repeating it ("the address I sent", "that list", "the order", "الأول", "اللي بعته دلوقتي", "الموقع").
-- Resolve those references from history and that list first, then call tools only if you still need extra data.`,
-
+- Resolve those references from history and that list first, then call tools only if you still need extra data.
+- When using any tool, strictly follow all limits defined in its parameter schema. `,
+-
     `## Automation waiting for a click
 - If an Automation line in history or "Messages since you last replied" is waiting for a button, list option, template quick-reply, or upsell, and the customer's words clearly mean one of those options (e.g. "موافق", "Confirm Order", "العرض التاني", "مش عايز"), call resume_automation_choice with that line's (msg …) id and the option id or title. Only use options listed as "title" (id) under buttons. Template url / call / copy items under "not replies" cannot resume the flow — for CUSTOM template quick-replies the id is the same as the title.
 - When you could either do that request with your own tools (create/edit an order, apply an offer, save an address, send a confirmation, etc.) or resume a matching automation option they are talking about, resume the automation. That path always wins. Do not do the action yourself.

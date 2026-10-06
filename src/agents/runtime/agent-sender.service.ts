@@ -1,6 +1,7 @@
 import { forwardRef, Inject, Injectable } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
+import { randomUUID } from "crypto";
 import {
   ConversationEntity,
   MessageSendSource,
@@ -8,7 +9,9 @@ import {
 } from "entities/whatsapp.entity";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { WhatsappAiService } from "src/whatsapp/services/whatsapp-ai.service";
+import { RedisService } from "common/redis/RedisService";
 import { AgentToolScope, isAgentSilenced } from "./agent-runtime.constants";
+import { appendPlaygroundBubble, loadPlaygroundSession, playgroundBubbleFromSend } from "./agent-playground.session";
 
 export class AgentSendBlockedError extends Error {}
 
@@ -46,6 +49,7 @@ export class AgentSenderService {
     private readonly conversationRepo: Repository<ConversationEntity>,
     @InjectRepository(WhatsappMessageEntity)
     private readonly messageRepo: Repository<WhatsappMessageEntity>,
+    private readonly redisService: RedisService,
   ) {}
 
   /**
@@ -57,6 +61,9 @@ export class AgentSenderService {
     data: Record<string, any>,
     extraMetadata: Record<string, any> = {},
   ): Promise<{ wamid: string | null }> {
+    if (scope.playgroundKey) {
+      return this.sendPlayground(scope, data);
+    }
     await this.assertCanSend(scope);
 
     try {
@@ -97,6 +104,15 @@ export class AgentSenderService {
     scope: AgentToolScope,
     input: { url: string; caption?: string; extra?: Record<string, any> },
   ): Promise<{ wamid: string | null }> {
+    if (scope.playgroundKey) {
+      return this.sendPlayground(scope, {
+        type: "image",
+        image: {
+          link: input.url,
+          ...(input.caption ? { caption: input.caption } : {}),
+        },
+      });
+    }
     const media = await this.whatsappService.uploadMedia(
       { id: scope.adminId, adminId: scope.adminId },
       { url: input.url },
@@ -118,11 +134,30 @@ export class AgentSenderService {
     );
   }
 
+  private async sendPlayground(
+    scope: AgentToolScope,
+    data: Record<string, any>,
+  ): Promise<{ wamid: string | null }> {
+    const key = scope.playgroundKey;
+    if (!key) throw new Error("playground send missing key");
+    const wamid = `playground:${randomUUID()}`;
+    await appendPlaygroundBubble(this.redisService, key, playgroundBubbleFromSend(data, wamid), scope.playgroundHashId);
+    return { wamid };
+  }
+
   /** Resolves a message of this conversation by our id, for reactions and quoted replies. */
   async findConversationMessage(scope: AgentToolScope, messageId: string) {
-    if (!/^[0-9a-f-]{36}$/i.test(String(messageId ?? ""))) return null;
+    const id = String(messageId ?? "");
+    if (scope.playgroundKey) {
+      const session = await loadPlaygroundSession(this.redisService, scope.playgroundKey);
+      const hit =
+        session?.bubbles.find((row) => row.id === id) ||
+        session?.inboundIds?.includes(id);
+      return hit ? { id, messageId: id } : null;
+    }
+    if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
     return this.messageRepo.findOne({
-      where: { id: messageId, adminId: scope.adminId, conversationId: scope.conversationId },
+      where: { id, adminId: scope.adminId, conversationId: scope.conversationId },
       select: { id: true, messageId: true },
     });
   }

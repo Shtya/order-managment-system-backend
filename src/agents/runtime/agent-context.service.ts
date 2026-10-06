@@ -201,7 +201,7 @@ ${gap.lines.join("\n")}`,
   }
 }
 
-function renderInput(insights: AgentInsight[], events: string[]): string {
+export function renderInput(insights: AgentInsight[], events: string[]): string {
   const lines = insights
     .filter((i) => i.kind !== "ignored" && i.kind !== "unsupported")
     .map((i) => {

@@ -5,11 +5,25 @@ import { randomUUID } from "crypto";
 import { RedisService } from "common/redis/RedisService";
 import { AgentRuntimeService } from "src/agents/agent-runtime.service";
 import { AgentPauseCatchupService } from "src/agents/runtime/agent-pause-catchup.service";
-import { AgentTurnJobs, AgentTurnJobData, QueueNames } from "../common/queue.constants";
+import {
+  AgentTurnJobs,
+  AgentTurnJobData,
+  AgentPlaygroundJobData,
+  AgentTurnsJobData,
+  QueueNames,
+} from "../common/queue.constants";
 import { AGENT_SESSION_TIMEOUT_MS } from "src/agents/runtime/agent-runtime.constants";
 import { AgentSessionService } from "src/agents/runtime/agent-session.service";
+import { AgentPlaygroundService } from "src/agents/runtime/agent-playground.service";
+import {
+  PLAYGROUND_GATHER_MAX_MS,
+  PLAYGROUND_GATHER_MS,
+  PLAYGROUND_TTL_SECONDS,
+  playgroundLaneKeys,
+  playgroundRedisKey,
+} from "src/agents/runtime/agent-playground.session";
 
-export type { AgentTurnJobData };
+export type { AgentTurnJobData, AgentPlaygroundJobData };
 
 /**
  * Per-conversation agent lane (architecture §8):
@@ -24,7 +38,7 @@ export type { AgentTurnJobData };
 const SHORT_WAIT_MS = 0; // wait 0.8s after the last message
 const MAX_WAIT_MS = 2500;  // but never wait more than 2.5s in total
 // Safety net if a worker dies mid-turn: the lane unlocks by itself after this.
-const STATE_TTL_SECONDS = 10 * 60; // if something crashes, unlock after 10 minutes
+export const STATE_TTL_SECONDS = 10 * 60; // if something crashes, unlock after 10 minutes
 const PENDING_TTL_SECONDS = 24 * 3600; // delete forgotten message lists after 1 day
 
 const pauseCatchupJobId = (conversationId: string) => `agent-pause-catchup-${conversationId}`;
@@ -97,7 +111,7 @@ export class AgentTurnQueueService {
 
   constructor(
     @InjectQueue(QueueNames.AGENT_TURNS)
-    private readonly agentTurnsQueue: Queue<AgentTurnJobData>,
+    private readonly agentTurnsQueue: Queue<AgentTurnsJobData>,
     private readonly redisService: RedisService,
   ) {}
 
@@ -150,6 +164,59 @@ export class AgentTurnQueueService {
       );
     }
     // "active:<jobId>": the running worker drains this message before it releases the lane.
+  }
+
+  async enqueuePlayground(data: AgentPlaygroundJobData, inboundJson: string) {
+    if (!data.adminId || !data.dashboardUserId || !data.hashId || !inboundJson) return "idle";
+
+    const keys = playgroundLaneKeys(playgroundRedisKey(data.adminId, data.dashboardUserId));
+    const newJobId = `pg-turn-${data.dashboardUserId}-${randomUUID()}`;
+
+    const [state, firstAtRaw] = (await this.redisService.redisClient.eval(
+      PUSH_SCRIPT,
+      3,
+      keys.pending,
+      keys.state,
+      keys.firstAt,
+      inboundJson,
+      newJobId,
+      String(Date.now()),
+      String(STATE_TTL_SECONDS),
+      String(PLAYGROUND_TTL_SECONDS),
+    )) as [string, string?];
+
+    if (state === "new") {
+      try {
+        await this.agentTurnsQueue.add(AgentTurnJobs.PROCESS_PLAYGROUND, data, {
+          jobId: newJobId,
+          delay: PLAYGROUND_GATHER_MS,
+          attempts: 1,
+          removeOnComplete: true,
+          removeOnFail: 100,
+        });
+      } catch (error) {
+        await this.redisService.redisClient.eval(
+          CLEAR_IF_SCRIPT,
+          1,
+          keys.state,
+          `scheduled:${newJobId}`,
+        );
+        throw error;
+      }
+      return "new";
+    }
+
+    if (state.startsWith("scheduled:")) {
+      await this.slideDelay(
+        state.slice("scheduled:".length),
+        Number(firstAtRaw) || Date.now(),
+        PLAYGROUND_GATHER_MS,
+        PLAYGROUND_GATHER_MAX_MS,
+      );
+      return "scheduled";
+    }
+
+    return "active";
   }
 
   async enqueueTaskStart(data: AgentTurnJobData, delayMs = 0) {
@@ -245,16 +312,21 @@ export class AgentTurnQueueService {
     }
   }
 
-  private async slideDelay(jobId: string, firstAt: number) {
+  private async slideDelay(
+    jobId: string,
+    firstAt: number,
+    shortWaitMs = SHORT_WAIT_MS,
+    maxWaitMs = MAX_WAIT_MS,
+  ) {
     const job = await this.agentTurnsQueue.getJob(jobId);
     if (!job) return;
 
-    const remaining = MAX_WAIT_MS - (Date.now() - firstAt);
+    const remaining = maxWaitMs - (Date.now() - firstAt);
     try {
       if (remaining <= 0) {
         await job.promote();
       } else {
-        await job.changeDelay(Math.min(SHORT_WAIT_MS, remaining));
+        await job.changeDelay(Math.min(shortWaitMs, remaining));
       }
     } catch (error) {
       // The job already left the delayed state; the worker picks the message up anyway.
@@ -284,37 +356,45 @@ export class AgentTurnWorkerService extends WorkerHost {
     private readonly agentTurnQueue: AgentTurnQueueService,
     @Inject(forwardRef(() => AgentSessionService))
     private readonly sessions: AgentSessionService,
+    @Inject(forwardRef(() => AgentPlaygroundService))
+    private readonly playground: AgentPlaygroundService,
   ) {
     super();
   }
 
-  async process(job: Job<AgentTurnJobData>): Promise<any> {
+  async process(job: Job<AgentTurnsJobData>): Promise<any> {
+    if (job.name === AgentTurnJobs.PROCESS_PLAYGROUND) {
+      return this.processPlayground(job as Job<AgentPlaygroundJobData>);
+    }
+
+    const data = job.data as AgentTurnJobData;
+
     if (job.name === AgentTurnJobs.CLOSE_IDLE_SESSION) {
-      if (!job.data.sessionId) return { closed: false };
-      const closed = await this.sessions.closeIdleIfDue(job.data.sessionId, job.data.providerId);
+      if (!data.sessionId) return { closed: false };
+      const closed = await this.sessions.closeIdleIfDue(data.sessionId, data.providerId);
       return { closed };
     }
 
     if (job.name === AgentTurnJobs.TASK_START) {
       await this.agentRuntime.runTurn({
-        adminId: job.data.adminId,
-        accountId: job.data.accountId,
-        conversationId: job.data.conversationId,
+        adminId: data.adminId,
+        accountId: data.accountId,
+        conversationId: data.conversationId,
         messageIds: [],
-        taskId: job.data.taskId,
+        taskId: data.taskId,
       });
       return { taskStart: true };
     }
 
     if (job.name === AgentTurnJobs.PAUSE_CATCHUP) {
-      const result = await this.pauseCatchup.run(job.data);
+      const result = await this.pauseCatchup.run(data);
       if (result.rescheduleUntil) {
         setTimeout(() => {
           this.agentTurnQueue
-            .schedulePauseCatchup(job.data, result.rescheduleUntil!)
+            .schedulePauseCatchup(data, result.rescheduleUntil!)
             .catch((error) =>
               this.logger.error(
-                `Failed to reschedule pause catch-up for ${job.data.conversationId}: ${error?.message}`,
+                `Failed to reschedule pause catch-up for ${data.conversationId}: ${error?.message}`,
                 error?.stack,
               ),
             );
@@ -323,9 +403,9 @@ export class AgentTurnWorkerService extends WorkerHost {
       }
       for (const messageId of result.messageIds) {
         await this.agentTurnQueue.enqueueMessage({
-          adminId: job.data.adminId,
+          adminId: data.adminId,
           accountId: result.accountId,
-          conversationId: job.data.conversationId,
+          conversationId: data.conversationId,
           messageId,
           catchUp: true,
         });
@@ -333,7 +413,7 @@ export class AgentTurnWorkerService extends WorkerHost {
       return result;
     }
 
-    const { adminId, accountId, conversationId, catchUp } = job.data;
+    const { adminId, accountId, conversationId, catchUp } = data;
     const keys = agentTurnKeys(conversationId);
     const redis = this.redisService.redisClient;
 
@@ -395,5 +475,32 @@ export class AgentTurnWorkerService extends WorkerHost {
     }
 
     return { turns };
+  }
+
+  private async processPlayground(job: Job<AgentPlaygroundJobData>) {
+    const { adminId, dashboardUserId, hashId } = job.data;
+    if (!adminId || !dashboardUserId || !hashId) return { skipped: true };
+
+    const keys = playgroundLaneKeys(playgroundRedisKey(adminId, dashboardUserId));
+    const redis = this.redisService.redisClient;
+    const claimed = await redis.eval(
+      CLAIM_SCRIPT,
+      2,
+      keys.state,
+      keys.firstAt,
+      job.id,
+      String(STATE_TTL_SECONDS),
+    );
+    if (claimed !== 1) {
+      this.logger.debug(`Skipping stale playground job ${job.id}`);
+      return { skipped: true };
+    }
+
+    try {
+      return await this.playground.runLane(adminId, dashboardUserId, hashId, job.id!);
+    } catch (error) {
+      await redis.eval(CLEAR_IF_SCRIPT, 1, keys.state, `active:${job.id}`);
+      throw error;
+    }
   }
 }
