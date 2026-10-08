@@ -30,13 +30,13 @@ export type { AgentTurnJobData, AgentPlaygroundJobData };
  * - every inbound message is pushed to `pending` (never dropped);
  * - `state` is the single source of truth: absent = idle,
  *   `scheduled:<jobId>` = delayed job gathering a burst, `active:<jobId>` = agent running;
- * - a burst waits SHORT_WAIT_MS after the last message, capped at MAX_WAIT_MS from the first;
+ * - a burst waits SHORT_WAIT_MS after the last message; each new message
+ *   restarts that wait until the customer is silent;
  * - messages arriving while the agent runs are drained right after the current turn,
  *   inside the same job, with no extra wait.
  * All state transitions are Lua scripts so the webhook and the worker can't race.
  */
-const SHORT_WAIT_MS = 3; // wait 0.8s after the last message
-const MAX_WAIT_MS = 2500;  // but never wait more than 2.5s in total
+const SHORT_WAIT_MS = 3000; // wait 3s after the last inbound message
 // Safety net if a worker dies mid-turn: the lane unlocks by itself after this.
 export const STATE_TTL_SECONDS = 10 * 60; // if something crashes, unlock after 10 minutes
 const PENDING_TTL_SECONDS = 24 * 3600; // delete forgotten message lists after 1 day
@@ -123,7 +123,7 @@ export class AgentTurnQueueService {
     // BullMQ custom job IDs cannot contain ":".
     const newJobId = `agent-turn-${jobData.conversationId}-${randomUUID()}`;
 
-    const [state, firstAtRaw] = (await this.redisService.redisClient.eval(
+    const [state] = (await this.redisService.redisClient.eval(
       PUSH_SCRIPT,
       3,
       keys.pending,
@@ -158,10 +158,7 @@ export class AgentTurnQueueService {
     }
 
     if (state.startsWith("scheduled:")) {
-      await this.slideDelay(
-        state.slice("scheduled:".length),
-        Number(firstAtRaw) || Date.now(),
-      );
+      await this.slideDelay(state.slice("scheduled:".length));
     }
     // "active:<jobId>": the running worker drains this message before it releases the lane.
   }
@@ -314,20 +311,24 @@ export class AgentTurnQueueService {
 
   private async slideDelay(
     jobId: string,
-    firstAt: number,
+    firstAt?: number,
     shortWaitMs = SHORT_WAIT_MS,
-    maxWaitMs = MAX_WAIT_MS,
+    maxWaitMs?: number,
   ) {
     const job = await this.agentTurnsQueue.getJob(jobId);
     if (!job) return;
 
-    const remaining = maxWaitMs - (Date.now() - firstAt);
     try {
-      if (remaining <= 0) {
-        await job.promote();
-      } else {
+      if (maxWaitMs != null && firstAt != null) {
+        const remaining = maxWaitMs - (Date.now() - firstAt);
+        if (remaining <= 0) {
+          await job.promote();
+          return;
+        }
         await job.changeDelay(Math.min(shortWaitMs, remaining));
+        return;
       }
+      await job.changeDelay(shortWaitMs);
     } catch (error) {
       // The job already left the delayed state; the worker picks the message up anyway.
       this.logger.debug(
