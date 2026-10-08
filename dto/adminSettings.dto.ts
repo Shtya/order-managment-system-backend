@@ -9,7 +9,9 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Matches,
   Min,
+  ValidateIf,
   ValidateNested,
 } from "class-validator";
 import { Type } from "class-transformer";
@@ -42,11 +44,6 @@ class BillingAllowanceDto {
   @IsInt({ message: i18nValidationMessage('validation.is_string') })
   @Min(0)
   units?: number;
-
-  @IsOptional()
-  @IsInt({ message: i18nValidationMessage('validation.is_string') })
-  @Min(0)
-  durationDays?: number | null;
 }
 
 class AiDecisionBillingDto {
@@ -78,7 +75,36 @@ class AiMediaBillingDto {
   allowance?: BillingAllowanceDto | null;
 }
 
+class AiHostedBillingDto {
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_string') })
+  @Min(0)
+  inputTokenPrice?: number;
+
+  @IsOptional()
+  @IsNumber({}, { message: i18nValidationMessage('validation.is_string') })
+  @Min(0)
+  outputTokenPrice?: number;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BillingAllowanceDto)
+  allowance?: BillingAllowanceDto | null;
+}
+
 class BillingSettingsDto {
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsInt({ message: i18nValidationMessage('validation.is_string') })
+  @Min(0)
+  allowanceDurationDays?: number | null;
+
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsString({ message: i18nValidationMessage('validation.is_string') })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: i18nValidationMessage('validation.is_string'),
+  })
+  allowanceAnchorDate?: string | null;
+
   @IsOptional()
   @ValidateNested()
   @Type(() => AiDecisionBillingDto)
@@ -88,6 +114,11 @@ class BillingSettingsDto {
   @ValidateNested()
   @Type(() => AiMediaBillingDto)
   aiMedia?: AiMediaBillingDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AiHostedBillingDto)
+  aiHosted?: AiHostedBillingDto;
 }
 
 export class UpdateAdminSettingsDto {

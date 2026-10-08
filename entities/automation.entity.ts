@@ -210,6 +210,10 @@ export interface AssignOrderToEmployeeConfig {
 }
 
 export interface AiAddressCorrectionConfig {
+    /** hosted = Madar models (wallet). tenant = merchant provider key. Missing = tenant (legacy). */
+    aiSource?: "hosted" | "tenant";
+    hostedModelId?: string;
+    hostedModelName?: string;
     /** Preferred AI provider (optional). Model is chosen at runtime (default, then best, then failover). */
     providerId?: string;
     providerName?: string;

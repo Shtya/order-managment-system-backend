@@ -10,6 +10,10 @@ import {
 import { calculatePreviousRange, calculateRange } from "common/healpers";
 import { BillingOperationKey, BillingServiceKey } from "entities/billing.entity";
 import { BillingAllowanceSettings } from "entities/adminSettings.entity";
+import {
+  parseAllowanceAnchorDate,
+  resolveAllowanceAnchor,
+} from "src/billing/allowance/allowance.service";
 import { AdminSettingsService } from "src/admin-settings/admin-settings.service";
 import { tenantId } from "src/category/category.service";
 import { DataSource, Repository } from "typeorm";
@@ -351,9 +355,11 @@ export class AiDashboardService {
         [adminId, BillingServiceKey.AI_MEDIA, BillingOperationKey.PROCESS],
       ),
     ]);
-    const createdAt = account[0]?.createdAt
-      ? new Date(account[0].createdAt)
-      : null;
+    const createdAt = resolveAllowanceAnchor(
+      account[0]?.createdAt ? new Date(account[0].createdAt) : null,
+      parseAllowanceAnchorDate(settings.billing?.allowanceAnchorDate),
+    );
+    const sharedDuration = settings.billing?.allowanceDurationDays;
     return {
       currency: "USD",
       free: {
@@ -361,11 +367,13 @@ export class AiDashboardService {
           settings.billing?.aiDecision?.allowance,
           decisionUsage[0],
           createdAt,
+          sharedDuration,
         ),
         aiMedia: this.liveGrant(
           settings.billing?.aiMedia?.allowance,
           mediaUsage[0],
           createdAt,
+          sharedDuration,
         ),
       },
       aiBalance: round4(Number(wallet[0]?.aiBalance ?? 0)),
@@ -1066,6 +1074,7 @@ export class AiDashboardService {
     allowance: BillingAllowanceSettings | null | undefined,
     row: { usedUnits?: string; reservedUnits?: string } | undefined,
     accountCreatedAt: Date | null,
+    sharedDurationDays?: number | null,
   ) {
     const used = Number(row?.usedUnits ?? 0);
     const reserved = Number(row?.reservedUnits ?? 0);
@@ -1081,7 +1090,7 @@ export class AiDashboardService {
       };
     }
     const initial = Number(allowance.units ?? 0);
-    const durationDays = allowance.durationDays ?? null;
+    const durationDays = sharedDurationDays ?? null;
     const expiredGrant =
       durationDays != null &&
       (!accountCreatedAt ||

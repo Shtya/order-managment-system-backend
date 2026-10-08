@@ -1,6 +1,14 @@
 import { Injectable } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
 import OpenAI from "openai";
+import {
+  AiIntegrationEntity,
+  AiIntegrationScope,
+  AiProviderCode,
+} from "entities/ai.entity";
+import { EncryptionService } from "common/encryption.service";
 
 export type MediaKind = "image" | "video" | "document" | "audio";
 
@@ -35,7 +43,6 @@ export type MediaProcessResult = {
 };
 
 export type MadarMediaModels = {
-  apiKey: string;
   visionModel: string;
   documentModel: string;
   transcribeModel: string;
@@ -81,11 +88,15 @@ export class MediaProviderChargedError extends MediaUnderstandingError {
 
 @Injectable()
 export class MediaConfigService {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @InjectRepository(AiIntegrationEntity)
+    private readonly integrationRepo: Repository<AiIntegrationEntity>,
+    private readonly encryption: EncryptionService,
+  ) {}
 
   models(): MadarMediaModels {
     return {
-      apiKey: this.config.get<string>("AI_OPENAI_API_KEY") || "",
       visionModel: this.config.get<string>("AI_MEDIA_VISION_MODEL") || "gpt-5-nano",
       documentModel:
         this.config.get<string>("AI_MEDIA_DOCUMENT_MODEL") || "gpt-5-nano",
@@ -95,14 +106,61 @@ export class MediaConfigService {
     };
   }
 
-  createOpenAi(): OpenAI {
-    const { apiKey, timeoutMs } = this.models();
+  async createOpenAi(): Promise<OpenAI> {
+    const apiKey = await this.resolveApiKey();
     if (!apiKey) {
       throw new MediaUnderstandingError(
-        "Madar OpenAI key is not configured (AI_OPENAI_API_KEY)",
+        "Madar OpenAI key is not configured (system OpenAI integration or AI_OPENAI_API_KEY)",
         "MISSING_API_KEY",
       );
     }
-    return new OpenAI({ apiKey, timeout: timeoutMs, maxRetries: 1 });
+    return new OpenAI({
+      apiKey,
+      timeout: this.models().timeoutMs,
+      maxRetries: 1,
+    });
+  }
+
+  private async resolveApiKey(): Promise<string> {
+    const fromIntegration = await this.systemOpenAiApiKey();
+    if (fromIntegration) return fromIntegration;
+    return this.config.get<string>("AI_OPENAI_API_KEY") || "";
+  }
+
+  private async systemOpenAiApiKey(): Promise<string> {
+    const integration = await this.integrationRepo
+      .createQueryBuilder("i")
+      .innerJoinAndSelect("i.provider", "p")
+      .where("i.scope = :scope", { scope: AiIntegrationScope.SYSTEM })
+      .andWhere("i.adminId IS NULL")
+      .andWhere("LOWER(p.code) = :code", { code: AiProviderCode.OPENAI })
+      .getOne();
+    if (!integration?.encryptedCredentials) return "";
+    try {
+      const { ciphertext, iv, tag } = integration.encryptedCredentials as {
+        ciphertext?: string;
+        iv?: string;
+        tag?: string;
+      };
+      if (!ciphertext || !iv || !tag) return "";
+      const raw = this.encryption.decrypt(ciphertext, iv, tag);
+      const parsed =
+        typeof raw === "string"
+          ? (() => {
+              try {
+                return JSON.parse(raw);
+              } catch {
+                return null;
+              }
+            })()
+          : raw;
+      const key =
+        parsed && typeof parsed === "object"
+          ? parsed.apiKey ?? parsed.apikey ?? parsed.api_Key ?? parsed.token
+          : "";
+      return typeof key === "string" ? key.trim() : "";
+    } catch {
+      return "";
+    }
   }
 }

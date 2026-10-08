@@ -17,7 +17,11 @@ import {
 } from "entities/billing.entity";
 import { DataSource, EntityManager } from "typeorm";
 import { dollarNumericToMicros } from "common/money/micros";
-import { AllowanceService } from "./allowance/allowance.service";
+import {
+  AllowanceService,
+  parseAllowanceAnchorDate,
+  resolveAllowanceAnchor,
+} from "./allowance/allowance.service";
 import {
   AuthorizationNotFoundError,
   AuthorizationReleasedError,
@@ -28,6 +32,7 @@ import { BillingOperationRegistry } from "./operations/billing-operation.registr
 import { WalletHoldService } from "src/wallet/wallet-hold.service";
 import { RequestTranslationService } from "common/translation.service";
 import type { I18nKey } from "common/translation.service";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
 
 const DEFAULT_TTL_MS = 5 * 60 * 1000;
 
@@ -99,6 +104,7 @@ export class BillingService {
     private readonly walletHoldService: WalletHoldService,
     private readonly allowanceService: AllowanceService,
     private readonly requestTranslations: RequestTranslationService,
+    private readonly clientSettings: ClientSettingsService,
   ) {}
 
   private tokensFromUsage(actual: unknown): bigint {
@@ -132,15 +138,23 @@ export class BillingService {
       const audioMinutes = (audioSeconds / 60).toFixed(2);
       const kind = auth.context?.mediaKind ?? "media";
       return this.requestTranslations.tAsync(
-        "domains.billing.ai_media_wallet_note",
+        "domains.billing.ai_media_wallet_note", 
         auth.adminId,
-        { args: { tokens, audioMinutes, kind, feature } },
+        { args: { tokens, audioMinutes, kind } },
+      );
+    }
+    if (auth.service === BillingServiceKey.AI_HOSTED) {
+      const modelName = auth.context?.modelName ?? "hosted";
+      return this.requestTranslations.tAsync(
+        "domains.billing.ai_hosted_wallet_note",
+        auth.adminId,
+        { args: { tokens, modelName } },
       );
     }
     return this.requestTranslations.tAsync(
       "domains.billing.ai_decision_wallet_note",
       auth.adminId,
-      { args: { tokens, feature } },
+      { args: { tokens } },
     );
   }
 
@@ -162,6 +176,15 @@ export class BillingService {
     return pool === BillingWalletPool.AI
       ? BillingWalletPool.AI
       : BillingWalletPool.CURRENT;
+  }
+
+  private async aiWalletFallbackEnabled(adminId: string): Promise<boolean> {
+    try {
+      const settings = await this.clientSettings.getCachedSettings(adminId);
+      return settings?.aiWalletFallbackEnabled !== false;
+    } catch {
+      return true;
+    }
   }
 
   private async reserveFromPool(
@@ -188,6 +211,25 @@ export class BillingService {
     );
     if (hold.reserved) {
       return { reserved: true, pool };
+    }
+    if (
+      pool === BillingWalletPool.AI &&
+      (await this.aiWalletFallbackEnabled(adminId))
+    ) {
+      const fallback = await this.walletHoldService.reserve(
+        adminId,
+        amountToReserve,
+        em,
+        BillingWalletPool.CURRENT,
+      );
+      if (fallback.reserved) {
+        return { reserved: true, pool: BillingWalletPool.CURRENT };
+      }
+      return {
+        reserved: false,
+        required: amountToReserve,
+        available: hold.available + fallback.available,
+      };
     }
     return {
       reserved: false,
@@ -235,9 +277,16 @@ export class BillingService {
         [input.adminId],
       );
       const accountRow = account?.[0] ?? account?.rows?.[0];
-      const accountCreatedAt = accountRow?.createdAt
+      const createdAt = accountRow?.createdAt
         ? new Date(accountRow.createdAt)
         : null;
+      const rawSettings = settingsSnapshot.rawSettings as {
+        allowanceAnchorDate?: string | null;
+      };
+      const accountCreatedAt = resolveAllowanceAnchor(
+        createdAt,
+        parseAllowanceAnchorDate(rawSettings?.allowanceAnchorDate),
+      );
       const grant = await this.allowanceService.reserve({
         adminId: input.adminId,
         service: input.service,

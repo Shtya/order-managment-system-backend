@@ -177,6 +177,10 @@ export class UpsertClientSettingsDto {
   @IsOptional()
   reservedEnabled?: boolean;
 
+  @IsBoolean({message: i18nValidationMessage('validation.is_boolean')})
+  @IsOptional()
+  aiWalletFallbackEnabled?: boolean;
+
   @IsInt({message: i18nValidationMessage('validation.is_int')})
   @IsOptional()
   duplicateWindowHours?: number;

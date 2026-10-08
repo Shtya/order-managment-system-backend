@@ -122,6 +122,7 @@ export interface AiChatOptions {
   tenantLang?: string;
   allowProviderFailover?: boolean;
   requireTools?: boolean;
+  useSystemIntegrations?: boolean;
   usageSource?: AiUsageSource;
   usageApi?: string;
   usageActor?: AiUsageActor;
@@ -145,6 +146,7 @@ export interface AiAgentTurnInput {
   permissionNames?: string[];
   writeDedupScope?: AiLoopPolicy["writeDedupScope"];
   metadata?: Record<string, unknown>;
+  useSystemIntegrations?: boolean;
 }
 
 export type AiAgentTurnResult = AiOrchestrationResult & {
@@ -203,6 +205,7 @@ export class AiOrchestratorService {
       requireTools: options.requireTools === true,
       allowProviderFailover:
         options.allowProviderFailover ?? !options.model,
+      useSystemIntegrations: options.useSystemIntegrations === true,
     };
     timer.stop();
 
@@ -299,6 +302,7 @@ export class AiOrchestratorService {
       allowedToolNames: input.toolNames,
       requireTools: true,
       allowProviderFailover: input.allowProviderFailover ?? true,
+      useSystemIntegrations: input.useSystemIntegrations === true,
     };
     const execution = new AiExecutionScope(session, requestId);
     const ctx = new AiToolContext({
@@ -334,9 +338,11 @@ export class AiOrchestratorService {
     conversationId?: string;
     userId: string;
     providerId?: string | null;
+    model?: string | null;
     system: string;
     user: string;
     metadata?: Record<string, unknown>;
+    useSystemIntegrations?: boolean;
     usageSource?: AiUsageSource;
     usageApi?: string;
     usageActor?: AiUsageActor;
@@ -351,12 +357,14 @@ export class AiOrchestratorService {
       userRoleName: AI_AGENT_ROLE,
       userPermissionNames: [],
       providerId: input.providerId ?? undefined,
+      model: input.model ?? undefined,
       metadata: input.metadata,
       enforcePiiMasking: false,
       acceptWriteOperations: false,
       allowedToolNames: [NO_TOOLS_ALLOWED],
       requireTools: false,
-      allowProviderFailover: true,
+      allowProviderFailover: input.model ? false : true,
+      useSystemIntegrations: input.useSystemIntegrations === true,
     };
     const execution = new AiExecutionScope(session, requestId);
     const ctx = new AiToolContext({
@@ -861,7 +869,9 @@ export class AiOrchestratorService {
     userExplicitChoice: boolean;
     toolsCalling?: boolean;
   }> {
-    const tenantId = ctx.session.tenantId;
+    const tenantId = ctx.session.useSystemIntegrations
+      ? null
+      : ctx.session.tenantId;
     const requireTools = ctx.session.requireTools === true;
     const requestedModel = ctx.session.model;
     const preferredProviderId = ctx.session.providerId;

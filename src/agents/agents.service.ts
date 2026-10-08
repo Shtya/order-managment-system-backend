@@ -12,13 +12,14 @@ import {
   SelectQueryBuilder,
 } from "typeorm";
 import {
+  AgentAiSource,
   AgentCapability,
   AgentEntity,
   AgentGender,
   AgentLanguage,
 } from "entities/agent.entity";
 import { AgentKnowledgeAgentEntity, AgentKnowledgeEntity } from "entities/agent.entity";
-import { AiProviderEntity } from "entities/ai.entity";
+import { AiHostedModelEntity, AiProviderEntity } from "entities/ai.entity";
 import { Role, User } from "entities/user.entity";
 import { IssuePriority, IssueStatusEntity } from "entities/issue.entity";
 import { AGENT_USER_CAPABILITIES, expandAgentCapabilities, resolveAgentCapabilities } from "./runtime/agent-runtime.constants";
@@ -45,6 +46,8 @@ export class AgentsService {
     private readonly agentRepo: Repository<AgentEntity>,
     @InjectRepository(AiProviderEntity)
     private readonly providerRepo: Repository<AiProviderEntity>,
+    @InjectRepository(AiHostedModelEntity)
+    private readonly hostedModelRepo: Repository<AiHostedModelEntity>,
     @InjectRepository(AgentKnowledgeEntity)
     private readonly knowledgeRepo: Repository<AgentKnowledgeEntity>,
     @InjectRepository(AgentKnowledgeAgentEntity)
@@ -75,10 +78,18 @@ export class AgentsService {
     knowledgeCount?: number,
   ) {
     const provider = agent.responseProvider;
+    const hosted = agent.hostedModel;
     return {
       ...agent,
       responseProvider: provider
         ? { id: provider.id, name: provider.name, code: provider.code }
+        : null,
+      hostedModel: hosted
+        ? {
+            id: hosted.id,
+            name: hosted.name,
+            code: hosted.code,
+          }
         : null,
       ...(knowledgeIds !== undefined ? { knowledgeIds } : {}),
       ...(knowledgeCount !== undefined ? { knowledgeCount } : {}),
@@ -321,10 +332,59 @@ export class AgentsService {
     return provider;
   }
 
+  private async assertHostedModel(hostedModelId: string) {
+    const row = await this.hostedModelRepo.findOne({
+      where: { id: hostedModelId, isActive: true },
+    });
+    if (!row) {
+      throw new BadRequestException(
+        this.translations.t("domains.agents.hosted_model_not_found"),
+      );
+    }
+    return row;
+  }
+
+  private async applyAiSource(
+    adminId: string,
+    agent: AgentEntity,
+    dto: CreateAgentDto | UpdateAgentDto,
+  ) {
+    if (dto.aiSource !== undefined) agent.aiSource = dto.aiSource;
+ 
+    const source = agent.aiSource ?? AgentAiSource.TENANT;
+    if (source === AgentAiSource.HOSTED) {
+      if (dto.hostedModelId !== undefined) {
+        if (dto.hostedModelId) await this.assertHostedModel(dto.hostedModelId);
+        agent.hostedModelId = dto.hostedModelId;
+      }
+      if (dto.responseProviderId) {
+        throw new BadRequestException(
+          this.translations.t("domains.agents.hosted_source_conflict"),
+        );
+      }
+      agent.responseProviderId = null;
+      return;
+    }
+
+    if (dto.hostedModelId) {
+      throw new BadRequestException(
+        this.translations.t("domains.agents.hosted_source_conflict"),
+      );
+    }
+    if (dto.hostedModelId === null) agent.hostedModelId = null;
+    if (dto.responseProviderId) {
+      await this.assertProvider(adminId, dto.responseProviderId);
+      agent.responseProviderId = dto.responseProviderId;
+    } else if (dto.responseProviderId === null) {
+      agent.responseProviderId = null;
+    }
+  }
+
   private filteredQuery(adminId: string, q: any): SelectQueryBuilder<AgentEntity> {
     const qb = this.agentRepo
       .createQueryBuilder("agent")
       .leftJoinAndSelect("agent.responseProvider", "responseProvider")
+      .leftJoinAndSelect("agent.hostedModel", "hostedModel")
       .where("agent.adminId = :adminId", { adminId });
 
     if (q?.search) {
@@ -386,7 +446,7 @@ export class AgentsService {
     const adminId = this.adminIdOf(me);
     const agent = await this.agentRepo.findOne({
       where: { id, adminId },
-      relations: { responseProvider: true },
+      relations: { responseProvider: true, hostedModel: true },
     });
     if (!agent) {
       throw new NotFoundException(
@@ -408,9 +468,6 @@ export class AgentsService {
     const adminId = this.adminIdOf(me);
     const name = dto.name.trim();
     await this.ensureUniqueName(adminId, name);
-    if (dto.responseProviderId) {
-      await this.assertProvider(adminId, dto.responseProviderId);
-    }
     const knowledgeIds =
       dto.knowledgeIds !== undefined
         ? await this.assertKnowledgeIds(adminId, dto.knowledgeIds)
@@ -428,6 +485,8 @@ export class AgentsService {
           gender: dto.gender ?? AgentGender.MALE,
           customInstructions: dto.customInstructions?.trim() || null,
           responseProviderId: dto.responseProviderId ?? null,
+          aiSource: dto.aiSource ?? AgentAiSource.TENANT,
+          hostedModelId: dto.hostedModelId ?? null,
           isActive: dto.isActive ?? true,
           capabilities,
           acceptImage: dto.acceptImage ?? false,
@@ -435,6 +494,7 @@ export class AgentsService {
           acceptDocument: dto.acceptDocument ?? false,
           acceptAudio: dto.acceptAudio ?? false,
         });
+      await this.applyAiSource(adminId, row, dto);
       await this.applyHandoffConfig(adminId, row, dto, capabilities);
       const saved = await repo.save(row);
       if (knowledgeIds !== undefined) {
@@ -473,14 +533,7 @@ export class AgentsService {
       existing.customInstructions = dto.customInstructions?.trim() || null;
     }
     if (dto.isActive !== undefined) existing.isActive = dto.isActive;
-    if (dto.responseProviderId !== undefined) {
-      if (dto.responseProviderId) {
-        await this.assertProvider(adminId, dto.responseProviderId);
-        existing.responseProviderId = dto.responseProviderId;
-      } else {
-        existing.responseProviderId = null;
-      }
-    }
+    await this.applyAiSource(adminId, existing, dto);
     const knowledgeIds =
       dto.knowledgeIds !== undefined
         ? await this.assertKnowledgeIds(adminId, dto.knowledgeIds)

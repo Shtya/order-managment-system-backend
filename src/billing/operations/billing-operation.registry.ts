@@ -7,19 +7,26 @@ import { BillingOperationNotFoundError } from "../billing.errors";
 import { BillingOperationStrategy } from "./billing-operation.strategy";
 import { AiDecisionEvaluateOperation } from "./ai-decision/ai-decision-evaluate.operation";
 import { AiMediaProcessOperation } from "./ai-media/ai-media-process.operation";
+import { AiHostedCompleteOperation } from "./ai-hosted/ai-hosted-complete.operation";
 
 export const BILLING_OPERATIONS = Symbol("BILLING_OPERATIONS");
 
 export const billingOperationProviders: Provider[] = [
   AiDecisionEvaluateOperation,
   AiMediaProcessOperation,
+  AiHostedCompleteOperation,
   {
     provide: BILLING_OPERATIONS,
     useFactory: (
       aiDecision: AiDecisionEvaluateOperation,
       aiMedia: AiMediaProcessOperation,
-    ) => [aiDecision, aiMedia],
-    inject: [AiDecisionEvaluateOperation, AiMediaProcessOperation],
+      aiHosted: AiHostedCompleteOperation,
+    ) => [aiDecision, aiMedia, aiHosted],
+    inject: [
+      AiDecisionEvaluateOperation,
+      AiMediaProcessOperation,
+      AiHostedCompleteOperation,
+    ],
   },
 ];
 

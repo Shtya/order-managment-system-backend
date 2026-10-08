@@ -1,7 +1,7 @@
 import { forwardRef, Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AgentEntity,AgentKnowledgeAgentEntity, AgentKnowledgeEntity, } from "entities/agent.entity";
-import { AiProviderEntity } from "entities/ai.entity";
+import { AiHostedModelEntity, AiIntegrationEntity, AiProviderEntity } from "entities/ai.entity";
 import { ConversationEntity, WhatsappMessageEntity, } from "entities/whatsapp.entity";
 import {
   AgentMemoryFactEntity,
@@ -44,12 +44,16 @@ import { AgentWhatsappTools } from "src/ai/tools/tools/whatsapp.tools";
 import { ConversationModule } from "src/conversation/conversation.module";
 import { ShippingModule } from "src/shipping/shipping.module";
 import { IssueModule } from "src/issue/issue.module";
+import { BillingModule } from "src/billing/billing.module";
+import { AgentHostedTurnService } from "./runtime/agent-hosted-turn.service";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       AgentEntity,
       AiProviderEntity,
+      AiHostedModelEntity,
+      AiIntegrationEntity,
       WhatsappMessageEntity,
       ConversationEntity,
       AgentSessionEntity,
@@ -82,11 +86,13 @@ import { IssueModule } from "src/issue/issue.module";
     forwardRef(() => ConversationModule),
     forwardRef(() => ShippingModule),
     forwardRef(() => IssueModule),
+    BillingModule,
   ],
   controllers: [AgentsController],
   providers: [
     AgentsService,
     AgentRuntimeService,
+    AgentHostedTurnService,
     AgentInputService,
     AgentSessionService,
     AgentContextService,
@@ -108,6 +114,7 @@ import { IssueModule } from "src/issue/issue.module";
     AgentTaskService,
     AgentSessionService,
     AgentPlaygroundService,
+    AgentHostedTurnService,
   ],
 })
 export class AgentsModule {}

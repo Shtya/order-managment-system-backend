@@ -57,7 +57,7 @@ export class VideoMediaProcessor {
     };
   }> {
     const models = this.mediaConfig.models();
-    const client = this.mediaConfig.createOpenAi();
+    const client = await this.mediaConfig.createOpenAi();
 
     const filePath = writeTempFile(
       buffer,

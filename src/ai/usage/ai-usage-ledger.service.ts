@@ -32,6 +32,7 @@ export type AiUsageRecordInput = {
   sessionId?: string | null;
   turnId?: string | null;
   mediaUsageId?: string | null;
+  hostedModelId?: string | null;
   agentId?: string | null;
   conversationId?: string | null;
   orderId?: string | null;
@@ -77,6 +78,7 @@ export class AiUsageLedgerService {
           sessionId: input.sessionId ?? null,
           turnId: input.turnId ?? null,
           mediaUsageId: input.mediaUsageId ?? null,
+          hostedModelId: input.hostedModelId ?? null,
           agentId: input.agentId ?? null,
           conversationId: input.conversationId ?? null,
           orderId: input.orderId ?? null,

@@ -36,6 +36,8 @@ import {
   SetCredentialsDto,
   UpdateModelDto,
   UpdateProviderDto,
+  CreateHostedModelDto,
+  UpdateHostedModelDto,
 } from "../../dto/ai.dto";
 import { AiAccessGuard } from "./security/ai-access.guard";
 import { AiService } from "./ai.service";
@@ -549,6 +551,53 @@ export class AiController {
       description: spec.description,
       parameters: spec.parameters,
     }));
+  }
+
+  // ──────────────────────────── HOSTED MODELS ────────────────────────────
+
+  @ApiOperation({ summary: "List hosted (Madar) models" })
+  @Permissions(AI_PERMISSION_CHAT)
+  @Get("hosted-models")
+  async listHostedModels(@Req() req: any) {
+    return this.svc.listHostedModels(req.user);
+  }
+
+  @ApiOperation({ summary: "Get a hosted model" })
+  @Permissions(AI_PERMISSION_CHAT)
+  @Get("hosted-models/:id")
+  async getHostedModel(@Req() req: any, @Param("id", ParseUUIDPipe) id: string) {
+    return this.svc.getHostedModel(req.user, id);
+  }
+
+  @ApiOperation({ summary: "Create a hosted model (super_admin)" })
+  @Permissions(AI_MANAGE)
+  @Post("hosted-models")
+  async createHostedModel(@Req() req: any, @Body() dto: CreateHostedModelDto) {
+    this.ensureSuperAdmin(req.user);
+    return this.svc.createHostedModel(req.user, dto);
+  }
+
+  @ApiOperation({ summary: "Update a hosted model (super_admin)" })
+  @Permissions(AI_MANAGE)
+  @Patch("hosted-models/:id")
+  async updateHostedModel(
+    @Req() req: any,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: UpdateHostedModelDto,
+  ) {
+    this.ensureSuperAdmin(req.user);
+    return this.svc.updateHostedModel(req.user, id, dto);
+  }
+
+  @ApiOperation({ summary: "Delete a hosted model (super_admin)" })
+  @Permissions(AI_MANAGE)
+  @Delete("hosted-models/:id")
+  async deleteHostedModel(
+    @Req() req: any,
+    @Param("id", ParseUUIDPipe) id: string,
+  ) {
+    this.ensureSuperAdmin(req.user);
+    return this.svc.deleteHostedModel(id);
   }
 
   // ──────────────────────────── 11. HEALTH (super_admin) ────────────────────────────

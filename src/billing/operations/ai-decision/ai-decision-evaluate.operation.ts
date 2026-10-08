@@ -94,6 +94,10 @@ export class AiDecisionEvaluateOperation extends BillingOperationStrategy<
     delete snapshot.reservationSafetyMarginBps;
     delete snapshot.reservationSafetyMarginPercent;
     snapshot.reservationSafetyMarginPercent = marginPercent;
+    snapshot.allowanceAnchorDate =
+      settings?.billing?.allowanceAnchorDate ?? null;
+    snapshot.allowanceDurationDays =
+      settings?.billing?.allowanceDurationDays ?? null;
     const version = createHash("sha256")
       .update(JSON.stringify(canonicalize(snapshot)))
       .digest("hex");
@@ -152,11 +156,16 @@ export class AiDecisionEvaluateOperation extends BillingOperationStrategy<
         reservationSafetyMarginPercent = v;
       }
 
-      let allowance: AiDecisionAllowance | null = { units: 0n, durationDays: null };
+      const durationDays =
+        "allowanceDurationDays" in raw
+          ? ((raw as { allowanceDurationDays?: number | null })
+              .allowanceDurationDays ?? null)
+          : null;
+      let allowance: AiDecisionAllowance | null = { units: 0n, durationDays };
       if (raw.allowance === null) {
         allowance = null;
       } else if (raw.allowance !== undefined) {
-        allowance = { units: BigInt(raw.allowance.units ?? 0), durationDays: raw.allowance.durationDays };
+        allowance = { units: BigInt(raw.allowance.units ?? 0), durationDays };
       }
 
       return {

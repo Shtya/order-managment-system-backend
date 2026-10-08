@@ -8,6 +8,10 @@ import {
 } from "entities/whatsapp.entity";
 import { AgentEntity } from "entities/agent.entity";
 import {
+  AgentHostedTurnService,
+  HostedInsufficientBalanceError,
+} from "./runtime/agent-hosted-turn.service";
+import {
   AgentSessionEntity,
   AgentTaskType,
   AgentTurnEntity,
@@ -89,6 +93,7 @@ export class AgentRuntimeService {
     private readonly sender: AgentSenderService,
     private readonly mediaUsage: AgentMediaUsageService,
     private readonly usageLedger: AiUsageLedgerService,
+    private readonly hostedTurns: AgentHostedTurnService,
     @Inject(forwardRef(() => AgentTurnQueueService))
     private readonly agentTurns: AgentTurnQueueService,
   ) {}
@@ -229,7 +234,7 @@ export class AgentRuntimeService {
       });
 
       if (goalReached || confirmedByTool) {
-        await this.safeCompact(session, 0, agent.responseProviderId);
+        await this.safeCompact(session, 0, agent);
       }
     } catch (error) {
       await this.finishTurn(turn, startedAt, {
@@ -311,7 +316,7 @@ export class AgentRuntimeService {
 
     let context = await buildContext();
     if (context.historyTokens > AGENT_CONTEXT_TOKEN_BUDGET * AGENT_COMPACTION_RATIO) {
-      if (await this.safeCompact(session, undefined, agent.responseProviderId)) {
+      if (await this.safeCompact(session, undefined, agent)) {
         context = await buildContext();
       }
     }
@@ -319,7 +324,7 @@ export class AgentRuntimeService {
     let ai = await this.callModel(agent, session, scope, context.messages);
     if (!ai.result.ok && CONTEXT_OVERFLOW.test(`${ai.result.error ?? ""} ${ai.result.errorDetails?.message ?? ""}`)) {
       // Emergency compaction and one retry; already-sent messages are deduplicated by (turn, position).
-      await this.safeCompact(session, 0, agent.responseProviderId);
+      await this.safeCompact(session, 0, agent);
       context = await buildContext();
       const retry = await this.callModel(agent, session, scope, context.messages);
       ai = { result: retry.result, newMessages: [...ai.newMessages, ...retry.newMessages] };
@@ -351,13 +356,14 @@ export class AgentRuntimeService {
     messages: AiChatMessage[],
   ): Promise<{ result: AiOrchestrationResult; newMessages: AiChatMessage[] }> {
     let position = 0;
-    const result = await this.orchestrator.runAgentTurn({
+    const input = {
       tenantId: scope.adminId,
       sessionId: session.id,
       conversationId: scope.conversationId,
       agentId: agent.id,
       agentName: agent.name,
       providerId: agent.responseProviderId ?? null,
+      turnId: scope.turnId,
       messages,
       toolNames: await this.resolveTurnToolNames(scope, agent),
       sendToolNames: AGENT_SEND_TOOL_NAMES,
@@ -368,7 +374,13 @@ export class AgentRuntimeService {
         return `agent:${scope.turnId}:${position++}`;
       },
       metadata: { agentScope: scope, source: "whatsapp_agent" },
-    });
+    };
+    let result;
+    try {
+      result = await this.hostedTurns.runAgentTurn(agent, input);
+    } catch (err) {
+      throw err;
+    }
     return {
       result,
       newMessages: result.messages
@@ -435,10 +447,17 @@ export class AgentRuntimeService {
   private async safeCompact(
     session: AgentSessionEntity,
     keepTurns: number | undefined,
-    providerId?: string | null,
+    agent?: AgentEntity,
   ): Promise<boolean> {
     try {
-      return await this.sessions.compact(session, { keepTurns, providerId });
+      const pin = agent
+        ? await this.hostedTurns.compactPin(agent)
+        : { providerId: undefined, model: undefined };
+      return await this.sessions.compact(session, {
+        keepTurns,
+        providerId: pin.providerId,
+        model: pin.model,
+      });
     } catch (error) {
       this.logger.warn(`Compaction failed for session ${session.id}: ${(error as Error)?.message}`);
       return false;

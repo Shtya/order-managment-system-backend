@@ -15,6 +15,7 @@ import {
 	IsUUID,
 	MaxLength,
 	Min,
+	ValidateIf,
 	ValidateNested,
 } from 'class-validator';
 import { i18nValidationMessage } from 'nestjs-i18n';
@@ -929,6 +930,88 @@ export class ExportRequestSummariesQueryDto {
 	@IsOptional()
 	@IsUUID()
 	adminId?: string;
+}
+
+export class CreateHostedModelDto {
+	@IsNotEmpty({ message: i18nValidationMessage('validation.required') })
+	@IsUUID('4', { message: i18nValidationMessage('validation.is_uuid') })
+	modelId: string;
+
+	@IsOptional()
+	@ValidateIf((_, value) => value !== null && value !== undefined)
+	@IsUUID('4', { message: i18nValidationMessage('validation.is_uuid') })
+	integrationId?: string | null;
+
+	@IsOptional()
+	@IsString({ message: i18nValidationMessage('validation.is_string') })
+	@MaxLength(255)
+	name?: string;
+
+	@IsOptional()
+	@IsString()
+	description?: string | null;
+
+	@IsOptional()
+	@IsString()
+	descriptionAr?: string | null;
+
+	@IsOptional()
+	@IsArray()
+	@IsString({ each: true })
+	tags?: string[] | null;
+
+	@IsOptional()
+	@IsBoolean()
+	isRecommended?: boolean;
+
+	@IsOptional()
+	@IsInt()
+	sortOrder?: number;
+
+	@IsOptional()
+	@IsBoolean()
+	isActive?: boolean;
+}
+
+export class UpdateHostedModelDto {
+	@IsOptional()
+	@IsUUID('4', { message: i18nValidationMessage('validation.is_uuid') })
+	modelId?: string;
+
+	@IsOptional()
+	@ValidateIf((_, value) => value !== null && value !== undefined)
+	@IsUUID('4', { message: i18nValidationMessage('validation.is_uuid') })
+	integrationId?: string | null;
+
+	@IsOptional()
+	@IsString({ message: i18nValidationMessage('validation.is_string') })
+	@MaxLength(255)
+	name?: string;
+
+	@IsOptional()
+	@IsString()
+	description?: string | null;
+
+	@IsOptional()
+	@IsString()
+	descriptionAr?: string | null;
+
+	@IsOptional()
+	@IsArray()
+	@IsString({ each: true })
+	tags?: string[] | null;
+
+	@IsOptional()
+	@IsBoolean()
+	isRecommended?: boolean;
+
+	@IsOptional()
+	@IsInt()
+	sortOrder?: number;
+
+	@IsOptional()
+	@IsBoolean()
+	isActive?: boolean;
 }
 
 export class ExportWriteToolCallsQueryDto {

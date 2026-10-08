@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { DataSource, Repository, SelectQueryBuilder } from "typeorm";
+import { DataSource, IsNull, Repository, SelectQueryBuilder } from "typeorm";
 import { DateFilterUtil } from "../../common/date-filter.util";
 import { EncryptionService } from "../../common/encryption.service";
 import { maskSensitiveValue } from "../../common/healpers";
@@ -26,6 +26,7 @@ import {
   AiDefaultModelEntity,
   AiModelTier,
   AiModelAvailabilityEntity,
+  AiHostedModelEntity,
 } from "../../entities/ai.entity";
 import {
   CreateModelDto,
@@ -49,6 +50,8 @@ import {
   UpdateModelDto,
   UpdateProviderDto,
   WriteToolCallResponseDto,
+  CreateHostedModelDto,
+  UpdateHostedModelDto,
 } from "../../dto/ai.dto";
 import { TranslationService } from "../../common/translation.service";
 import { AI_CONFIG_TOKEN, getRecommendedModelCode } from "./ai.constants";
@@ -90,6 +93,8 @@ export class AiService {
     private readonly defaultModelRepo: Repository<AiDefaultModelEntity>,
     @InjectRepository(AiModelAvailabilityEntity)
     private readonly availabilityRepo: Repository<AiModelAvailabilityEntity>,
+    @InjectRepository(AiHostedModelEntity)
+    private readonly hostedModelRepo: Repository<AiHostedModelEntity>,
     private readonly dataSource: DataSource,
     private readonly translations: TranslationService,
     @Inject(AI_CONFIG_TOKEN) private readonly config: AiConfig,
@@ -445,15 +450,17 @@ export class AiService {
   }
 
   async createProvider(me: any, dto: CreateProviderDto) {
-    const myAdminId = tenantId(me);
-    if (!myAdminId) {
+    const { adminId: myAdminId, scope } = this.actorEntityOwnership(me);
+    if (!myAdminId && me?.role?.name !== SystemRole.SUPER_ADMIN) {
       throw new ForbiddenException(
         this.translations.t("domains.ai.provider_not_custom"),
       );
     }
 
     const existing = await this.providerRepo.findOne({
-      where: { name: dto.name, adminId: myAdminId },
+      where: myAdminId
+        ? { name: dto.name, adminId: myAdminId }
+        : { name: dto.name, adminId: IsNull() },
     });
     if (existing) {
       throw new BadRequestException(
@@ -462,7 +469,9 @@ export class AiService {
     }
 
     const existingCode = await this.providerRepo.findOne({
-      where: { code: dto.code, adminId: myAdminId },
+      where: myAdminId
+        ? { code: dto.code, adminId: myAdminId }
+        : { code: dto.code, adminId: IsNull() },
     });
     if (existingCode) {
       throw new BadRequestException(
@@ -481,7 +490,7 @@ export class AiService {
         logoUrl: null,
         adminId: myAdminId,
         tenantIntegrationAllowed: true,
-        scope: AiEntityScope.CUSTOM,
+        scope,
         protocol,
         authType,
       });
@@ -508,7 +517,9 @@ export class AiService {
         const integration = mgr.create(AiIntegrationEntity, {
           providerId: p.id,
           adminId: myAdminId,
-          scope: AiIntegrationScope.TENANT,
+          scope: myAdminId
+            ? AiIntegrationScope.TENANT
+            : AiIntegrationScope.SYSTEM,
           authType,
           baseUrl,
           encryptedCredentials: encrypted,
@@ -819,15 +830,20 @@ export class AiService {
   }
 
   async createModel(me: any, dto: CreateModelDto) {
-    const myAdminId = tenantId(me);
-    if (!myAdminId) {
+    const { adminId: myAdminId, scope } = this.actorEntityOwnership(me);
+    if (!myAdminId && me?.role?.name !== SystemRole.SUPER_ADMIN) {
       throw new ForbiddenException(
         this.translations.t("domains.ai.provider_not_custom"),
       );
     }
 
     const provider = await this.findProviderWithAccess(me, dto.providerId);
-    if (provider.adminId !== myAdminId) {
+    if (myAdminId && provider.adminId !== myAdminId) {
+      throw new ForbiddenException(
+        this.translations.t("domains.ai.provider_not_custom"),
+      );
+    }
+    if (!myAdminId && provider.adminId) {
       throw new ForbiddenException(
         this.translations.t("domains.ai.provider_not_custom"),
       );
@@ -871,7 +887,7 @@ export class AiService {
       ...dto,
       tier: AiModelTier.PRO,
       adminId: myAdminId,
-      scope: AiEntityScope.CUSTOM,
+      scope,
     });
     const saved = await this.modelRepo.save(model);
     return saved;
@@ -1053,6 +1069,7 @@ export class AiService {
     const myAdminId = tenantId(me);
     const where: any = { providerId };
     if (myAdminId) where.adminId = myAdminId;
+    else where.adminId = IsNull();
 
     const integration = await this.integrationRepo.findOne({
       where,
@@ -1096,9 +1113,10 @@ export class AiService {
 
   async setCredentials(me: any, providerId: string, dto: SetCredentialsDto) {
     const myAdminId = tenantId(me);
+    const isSuperAdmin = me?.role?.name === SystemRole.SUPER_ADMIN;
     this.logger.log(`setCredentials called for providerId=${providerId} adminId=${myAdminId}`);
 
-    if (!myAdminId) {
+    if (!myAdminId && !isSuperAdmin) {
       this.logger.warn(`setCredentials rejected: no adminId (tenant) for providerId=${providerId}`);
       throw new ForbiddenException(
         this.translations.t("domains.ai.provider_not_custom"),
@@ -1129,7 +1147,9 @@ export class AiService {
     this.logger.log(`setCredentials starting transaction for providerId=${providerId} adminId=${myAdminId}`);
     const integration = await this.dataSource.transaction(async (mgr) => {
       let integration = await mgr.findOne(AiIntegrationEntity, {
-        where: { providerId, adminId: myAdminId },
+        where: myAdminId
+          ? { providerId, adminId: myAdminId }
+          : { providerId, adminId: IsNull() },
       });
 
       const encrypted = dto.credentials
@@ -1145,8 +1165,10 @@ export class AiService {
         this.logger.log(`setCredentials creating new integration for providerId=${providerId} adminId=${myAdminId}`);
         integration = mgr.create(AiIntegrationEntity, {
           providerId,
-          adminId: myAdminId,
-          scope: AiIntegrationScope.TENANT,
+          adminId: myAdminId ?? null,
+          scope: myAdminId
+            ? AiIntegrationScope.TENANT
+            : AiIntegrationScope.SYSTEM,
           authType,
           encryptedCredentials: encrypted,
           baseUrl: dto.baseUrl,
@@ -1189,6 +1211,7 @@ export class AiService {
     const myAdminId = tenantId(me);
     const where: any = { providerId };
     if (myAdminId) where.adminId = myAdminId;
+    else where.adminId = IsNull();
 
     const integration = await this.integrationRepo.findOne({
       where,
@@ -1410,6 +1433,7 @@ export class AiService {
     credentials?: { apiKey?: string; baseUrl?: string },
   ) {
     const adminId = tenantId(me);
+    const owner = this.actorEntityOwnership(me);
 
     const provider = await this.findProviderWithAccess(me, providerId);
 
@@ -1490,6 +1514,7 @@ export class AiService {
         existing.reasoning = remote.reasoning ?? existing.reasoning;
         existing.toolsCalling = enriched.toolsCalling;
         existing.metadata = enriched.metadata;
+        existing.scope = owner.scope;
         toUpdate.push(existing);
         continue;
       }
@@ -1497,8 +1522,8 @@ export class AiService {
       toCreate.push(
         this.modelRepo.create({
           providerId,
-          adminId: provider.adminId,
-          scope: AiEntityScope.CUSTOM,
+          adminId: owner.adminId,
+          scope: owner.scope,
           modelCode: remote.modelCode,
           name: enriched.name,
           description: remote.description,
@@ -1938,6 +1963,17 @@ export class AiService {
     );
   }
 
+  private actorEntityOwnership(me: any): {
+    adminId: string | null;
+    scope: AiEntityScope;
+  } {
+    const adminId = tenantId(me);
+    if (adminId) {
+      return { adminId, scope: AiEntityScope.CUSTOM };
+    }
+    return { adminId: null, scope: AiEntityScope.SYSTEM };
+  }
+
   private ensureWritable(
     resource: { adminId?: string | null; scope?: string },
     me: any,
@@ -2341,5 +2377,200 @@ export class AiService {
       createdAt: entity.createdAt,
       updatedAt: entity.updatedAt,
     };
+  }
+
+  // ──────────────────────────── HOSTED MODELS ────────────────────────────
+
+  async listHostedModels(me: any) {
+    const isSuperAdmin = me?.role?.name === SystemRole.SUPER_ADMIN;
+    const qb = this.hostedModelRepo
+      .createQueryBuilder("h")
+      .leftJoinAndSelect("h.model", "model")
+      .leftJoinAndSelect("model.provider", "provider")
+      .leftJoinAndSelect("h.integration", "integration")
+      .orderBy("h.sortOrder", "ASC")
+      .addOrderBy("h.name", "ASC");
+    if (!isSuperAdmin) {
+      qb.andWhere("h.isActive = true");
+    }
+    const rows = await qb.getMany();
+    return rows.map((row) => this.presentHostedModel(row, isSuperAdmin));
+  }
+
+  async getHostedModel(me: any, id: string) {
+    const isSuperAdmin = me?.role?.name === SystemRole.SUPER_ADMIN;
+    const row = await this.hostedModelRepo.findOne({
+      where: isSuperAdmin ? { id } : { id, isActive: true },
+      relations: { model: { provider: true }, integration: true },
+    });
+    if (!row) {
+      throw new NotFoundException(
+        this.translations.t("domains.ai.hosted_model_not_found"),
+      );
+    }
+    return this.presentHostedModel(row, isSuperAdmin);
+  }
+
+  async createHostedModel(me: any, dto: CreateHostedModelDto) {
+    const { model, integrationId } = await this.assertHostedLinks(
+      dto.modelId,
+      dto.integrationId,
+    );
+    const code = (model.modelCode || "").trim();
+    if (!code) {
+      throw new BadRequestException(
+        this.translations.t("domains.ai.hosted_model_must_be_system"),
+      );
+    }
+    await this.assertHostedCodeUnique(code);
+    const saved = await this.hostedModelRepo.save(
+      this.hostedModelRepo.create({
+        modelId: model.id,
+        integrationId,
+        code,
+        name: (dto.name?.trim() || model.name || code).trim(),
+        description: dto.description?.trim() || null,
+        descriptionAr: dto.descriptionAr?.trim() || null,
+        tags: dto.tags ?? null,
+        isRecommended: dto.isRecommended ?? false,
+        sortOrder: dto.sortOrder ?? 0,
+        isActive: dto.isActive ?? true,
+      }),
+    );
+    return this.getHostedModel(me, saved.id);
+  }
+
+  async updateHostedModel(me: any, id: string, dto: UpdateHostedModelDto) {
+    const row = await this.hostedModelRepo.findOne({ where: { id } });
+    if (!row) {
+      throw new NotFoundException(
+        this.translations.t("domains.ai.hosted_model_not_found"),
+      );
+    }
+    if (dto.modelId !== undefined || dto.integrationId !== undefined) {
+      const { model, integrationId } = await this.assertHostedLinks(
+        dto.modelId ?? row.modelId,
+        dto.integrationId !== undefined ? dto.integrationId : row.integrationId,
+      );
+      const code = (model.modelCode || "").trim();
+      if (!code) {
+        throw new BadRequestException(
+          this.translations.t("domains.ai.hosted_model_must_be_system"),
+        );
+      }
+      if (code !== row.code) await this.assertHostedCodeUnique(code, row.id);
+      row.modelId = model.id;
+      row.integrationId = integrationId;
+      row.code = code;
+      if (dto.name === undefined) row.name = model.name || code;
+    }
+    if (dto.name !== undefined) row.name = dto.name.trim();
+    if (dto.description !== undefined) row.description = dto.description?.trim() || null;
+    if (dto.descriptionAr !== undefined) {
+      row.descriptionAr = dto.descriptionAr?.trim() || null;
+    }
+    if (dto.tags !== undefined) row.tags = dto.tags;
+    if (dto.isRecommended !== undefined) row.isRecommended = dto.isRecommended;
+    if (dto.sortOrder !== undefined) row.sortOrder = dto.sortOrder;
+    if (dto.isActive !== undefined) row.isActive = dto.isActive;
+    await this.hostedModelRepo.save(row);
+    return this.getHostedModel(me, row.id);
+  }
+
+  async deleteHostedModel(id: string) {
+    const row = await this.hostedModelRepo.findOne({ where: { id } });
+    if (!row) {
+      throw new NotFoundException(
+        this.translations.t("domains.ai.hosted_model_not_found"),
+      );
+    }
+    await this.hostedModelRepo.remove(row);
+    return { deleted: true };
+  }
+
+  private presentHostedModel(row: AiHostedModelEntity, isSuperAdmin: boolean) {
+    const provider = row.model?.provider;
+    const base = {
+      id: row.id,
+      code: row.code,
+      name: row.name,
+      description: row.description ?? null,
+      descriptionAr: row.descriptionAr ?? null,
+      tags: row.tags ?? [],
+      isRecommended: row.isRecommended,
+      sortOrder: row.sortOrder,
+      isActive: row.isActive,
+      provider: provider
+        ? { id: provider.id, name: provider.name, code: provider.code }
+        : null,
+    };
+    if (!isSuperAdmin) return base;
+    return {
+      ...base,
+      modelId: row.modelId,
+      modelCode: row.model?.modelCode ?? null,
+      integrationId: row.integrationId ?? null,
+    };
+  }
+
+  private async assertHostedCodeUnique(code: string, excludeId?: string) {
+    const existing = await this.hostedModelRepo.findOne({
+      where: { code: code.trim() },
+    });
+    if (existing && existing.id !== excludeId) {
+      throw new BadRequestException(
+        this.translations.t("domains.ai.hosted_code_exists"),
+      );
+    }
+  }
+
+  private async assertHostedLinks(
+    modelId: string,
+    integrationId?: string | null,
+  ) {
+    const model = await this.modelRepo.findOne({
+      where: { id: modelId },
+      relations: { provider: true },
+    });
+    if (!model || model.scope !== AiEntityScope.SYSTEM || !model.isActive) {
+      throw new BadRequestException(
+        this.translations.t("domains.ai.hosted_model_must_be_system"),
+      );
+    }
+
+    if (integrationId) {
+      const integration = await this.integrationRepo.findOne({
+        where: { id: integrationId },
+      });
+      if (
+        !integration ||
+        integration.adminId ||
+        integration.scope !== AiIntegrationScope.SYSTEM
+      ) {
+        throw new BadRequestException(
+          this.translations.t("domains.ai.hosted_integration_required"),
+        );
+      }
+      if (integration.providerId !== model.providerId) {
+        throw new BadRequestException(
+          this.translations.t("domains.ai.hosted_integration_provider_mismatch"),
+        );
+      }
+      return { model, integrationId: integration.id };
+    }
+
+    const systemIntegration = await this.integrationRepo.findOne({
+      where: {
+        providerId: model.providerId,
+        scope: AiIntegrationScope.SYSTEM,
+        adminId: IsNull(),
+      },
+    });
+    if (!systemIntegration) {
+      throw new BadRequestException(
+        this.translations.t("domains.ai.hosted_integration_required"),
+      );
+    }
+    return { model, integrationId: null as string | null };
   }
 }

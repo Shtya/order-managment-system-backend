@@ -102,7 +102,7 @@ export class DocumentMediaProcessor {
     caption?: string,
   ): Promise<{ text: string; usage: MediaUsage; model: string }> {
     const models = this.mediaConfig.models();
-    const client = this.mediaConfig.createOpenAi();
+    const client = await this.mediaConfig.createOpenAi();
 
     const name = filename || "document.pdf";
     const mime =

@@ -9,9 +9,6 @@ export enum WhatsAppIntegrationMode {
 export interface BillingAllowanceSettings {
   // Free tokens for the operation. 0 = no free tokens.
   units?: number;
-  // Days since account creation the free tokens are valid.
-  // Null = no expiry.
-  durationDays?: number | null;
 }
 
 export interface AiDecisionBillingSettings {
@@ -29,9 +26,25 @@ export interface AiMediaBillingSettings {
   allowance?: BillingAllowanceSettings | null;
 }
 
+export interface AiHostedBillingSettings {
+  // Decimal dollars per 1M input / output tokens. Shared across all hosted models.
+  inputTokenPrice?: number;
+  outputTokenPrice?: number;
+  // Null = not limited (unlimited free), object = capped free allowance.
+  allowance?: BillingAllowanceSettings | null;
+}
+
 export interface BillingSettings {
+  // Shared free-allowance window for every AI product (decision, media, hosted).
+  // Days since the resolved start date. Null = no expiry.
+  allowanceDurationDays?: number | null;
+  // Cutoff for old tenants: if the account was created before this YYYY-MM-DD,
+  // the allowance clock starts on this date; otherwise it starts at creation.
+  // Null = always use account creation.
+  allowanceAnchorDate?: string | null;
   aiDecision?: AiDecisionBillingSettings;
   aiMedia?: AiMediaBillingSettings;
+  aiHosted?: AiHostedBillingSettings;
 }
 
 @Entity('admin_settings')
@@ -56,11 +69,12 @@ export class AdminSettingsEntity {
   };
 
   @Column({ type: 'jsonb', nullable: true, default: {
+    allowanceDurationDays: null,
+    allowanceAnchorDate: null,
     aiDecision: {
       tokenPrice: 0.5,
       allowance: {
         units: 0,
-        durationDays: null,
       },
     },
     aiMedia: {
@@ -68,7 +82,13 @@ export class AdminSettingsEntity {
       audioMinutePrice: 0.006,
       allowance: {
         units: 0,
-        durationDays: null,
+      },
+    },
+    aiHosted: {
+      inputTokenPrice: 0.5,
+      outputTokenPrice: 0.5,
+      allowance: {
+        units: 0,
       },
     },
   } })

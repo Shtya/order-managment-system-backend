@@ -3,7 +3,10 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { RedisService } from "common/redis/RedisService";
 import { TranslationService } from "common/translation.service";
 import { UpdateAdminSettingsDto } from "dto/adminSettings.dto";
-import { AdminSettingsEntity } from "entities/adminSettings.entity";
+import {
+  AdminSettingsEntity,
+  BillingSettings,
+} from "entities/adminSettings.entity";
 import { SystemRole, User } from "entities/user.entity";
 import { Repository } from "typeorm";
 
@@ -42,6 +45,8 @@ export class AdminSettingsService {
         whatsapp: "",
         socials: {},
         billing: {
+          allowanceDurationDays: null,
+          allowanceAnchorDate: null,
           aiDecision: {
             tokenPrice: 0.5,
             allowance: null,
@@ -49,6 +54,11 @@ export class AdminSettingsService {
           aiMedia: {
             tokenPrice: 0.5,
             audioMinutePrice: 0.006,
+            allowance: null,
+          },
+          aiHosted: {
+            inputTokenPrice: 0.5,
+            outputTokenPrice: 0.5,
             allowance: null,
           },
         },
@@ -73,11 +83,13 @@ export class AdminSettingsService {
       AdminSettingsService.CACHE_KEY,
     );
     if (cached && typeof cached !== "string") {
+      cached.billing = sanitizeBilling(cached.billing);
       this.memoryCache = cached;
       return cached;
     }
 
     const settings = await this.loadOrCreateSettings();
+    settings.billing = sanitizeBilling(settings.billing);
     this.memoryCache = settings;
     await this.cacheSettings(settings);
     return settings;
@@ -106,9 +118,19 @@ export class AdminSettingsService {
     // Explicit null allowance means unlimited (not limited).
     let updatedBilling = settings.billing;
     if (dto.billing) {
-      updatedBilling = {
+      const nextDuration =
+        "allowanceDurationDays" in dto.billing
+          ? dto.billing.allowanceDurationDays
+          : settings.billing?.allowanceDurationDays ?? null;
+      const nextAnchor =
+        "allowanceAnchorDate" in dto.billing
+          ? dto.billing.allowanceAnchorDate
+          : settings.billing?.allowanceAnchorDate ?? null;
+      updatedBilling = sanitizeBilling({
         ...(settings.billing || {}),
         ...(dto.billing || {}),
+        allowanceDurationDays: nextDuration ?? null,
+        allowanceAnchorDate: nextAnchor ?? null,
         aiDecision: mergeBillingBlock(
           settings.billing?.aiDecision,
           dto.billing.aiDecision,
@@ -117,7 +139,11 @@ export class AdminSettingsService {
           settings.billing?.aiMedia,
           dto.billing.aiMedia,
         ),
-      };
+        aiHosted: mergeBillingBlock(
+          settings.billing?.aiHosted,
+          dto.billing.aiHosted,
+        ),
+      });
     }
 
     // Update entity properties
@@ -135,6 +161,24 @@ export class AdminSettingsService {
   }
 }
 
+function stripProductDuration(block: any) {
+  if (!block || block.allowance == null || typeof block.allowance !== "object") {
+    return block;
+  }
+  const { durationDays: _ignored, ...allowance } = block.allowance;
+  return { ...block, allowance };
+}
+
+function sanitizeBilling(billing: BillingSettings | null | undefined): BillingSettings | null {
+  if (!billing) return billing ?? null;
+  return {
+    ...billing,
+    aiDecision: stripProductDuration(billing.aiDecision),
+    aiMedia: stripProductDuration(billing.aiMedia),
+    aiHosted: stripProductDuration(billing.aiHosted),
+  };
+}
+
 function mergeBillingBlock(existing: any, incoming: any) {
   if (!incoming) return existing;
   const incomingAllowance =
@@ -148,9 +192,11 @@ function mergeBillingBlock(existing: any, incoming: any) {
         ? null
         : incomingAllowance === undefined
           ? existingBlock?.allowance ?? null
-          : {
-              ...(existingBlock?.allowance || {}),
-              ...incomingAllowance,
-            },
+          : stripProductDuration({
+              allowance: {
+                ...(existingBlock?.allowance || {}),
+                ...incomingAllowance,
+              },
+            }).allowance,
   };
 }

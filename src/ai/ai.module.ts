@@ -8,6 +8,7 @@ import {
   AiWriteToolCallEntity,
   AiDefaultModelEntity,
   AiModelAvailabilityEntity,
+  AiHostedModelEntity,
 } from "../../entities/ai.entity";
 import { EncryptionService } from "../../common/encryption.service";
 import { OrdersModule } from "../orders/orders.module";
@@ -53,6 +54,7 @@ import { OpenAiCompatibleProviderImpl } from "./providers/openai-compatible.prov
       AiWriteToolCallEntity,
       AiDefaultModelEntity,
       AiModelAvailabilityEntity,
+      AiHostedModelEntity,
     ]),
     forwardRef(() => OrdersModule),
     forwardRef(() => ShippingModule),

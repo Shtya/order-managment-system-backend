@@ -15,7 +15,6 @@ import {
   BillingValidationError,
 } from "../../billing.errors";
 import { AdminSettingsService } from "src/admin-settings/admin-settings.service";
-import { AiMediaBillingSettings } from "entities/adminSettings.entity";
 import { ceilDiv } from "../ai-decision/ai-decision-evaluate.operation";
 
 const DEFAULT_RESERVATION_SAFETY_MARGIN_PERCENT = 10;
@@ -33,17 +32,13 @@ function canonicalize(value: any): any {
 }
 
 @Injectable()
-export class AiMediaProcessOperation extends BillingOperationStrategy<
-  AiMediaUsage,
-  AiMediaPricing
+export class AiHostedCompleteOperation extends BillingOperationStrategy<
+  AiHostedUsage,
+  AiHostedPricing
 > {
-  readonly service = BillingServiceKey.AI_MEDIA;
-  readonly operation = BillingOperationKey.PROCESS;
+  readonly service = BillingServiceKey.AI_HOSTED;
+  readonly operation = BillingOperationKey.COMPLETE;
   readonly primaryUnit = BillingUnit.TOKEN;
-
-  private cachedSnapshot: PricingSnapshot | null = null;
-  private cachedRevision = -1;
-  private cachedMarginPercent = -1;
 
   constructor(private readonly adminSettings: AdminSettingsService) {
     super();
@@ -62,45 +57,27 @@ export class AiMediaProcessOperation extends BillingOperationStrategy<
   }
 
   async getSettingsSnapshot(): Promise<PricingSnapshot> {
-    const revision = this.adminSettings.getCacheRevision();
-    const marginPercent = this.reservationSafetyMarginPercent();
-    if (
-      this.cachedSnapshot &&
-      this.cachedRevision === revision &&
-      this.cachedMarginPercent === marginPercent
-    ) {
-      return this.cachedSnapshot;
-    }
-
     const settings = await this.adminSettings.getSettings();
-    const raw = settings?.billing?.aiMedia ?? {
-      tokenPrice: 0.5,
-      audioMinutePrice: 0.006,
-      allowance: { units: 0 },
+    const hosted = settings?.billing?.aiHosted;
+    const snapshot = {
+      inputTokenPrice: hosted?.inputTokenPrice ?? 0,
+      outputTokenPrice: hosted?.outputTokenPrice ?? 0,
+      allowance: settings?.billing?.aiHosted?.allowance ?? { units: 0 },
+      allowanceAnchorDate: settings?.billing?.allowanceAnchorDate ?? null,
+      allowanceDurationDays: settings?.billing?.allowanceDurationDays ?? null,
+      reservationSafetyMarginPercent: this.reservationSafetyMarginPercent(),
     };
-
-    const snapshot = structuredClone(raw) as Record<string, unknown>;
-    delete snapshot.reservationSafetyMarginPercent;
-    snapshot.reservationSafetyMarginPercent = marginPercent;
-    snapshot.allowanceAnchorDate =
-      settings?.billing?.allowanceAnchorDate ?? null;
-    snapshot.allowanceDurationDays =
-      settings?.billing?.allowanceDurationDays ?? null;
     const version = createHash("sha256")
       .update(JSON.stringify(canonicalize(snapshot)))
       .digest("hex");
-
-    this.cachedSnapshot = {
+    return {
       version,
       capturedAt: new Date().toISOString(),
       rawSettings: snapshot,
     };
-    this.cachedRevision = revision;
-    this.cachedMarginPercent = marginPercent;
-    return this.cachedSnapshot;
   }
 
-  private toMicros(value: unknown, field: string): bigint {
+  private toMicrosPerMillion(value: unknown, field: string): bigint {
     if (typeof value === "bigint") {
       if (value < 0n) throw new Error(`${field} must be >= 0`);
       return value;
@@ -121,72 +98,77 @@ export class AiMediaProcessOperation extends BillingOperationStrategy<
     throw new Error(`${field} must be a decimal price`);
   }
 
-  parsePricing(
-    raw: AiMediaBillingSettings & { reservationSafetyMarginPercent?: number },
-  ): AiMediaPricing {
+  parsePricing(raw: unknown): AiHostedPricing {
     try {
-      const tokenPriceMicros = this.toMicros(raw.tokenPrice ?? 0.5, "tokenPrice");
-      const audioMinutePriceMicros = this.toMicros(
-        raw.audioMinutePrice ?? 0.006,
-        "audioMinutePrice",
+      if (!raw || typeof raw !== "object") throw new Error("pricing missing");
+      const r = raw as Record<string, unknown> & {
+        tokenPrice?: number;
+        inputTokenPrice?: number;
+        outputTokenPrice?: number;
+        allowance?: { units?: number } | null;
+        allowanceDurationDays?: number | null;
+        reservationSafetyMarginPercent?: number;
+      };
+      const inputTokenPriceMicros = this.toMicrosPerMillion(
+        r.inputTokenPrice ?? r.tokenPrice ?? 0,
+        "inputTokenPrice",
+      );
+      const outputTokenPriceMicros = this.toMicrosPerMillion(
+        r.outputTokenPrice ?? r.tokenPrice ?? 0,
+        "outputTokenPrice",
       );
       let reservationSafetyMarginPercent = 10;
       if (
-        raw.reservationSafetyMarginPercent !== undefined &&
-        raw.reservationSafetyMarginPercent !== null
+        r.reservationSafetyMarginPercent !== undefined &&
+        r.reservationSafetyMarginPercent !== null
       ) {
-        const v = raw.reservationSafetyMarginPercent;
+        const v = r.reservationSafetyMarginPercent;
         if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 100) {
           throw new Error("reservationSafetyMarginPercent must be an integer 0..100");
         }
         reservationSafetyMarginPercent = v;
       }
-      const durationDays =
-        "allowanceDurationDays" in raw
-          ? ((raw as { allowanceDurationDays?: number | null })
-              .allowanceDurationDays ?? null)
-          : null;
+      const durationDays = r.allowanceDurationDays ?? null;
       let allowance: { units: bigint; durationDays: number | null } | null = {
         units: 0n,
         durationDays,
       };
-      if (raw.allowance === null) allowance = null;
-      else if (raw.allowance !== undefined) {
+      if (r.allowance === null) allowance = null;
+      else if (r.allowance !== undefined) {
         allowance = {
-          units: BigInt(raw.allowance.units ?? 0),
+          units: BigInt(r.allowance.units ?? 0),
           durationDays,
         };
       }
       return {
-        tokenPriceMicros,
-        audioMinutePriceMicros,
+        inputTokenPriceMicros,
+        outputTokenPriceMicros,
         reservationSafetyMarginPercent,
         allowance,
       };
     } catch (err: any) {
       throw new BillingConfigurationError(
-        `Invalid AI media pricing: ${err?.message ?? err}`,
+        `Invalid AI hosted pricing: ${err?.message ?? err}`,
       );
     }
   }
 
-  parseUsage(raw: unknown): AiMediaUsage {
+  parseUsage(raw: unknown): AiHostedUsage {
     try {
       if (!raw || typeof raw !== "object") throw new Error("usage must be an object");
       const r = raw as Record<string, unknown>;
       return {
-        inputTokens: toNonNegInt(r.inputTokens ?? 0, "inputTokens"),
-        outputTokens: toNonNegInt(r.outputTokens ?? 0, "outputTokens"),
-        audioSeconds: toNonNegInt(r.audioSeconds ?? 0, "audioSeconds"),
+        inputTokens: toTokens(r.inputTokens ?? 0, "inputTokens"),
+        outputTokens: toTokens(r.outputTokens ?? 0, "outputTokens"),
       };
     } catch (err: any) {
       throw new BillingValidationError(
-        `Invalid AI media usage: ${err?.message ?? err}`,
+        `Invalid AI hosted usage: ${err?.message ?? err}`,
       );
     }
   }
 
-  allowancePolicy(pricing: AiMediaPricing) {
+  allowancePolicy(pricing: AiHostedPricing) {
     if (pricing.allowance === null) {
       return {
         capUnits: null,
@@ -202,64 +184,54 @@ export class AiMediaProcessOperation extends BillingOperationStrategy<
   }
 
   authorizationRequirement(
-    estimated: AiMediaUsage,
-    pricing: AiMediaPricing,
+    estimated: AiHostedUsage,
+    pricing: AiHostedPricing,
   ): AuthorizationRequirement {
-    const tokenQty = estimated.inputTokens + estimated.outputTokens;
     if (pricing.allowance === null) {
       return {
         maxAmount: 0n,
-        maxUnits: { unit: BillingUnit.TOKEN, quantity: tokenQty },
+        maxUnits: {
+          unit: BillingUnit.TOKEN,
+          quantity: estimated.inputTokens + estimated.outputTokens,
+        },
       };
     }
     const million = 1_000_000n;
-    const tokenBase =
-      ceilDiv(estimated.inputTokens * pricing.tokenPriceMicros, million) +
-      ceilDiv(estimated.outputTokens * pricing.tokenPriceMicros, million);
-    const audioBase = ceilDiv(
-      estimated.audioSeconds * pricing.audioMinutePriceMicros,
-      60n,
-    );
+    const base =
+      ceilDiv(estimated.inputTokens * pricing.inputTokenPriceMicros, million) +
+      ceilDiv(estimated.outputTokens * pricing.outputTokenPriceMicros, million);
     const percent = BigInt(pricing.reservationSafetyMarginPercent);
-    const maxAmount = ceilDiv((tokenBase + audioBase) * (100n + percent), 100n);
     return {
-      maxAmount,
-      maxUnits: { unit: BillingUnit.TOKEN, quantity: tokenQty },
+      maxAmount: ceilDiv(base * (100n + percent), 100n),
+      maxUnits: {
+        unit: BillingUnit.TOKEN,
+        quantity: estimated.inputTokens + estimated.outputTokens,
+      },
     };
   }
 
   calculateCharge(
-    actual: AiMediaUsage,
-    pricing: AiMediaPricing,
+    actual: AiHostedUsage,
+    pricing: AiHostedPricing,
     allowance: AllowanceGrant,
   ): ChargeResult {
     const million = 1_000_000n;
-    const audioGross = ceilDiv(
-      actual.audioSeconds * pricing.audioMinutePriceMicros,
-      60n,
+    const inputGross = ceilDiv(
+      actual.inputTokens * pricing.inputTokenPriceMicros,
+      million,
     );
-    const inputGross = ceilDiv(actual.inputTokens * pricing.tokenPriceMicros, million);
-    const outputGross = ceilDiv(actual.outputTokens * pricing.tokenPriceMicros, million);
-    const grossAmount = inputGross + outputGross + audioGross;
-    const audioPricePerMillionSeconds = ceilDiv(
-      pricing.audioMinutePriceMicros * million,
-      60n,
+    const outputGross = ceilDiv(
+      actual.outputTokens * pricing.outputTokenPriceMicros,
+      million,
     );
+    const grossAmount = inputGross + outputGross;
 
     if (pricing.allowance === null) {
       const total = actual.inputTokens + actual.outputTokens;
       return {
         lines: [
-          tokenLine("INPUT_TOKENS", actual.inputTokens, actual.inputTokens, pricing.tokenPriceMicros, 0n),
-          tokenLine("OUTPUT_TOKENS", actual.outputTokens, actual.outputTokens, pricing.tokenPriceMicros, 0n),
-          {
-            meter: "AUDIO_SECONDS",
-            unit: BillingUnit.AUDIO_SECOND,
-            quantity: actual.audioSeconds,
-            freeQuantity: actual.audioSeconds,
-            unitPricePerMillion: audioPricePerMillionSeconds,
-            amount: 0n,
-          },
+          tokenLine("INPUT_TOKENS", actual.inputTokens, actual.inputTokens, pricing.inputTokenPriceMicros, 0n),
+          tokenLine("OUTPUT_TOKENS", actual.outputTokens, actual.outputTokens, pricing.outputTokenPriceMicros, 0n),
         ],
         grossAmount,
         payableAmount: 0n,
@@ -277,30 +249,20 @@ export class AiMediaProcessOperation extends BillingOperationStrategy<
     const freeInput = consume(actual.inputTokens);
     const freeOutput = consume(actual.outputTokens);
     const inputAmount = ceilDiv(
-      (actual.inputTokens - freeInput) * pricing.tokenPriceMicros,
+      (actual.inputTokens - freeInput) * pricing.inputTokenPriceMicros,
       million,
     );
     const outputAmount = ceilDiv(
-      (actual.outputTokens - freeOutput) * pricing.tokenPriceMicros,
+      (actual.outputTokens - freeOutput) * pricing.outputTokenPriceMicros,
       million,
     );
-    const payableAmount = inputAmount + outputAmount + audioGross;
-
     return {
       lines: [
-        tokenLine("INPUT_TOKENS", actual.inputTokens, freeInput, pricing.tokenPriceMicros, inputAmount),
-        tokenLine("OUTPUT_TOKENS", actual.outputTokens, freeOutput, pricing.tokenPriceMicros, outputAmount),
-        {
-          meter: "AUDIO_SECONDS",
-          unit: BillingUnit.AUDIO_SECOND,
-          quantity: actual.audioSeconds,
-          freeQuantity: 0n,
-          unitPricePerMillion: audioPricePerMillionSeconds,
-          amount: audioGross,
-        },
+        tokenLine("INPUT_TOKENS", actual.inputTokens, freeInput, pricing.inputTokenPriceMicros, inputAmount),
+        tokenLine("OUTPUT_TOKENS", actual.outputTokens, freeOutput, pricing.outputTokenPriceMicros, outputAmount),
       ],
       grossAmount,
-      payableAmount,
+      payableAmount: inputAmount + outputAmount,
       allowanceUnitsConsumed: freeInput + freeOutput,
     };
   }
@@ -323,36 +285,35 @@ function tokenLine(
   };
 }
 
-function toNonNegInt(value: unknown, field: string): bigint {
+function toTokens(value: unknown, field: string): bigint {
   if (typeof value === "bigint") {
     if (value < 0n) throw new Error(`${field} must be >= 0`);
     return value;
   }
   if (typeof value === "number") {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new Error(`${field} must be a non-negative number`);
+    if (!Number.isInteger(value) || value < 0) {
+      throw new Error(`${field} must be a non-negative integer`);
     }
-    return BigInt(Math.round(value));
+    return BigInt(value);
   }
   if (typeof value === "string") {
     const trimmed = value.trim();
-    if (!/^\d+(\.\d+)?$/.test(trimmed)) {
-      throw new Error(`${field} must be a non-negative number string`);
+    if (!/^\d+$/.test(trimmed)) {
+      throw new Error(`${field} must be a non-negative integer string`);
     }
-    return BigInt(Math.round(Number(trimmed)));
+    return BigInt(trimmed);
   }
-  throw new Error(`${field} must be an integer`);
+  throw new Error(`${field} must be tokens as bigint/number/string`);
 }
 
-export interface AiMediaUsage {
+export interface AiHostedUsage {
   inputTokens: bigint;
   outputTokens: bigint;
-  audioSeconds: bigint;
 }
 
-export interface AiMediaPricing {
-  tokenPriceMicros: bigint;
-  audioMinutePriceMicros: bigint;
+export interface AiHostedPricing {
+  inputTokenPriceMicros: bigint;
+  outputTokenPriceMicros: bigint;
   reservationSafetyMarginPercent: number;
   allowance: { units: bigint; durationDays: number | null } | null;
 }

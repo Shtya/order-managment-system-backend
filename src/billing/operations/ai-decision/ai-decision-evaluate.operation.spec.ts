@@ -9,7 +9,7 @@ import { AiDecisionEvaluateOperation } from "./ai-decision-evaluate.operation";
 const pricing = {
   tokenPrice: 1,
   reservationSafetyMarginPercent: 10,
-  allowance: { units: 0, durationDays: null },
+  allowance: { units: 0 },
 };
 
 const noAllowance = { unit: BillingUnit.TOKEN, remainingUnits: 0n };

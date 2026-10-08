@@ -207,6 +207,7 @@ export type I18nTranslations = {
         "billing": {
             "ai_decision_wallet_note": string;
             "ai_media_wallet_note": string;
+            "ai_hosted_wallet_note": string;
             "media_image": string;
             "media_video": string;
             "media_document": string;
@@ -1714,6 +1715,11 @@ export type I18nTranslations = {
             "provider_name_exists": string;
             "provider_does_not_allow_integrations": string;
             "model_not_found": string;
+            "hosted_model_not_found": string;
+            "hosted_code_exists": string;
+            "hosted_model_must_be_system": string;
+            "hosted_integration_required": string;
+            "hosted_integration_provider_mismatch": string;
             "model_already_exists": string;
             "model_is_system": string;
             "some_models_not_found": string;
@@ -1956,6 +1962,10 @@ export type I18nTranslations = {
             "status_inactive": string;
             "agent_not_found": string;
             "handoff_role_required": string;
+            "hosted_model_not_found": string;
+            "hosted_source_conflict": string;
+            "hosted_insufficient_balance": string;
+            "hosted_no_model_available": string;
         };
     };
     "emails": {

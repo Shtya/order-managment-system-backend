@@ -64,8 +64,9 @@
     "ai_address_completeness": "Verify delivery address completeness"
   },
   "billing": {
-    "ai_decision_wallet_note": "AI usage — {tokens} tokens — {feature}",
-    "ai_media_wallet_note": "AI media ({kind}) — {tokens} tokens — {audioMinutes} min — {feature}",
+    "ai_decision_wallet_note": "AI usage — {tokens} tokens",
+    "ai_media_wallet_note": "AI media ({kind}) — {tokens} tokens — {audioMinutes} min",
+    "ai_hosted_wallet_note": "Use ({modelName}) — {tokens} tokens",
     "media_image": "Image understanding",
     "media_video": "Video understanding",
     "media_document": "Document understanding",
@@ -1565,6 +1566,11 @@
     "provider_name_exists": "An AI provider with this name already exists for this tenant",
     "provider_does_not_allow_integrations": "This provider does not allow tenant integrations",
     "model_not_found": "AI model not found",
+    "hosted_model_not_found": "Model not found",
+    "hosted_code_exists": "A Model with this code already exists",
+    "hosted_model_must_be_system": "Models must use an active system catalog model",
+    "hosted_integration_required": "A system integration is required for this model's provider",
+    "hosted_integration_provider_mismatch": "The integration does not belong to this model's provider",
     "model_already_exists": "A model with this ID already exists for this provider",
     "model_is_system": "Cannot modify a system model",
     "some_models_not_found": "Some of the specified models were not found",
@@ -1806,6 +1812,10 @@
     "status_active": "Active",
     "status_inactive": "Inactive",
     "agent_not_found": "Agent not found",
-    "handoff_role_required": "Choose a team for human intervention before enabling this capability"
+    "handoff_role_required": "Choose a team for human intervention before enabling this capability",
+    "hosted_model_not_found": "Model not found",
+    "hosted_source_conflict": "Choose either your provider account or a Model, not both",
+    "hosted_insufficient_balance": "Insufficient AI wallet balance for Models",
+    "hosted_no_model_available": "No Model is available right now"
   }
 }

@@ -5,7 +5,7 @@ import { Repository } from "typeorm";
 import { RedisService } from "common/redis/RedisService";
 import { AppGateway } from "common/app.gateway";
 import { tenantId } from "src/category/category.service";
-import { AgentEntity, AgentGender, AgentLanguage } from "entities/agent.entity";
+import { AgentAiSource, AgentEntity, AgentGender, AgentLanguage } from "entities/agent.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import {
   WhatsappMessageEntity,
@@ -13,6 +13,10 @@ import {
 } from "entities/whatsapp.entity";
 import { TryMeMessageDto, TryMeSessionDto } from "dto/agent.dto";
 import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.service";
+import {
+  AgentHostedTurnService,
+  HostedInsufficientBalanceError,
+} from "./agent-hosted-turn.service";
 import { AiChatMessage, AiProgressEvent } from "src/ai/interfaces/ai-types";
 import { isAiProviderError } from "src/ai/errors/provider.errors";
 import { MediaKind } from "src/ai/media/media-config.service";
@@ -21,7 +25,7 @@ import { AgentsService } from "../agents.service";
 import { buildAgentSystemPrompt, formatAgentNow } from "./agent-prompt";
 import { AgentInputService } from "./agent-input.service";
 import { renderInput } from "./agent-context.service";
-import { AgentSessionService } from "./agent-session.service";
+import { AgentSessionService, SUMMARY_SYSTEM_PROMPT } from "./agent-session.service";
 import {
   AGENT_COMPACTION_RATIO,
   AGENT_CONTEXT_TOKEN_BUDGET,
@@ -72,6 +76,7 @@ export class AgentPlaygroundService {
     private readonly redis: RedisService,
     private readonly agents: AgentsService,
     private readonly orchestrator: AiOrchestratorService,
+    private readonly hostedTurns: AgentHostedTurnService,
     private readonly input: AgentInputService,
     private readonly sessions: AgentSessionService,
     private readonly translations: TranslationService,
@@ -330,20 +335,22 @@ export class AgentPlaygroundService {
 
     let turnErrors: PlaygroundError[] = [];
     try {
-      const result = await this.orchestrator.runAgentTurn({
+      const turnInput = {
         tenantId: adminId,
         sessionId: session.sessionId,
         conversationId: session.conversationId,
         agentId: session.agentId,
         agentName: agent.name,
         providerId: agent.responseProviderId ?? null,
+        turnId,
         messages: inputMessages,
         toolNames: resolvePlaygroundToolNames(agent.capabilities, hasCustomer),
         sendToolNames: PLAYGROUND_SEND_TOOL_NAMES,
         writeDedupScope: (toolCall) =>
           `playground:${session.sessionId}:${turnId}:${toolCall.name}:${position++}`,
         metadata: { agentScope: scope, source: "agent_playground" },
-      });
+      };
+      const result = await this.hostedTurns.runAgentTurn(agent, turnInput);
       turnErrors = collectToolErrors(result.progress);
       if (!result.ok && (result.error || result.errorCode)) {
         turnErrors.push({
@@ -533,15 +540,41 @@ export class AgentPlaygroundService {
     const transcript = toFold
       .map((m) => `${m.role}: ${String(m.content ?? "").slice(0, 2000)}`)
       .join("\n");
-    const summary = await this.sessions.summarizeTranscript({
-      adminId,
-      sessionId: session.sessionId,
-      conversationId: session.conversationId,
-      agentId: session.agentId,
-      earlierSummary: session.summary ?? null,
-      transcript,
-      providerId: agent.responseProviderId,
-    });
+    const user = [
+      session.summary ? `Earlier summary:\n${session.summary}` : null,
+      `Transcript to add:\n${transcript}`,
+      "Return the updated summary only. At most 12 bullets. Drop resolved items.",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    let summary: string | null = null;
+    try {
+      if (this.hostedTurns.isHosted(agent)) {
+        const result = await this.hostedTurns.runCompletion(agent, {
+          tenantId: adminId,
+          sessionId: session.sessionId,
+          conversationId: session.conversationId,
+          userId: session.agentId,
+          system: SUMMARY_SYSTEM_PROMPT,
+          user,
+          metadata: { source: "agent_session_summary" },
+        });
+        summary = result.ok ? result.content?.trim() || null : null;
+      } else {
+        summary = await this.sessions.summarizeTranscript({
+          adminId,
+          sessionId: session.sessionId,
+          conversationId: session.conversationId,
+          agentId: session.agentId,
+          earlierSummary: session.summary ?? null,
+          transcript,
+          ...(await this.hostedTurns.compactPin(agent)),
+        });
+      }
+    } catch (error) {
+      if (error instanceof HostedInsufficientBalanceError) return;
+      throw error;
+    }
     if (!summary) return;
     session.summary = summary;
     session.messages = kept;
@@ -594,7 +627,12 @@ ${knowledge.map((k) => `- ${k.title}: ${k.content}`).join("\n")}`,
       language: dto.language ?? AgentLanguage.AUTO,
       gender: dto.gender ?? AgentGender.MALE,
       customInstructions: dto.customInstructions ?? null,
-      responseProviderId: dto.responseProviderId ?? null,
+      responseProviderId: dto.responseProviderId || null,
+      aiSource:
+        dto.aiSource === AgentAiSource.HOSTED
+          ? AgentAiSource.HOSTED
+          : AgentAiSource.TENANT,
+      hostedModelId: dto.hostedModelId || null,
       isActive: true,
       capabilities: dto.capabilities ?? null,
       acceptImage: dto.acceptImage ?? false,
@@ -638,6 +676,8 @@ function hashAgentSnapshot(dto: TryMeSessionDto, sessionId: string): string {
     gender: dto.gender ?? null,
     customInstructions: dto.customInstructions ?? null,
     responseProviderId: dto.responseProviderId ?? null,
+    aiSource: dto.aiSource ?? null,
+    hostedModelId: dto.hostedModelId ?? null,
     capabilities: [...(dto.capabilities ?? [])].sort(),
     knowledgeIds: [...(dto.knowledgeIds ?? [])].sort(),
     knowledgeDrafts: (dto.knowledgeDrafts ?? [])
@@ -673,6 +713,14 @@ function collectToolErrors(progress?: AiProgressEvent[]): PlaygroundError[] {
 }
 
 function turnFatalError(error: unknown): PlaygroundError {
+  if (error instanceof HostedInsufficientBalanceError) {
+    return {
+      source: "turn",
+      code: "HOSTED_INSUFFICIENT_BALANCE",
+      message: error.message,
+      fatal: true,
+    };
+  }
   if (isAiProviderError(error)) {
     return {
       source: "turn",

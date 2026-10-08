@@ -31,7 +31,7 @@ import {
   AGENT_DESCRIBE_MESSAGE_RELATIONS,
 } from "./agent-runtime.constants";
 
-const SUMMARY_SYSTEM_PROMPT = `You summarize a WhatsApp conversation between a store's AI assistant and a customer, for the assistant to read later (not for a human).
+export const SUMMARY_SYSTEM_PROMPT = `You summarize a WhatsApp conversation between a store's AI assistant and a customer, for the assistant to read later (not for a human).
 Keep: what the customer asked for, what the assistant answered or promised, meaningful tool outcomes, order numbers and other reference ids, data the customer gave (name, address, city...), the customer's dialect if it is clear, any open complaint, and promises the assistant made that are still relevant.
 Drop greetings, small talk, items that are already finished, and anything about pending confirmation buttons (those are injected separately and stay current).
 Write at most 12 short factual bullet points in English. Never add facts that aren't in the transcript.`;
@@ -259,7 +259,7 @@ export class AgentSessionService {
    */
   async compact(
     session: AgentSessionEntity,
-    options: { keepTurns?: number; providerId?: string | null } = {},
+    options: { keepTurns?: number; providerId?: string | null; model?: string | null } = {},
   ): Promise<boolean> {
     const keepTurns = options.keepTurns ?? AGENT_KEEP_RECENT_TURNS;
     const cutoffSeq = session.turnCount - keepTurns;
@@ -280,6 +280,7 @@ export class AgentSessionService {
       earlierSummary: session.summary ?? session.previousSummary ?? null,
       transcript: renderTranscript(toFold),
       providerId: options.providerId,
+      model: options.model,
     });
     if (!summary) return false;
 
@@ -337,6 +338,7 @@ export class AgentSessionService {
     earlierSummary: string | null;
     transcript: string;
     providerId?: string | null;
+    model?: string | null;
   }): Promise<string | null> {
     const user = [
       input.earlierSummary ? `Earlier summary:\n${input.earlierSummary}` : null,
@@ -352,6 +354,7 @@ export class AgentSessionService {
       conversationId: input.conversationId,
       userId: input.agentId,
       providerId: input.providerId,
+      model: input.model,
       system: SUMMARY_SYSTEM_PROMPT,
       user,
       metadata: { source: "agent_session_summary" },

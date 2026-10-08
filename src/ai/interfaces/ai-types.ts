@@ -68,6 +68,8 @@ export interface AiExecutionSession {
   acceptWriteOperations: boolean;
   allowProviderFailover?: boolean;
   requireTools?: boolean;
+  /** When true, resolve SYSTEM integrations/keys only (hosted Madar models). */
+  useSystemIntegrations?: boolean;
 }
 
 export interface AiToolExecutionResult {

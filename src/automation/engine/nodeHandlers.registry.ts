@@ -70,6 +70,7 @@ import { AiOrchestratorService } from "src/ai/orchestrator/ai-orchestrator.servi
 import { AiAttempt, AiOrchestrationResult } from "src/ai/interfaces/ai-types";
 import { AiProviderSelectorService } from "src/ai/orchestrator/provider-selector.service";
 import { AgentTaskService } from "src/agents/runtime/agent-task.service";
+import { AgentHostedTurnService } from "src/agents/runtime/agent-hosted-turn.service";
 import { AgentTaskStatus } from "entities/agent-conversation.entity";
 import { ShippingAssigningService } from "src/shipping-assigning/shipping-assigning.service";
 import { ShipmentStatus, ShippingCompanyEntity } from "entities/shipping.entity";
@@ -961,6 +962,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     private readonly agentTasks?: AgentTaskService,
     private readonly whatsappService?: WhatsappService,
     private readonly messageRepo?: Repository<WhatsappMessageEntity>,
+    private readonly hostedTurns?: AgentHostedTurnService,
   ) {
     super(orderRepo);
   }
@@ -1038,8 +1040,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
       let chatResult: AiOrchestrationResult | undefined;
       try {
-        chatResult = await this.aiOrchestrator.chat(admin, prompt, {
-          ...this.addressCorrectionChatOptions(config),
+        chatResult = await this.runCorrectionChat(admin, prompt, config, {
           allowedToolNames: [...ADDRESS_CORRECTION_FIRST_PASS_TOOLS],
           metadata: {
             orderId: orderData.id,
@@ -1279,8 +1280,7 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
 
       let chatResult: AiOrchestrationResult | undefined;
       try {
-        chatResult = await this.aiOrchestrator.chat(admin, resumePrompt, {
-          ...this.addressCorrectionChatOptions(config),
+        chatResult = await this.runCorrectionChat(admin, resumePrompt, config, {
           allowedToolNames: [...ADDRESS_CORRECTION_WRITE_TOOLS],
           history,
           metadata: {
@@ -1614,21 +1614,64 @@ export class ActionAiAddressCorrectionHandler extends FlowNodeHandler {
     );
   }
 
+  private isHostedAi(config: AiAddressCorrectionConfig): boolean {
+    return config.aiSource === "hosted";
+  }
+
   private addressCorrectionChatOptions(config: AiAddressCorrectionConfig) {
+    if (this.isHostedAi(config)) {
+      return {
+        acceptWriteOperations: true,
+        allowProviderFailover: false,
+        requireTools: true,
+      };
+    }
     return {
       acceptWriteOperations: true,
       allowProviderFailover: true,
       requireTools: true,
-      // Preferred AI vendor only — never pin a model from the step config.
       provider: config.providerCode || undefined,
       providerId: config.providerId || undefined,
     };
   }
 
+  private async runCorrectionChat(
+    admin: User,
+    prompt: string,
+    config: AiAddressCorrectionConfig,
+    extra: Parameters<AiOrchestratorService["chat"]>[2],
+  ) {
+    const options = {
+      ...this.addressCorrectionChatOptions(config),
+      ...extra,
+      usageSource: AiUsageSource.ADDRESS_CORRECTION,
+      usageApi: "automation.addressCorrection",
+      usageActor: AiUsageActor.SYSTEM,
+    };
+    if (this.isHostedAi(config) && this.hostedTurns) {
+      return this.hostedTurns.runHostedChat(
+        admin,
+        prompt,
+        config.hostedModelId,
+        options,
+      );
+    }
+    return this.aiOrchestrator.chat(admin, prompt, options);
+  }
+
   private async validateProviderAvailability(
-    _config: AiAddressCorrectionConfig,
+    config: AiAddressCorrectionConfig,
     run: AutomationRunEntity,
   ): Promise<NodeHandlerResponse | null> {
+    if (this.isHostedAi(config) && this.hostedTurns) {
+      const sku = await this.hostedTurns.pickSku(config.hostedModelId);
+      if (sku) return null;
+      return {
+        success: false,
+        error: "No hosted model is available",
+        output: usedAiFromFailure(),
+      };
+    }
     const eligible = await this.providerSelector.hasEligibleConfiguredProvider(
       run.adminId,
       { requireTools: true },
@@ -3457,6 +3500,7 @@ export class NodeHandlersRegistry {
     private readonly aiDecision: AiDecisionService,
     @Inject(forwardRef(() => AgentTaskService))
     private readonly agentTasks: AgentTaskService,
+    private readonly hostedTurns: AgentHostedTurnService,
   ) {
     this.registerHandlers();
   }
@@ -3500,6 +3544,7 @@ export class NodeHandlersRegistry {
         this.agentTasks,
         this.whatsappService,
         this.messageRepo,
+        this.hostedTurns,
       ),
     );
     this.handlers.set(

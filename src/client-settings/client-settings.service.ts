@@ -192,6 +192,7 @@ export class ClientSettingsService {
         autoMoveStatus: OrderStatus.CANCELLED,
         retryStatuses: [OrderStatus.WRONG_NUMBER, OrderStatus.UNDER_REVIEW],
         reservedEnabled: false, // by default false
+        aiWalletFallbackEnabled: true,
         campaignOrderPage: DEFAULT_CAMPAIGN_ORDER_PAGE_SETTINGS,
       });
     }

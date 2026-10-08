@@ -68,11 +68,13 @@ export interface ReleaseInput {
 export enum BillingServiceKey {
   AI_DECISION = "ai_decision",
   AI_MEDIA = "ai_media",
+  AI_HOSTED = "ai_hosted",
 }
 
 export enum BillingOperationKey {
   EVALUATE = "evaluate",
   PROCESS = "process",
+  COMPLETE = "complete",
 }
 
 export enum BillingUnit {

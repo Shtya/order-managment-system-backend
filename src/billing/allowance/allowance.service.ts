@@ -10,6 +10,37 @@ import { EntityManager } from "typeorm";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** Parse a YYYY-MM-DD cutoff (UTC start of that day). */
+export function parseAllowanceAnchorDate(
+  raw: string | Date | null | undefined,
+): Date | null {
+  if (raw == null || raw === "") return null;
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime()) ? null : raw;
+  }
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(raw).trim());
+  if (m) {
+    return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  }
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * Start of the free-allowance window: accounts created before the cutoff
+ * use the cutoff; accounts created on/after it use their creation date.
+ */
+export function resolveAllowanceAnchor(
+  accountCreatedAt: Date | null,
+  cutoff: Date | null,
+): Date | null {
+  if (!cutoff) return accountCreatedAt;
+  if (!accountCreatedAt) return cutoff;
+  return accountCreatedAt.getTime() < cutoff.getTime()
+    ? cutoff
+    : accountCreatedAt;
+}
+
 export type AllowanceReserveInput = {
   adminId: string;
   service: BillingServiceKey;

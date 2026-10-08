@@ -1,7 +1,7 @@
 import { Transform, Type } from "class-transformer";
 import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsPositive, IsString, IsUUID, Matches, MaxLength, MinLength, ValidateIf, ValidateNested } from "class-validator";
 import { i18nValidationMessage } from "nestjs-i18n";
-import { AgentCapability, AgentGender, AgentLanguage } from "entities/agent.entity";
+import { AgentAiSource, AgentCapability, AgentGender, AgentLanguage } from "entities/agent.entity";
 import { IssuePriority } from "entities/issue.entity";
 
 const languageEnumMessage = (args: any) =>
@@ -45,6 +45,15 @@ export class CreateAgentDto {
   @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
   responseProviderId?: string | null;
+
+  @IsOptional()
+  @IsEnum(AgentAiSource, { message: i18nValidationMessage("validation.is_enum") })
+  aiSource?: AgentAiSource;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  hostedModelId?: string | null;
 
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })
@@ -129,6 +138,15 @@ export class UpdateAgentDto {
   @ValidateIf((_, value) => value !== null && value !== undefined)
   @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
   responseProviderId?: string | null;
+
+  @IsOptional()
+  @IsEnum(AgentAiSource, { message: i18nValidationMessage("validation.is_enum") })
+  aiSource?: AgentAiSource;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null && value !== undefined)
+  @IsUUID("4", { message: i18nValidationMessage("validation.is_uuid") })
+  hostedModelId?: string | null;
 
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage("validation.is_boolean") })

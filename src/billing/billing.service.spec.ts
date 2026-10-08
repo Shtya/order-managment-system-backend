@@ -19,6 +19,9 @@ vi.mock("common/translation.service", () => ({
   RequestTranslationService: class RequestTranslationService {},
   TranslationService: class TranslationService {},
 }));
+vi.mock("src/client-settings/client-settings.service", () => ({
+  ClientSettingsService: class ClientSettingsService {},
+}));
 import { AllowanceService } from "./allowance/allowance.service";
 import { BillingService } from "./billing.service";
 import {
@@ -135,6 +138,7 @@ function createHarness(opts?: {
   aiAvailable?: bigint;
   currentAvailable?: bigint;
   allowance?: unknown;
+  aiWalletFallbackEnabled?: boolean;
 }) {
   const auths: BillingAuthorizationEntity[] = [];
   const charges: BillingChargeEntity[] = [];
@@ -143,7 +147,7 @@ function createHarness(opts?: {
     capturedAt: "2026-01-01T00:00:00.000Z",
     rawSettings: pricingRaw(
       opts?.allowance === undefined
-        ? { units: 0, durationDays: null }
+        ? { units: 0 }
         : opts.allowance,
     ),
   };
@@ -339,12 +343,18 @@ function createHarness(opts?: {
       return key;
     },
   };
+  const clientSettings = {
+    getCachedSettings: async () => ({
+      aiWalletFallbackEnabled: opts?.aiWalletFallbackEnabled !== false,
+    }),
+  };
   const service = new BillingService(
     { transaction: async (fn: any) => fn(em) } as any,
     new BillingOperationRegistry([op]),
     wallet as any,
     allowance as unknown as AllowanceService,
     requestTranslations as any,
+    clientSettings as any,
   );
 
   return { service, auths, charges, wallet, allowance };
@@ -507,7 +517,7 @@ describe("BillingService", () => {
     const freeUsage = { inputTokens: 50000n, outputTokens: 0n };
     const { service, wallet, auths, allowance } = createHarness({
       available: 0n,
-      allowance: { units: 100000, durationDays: null },
+      allowance: { units: 100000 },
     });
     const auth = await service.authorize({
       ...baseInput,
@@ -532,7 +542,7 @@ describe("BillingService", () => {
   test("cap exhausted still needs wallet money", async () => {
     const { service, auths } = createHarness({
       available: 0n,
-      allowance: { units: 0, durationDays: null },
+      allowance: { units: 0 },
     });
     const result = await service.authorize({
       ...baseInput,
@@ -549,7 +559,7 @@ describe("BillingService", () => {
     const freeUsage = { inputTokens: 50000n, outputTokens: 0n };
     const { service, allowance } = createHarness({
       available: 0n,
-      allowance: { units: 100000, durationDays: null },
+      allowance: { units: 100000 },
     });
     const auth = await service.authorize({
       ...baseInput,
@@ -651,10 +661,26 @@ describe("BillingService", () => {
     expect(wallet.lastReservePool).toBe(BillingWalletPool.AI);
   });
 
-  test("authorize is insufficient when AI cannot cover the full amount", async () => {
+  test("authorize falls back to the main wallet when AI cannot cover", async () => {
     const { service, auths, wallet } = createHarness({
       aiAvailable: 1n,
       currentAvailable: 10_000_000_000_000n,
+    });
+    const result = await service.authorize({
+      ...baseInput,
+      walletPool: BillingWalletPool.AI,
+    });
+    expect(result.authorized).toBe(true);
+    expect(auths[0].walletPool).toBe(BillingWalletPool.CURRENT);
+    expect(wallet.lastReservePool).toBe(BillingWalletPool.CURRENT);
+    expect(wallet.aiAvailable).toBe(1n);
+  });
+
+  test("authorize is insufficient when AI cannot cover and fallback is off", async () => {
+    const { service, auths, wallet } = createHarness({
+      aiAvailable: 1n,
+      currentAvailable: 10_000_000_000_000n,
+      aiWalletFallbackEnabled: false,
     });
     const result = await service.authorize({
       ...baseInput,

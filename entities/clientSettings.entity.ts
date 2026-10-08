@@ -213,6 +213,10 @@ export class ClientSettingsEntity {
   @Column({ type: "boolean", default: false })
   reservedEnabled: boolean;
 
+  /** When the AI wallet cannot cover a charge, use the main wallet instead. */
+  @Column({ type: "boolean", default: true })
+  aiWalletFallbackEnabled: boolean;
+
   @Column({ type: "int", default: 24 })
   duplicateWindowHours: number;
 

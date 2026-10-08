@@ -1,6 +1,8 @@
 import { Module } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { AgentMediaUsageEntity } from "entities/agent-conversation.entity";
+import { AiIntegrationEntity } from "entities/ai.entity";
+import { EncryptionService } from "common/encryption.service";
 import { BillingModule } from "src/billing/billing.module";
 import { AiUsageModule } from "src/ai/usage/ai-usage.module";
 import { AgentMediaUsageService } from "./agent-media-usage.service";
@@ -15,9 +17,10 @@ import { VideoMediaProcessor } from "./processors/video.processor";
   imports: [
     BillingModule,
     AiUsageModule,
-    TypeOrmModule.forFeature([AgentMediaUsageEntity]),
+    TypeOrmModule.forFeature([AgentMediaUsageEntity, AiIntegrationEntity]),
   ],
   providers: [
+    EncryptionService,
     ImageMediaProcessor,
     VideoMediaProcessor,
     DocumentMediaProcessor,

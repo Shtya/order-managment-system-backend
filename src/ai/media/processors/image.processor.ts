@@ -40,7 +40,7 @@ export class ImageMediaProcessor {
     caption?: string,
   ): Promise<{ text: string; usage: MediaUsage; model: string }> {
     const models = this.mediaConfig.models();
-    const client = this.mediaConfig.createOpenAi();
+    const client = await this.mediaConfig.createOpenAi();
 
     const mime =
       mimeType?.split(";")[0]?.trim() || "image/jpeg";

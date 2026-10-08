@@ -5,7 +5,11 @@ import {
   BillingServiceKey,
   BillingUnit,
 } from "entities/billing.entity";
-import { AllowanceService } from "./allowance.service";
+import {
+  AllowanceService,
+  parseAllowanceAnchorDate,
+  resolveAllowanceAnchor,
+} from "./allowance.service";
 
 describe("AllowanceService", () => {
   test("two sequential reserves cannot exceed the cap", async () => {
@@ -89,5 +93,18 @@ describe("AllowanceService", () => {
       manager: { query: async () => [] } as any,
     });
     expect(grant.remainingUnits).toBe(0n);
+  });
+
+  test("cutoff lifts old accounts onto the shared start date", () => {
+    const cutoff = parseAllowanceAnchorDate("2026-01-01");
+    const oldAccount = new Date(Date.UTC(2020, 0, 1));
+    const newAccount = new Date(Date.UTC(2026, 5, 1));
+    expect(resolveAllowanceAnchor(oldAccount, cutoff)?.toISOString()).toBe(
+      cutoff?.toISOString(),
+    );
+    expect(resolveAllowanceAnchor(newAccount, cutoff)?.toISOString()).toBe(
+      newAccount.toISOString(),
+    );
+    expect(resolveAllowanceAnchor(oldAccount, null)).toBe(oldAccount);
   });
 });

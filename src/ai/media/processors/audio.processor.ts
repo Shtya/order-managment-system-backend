@@ -24,7 +24,7 @@ export class AudioMediaProcessor {
   ): Promise<{ text: string; usage: MediaUsage; model: string }> {
     const models = this.mediaConfig.models();
     const usage = await this.estimate(buffer, mimeType);
-    const client = this.mediaConfig.createOpenAi();
+    const client = await this.mediaConfig.createOpenAi();
     const sniffed = sniffAudio(buffer, mimeType);
     const mime = sniffed.mime;
     const ext = sniffed.ext;

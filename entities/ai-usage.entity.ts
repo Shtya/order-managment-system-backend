@@ -117,6 +117,9 @@ export class AiUsageEntity {
   mediaUsageId: string | null;
 
   @Column({ type: "uuid", nullable: true })
+  hostedModelId: string | null;
+
+  @Column({ type: "uuid", nullable: true })
   agentId: string | null;
 
   @Column({ type: "uuid", nullable: true })

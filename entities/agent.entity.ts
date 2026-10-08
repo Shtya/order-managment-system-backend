@@ -9,8 +9,13 @@ import {
   UpdateDateColumn,
 } from "typeorm";
 import { Role, User } from "./user.entity";
-import { AiProviderEntity } from "./ai.entity";
+import { AiHostedModelEntity, AiProviderEntity } from "./ai.entity";
 import { IssuePriority, IssueStatusEntity } from "./issue.entity";
+
+export enum AgentAiSource {
+  HOSTED = "hosted",
+  TENANT = "tenant",
+}
 
 export enum AgentLanguage {
   AUTO = "auto",
@@ -91,6 +96,24 @@ export class AgentEntity {
   @Column({ type: "text", nullable: true })
   customInstructions?: string | null;
 
+  /** hosted = Madar models (wallet). tenant = merchant's own provider key. */
+  @Column({
+    type: "enum",
+    enum: AgentAiSource,
+    default: AgentAiSource.TENANT,
+  })
+  aiSource: AgentAiSource;
+
+  /** When aiSource=hosted: null = Auto among hosted models. */
+  @Index()
+  @Column({ type: "uuid", nullable: true })
+  hostedModelId?: string | null;
+
+  @ManyToOne(() => AiHostedModelEntity, { nullable: true, onDelete: "SET NULL" })
+  @JoinColumn({ name: "hostedModelId" })
+  hostedModel?: AiHostedModelEntity | null;
+
+  /** When aiSource=tenant: null = Auto among the merchant's integrations. */
   @Index()
   @Column({ type: "uuid", nullable: true })
   responseProviderId?: string | null;

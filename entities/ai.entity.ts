@@ -624,3 +624,58 @@ export class AiDefaultModelEntity {
     @UpdateDateColumn({ type: 'timestamptz' })
     updated_at: Date;
 }
+
+
+@Index(['isActive', 'sortOrder'])
+@Entity('ai_hosted_models')
+export class AiHostedModelEntity {
+    @PrimaryGeneratedColumn('uuid')
+    id!: string;
+
+    @Index()
+    @Column({ type: 'uuid' })
+    modelId: string;
+
+    @ManyToOne(() => AiModelEntity, { onDelete: 'RESTRICT' })
+    @JoinColumn({ name: 'modelId' })
+    model: AiModelEntity;
+
+    /** System integration that must be used. Null = system integration of the model's provider. */
+    @Index()
+    @Column({ type: 'uuid', nullable: true })
+    integrationId?: string | null;
+
+    @ManyToOne(() => AiIntegrationEntity, { nullable: true, onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'integrationId' })
+    integration?: AiIntegrationEntity | null;
+
+    @Column({ type: 'varchar', length: 100, unique: true })
+    code: string;
+
+    @Column({ type: 'varchar', length: 255 })
+    name: string;
+
+    @Column({ type: 'text', nullable: true })
+    description?: string | null;
+
+    @Column({ type: 'text', nullable: true })
+    descriptionAr?: string | null;
+
+    @Column({ type: 'text', array: true, nullable: true })
+    tags?: string[] | null;
+
+    @Column({ type: 'boolean', default: false })
+    isRecommended: boolean;
+
+    @Column({ type: 'int', default: 0 })
+    sortOrder: number;
+
+    @Column({ type: 'boolean', default: true })
+    isActive: boolean;
+
+    @CreateDateColumn({ type: 'timestamptz' })
+    createdAt: Date;
+
+    @UpdateDateColumn({ type: 'timestamptz' })
+    updatedAt: Date;
+}
