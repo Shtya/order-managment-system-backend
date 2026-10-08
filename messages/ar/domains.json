@@ -66,11 +66,12 @@
   "billing": {
     "ai_decision_wallet_note": "استخدام الذكاء الاصطناعي — {tokens} توكن",
     "ai_media_wallet_note": "وسائط الذكاء الاصطناعي ({kind}) — {tokens} توكن — {audioMinutes} دقيقة",
-    "ai_hosted_wallet_note": "استخدام ({modelName}) — {tokens} توكن",
+    "ai_hosted_wallet_note": "{feature} ({modelName}) — {tokens} توكن",
+    "hosted_agent": "استخدام الوكيل",
     "media_image": "فهم الصورة",
     "media_video": "فهم الفيديو",
     "media_document": "فهم المستند",
-    "media_audio": "تفريغ الرسالة الصوتية"
+    "media_audio": "فهم الصوت"
   },
   "bundles": {
     "not_found": "الحزمة غير موجودة",

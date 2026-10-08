@@ -335,7 +335,13 @@ function createHarness(opts?: {
   const requestTranslations = {
     tAsync: async (key: string, _userId: string, options?: { args?: Record<string, unknown> }) => {
       if (key === "domains.billing.ai_decision_wallet_note") {
-        return `AI usage — ${options?.args?.tokens} tokens — ${options?.args?.feature ?? ""}`;
+        return `AI usage — ${options?.args?.tokens} tokens`;
+      }
+      if (key === "domains.billing.ai_hosted_wallet_note") {
+        return `${options?.args?.feature} (${options?.args?.modelName}) — ${options?.args?.tokens} tokens`;
+      }
+      if (key === "domains.billing.hosted_agent") {
+        return "Agent usage";
       }
       if (key === "domains.automation.ai_address_completeness") {
         return "Verify delivery address completeness";
@@ -386,10 +392,10 @@ describe("BillingService", () => {
     expect(wallet.reserved).toBe(0n);
     expect(auths[0].status).toBe(AuthorizationStatus.FINALIZED);
     expect(charges).toHaveLength(1);
-    expect(wallet.lastCaptureNotes).toBe("AI usage — 1,000,000 tokens — ");
+    expect(wallet.lastCaptureNotes).toBe("AI usage — 1,000,000 tokens");
   });
 
-  test("finalize wallet note uses usage tokens and translated feature note", async () => {
+  test("finalize wallet note uses usage tokens without a feature suffix", async () => {
     const { service, wallet } = createHarness();
     const auth = await service.authorize({
       ...baseInput,
@@ -401,9 +407,7 @@ describe("BillingService", () => {
       authorizationId: auth.authorizationId,
       usage,
     });
-    expect(wallet.lastCaptureNotes).toBe(
-      "AI usage — 1,000,000 tokens — Verify delivery address completeness",
-    );
+    expect(wallet.lastCaptureNotes).toBe("AI usage — 1,000,000 tokens");
   });
 
   test("authorize is idempotent for the same key", async () => {

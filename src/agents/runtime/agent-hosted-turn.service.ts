@@ -386,7 +386,7 @@ export class AgentHostedTurnService {
         feature,
         hostedModelId: sku.id,
         modelName: sku.name,
-        note: "domains.billing.ai_hosted_wallet_note",
+        note: "domains.billing.hosted_agent",
       },
     });
     if (auth.authorized === false) {

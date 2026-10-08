@@ -66,11 +66,12 @@
   "billing": {
     "ai_decision_wallet_note": "AI usage — {tokens} tokens",
     "ai_media_wallet_note": "AI media ({kind}) — {tokens} tokens — {audioMinutes} min",
-    "ai_hosted_wallet_note": "Use ({modelName}) — {tokens} tokens",
+    "ai_hosted_wallet_note": "{feature} ({modelName}) — {tokens} tokens",
+    "hosted_agent": "Agent usage",
     "media_image": "Image understanding",
     "media_video": "Video understanding",
     "media_document": "Document understanding",
-    "media_audio": "Voice transcription"
+    "media_audio": "Audio understanding"
   },
   "bundles": {
     "not_found": "Bundle not found",

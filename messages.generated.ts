@@ -208,6 +208,7 @@ export type I18nTranslations = {
             "ai_decision_wallet_note": string;
             "ai_media_wallet_note": string;
             "ai_hosted_wallet_note": string;
+            "hosted_agent": string;
             "media_image": string;
             "media_video": string;
             "media_document": string;

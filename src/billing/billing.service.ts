@@ -136,19 +136,26 @@ export class BillingService {
     if (auth.service === BillingServiceKey.AI_MEDIA) {
       const audioSeconds = Number(usage.audioSeconds ?? 0);
       const audioMinutes = (audioSeconds / 60).toFixed(2);
-      const kind = auth.context?.mediaKind ?? "media";
+      const kind = feature || auth.context?.mediaKind || "media";
       return this.requestTranslations.tAsync(
-        "domains.billing.ai_media_wallet_note", 
+        "domains.billing.ai_media_wallet_note",
         auth.adminId,
         { args: { tokens, audioMinutes, kind } },
       );
     }
     if (auth.service === BillingServiceKey.AI_HOSTED) {
       const modelName = auth.context?.modelName ?? "hosted";
+      const hostedFeature =
+        feature && feature !== "domains.billing.ai_hosted_wallet_note"
+          ? feature
+          : await this.requestTranslations.tAsync(
+              "domains.billing.hosted_agent",
+              auth.adminId,
+            );
       return this.requestTranslations.tAsync(
         "domains.billing.ai_hosted_wallet_note",
         auth.adminId,
-        { args: { tokens, modelName } },
+        { args: { tokens, modelName, feature: hostedFeature } },
       );
     }
     return this.requestTranslations.tAsync(
