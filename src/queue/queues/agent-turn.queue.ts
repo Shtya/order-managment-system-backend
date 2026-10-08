@@ -35,7 +35,7 @@ export type { AgentTurnJobData, AgentPlaygroundJobData };
  *   inside the same job, with no extra wait.
  * All state transitions are Lua scripts so the webhook and the worker can't race.
  */
-const SHORT_WAIT_MS = 0; // wait 0.8s after the last message
+const SHORT_WAIT_MS = 3; // wait 0.8s after the last message
 const MAX_WAIT_MS = 2500;  // but never wait more than 2.5s in total
 // Safety net if a worker dies mid-turn: the lane unlocks by itself after this.
 export const STATE_TTL_SECONDS = 10 * 60; // if something crashes, unlock after 10 minutes
