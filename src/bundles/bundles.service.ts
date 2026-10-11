@@ -277,6 +277,7 @@ export class BundlesService {
         .leftJoinAndSelect("bundle.category", "category")
         .leftJoinAndSelect("bundle.items", "items", itemCondition)
         .leftJoinAndSelect("items.variant", "itemVariant")
+        .leftJoinAndSelect("itemVariant.product", "product")
         .where("bundle.id = :id AND bundle.adminId = :adminId", { id, adminId })
         .getOne()
     );

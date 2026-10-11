@@ -165,3 +165,127 @@ class DtoPayloadPipe<T extends object> implements PipeTransform {
  */
 export const McpDto = <T extends object>(cls: new () => T): ParameterDecorator =>
   Payload(new DtoPayloadPipe(cls));
+
+
+/**
+ * Paging and sorting keys. They have defaults, so they are always present
+ * and are never counted as "filters". Keep in sync with listPaging
+ * (ideally export this list from the same file as listPaging and import it here).
+ */
+export const PAGING_KEYS = ["limit", "page", "sortBy", "sortOrder", "cursor"] as const;
+
+const isPagingKey = (key: string): boolean =>
+  (PAGING_KEYS as readonly string[]).includes(key);
+
+/** A value counts as "set" unless it is empty (models sometimes send "" or [] for unused fields). */
+const isSet = (value: unknown): boolean =>
+  value !== undefined &&
+  value !== null &&
+  value !== "" &&
+  !(Array.isArray(value) && value.length === 0);
+
+/**
+ * Builds the input schema of a `*_search` tool.
+ * - adds the optional `id` field (same description everywhere)
+ * - throws at startup if a filter has a default (it would always look "set")
+ */
+export function searchInput<S extends z.ZodRawShape>(entity: string, shape: S) {
+  for (const [key, schema] of Object.entries(shape)) {
+    if (!isPagingKey(key) && schema instanceof z.ZodDefault) {
+      throw new Error(
+        `${entity}_search: filter "${key}" must not have a default. ` +
+          `It would always count as set and break fetching by id.`,
+      );
+    }
+  }
+
+  return z.object({
+    id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        `${entity} ID. Pass it to get ONE ${entity} with full details. ` +
+          `Omit it to search and list.`,
+      ),
+    ...shape,
+  });
+}
+
+export type SearchRequest<Q> =
+  | { mode: "get"; id: string }
+  | { mode: "list"; query: Q };
+
+/**
+ * Splits the parsed input into "get one" or "list".
+ * - no id        -> { mode: "list", query }  (query = everything except id)
+ * - id, no filters -> { mode: "get", id }
+ * - id + filters -> throws an actionable error
+ */
+export function parseSearchInput<I extends { id?: string }>(
+  input: I,
+  entity: string,
+): SearchRequest<Omit<I, "id">> {
+  const { id, ...query } = input;
+
+  if (!id) return { mode: "list", query };
+
+  const filters = Object.entries(query)
+    .filter(([key, value]) => !isPagingKey(key) && isSet(value))
+    .map(([key]) => key);
+
+  if (filters.length > 0) {
+    throw new RpcException(
+      `Pass either \`id\` or filters, not both (got: ${filters.join(", ")}). ` +
+        `Remove \`id\` to search, or remove the filters to fetch one ${entity}.`,
+    );
+  }
+
+  return { mode: "get", id };
+}
+
+export type SaveRequest<F> =
+  | { mode: "create"; fields: F }
+  | { mode: "update"; id: string; fields: F };
+
+/**
+ * Splits a `*_save` payload. `mode` is required; never inferred from `id`.
+ * `id` is forbidden on create and required on update.
+ */
+export function parseSaveInput<I extends { mode?: string; id?: string }>(
+  input: I,
+  entity: string,
+  searchTool: string,
+  opts?: { updateOnlyKeys?: string[] },
+): SaveRequest<Omit<I, "mode" | "id">> {
+  const { mode, id, ...fields } = input;
+
+  if (mode !== "create" && mode !== "update") {
+    throw new RpcException(
+      `\`mode\` is required: "create" or "update". Do not infer it from \`id\`.`,
+    );
+  }
+
+  if (mode === "create") {
+    if (isSet(id)) {
+      throw new RpcException(
+        `mode=create forbids \`id\`. Omit \`id\` to create, or set mode=update to change an existing ${entity}. Find it with ${searchTool}.`,
+      );
+    }
+    const extra = (opts?.updateOnlyKeys ?? []).filter((key) => isSet((fields as Record<string, unknown>)[key]));
+    if (extra.length > 0) {
+      throw new RpcException(
+        `${extra.join(", ")} ${extra.length === 1 ? "is" : "are"} update-only. Set mode=update and pass \`id\`, or remove ${extra.join(", ")}. Find the ${entity} with ${searchTool}.`,
+      );
+    }
+    return { mode: "create", fields };
+  }
+
+  if (!id) {
+    throw new RpcException(
+      `mode=update requires \`id\`. Use ${searchTool} to find it.`,
+    );
+  }
+
+  return { mode: "update", id, fields };
+}

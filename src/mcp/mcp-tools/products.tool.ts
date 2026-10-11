@@ -7,7 +7,7 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { listPaging } from "../utils/mcp-dto.util";
+import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
 
@@ -17,7 +17,7 @@ import { idDescription, TOOL } from "../utils/mcp-tool-names";
 //    rules live in the DTO classes (class-validator), not here.
 // ═══════════════════════════════════════════════════════════════
 
-const listProductsInput = z.object({
+const searchProductsInput = searchInput("product", {
   ...listPaging({
     items: "products",
     sortBy: ["created_at", "name", "sku", "salePrice", "isActive"],
@@ -31,15 +31,6 @@ const listProductsInput = z.object({
     .string()
     .optional()
     .describe(idDescription("Keep only products of this store.", TOOL.stores.list)),
-});
-
-export const getProductInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "ID of the product to retrieve.",
-    ),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -119,30 +110,20 @@ export class McpProductsTools {
   constructor(private products: ProductsService) {}
 
   @McpReadTool({
-    name: TOOL.products.list,
+    name: TOOL.products.search,
     description:
-      "List the products with their variants and sale prices. Use the returned variantId and price when creating an order. Read-only.",
-    parameters: listProductsInput,
+      "Search products or fetch one. Without `id`: lists products with variants and sale prices, filtered by search text, category, or store. Use the returned variantId and price when creating an order. With `id`: returns that single product with full details. Read-only.",
+    parameters: searchProductsInput,
   })
-  async listProducts(
-    @Payload() query: z.infer<typeof listProductsInput>,
+  async searchProducts(
+    @Payload() input: z.infer<typeof searchProductsInput>,
     @McpUser() user: User,
   ) {
-    const result = await this.products.list(user, query);
-    return toolPage("products", result, toProductSummary, query.limit);
-  }
-
-  @McpReadTool({
-    name: TOOL.products.get,
-    description:
-      "Get a single product with its variants, prices, and stock.",
-    parameters: getProductInput,
-  })
-  async getProduct(
-    @Payload() input: z.infer<typeof getProductInput>,
-    @McpUser() user: User,
-  ) {
-    const result = await this.products.get(user, input.id);
-    return toolJson(toProductResultDto(result));
+    const req = parseSearchInput(input, "product");
+    if (req.mode === "get") {
+      return toolJson(toProductResultDto(await this.products.get(user, req.id)));
+    }
+    const result = await this.products.list(user, req.query);
+    return toolPage("products", result, toProductSummary, req.query.limit);
   }
 }

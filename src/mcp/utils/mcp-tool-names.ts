@@ -10,8 +10,7 @@ import { Injectable, OnApplicationBootstrap } from "@nestjs/common";
  */
 export const TOOL = {
   clients: {
-    search: "search_clients",
-    get: "get_client",
+    search: "clients_search",
   },
   cities: {
     list: "list_cities",
@@ -24,12 +23,10 @@ export const TOOL = {
     list: "list_stores",
   },
   products: {
-    list: "list_products",
-    get: "get_product",
+    search: "products_search",
   },
   bundles: {
-    list: "list_bundles",
-    get: "get_bundle",
+    search: "bundles_search",
   },
   categories: {
     list: "list_categories",
@@ -50,16 +47,11 @@ export const TOOL = {
     list: "list_cancel_causes",
   },
   orders: {
-    list: "list_orders",
-    get: "get_order",
-    create: "create_order",
-    update: "update_order",
+    search: "orders_search",
+    save: "orders_save",
   },
   dashboard: {
-    advancedStats: "get_advanced_stats",
-    weeklyTrend: "get_weekly_trend",
-    topCities: "get_top_cities_stats",
-    topProducts: "get_top_products_stats",
+    stats: "dashboard_orders_stats",
   },
 } as const;
 
@@ -79,7 +71,7 @@ export function registerToolName(name: string): void {
   registered.add(name);
 }
 
-/** Use for a tool name inside free text: `Get the id from ${ref(TOOL.orders.list)}.` */
+/** Use for a tool name inside free text: `Get the id from ${ref(TOOL.orders.search)}.` */
 export function ref(tool: ToolName): ToolName {
   referenced.add(tool);
   return tool;

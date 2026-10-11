@@ -7,7 +7,7 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { listPaging } from "../utils/mcp-dto.util";
+import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
 
@@ -17,7 +17,7 @@ import { idDescription, TOOL } from "../utils/mcp-tool-names";
 //    rules live in the DTO classes (class-validator), not here.
 // ═══════════════════════════════════════════════════════════════
 
-const listBundlesInput = z.object({
+export const searchBundlesInput = searchInput("bundle", {
   ...listPaging({
     items: "bundles",
     sortBy: ["created_at", "name", "sku", "price", "isActive"],
@@ -31,15 +31,6 @@ const listBundlesInput = z.object({
     .string()
     .optional()
     .describe(idDescription("Keep only bundles of this store.", TOOL.stores.list)),
-});
-
-export const getBundleInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "ID of the bundle to retrieve.",
-    ),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -98,30 +89,18 @@ export class McpBundlesTools {
   constructor(private bundles: BundlesService) {}
 
   @McpReadTool({
-    name: TOOL.bundles.list,
+    name: TOOL.bundles.search,
     description:
-      "List the product bundles with their items. Use the returned bundle id when creating a bundle order line. Read-only.",
-    parameters: listBundlesInput,
+      `Search bundles or fetch one. Without \`id\`: lists bundles with paging, filtered by search text, category, or store. With \`id\`: returns that single bundle with full details.`,
+    parameters: searchBundlesInput,
   })
-  async listBundles(
-    @Payload() query: z.infer<typeof listBundlesInput>,
-    @McpUser() user: User,
-  ) {
-    const result = await this.bundles.list(user, query);
-    return toolPage("bundles", result, toBundleSummary, query.limit);
-  }
+  async searchBundles(@Payload() input: z.infer<typeof searchBundlesInput>, @McpUser() user: User) {
+    const req = parseSearchInput(input, "bundle");
 
-  @McpReadTool({
-    name: TOOL.bundles.get,
-    description:
-      "Get a single bundle with its items, price, and store.",
-    parameters: getBundleInput,
-  })
-  async getBundle(
-    @Payload() input: z.infer<typeof getBundleInput>,
-    @McpUser() user: User,
-  ) {
-    const result = await this.bundles.get(user, input.id);
-    return toolJson(toBundleResultDto(result));
+    if (req.mode === "get") {
+      return toolJson(toBundleResultDto(await this.bundles.get(user, req.id)));
+    }
+    const result = await this.bundles.list(user, req.query);
+    return toolPage("bundles", result, toBundleSummary, req.query.limit);
   }
 }

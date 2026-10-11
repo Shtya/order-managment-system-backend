@@ -1,5 +1,5 @@
 import { UseGuards } from "@nestjs/common";
-import { Payload } from "@nestjs/microservices";
+import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { DashboardService } from "src/dashboard/dashboard.service";
 import { z } from "zod";
@@ -14,32 +14,32 @@ import { idDescription, TOOL } from "../utils/mcp-tool-names";
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
 //    Small, curated contract with descriptions. The real business
 //    rules live in the DTO classes (class-validator), not here.
-//    These mirror the order-analysis reports page filters
-//    (range + startDate/endDate + store/shipping/assignee/product/city).
-//    No listPaging: the services take no page/sort, only a top-N limit.
+//    Flat object + runtime checks (no discriminated union).
 // ═══════════════════════════════════════════════════════════════
 
-const dashboardRange = z
-  .enum([
-    "today",
-    "yesterday",
-    "this_week",
-    "last_week",
-    "this_month",
-    "last_month",
-    "this_year",
-  ])
-  .optional()
-  .describe(
-    "Quick range. Omit and pass startDate/endDate for a custom range.",
-  );
-
-const dashboardDates = {
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD)"),
-};
-
-const dashboardFilters = {
+const dashboardStatsInput = z.object({
+  report: z
+    .enum(["summary", "weekly_trend", "top_cities", "top_products"])
+    .optional()
+    .describe(
+      "Which report to return. summary: KPIs, status breakdown, previous-range comparison (default). weekly_trend: created vs delivered per day for the last 7 days — do not pass range or dates. top_cities / top_products: ranking by delivered orders; may pass limit.",
+    ),
+  range: z
+    .enum([
+      "today",
+      "yesterday",
+      "this_week",
+      "last_week",
+      "this_month",
+      "last_month",
+      "this_year",
+    ])
+    .optional()
+    .describe(
+      "Quick range. Omit and pass startDate/endDate for a custom range. Not valid with report=weekly_trend.",
+    ),
+  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD). Not valid with report=weekly_trend."),
+  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD). Not valid with report=weekly_trend."),
   storeId: z
     .string()
     .optional()
@@ -76,7 +76,7 @@ const dashboardFilters = {
     .describe(
       idDescription(
         "Keep orders containing any of these product ids.",
-        TOOL.products.list,
+        TOOL.products.search,
         'Pass "all" to skip.',
       ),
     ),
@@ -90,32 +90,51 @@ const dashboardFilters = {
         'Pass "all" to skip.',
       ),
     ),
-};
-
-const advancedStatsInput = z.object({
-  range: dashboardRange,
-  ...dashboardDates,
-  ...dashboardFilters,
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("How many rows to return. Only valid for report=top_cities and report=top_products."),
 });
 
-// weekly-trend always covers the last 7 days: no date params, like the service.
-const weeklyTrendInput = z.object({
-  ...dashboardFilters,
-});
+const isSet = (value: unknown): boolean =>
+  value !== undefined &&
+  value !== null &&
+  value !== "" &&
+  !(Array.isArray(value) && value.length === 0);
 
-const topCitiesInput = z.object({
-  range: dashboardRange,
-  ...dashboardDates,
-  ...dashboardFilters,
-  limit: z.number().int().min(1).max(50).default(5).describe("How many top cities to return"),
-});
+function parseDashboardStatsInput(input: z.infer<typeof dashboardStatsInput>) {
+  const report = input.report ?? "summary";
+  const dateKeys = (["range", "startDate", "endDate"] as const).filter((key) => isSet(input[key]));
 
-const topProductsInput = z.object({
-  range: dashboardRange,
-  ...dashboardDates,
-  ...dashboardFilters,
-  limit: z.number().int().min(1).max(50).default(5).describe("How many top products to return"),
-});
+  if (report === "weekly_trend") {
+    if (dateKeys.length > 0) {
+      throw new RpcException(
+        `report=weekly_trend always covers the last 7 days. Remove ${dateKeys.join(", ")}.`,
+      );
+    }
+    if (isSet(input.limit)) {
+      throw new RpcException("report=weekly_trend does not take `limit`. Remove it.");
+    }
+  } else if (report === "summary" && isSet(input.limit)) {
+    throw new RpcException(
+      "`limit` is only valid for report=top_cities and report=top_products. Remove it, or set report to one of those.",
+    );
+  }
+
+  const { report: _report, limit, ...filters } = input;
+  return {
+    report,
+    filters: {
+      ...filters,
+      ...(report === "top_cities" || report === "top_products"
+        ? { limit: limit ?? 5 }
+        : {}),
+    },
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════
 // 2) OUTPUT MAPPERS: what the model RECEIVES from the tools
@@ -196,61 +215,34 @@ export class McpDashboardTools {
   constructor(private dashboard: DashboardService) {}
 
   @McpReadTool({
-    name: TOOL.dashboard.advancedStats,
+    name: TOOL.dashboard.stats,
     description:
-      "Order KPI stats with previous-range comparison and per-status breakdown for the order-analysis report filters. Read-only.",
-    parameters: advancedStatsInput,
+      "Order statistics. Pass `report`: summary (default — KPIs, status breakdown, previous-range comparison), weekly_trend (created vs delivered for the last 7 days; no date filters), top_cities, or top_products. Shared filters: storeId, cityId, shippingCompanyId, productIds, assignedUserId. Date filters (not for weekly_trend): range, or startDate + endDate. `limit` only for top_cities and top_products. Read-only.",
+    parameters: dashboardStatsInput,
   })
-  async getAdvancedStats(
-    @Payload() query: z.infer<typeof advancedStatsInput>,
+  async getOrdersStats(
+    @Payload() input: z.infer<typeof dashboardStatsInput>,
     @McpUser() user: User,
   ) {
-    const result = await this.dashboard.getAdvancedStats(user, query);
-    return toolJson(toAdvancedStatsDto(result));
-  }
+    const req = parseDashboardStatsInput(input);
 
-  @McpReadTool({
-    name: TOOL.dashboard.weeklyTrend,
-    description:
-      "Created vs delivered orders per day for the last 7 days. Read-only.",
-    parameters: weeklyTrendInput,
-  })
-  async getWeeklyTrend(
-    @Payload() query: z.infer<typeof weeklyTrendInput>,
-    @McpUser() user: User,
-  ) {
-    const result = await this.dashboard.getWeeklyTrend(user, query);
-    const rows = Array.isArray(result) ? result : [];
-    return toolJson({ trend: rows.map(toTrendRow) });
-  }
+    if (req.report === "weekly_trend") {
+      const result = await this.dashboard.getWeeklyTrend(user, req.filters);
+      const rows = Array.isArray(result) ? result : [];
+      return toolJson({ report: req.report, trend: rows.map(toTrendRow) });
+    }
+    if (req.report === "top_cities") {
+      const result = await this.dashboard.getTopCitiesStats(user, req.filters);
+      const rows = Array.isArray(result) ? result : [];
+      return toolJson({ report: req.report, cities: rows.map(toTopCityRow) });
+    }
+    if (req.report === "top_products") {
+      const result = await this.dashboard.getTopProductsStats(user, req.filters);
+      const rows = Array.isArray(result) ? result : [];
+      return toolJson({ report: req.report, products: rows.map(toTopProductRow) });
+    }
 
-  @McpReadTool({
-    name: TOOL.dashboard.topCities,
-    description:
-      "Top cities by delivered orders with corrected/confirmed/shipped breakdown. Read-only.",
-    parameters: topCitiesInput,
-  })
-  async getTopCities(
-    @Payload() query: z.infer<typeof topCitiesInput>,
-    @McpUser() user: User,
-  ) {
-    const result = await this.dashboard.getTopCitiesStats(user, query);
-    const rows = Array.isArray(result) ? result : [];
-    return toolJson({ cities: rows.map(toTopCityRow) });
-  }
-
-  @McpReadTool({
-    name: TOOL.dashboard.topProducts,
-    description:
-      "Top products by delivered orders with corrected/confirmed/shipped breakdown. Read-only.",
-    parameters: topProductsInput,
-  })
-  async getTopProducts(
-    @Payload() query: z.infer<typeof topProductsInput>,
-    @McpUser() user: User,
-  ) {
-    const result = await this.dashboard.getTopProductsStats(user, query);
-    const rows = Array.isArray(result) ? result : [];
-    return toolJson({ products: rows.map(toTopProductRow) });
+    const result = await this.dashboard.getAdvancedStats(user, req.filters);
+    return toolJson({ report: req.report, ...toAdvancedStatsDto(result) });
   }
 }

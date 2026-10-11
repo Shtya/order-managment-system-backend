@@ -8,6 +8,7 @@ import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { ClientEntity } from "entities/clients.entity";
+import { parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson } from "../utils/mcp-result.util";
 import { TOOL } from "../utils/mcp-tool-names";
 
@@ -17,7 +18,7 @@ import { TOOL } from "../utils/mcp-tool-names";
 //    rules live in the DTO classes (class-validator), not here.
 // ═══════════════════════════════════════════════════════════════
 
-const searchClientsInput = z.object({
+const searchClientsInput = searchInput("client", {
   search: z
     .string()
     .optional()
@@ -31,15 +32,6 @@ const searchClientsInput = z.object({
     .boolean()
     .optional()
     .describe("When true, keep only clients that have a phone number"),
-});
-
-export const getClientInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "ID of the client to retrieve.",
-    ),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -113,36 +105,27 @@ export class McpClientsTools {
   @McpReadTool({
     name: TOOL.clients.search,
     description:
-      "Search the signed-in Madar user's clients by name, email, or phone. Cursor-paginated: pass nextCursor back as cursor for the next page. Read-only.",
+      "Search clients or fetch one. Without `id`: lists the signed-in Madar user's clients by name, email, or phone. Cursor-paginated: pass nextCursor back as cursor for the next page. With `id`: returns that single client with contacts, addresses, and order stats. Read-only.",
     parameters: searchClientsInput,
   })
   async searchClients(
-    @Payload() query: z.infer<typeof searchClientsInput>,
+    @Payload() input: z.infer<typeof searchClientsInput>,
     @McpUser() user: User,
   ) {
-    const result = await this.clients.list(user, query);
+    const req = parseSearchInput(input, "client");
+    if (req.mode === "get") {
+      const [client, stats] = await Promise.all([
+        this.clients.findOne(user, req.id),
+        this.clients.getOrderStats(user, req.id),
+      ]);
+      return toolJson(toClientResultDto(client, stats));
+    }
+    const result = await this.clients.list(user, req.query);
     const rows = Array.isArray(result?.data) ? result.data : [];
     return toolJson({
       clients: rows.map(toClientSummary),
       nextCursor: result?.nextCursor ?? null,
       hasMore: result?.hasMore ?? false,
     });
-  }
-
-  @McpReadTool({
-    name: TOOL.clients.get,
-    description:
-      "Get a single client with its contacts, addresses, and order stats.",
-    parameters: getClientInput,
-  })
-  async getClient(
-    @Payload() input: z.infer<typeof getClientInput>,
-    @McpUser() user: User,
-  ) {
-    const [client, stats] = await Promise.all([
-      this.clients.findOne(user, input.id),
-      this.clients.getOrderStats(user, input.id),
-    ]);
-    return toolJson(toClientResultDto(client, stats));
   }
 }

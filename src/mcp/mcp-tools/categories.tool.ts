@@ -54,7 +54,7 @@ export class McpCategoriesTools {
   @McpReadTool({
     name: TOOL.categories.list,
     description:
-      `List product categories. Use the returned id as categoryId on ${ref(TOOL.products.list)} and ${ref(TOOL.bundles.list)}. Read-only.`,
+      `List product categories. Use the returned id as categoryId on ${ref(TOOL.products.search)} and ${ref(TOOL.bundles.search)}. Read-only.`,
     parameters: listCategoriesInput,
   })
   async listCategories(

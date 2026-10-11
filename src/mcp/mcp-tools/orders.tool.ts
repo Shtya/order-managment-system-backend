@@ -4,10 +4,10 @@ import { McpController } from "@rekog/mcp-nest";
 import { OrdersService } from "src/orders/services/orders.service";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
-import { McpCreateTool, McpReadTool, McpUpdateTool } from "../decorators/mcp-tool.decorators";
+import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { listPaging, McpDto, parseDto, toolInputFor } from "../utils/mcp-dto.util";
+import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { CreateOrderDto, UpdateOrderDto } from "dto/order.dto";
 import {
   OrderEntity,
@@ -27,105 +27,7 @@ import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 //    rules live in the DTO classes (class-validator), not here.
 // ═══════════════════════════════════════════════════════════════
 
-export const getOrderInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "ID of the order to retrieve.",
-    ),
-});
-
-const createOrderInput = toolInputFor<CreateOrderDto>()(  
-  z.object({
-    // ── Customer ───────────────────────────────────────────────
-    customerName: z.string().describe("Customer full name"),
-    phoneNumber: z.string().describe("Customer phone number"),
-    secondPhoneNumber: z.string().optional().describe("Customer second phone number"),
-    email: z.string().optional().describe("Customer email"),
-    clientId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
-        "Id of an existing client record. Omit if the customer is not registered.",
-        TOOL.clients.search,
-      ),
-    ),
- 
-    // ── Address ────────────────────────────────────────────────
-    address: z.string().describe("Delivery address"),
-    landmark: z.string().optional().describe("Nearby landmark"),
-    cityId: z
-      .string()
-      .optional()
-      .describe(idDescription("City id.", TOOL.cities.list)),
-    areaId: z.string().optional().describe(idDescription("Area id.", TOOL.cities.areas)),
-    latitude: z.number().optional().describe("Delivery latitude"),
-    longitude: z.number().optional().describe("Delivery longitude"),
- 
-    // ── Payment ────────────────────────────────────────────────
-    paymentMethod: z.enum(PaymentMethod).describe("How the customer pays"),
-    paymentStatus: z.enum(PaymentStatus).optional().describe("Current payment status"),
-    deposit: z.number().optional().describe("Deposit already paid"),
-    discount: z.number().optional().describe("Discount amount (whole number)"),
-    additionalFees: z.number().optional().describe("Additional fees"),
- 
-    // ── Shipping ───────────────────────────────────────────────
-    shippingCompanyId: z
-      .string()
-      .optional()
-      .describe(idDescription("Shipping company id.", TOOL.shippingCompanies.list)),
-    storeId: z
-      .string()
-      .optional()
-      .describe(idDescription("Store id.", TOOL.stores.list)),
-    shippingCost: z.number().optional().describe("Shipping cost (whole number)"),
-    allowOpenPackage: z
-      .boolean()
-      .optional()
-      .describe("Whether the customer may open the package before paying"),
- 
-    // ── Notes ──────────────────────────────────────────────────
-    notes: z.string().optional().describe("Internal notes"),
-    customerNotes: z.string().optional().describe("Notes from the customer"),
- 
-    // ── Items ──────────────────────────────────────────────────
-    items: z
-      .array(
-        z.object({
-          variantId: z
-            .string()
-            .describe(idDescription("Variant id of the product.", TOOL.products.list)),
-          bundleId: z
-            .string()
-            .optional()
-            .describe(
-              idDescription(
-                "Bundle id, only when the line is a bundle.",
-                TOOL.bundles.list,
-              ),
-            ),
-          quantity: z.number().describe("Quantity: a whole number, at least 1"),
-          unitPrice: z
-            .number()
-            .describe(
-              `Unit price, up to 2 decimals. Use the price returned by ${ref(TOOL.products.list)} unless the user explicitly gives a different one.`,
-            ),
-          // Not offered on purpose:
-          //   unitCost     -> internal cost/margin data, never give it to an agent
-          //   addQuantity  -> update-only ("add to existing instead of replacing")
-          //   isAdditional -> meaning unclear for a new order; add it if you need it
-        }),
-      )
-      .describe("Order lines"),
-  }),
-);
-
-// Update mirrors create, but every field is optional: only sent fields change.
-// `id` is NOT part of UpdateOrderDto, so it is added below via `.shape`
-// (passing it through @McpDto would fail forbidNonWhitelisted).
-const updateOrderFields = toolInputFor<UpdateOrderDto>()(
+const saveOrderFields = toolInputFor<UpdateOrderDto>()(
   z.object({
     // ── Customer ───────────────────────────────────────────────
     customerName: z.string().optional().describe("Customer full name"),
@@ -137,7 +39,7 @@ const updateOrderFields = toolInputFor<UpdateOrderDto>()(
       .optional()
       .describe(
         idDescription(
-          "Id of an existing client record.",
+          "Id of an existing client record. Omit if the customer is not registered.",
           TOOL.clients.search,
         ),
       ),
@@ -174,7 +76,10 @@ const updateOrderFields = toolInputFor<UpdateOrderDto>()(
       .boolean()
       .optional()
       .describe("Whether the customer may open the package before paying"),
-    trackingNumber: z.string().optional().describe("Shipping tracking number"),
+    trackingNumber: z
+      .string()
+      .optional()
+      .describe("Shipping tracking number. Update only."),
 
     // ── Notes ──────────────────────────────────────────────────
     notes: z.string().optional().describe("Internal notes"),
@@ -184,36 +89,36 @@ const updateOrderFields = toolInputFor<UpdateOrderDto>()(
     // Not offered on purpose:
     //   unitCost     -> internal cost/margin data, never give it to an agent
     //   isAdditional -> meaning unclear; add it if you need it
-    //   statusId     -> status changes are out of scope for this tool
+    //   statusId     -> status changes are not done through save
     items: z
       .array(
         z.object({
           variantId: z
             .string()
-            .describe(idDescription("Variant id of the product.", TOOL.products.list)),
+            .describe(idDescription("Variant id of the product.", TOOL.products.search)),
           bundleId: z
             .string()
             .optional()
             .describe(
               idDescription(
                 "Bundle id, only when the line is a bundle.",
-                TOOL.bundles.list,
+                TOOL.bundles.search,
               ),
             ),
           quantity: z.number().describe("Quantity: a whole number, at least 1"),
           unitPrice: z
             .number()
             .describe(
-              `Unit price, up to 2 decimals. Use the price returned by ${ref(TOOL.products.list)} unless the user explicitly gives a different one.`,
+              `Unit price, up to 2 decimals. Use the price returned by ${ref(TOOL.products.search)} unless the user explicitly gives a different one.`,
             ),
           addQuantity: z
             .boolean()
             .optional()
-            .describe("When true, add the quantity to the existing line instead of replacing it"),
+            .describe("Update only. When true, add the quantity to the existing line instead of replacing it"),
         }),
       )
       .optional()
-      .describe("Order lines. Replaces the lines unless addQuantity is set."),
+      .describe("Order lines. Required for create. On update, replaces the lines unless addQuantity is set."),
     removedItems: z
       .array(
         z.object({
@@ -222,23 +127,29 @@ const updateOrderFields = toolInputFor<UpdateOrderDto>()(
         }),
       )
       .optional()
-      .describe("Lines to remove from the order"),
+      .describe("Update only. Lines to remove from the order"),
   }),
 );
 
-const updateOrderInput = z.object({
+const saveOrderInput = z.object({
+  mode: z
+    .enum(["create", "update"])
+    .describe(
+      'Required. "create" to add a new order. "update" to change an existing one. Never infer from id.',
+    ),
   id: z
     .string()
     .min(1)
+    .optional()
     .describe(
-      "ID of the order to update.",
+      `Order ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.orders.search)}.`,
     ),
-  ...updateOrderFields.shape,
+  ...saveOrderFields.shape,
 });
 
 const orderStatusCodes = Object.values(OrderStatus).join(", ");
 
-const listOrdersInput = z.object({
+const searchOrdersInput = searchInput("order", {
   ...listPaging({
     items: "orders",
     sortBy: ["createdAt", "orderNumber", "finalTotal", "city", "shippedAt", "deliveredAt"],
@@ -284,7 +195,7 @@ const listOrdersInput = z.object({
     .describe(
       idDescription(
         "Product id.",
-        TOOL.products.list,
+        TOOL.products.search,
         'Pass "all" to skip this filter.',
       ),
     ),
@@ -584,69 +495,46 @@ export class McpOrdersTools {
   constructor(private orders: OrdersService) { }
 
   @McpReadTool({
-    name: TOOL.orders.list,
+    name: TOOL.orders.search,
     description:
-      "List the orders by the given filters.",
-    parameters: listOrdersInput,
+      "Search orders or fetch one. Without `id`: lists orders with paging and the given filters. With `id`: returns that single order with full details. Do not pass `id` together with filters. Read-only.",
+    parameters: searchOrdersInput,
   })
-  async listOrders(
-    @Payload() query: z.infer<typeof listOrdersInput>,
+  async searchOrders(
+    @Payload() input: z.infer<typeof searchOrdersInput>,
     @McpUser() user: User,
   ) {
+    const req = parseSearchInput(input, "order");
+    if (req.mode === "get") {
+      return toolJson(toOrderResultDto(await this.orders.get(user, req.id)));
+    }
     const result = await this.orders.list(user, {
-      ...query,
-      sortDir: query.sortOrder,
+      ...req.query,
+      sortDir: req.query.sortOrder,
     });
-    return toolPage("orders", result, toOrderSummary, query.limit);
+    return toolPage("orders", result, toOrderSummary, req.query.limit);
   }
 
-  @McpCreateTool({
-    name: TOOL.orders.create,
+  @McpSaveTool({
+    name: TOOL.orders.save,
     description:
-      "Create a new order.",
-    parameters: createOrderInput,
+      `Create or update an order. Required: mode ("create" or "update"). Required for create: customerName, phoneNumber, address, paymentMethod, items. For update: \`id\` plus any fields to change. Do not use this to change order status.`,
+    parameters: saveOrderInput,
   })
-  async createOrder(
-    @McpDto(CreateOrderDto) dto: CreateOrderDto,
+  async saveOrder(
+    @Payload() input: z.infer<typeof saveOrderInput>,
     @McpUser() user: User,
   ) {
-    const created = await this.orders.create(user, dto);
- 
-    return toolJson(toOrderResultDto(created));
-  }
-
-  @McpReadTool({
-    name: TOOL.orders.get,
-    description:
-      "Get a single order by its ID.",
-    parameters: getOrderInput,
-  })
-  async getOrder(
-    @Payload() input: z.infer<typeof getOrderInput>,
-    @McpUser() user: User,
-  ) {
-    const result = await this.orders.get(user, input.id);
-    return toolJson(toOrderResultDto(result));
-  }
-
-  @McpUpdateTool({
-    name: TOOL.orders.update,
-    description:
-      "Update an existing order. Only the fields you send change; omitted fields keep their values.",
-    parameters: updateOrderInput,
-  })
-  async updateOrder(
-    @Payload() input: z.infer<typeof updateOrderInput>,
-    @McpUser() user: User,
-  ) {
-    // `id` travels in the same payload but is not part of UpdateOrderDto,
-    // so @McpDto cannot be used here: strip it, then validate the rest.
-    const { id, ...fields } = input;
-    const parsed = await parseDto(UpdateOrderDto, fields);
+    const req = parseSaveInput(input, "order", TOOL.orders.search, {
+      updateOnlyKeys: ["trackingNumber", "removedItems"],
+    });
+    if (req.mode === "create") {
+      const parsed = await parseDto(CreateOrderDto, req.fields);
+      if (parsed.ok === false) throw new RpcException(parsed.message);
+      return toolJson(toOrderResultDto(await this.orders.create(user, parsed.dto)));
+    }
+    const parsed = await parseDto(UpdateOrderDto, req.fields);
     if (parsed.ok === false) throw new RpcException(parsed.message);
-
-    const updated = await this.orders.update(user, id, parsed.dto);
-
-    return toolJson(toOrderResultDto(updated));
+    return toolJson(toOrderResultDto(await this.orders.update(user, req.id, parsed.dto)));
   }
 }
