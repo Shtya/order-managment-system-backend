@@ -307,9 +307,19 @@ export class StoresService {
     );
 
     // 7. Sorting
-    const sortBy = q?.sortBy || "created_at";
+    const sortColumns: Record<string, string> = {
+      created_at: "store.created_at",
+      name: "store.name",
+      provider: "store.provider",
+      syncStatus: "store.syncStatus",
+      isActive: "store.isActive",
+      isIntegrated: "store.isIntegrated",
+      lastSyncAttemptAt: "store.lastSyncAttemptAt",
+      updated_at: "store.updated_at",
+    };
+    const sortBy = sortColumns[q?.sortBy] || "store.created_at";
     const sortOrder = q?.sortOrder === "ASC" ? "ASC" : "DESC";
-    qb.orderBy(`store.${sortBy}`, sortOrder);
+    qb.orderBy(sortBy, sortOrder);
 
     return qb;
   }

@@ -693,7 +693,14 @@ export class UsersService {
 
   async listForTable(
     me: User,
-    opts: { page: number; limit: number; search: string; type: string },
+    opts: {
+      page: number;
+      limit: number;
+      search: string;
+      type: string;
+      sortBy?: string;
+      sortOrder?: string;
+    },
   ) {
     const page = Math.max(1, Number(opts.page || 1));
     const limit = Math.min(100, Math.max(1, Number(opts.limit || 6)));
@@ -739,8 +746,7 @@ export class UsersService {
         "subscription.status = :status",
         { status: SubscriptionStatus.ACTIVE },
       )
-      .leftJoinAndSelect("subscription.plan", "plan")
-      .orderBy("u.createdAt", "DESC");
+      .leftJoinAndSelect("subscription.plan", "plan");
 
     // ownership
     if (!this.isSuperAdmin(me)) {
@@ -762,6 +768,17 @@ export class UsersService {
         q: `%${search}%`,
       });
     }
+
+    const sortColumns: Record<string, string> = {
+      createdAt: "u.createdAt",
+      name: "u.name",
+      email: "u.email",
+      isActive: "u.isActive",
+    };
+    const sortBy = sortColumns[opts.sortBy] || "u.createdAt";
+    const sortOrder =
+      String(opts.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+    qb.orderBy(sortBy, sortOrder);
 
     // count + pagination
     const total_records = await qb.getCount();

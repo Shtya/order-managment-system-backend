@@ -22,11 +22,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           return null;
         },
       ]),
-      secretOrKey: process.env.JWT_SECRET || "dev_secret_change_me",
+      secretOrKey: process.env.JWT_SECRET,
     });
   }
 
-  async validate(payload: { sub: number }) {
+  async validate(payload: { sub: string }) {
     return this.authService.validatePayload(payload);
   }
 }

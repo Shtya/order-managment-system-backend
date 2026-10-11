@@ -225,10 +225,16 @@ export class BundlesService {
     }
 
     // 6. Sorting
-    const sortBy = q?.sortBy || "created_at";
+    const sortColumns: Record<string, string> = {
+      created_at: "bundle.created_at",
+      name: "bundle.name",
+      sku: "bundle.sku",
+      price: "bundle.price",
+      isActive: "bundle.isActive",
+    };
+    const sortBy = sortColumns[q?.sortBy] || "bundle.created_at";
     const sortOrder = q?.sortOrder?.toUpperCase() === "ASC" ? "ASC" : "DESC";
-    // Ensure we use the alias to avoid ambiguity
-    qb.orderBy(`bundle.${sortBy}`, sortOrder);
+    qb.orderBy(sortBy, sortOrder);
 
     // 7. Pagination
     // Use 'take' and 'skip' instead of 'limit'/'offset' when working with relations
@@ -599,9 +605,16 @@ export class BundlesService {
     }
 
     // 6. Sorting
-    const sortBy = q?.sortBy || "created_at";
+    const sortColumns: Record<string, string> = {
+      created_at: "bundle.created_at",
+      name: "bundle.name",
+      sku: "bundle.sku",
+      price: "bundle.price",
+      isActive: "bundle.isActive",
+    };
+    const sortBy = sortColumns[q?.sortBy] || "bundle.created_at";
     const sortOrder = q?.sortOrder?.toUpperCase() === "ASC" ? "ASC" : "DESC";
-    qb.orderBy(`bundle.${sortBy}`, sortOrder);
+    qb.orderBy(sortBy, sortOrder);
 
     // 7. Fetch all records (Exports usually ignore pagination limits)
     const bundles = await qb.getMany();

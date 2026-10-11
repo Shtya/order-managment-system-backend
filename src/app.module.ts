@@ -88,6 +88,7 @@ import { CampaignsModule } from "./campaigns/campaigns.module";
 import { AgentsModule } from "./agents/agents.module";
 import { observeConfig, ObserveModule } from "common/observe/bserve.config";
 import { AiDecisionModule } from "./ai-decision/ai-decision.module";
+import { McpModule } from './mcp/mcp.module';
 
 // Load env files BEFORE the module decorator is evaluated so that
 // process.env checks at module-definition time (e.g. AI_MODULE_ENABLED)
@@ -210,6 +211,7 @@ import { AiDecisionModule } from "./ai-decision/ai-decision.module";
     ClientSegmentsModule,
     CampaignsModule,
     AgentsModule,
+    McpModule,
     // ObserveModule.forRoot(observeConfig),
   ],
   providers: [

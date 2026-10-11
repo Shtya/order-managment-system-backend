@@ -156,8 +156,23 @@ export class CitiesService {
 
     qb.andWhere('city."isActive" = true');
 
+    const sortColumns: Record<string, string> = {
+      nameEn: "city.nameEn",
+      nameAr: "city.nameAr",
+      minShippingDays: "config.minShippingDays",
+      maxShippingDays: "config.maxShippingDays",
+    };
+    const sortColumn = sortColumns[q?.sortBy] || "city.nameEn";
+    const sortOrder =
+      String(q?.sortOrder ?? "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
+    const nulls =
+      sortColumn === "config.minShippingDays" ||
+      sortColumn === "config.maxShippingDays"
+        ? "NULLS LAST"
+        : undefined;
+
     const [records, total] = await qb
-      .orderBy("city.nameEn", "ASC")
+      .orderBy(sortColumn, sortOrder, nulls)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();

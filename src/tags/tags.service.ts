@@ -160,7 +160,11 @@ export class TagsService {
     }
 
     const sortBy =
-      q?.sortBy === "name" || q?.sortBy === "priority" || q?.sortBy === "created_at"
+      q?.sortBy === "name" ||
+      q?.sortBy === "priority" ||
+      q?.sortBy === "created_at" ||
+      q?.sortBy === "isActive" ||
+      q?.sortBy === "target"
         ? q.sortBy
         : "priority";
     const sortOrder =

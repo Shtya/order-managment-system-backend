@@ -66,7 +66,7 @@ export class AuthService {
     };
   }
 
-  async validatePayload(payload: { sub: number }) {
+  async validatePayload(payload: { sub: string }) {
     const user = await this.usersRepo
       .createQueryBuilder("user")
       //

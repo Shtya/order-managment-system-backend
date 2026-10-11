@@ -27,5 +27,6 @@ import { AgentEntity } from "entities/agent.entity";
   ],
   controllers: [DashboardController],
   providers: [DashboardService, AiDashboardService],
+  exports: [DashboardService],
 })
 export class DashboardModule {}

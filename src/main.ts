@@ -15,17 +15,18 @@ import { ValidationError } from "class-validator";
 import { RedisIoAdapter } from "common/redisIo-adapter";
 import { ConfigService } from "@nestjs/config";
 import { OtelLogger } from 'common/observability/otel-logger';
+import { mcp } from './mcp/mcp.strategy';
 
 async function bootstrap() {
-  
+
   const app = await NestFactory.create<NestExpressApplication>(
     AppModule,
     {
       bufferLogs: true,
     },
   );
-  
-  if(process.env.NODE_ENV !== 'development') {
+
+  if (process.env.NODE_ENV !== 'development') {
     app.useLogger(new OtelLogger());
   }
   // const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -140,6 +141,11 @@ async function bootstrap() {
       },
     }),
   );
+
+  mcp.setHttpAdapter(app.getHttpAdapter()); // needed for HTTP transports
+  app.connectMicroservice({ strategy: mcp });
+  await app.startAllMicroservices();
+
   const configService = app.get(ConfigService);
   const redisIoAdapter = new RedisIoAdapter(app, configService);
   await redisIoAdapter.connectToRedis();

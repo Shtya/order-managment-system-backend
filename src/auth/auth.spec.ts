@@ -2944,7 +2944,7 @@ describe("AuthService", () => {
 
       let thrown: unknown;
       try {
-        await service.validatePayload({ sub: 1 });
+        await service.validatePayload({ sub: "1" });
       } catch (error) {
         thrown = error;
       }
@@ -2958,7 +2958,7 @@ describe("AuthService", () => {
 
       let thrown: unknown;
       try {
-        await service.validatePayload({ sub: 1 });
+        await service.validatePayload({ sub: "1" });
       } catch (error) {
         thrown = error;
       }
@@ -2977,7 +2977,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result.subscriptions).toEqual([ownSub]);
     });
@@ -2992,7 +2992,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result.subscriptions).toEqual([adminSub]);
     });
@@ -3006,7 +3006,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result.subscriptions).toEqual([]);
     });
@@ -3020,7 +3020,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result).not.toHaveProperty("admin");
     });
@@ -3035,7 +3035,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result.subscriptions).toEqual([ownSub]);
     });
@@ -3050,7 +3050,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result.subscriptions).toEqual([ownSub]);
     });
@@ -3065,7 +3065,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result.subscriptions).toEqual([ownSub]);
     });
@@ -3080,7 +3080,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result.subscriptions).toEqual([first]);
     });
@@ -3096,7 +3096,7 @@ describe("AuthService", () => {
         }),
       );
 
-      const result = await service.validatePayload({ sub: 1 });
+      const result = await service.validatePayload({ sub: "1" });
 
       expect(result).toMatchObject({ id: "user-1", email: "ada@example.com" });
     });

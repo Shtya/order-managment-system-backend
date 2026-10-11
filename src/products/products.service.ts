@@ -701,9 +701,16 @@ export class ProductsService {
       );
     }
 
+    const productSortColumns: Record<string, string> = {
+      created_at: "product.created_at",
+      name: "product.name",
+      sku: "product.sku",
+      salePrice: "product.salePrice",
+      isActive: "product.isActive",
+    };
     qb.orderBy(
-      `product.${q?.sortBy ?? "created_at"}`,
-      (q?.sortOrder ?? "DESC") as any,
+      productSortColumns[q?.sortBy] || "product.created_at",
+      String(q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC",
     );
 
     // ⚠️ No pagination for export
@@ -1124,9 +1131,16 @@ export class ProductsService {
       );
     }
 
+    const productSortColumns: Record<string, string> = {
+      created_at: "product.created_at",
+      name: "product.name",
+      sku: "product.sku",
+      salePrice: "product.salePrice",
+      isActive: "product.isActive",
+    };
     qb.orderBy(
-      `product.${q?.sortBy ?? "created_at"}`,
-      (q?.sortOrder ?? "DESC") as any,
+      productSortColumns[q?.sortBy] || "product.created_at",
+      String(q?.sortOrder ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC",
     );
 
     qb.skip(((q?.page ?? 1) - 1) * (q?.limit ?? 10));

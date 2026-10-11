@@ -200,7 +200,13 @@ export class CancelCausesService {
 
   async listSelectable(me: any, q?: any) {
     const adminId = tenantId(me);
-    const limit = Math.min(200, Math.max(1, Number(q?.limit) || 200));
+    const { page, limit, skip } = this.pageParams({
+      ...q,
+      limit: q?.limit || 200,
+    });
+    const sortBy = SORT_WHITELIST.includes(q?.sortBy) ? q.sortBy : "sortOrder";
+    const sortOrder =
+      String(q?.sortOrder || "ASC").toUpperCase() === "DESC" ? "DESC" : "ASC";
     const qb = this.causeRepo
       .createQueryBuilder("cause")
       .where("cause.adminId = :adminId", { adminId })
@@ -209,14 +215,15 @@ export class CancelCausesService {
       })
       .andWhere("cause.isActive = true")
       .andWhere("cause.mergedIntoCauseId IS NULL")
-      .orderBy("cause.sortOrder", "ASC")
+      .orderBy(`cause.${sortBy}`, sortOrder)
       .addOrderBy("cause.name", "ASC")
-      .take(limit)
       .select([
         "cause.id",
         "cause.name",
         "cause.code",
         "cause.sortOrder",
+        "cause.created_at",
+        "cause.updated_at",
       ]);
 
     if (q?.search) {
@@ -226,8 +233,14 @@ export class CancelCausesService {
       );
     }
 
-    const records = await qb.getMany();
-    return { records };
+    const total = await qb.getCount();
+    const records = await qb.skip(skip).take(limit).getMany();
+    return {
+      records,
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+    };
   }
 
   async listOrderHistory(me: any, orderId: string, q?: any) {

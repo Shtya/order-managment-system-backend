@@ -154,12 +154,16 @@ export class UsersController {
     @Query("limit") limit?: string,
     @Query("search") search?: string,
     @Query("type") type?: string,
+    @Query("sortBy") sortBy?: string,
+    @Query("sortOrder") sortOrder?: string,
   ) {
     return this.users.listForTable(req.user, {
       page: Number(page ?? 1),
       limit: Number(limit ?? 6),
       search: search ?? "",
       type: type ?? "all",
+      sortBy,
+      sortOrder,
     });
   }
 

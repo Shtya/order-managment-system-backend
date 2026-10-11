@@ -816,6 +816,10 @@ export class OrdersService {
     const sortColumns: Record<string, string> = {
       createdAt: "order.created_at",
       orderNumber: "order.orderNumber",
+      finalTotal: "order.finalTotal",
+      city: "order.city",
+      shippedAt: "order.shippedAt",
+      deliveredAt: "order.deliveredAt",
     };
 
     // ✅ Shared order filters (same as listGroupedByDate)

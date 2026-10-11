@@ -172,9 +172,9 @@ export class CreateOrderDto {
   deposit?: number = 0;
 
   @IsString({ message: i18nValidationMessage('validation.is_string') })
-  @IsNotEmpty({ message: i18nValidationMessage('validation.is_not_empty') })
+  @IsOptional()
   @MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
-  city: string;
+  city?: string;
 
   @IsOptional()
   @IsString({ message: i18nValidationMessage('validation.is_string') })
@@ -184,6 +184,10 @@ export class CreateOrderDto {
   @IsString({ message: i18nValidationMessage('validation.is_string') })
   @MaxLength(100, { message: i18nValidationMessage('validation.max_length') })
   area?: string;
+
+  @IsOptional()
+  @IsString({ message: i18nValidationMessage('validation.is_string') })
+  areaId?: string;
 
   // Payment
   @IsEnum(PaymentMethod, { message: (args) => { return i18nValidationMessage('validation.is_enum')({ ...args, constraints: [Object.values(PaymentMethod).join(', ')], }); } })
@@ -196,7 +200,7 @@ export class CreateOrderDto {
   // Shipping
   @IsOptional()
   @IsString({ message: i18nValidationMessage('validation.is_string') })
-  shippingCompanyId: string;
+  shippingCompanyId?: string;
 
   @IsOptional()
   @IsBoolean({ message: i18nValidationMessage('validation.is_boolean') })
@@ -205,7 +209,7 @@ export class CreateOrderDto {
   // Shipping
   @IsOptional()
   @IsString({ message: i18nValidationMessage('validation.is_string') })
-  storeId: string;
+  storeId?: string;
 
   @IsOptional()
   @IsInt({ message: i18nValidationMessage('validation.is_int') })
