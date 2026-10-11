@@ -24,18 +24,22 @@ export const TOOL = {
   },
   products: {
     search: "products_search",
+    save: "products_save",
   },
   bundles: {
     search: "bundles_search",
+    save: "bundles_save",
   },
   categories: {
     list: "list_categories",
+    save: "categories_save",
   },
   orderStatuses: {
     list: "list_order_statuses",
   },
   tags: {
     list: "list_tags",
+    save: "tags_save",
   },
   employees: {
     list: "list_employees",

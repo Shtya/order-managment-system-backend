@@ -1,15 +1,16 @@
 import { UseGuards } from "@nestjs/common";
-import { Payload } from "@nestjs/microservices";
+import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { BundlesService } from "src/bundles/bundles.service";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
-import { McpReadTool } from "../decorators/mcp-tool.decorators";
+import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
+import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -23,6 +24,18 @@ export const searchBundlesInput = searchInput("bundle", {
     sortBy: ["created_at", "name", "sku", "price", "isActive"],
     search: "Matches bundle name or SKU",
   }),
+  sku: z
+    .string()
+    .optional()
+    .describe("Exact bundle SKU. 0 rows means free, 1 row means taken. Do not pass with `id`."),
+  slug: z
+    .string()
+    .optional()
+    .describe("Exact bundle slug (case-insensitive). 0 rows means free. Do not pass with `id`."),
+  isActive: z
+    .boolean()
+    .optional()
+    .describe("False to find archived bundles. Omit for active only."),
   categoryId: z
     .string()
     .optional()
@@ -31,6 +44,59 @@ export const searchBundlesInput = searchInput("bundle", {
     .string()
     .optional()
     .describe(idDescription("Keep only bundles of this store.", TOOL.stores.list)),
+});
+
+const saveBundleFields = toolInputFor<UpdateBundleDto>()(
+  z.object({
+    name: z.string().optional().describe("Bundle name"),
+    description: z.string().optional().describe("Bundle description"),
+    price: z.number().optional().describe("Bundle price"),
+    storeId: z
+      .string()
+      .optional()
+      .describe(idDescription("Store id.", TOOL.stores.list)),
+    categoryId: z
+      .string()
+      .optional()
+      .describe(idDescription("Category id.", TOOL.categories.list)),
+    slug: z.string().optional().describe("URL slug, lowercase letters, numbers and dashes"),
+    aiEnabled: z.boolean().optional().describe("Whether AI description is enabled"),
+    aiDescription: z.string().optional().describe("AI-generated description"),
+    aiKeywords: z.array(z.string()).optional().describe("AI keywords, up to 20"),
+    items: z
+      .array(
+        z.object({
+          variantId: z
+            .string()
+            .describe(idDescription("Variant id of the product.", TOOL.products.search)),
+          qty: z.number().int().min(1).describe("Quantity: a whole number, at least 1"),
+        }),
+      )
+      .optional()
+      .describe("Bundle lines. Required for create. DTO uses `qty`, not `quantity`."),
+    // sku is create-only (UpdateBundleDto omits it): added on save input, not here
+    // mainImage / images / orphan ids / removeImgs never offered: file upload
+  }),
+);
+
+const saveBundleInput = z.object({
+  mode: z
+    .enum(["create", "update"])
+    .describe(
+      'Required. "create" to add a new bundle. "update" to change an existing one. Never infer from id.',
+    ),
+  id: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      `Bundle ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.bundles.search)}.`,
+    ),
+  sku: z
+    .string()
+    .optional()
+    .describe("Bundle SKU. Required for create. Do not send on update."),
+  ...saveBundleFields.shape,
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -91,7 +157,7 @@ export class McpBundlesTools {
   @McpReadTool({
     name: TOOL.bundles.search,
     description:
-      `Search bundles or fetch one. Without \`id\`: lists bundles with paging, filtered by search text, category, or store. With \`id\`: returns that single bundle with full details.`,
+      `Search bundles or fetch one. Without \`id\`: lists bundles with paging, filtered by search text, exact sku or slug, category, or store. Pass \`isActive: false\` to find archived bundles. With \`id\`: returns that single bundle with full details.`,
     parameters: searchBundlesInput,
   })
   async searchBundles(@Payload() input: z.infer<typeof searchBundlesInput>, @McpUser() user: User) {
@@ -100,7 +166,43 @@ export class McpBundlesTools {
     if (req.mode === "get") {
       return toolJson(toBundleResultDto(await this.bundles.get(user, req.id)));
     }
-    const result = await this.bundles.list(user, req.query);
-    return toolPage("bundles", result, toBundleSummary, req.query.limit);
+    const { sku, slug, isActive, ...rest } = req.query as typeof req.query & {
+      sku?: string;
+      slug?: string;
+      isActive?: boolean;
+    };
+    const result = await this.bundles.list(user, {
+      ...rest,
+      ...(sku ? { sku } : {}),
+      ...(slug ? { slug } : {}),
+      ...(isActive === false ? { isActive: "false" } : {}),
+    });
+    return toolPage("bundles", result, toBundleSummary, (rest as any).limit);
+  }
+
+  @McpSaveTool({
+    name: TOOL.bundles.save,
+    description:
+      'Create or update a bundle. Required: mode ("create" or "update"). Required for create: name, sku, price, items (variantId + qty). Optional: description, slug, storeId, categoryId, aiEnabled, aiDescription, aiKeywords. For update: `id` plus any fields to change. Do not send `sku` on update. Before create, check sku/slug with `bundles_search`. No picture fields.',
+    parameters: saveBundleInput,
+  })
+  async saveBundle(
+    @Payload() input: z.infer<typeof saveBundleInput>,
+    @McpUser() user: User,
+  ) {
+    const req = parseSaveInput(input, "bundle", TOOL.bundles.search);
+    if (req.mode === "create") {
+      const parsed = await parseDto(CreateBundleDto, { ...req.fields, sku: (input as any).sku });
+      if (parsed.ok === false) throw new RpcException(parsed.message);
+      return toolJson(toBundleResultDto(await this.bundles.create(user, parsed.dto)));
+    }
+    if ((input as any).sku !== undefined && (input as any).sku !== "") {
+      throw new RpcException(
+        `sku is create-only. Do not send it on update. Find the bundle with ${TOOL.bundles.search}.`,
+      );
+    }
+    const parsed = await parseDto(UpdateBundleDto, req.fields);
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    return toolJson(toBundleResultDto(await this.bundles.update(user, req.id, parsed.dto)));
   }
 }

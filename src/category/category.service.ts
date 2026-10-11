@@ -36,6 +36,10 @@ export class CategoriesService {
       filters.categoryId = q.categoryId;
     }
 
+    if (typeof q?.slug === "string" && q.slug.trim() !== "") {
+      filters.slug = q.slug.trim().toLowerCase();
+    }
+
     return CRUD.findAll(
       this.catRepo,
       "categories",

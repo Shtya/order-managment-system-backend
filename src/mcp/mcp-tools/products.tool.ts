@@ -1,15 +1,17 @@
 import { UseGuards } from "@nestjs/common";
-import { Payload } from "@nestjs/microservices";
+import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { ProductsService } from "src/products/products.service";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
-import { McpReadTool } from "../decorators/mcp-tool.decorators";
+import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { ProductType } from "entities/sku.entity";
+import { CreateProductDto, UpdateProductDto } from "dto/product.dto";
+import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -31,6 +33,79 @@ const searchProductsInput = searchInput("product", {
     .string()
     .optional()
     .describe(idDescription("Keep only products of this store.", TOOL.stores.list)),
+});
+
+const saveProductFields = toolInputFor<UpdateProductDto>()(
+  z.object({
+    name: z.string().optional().describe("Product name"),
+    slug: z.string().optional().describe("URL slug, lowercase letters, numbers and dashes"),
+    type: z.enum(ProductType).optional().describe("Product type. Create only, do not send on update"),
+    salePrice: z.number().optional().describe("Sale price"),
+    lowestPrice: z.number().optional().describe("Lowest allowed price"),
+    wholesalePrice: z.number().optional().describe("Purchase cost per unit (invoice lines only, never exposed on search)"),
+    categoryId: z
+      .string()
+      .optional()
+      .describe(idDescription("Category id.", TOOL.categories.list)),
+    storeId: z
+      .string()
+      .optional()
+      .describe(idDescription("Store id.", TOOL.stores.list)),
+    warehouseId: z.string().optional().describe("Warehouse id. Find it with warehouses_search once available."),
+    storageLocationId: z.string().optional().describe("Storage location id. Find it with warehouse_locations_search once available."),
+    description: z.string().optional().describe("Product description"),
+    callCenterProductDescription: z.string().optional().describe("Call-center description"),
+    aiEnabled: z.boolean().optional().describe("Whether AI description is enabled"),
+    aiDescription: z.string().optional().describe("AI-generated description"),
+    aiKeywords: z.array(z.string()).optional().describe("AI keywords, up to 20"),
+    upsellingEnabled: z.boolean().optional().describe("Whether upselling is enabled"),
+    upsellingProducts: z
+      .array(
+        z.object({
+          productId: z
+            .string()
+            .describe(idDescription("Upsell product id.", TOOL.products.search)),
+          label: z.string().optional().describe("Upsell label"),
+          callCenterDescription: z.string().optional().describe("Call-center description for this upsell"),
+        }),
+      )
+      .optional()
+      .describe("Upsell products"),
+    combinations: z
+      .array(
+        z.object({
+          sku: z.string().describe("Variant SKU"),
+          key: z.string().optional().describe("Variant key, generated from attributes if omitted"),
+          price: z.number().optional().describe("Price per variant"),
+          stockOnHand: z.number().optional().describe("Stock on hand for this variant"),
+          attributes: z.record(z.string(), z.string()).optional().describe("Variant attributes, e.g. { color: \"red\" }"),
+        }),
+      )
+      .optional()
+      .describe("Variant combinations for variable products"),
+    isActive: z.boolean().optional().describe("False to deactivate. Update only"),
+    // mainImage / images / orphan ids / removeImgs / purchase / receipt upload never offered
+  }),
+);
+
+const saveProductInput = z.object({
+  mode: z
+    .enum(["create", "update"])
+    .describe(
+      'Required. "create" to add a new product. "update" to change an existing one. Never infer from id.',
+    ),
+  id: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      `Product ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.products.search)}.`,
+    ),
+  sku: z
+    .string()
+    .optional()
+    .describe("Product SKU. Required for create. Do not send on update."),
+  ...saveProductFields.shape,
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -125,5 +200,39 @@ export class McpProductsTools {
     }
     const result = await this.products.list(user, req.query);
     return toolPage("products", result, toProductSummary, req.query.limit);
+  }
+
+  @McpSaveTool({
+    name: TOOL.products.save,
+    description:
+      'Create or update a product. Required: mode ("create" or "update"). Required for create: name, slug, sku. Optional: type, prices, categoryId, storeId, warehouseId, storageLocationId, descriptions, AI fields, upselling, combinations. For update: `id` plus any fields to change. Do not send `sku` or `type` on update. No picture fields.',
+    parameters: saveProductInput,
+  })
+  async saveProduct(
+    @Payload() input: z.infer<typeof saveProductInput>,
+    @McpUser() user: User,
+  ) {
+    const req = parseSaveInput(input, "product", TOOL.products.search);
+    if (req.mode === "create") {
+      const parsed = await parseDto(CreateProductDto, {
+        ...req.fields,
+        sku: (input as any).sku,
+        // Service requires an image unless skipped: MCP never uploads images.
+        skipRemoteCheck: true,
+      });
+      if (parsed.ok === false) throw new RpcException(parsed.message);
+      return toolJson(toProductResultDto(await this.products.create(user, parsed.dto)));
+    }
+    for (const k of ["sku", "type"] as const) {
+      const v = (req.fields as Record<string, unknown>)[k];
+      if (v !== undefined && v !== "") {
+        throw new RpcException(
+          `${k} is create-only. Do not send it on update. Find the product with ${TOOL.products.search}.`,
+        );
+      }
+    }
+    const parsed = await parseDto(UpdateProductDto, req.fields);
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    return toolJson(toProductResultDto(await this.products.update(user, req.id, parsed.dto)));
   }
 }

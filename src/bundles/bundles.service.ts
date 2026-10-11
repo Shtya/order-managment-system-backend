@@ -217,11 +217,22 @@ export class BundlesService {
       qb.andWhere("bundle.id IN (:...ids)", { ids: ids });
     }
 
-    // 5. Search (Name or SKU)
+    if (typeof q?.sku === "string" && q.sku.trim() !== "") {
+      qb.andWhere("bundle.sku = :sku", { sku: q.sku.trim() });
+    }
+
+    if (typeof q?.slug === "string" && q.slug.trim() !== "") {
+      qb.andWhere("LOWER(bundle.slug) = LOWER(:slug)", { slug: q.slug.trim() });
+    }
+
+    // 5. Search (Name, SKU or Slug)
     if (q?.search) {
-      qb.andWhere("(bundle.name ILIKE :search OR bundle.sku ILIKE :search)", {
-        search: `%${q.search}%`,
-      });
+      qb.andWhere(
+        "(bundle.name ILIKE :search OR bundle.sku ILIKE :search OR bundle.slug ILIKE :search)",
+        {
+          search: `%${q.search}%`,
+        },
+      );
     }
 
     // 6. Sorting
