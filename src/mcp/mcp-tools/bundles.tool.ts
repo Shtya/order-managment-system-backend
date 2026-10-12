@@ -10,7 +10,7 @@ import { User } from "entities/user.entity";
 import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -22,7 +22,7 @@ export const searchBundlesInput = searchInput("bundle", {
   ...listPaging({
     items: "bundles",
     sortBy: ["created_at", "name", "sku", "price", "isActive"],
-    search: "Matches bundle name or SKU",
+    search: "Matches bundle name, SKU, or slug",
   }),
   sku: z
     .string()
@@ -44,7 +44,7 @@ export const searchBundlesInput = searchInput("bundle", {
     .string()
     .optional()
     .describe(idDescription("Keep only bundles of this store.", TOOL.stores.list)),
-});
+}, TOOL.bundles.search);
 
 const saveBundleFields = toolInputFor<UpdateBundleDto>()(
   z.object({
@@ -90,7 +90,7 @@ const saveBundleInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Bundle ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.bundles.search)}.`,
+      idDescription("Bundle ID.", TOOL.bundles.search, "Required for mode=update. Forbidden for mode=create."),
     ),
   sku: z
     .string()

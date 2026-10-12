@@ -11,7 +11,7 @@ import { TagEntity, TagTarget } from "entities/tag.entity";
 import { CreateTagDto, UpdateTagDto } from "dto/tag.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { ref, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -27,7 +27,7 @@ const listTagsInput = searchInput("tag", {
     search: "Matches tag name or description",
   }),
   target: z.enum(TagTarget).optional().describe("Only tags for this target. Omit for order tags."),
-});
+}, TOOL.tags.list);
 
 const saveTagFields = toolInputFor<UpdateTagDto>()(
   z.object({
@@ -37,7 +37,7 @@ const saveTagFields = toolInputFor<UpdateTagDto>()(
     target: z.enum(TagTarget).optional().describe("Which entity this tag applies to"),
     isActive: z.boolean().optional().describe("False to deactivate. Replaces toggle-active"),
     allowManualAssignment: z.boolean().optional().describe("False hides it from employees. Replaces toggle-employee-use"),
-    employeeIds: z.array(z.string()).optional().describe("Employees allowed to use it when allowManualAssignment is true"),
+    employeeIds: z.array(z.string()).optional().describe(idDescription("Employees allowed to use it when allowManualAssignment is true.", TOOL.employees.list)),
     priority: z.number().int().min(0).optional().describe("Higher shows first"),
     // conditions / automations are separate admin tools, not offered here
   }),
@@ -54,7 +54,7 @@ const saveTagInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Tag ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.tags.list)}.`,
+      idDescription("Tag ID.", TOOL.tags.list, "Required for mode=update. Forbidden for mode=create."),
     ),
   ...saveTagFields.shape,
 });

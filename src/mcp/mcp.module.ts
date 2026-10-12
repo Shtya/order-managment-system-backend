@@ -21,6 +21,19 @@ import { ClientSegmentsModule } from "../client-segments/client-segments.module"
 import { ClientSettingsModule } from "../client-settings/client-settings.module";
 import { CampaignsModule } from "../campaigns/campaigns.module";
 import { UpsellsModule } from "../upsells/upsells.module";
+import { IssueModule } from "../issue/issue.module";
+import { CollectionModule } from "../order-collections/collection.module";
+import { GettingStartedModule } from "../getting-started/getting-started.module";
+import { ShippingAssigningModule } from "../shipping-assigning/shipping-assigning.module";
+import { RolesModule } from "../roles/roles.module";
+import { SafesModule } from "../safes/safes.module";
+import { PlansModule } from "../plans/plans.module";
+import { SupplierCategoriesModule } from "../supplier/categories/categories.module";
+import { SuppliersModule } from "../supplier/supplier.module";
+import { WarehousesModule } from "../warehouse/warehouse.module";
+import { WalletModule } from "../wallet/wallet.module";
+import { AutomationModule } from "../automation/automation.module";
+import { WhatsappModule } from "../whatsapp/whatsapp.module";
 import { McpAuthGuard } from "./mcp-guards/mcp-auth.guard";
 import { McpScopeGuard } from "./mcp-guards/mcp-scope-guard";
 import { McpHttpController } from "./mcp-http.controller";
@@ -51,6 +64,19 @@ import { McpClientSegmentsTools } from "./mcp-tools/client-segments.tool";
 import { McpClientSettingsTools } from "./mcp-tools/client-settings.tool";
 import { McpCampaignsTools } from "./mcp-tools/campaigns.tool";
 import { McpUpsellsTools } from "./mcp-tools/upsells.tool";
+import { McpIssuesTools } from "./mcp-tools/issues.tool";
+import { McpOrderCollectionsTools } from "./mcp-tools/order-collections.tool";
+import { McpGettingStartedTools } from "./mcp-tools/getting-started.tool";
+import { McpShippingAssigningTools } from "./mcp-tools/shipping-assigning.tool";
+import { McpAutomationTools } from "./mcp-tools/automation.tool";
+import { McpWhatsappTools } from "./mcp-tools/whatsapp.tool";
+import { McpWarehouseOpsTools } from "./mcp-tools/warehouse-ops.tool";
+import { McpRolesTools } from "./mcp-tools/roles.tool";
+import { McpSafesTools } from "./mcp-tools/safes.tool";
+import { McpPlansTools } from "./mcp-tools/plans.tool";
+import { McpSupplierCategoriesTools } from "./mcp-tools/supplier-categories.tool";
+import { McpSuppliersTools } from "./mcp-tools/suppliers.tool";
+import { McpWarehouseLocationsTools, McpWarehousesTools } from "./mcp-tools/warehouses.tool";
 import { McpToolRefsCheck } from "./utils/mcp-tool-names";
 import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
 
@@ -89,6 +115,19 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     ClientSettingsModule,
     CampaignsModule,
     UpsellsModule,
+    IssueModule,
+    CollectionModule,
+    GettingStartedModule,
+    ShippingAssigningModule,
+    RolesModule,
+    SafesModule,
+    PlansModule,
+    SupplierCategoriesModule,
+    SuppliersModule,
+    WarehousesModule,
+    WalletModule,
+    AutomationModule,
+    WhatsappModule,
   ],
   // v2: MCP tools are @McpController classes and MUST be listed in `controllers`
   // (classes in `providers` are not discovered, so tools/list would be empty).
@@ -115,6 +154,20 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     McpClientSettingsTools,
     McpCampaignsTools,
     McpUpsellsTools,
+    McpIssuesTools,
+    McpOrderCollectionsTools,
+    McpGettingStartedTools,
+    McpShippingAssigningTools,
+    McpRolesTools,
+    McpSafesTools,
+    McpPlansTools,
+    McpSupplierCategoriesTools,
+    McpSuppliersTools,
+    McpWarehousesTools,
+    McpWarehouseLocationsTools,
+    McpAutomationTools,
+    McpWhatsappTools,
+    McpWarehouseOpsTools,
   ],
   providers: [
     OAuthService,

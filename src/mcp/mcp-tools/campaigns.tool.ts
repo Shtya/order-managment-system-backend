@@ -10,7 +10,7 @@ import { CampaignsService } from "src/campaigns/campaigns.service";
 import { CampaignCategory, CampaignChannel, CampaignStatus } from "entities/campaigns.entity";
 import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { TOOL } from "../utils/mcp-tool-names";
+import { idDescription, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -28,14 +28,14 @@ const searchCampaignsInput = searchInput("campaign", {
   status: z.enum(CampaignStatus).optional().describe("Keep campaigns with this status"),
   channel: z.enum(CampaignChannel).optional().describe("Keep campaigns on this channel"),
   category: z.enum(CampaignCategory).optional().describe("Keep campaigns in this category"),
-});
+}, TOOL.campaigns.search);
 
 const campaignsStatsInput = z.object({
   report: z
     .enum(["summary", "recipients"])
     .optional()
     .describe("Which report to return. summary (default): workspace totals. recipients: recipient rows for one campaign (requires campaignId)."),
-  campaignId: z.string().optional().describe("Campaign id. Required for report=recipients, forbidden on summary. Find it with campaigns_search."),
+  campaignId: z.string().optional().describe(idDescription("Campaign id. Required for report=recipients, forbidden on summary.", TOOL.campaigns.search)),
   status: z.string().optional().describe("Recipient delivery status. Only valid with report=recipients."),
   search: z.string().optional().describe("Matches recipient name or phone. Only valid with report=recipients."),
   page: z.number().int().min(1).optional().describe("Page number. Only valid with report=recipients."),

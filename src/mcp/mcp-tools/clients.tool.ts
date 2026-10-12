@@ -11,7 +11,7 @@ import { ClientEntity } from "entities/clients.entity";
 import { CreateClientDto, UpdateClientDto } from "dto/client.dto";
 import { parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson } from "../utils/mcp-result.util";
-import { ref, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -33,7 +33,7 @@ const searchClientsInput = searchInput("client", {
     .boolean()
     .optional()
     .describe("When true, keep only clients that have a phone number"),
-});
+}, TOOL.clients.search);
 
 const clientsStatsInput = z.object({});
 
@@ -47,7 +47,7 @@ const saveClientFields = toolInputFor<UpdateClientDto>()(
         z.object({
           phoneNumber: z.string().describe("Contact phone number"),
           isPrimary: z.boolean().optional().describe("True to mark as the primary contact"),
-          customerId: z.string().optional().describe("Existing contact id when editing a phone"),
+          customerId: z.string().optional().describe(idDescription("Existing contact/phone row id when editing a phone.", TOOL.clients.search, "Use a contact id from that client's dto. Omit to add a new phone.")),
         }),
       )
       .optional()
@@ -68,7 +68,7 @@ const saveClientInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Client ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.clients.search)}.`,
+      idDescription("Client ID.", TOOL.clients.search, "Required for mode=update. Forbidden for mode=create."),
     ),
   ...saveClientFields.shape,
 });

@@ -30,7 +30,7 @@ const searchPurchasesInput = searchInput("purchase invoice", {
     sortBy: ["created_at"],
     search: "Matches receipt number, supplier name, variant SKU, or product name",
   }),
-  supplierId: z.string().optional().describe('Supplier id. Pass "all" to skip, "none" for invoices with no supplier.'),
+  supplierId: z.string().optional().describe(idDescription("Supplier id.", TOOL.suppliers.search, 'Pass "all" to skip, "none" for invoices with no supplier.')),
   status: z.enum(ApprovalStatus).optional().describe("Invoice status. Omit for all."),
   closingId: z
     .string()
@@ -38,14 +38,14 @@ const searchPurchasesInput = searchInput("purchase invoice", {
     .describe(idDescription("Supplier closing id.", TOOL.accounting.supplierClosingsSearch)),
   startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
   endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
-});
+}, TOOL.purchases.search);
 
 // Update DTOs keep required fields (safeId / items), so the flat save
 // contract stays plain z.object here; Create/Update DTOs enforce at runtime.
 const savePurchaseFields = z.object({
     receiptNumber: z.string().optional().describe("Receipt number. Required for create"),
-    supplierId: z.string().optional().describe("Supplier id. Omit for invoices with no supplier."),
-    safeId: z.string().optional().describe("Safe id holding the payment. Required for create and update."),
+    supplierId: z.string().optional().describe(idDescription("Supplier id. Omit for invoices with no supplier.", TOOL.suppliers.search)),
+    safeId: z.string().optional().describe(idDescription("Safe id holding the payment. Required for create and update.", TOOL.safes.list)),
     paidAmount: z.number().optional().describe("Amount already paid"),
     notes: z.string().optional().describe("Internal notes"),
     saveAsDraft: z.boolean().optional().describe("True to save as draft"),
@@ -75,7 +75,7 @@ const savePurchaseInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Invoice ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.purchases.search)}.`,
+      idDescription("Invoice ID.", TOOL.purchases.search, "Required for mode=update. Forbidden for mode=create."),
     ),
   ...savePurchaseFields.shape,
 });
@@ -86,7 +86,7 @@ const searchPurchaseReturnsInput = searchInput("purchase return", {
     sortBy: ["created_at"],
     search: "Matches return number, invoice number, supplier name, variant SKU, or product name",
   }),
-  supplierId: z.string().optional().describe('Supplier id. Pass "all" to skip, "none" for returns with no supplier.'),
+  supplierId: z.string().optional().describe(idDescription("Supplier id.", TOOL.suppliers.search, 'Pass "all" to skip, "none" for returns with no supplier.')),
   status: z.enum(ApprovalStatus).optional().describe("Return status. Omit for all."),
   closingId: z
     .string()
@@ -94,14 +94,14 @@ const searchPurchaseReturnsInput = searchInput("purchase return", {
     .describe(idDescription("Supplier closing id.", TOOL.accounting.supplierClosingsSearch)),
   startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
   endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
-});
+}, TOOL.purchaseReturns.search);
 
 const savePurchaseReturnFields = z.object({
     returnNumber: z.string().optional().describe("Return number. Required for create"),
-    supplierId: z.string().optional().describe("Supplier id. Omit for returns with no supplier."),
+    supplierId: z.string().optional().describe(idDescription("Supplier id. Omit for returns with no supplier.", TOOL.suppliers.search)),
     invoiceNumber: z.string().optional().describe("Original invoice number"),
     returnReason: z.string().optional().describe("Why the goods are returned"),
-    safeId: z.string().optional().describe("Safe id for the refund. Required for create."),
+    safeId: z.string().optional().describe(idDescription("Safe id for the refund. Required for create.", TOOL.safes.list)),
     returnType: z.enum(PurchaseReturnType).optional().describe("How the refund is settled"),
     paidAmount: z.number().optional().describe("Amount already refunded"),
     notes: z.string().optional().describe("Internal notes"),
@@ -131,7 +131,7 @@ const savePurchaseReturnInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Return ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.purchaseReturns.search)}.`,
+      idDescription("Return ID.", TOOL.purchaseReturns.search, "Required for mode=update. Forbidden for mode=create."),
     ),
   ...savePurchaseReturnFields.shape,
 });
@@ -145,7 +145,16 @@ const purchasesStatsInput = z.object({
 
 const purchasesActInput = z.object({
   kind: z.enum(["invoice", "return"]).describe('Required. "invoice" for a purchase invoice, "return" for a purchase return.'),
-  id: z.string().min(1).describe("Invoice or return ID. Find it with purchases_search or purchase_returns_search."),
+  id: z
+    .string()
+    .min(1)
+    .describe(
+      idDescription(
+        "Invoice or return ID.",
+        TOOL.purchases.search,
+        `For a return, find it with ${ref(TOOL.purchaseReturns.search)}.`,
+      ),
+    ),
   action: z.enum(["set_status", "set_paid"]).describe('Required. "set_status" to change approval status. "set_paid" to set the paid/refunded amount. Status is never changed through save.'),
   status: z.enum(ApprovalStatus).optional().describe("New status. Required for action=set_status."),
   paidAmount: z.number().min(0).optional().describe("New paid (invoice) or refunded (return) amount. Required for action=set_paid."),

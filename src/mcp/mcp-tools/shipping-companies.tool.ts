@@ -25,9 +25,11 @@ const listShippingCompaniesInput = z.object({});
 
 function toShippingCompanySummary(row: any) {
   return {
-    id: row.id ?? null,
-    provider: row.provider ?? null,
+    // providerId = shipping company id (shippingCompanyId on other tools).
+    // integrationId = this workspace's connection. Never pass it as shippingCompanyId.
     providerId: row.providerId ?? null,
+    integrationId: row.id ?? null,
+    provider: row.provider ?? null,
     name: row.name ?? null,
     logo: row.logo ?? null,
   };
@@ -47,7 +49,7 @@ export class McpShippingCompaniesTools {
   @McpReadTool({
     name: TOOL.shippingCompanies.list,
     description:
-      "List the shipping companies connected to the signed-in Madar user's workspace. Read-only.",
+      "List shipping companies connected to this workspace. Each row is an integration: `providerId` is the shipping company id — pass it as `shippingCompanyId` on other tools. `integrationId` is the workspace connection, not the company. `provider` is the provider code — pass it as `provider` on warehouse_ops_act assign. Never use `integrationId` as shippingCompanyId. Read-only.",
     parameters: listShippingCompaniesInput,
   })
   async listShippingCompanies(@McpUser() user: User) {

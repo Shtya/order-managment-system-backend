@@ -25,7 +25,7 @@ const searchSegmentsInput = searchInput("client segment", {
   }),
   status: z.enum(ClientSegmentStatus).optional().describe("Keep segments with this status"),
   type: z.enum(ClientSegmentType).optional().describe("Keep segments of this type"),
-});
+}, TOOL.clientSegments.search);
 
 const segmentsStatsInput = z.object({});
 

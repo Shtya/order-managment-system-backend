@@ -10,7 +10,7 @@ import { User } from "entities/user.entity";
 import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { ref, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -30,7 +30,7 @@ const listCategoriesInput = searchInput("category", {
     .describe(
       "Exact slug to look up. 0 rows means the slug is free, 1 row means taken. Do not pass with `id`.",
     ),
-});
+}, TOOL.categories.list);
 
 const saveCategoryFields = toolInputFor<UpdateCategoryDto>()(
   z.object({
@@ -54,7 +54,7 @@ const saveCategoryInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Category ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.categories.list)}.`,
+      idDescription("Category ID.", TOOL.categories.list, "Required for mode=update. Forbidden for mode=create."),
     ),
   ...saveCategoryFields.shape,
 });

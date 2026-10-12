@@ -42,7 +42,7 @@ const accountingStatsInput = z.object({
   points: z.number().int().min(1).max(50).optional().describe("Trend points. Only valid with report=trend (service default 12)."),
   year: z.number().int().min(2000).max(2100).optional().describe("Year. Only valid with report=month; require month too."),
   month: z.number().int().min(1).max(12).optional().describe("Month 1-12. Only valid with report=month; require year too."),
-  supplierId: z.string().optional().describe("Supplier id for report=supplier_period. Only valid there; require startDate + endDate with it."),
+  supplierId: z.string().optional().describe(idDescription("Supplier id for report=supplier_period. Only valid there; require startDate + endDate with it.", TOOL.suppliers.search)),
   storeId: z
     .string()
     .optional()
@@ -65,7 +65,7 @@ const searchExpensesInput = searchInput("expense", {
     .describe(idDescription("Expense category id.", TOOL.accounting.expenseCategoriesList)),
   startDate: z.string().optional().describe("Collection-date range start, ISO date (YYYY-MM-DD)"),
   endDate: z.string().optional().describe("Collection-date range end, ISO date (YYYY-MM-DD)"),
-});
+}, TOOL.accounting.expensesSearch);
 
 const listExpenseCategoriesInput = z.object({
   isActive: z.boolean().optional().describe("True for active only, false for inactive only. Omit for all."),
@@ -80,7 +80,7 @@ const searchMonthlyClosingsInput = searchInput("monthly closing", {
   }),
   year: z.number().int().min(2000).max(2100).optional().describe("Keep closings of this year"),
   month: z.number().int().min(1).max(12).optional().describe("Keep closings of this month (1-12)"),
-});
+}, TOOL.accounting.monthlyClosingsSearch);
 
 const searchSupplierClosingsInput = searchInput("supplier closing", {
   ...listPaging({
@@ -89,11 +89,11 @@ const searchSupplierClosingsInput = searchInput("supplier closing", {
     defaultSortBy: "createdAt",
     search: "Matches supplier name",
   }),
-  supplierId: z.string().optional().describe("Supplier id. Omit to list all suppliers."),
+  supplierId: z.string().optional().describe(idDescription("Supplier id. Omit to list all suppliers.", TOOL.suppliers.search)),
   year: z.number().int().min(2000).max(2100).optional().describe("Keep closings ending in this year"),
   startDate: z.string().optional().describe("Keep closings ending on or after this date (YYYY-MM-DD)"),
   endDate: z.string().optional().describe("Keep closings ending on or before this date (YYYY-MM-DD)"),
-});
+}, TOOL.accounting.supplierClosingsSearch);
 
 const isSet = (v: unknown): boolean =>
   v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0);

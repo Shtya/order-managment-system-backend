@@ -2,14 +2,19 @@ import { UseGuards } from "@nestjs/common";
 import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { OrdersService } from "src/orders/services/orders.service";
+import { OrderInternalNotesService } from "src/orders/services/order-internal-notes.service";
+import { OrderReplacementService } from "src/orders/services/order-replacements.service";
+import { OrderReturnService } from "src/orders/services/order-return.service";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
-import { CreateOrderDto, UpdateOrderDto } from "dto/order.dto";
+import { CreateOrderDto, CreateOrderInternalNoteDto, CreateReplacementDto, CreateReturnDto, ChangeOrderStatusDto, UpdateOrderDto } from "dto/order.dto";
 import {
+  DamageResponsibility,
+  OrderConfirmationSource,
   OrderEntity,
   OrderItemEntity,
   OrderReplacementEntity,
@@ -19,7 +24,7 @@ import {
 } from "entities/order.entity";
 import { ShipmentStatus } from "entities/shipping.entity";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, ref, shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -66,7 +71,7 @@ const saveOrderFields = toolInputFor<UpdateOrderDto>()(
     shippingCompanyId: z
       .string()
       .optional()
-      .describe(idDescription("Shipping company id.", TOOL.shippingCompanies.list)),
+      .describe(shippingCompanyIdDescription()),
     storeId: z
       .string()
       .optional()
@@ -122,8 +127,8 @@ const saveOrderFields = toolInputFor<UpdateOrderDto>()(
     removedItems: z
       .array(
         z.object({
-          variantId: z.string().describe("Variant id of the line to remove."),
-          bundleId: z.string().optional().describe("Bundle id, only when the removed line is a bundle."),
+          variantId: z.string().describe(idDescription("Variant id of the line to remove.", TOOL.products.search)),
+          bundleId: z.string().optional().describe(idDescription("Bundle id, only when the removed line is a bundle.", TOOL.bundles.search)),
         }),
       )
       .optional()
@@ -142,7 +147,7 @@ const saveOrderInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Order ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.orders.search)}.`,
+      idDescription("Order ID.", TOOL.orders.search, "Required for mode=update. Forbidden for mode=create."),
     ),
   ...saveOrderFields.shape,
 });
@@ -229,9 +234,8 @@ const searchOrdersInput = searchInput("order", {
     .string()
     .optional()
     .describe(
-      idDescription(
+      shippingCompanyIdDescription(
         "Shipping company id.",
-        TOOL.shippingCompanies.list,
         'Pass "none" for orders with no company, "all" to skip.',
       ),
     ),
@@ -299,6 +303,111 @@ const searchOrdersInput = searchInput("order", {
   postponedEndDate: z.string().optional().describe("Postponed-date range end, ISO date (YYYY-MM-DD)"),
   shippedStartDate: z.string().optional().describe("Shipped-at range start, ISO date (YYYY-MM-DD)"),
   shippedEndDate: z.string().optional().describe("Shipped-at range end, ISO date (YYYY-MM-DD)"),
+}, TOOL.orders.search);
+
+const ordersActInput = z.object({
+  id: z.string().min(1).describe(idDescription("Order ID.", TOOL.orders.search)),
+  action: z.enum(["set_status", "reject"]).describe('Required. "set_status" to move the order. "reject" to reject it. Status is never changed through save.'),
+  statusId: z
+    .string()
+    .optional()
+    .describe(idDescription("Order status id.", TOOL.orderStatuses.list, "Required for action=set_status.")),
+  notes: z.string().optional().describe("Status or reject notes"),
+  postponedDate: z.string().optional().describe("Postponed date, ISO date (YYYY-MM-DD). Only with set_status."),
+  reminderDaysBefore: z.number().int().min(0).optional().describe("Reminder days before. Only with set_status."),
+  cancelCauseId: z
+    .string()
+    .optional()
+    .describe(idDescription("Cancel-cause id.", TOOL.cancelCauses.list)),
+  customCauseName: z.string().optional().describe("Custom cause name (min 3). Alternative to cancelCauseId."),
+});
+
+const ordersStatsInput = z.object({
+  report: z
+    .enum(["summary", "shipped"])
+    .optional()
+    .describe("Which report to return. summary (default): counts per status, optional dates. shipped: counts/totals by shipping company, optional lateShipping. Not a dashboard_orders_stats report."),
+  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD). Only valid with report=summary."),
+  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD). Only valid with report=summary."),
+  lateShipping: z.boolean().optional().describe("Only valid with report=shipped."),
+});
+
+const searchNotesInput = z.object({
+  orderId: z.string().min(1).describe(idDescription("Order ID.", TOOL.orders.search)),
+  limit: z.number().int().min(1).max(50).default(50).describe("Notes per page"),
+  cursor: z.string().optional().describe("Pagination cursor from a previous response. Omit for the first page."),
+  sortDir: z.enum(["ASC", "DESC"]).default("DESC").describe("Sort direction"),
+  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),
+  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD)"),
+});
+
+const saveNotesInput = z.object({
+  orderId: z.string().min(1).describe(idDescription("Order ID.", TOOL.orders.search)),
+  body: z.string().max(2000).optional().describe("Note text (max 2000). Set to add a note."),
+  markRead: z.boolean().optional().describe("True to mark notes as read. No body with it."),
+});
+
+const searchReplacementsInput = z.object({
+  page: z.number().int().min(1).default(1).describe("Page number, starting at 1"),
+  limit: z.number().int().min(1).max(50).default(10).describe("The number of replacements to return"),
+  search: z.string().optional().describe("Matches order number, customer name, or phone"),
+  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),
+  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD)"),
+  status: z.string().optional().describe("Status code of the new replacement order"),
+  sortBy: z.enum(["createdAt", "originalOrderNumber", "replacementOrderNumber"]).default("createdAt").describe("Field to sort by"),
+  sortOrder: z.enum(["ASC", "DESC"]).default("DESC").describe("Sort direction"),
+});
+
+const saveReplacementInput = z.object({
+  originalOrderId: z.string().min(1).describe(idDescription("Original order ID.", TOOL.orders.search)),
+  reason: z.string().describe("Why the order is replaced"),
+  paymentMethod: z.enum(PaymentMethod).describe("How the replacement is paid"),
+  items: z
+    .array(
+      z.object({
+        originalOrderItemId: z.string().describe(idDescription("Order line id from that order's items.", TOOL.orders.search, "Use the item id from the original order dto.")),
+        quantityToReplace: z.number().int().min(1).describe("Quantity to replace"),
+        newVariantId: z
+          .string()
+          .describe(idDescription("New variant id.", TOOL.products.search)),
+        newUnitPrice: z.number().min(0).describe("New unit price, up to 2 decimals"),
+        returnQuantity: z.number().int().min(0).optional().describe("Quantity to take back"),
+      }),
+    )
+    .describe("Replacement lines"),
+  anotherReason: z.string().optional().describe("Extra reason detail"),
+  internalNotes: z.string().optional().describe("Internal notes"),
+  customerNotes: z.string().optional().describe("Notes for the customer"),
+  shippingCompanyId: z
+    .string()
+    .optional()
+    .describe(shippingCompanyIdDescription()),
+  discount: z.number().int().min(0).optional().describe("Discount amount"),
+  additionalFees: z.number().optional().describe("Additional fees"),
+  deposit: z.number().optional().describe("Deposit already paid"),
+  shippingCost: z.number().int().min(0).optional().describe("Shipping cost"),
+  cancelCauseId: z
+    .string()
+    .optional()
+    .describe(idDescription("Cancel-cause id.", TOOL.cancelCauses.list)),
+  customCauseName: z.string().optional().describe("Custom cause name (min 3). Alternative to cancelCauseId."),
+  // returnImages never offered: no files
+});
+
+const saveReturnInput = z.object({
+  orderId: z.string().min(1).describe(idDescription("Order ID. Must be shipped, delivered, or failed delivery.", TOOL.orders.search)),
+  reason: z.string().optional().describe("Why the goods are returned"),
+  items: z
+    .array(
+      z.object({
+        originalItemId: z.string().describe(idDescription("Order line id from that order's items.", TOOL.orders.search, "Use the item id from that order's dto.")),
+        quantity: z.number().min(1).describe("Quantity to return"),
+        restockQuantity: z.number().min(0).optional().describe("Quantity to restock"),
+        condition: z.string().optional().describe("Item condition"),
+        damageResponsibility: z.enum(DamageResponsibility).optional().describe("Who pays for damage, when part of the return is damaged"),
+      }),
+    )
+    .describe("Return lines"),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -437,6 +546,12 @@ function toOrderResultDto(row: ListedOrder) {
     items: (row.items ?? []).map(toOrderItem),
     replacementRequest: toReplacement(row.replacementRequest),
     replacementResult: toReplacement(row.replacementResult),
+    returnRequests: ((row as any).returnRequests ?? []).map((r: any) => ({
+      id: r.id ?? null,
+      status: r.status ?? null,
+      reason: r.reason ?? null,
+      createdAt: r.createdAt ?? r.created_at ?? null,
+    })),
     notes: row.notes ?? null,
     customerNotes: row.customerNotes ?? null,
     lastInternalNote: note
@@ -465,7 +580,7 @@ function toOrderResultDto(row: ListedOrder) {
 
 function toOrderSummary(row: ListedOrder) {
   const shipment = row.shipments?.[0];
- 
+
   return {
     id: row.id,
     orderNumber: row.orderNumber,
@@ -483,6 +598,38 @@ function toOrderSummary(row: ListedOrder) {
   };
 }
 
+function toInternalNoteDto(row: any) {
+  return {
+    id: row.id,
+    body: row.body ?? null,
+    authorName: row.authorName ?? row.author?.name ?? null,
+    authorRole: row.authorRoleName ?? null,
+    isUnreadForMe: row.isUnreadForMe ?? null,
+    createdAt: row.created_at ?? row.createdAt ?? null,
+  };
+}
+
+function toReplacementSummary(row: any) {
+  const items = Array.isArray(row?.items) ? row.items : [];
+  return {
+    id: row.id,
+    originalOrderId: row.originalOrderId ?? row.originalOrder?.id ?? null,
+    originalOrderNumber: row.originalOrder?.orderNumber ?? null,
+    replacementOrderId: row.replacementOrderId ?? row.replacementOrder?.id ?? null,
+    replacementOrderNumber: row.replacementOrder?.orderNumber ?? null,
+    reason: row.reason ?? null,
+    shippingCompany: row.shippingCompany?.name ?? null,
+    items: items.map((i: any) => ({
+      originalOrderItemId: i.originalOrderItemId ?? null,
+      originalSku: i.originalOrderItem?.variant?.sku ?? null,
+      newVariantId: i.newVariantId ?? null,
+      newSku: i.newVariant?.sku ?? null,
+      quantityToReplace: i.quantityToReplace ?? null,
+    })),
+    createdAt: row.createdAt ?? row.created_at ?? null,
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 3) TOOLS: the @McpController class
 //    Guards, tool decorators, service calls and the toolJson /
@@ -492,7 +639,12 @@ function toOrderSummary(row: ListedOrder) {
 @McpController()
 @UseGuards(McpScopeGuard)
 export class McpOrdersTools {
-  constructor(private orders: OrdersService) { }
+  constructor(
+    private orders: OrdersService,
+    private notes: OrderInternalNotesService,
+    private replacements: OrderReplacementService,
+    private returns: OrderReturnService,
+  ) { }
 
   @McpReadTool({
     name: TOOL.orders.search,
@@ -537,4 +689,167 @@ export class McpOrdersTools {
     if (parsed.ok === false) throw new RpcException(parsed.message);
     return toolJson(toOrderResultDto(await this.orders.update(user, req.id, parsed.dto)));
   }
+
+  @McpSaveTool({
+    name: TOOL.orders.act,
+    description:
+      "Move or reject an order. Required: id, action. action=set_status needs statusId (plus optional notes, postponedDate, reminderDaysBefore, cancelCauseId or customCauseName). action=reject takes optional notes. Status is never changed through save.",
+    parameters: ordersActInput,
+  })
+  async actOnOrder(
+    @Payload() input: z.infer<typeof ordersActInput>,
+    @McpUser() user: User,
+  ) {
+    if (input.action === "reject") {
+      await this.orders.rejectOrder(user, input.id, { notes: (input as any).notes });
+      return toolJson(toOrderResultDto(await this.orders.get(user, input.id)));
+    }
+    if (!isSet((input as any).statusId)) {
+      throw new RpcException("action=set_status requires `statusId`. Use list_order_statuses to find it.");
+    }
+    const parsed = await parseDto(ChangeOrderStatusDto, {
+      statusId: (input as any).statusId,
+      notes: (input as any).notes,
+      postponedDate: (input as any).postponedDate,
+      reminderDaysBefore: (input as any).reminderDaysBefore,
+      cancelCauseId: (input as any).cancelCauseId,
+      customCauseName: (input as any).customCauseName,
+    });
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    return toolJson(
+      toOrderResultDto(
+        await this.orders.changeStatus(user, input.id, parsed.dto, undefined, {
+          defaultConfirmationSource: OrderConfirmationSource.MANUAL,
+        }),
+      ),
+    );
+  }
+
+  @McpReadTool({
+    name: TOOL.orders.stats,
+    description:
+      "Order counts. Pass `report`: summary (default — counts per status, optional dates) or shipped (counts/totals by shipping company, optional lateShipping). Not a dashboard_orders_stats report. Read-only.",
+    parameters: ordersStatsInput,
+  })
+  async getOrdersStats(
+    @Payload() input: z.infer<typeof ordersStatsInput>,
+    @McpUser() user: User,
+  ) {
+    const report = (input as any)?.report ?? "summary";
+    if (report === "shipped") {
+      if (isSet((input as any).startDate) || isSet((input as any).endDate)) {
+        throw new RpcException("report=shipped takes no dates. Remove startDate/endDate or set report=summary.");
+      }
+      return toolJson({
+        report,
+        ...(await this.orders.getShippedStatsByCompany(user, { lateShipping: (input as any).lateShipping })),
+      });
+    }
+    if (isSet((input as any).lateShipping)) {
+      throw new RpcException("`lateShipping` is only valid with report=shipped. Remove it or set report=shipped.");
+    }
+    return toolJson({
+      report,
+      ...(await this.orders.getStats(user, { startDate: (input as any).startDate, endDate: (input as any).endDate })),
+    });
+  }
+
+  @McpReadTool({
+    name: TOOL.orders.internalNotesSearch,
+    description:
+      "List internal notes of one order. Required orderId. Cursor-paged with limit/sortDir/dates. No get-by-id. Read-only.",
+    parameters: searchNotesInput,
+  })
+  async searchInternalNotes(
+    @Payload() input: z.infer<typeof searchNotesInput>,
+    @McpUser() user: User,
+  ) {
+    const { orderId, ...q } = input;
+    const result = await this.notes.list(user, orderId, q);
+    const records = Array.isArray((result as any)?.records) ? (result as any).records : [];
+    return toolJson({
+      notes: records.map(toInternalNoteDto),
+      myUnreadCount: Number((result as any)?.myUnreadCount ?? 0),
+      hasMore: Boolean((result as any)?.hasMore ?? false),
+      nextCursor: (result as any)?.nextCursor ?? null,
+    });
+  }
+
+  @McpSaveTool({
+    name: TOOL.orders.internalNotesSave,
+    description:
+      "Add an internal note or mark notes as read. Required orderId. Either body (max 2000, to add) or markRead:true (no body), not both. No update or delete of a note.",
+    parameters: saveNotesInput,
+  })
+  async saveInternalNote(
+    @Payload() input: z.infer<typeof saveNotesInput>,
+    @McpUser() user: User,
+  ) {
+    const hasBody = isSet((input as any).body);
+    const markRead = (input as any).markRead === true;
+    if (hasBody === markRead) {
+      throw new RpcException("Pass either `body` to add a note or `markRead: true`, not both and not neither.");
+    }
+    if (markRead) return toolJson(await this.notes.markRead(user, (input as any).orderId));
+    const parsed = await parseDto(CreateOrderInternalNoteDto, { body: (input as any).body });
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    const saved = await this.notes.add(user, (input as any).orderId, parsed.dto);
+    return toolJson(toInternalNoteDto((saved as any)?.data ?? saved));
+  }
+
+  @McpReadTool({
+    name: TOOL.orders.replacementsSearch,
+    description:
+      "List order replacements. Paged with search text, dates, new-order status, and sorting. No get-by-id. Read-only.",
+    parameters: searchReplacementsInput,
+  })
+  async searchReplacements(
+    @Payload() input: z.infer<typeof searchReplacementsInput>,
+    @McpUser() user: User,
+  ) {
+    const result = await this.replacements.listReplacements(user, {
+      ...input,
+      sortDir: (input as any).sortOrder,
+    });
+    return toolPage("replacements", result, toReplacementSummary, (input as any).limit);
+  }
+
+  @McpSaveTool({
+    name: TOOL.orders.replacementsSave,
+    description:
+      "Replace an order (create only). Required: originalOrderId, reason, paymentMethod, items (originalOrderItemId, quantityToReplace, newVariantId, newUnitPrice). No images. Returns the replacement document.",
+    parameters: saveReplacementInput,
+  })
+  async saveReplacement(
+    @Payload() input: z.infer<typeof saveReplacementInput>,
+    @McpUser() user: User,
+  ) {
+    const parsed = await parseDto(CreateReplacementDto, input);
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    return toolJson(toReplacementSummary(await this.replacements.replaceOrder(user, parsed.dto)));
+  }
+
+  @McpSaveTool({
+    name: TOOL.orders.returnsSave,
+    description:
+      "Request an order return (create only). Required: orderId (must be shipped, delivered, or failed delivery) plus items (originalItemId, quantity). No return search tool; rows come back on orders_search get. Returns the return request.",
+    parameters: saveReturnInput,
+  })
+  async saveReturn(
+    @Payload() input: z.infer<typeof saveReturnInput>,
+    @McpUser() user: User,
+  ) {
+    const parsed = await parseDto(CreateReturnDto, input);
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    const saved = await this.returns.createReturnRequest(parsed.dto, user);
+    return toolJson({
+      id: (saved as any)?.id ?? null,
+      orderId: (saved as any)?.orderId ?? (input as any).orderId,
+      reason: (saved as any)?.reason ?? null,
+    });
+  }
+}
+
+function isSet(v: unknown): boolean {
+  return v !== undefined && v !== null && v !== "";
 }

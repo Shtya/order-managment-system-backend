@@ -30,7 +30,7 @@ const searchUpsellsInput = searchInput("upsell", {
     .describe(idDescription("Keep offers for this product (trigger or upsell).", TOOL.products.search)),
   startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
   endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
-});
+}, TOOL.upsells.search);
 
 const upsellsStatsInput = z.object({
   startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),

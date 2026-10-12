@@ -95,6 +95,6 @@ import { ClientsModule } from "src/clients/clients.module";
     OrderReturnsController,
     OrderInternalNotesController,
   ],
-  exports: [OrdersService],
+  exports: [OrdersService, OrderReplacementService, OrderReturnService, OrderInternalNotesService],
 })
 export class OrdersModule {}

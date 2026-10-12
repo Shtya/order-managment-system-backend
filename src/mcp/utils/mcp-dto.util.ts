@@ -3,6 +3,7 @@ import { ValidationError, validate } from "class-validator";
 import { z } from "zod";
 import { PipeTransform } from "@nestjs/common";
 import { Payload, RpcException } from "@nestjs/microservices";
+import { idDescription, ToolName } from "./mcp-tool-names";
 
 type ParseResult<T> = { ok: true; dto: T } | { ok: false; message: string };
 
@@ -189,7 +190,11 @@ const isSet = (value: unknown): boolean =>
  * - adds the optional `id` field (same description everywhere)
  * - throws at startup if a filter has a default (it would always look "set")
  */
-export function searchInput<S extends z.ZodRawShape>(entity: string, shape: S) {
+export function searchInput<S extends z.ZodRawShape>(
+  entity: string,
+  shape: S,
+  lookup: ToolName,
+) {
   for (const [key, schema] of Object.entries(shape)) {
     if (!isPagingKey(key) && schema instanceof z.ZodDefault) {
       throw new Error(
@@ -205,8 +210,10 @@ export function searchInput<S extends z.ZodRawShape>(entity: string, shape: S) {
       .min(1)
       .optional()
       .describe(
-        `${entity} ID. Pass it to get ONE ${entity} with full details. ` +
-          `Omit it to search and list.`,
+        idDescription(
+          `${entity} ID. Pass it to get ONE ${entity} with full details. Omit it to search and list.`,
+          lookup,
+        ),
       ),
     ...shape,
   });

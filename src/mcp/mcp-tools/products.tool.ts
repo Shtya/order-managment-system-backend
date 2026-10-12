@@ -11,7 +11,7 @@ import { ProductType } from "entities/sku.entity";
 import { CreateProductDto, UpdateProductDto } from "dto/product.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -33,7 +33,7 @@ const searchProductsInput = searchInput("product", {
     .string()
     .optional()
     .describe(idDescription("Keep only products of this store.", TOOL.stores.list)),
-});
+}, TOOL.products.search);
 
 const saveProductFields = toolInputFor<UpdateProductDto>()(
   z.object({
@@ -51,8 +51,8 @@ const saveProductFields = toolInputFor<UpdateProductDto>()(
       .string()
       .optional()
       .describe(idDescription("Store id.", TOOL.stores.list)),
-    warehouseId: z.string().optional().describe("Warehouse id. Find it with warehouses_search once available."),
-    storageLocationId: z.string().optional().describe("Storage location id. Find it with warehouse_locations_search once available."),
+    warehouseId: z.string().optional().describe(idDescription("Warehouse id.", TOOL.warehouses.search)),
+    storageLocationId: z.string().optional().describe(idDescription("Storage location id.", TOOL.warehouses.locationsSearch)),
     description: z.string().optional().describe("Product description"),
     callCenterProductDescription: z.string().optional().describe("Call-center description"),
     aiEnabled: z.boolean().optional().describe("Whether AI description is enabled"),
@@ -99,7 +99,7 @@ const saveProductInput = z.object({
     .min(1)
     .optional()
     .describe(
-      `Product ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.products.search)}.`,
+      idDescription("Product ID.", TOOL.products.search, "Required for mode=update. Forbidden for mode=create."),
     ),
   sku: z
     .string()
