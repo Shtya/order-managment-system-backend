@@ -6,12 +6,14 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
+import { TemplateCategory, TemplateStatus } from "entities/whatsapp.entity";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { WhatsappAccountService } from "src/whatsapp/services/WhatsappAccount.service";
 import { WhatsappTemplateService } from "src/whatsapp/services/WhatsappTemplate.service";
-import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { assertDateOrder, listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField, isoDateField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -24,12 +26,9 @@ const whatsappStatsInput = z.object({
     .enum(["summary", "accounts", "templates"])
     .optional()
     .describe("Which report to return. summary (default): dashboard stats, optional dates/accountId. accounts: account counts, no dates. templates: template counts, no dates."),
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD). Only valid with report=summary."),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD). Only valid with report=summary."),
-  accountId: z
-    .string()
-    .optional()
-    .describe(idDescription("WhatsApp account id.", TOOL.whatsapp.accountsSearch, "Only valid with report=summary.")),
+  startDate: isoDateField("Range start, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
+  endDate: isoDateField("Range end, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
+  accountId: uuidField(idDescription("WhatsApp account id.", TOOL.whatsapp.accountsSearch, "Only valid with report=summary.")).optional(),
 });
 
 const searchAccountsInput = searchInput("whatsapp account", {
@@ -48,12 +47,9 @@ const searchTemplatesInput = searchInput("whatsapp template", {
     sortBy: ["createdAt"],
     search: "Matches template name",
   }),
-  accountId: z
-    .string()
-    .optional()
-    .describe(idDescription("WhatsApp account id.", TOOL.whatsapp.accountsSearch)),
-  category: z.string().optional().describe("Keep templates of this category"),
-  status: z.string().optional().describe("Keep templates with this status"),
+  accountId: uuidField(idDescription("WhatsApp account id.", TOOL.whatsapp.accountsSearch)).optional(),
+  category: z.enum(TemplateCategory).optional().describe("Keep templates of this category"),
+  status: z.enum(TemplateStatus).optional().describe("Keep templates with this status"),
   language: z.string().optional().describe("Keep templates in this language"),
   library: z.boolean().optional().describe("True for the Meta library instead of workspace templates."),
 }, TOOL.whatsapp.templatesSearch);
@@ -133,6 +129,7 @@ export class McpWhatsappTools {
     @McpUser() user: User,
   ) {
     const report = (input as any)?.report ?? "summary";
+    assertDateOrder(input as Record<string, unknown>);
     if (report !== "summary" && (isSet((input as any).startDate) || isSet((input as any).endDate) || isSet((input as any).accountId))) {
       throw new RpcException("report=accounts and report=templates take no dates or accountId. Remove them or set report=summary.");
     }

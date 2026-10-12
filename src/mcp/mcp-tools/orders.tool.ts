@@ -10,7 +10,7 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
+import { assertDateOrder, listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { CreateOrderDto, CreateOrderInternalNoteDto, CreateReplacementDto, CreateReturnDto, ChangeOrderStatusDto, UpdateOrderDto } from "dto/order.dto";
 import {
   DamageResponsibility,
@@ -25,6 +25,7 @@ import {
 import { ShipmentStatus } from "entities/shipping.entity";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField, isoDateField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -39,24 +40,16 @@ const saveOrderFields = toolInputFor<UpdateOrderDto>()(
     phoneNumber: z.string().optional().describe("Customer phone number"),
     secondPhoneNumber: z.string().optional().describe("Customer second phone number"),
     email: z.string().optional().describe("Customer email"),
-    clientId: z
-      .string()
-      .optional()
-      .describe(
-        idDescription(
+    clientId: uuidField(idDescription(
           "Id of an existing client record. Omit if the customer is not registered.",
           TOOL.clients.search,
-        ),
-      ),
+        )).optional(),
 
     // ── Address ────────────────────────────────────────────────
     address: z.string().optional().describe("Delivery address"),
     landmark: z.string().optional().describe("Nearby landmark"),
-    cityId: z
-      .string()
-      .optional()
-      .describe(idDescription("City id.", TOOL.cities.list)),
-    areaId: z.string().optional().describe(idDescription("Area id.", TOOL.cities.areas)),
+    cityId: uuidField(idDescription("City id.", TOOL.cities.list)).optional(),
+    areaId: uuidField(idDescription("Area id.", TOOL.cities.areas)).optional(),
     latitude: z.number().optional().describe("Delivery latitude"),
     longitude: z.number().optional().describe("Delivery longitude"),
 
@@ -68,14 +61,8 @@ const saveOrderFields = toolInputFor<UpdateOrderDto>()(
     additionalFees: z.number().optional().describe("Additional fees"),
 
     // ── Shipping ───────────────────────────────────────────────
-    shippingCompanyId: z
-      .string()
-      .optional()
-      .describe(shippingCompanyIdDescription()),
-    storeId: z
-      .string()
-      .optional()
-      .describe(idDescription("Store id.", TOOL.stores.list)),
+    shippingCompanyId: uuidField(shippingCompanyIdDescription()).optional(),
+    storeId: uuidField(idDescription("Store id.", TOOL.stores.list)).optional(),
     shippingCost: z.number().optional().describe("Shipping cost (whole number)"),
     allowOpenPackage: z
       .boolean()
@@ -98,18 +85,11 @@ const saveOrderFields = toolInputFor<UpdateOrderDto>()(
     items: z
       .array(
         z.object({
-          variantId: z
-            .string()
-            .describe(idDescription("Variant id of the product.", TOOL.products.search)),
-          bundleId: z
-            .string()
-            .optional()
-            .describe(
-              idDescription(
+          variantId: uuidField(idDescription("Variant id of the product.", TOOL.products.search)),
+          bundleId: uuidField(idDescription(
                 "Bundle id, only when the line is a bundle.",
                 TOOL.bundles.search,
-              ),
-            ),
+              )).optional(),
           quantity: z.number().describe("Quantity: a whole number, at least 1"),
           unitPrice: z
             .number()
@@ -127,8 +107,8 @@ const saveOrderFields = toolInputFor<UpdateOrderDto>()(
     removedItems: z
       .array(
         z.object({
-          variantId: z.string().describe(idDescription("Variant id of the line to remove.", TOOL.products.search)),
-          bundleId: z.string().optional().describe(idDescription("Bundle id, only when the removed line is a bundle.", TOOL.bundles.search)),
+          variantId: uuidField(idDescription("Variant id of the line to remove.", TOOL.products.search)),
+          bundleId: uuidField(idDescription("Bundle id, only when the removed line is a bundle.", TOOL.bundles.search)).optional(),
         }),
       )
       .optional()
@@ -142,13 +122,7 @@ const saveOrderInput = z.object({
     .describe(
       'Required. "create" to add a new order. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Order ID.", TOOL.orders.search, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Order ID.", TOOL.orders.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveOrderFields.shape,
 });
 
@@ -165,16 +139,11 @@ const searchOrdersInput = searchInput("order", {
     .string()
     .optional()
     .describe(`Order status code. One of: ${orderStatusCodes}. Comma-separate several codes.`),
-  statusId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+  statusId: uuidField(idDescription(
         "Order status id.",
         TOOL.orderStatuses.list,
         "Omit when `status` is set.",
-      ),
-    ),
+      )).optional(),
   excludeStatus: z
     .string()
     .optional()
@@ -184,71 +153,33 @@ const searchOrdersInput = searchInput("order", {
     .optional()
     .describe('Payment status. Pass "cod" to keep only cash-on-delivery orders.'),
 
-  clientId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+  clientId: uuidField(idDescription(
         "Client id.",
         TOOL.clients.search,
         'Pass "all" to skip this filter.',
-      ),
-    ),
-  productId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+      ), ["all"]).optional(),
+  productId: uuidField(idDescription(
         "Product id.",
         TOOL.products.search,
         'Pass "all" to skip this filter.',
-      ),
-    ),
-  tagId: z
-    .string()
-    .optional()
-    .describe(idDescription("Single tag id.", TOOL.tags.list)),
-  tagIds: z
-    .array(z.string())
-    .optional()
-    .describe(
-      idDescription("Orders that have any of these tag ids.", TOOL.tags.list),
-    ),
-  userId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription("Employee id of the latest assignee.", TOOL.employees.list),
-    ),
-  storeId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+      ), ["all"]).optional(),
+  tagId: uuidField(idDescription("Single tag id.", TOOL.tags.list)).optional(),
+  tagIds: z.array(uuidField(idDescription("Orders that have any of these tag ids.", TOOL.tags.list))).optional(),
+  userId: uuidField(idDescription("Employee id of the latest assignee.", TOOL.employees.list)).optional(),
+  storeId: uuidField(idDescription(
         "Store id.",
         TOOL.stores.list,
         'Pass "none" for orders with no store, "all" to skip.',
-      ),
-    ),
-  shippingCompanyId: z
-    .string()
-    .optional()
-    .describe(
-      shippingCompanyIdDescription(
+      ), ["all", "none"]).optional(),
+  shippingCompanyId: uuidField(shippingCompanyIdDescription(
         "Shipping company id.",
         'Pass "none" for orders with no company, "all" to skip.',
-      ),
-    ),
-  lastCancelCauseId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+      ), ["all", "none"]).optional(),
+  lastCancelCauseId: uuidField(idDescription(
         "Cancel-cause id.",
         TOOL.cancelCauses.list,
         'Pass "none" for orders with no cause, "all" to skip.',
-      ),
-    ),
+      ), ["all", "none"]).optional(),
 
   shippingStatus: z
     .enum(ShipmentStatus)
@@ -293,32 +224,23 @@ const searchOrdersInput = searchInput("order", {
     .optional()
     .describe("True: orders with internal notes the signed-in user has not read"),
 
-  startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
-  groupDate: z
-    .string()
-    .optional()
-    .describe("Exact created-at calendar day, YYYY-MM-DD. When set, startDate and endDate are ignored."),
-  postponedStartDate: z.string().optional().describe("Postponed-date range start, ISO date (YYYY-MM-DD)"),
-  postponedEndDate: z.string().optional().describe("Postponed-date range end, ISO date (YYYY-MM-DD)"),
-  shippedStartDate: z.string().optional().describe("Shipped-at range start, ISO date (YYYY-MM-DD)"),
-  shippedEndDate: z.string().optional().describe("Shipped-at range end, ISO date (YYYY-MM-DD)"),
+  startDate: isoDateField("Created-at range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Created-at range end, ISO date (YYYY-MM-DD)").optional(),
+  groupDate: isoDateField("Exact created-at calendar day, YYYY-MM-DD. When set, startDate and endDate are ignored.").optional(),
+  postponedStartDate: isoDateField("Postponed-date range start, ISO date (YYYY-MM-DD)").optional(),
+  postponedEndDate: isoDateField("Postponed-date range end, ISO date (YYYY-MM-DD)").optional(),
+  shippedStartDate: isoDateField("Shipped-at range start, ISO date (YYYY-MM-DD)").optional(),
+  shippedEndDate: isoDateField("Shipped-at range end, ISO date (YYYY-MM-DD)").optional(),
 }, TOOL.orders.search);
 
 const ordersActInput = z.object({
-  id: z.string().min(1).describe(idDescription("Order ID.", TOOL.orders.search)),
+  id: uuidField(idDescription("Order ID.", TOOL.orders.search)),
   action: z.enum(["set_status", "reject"]).describe('Required. "set_status" to move the order. "reject" to reject it. Status is never changed through save.'),
-  statusId: z
-    .string()
-    .optional()
-    .describe(idDescription("Order status id.", TOOL.orderStatuses.list, "Required for action=set_status.")),
+  statusId: uuidField(idDescription("Order status id.", TOOL.orderStatuses.list, "Required for action=set_status.")).optional(),
   notes: z.string().optional().describe("Status or reject notes"),
-  postponedDate: z.string().optional().describe("Postponed date, ISO date (YYYY-MM-DD). Only with set_status."),
+  postponedDate: isoDateField("Postponed date, ISO date (YYYY-MM-DD). Only with set_status.").optional(),
   reminderDaysBefore: z.number().int().min(0).optional().describe("Reminder days before. Only with set_status."),
-  cancelCauseId: z
-    .string()
-    .optional()
-    .describe(idDescription("Cancel-cause id.", TOOL.cancelCauses.list)),
+  cancelCauseId: uuidField(idDescription("Cancel-cause id.", TOOL.cancelCauses.list)).optional(),
   customCauseName: z.string().optional().describe("Custom cause name (min 3). Alternative to cancelCauseId."),
 });
 
@@ -327,22 +249,22 @@ const ordersStatsInput = z.object({
     .enum(["summary", "shipped"])
     .optional()
     .describe("Which report to return. summary (default): counts per status, optional dates. shipped: counts/totals by shipping company, optional lateShipping. Not a dashboard_orders_stats report."),
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD). Only valid with report=summary."),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD). Only valid with report=summary."),
+  startDate: isoDateField("Range start, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
+  endDate: isoDateField("Range end, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
   lateShipping: z.boolean().optional().describe("Only valid with report=shipped."),
 });
 
 const searchNotesInput = z.object({
-  orderId: z.string().min(1).describe(idDescription("Order ID.", TOOL.orders.search)),
+  orderId: uuidField(idDescription("Order ID.", TOOL.orders.search)),
   limit: z.number().int().min(1).max(50).default(50).describe("Notes per page"),
   cursor: z.string().optional().describe("Pagination cursor from a previous response. Omit for the first page."),
   sortDir: z.enum(["ASC", "DESC"]).default("DESC").describe("Sort direction"),
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD)"),
+  startDate: isoDateField("Range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Range end, ISO date (YYYY-MM-DD)").optional(),
 });
 
 const saveNotesInput = z.object({
-  orderId: z.string().min(1).describe(idDescription("Order ID.", TOOL.orders.search)),
+  orderId: uuidField(idDescription("Order ID.", TOOL.orders.search)),
   body: z.string().max(2000).optional().describe("Note text (max 2000). Set to add a note."),
   markRead: z.boolean().optional().describe("True to mark notes as read. No body with it."),
 });
@@ -351,25 +273,23 @@ const searchReplacementsInput = z.object({
   page: z.number().int().min(1).default(1).describe("Page number, starting at 1"),
   limit: z.number().int().min(1).max(50).default(10).describe("The number of replacements to return"),
   search: z.string().optional().describe("Matches order number, customer name, or phone"),
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD)"),
+  startDate: isoDateField("Range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Range end, ISO date (YYYY-MM-DD)").optional(),
   status: z.string().optional().describe("Status code of the new replacement order"),
   sortBy: z.enum(["createdAt", "originalOrderNumber", "replacementOrderNumber"]).default("createdAt").describe("Field to sort by"),
   sortOrder: z.enum(["ASC", "DESC"]).default("DESC").describe("Sort direction"),
 });
 
 const saveReplacementInput = z.object({
-  originalOrderId: z.string().min(1).describe(idDescription("Original order ID.", TOOL.orders.search)),
+  originalOrderId: uuidField(idDescription("Original order ID.", TOOL.orders.search)),
   reason: z.string().describe("Why the order is replaced"),
   paymentMethod: z.enum(PaymentMethod).describe("How the replacement is paid"),
   items: z
     .array(
       z.object({
-        originalOrderItemId: z.string().describe(idDescription("Order line id from that order's items.", TOOL.orders.search, "Use the item id from the original order dto.")),
+        originalOrderItemId: uuidField(idDescription("Order line id from that order's items.", TOOL.orders.search, "Use the item id from the original order dto.")),
         quantityToReplace: z.number().int().min(1).describe("Quantity to replace"),
-        newVariantId: z
-          .string()
-          .describe(idDescription("New variant id.", TOOL.products.search)),
+        newVariantId: uuidField(idDescription("New variant id.", TOOL.products.search)),
         newUnitPrice: z.number().min(0).describe("New unit price, up to 2 decimals"),
         returnQuantity: z.number().int().min(0).optional().describe("Quantity to take back"),
       }),
@@ -378,29 +298,23 @@ const saveReplacementInput = z.object({
   anotherReason: z.string().optional().describe("Extra reason detail"),
   internalNotes: z.string().optional().describe("Internal notes"),
   customerNotes: z.string().optional().describe("Notes for the customer"),
-  shippingCompanyId: z
-    .string()
-    .optional()
-    .describe(shippingCompanyIdDescription()),
+  shippingCompanyId: uuidField(shippingCompanyIdDescription()).optional(),
   discount: z.number().int().min(0).optional().describe("Discount amount"),
   additionalFees: z.number().optional().describe("Additional fees"),
   deposit: z.number().optional().describe("Deposit already paid"),
   shippingCost: z.number().int().min(0).optional().describe("Shipping cost"),
-  cancelCauseId: z
-    .string()
-    .optional()
-    .describe(idDescription("Cancel-cause id.", TOOL.cancelCauses.list)),
+  cancelCauseId: uuidField(idDescription("Cancel-cause id.", TOOL.cancelCauses.list)).optional(),
   customCauseName: z.string().optional().describe("Custom cause name (min 3). Alternative to cancelCauseId."),
   // returnImages never offered: no files
 });
 
 const saveReturnInput = z.object({
-  orderId: z.string().min(1).describe(idDescription("Order ID. Must be shipped, delivered, or failed delivery.", TOOL.orders.search)),
+  orderId: uuidField(idDescription("Order ID. Must be shipped, delivered, or failed delivery.", TOOL.orders.search)),
   reason: z.string().optional().describe("Why the goods are returned"),
   items: z
     .array(
       z.object({
-        originalItemId: z.string().describe(idDescription("Order line id from that order's items.", TOOL.orders.search, "Use the item id from that order's dto.")),
+        originalItemId: uuidField(idDescription("Order line id from that order's items.", TOOL.orders.search, "Use the item id from that order's dto.")),
         quantity: z.number().min(1).describe("Quantity to return"),
         restockQuantity: z.number().min(0).optional().describe("Quantity to restock"),
         condition: z.string().optional().describe("Item condition"),
@@ -736,6 +650,7 @@ export class McpOrdersTools {
     @McpUser() user: User,
   ) {
     const report = (input as any)?.report ?? "summary";
+    assertDateOrder(input as Record<string, unknown>);
     if (report === "shipped") {
       if (isSet((input as any).startDate) || isSet((input as any).endDate)) {
         throw new RpcException("report=shipped takes no dates. Remove startDate/endDate or set report=summary.");
@@ -765,6 +680,7 @@ export class McpOrdersTools {
     @McpUser() user: User,
   ) {
     const { orderId, ...q } = input;
+    assertDateOrder(q as Record<string, unknown>);
     const result = await this.notes.list(user, orderId, q);
     const records = Array.isArray((result as any)?.records) ? (result as any).records : [];
     return toolJson({
@@ -807,6 +723,7 @@ export class McpOrdersTools {
     @Payload() input: z.infer<typeof searchReplacementsInput>,
     @McpUser() user: User,
   ) {
+    assertDateOrder(input as Record<string, unknown>);
     const result = await this.replacements.listReplacements(user, {
       ...input,
       sortDir: (input as any).sortOrder,

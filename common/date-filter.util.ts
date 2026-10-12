@@ -5,14 +5,18 @@ export class DateFilterUtil {
     private static readonly logger = new Logger(DateFilterUtil.name);
 
     /**
-     * Core logic to safely parse strings into local start/end Date boundaries
+     * Core logic to safely parse strings into local start/end Date boundaries.
+     * When `exactBounds` is true, values are already exact instants (e.g. business-timezone
+     * day boundaries) and are used as-is instead of being snapped to the server-local day.
      */
-    static getBoundaries(startDate?: string | Date, endDate?: string | Date) {
+    static getBoundaries(startDate?: string | Date, endDate?: string | Date, exactBounds = false) {
         let start = startDate ? new Date(startDate) : null;
         let end = endDate ? new Date(endDate) : null;
 
-        if (start) start?.setHours(0, 0, 0, 0);
-        if (end) end?.setHours(23, 59, 59, 999);
+        if (!exactBounds) {
+            if (start) start.setHours(0, 0, 0, 0);
+            if (end) end.setHours(23, 59, 59, 999);
+        }
 
         return { start, end };
     }
@@ -20,8 +24,8 @@ export class DateFilterUtil {
     /**
      * Use this for standard Repository .find() or .findOne() methods
      */
-    static getFindOperator(startDate?: string | Date, endDate?: string | Date) {
-        const { start, end } = this.getBoundaries(startDate, endDate);
+    static getFindOperator(startDate?: string | Date, endDate?: string | Date, exactBounds = false) {
+        const { start, end } = this.getBoundaries(startDate, endDate, exactBounds);
 
         if (start && end) return Between(start, end);
         if (start) return MoreThanOrEqual(start);

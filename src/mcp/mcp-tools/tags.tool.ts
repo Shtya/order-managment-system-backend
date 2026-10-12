@@ -12,6 +12,7 @@ import { CreateTagDto, UpdateTagDto } from "dto/tag.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -37,7 +38,7 @@ const saveTagFields = toolInputFor<UpdateTagDto>()(
     target: z.enum(TagTarget).optional().describe("Which entity this tag applies to"),
     isActive: z.boolean().optional().describe("False to deactivate. Replaces toggle-active"),
     allowManualAssignment: z.boolean().optional().describe("False hides it from employees. Replaces toggle-employee-use"),
-    employeeIds: z.array(z.string()).optional().describe(idDescription("Employees allowed to use it when allowManualAssignment is true.", TOOL.employees.list)),
+    employeeIds: z.array(uuidField(idDescription("Employees allowed to use it when allowManualAssignment is true.", TOOL.employees.list))).optional(),
     priority: z.number().int().min(0).optional().describe("Higher shows first"),
     // conditions / automations are separate admin tools, not offered here
   }),
@@ -49,13 +50,7 @@ const saveTagInput = z.object({
     .describe(
       'Required. "create" to add a new tag. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Tag ID.", TOOL.tags.list, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Tag ID.", TOOL.tags.list, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveTagFields.shape,
 });
 

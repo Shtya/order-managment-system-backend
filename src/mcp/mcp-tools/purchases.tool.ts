@@ -14,6 +14,7 @@ import { CreatePurchaseReturnDto, UpdatePurchaseReturnDto } from "dto/purchase_r
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
+import { uuidField, isoDateField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -30,31 +31,26 @@ const searchPurchasesInput = searchInput("purchase invoice", {
     sortBy: ["created_at"],
     search: "Matches receipt number, supplier name, variant SKU, or product name",
   }),
-  supplierId: z.string().optional().describe(idDescription("Supplier id.", TOOL.suppliers.search, 'Pass "all" to skip, "none" for invoices with no supplier.')),
+  supplierId: uuidField(idDescription("Supplier id.", TOOL.suppliers.search, 'Pass "all" to skip, "none" for invoices with no supplier.'), ["all", "none"]).optional(),
   status: z.enum(ApprovalStatus).optional().describe("Invoice status. Omit for all."),
-  closingId: z
-    .string()
-    .optional()
-    .describe(idDescription("Supplier closing id.", TOOL.accounting.supplierClosingsSearch)),
-  startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
+  closingId: uuidField(idDescription("Supplier closing id.", TOOL.accounting.supplierClosingsSearch)).optional(),
+  startDate: isoDateField("Created-at range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Created-at range end, ISO date (YYYY-MM-DD)").optional(),
 }, TOOL.purchases.search);
 
 // Update DTOs keep required fields (safeId / items), so the flat save
 // contract stays plain z.object here; Create/Update DTOs enforce at runtime.
 const savePurchaseFields = z.object({
     receiptNumber: z.string().optional().describe("Receipt number. Required for create"),
-    supplierId: z.string().optional().describe(idDescription("Supplier id. Omit for invoices with no supplier.", TOOL.suppliers.search)),
-    safeId: z.string().optional().describe(idDescription("Safe id holding the payment. Required for create and update.", TOOL.safes.list)),
+    supplierId: uuidField(idDescription("Supplier id. Omit for invoices with no supplier.", TOOL.suppliers.search)).optional(),
+    safeId: uuidField(idDescription("Safe id holding the payment. Required for create and update.", TOOL.safes.list)).optional(),
     paidAmount: z.number().optional().describe("Amount already paid"),
     notes: z.string().optional().describe("Internal notes"),
     saveAsDraft: z.boolean().optional().describe("True to save as draft"),
     items: z
       .array(
         z.object({
-          variantId: z
-            .string()
-            .describe(idDescription("Variant id of the product.", TOOL.products.search)),
+          variantId: uuidField(idDescription("Variant id of the product.", TOOL.products.search)),
           quantity: z.number().int().min(1).describe("Quantity: a whole number, at least 1"),
           purchaseCost: z.number().min(0).describe("Purchase cost per unit, up to 2 decimals"),
         }),
@@ -70,13 +66,7 @@ const savePurchaseInput = z.object({
     .describe(
       'Required. "create" to add a new invoice. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Invoice ID.", TOOL.purchases.search, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Invoice ID.", TOOL.purchases.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...savePurchaseFields.shape,
 });
 
@@ -86,31 +76,26 @@ const searchPurchaseReturnsInput = searchInput("purchase return", {
     sortBy: ["created_at"],
     search: "Matches return number, invoice number, supplier name, variant SKU, or product name",
   }),
-  supplierId: z.string().optional().describe(idDescription("Supplier id.", TOOL.suppliers.search, 'Pass "all" to skip, "none" for returns with no supplier.')),
+  supplierId: uuidField(idDescription("Supplier id.", TOOL.suppliers.search, 'Pass "all" to skip, "none" for returns with no supplier.'), ["all", "none"]).optional(),
   status: z.enum(ApprovalStatus).optional().describe("Return status. Omit for all."),
-  closingId: z
-    .string()
-    .optional()
-    .describe(idDescription("Supplier closing id.", TOOL.accounting.supplierClosingsSearch)),
-  startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
+  closingId: uuidField(idDescription("Supplier closing id.", TOOL.accounting.supplierClosingsSearch)).optional(),
+  startDate: isoDateField("Created-at range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Created-at range end, ISO date (YYYY-MM-DD)").optional(),
 }, TOOL.purchaseReturns.search);
 
 const savePurchaseReturnFields = z.object({
     returnNumber: z.string().optional().describe("Return number. Required for create"),
-    supplierId: z.string().optional().describe(idDescription("Supplier id. Omit for returns with no supplier.", TOOL.suppliers.search)),
+    supplierId: uuidField(idDescription("Supplier id. Omit for returns with no supplier.", TOOL.suppliers.search)).optional(),
     invoiceNumber: z.string().optional().describe("Original invoice number"),
     returnReason: z.string().optional().describe("Why the goods are returned"),
-    safeId: z.string().optional().describe(idDescription("Safe id for the refund. Required for create.", TOOL.safes.list)),
+    safeId: uuidField(idDescription("Safe id for the refund. Required for create.", TOOL.safes.list)).optional(),
     returnType: z.enum(PurchaseReturnType).optional().describe("How the refund is settled"),
     paidAmount: z.number().optional().describe("Amount already refunded"),
     notes: z.string().optional().describe("Internal notes"),
     items: z
       .array(
         z.object({
-          variantId: z
-            .string()
-            .describe(idDescription("Variant id of the product.", TOOL.products.search)),
+          variantId: uuidField(idDescription("Variant id of the product.", TOOL.products.search)),
           returnedQuantity: z.number().int().min(1).describe("Quantity to return, at least 1"),
           unitCost: z.number().min(0).describe("Unit cost, up to 2 decimals"),
         }),
@@ -126,13 +111,7 @@ const savePurchaseReturnInput = z.object({
     .describe(
       'Required. "create" to add a new return. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Return ID.", TOOL.purchaseReturns.search, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Return ID.", TOOL.purchaseReturns.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...savePurchaseReturnFields.shape,
 });
 
@@ -145,16 +124,11 @@ const purchasesStatsInput = z.object({
 
 const purchasesActInput = z.object({
   kind: z.enum(["invoice", "return"]).describe('Required. "invoice" for a purchase invoice, "return" for a purchase return.'),
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      idDescription(
+  id: uuidField(idDescription(
         "Invoice or return ID.",
         TOOL.purchases.search,
         `For a return, find it with ${ref(TOOL.purchaseReturns.search)}.`,
-      ),
-    ),
+      )),
   action: z.enum(["set_status", "set_paid"]).describe('Required. "set_status" to change approval status. "set_paid" to set the paid/refunded amount. Status is never changed through save.'),
   status: z.enum(ApprovalStatus).optional().describe("New status. Required for action=set_status."),
   paidAmount: z.number().min(0).optional().describe("New paid (invoice) or refunded (return) amount. Required for action=set_paid."),

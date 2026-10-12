@@ -7,10 +7,11 @@ import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { CampaignsService } from "src/campaigns/campaigns.service";
-import { CampaignCategory, CampaignChannel, CampaignStatus } from "entities/campaigns.entity";
+import { CampaignCategory, CampaignChannel, CampaignRecipientDeliveryStatus, CampaignStatus } from "entities/campaigns.entity";
 import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -35,11 +36,16 @@ const campaignsStatsInput = z.object({
     .enum(["summary", "recipients"])
     .optional()
     .describe("Which report to return. summary (default): workspace totals. recipients: recipient rows for one campaign (requires campaignId)."),
-  campaignId: z.string().optional().describe(idDescription("Campaign id. Required for report=recipients, forbidden on summary.", TOOL.campaigns.search)),
-  status: z.string().optional().describe("Recipient delivery status. Only valid with report=recipients."),
+  campaignId: uuidField(idDescription("Campaign id. Required for report=recipients, forbidden on summary.", TOOL.campaigns.search)).optional(),
+  status: z
+    .enum(CampaignRecipientDeliveryStatus)
+    .optional()
+    .describe(
+      "Recipient delivery status. Only valid with report=recipients. Omit: processed only (excludes pending and sending). Pass pending or sending to see those rows.",
+    ),
   search: z.string().optional().describe("Matches recipient name or phone. Only valid with report=recipients."),
-  page: z.number().int().min(1).optional().describe("Page number. Only valid with report=recipients."),
-  limit: z.number().int().min(1).max(50).optional().describe("Rows per page. Only valid with report=recipients."),
+  page: z.number().int().min(1).optional().describe("Page number, starting at 1. Only valid with report=recipients. Default 1."),
+  limit: z.number().int().min(1).max(50).optional().describe("Rows per page. Only valid with report=recipients. Default 20 (service cap 100; this tool max 50)."),
 });
 
 const isSet = (v: unknown): boolean =>
@@ -133,7 +139,7 @@ export class McpCampaignsTools {
   @McpReadTool({
     name: TOOL.campaigns.stats,
     description:
-      "Campaign stats. Pass `report`: summary (default — workspace totals, no dates) or recipients (rows for one campaign; requires campaignId, optional status/search/page/limit). One campaign's KPIs live on campaigns_search with `id`, not here. Read-only.",
+      "Campaign stats. Pass `report`: summary (default — workspace totals, no dates) or recipients (rows for one campaign; requires campaignId). Recipients omit status: processed only (pending/sending hidden); default page 1, limit 20. Optional status/search/page/limit. One campaign's KPIs live on campaigns_search with `id`, not here. Read-only.",
     parameters: campaignsStatsInput,
   })
   async getCampaignsStats(
@@ -152,7 +158,7 @@ export class McpCampaignsTools {
         report,
         total_records: (result as any)?.total_records ?? rows.length,
         current_page: (result as any)?.current_page ?? 1,
-        per_page: (result as any)?.per_page ?? (q as any)?.limit ?? 10,
+        per_page: (result as any)?.per_page ?? (q as any)?.limit ?? 20,
         recipients: rows.map((r: any) => ({
           id: r.id ?? null,
           name: r.name ?? null,

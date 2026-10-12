@@ -7,9 +7,10 @@ import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { CollectionService } from "src/order-collections/collection.service";
-import { listPaging } from "../utils/mcp-dto.util";
+import { assertDateOrder, listPaging } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
+import { isoDateField, uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -22,16 +23,13 @@ const listCollectionsInput = z.object({
     sortBy: ["deliveredAt"],
     search: "Matches order number, customer name, or phone",
   }),
-  shippingCompanyId: z
-    .string()
-    .optional()
-    .describe(shippingCompanyIdDescription()),
+  shippingCompanyId: uuidField(shippingCompanyIdDescription()).optional(),
   collectionStatus: z
     .enum(["not_collected", "partial", "fully_collected", "pending"])
     .optional()
     .describe("Collection state. Omit for all delivered orders."),
-  startDate: z.string().optional().describe("Delivered-at range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Delivered-at range end, ISO date (YYYY-MM-DD)"),
+  startDate: isoDateField("Delivered-at range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Delivered-at range end, ISO date (YYYY-MM-DD)").optional(),
 });
 
 const collectionsStatsInput = z.object({});
@@ -72,6 +70,7 @@ export class McpOrderCollectionsTools {
     @Payload() query: z.infer<typeof listCollectionsInput>,
     @McpUser() user: User,
   ) {
+    assertDateOrder(query as Record<string, unknown>);
     const result = await this.collections.listCollections(user, {
       ...query,
       sortDir: query.sortOrder,

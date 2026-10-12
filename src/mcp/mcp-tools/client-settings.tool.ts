@@ -6,6 +6,13 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
+import {
+  AssignmentMode,
+  Language,
+  OrderFlowPath,
+  OrderTagMode,
+  StockDeductionStrategy,
+} from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
 import { UpsertClientSettingsDto } from "dto/client-settings.dto";
 import { parseDto } from "../utils/mcp-dto.util";
@@ -26,18 +33,18 @@ const getSettingsInput = z.object({
 });
 
 const saveSettingsInput = z.object({
-  assignmentMode: z.string().optional().describe("How orders are assigned to employees"),
+  assignmentMode: z.enum(AssignmentMode).optional().describe("How orders are assigned to employees"),
   assignmentDelay: z.number().int().min(1).optional().describe("Delay before auto-assignment"),
-  stockDeductionStrategy: z.string().optional().describe("When stock is deducted"),
-  orderFlowPath: z.string().optional().describe("Order flow path"),
-  defaultLang: z.string().optional().describe("Default language"),
+  stockDeductionStrategy: z.enum(StockDeductionStrategy).optional().describe("When stock is deducted"),
+  orderFlowPath: z.enum(OrderFlowPath).optional().describe("Order flow path"),
+  defaultLang: z.enum(Language).optional().describe("Default language"),
   notifyEmployee: z.boolean().optional().describe("Notify the assignee on new orders"),
   notifyAdmin: z.boolean().optional().describe("Notify the admin on new orders"),
   notifyLowStock: z.boolean().optional().describe("Notify on low stock"),
   whatsappAiEnabled: z.boolean().optional().describe("Enable the WhatsApp AI agent"),
   reservedEnabled: z.boolean().optional().describe("Enable reserved stock"),
-  orderTagMode: z.string().optional().describe("Order tag mode"),
-  clientTagMode: z.string().optional().describe("Client tag mode"),
+  orderTagMode: z.enum(OrderTagMode).optional().describe("Order tag mode"),
+  clientTagMode: z.enum(OrderTagMode).optional().describe("Client tag mode"),
   campaignOrderPage: z
     .object({
       pageTitle: z.string().optional().describe("Campaign page title text"),

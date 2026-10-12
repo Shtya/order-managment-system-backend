@@ -11,6 +11,7 @@ import { AreaEntity, CityEntity } from "entities/cities.entity";
 import { listPaging } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -34,9 +35,7 @@ const listCitiesInput = z.object({
 });
 
 const listAreasInput = z.object({
-  cityId: z
-    .string()
-    .describe(idDescription("City id to list areas for.", TOOL.cities.list)),
+  cityId: uuidField(idDescription("City id to list areas for.", TOOL.cities.list)),
 });
 
 // ═══════════════════════════════════════════════════════════════

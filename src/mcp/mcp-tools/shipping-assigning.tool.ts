@@ -10,6 +10,7 @@ import { ShippingAssigningService } from "src/shipping-assigning/shipping-assign
 import { parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { TOOL } from "../utils/mcp-tool-names";
+import { isoDateField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -26,8 +27,8 @@ const searchRulesInput = searchInput("shipping assigning rule", {
     .optional()
     .describe("Keep rules of this type"),
   isActive: z.boolean().optional().describe("True for active only, false for inactive only. Omit for all."),
-  startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
+  startDate: isoDateField("Created-at range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Created-at range end, ISO date (YYYY-MM-DD)").optional(),
 }, TOOL.shippingAssigning.search);
 
 const rulesStatsInput = z.object({});

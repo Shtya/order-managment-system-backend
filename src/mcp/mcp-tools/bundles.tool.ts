@@ -11,6 +11,7 @@ import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -27,23 +28,17 @@ export const searchBundlesInput = searchInput("bundle", {
   sku: z
     .string()
     .optional()
-    .describe("Exact bundle SKU. 0 rows means free, 1 row means taken. Do not pass with `id`."),
+    .describe("Exact bundle SKU. Omit isActive: 0 rows among ACTIVE bundles. Archived can still own the SKU — pass isActive:false to check those. Do not pass with `id`."),
   slug: z
     .string()
     .optional()
-    .describe("Exact bundle slug (case-insensitive). 0 rows means free. Do not pass with `id`."),
+    .describe("Exact bundle slug (case-insensitive). Omit isActive: 0 rows among ACTIVE bundles. Archived can still own the slug — pass isActive:false to check those. Do not pass with `id`."),
   isActive: z
     .boolean()
     .optional()
-    .describe("False to find archived bundles. Omit for active only."),
-  categoryId: z
-    .string()
-    .optional()
-    .describe(idDescription("Keep only bundles of this category.", TOOL.categories.list)),
-  storeId: z
-    .string()
-    .optional()
-    .describe(idDescription("Keep only bundles of this store.", TOOL.stores.list)),
+    .describe("False to include archived bundles. Omit for active only. SKU/slug uniqueness checks must pass false if an archived bundle may already use the value."),
+  categoryId: uuidField(idDescription("Keep only bundles of this category.", TOOL.categories.list)).optional(),
+  storeId: uuidField(idDescription("Keep only bundles of this store.", TOOL.stores.list)).optional(),
 }, TOOL.bundles.search);
 
 const saveBundleFields = toolInputFor<UpdateBundleDto>()(
@@ -51,14 +46,8 @@ const saveBundleFields = toolInputFor<UpdateBundleDto>()(
     name: z.string().optional().describe("Bundle name"),
     description: z.string().optional().describe("Bundle description"),
     price: z.number().optional().describe("Bundle price"),
-    storeId: z
-      .string()
-      .optional()
-      .describe(idDescription("Store id.", TOOL.stores.list)),
-    categoryId: z
-      .string()
-      .optional()
-      .describe(idDescription("Category id.", TOOL.categories.list)),
+    storeId: uuidField(idDescription("Store id.", TOOL.stores.list)).optional(),
+    categoryId: uuidField(idDescription("Category id.", TOOL.categories.list)).optional(),
     slug: z.string().optional().describe("URL slug, lowercase letters, numbers and dashes"),
     aiEnabled: z.boolean().optional().describe("Whether AI description is enabled"),
     aiDescription: z.string().optional().describe("AI-generated description"),
@@ -66,9 +55,7 @@ const saveBundleFields = toolInputFor<UpdateBundleDto>()(
     items: z
       .array(
         z.object({
-          variantId: z
-            .string()
-            .describe(idDescription("Variant id of the product.", TOOL.products.search)),
+          variantId: uuidField(idDescription("Variant id of the product.", TOOL.products.search)),
           qty: z.number().int().min(1).describe("Quantity: a whole number, at least 1"),
         }),
       )
@@ -85,13 +72,9 @@ const saveBundleInput = z.object({
     .describe(
       'Required. "create" to add a new bundle. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Bundle ID.", TOOL.bundles.search, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(
+    idDescription("Bundle ID.", TOOL.bundles.search, "Required for mode=update. Forbidden for mode=create."),
+  ).optional(),
   sku: z
     .string()
     .optional()
@@ -157,7 +140,7 @@ export class McpBundlesTools {
   @McpReadTool({
     name: TOOL.bundles.search,
     description:
-      `Search bundles or fetch one. Without \`id\`: lists bundles with paging, filtered by search text, exact sku or slug, category, or store. Pass \`isActive: false\` to find archived bundles. With \`id\`: returns that single bundle with full details.`,
+      `Search bundles or fetch one. Without \`id\`: lists ACTIVE bundles with paging, filtered by search text, exact sku or slug, category, or store. Pass \`isActive: false\` to include archived (needed to see if a sku/slug is already taken). With \`id\`: returns that single bundle with full details.`,
     parameters: searchBundlesInput,
   })
   async searchBundles(@Payload() input: z.infer<typeof searchBundlesInput>, @McpUser() user: User) {

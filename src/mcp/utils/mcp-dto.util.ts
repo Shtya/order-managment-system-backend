@@ -4,6 +4,7 @@ import { z } from "zod";
 import { PipeTransform } from "@nestjs/common";
 import { Payload, RpcException } from "@nestjs/microservices";
 import { idDescription, ToolName } from "./mcp-tool-names";
+import { uuidField } from "./mcp-date.util";
 
 type ParseResult<T> = { ok: true; dto: T } | { ok: false; message: string };
 
@@ -205,18 +206,31 @@ export function searchInput<S extends z.ZodRawShape>(
   }
 
   return z.object({
-    id: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        idDescription(
-          `${entity} ID. Pass it to get ONE ${entity} with full details. Omit it to search and list.`,
-          lookup,
-        ),
+    id: uuidField(
+      idDescription(
+        `${entity} ID. Pass it to get ONE ${entity} with full details. Omit it to search and list.`,
+        lookup,
       ),
+    ).optional(),
     ...shape,
   });
+}
+
+const DATE_PAIRS = [
+  ["startDate", "endDate"],
+  ["postponedStartDate", "postponedEndDate"],
+  ["shippedStartDate", "shippedEndDate"],
+] as const;
+
+/** Rejects start > end on known date-range pairs. Call after Zod has already checked YYYY-MM-DD. */
+export function assertDateOrder(q: Record<string, unknown>) {
+  for (const [a, b] of DATE_PAIRS) {
+    const start = q[a];
+    const end = q[b];
+    if (typeof start === "string" && typeof end === "string" && start > end) {
+      throw new RpcException(`\`${a}\` (${start}) is after \`${b}\` (${end}). Swap them.`);
+    }
+  }
 }
 
 export type SearchRequest<Q> =
@@ -235,7 +249,10 @@ export function parseSearchInput<I extends { id?: string }>(
 ): SearchRequest<Omit<I, "id">> {
   const { id, ...query } = input;
 
-  if (!id) return { mode: "list", query };
+  if (!id) {
+    assertDateOrder(query as Record<string, unknown>);
+    return { mode: "list", query };
+  }
 
   const filters = Object.entries(query)
     .filter(([key, value]) => !isPagingKey(key) && isSet(value))

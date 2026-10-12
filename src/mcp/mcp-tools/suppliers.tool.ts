@@ -11,6 +11,7 @@ import { CreateSupplierDto, UpdateSupplierDto, UpdateSupplierFinancialsDto } fro
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // Update DTO keeps categoryIds required: flat save stays plain z.object,
 // Create/Update (+Financials) DTOs enforce at runtime.
@@ -20,16 +21,13 @@ const searchSuppliersInput = searchInput("supplier", {
     sortBy: ["created_at"],
     search: "Matches name, phone, email, or address",
   }),
-  categoryId: z
-    .string()
-    .optional()
-    .describe(idDescription("Keep suppliers of this category.", TOOL.supplierCategories.search)),
+  categoryId: uuidField(idDescription("Keep suppliers of this category.", TOOL.supplierCategories.search)).optional(),
 }, TOOL.suppliers.search);
 
 const saveSupplierFields = z.object({
   name: z.string().optional().describe("Supplier name. Required for create"),
   phone: z.string().optional().describe("Supplier phone. Required for create"),
-  categoryIds: z.array(z.string()).optional().describe(idDescription("Category ids. Required for create.", TOOL.supplierCategories.search)),
+  categoryIds: z.array(uuidField(idDescription("Category ids. Required for create.", TOOL.supplierCategories.search))).optional(),
   address: z.string().optional().describe("Supplier address"),
   email: z.string().optional().describe("Supplier email"),
   secondPhone: z.string().optional().describe("Second phone"),
@@ -40,7 +38,7 @@ const saveSupplierFields = z.object({
 
 const saveSupplierInput = z.object({
   mode: z.enum(["create", "update"]).describe('Required. "create" or "update". Never infer from id.'),
-  id: z.string().min(1).optional().describe(idDescription("Supplier ID.", TOOL.suppliers.search, "Required for mode=update. Forbidden for mode=create.")),
+  id: uuidField(idDescription("Supplier ID.", TOOL.suppliers.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveSupplierFields.shape,
 });
 

@@ -115,11 +115,19 @@ export class AccountingService {
     };
   }
 
-  async getLastExpenses(me: any, { startDate, endDate }: AccountingStatsDto) {
+  /**
+   * @param exactBounds when true, startDate/endDate are already exact instants
+   * (e.g. business-timezone day boundaries) and are used as-is instead of being
+   * snapped to the server-local day.
+   */
+  async getLastExpenses(
+    me: any,
+    { startDate, endDate }: { startDate?: string | Date; endDate?: string | Date },
+    exactBounds = false,
+  ) {
     const adminId = tenantId(me);
 
-    // Normalize dates to cover full day (00:00:00 to 23:59:59)
-    const dateFilter = DateFilterUtil.getFindOperator(startDate, endDate);
+    const dateFilter = DateFilterUtil.getFindOperator(startDate, endDate, exactBounds);
 
     const [lastPurchases, lastManualExpenses] = await Promise.all([
       this.purchaseRepo.find({
@@ -142,7 +150,8 @@ export class AccountingService {
         order: { collectionDate: "DESC" },
         take: 6,
         relations: {
-          category: true
+          category: true,
+          safe: true,
         },
       }),
     ]);
@@ -276,9 +285,68 @@ export class AccountingService {
     }));
   }
 
+  /**
+   * Expense trend over caller-defined buckets. Each bucket is [start, end)
+   * (end exclusive, normally the next bucket's start), so buckets never overlap.
+   */
+  async getExpensesTrendBuckets(
+    me: any,
+    buckets: { start: Date; end: Date }[],
+  ) {
+    if (buckets.length === 0) return [];
+    const adminId = tenantId(me);
+    const starts = buckets.map((b) => b.start.toISOString());
+    const ends = buckets.map((b) => b.end.toISOString());
+    const rangeStart = starts[0];
+    const rangeEnd = ends[ends.length - 1];
+
+    const query = `
+        WITH segments AS (
+            SELECT t.seg_start, t.seg_end, t.idx
+            FROM unnest($2::timestamptz[], $3::timestamptz[]) WITH ORDINALITY AS t(seg_start, seg_end, idx)
+        ),
+        financial_events AS (
+            SELECT "statusUpdateDate"::timestamptz AS event_date,
+                   COALESCE(total, 0)::numeric AS product_cost,
+                   0::numeric AS manual_expense
+            FROM purchase_invoices
+            WHERE "adminId" = $1 AND status = 'accepted'
+              AND "statusUpdateDate" >= $4::timestamptz AND "statusUpdateDate" < $5::timestamptz
+            UNION ALL
+            SELECT "collectionDate"::timestamptz AS event_date,
+                   0::numeric AS product_cost,
+                   COALESCE(amount, 0)::numeric AS manual_expense
+            FROM manual_expenses
+            WHERE "adminId" = $1
+              AND "collectionDate" >= $4::timestamptz AND "collectionDate" < $5::timestamptz
+        )
+        SELECT s.idx,
+               COALESCE(SUM(e.product_cost), 0) AS "productCost",
+               COALESCE(SUM(e.manual_expense), 0) AS "manualExpenses"
+        FROM segments s
+        LEFT JOIN financial_events e
+          ON e.event_date >= s.seg_start AND e.event_date < s.seg_end
+        GROUP BY s.idx
+        ORDER BY s.idx ASC;
+    `;
+
+    const rows = await this.dataSource.query(query, [adminId, starts, ends, rangeStart, rangeEnd]);
+    return rows.map((row: any) => {
+      const productCost = parseFloat(row.productCost);
+      const manualExpenses = parseFloat(row.manualExpenses);
+      return {
+        index: Number(row.idx) - 1,
+        productCost,
+        manualExpenses,
+        totalCost: productCost + manualExpenses,
+      };
+    });
+  }
+
   async getTopSuppliersBalances(
     me: any,
-    filters: { startDate?: string; endDate?: string },
+    filters: { startDate?: string | Date; endDate?: string | Date },
+    exactBounds = false,
   ) {
     const adminId = tenantId(me);
     const params: any[] = [adminId];
@@ -287,7 +355,7 @@ export class AccountingService {
 
     if (filters.startDate) {
       const start = new Date(filters.startDate);
-      start.setHours(0, 0, 0, 0);
+      if (!exactBounds) start.setHours(0, 0, 0, 0);
 
       dateFilter += ` AND "statusUpdateDate" >= $${paramIndex++}`;
       params.push(start);
@@ -296,7 +364,7 @@ export class AccountingService {
     // 2. Enforce End of Day
     if (filters.endDate) {
       const end = new Date(filters.endDate);
-      end.setHours(23, 59, 59, 999);
+      if (!exactBounds) end.setHours(23, 59, 59, 999);
 
       dateFilter += ` AND "statusUpdateDate" <= $${paramIndex++}`;
       params.push(end);

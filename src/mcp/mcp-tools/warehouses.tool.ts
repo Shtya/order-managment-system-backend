@@ -13,6 +13,7 @@ import { StorageLocationType } from "entities/warehouses.entity";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -40,14 +41,14 @@ const saveWarehouseFields = toolInputFor<UpdateWarehouseDto>()(
 
 const saveWarehouseInput = z.object({
   mode: z.enum(["create", "update"]).describe('Required. "create" or "update". Never infer from id.'),
-  id: z.string().min(1).optional().describe(idDescription("Warehouse ID.", TOOL.warehouses.search, "Required for mode=update. Forbidden for mode=create.")),
+  id: uuidField(idDescription("Warehouse ID.", TOOL.warehouses.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveWarehouseFields.shape,
 });
 
 const searchLocationsInput = z.object({
   page: z.number().int().min(1).default(1).describe("Page number, starting at 1"),
   limit: z.number().int().min(1).max(50).default(10).describe("The number of locations to return"),
-  warehouseId: z.string().optional().describe(idDescription("Keep locations of this warehouse.", TOOL.warehouses.search)),
+  warehouseId: uuidField(idDescription("Keep locations of this warehouse.", TOOL.warehouses.search)).optional(),
   search: z.string().optional().describe("Matches location name"),
   type: z.enum(StorageLocationType).optional().describe("Keep locations of this type"),
   isActive: z.boolean().optional().describe("True for active only, false for inactive only. Omit for all."),
@@ -63,10 +64,10 @@ const saveLocationFields = toolInputFor<UpdateStorageLocationDto>()(
 
 const saveLocationInput = z.object({
   mode: z.enum(["create", "update"]).describe('Required. "create" or "update". Never infer from id.'),
-  warehouseId: z.string().min(1).describe(idDescription("Warehouse id holding the location.", TOOL.warehouses.search)),
-  id: z.string().min(1).optional().describe(idDescription("Location ID.", TOOL.warehouses.locationsSearch, "Required for mode=update. Forbidden for mode=create.")),
+  warehouseId: uuidField(idDescription("Warehouse id holding the location.", TOOL.warehouses.search)),
+  id: uuidField(idDescription("Location ID.", TOOL.warehouses.locationsSearch, "Required for mode=update. Forbidden for mode=create.")).optional(),
   type: z.enum(StorageLocationType).optional().describe("Location type. Required for create, never on update."),
-  parentId: z.string().optional().describe(idDescription("Parent location id.", TOOL.warehouses.locationsSearch, "Create only, never on update.")),
+  parentId: uuidField(idDescription("Parent location id.", TOOL.warehouses.locationsSearch, "Create only, never on update.")).optional(),
   isActive: z.boolean().optional().describe("Update only. Toggles location status at runtime."),
   ...saveLocationFields.shape,
 });

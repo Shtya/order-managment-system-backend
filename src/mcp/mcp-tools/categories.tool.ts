@@ -11,6 +11,7 @@ import { CreateCategoryDto, UpdateCategoryDto } from "dto/category.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -49,13 +50,7 @@ const saveCategoryInput = z.object({
     .describe(
       'Required. "create" to add a new category. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Category ID.", TOOL.categories.list, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Category ID.", TOOL.categories.list, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveCategoryFields.shape,
 });
 

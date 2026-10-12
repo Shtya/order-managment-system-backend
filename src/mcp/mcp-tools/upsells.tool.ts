@@ -7,9 +7,10 @@ import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { UpsellsService } from "src/upsells/upsells.service";
-import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { assertDateOrder, listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { isoDateField, TREND_RANGES, uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -24,18 +25,15 @@ const searchUpsellsInput = searchInput("upsell", {
     search: "Matches trigger or upsell product name or SKU",
   }),
   status: z.enum(["active", "inactive"]).optional().describe("Keep active or inactive offers. Omit for all."),
-  productId: z
-    .string()
-    .optional()
-    .describe(idDescription("Keep offers for this product (trigger or upsell).", TOOL.products.search)),
-  startDate: z.string().optional().describe("Created-at range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Created-at range end, ISO date (YYYY-MM-DD)"),
+  productId: uuidField(idDescription("Keep offers for this product (trigger or upsell).", TOOL.products.search)).optional(),
+  startDate: isoDateField("Created-at range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Created-at range end, ISO date (YYYY-MM-DD)").optional(),
 }, TOOL.upsells.search);
 
 const upsellsStatsInput = z.object({
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD)"),
-  range: z.string().optional().describe("Quick range"),
+  startDate: isoDateField("Range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Range end, ISO date (YYYY-MM-DD)").optional(),
+  range: z.enum(TREND_RANGES).optional().describe(`Quick range. One of: ${TREND_RANGES.join(", ")}.`),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -101,6 +99,7 @@ export class McpUpsellsTools {
     @Payload() input: z.infer<typeof upsellsStatsInput>,
     @McpUser() user: User,
   ) {
+    assertDateOrder(input as Record<string, unknown>);
     return toolJson(await this.upsells.stats(user, input));
   }
 }

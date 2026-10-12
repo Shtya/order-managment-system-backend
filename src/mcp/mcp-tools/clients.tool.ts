@@ -12,6 +12,7 @@ import { CreateClientDto, UpdateClientDto } from "dto/client.dto";
 import { parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -47,7 +48,7 @@ const saveClientFields = toolInputFor<UpdateClientDto>()(
         z.object({
           phoneNumber: z.string().describe("Contact phone number"),
           isPrimary: z.boolean().optional().describe("True to mark as the primary contact"),
-          customerId: z.string().optional().describe(idDescription("Existing contact/phone row id when editing a phone.", TOOL.clients.search, "Use a contact id from that client's dto. Omit to add a new phone.")),
+          customerId: uuidField(idDescription("Existing contact/phone row id when editing a phone.", TOOL.clients.search, "Use a contact id from that client's dto. Omit to add a new phone.")).optional(),
         }),
       )
       .optional()
@@ -63,13 +64,7 @@ const saveClientInput = z.object({
     .describe(
       'Required. "create" to add a new client. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Client ID.", TOOL.clients.search, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Client ID.", TOOL.clients.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveClientFields.shape,
 });
 

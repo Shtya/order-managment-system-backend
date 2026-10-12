@@ -10,6 +10,8 @@ import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { toolJson } from "../utils/mcp-result.util";
 import { idDescription, shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField, isoDateField, TREND_RANGES } from "../utils/mcp-date.util";
+import { assertDateOrder } from "../utils/mcp-dto.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -26,65 +28,34 @@ const dashboardStatsInput = z.object({
       "Which report to return. summary: KPIs, status breakdown, previous-range comparison (default). weekly_trend: created vs delivered per day for the last 7 days — do not pass range or dates. top_cities / top_products: ranking by delivered orders; may pass limit. home: home KPI cards. top_products_chart: top products chart; may pass limit.",
     ),
   range: z
-    .enum([
-      "today",
-      "yesterday",
-      "this_week",
-      "last_week",
-      "this_month",
-      "last_month",
-      "this_year",
-    ])
+    .enum(TREND_RANGES)
     .optional()
     .describe(
-      "Quick range. Omit and pass startDate/endDate for a custom range. Not valid with report=weekly_trend.",
+      `Quick range. One of: ${TREND_RANGES.join(", ")}. Omit and pass startDate/endDate for a custom range. Not valid with report=weekly_trend.`,
     ),
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD). Not valid with report=weekly_trend."),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD). Not valid with report=weekly_trend."),
-  storeId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+  startDate: isoDateField("Range start, ISO date (YYYY-MM-DD). Not valid with report=weekly_trend.").optional(),
+  endDate: isoDateField("Range end, ISO date (YYYY-MM-DD). Not valid with report=weekly_trend.").optional(),
+  storeId: uuidField(idDescription(
         "Store id.",
         TOOL.stores.list,
         'Pass "all" to skip.',
-      ),
-    ),
-  shippingCompanyId: z
-    .string()
-    .optional()
-    .describe(shippingCompanyIdDescription("Shipping company id.", 'Pass "all" to skip.')),
-  assignedUserId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+      ), ["all"]).optional(),
+  shippingCompanyId: uuidField(shippingCompanyIdDescription("Shipping company id.", 'Pass "all" to skip.'), ["all"]).optional(),
+  assignedUserId: uuidField(idDescription(
         "Employee id of the latest assignee.",
         TOOL.employees.list,
         'Pass "all" to skip.',
-      ),
-    ),
-  productIds: z
-    .array(z.string())
-    .optional()
-    .describe(
-      idDescription(
+      ), ["all"]).optional(),
+  productIds: z.array(uuidField(idDescription(
         "Keep orders containing any of these product ids.",
         TOOL.products.search,
         'Pass "all" to skip.',
-      ),
-    ),
-  cityId: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+      ), ["all"])).optional(),
+  cityId: uuidField(idDescription(
         "City id.",
         TOOL.cities.list,
         'Pass "all" to skip.',
-      ),
-    ),
+      ), ["all"]).optional(),
   limit: z
     .number()
     .int()
@@ -99,9 +70,9 @@ const dashboardAiStatsInput = z.object({
     .enum(["overview", "credits", "cost_by_agent"])
     .optional()
     .describe("Which report to return. overview (default): AI usage overview. credits: wallet credits. cost_by_agent: cost grouped by agent."),
-  range: z.string().optional().describe("Quick range. Only valid with report=overview and cost_by_agent."),
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD). Only valid with report=overview and cost_by_agent."),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD). Only valid with report=overview and cost_by_agent."),
+  range: z.enum(TREND_RANGES).optional().describe(`Quick range. One of: ${TREND_RANGES.join(", ")}. Only valid with report=overview and cost_by_agent.`),
+  startDate: isoDateField("Range start, ISO date (YYYY-MM-DD). Only valid with report=overview and cost_by_agent.").optional(),
+  endDate: isoDateField("Range end, ISO date (YYYY-MM-DD). Only valid with report=overview and cost_by_agent.").optional(),
 });
 
 const isSet = (value: unknown): boolean =>
@@ -111,6 +82,7 @@ const isSet = (value: unknown): boolean =>
   !(Array.isArray(value) && value.length === 0);
 
 function parseDashboardStatsInput(input: z.infer<typeof dashboardStatsInput>) {
+  assertDateOrder(input as Record<string, unknown>);
   const report = input.report ?? "summary";
   const dateKeys = (["range", "startDate", "endDate"] as const).filter((key) => isSet(input[key]));
 
@@ -273,6 +245,7 @@ export class McpDashboardTools {
     @McpUser() user: User,
   ) {
     const report = (input as any)?.report ?? "overview";
+    assertDateOrder(input as Record<string, unknown>);
     if (report === "credits") {
       if (isSet((input as any).startDate) || isSet((input as any).endDate) || isSet((input as any).range)) {
         throw new RpcException("report=credits takes no dates. Remove startDate/endDate/range.");

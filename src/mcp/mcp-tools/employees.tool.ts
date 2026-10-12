@@ -9,9 +9,10 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { listPaging } from "../utils/mcp-dto.util";
+import { assertDateOrder, listPaging } from "../utils/mcp-dto.util";
 import { toolJson } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField, isoDateField, TREND_RANGES } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -26,13 +27,10 @@ const listEmployeesInput = z.object({
     search: "Matches employee name, email, or phone",
   }),
   type: z.string().default("all").describe('Employee type to filter by. Pass "all" to skip this filter.'),
-  storeId: z
-    .string()
-    .optional()
-    .describe(idDescription("Store id for the performance window.", TOOL.stores.list, 'Pass "all" to skip.')),
-  startDate: z.string().optional().describe("Performance window start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Performance window end, ISO date (YYYY-MM-DD)"),
-  range: z.string().optional().describe("Quick range for the performance window"),
+  storeId: uuidField(idDescription("Store id for the performance window.", TOOL.stores.list, 'Pass "all" to skip.'), ["all"]).optional(),
+  startDate: isoDateField("Performance window start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Performance window end, ISO date (YYYY-MM-DD)").optional(),
+  range: z.enum(TREND_RANGES).optional().describe(`Quick range for the performance window. One of: ${TREND_RANGES.join(", ")}.`),
 });
 
 const getMeInput = z.object({});
@@ -199,6 +197,7 @@ export class McpEmployeesTools {
     @Payload() query: z.infer<typeof listEmployeesInput>,
     @McpUser() user: User,
   ) {
+    assertDateOrder(query as Record<string, unknown>);
     const result = await this.users.listForTable(user, {
       page: query.page,
       limit: query.limit,

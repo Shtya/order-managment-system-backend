@@ -9,9 +9,10 @@ import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { CancelCauseReviewStatus, CancelCauseSource } from "entities/cancel-cause.entity";
 import { CreateCancelCauseDto, ReviewCancelCauseDto, UpdateCancelCauseDto } from "dto/cancel-cause.dto";
-import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
+import { assertDateOrder, listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { isoDateField, uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -30,10 +31,9 @@ const listCancelCausesInput = searchInput("cancel cause", {
   reviewStatus: z.enum(CancelCauseReviewStatus).optional().describe("Keep causes with this review status. Pass pending for the review queue."),
   isActive: z.boolean().optional().describe("True for active only, false for inactive only. Omit for the selectable default."),
   source: z.enum(CancelCauseSource).optional().describe("Keep causes from this source"),
-  submittedByEmployeeId: z
-    .string()
-    .optional()
-    .describe(idDescription("Keep causes submitted by this employee.", TOOL.employees.list)),
+  submittedByEmployeeId: uuidField(
+    idDescription("Keep causes submitted by this employee.", TOOL.employees.list),
+  ).optional(),
 }, TOOL.cancelCauses.list);
 
 const saveCancelCauseFields = toolInputFor<UpdateCancelCauseDto>()(
@@ -51,18 +51,14 @@ const saveCancelCauseInput = z.object({
     .describe(
       'Required. "create" to add a new cause. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Cause ID.", TOOL.cancelCauses.list, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(
+    idDescription("Cause ID.", TOOL.cancelCauses.list, "Required for mode=update. Forbidden for mode=create."),
+  ).optional(),
   ...saveCancelCauseFields.shape,
 });
 
 const acceptCancelCauseInput = z.object({
-  id: z.string().min(1).describe(idDescription("Pending cause ID.", TOOL.cancelCauses.list, "Call the lookup with reviewStatus: pending.")),
+  id: uuidField(idDescription("Pending cause ID.", TOOL.cancelCauses.list, "Call the lookup with reviewStatus: pending.")),
   reviewNote: z.string().optional().describe("Reviewer note"),
   name: z.string().optional().describe("Rename on accept (at least 3 characters)"),
   description: z.string().optional().describe("New description on accept"),
@@ -84,8 +80,8 @@ const cancelCausesStatsInput = z.object({
     ])
     .optional()
     .describe("Which report to return. overview (default): totals. top_this_month: no custom dates. pending_review: no dates."),
-  startDate: z.string().optional().describe("Range start, ISO date (YYYY-MM-DD)"),
-  endDate: z.string().optional().describe("Range end, ISO date (YYYY-MM-DD)"),
+  startDate: isoDateField("Range start, YYYY-MM-DD (real calendar date), inclusive.").optional(),
+  endDate: isoDateField("Range end, YYYY-MM-DD (real calendar date), inclusive (the whole day counts).").optional(),
 });
 
 const isSet = (v: unknown): boolean =>
@@ -217,6 +213,7 @@ export class McpCancelCausesTools {
   ) {
     const report = (input as any)?.report ?? "overview";
     const filters = { startDate: (input as any)?.startDate, endDate: (input as any)?.endDate };
+    assertDateOrder(filters);
     if (report === "top_this_month" && (isSet(filters.startDate) || isSet(filters.endDate))) {
       throw new RpcException("report=top_this_month takes no custom dates. Remove startDate/endDate.");
     }

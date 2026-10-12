@@ -9,21 +9,19 @@ import { User } from "entities/user.entity";
 import { AutomationService } from "src/automation/automation.service";
 import { toolJson } from "../utils/mcp-result.util";
 import { TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
-const automationStatsInput = z.object({
+const automationStatsInput = z.strictObject({
   report: z
     .enum(["flows", "runs"])
     .optional()
-    .describe("Which stats to return. flows (default): flow list header { total, published, draft, paused, archived }. runs: logs header { total, pending, running, completed, failed, paused }."),
+    .describe("Which stats to return. flows (default): flow list header { total, published, draft, paused, archived }. runs: logs header { total, pending, running, completed, failed, paused }. No dates."),
 });
 
 const runsRetryInput = z.object({
-  id: z
-    .string()
-    .min(1)
-    .describe(
-      "Failed run UUID. There is no run-list tool; the user must supply it (automation logs URL or a pasted id). Never guess.",
-    ),
+  id: uuidField(
+    "Failed run UUID. There is no run-list tool; the user must supply it (automation logs URL or a pasted id). Never guess.",
+  ),
   useLatestVersion: z
     .boolean()
     .optional()
@@ -38,7 +36,7 @@ export class McpAutomationTools {
   @McpReadTool({
     name: TOOL.automation.stats,
     description:
-      "Automation headers. Pass `report`: flows (default) or runs. No date filters, no flow/run lists. Read-only.",
+      "Automation headers. Pass `report`: flows (default) or runs. No date filters, no flow/run lists. Extra fields (e.g. startDate) are rejected. Read-only.",
     parameters: automationStatsInput,
   })
   async getStats(

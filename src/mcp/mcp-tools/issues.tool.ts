@@ -12,6 +12,7 @@ import { CreateIssueDto, UpdateIssueDto } from "dto/issue.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -27,20 +28,11 @@ const searchIssuesInput = searchInput("issue", {
     defaultSortBy: "created_at",
     search: "Matches title, customer name, or customer phone",
   }),
-  statusId: z
-    .string()
-    .optional()
-    .describe(idDescription("Issue status id.", TOOL.issues.lookupsList)),
-  causeId: z
-    .string()
-    .optional()
-    .describe(idDescription("Issue cause id.", TOOL.issues.lookupsList)),
+  statusId: uuidField(idDescription("Issue status id.", TOOL.issues.lookupsList)).optional(),
+  causeId: uuidField(idDescription("Issue cause id.", TOOL.issues.lookupsList)).optional(),
   priority: z.enum(IssuePriority).optional().describe("Keep issues with this priority"),
-  assignedRoleId: z.string().optional().describe(idDescription("Role id issues are assigned to.", TOOL.roles.list)),
-  assignedEmployeeId: z
-    .string()
-    .optional()
-    .describe(idDescription("Employee id assigned to the issue.", TOOL.employees.list)),
+  assignedRoleId: uuidField(idDescription("Role id issues are assigned to.", TOOL.roles.list)).optional(),
+  assignedEmployeeId: uuidField(idDescription("Employee id assigned to the issue.", TOOL.employees.list)).optional(),
 }, TOOL.issues.search);
 
 // Update DTO keeps assignedRoleId required: flat save stays plain
@@ -48,21 +40,12 @@ const searchIssuesInput = searchInput("issue", {
 const saveIssueFields = z.object({
   title: z.string().optional().describe("Ticket title. Required for create"),
   description: z.string().optional().describe("What the ticket is about"),
-  orderId: z
-    .string()
-    .optional()
-    .describe(idDescription("Order id for an order ticket. Omit for a general ticket.", TOOL.orders.search)),
-  causeId: z
-    .string()
-    .optional()
-    .describe(idDescription("Issue cause id.", TOOL.issues.lookupsList)),
+  orderId: uuidField(idDescription("Order id for an order ticket. Omit for a general ticket.", TOOL.orders.search)).optional(),
+  causeId: uuidField(idDescription("Issue cause id.", TOOL.issues.lookupsList)).optional(),
   priority: z.enum(IssuePriority).optional().describe("Priority. Allowed on create; changes after create go through issues_act."),
-  statusId: z
-    .string()
-    .optional()
-    .describe(idDescription("Status id. Create only; changes after create go through issues_act.", TOOL.issues.lookupsList)),
-  assignedRoleId: z.string().optional().describe(idDescription("Role id. Required for create.", TOOL.roles.list)),
-  employeeIds: z.array(z.string()).optional().describe(idDescription("Employee ids to assign.", TOOL.employees.list)),
+  statusId: uuidField(idDescription("Status id. Create only; changes after create go through issues_act.", TOOL.issues.lookupsList)).optional(),
+  assignedRoleId: uuidField(idDescription("Role id. Required for create.", TOOL.roles.list)).optional(),
+  employeeIds: z.array(uuidField(idDescription("Employee ids to assign.", TOOL.employees.list))).optional(),
   estimatedMinutes: z.number().int().min(1).optional().describe("Time estimate in minutes"),
 });
 
@@ -72,13 +55,7 @@ const saveIssueInput = z.object({
     .describe(
       'Required. "create" to open a ticket. "update" to edit title/description/cause/assignees/estimate. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Issue ID.", TOOL.issues.search, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Issue ID.", TOOL.issues.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveIssueFields.shape,
 });
 
@@ -90,13 +67,13 @@ const issuesStatsInput = z.object({
 });
 
 const issuesActInput = z.object({
-  id: z.string().min(1).describe(idDescription("Issue ID.", TOOL.issues.search)),
+  id: uuidField(idDescription("Issue ID.", TOOL.issues.search)),
   action: z.enum(["set_status", "set_priority", "assign"]).describe('Required. "set_status" to move the ticket. "set_priority" to reprioritize. "assign" to reassign.'),
-  statusId: z.string().optional().describe(idDescription("New status id. Required for action=set_status.", TOOL.issues.lookupsList)),
+  statusId: uuidField(idDescription("New status id. Required for action=set_status.", TOOL.issues.lookupsList)).optional(),
   priority: z.enum(IssuePriority).optional().describe("New priority. Required for action=set_priority."),
-  assignedRoleId: z.string().optional().describe(idDescription("New role id for action=assign.", TOOL.roles.list)),
-  employeeIds: z.array(z.string()).optional().describe(idDescription("Employee ids for action=assign.", TOOL.employees.list)),
-  assignedEmployeeIds: z.array(z.string()).optional().describe(idDescription("Employee ids for action=assign (alias).", TOOL.employees.list)),
+  assignedRoleId: uuidField(idDescription("New role id for action=assign.", TOOL.roles.list)).optional(),
+  employeeIds: z.array(uuidField(idDescription("Employee ids for action=assign.", TOOL.employees.list))).optional(),
+  assignedEmployeeIds: z.array(uuidField(idDescription("Employee ids for action=assign (alias).", TOOL.employees.list))).optional(),
 });
 
 const issuesLookupsInput = z.object({

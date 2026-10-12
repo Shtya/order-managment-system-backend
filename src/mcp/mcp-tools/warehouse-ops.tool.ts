@@ -6,13 +6,14 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { ScanLogType, ScanReason } from "entities/order.entity";
+import { ScanLogType, ScanReason, ShipmentManifestType } from "entities/order.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 import { ShippingService } from "src/shipping/shipping.service";
 import { BulkUpdateShippingFieldsDto, CreateManifestDto } from "dto/order.dto";
 import { listPaging, parseDto, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -40,43 +41,29 @@ const warehouseActInput = z.object({
     .describe(
       `Shipping provider code from ${ref(TOOL.shippingCompanies.list)} row.provider (not providerId, not integrationId). Required for action=assign.`,
     ),
-  orderIds: z
-    .array(z.string())
-    .optional()
-    .describe(idDescription("Order ids. Required for assign, create_manifest, create_return_manifest.", TOOL.orders.search)),
+  orderIds: z.array(uuidField(idDescription("Order ids. Required for assign, create_manifest, create_return_manifest.", TOOL.orders.search))).optional(),
   orderNumbers: z.array(z.string()).optional().describe("Order numbers. Required for bulk_print."),
-  id: z
-    .string()
-    .optional()
-    .describe(
-      idDescription(
+  id: uuidField(idDescription(
         "Order id for scan/log_failed_scan.",
         TOOL.orders.search,
         `For action=mark_printed, this is the manifest id from ${ref(TOOL.warehouseOps.manifestsSearch)}.`,
-      ),
-    ),
+      )).optional(),
   sku: z.string().optional().describe("SKU for scan/log_failed_scan."),
-  itemId: z
-    .string()
-    .optional()
-    .describe(idDescription("Order item id for scan.", TOOL.orders.search, "Use the line id from that order's items.")),
+  itemId: uuidField(idDescription("Order item id for scan.", TOOL.orders.search, "Use the line id from that order's items.")).optional(),
   reasonCode: z.enum(ScanReason).optional().describe("Reason for log_failed_scan."),
-  shippingCompanyId: z
-    .string()
-    .optional()
-    .describe(shippingCompanyIdDescription("Shipping company id for create_manifest / create_return_manifest.")),
+  shippingCompanyId: uuidField(shippingCompanyIdDescription("Shipping company id for create_manifest / create_return_manifest.")).optional(),
   driverName: z.string().optional().describe("Driver name for manifests."),
   shippingItems: z
     .array(
       z.object({
-        id: z.string().describe(idDescription("Order id. Must be one of `orderIds`.", TOOL.orders.search)),
+        id: uuidField(idDescription("Order id. Must be one of `orderIds`.", TOOL.orders.search)),
         customerName: z.string().optional().describe("Recipient name."),
         phoneNumber: z.string().optional().describe("Egyptian mobile (01[0125]XXXXXXXX)."),
         address: z.string().optional().describe("Street / first line."),
         landmark: z.string().optional().describe("Landmark."),
-        cityId: z.string().optional().describe(idDescription("City id.", TOOL.cities.list)),
+        cityId: uuidField(idDescription("City id.", TOOL.cities.list)).optional(),
         area: z.string().optional().describe("Area name."),
-        areaId: z.string().optional().describe(idDescription("Area id.", TOOL.cities.areas)),
+        areaId: uuidField(idDescription("Area id.", TOOL.cities.areas)).optional(),
         zoneId: z.string().optional().describe("Carrier zone id from the shipping company, not from list_shipping_companies. Omit if unknown."),
         districtId: z.string().optional().describe("Carrier district id from the shipping company, not from list_shipping_companies. Omit if unknown."),
         orderSize: z.string().optional().describe("Carrier parcel size."),
@@ -92,11 +79,8 @@ const searchManifestsInput = searchInput("manifest", {
     sortBy: ["createdAt"],
     search: "Matches manifest number or order number",
   }),
-  shippingCompanyId: z
-    .string()
-    .optional()
-    .describe(shippingCompanyIdDescription()),
-  type: z.string().optional().describe("Manifest type: outbound or return. Omit for all."),
+  shippingCompanyId: uuidField(shippingCompanyIdDescription()).optional(),
+  type: z.enum(ShipmentManifestType).optional().describe("Manifest type: SHIPPING (outbound) or RETURN. Omit for all."),
 }, TOOL.warehouseOps.manifestsSearch);
 
 const isSet = (v: unknown): boolean =>

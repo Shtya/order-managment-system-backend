@@ -12,6 +12,7 @@ import { CreateProductDto, UpdateProductDto } from "dto/product.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -25,14 +26,8 @@ const searchProductsInput = searchInput("product", {
     sortBy: ["created_at", "name", "sku", "salePrice", "isActive"],
     search: "Matches product name, slug, or variant SKU",
   }),
-  categoryId: z
-    .string()
-    .optional()
-    .describe(idDescription("Keep only products of this category.", TOOL.categories.list)),
-  storeId: z
-    .string()
-    .optional()
-    .describe(idDescription("Keep only products of this store.", TOOL.stores.list)),
+  categoryId: uuidField(idDescription("Keep only products of this category.", TOOL.categories.list)).optional(),
+  storeId: uuidField(idDescription("Keep only products of this store.", TOOL.stores.list)).optional(),
 }, TOOL.products.search);
 
 const saveProductFields = toolInputFor<UpdateProductDto>()(
@@ -43,16 +38,10 @@ const saveProductFields = toolInputFor<UpdateProductDto>()(
     salePrice: z.number().optional().describe("Sale price"),
     lowestPrice: z.number().optional().describe("Lowest allowed price"),
     wholesalePrice: z.number().optional().describe("Purchase cost per unit (invoice lines only, never exposed on search)"),
-    categoryId: z
-      .string()
-      .optional()
-      .describe(idDescription("Category id.", TOOL.categories.list)),
-    storeId: z
-      .string()
-      .optional()
-      .describe(idDescription("Store id.", TOOL.stores.list)),
-    warehouseId: z.string().optional().describe(idDescription("Warehouse id.", TOOL.warehouses.search)),
-    storageLocationId: z.string().optional().describe(idDescription("Storage location id.", TOOL.warehouses.locationsSearch)),
+    categoryId: uuidField(idDescription("Category id.", TOOL.categories.list)).optional(),
+    storeId: uuidField(idDescription("Store id.", TOOL.stores.list)).optional(),
+    warehouseId: uuidField(idDescription("Warehouse id.", TOOL.warehouses.search)).optional(),
+    storageLocationId: uuidField(idDescription("Storage location id.", TOOL.warehouses.locationsSearch)).optional(),
     description: z.string().optional().describe("Product description"),
     callCenterProductDescription: z.string().optional().describe("Call-center description"),
     aiEnabled: z.boolean().optional().describe("Whether AI description is enabled"),
@@ -62,9 +51,7 @@ const saveProductFields = toolInputFor<UpdateProductDto>()(
     upsellingProducts: z
       .array(
         z.object({
-          productId: z
-            .string()
-            .describe(idDescription("Upsell product id.", TOOL.products.search)),
+          productId: uuidField(idDescription("Upsell product id.", TOOL.products.search)),
           label: z.string().optional().describe("Upsell label"),
           callCenterDescription: z.string().optional().describe("Call-center description for this upsell"),
         }),
@@ -94,13 +81,7 @@ const saveProductInput = z.object({
     .describe(
       'Required. "create" to add a new product. "update" to change an existing one. Never infer from id.',
     ),
-  id: z
-    .string()
-    .min(1)
-    .optional()
-    .describe(
-      idDescription("Product ID.", TOOL.products.search, "Required for mode=update. Forbidden for mode=create."),
-    ),
+  id: uuidField(idDescription("Product ID.", TOOL.products.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   sku: z
     .string()
     .optional()

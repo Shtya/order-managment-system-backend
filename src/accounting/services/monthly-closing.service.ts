@@ -28,11 +28,7 @@ import { ApprovalStatus } from "common/enums";
 import { tenantId } from "src/category/category.service";
 import * as ExcelJS from "exceljs";
 import { TranslationService } from "common/translation.service";
-function getMonthRange(year: number, month: number) {
-  const start = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
-  const end = new Date(Date.UTC(year, month, 0, 23, 59, 59));
-  return { start, end };
-}
+import { businessMonthRange, businessYmd } from "src/mcp/utils/mcp-date.util";
 
 @Injectable()
 export class MonthlyClosingService {
@@ -96,9 +92,13 @@ export class MonthlyClosingService {
 
     // Apply Order & Pagination
     // We order by year THEN month for a logical chronological list
-    qb.orderBy(`closing.${sortBy}`, sortOrder)
-      .addOrderBy("closing.month", "DESC")
-      .skip((page - 1) * limit)
+    // Tie-breaks must not reuse the sort column: TypeORM keeps one direction per
+    // column, so a later addOrderBy on the same column overrides sortOrder.
+    qb.orderBy(`closing.${sortBy}`, sortOrder);
+    if (sortBy === "year") qb.addOrderBy("closing.month", sortOrder);
+    else if (sortBy === "month") qb.addOrderBy("closing.year", sortOrder);
+    else qb.addOrderBy("closing.year", "DESC").addOrderBy("closing.month", "DESC");
+    qb.skip((page - 1) * limit)
       .take(limit);
 
     const [records, total] = await qb.getManyAndCount();
@@ -249,7 +249,7 @@ export class MonthlyClosingService {
       );
     }
 
-    const { start, end } = getMonthRange(year, month);
+    const { start, end } = businessMonthRange(year, month);
 
     const now = new Date();
     if (end > now) {
@@ -345,7 +345,7 @@ export class MonthlyClosingService {
     manager?: EntityManager,
   ) {
     const adminId = tenantId(me);
-    const { start, end } = getMonthRange(year, month);
+    const { start, end } = businessMonthRange(year, month);
 
     const ordersRepo = manager
       ? manager.getRepository(OrderEntity)
@@ -491,7 +491,7 @@ export class MonthlyClosingService {
     const adminId = tenantId(me);
     const year = Number(q.year);
     const month = Number(q.month);
-    const { start, end } = getMonthRange(year, month);
+    const { start, end } = businessMonthRange(year, month);
     const frontendUrl = process.env.FRONTEND_URL || "http://localhost:3000";
 
     const preview = await this.getMonthPreview(me, { year, month });
@@ -873,10 +873,7 @@ export class MonthlyClosingService {
 
   async getMonthStats(me: any) {
     const adminId = tenantId(me);
-    const now = new Date();
-
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth() + 1;
+    const [currentYear, currentMonth] = businessYmd().split("-").map(Number);
 
     const lastClosing = await this.monthlyRepo.findOne({
       where: { adminId },

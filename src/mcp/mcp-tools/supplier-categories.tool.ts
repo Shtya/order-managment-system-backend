@@ -11,6 +11,7 @@ import { CreateSupplierCategoryDto, UpdateSupplierCategoryDto } from "dto/suppli
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { uuidField } from "../utils/mcp-date.util";
 
 const searchSupplierCategoriesInput = searchInput("supplier category", {
   ...listPaging({
@@ -29,7 +30,7 @@ const saveSupplierCategoryFields = toolInputFor<UpdateSupplierCategoryDto>()(
 
 const saveSupplierCategoryInput = z.object({
   mode: z.enum(["create", "update"]).describe('Required. "create" or "update". Never infer from id.'),
-  id: z.string().min(1).optional().describe(idDescription("Category ID.", TOOL.supplierCategories.search, "Required for mode=update. Forbidden for mode=create.")),
+  id: uuidField(idDescription("Category ID.", TOOL.supplierCategories.search, "Required for mode=update. Forbidden for mode=create.")).optional(),
   ...saveSupplierCategoryFields.shape,
 });
 
