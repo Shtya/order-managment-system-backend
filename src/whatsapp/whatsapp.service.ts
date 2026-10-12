@@ -538,8 +538,12 @@ export class WhatsappService {
           .andWhere("m.direction = :direction", {
             direction: MessageDirection.OUTBOUND,
           })
-          .andWhere("m.createdAt >= :finalStartDate", { finalStartDate })
-          .andWhere("m.createdAt <= :finalEndDate", { finalEndDate })
+          .andWhere(finalStartDate ? "m.createdAt >= :finalStartDate" : "1=1", {
+            finalStartDate,
+          })
+          .andWhere(finalEndDate ? "m.createdAt <= :finalEndDate" : "1=1", {
+            finalEndDate,
+          })
           .andWhere(filters.accountId ? "m.accountId = :accountId" : "1=1", {
             accountId: filters.accountId,
           })
@@ -548,7 +552,11 @@ export class WhatsappService {
           .getRawMany(),
 
         // 2. Account stats
-        this.accountRepo.count({ where: { adminId } }),
+        this.accountRepo.count({
+          where: filters.accountId
+            ? { adminId, id: filters.accountId }
+            : { adminId },
+        }),
 
         // 3. Template stats
         this.templateRepo
@@ -615,9 +623,13 @@ export class WhatsappService {
       })
       .andWhere("m.messageType IN (:...types)", {
         types: [WhatsappMessageType.BUTTON, WhatsappMessageType.INTERACTIVE],
-      })
-      .andWhere("m.createdAt >= :finalStartDate", { finalStartDate })
-      .andWhere("m.createdAt <= :finalEndDate", { finalEndDate });
+      });
+    if (finalStartDate) {
+      buttonClicksQuery.andWhere("m.createdAt >= :finalStartDate", { finalStartDate });
+    }
+    if (finalEndDate) {
+      buttonClicksQuery.andWhere("m.createdAt <= :finalEndDate", { finalEndDate });
+    }
 
     if (filters.accountId) {
       buttonClicksQuery.andWhere("m.accountId = :accountId", {
@@ -646,18 +658,35 @@ export class WhatsappService {
   }
 
   private getDashboardDateRange(filters: {
-    startDate?: string;
-    endDate?: string;
+    startDate?: string | Date;
+    endDate?: string | Date;
     range?: string;
+    skipDefaultRange?: boolean;
   }) {
     const { start, end } = calculateRange(filters.range);
+    if (
+      filters.skipDefaultRange &&
+      !start &&
+      !end &&
+      !filters.startDate &&
+      !filters.endDate
+    ) {
+      return { finalStartDate: undefined, finalEndDate: undefined };
+    }
     const finalStartDate =
       start ||
       (filters.startDate
-        ? new Date(filters.startDate)
+        ? filters.startDate instanceof Date
+          ? filters.startDate
+          : new Date(filters.startDate)
         : subDays(new Date(), 30));
     const finalEndDate =
-      end || (filters.endDate ? new Date(filters.endDate) : new Date());
+      end ||
+      (filters.endDate
+        ? filters.endDate instanceof Date
+          ? filters.endDate
+          : new Date(filters.endDate)
+        : new Date());
     return { finalStartDate, finalEndDate };
   }
 

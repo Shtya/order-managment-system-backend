@@ -29,6 +29,7 @@ import { tenantId } from "src/category/category.service";
 import * as ExcelJS from "exceljs";
 import { TranslationService } from "common/translation.service";
 import { businessMonthRange, businessYmd } from "src/mcp/utils/mcp-date.util";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class MonthlyClosingService {
@@ -97,7 +98,7 @@ export class MonthlyClosingService {
     qb.orderBy(`closing.${sortBy}`, sortOrder);
     if (sortBy === "year") qb.addOrderBy("closing.month", sortOrder);
     else if (sortBy === "month") qb.addOrderBy("closing.year", sortOrder);
-    else qb.addOrderBy("closing.year", "DESC").addOrderBy("closing.month", "DESC");
+    else qb.addOrderBy("closing.year", sortOrder).addOrderBy("closing.month", sortOrder);
     qb.skip((page - 1) * limit)
       .take(limit);
 
@@ -145,9 +146,9 @@ export class MonthlyClosingService {
         }),
       );
     }
-
+    const sortOrder = FilterUtil.normalizeSortOrder(q?.sortOrder);
     // Sort chronologically
-    qb.orderBy("closing.year", "DESC").addOrderBy("closing.month", "DESC");
+    qb.orderBy("closing.year", sortOrder).addOrderBy("closing.month", sortOrder);
 
     const records = await qb.getMany();
 

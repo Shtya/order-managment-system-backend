@@ -27,6 +27,7 @@ import {
   RequestTranslationService,
   TranslationService,
 } from "common/translation.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class ExpensesService {
@@ -88,11 +89,11 @@ export class ExpensesService {
       ? q.sortBy
       : "collectionDate";
 
-    const sortOrder = q?.sortOrder?.toUpperCase() === "ASC" ? "ASC" : "DESC";
+    const sortOrder = FilterUtil.normalizeSortOrder(q?.sortOrder);
 
     // 3. الترتيب والتنفيذ بشكل آمن
     qb.orderBy(`expense.${sortBy}`, sortOrder);
-    if (sortBy !== "createdAt") qb.addOrderBy(`expense.createdAt`, "DESC");
+    if (sortBy !== "createdAt") qb.addOrderBy(`expense.createdAt`, sortOrder);
     qb.skip((page - 1) * limit).take(limit);
 
     const [records, total] = await qb.getManyAndCount();
@@ -162,7 +163,7 @@ export class ExpensesService {
       q?.endDate,
     );
 
-    qb.orderBy("expense.collectionDate", "DESC");
+    qb.orderBy("expense.collectionDate", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const records = await qb.getMany();
 

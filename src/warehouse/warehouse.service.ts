@@ -23,6 +23,7 @@ import * as ExcelJS from "exceljs";
 import { I18nKey, TranslationService } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class WarehousesService {
@@ -44,7 +45,7 @@ export class WarehousesService {
     const qb = this.warehousesRepo
       .createQueryBuilder("w")
       .where(`w."adminId" = :adminId`, { adminId })
-      .orderBy(`w."created_at"`, "DESC");
+      .orderBy(`w."created_at"`, FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     DateFilterUtil.applyToQueryBuilder(
       qb,
@@ -57,13 +58,12 @@ export class WarehousesService {
       qb.andWhere(`w."isActive" = :isActive`, { isActive: q.isActive });
     }
 
-    if (q?.search?.trim()) {
-      const search = `%${String(q.search).trim().toLowerCase()}%`;
-
+    const search = FilterUtil.likeContains(q?.search);
+    if (search) {
       qb.andWhere(
         `(
-				LOWER(w.name) LIKE :search
-				OR LOWER(w.address) LIKE :search
+				LOWER(w.name) LIKE LOWER(:search) ESCAPE '\\'
+				OR LOWER(w.address) LIKE LOWER(:search) ESCAPE '\\'
 			)`,
         { search },
       );
@@ -323,7 +323,7 @@ export class WarehousesService {
     }
 
     const [records, total] = await qb
-      .orderBy("l.created_at", "DESC")
+      .orderBy("l.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder))
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();

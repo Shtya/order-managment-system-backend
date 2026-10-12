@@ -24,6 +24,7 @@ import {
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
 import { resolveClientSendPhone } from "src/audience/resolve-client-send-phone";
 import { tenantId } from "src/category/category.service";
+import { FilterUtil } from "common/crud.service";
 import { TranslationService } from "common/translation.service";
 import { CustomerService } from "../customer/customer.service";
 import { deleteFile } from "common/healpers";
@@ -497,8 +498,8 @@ export class ClientService {
       ])
       .where("client.adminId = :adminId", { adminId })
       .andWhere("client.status = :status", { status: ClientStatus.ACTIVE })
-      .orderBy("client.createdAt", "DESC")
-      .addOrderBy("client.id", "DESC")
+      .orderBy("client.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder))
+      .addOrderBy("client.id", FilterUtil.normalizeSortOrder(q?.sortOrder))
       .take(fetchLimit + 1);
 
     if (this.queryFlag(q?.hasPhone)) {
@@ -527,14 +528,23 @@ export class ClientService {
     }
 
     const cursor = String(q?.cursor ?? "").trim();
-    if (cursor.includes("|")) {
-      const [createdAt, id] = cursor.split("|");
-      if (createdAt && id) {
-        qb.andWhere(
-          "(client.createdAt < :cAt OR (client.createdAt = :cAt AND client.id < :cId))",
-          { cAt: createdAt, cId: id },
-        );
+    if (cursor) {
+      const [createdAt, id, extra] = cursor.split("|");
+      const isUuid =
+        typeof id === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+      if (
+        extra !== undefined ||
+        !createdAt ||
+        !isUuid ||
+        Number.isNaN(Date.parse(createdAt))
+      ) {
+        throw new BadRequestException(this.translations.t("common.invalid_cursor"));
       }
+      qb.andWhere(
+        "(client.createdAt < :cAt OR (client.createdAt = :cAt AND client.id < :cId))",
+        { cAt: createdAt, cId: id },
+      );
     }
 
     const fetched = await qb.getMany();

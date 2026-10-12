@@ -33,6 +33,7 @@ import {
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
 import * as ExcelJS from "exceljs";
+import { FilterUtil } from "common/crud.service";
 
 const LIST_PAGE_LIMIT = 20;
 const LIST_PAGE_LIMIT_MAX = 100;
@@ -402,7 +403,7 @@ export class AgentsService {
       qb.andWhere("agent.language = :language", { language: q.language });
     }
 
-    return qb.orderBy("agent.createdAt", "DESC");
+    return qb.orderBy("agent.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
   }
 
   async list(me: any, q: any) {
@@ -614,7 +615,7 @@ export class AgentsService {
       qb.andWhere("knowledge.isActive = false");
     }
 
-    return qb.orderBy("knowledge.createdAt", "DESC");
+    return qb.orderBy("knowledge.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
   }
 
   async listKnowledge(me: any, q: any) {

@@ -282,6 +282,10 @@ export class AutoPreviewDto {
 }
 
 export class GetFreeOrdersDto {
+  @IsOptional()
+  @IsString({message: i18nValidationMessage('validation.is_string')})
+  sortOrder?: string;
+  
   @IsArray({ message: i18nValidationMessage('validation.is_array') })
   @ArrayNotEmpty()
   statusIds?: string[];

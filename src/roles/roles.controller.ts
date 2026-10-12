@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -26,8 +27,8 @@ export class RolesController {
 
   @Permissions("roles.read", "roles.getOnly")
   @Get()
-  list(@Req() req: any) {
-    return this.roles.list(req.user);
+  list(@Req() req: any, @Query("sortOrder") sortOrder?: string) {
+    return this.roles.list(req.user, { sortOrder: sortOrder });
   }
 
   @Permissions("roles.read")

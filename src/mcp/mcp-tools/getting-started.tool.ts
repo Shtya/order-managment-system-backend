@@ -13,7 +13,7 @@ import { TOOL } from "../utils/mcp-tool-names";
 // 1) INPUT SCHEMAS: no paging, no id. One call.
 // ═══════════════════════════════════════════════════════════════
 
-const gettingStartedStatsInput = z.object({});
+const gettingStartedStatsInput = z.strictObject({});
 
 // ═══════════════════════════════════════════════════════════════
 // 2) OUTPUT MAPPERS: slim rows, steps without actionConfig.

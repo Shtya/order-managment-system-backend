@@ -11,7 +11,7 @@ import { User } from "entities/user.entity";
 import { toolJson } from "../utils/mcp-result.util";
 import { idDescription, shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
 import { uuidField, isoDateField, TREND_RANGES } from "../utils/mcp-date.util";
-import { assertDateOrder } from "../utils/mcp-dto.util";
+import { isSet, omitAll, omitAllList, resolveToolDates } from "../utils/mcp-dto.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -20,7 +20,7 @@ import { assertDateOrder } from "../utils/mcp-dto.util";
 //    Flat object + runtime checks (no discriminated union).
 // ═══════════════════════════════════════════════════════════════
 
-const dashboardStatsInput = z.object({
+const dashboardStatsInput = z.strictObject({
   report: z
     .enum(["summary", "weekly_trend", "top_cities", "top_products", "home", "top_products_chart"])
     .optional()
@@ -65,7 +65,7 @@ const dashboardStatsInput = z.object({
     .describe("How many rows to return. Only valid for report=top_cities, top_products, and top_products_chart."),
 });
 
-const dashboardAiStatsInput = z.object({
+const dashboardAiStatsInput = z.strictObject({
   report: z
     .enum(["overview", "credits", "cost_by_agent"])
     .optional()
@@ -75,14 +75,7 @@ const dashboardAiStatsInput = z.object({
   endDate: isoDateField("Range end, ISO date (YYYY-MM-DD). Only valid with report=overview and cost_by_agent.").optional(),
 });
 
-const isSet = (value: unknown): boolean =>
-  value !== undefined &&
-  value !== null &&
-  value !== "" &&
-  !(Array.isArray(value) && value.length === 0);
-
 function parseDashboardStatsInput(input: z.infer<typeof dashboardStatsInput>) {
-  assertDateOrder(input as Record<string, unknown>);
   const report = input.report ?? "summary";
   const dateKeys = (["range", "startDate", "endDate"] as const).filter((key) => isSet(input[key]));
 
@@ -101,13 +94,18 @@ function parseDashboardStatsInput(input: z.infer<typeof dashboardStatsInput>) {
     );
   }
 
-  const { report: _report, limit, ...filters } = input;
+  const dates = report === "weekly_trend" ? {} : resolveToolDates(input);
   return {
     report,
     filters: {
-      ...filters,
+      ...dates,
+      storeId: omitAll(input.storeId),
+      cityId: omitAll(input.cityId),
+      shippingCompanyId: omitAll(input.shippingCompanyId),
+      assignedUserId: omitAll(input.assignedUserId),
+      productIds: omitAllList(input.productIds),
       ...(report === "top_cities" || report === "top_products" || report === "top_products_chart"
-        ? { limit: limit ?? 5 }
+        ? { limit: input.limit ?? 5 }
         : {}),
     },
   };
@@ -197,7 +195,7 @@ export class McpDashboardTools {
   @McpReadTool({
     name: TOOL.dashboard.stats,
     description:
-      "Order statistics. Pass `report`: summary (default — KPIs, status breakdown, previous-range comparison), weekly_trend (created vs delivered for the last 7 days; no date filters), top_cities, top_products, home (home KPI cards), or top_products_chart. Shared filters: storeId, cityId, shippingCompanyId, productIds, assignedUserId. Date filters (not for weekly_trend): range, or startDate + endDate. `limit` only for top_cities, top_products, and top_products_chart. Read-only.",
+      "Order statistics. Pass `report`: summary (default — KPIs, status breakdown, previous-range comparison), weekly_trend (created vs delivered for the last 7 days; no date filters), top_cities, top_products, home (home KPI cards: deliveredSales, returnedRate, cancelledRate), or top_products_chart. Shared filters: storeId, cityId, shippingCompanyId, productIds, assignedUserId (`all` or omit to skip). Date filters (not for weekly_trend): range, or startDate + endDate — not both. Dates are inclusive calendar days. `limit` only for top_cities, top_products, and top_products_chart. Extra fields are rejected. Read-only.",
     parameters: dashboardStatsInput,
   })
   async getOrdersStats(
@@ -222,7 +220,23 @@ export class McpDashboardTools {
       return toolJson({ report: req.report, products: rows.map(toTopProductRow) });
     }
     if (req.report === "home") {
-      return toolJson({ report: req.report, ...(await this.dashboard.getSummary(user, req.filters)) });
+      const home = await this.dashboard.getSummary(user, req.filters);
+      return toolJson({
+        report: req.report,
+        totalOrders: Number((home as any).totalOrders ?? 0),
+        deliveredSales: Number((home as any).totalSales ?? 0),
+        totalProfit: Number((home as any).totalProfit ?? 0),
+        costOfGoods: Number((home as any).costOfGoods ?? 0),
+        profitMargin: Number((home as any).profitMargin ?? 0),
+        confirmRate: Number((home as any).confirmRate ?? 0),
+        deliveryRate: Number((home as any).deliveryRate ?? 0),
+        cancelledRate: Number((home as any).cancelled ?? 0),
+        returnedRate: Number((home as any).returned ?? 0),
+        inDelivery: Number((home as any).inDelivery ?? 0),
+        newOrders: Number((home as any).newOrders ?? 0),
+        totalCollected: Number((home as any).totalCollected ?? 0),
+        comparison: (home as any).comparison ?? null,
+      });
     }
     if (req.report === "top_products_chart") {
       const result = await this.dashboard.getTopProducts(user, req.filters);
@@ -237,7 +251,7 @@ export class McpDashboardTools {
   @McpReadTool({
     name: TOOL.dashboard.aiStats,
     description:
-      "AI usage statistics. Pass `report`: overview (default — usage overview, optional dates/range), credits (wallet credits, no dates), cost_by_agent (cost grouped by agent, optional dates/range). Read-only.",
+      "AI usage statistics. Pass `report`: overview (default — usage overview, optional dates/range), credits (wallet credits, no dates), cost_by_agent (cost grouped by agent, optional dates/range). Pass range or startDate+endDate, not both. Extra fields are rejected. Read-only.",
     parameters: dashboardAiStatsInput,
   })
   async getAiStats(
@@ -245,17 +259,16 @@ export class McpDashboardTools {
     @McpUser() user: User,
   ) {
     const report = (input as any)?.report ?? "overview";
-    assertDateOrder(input as Record<string, unknown>);
     if (report === "credits") {
       if (isSet((input as any).startDate) || isSet((input as any).endDate) || isSet((input as any).range)) {
         throw new RpcException("report=credits takes no dates. Remove startDate/endDate/range.");
       }
       return toolJson({ report, ...(await this.aiDashboard.credits(user)) });
     }
+    const dates = resolveToolDates(input);
     const query = {
-      ...(isSet((input as any).startDate) ? { startDate: (input as any).startDate } : {}),
-      ...(isSet((input as any).endDate) ? { endDate: (input as any).endDate } : {}),
-      ...(isSet((input as any).range) ? { range: (input as any).range } : {}),
+      ...(dates.startDate ? { startDate: dates.startDate } : {}),
+      ...(dates.endDate ? { endDate: dates.endDate } : {}),
     };
     if (report === "cost_by_agent") {
       return toolJson({ report, ...(await this.aiDashboard.costByAgent(user, query)) });

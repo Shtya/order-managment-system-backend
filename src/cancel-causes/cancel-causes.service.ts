@@ -26,8 +26,9 @@ import {
 } from "dto/cancel-cause.dto";
 import { ChangeOrderStatusDto } from "dto/order.dto";
 import { tenantId } from "src/category/category.service";
-import { CRUD } from "common/crud.service";
+import { CRUD, FilterUtil } from "common/crud.service";
 import { DateFilterUtil } from "common/date-filter.util";
+import { BUSINESS_TZ } from "src/mcp/utils/mcp-date.util";
 import { calculatePreviousRange } from "common/healpers";
 import { TranslationService } from "common/translation.service";
 import * as ExcelJS from "exceljs";
@@ -221,6 +222,8 @@ export class CancelCausesService {
         "cause.id",
         "cause.name",
         "cause.code",
+        "cause.reviewStatus",
+        "cause.isActive",
         "cause.sortOrder",
         "cause.created_at",
         "cause.updated_at",
@@ -233,8 +236,14 @@ export class CancelCausesService {
       );
     }
 
-    const total = await qb.getCount();
-    const records = await qb.skip(skip).take(limit).getMany();
+    this.applyUsageCountSelect(qb, q);
+
+    const total = await qb.clone().getCount();
+    const rows = await qb.skip(skip).take(limit).getRawAndEntities();
+    const records = rows.entities.map((cause, i) => ({
+      ...cause,
+      usageCount: Number(rows.raw[i]?.usageCount || 0),
+    }));
     return {
       records,
       total_records: total,
@@ -268,7 +277,7 @@ export class CancelCausesService {
       .leftJoinAndSelect("occ.toStatus", "toStatus")
       .where("occ.orderId = :orderId", { orderId })
       .andWhere("occ.adminId = :adminId", { adminId })
-      .orderBy("occ.created_at", "DESC");
+      .orderBy("occ.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const total = await qb.clone().getCount();
     const records = await qb.skip(skip).take(limit).getMany();
@@ -894,6 +903,22 @@ export class CancelCausesService {
     return `COALESCE(cause."mergedIntoCauseId", occ."cancelCauseId")`;
   }
 
+  /** Current catalog name, falling back to the event snapshot if the cause row is gone. */
+  private catalogNameExpr() {
+    return `COALESCE(MAX(cause.name), MAX(occ."causeNameSnapshot"))`;
+  }
+
+  private async eventCount(
+    adminId: string,
+    q?: any,
+    dateQ?: { startDate?: string | Date; endDate?: string | Date },
+  ) {
+    const row = await this.eventsQb(adminId, q, dateQ)
+      .select("COUNT(occ.id)::int", "total")
+      .getRawOne();
+    return this.rawNum(row, "total");
+  }
+
   private async topCauses(
     adminId: string,
     q: any,
@@ -902,13 +927,15 @@ export class CancelCausesService {
   ) {
     const qb = this.eventsQb(adminId, q, dateQ)
       .select(this.catalogIdExpr(), "id")
-      .addSelect('MAX(occ."causeNameSnapshot")', "name")
+      .addSelect(this.catalogNameExpr(), "name")
       .addSelect("COUNT(occ.id)::int", "count")
       .groupBy(this.catalogIdExpr())
       .orderBy("COUNT(occ.id)", "DESC")
       .limit(limit);
-    const rows = await qb.getRawMany();
-    const total = rows.reduce((s, r) => s + this.rawNum(r, "count"), 0);
+    const [rows, total] = await Promise.all([
+      qb.getRawMany(),
+      this.eventCount(adminId, q, dateQ),
+    ]);
     return rows.map((r) => ({
       id: r.id,
       name: r.name,
@@ -1203,7 +1230,7 @@ export class CancelCausesService {
         .groupBy('occ."causeNameSnapshot"');
     } else {
       qb.select(this.catalogIdExpr(), "causeId")
-        .addSelect('MAX(occ."causeNameSnapshot")', "name")
+        .addSelect(this.catalogNameExpr(), "name")
         .addSelect('MAX(cause."reviewStatus")', "reviewStatus")
         .addSelect("COUNT(occ.id)::int", "count")
         .addSelect(
@@ -1302,7 +1329,7 @@ export class CancelCausesService {
       .limit(limit)
       .getRawMany();
 
-    const total = rows.reduce((s, r) => s + this.rawNum(r, "count"), 0);
+    const total = await this.eventCount(adminId, q);
     return {
       records: rows.map((r) => ({
         productId: r.productId || r.productid || null,
@@ -1380,11 +1407,11 @@ export class CancelCausesService {
     const query = `
       WITH segments AS (
         SELECT
-          gs AS seg_start,
-          gs + '${step}'::interval AS seg_end
+          (gs AT TIME ZONE '${BUSINESS_TZ}') AS seg_start,
+          ((gs + '${step}'::interval) AT TIME ZONE '${BUSINESS_TZ}') AS seg_end
         FROM generate_series(
-          date_trunc('${interval}', $1::timestamptz),
-          date_trunc('${interval}', $2::timestamptz),
+          date_trunc('${interval}', $1::timestamptz AT TIME ZONE '${BUSINESS_TZ}'),
+          date_trunc('${interval}', $2::timestamptz AT TIME ZONE '${BUSINESS_TZ}'),
           '${step}'::interval
         ) AS gs
       ),
@@ -1446,10 +1473,16 @@ export class CancelCausesService {
 
     const totalRow = await this.eventsQb(adminId, q)
       .select('COUNT(DISTINCT occ."submittedByEmployeeId")::int', "c")
+      .addSelect(
+        `COUNT(occ.id) FILTER (WHERE occ."submittedByEmployeeId" IS NULL)::int`,
+        "nulls",
+      )
       .getRawOne();
+    const named = this.rawNum(totalRow, "c");
+    const hasUnassigned = this.rawNum(totalRow, "nulls") > 0;
 
     return {
-      total_records: this.rawNum(totalRow, "c"),
+      total_records: named + (hasUnassigned ? 1 : 0),
       current_page: page,
       per_page: limit,
       records: rows.map((r) => ({

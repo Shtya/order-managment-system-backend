@@ -4,7 +4,7 @@ import { z } from "zod";
 import { PipeTransform } from "@nestjs/common";
 import { Payload, RpcException } from "@nestjs/microservices";
 import { idDescription, ToolName } from "./mcp-tool-names";
-import { uuidField } from "./mcp-date.util";
+import { businessDayRange, resolveQuickRange, TrendRange, uuidField } from "./mcp-date.util";
 
 type ParseResult<T> = { ok: true; dto: T } | { ok: false; message: string };
 
@@ -180,11 +180,51 @@ const isPagingKey = (key: string): boolean =>
   (PAGING_KEYS as readonly string[]).includes(key);
 
 /** A value counts as "set" unless it is empty (models sometimes send "" or [] for unused fields). */
-const isSet = (value: unknown): boolean =>
+export const isSet = (value: unknown): boolean =>
   value !== undefined &&
   value !== null &&
   value !== "" &&
   !(Array.isArray(value) && value.length === 0);
+
+/** `"all"` / empty means "no filter". */
+export function omitAll<T>(value: T | "all" | undefined | null): T | undefined {
+  if (!isSet(value) || value === "all") return undefined;
+  return value as T;
+}
+
+export function omitAllList(values?: string[]): string[] | undefined {
+  if (!values?.length) return undefined;
+  const next = values.filter((v) => v && v !== "all");
+  return next.length ? next : undefined;
+}
+
+/**
+ * MCP date window: either `range` or start/end dates, never both.
+ * Returns Cairo-inclusive instants (or nothing if neither was passed).
+ */
+export function resolveToolDates(q: {
+  range?: string;
+  startDate?: string;
+  endDate?: string;
+}): { startDate?: Date; endDate?: Date } {
+  const hasRange = isSet(q.range);
+  const hasStart = isSet(q.startDate);
+  const hasEnd = isSet(q.endDate);
+  if (hasRange && (hasStart || hasEnd)) {
+    throw new RpcException("Pass either `range` or `startDate`/`endDate`, not both. Remove one.");
+  }
+  assertDateOrder(q as Record<string, unknown>);
+  if (hasRange) {
+    const { startDate, endDate } = resolveQuickRange(q.range as TrendRange);
+    const { start, end } = businessDayRange(startDate, endDate);
+    return { startDate: start, endDate: end };
+  }
+  const { start, end } = businessDayRange(
+    hasStart ? q.startDate : undefined,
+    hasEnd ? q.endDate : undefined,
+  );
+  return { startDate: start, endDate: end };
+}
 
 /**
  * Builds the input schema of a `*_search` tool.
@@ -205,7 +245,7 @@ export function searchInput<S extends z.ZodRawShape>(
     }
   }
 
-  return z.object({
+  return z.strictObject({
     id: uuidField(
       idDescription(
         `${entity} ID. Pass it to get ONE ${entity} with full details. Omit it to search and list.`,

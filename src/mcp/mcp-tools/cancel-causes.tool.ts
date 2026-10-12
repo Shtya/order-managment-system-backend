@@ -80,8 +80,8 @@ const cancelCausesStatsInput = z.object({
     ])
     .optional()
     .describe("Which report to return. overview (default): totals. top_this_month: no custom dates. pending_review: no dates."),
-  startDate: isoDateField("Range start, YYYY-MM-DD (real calendar date), inclusive.").optional(),
-  endDate: isoDateField("Range end, YYYY-MM-DD (real calendar date), inclusive (the whole day counts).").optional(),
+  startDate: isoDateField("Range start, YYYY-MM-DD (real calendar date), inclusive. Must be on or before endDate when both are set.").optional(),
+  endDate: isoDateField("Range end, YYYY-MM-DD (real calendar date), inclusive (the whole day counts). Must be on or after startDate when both are set.").optional(),
 });
 
 const isSet = (v: unknown): boolean =>

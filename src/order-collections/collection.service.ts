@@ -13,6 +13,7 @@ import { tenantId } from "src/category/category.service";
 import { Brackets, DataSource, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
+import { FilterUtil } from "common/crud.service";
 import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { UsersService } from "src/users/users.service";
@@ -330,7 +331,7 @@ export class CollectionService {
       q?.endDate,
     );
 
-    qb.orderBy(`order.${sortBy}`, sortDir);
+    qb.orderBy(`order.${sortBy}`, sortDir, "NULLS LAST");
 
     const [orders, total] = await qb
       .skip((page - 1) * limit)
@@ -364,6 +365,7 @@ export class CollectionService {
       return {
         orderId: order.id,
         orderNumber: order.orderNumber,
+        customerName: order.customerName ?? null,
         deliveredAt: order.deliveredAt, // تاریخ التوصيل
         shippingCompany: order.shippingCompany || "N/A",
         shippingCost: order.shippingCost,
@@ -448,7 +450,7 @@ export class CollectionService {
       }
     }
 
-    const orders = await qb.orderBy("order.created_at", "DESC").getMany();
+    const orders = await qb.orderBy("order.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder)).getMany();
 
     // 2. تحديد الأعمدة بناءً على الحالة (Dynamic Columns)
     let columns = [];

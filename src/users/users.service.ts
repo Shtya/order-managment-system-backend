@@ -37,6 +37,7 @@ import { tenantId } from "src/category/category.service";
 import { SeedService } from "./initial-seed.service";
 import { TranslationService } from "common/translation.service";
 import { DateFilterUtil } from "common/date-filter.util";
+import { FilterUtil } from "common/crud.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import {
   GettingStartedAchievementType,
@@ -171,6 +172,7 @@ export class UsersService {
       adminId: string;
       startDate: Date;
       endDate: Date;
+      sortOrder: string;
     },
   ) {
     // Enforce SUPER_ADMIN only
@@ -223,7 +225,7 @@ export class UsersService {
         "getting_started_completed",
       )
 
-      .orderBy("u.createdAt", "DESC");
+      .orderBy("u.createdAt", FilterUtil.normalizeSortOrder(opts?.sortOrder));
 
     DateFilterUtil.applyToQueryBuilder(
       qb,
@@ -431,6 +433,7 @@ export class UsersService {
       adminId: string;
       startDate: Date;
       endDate: Date;
+      sortOrder: string;
     },
   ) {
     if (!this.isSuperAdmin(me)) {
@@ -458,7 +461,7 @@ export class UsersService {
       .leftJoinAndSelect("subscription.plan", "plan")
       .leftJoin(User, "admin", "admin.id = u.adminId")
       .addSelect(["admin.id", "admin.name", "admin.email"])
-      .orderBy("u.createdAt", "DESC");
+      .orderBy("u.createdAt", FilterUtil.normalizeSortOrder(opts?.sortOrder));
 
     DateFilterUtil.applyToQueryBuilder(
       qb,
@@ -873,14 +876,14 @@ export class UsersService {
     return { id: user.id, isActive: newStatus };
   }
 
-  async exportCsv(me: User, opts: { search: string; type: string }) {
+  async exportCsv(me: User, opts: { search: string; type: string; sortOrder: string }) {
     const search = (opts.search || "").trim();
     const type = (opts.type || "all").trim();
 
     const qb = this.usersRepo
       .createQueryBuilder("u")
       .leftJoinAndSelect("u.role", "role")
-      .orderBy("u.createdAt", "DESC");
+      .orderBy("u.createdAt", FilterUtil.normalizeSortOrder(opts?.sortOrder));
 
     if (!this.isSuperAdmin(me)) {
       if (me.role?.name === SystemRole.ADMIN) {

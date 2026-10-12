@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from "@nestjs/common";
@@ -26,8 +27,8 @@ export class PlansController {
 
   @Get()
   @SkipThrottle({ default: true })
-  list(@Req() req: any) {
-    return this.plans.list(req.user);
+  list(@Req() req: any, @Query("sortOrder") sortOrder?: string) {
+    return this.plans.list(req.user, { sortOrder: sortOrder });
   }
 
   // ✅ Get available plans (public for users to subscribe)

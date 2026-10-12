@@ -9,6 +9,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Brackets, In, Repository } from "typeorm";
 import * as ExcelJS from "exceljs";
 import { DateFilterUtil } from "common/date-filter.util";
+import { FilterUtil } from "common/crud.service";
 import { TranslationService } from "common/translation.service";
 import { tenantId } from "src/category/category.service";
 import {
@@ -258,7 +259,7 @@ export class ShippingAssigningService {
     const adminId = this.requireAdminId(me);
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
 
     const qb = this.ruleRepo
       .createQueryBuilder("rule")
@@ -269,7 +270,7 @@ export class ShippingAssigningService {
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("rule.name ILIKE :s", { s: `%${search}%` });
+          sq.where("rule.name ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }

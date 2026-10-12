@@ -47,7 +47,7 @@ export class SupplierCategoriesService {
     const adminId = tenantId(me);
     const entity = await CRUD.findOne(
       this.categoryRepo,
-      "supplier_categories",
+      "supplier_category",
       id,
       [],
     );

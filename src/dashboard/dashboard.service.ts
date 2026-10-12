@@ -38,6 +38,20 @@ import { TranslationService } from "common/translation.service";
 
 @Injectable()
 export class DashboardService {
+  private filterWindow(filters: any): { start: Date | null; end: Date | null } {
+    if (filters?.range) {
+      const { start, end } = calculateRange(filters.range);
+      if (start || end) return { start: start ?? null, end: end ?? null };
+    }
+    const exact =
+      filters?.startDate instanceof Date || filters?.endDate instanceof Date;
+    return DateFilterUtil.getBoundaries(
+      filters?.startDate,
+      filters?.endDate,
+      exact,
+    );
+  }
+
   constructor(
     private dataSource: DataSource,
     @InjectRepository(OrderEntity)
@@ -58,18 +72,15 @@ export class DashboardService {
     user,
     filters: {
       storeId?: string;
-      startDate?: string;
-      endDate?: string;
+      startDate?: string | Date;
+      endDate?: string | Date;
       range?: string;
       search?: string;
     },
   ) {
     const adminId = tenantId(user);
 
-    // 1. Calculate current range
-    const { start, end } = calculateRange(filters.range);
-    const finalStartDate = start || filters.startDate;
-    const finalEndDate = end || filters.endDate;
+    const { start: finalStartDate, end: finalEndDate } = this.filterWindow(filters);
 
     // 2. Calculate previous range for comparison
     const prevRange = calculatePreviousRange(
@@ -294,8 +305,8 @@ export class DashboardService {
     user,
     filters: {
       storeId?: string;
-      startDate?: string;
-      endDate?: string;
+      startDate?: string | Date;
+      endDate?: string | Date;
       range?: string;
       search?: string;
       limit?: number;
@@ -304,14 +315,7 @@ export class DashboardService {
     const adminId = tenantId(user);
     const limit = filters.limit || 5;
 
-    const { start, end } = calculateRange(filters.range);
-    const finalStartDate =
-      start ||
-      (filters.startDate
-        ? new Date(filters.startDate)
-        : subDays(new Date(), 30));
-    const finalEndDate =
-      end || (filters.endDate ? new Date(filters.endDate) : new Date());
+    const { start: finalStartDate, end: finalEndDate } = this.filterWindow(filters);
 
     // 1️⃣ بناء الاستعلام الأساسي المشترك
     const baseQuery = this.orderRepo.manager
@@ -1052,10 +1056,7 @@ export class DashboardService {
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
     const search = String(q?.search ?? "").trim();
-    const { start, end } = DateFilterUtil.getBoundaries(
-      q?.startDate,
-      q?.endDate,
-    );
+    const { start, end } = this.filterWindow(q);
 
     const qb = this.usersRepo.createQueryBuilder("u");
 
@@ -1112,20 +1113,24 @@ export class DashboardService {
         "deliveredCount",
       )
       .addSelect((sub) => {
-        return sub
+        const s = sub
           .select("COUNT(DISTINCT oa_active.orderId)", "activeCount")
           .from(OrderAssignmentEntity, "oa_active")
           .innerJoin("oa_active.order", "o_active")
           .where("oa_active.employeeId = u.id")
           .andWhere("oa_active.isAssignmentActive = true");
+        if (q?.storeId) s.andWhere("o_active.storeId = :storeId");
+        return s;
       }, "activeAssignments")
       .addSelect((sub) => {
-        return sub
+        const s = sub
           .select("COUNT(DISTINCT oa_locked.id)", "lockedCount")
           .from(OrderAssignmentEntity, "oa_locked")
           .innerJoin("oa_locked.order", "o_locked")
           .where("oa_locked.employeeId = u.id")
           .andWhere("oa_locked.lockedUntil > CURRENT_TIMESTAMP");
+        if (q?.storeId) s.andWhere("o_locked.storeId = :storeId");
+        return s;
       }, "lockedAssignments")
       .addSelect((sub) => {
         const s = sub
@@ -1500,14 +1505,7 @@ export class DashboardService {
       );
     }
 
-    // Calculate Date Boundaries
-    const { start: startRange, end: endRange } = calculateRange(filters.range);
-    const { start, end } = DateFilterUtil.getBoundaries(
-      filters.startDate,
-      filters.endDate,
-    );
-    const startDate = startRange ? startRange : start;
-    const endDate = endRange ? endRange : end;
+    const { start: startDate, end: endDate } = this.filterWindow(filters);
 
     // Calculate previous range for comparison
     const prevRange = calculatePreviousRange(
@@ -1604,6 +1602,12 @@ export class DashboardService {
           successStatus: OrderFailStatus.SUCCESS,
         });
 
+      const pendingUsesOrderFilters = Boolean(
+        filters.cityId ||
+          filters.shippingCompanyId ||
+          filters.assignedUserId ||
+          (filters.productIds && filters.productIds.length > 0),
+      );
       if (filters.storeId) {
         pendingQb.andWhere("wf.storeId = :storeId", {
           storeId: filters.storeId,
@@ -1617,6 +1621,9 @@ export class DashboardService {
       }
 
       pendingQb.select("COUNT(DISTINCT wf.id)", "count");
+      if (pendingUsesOrderFilters) {
+        pendingQb.andWhere("FALSE");
+      }
 
       const [mainStats, pendingStats] = await Promise.all([
         mainQb.getRawOne(),
@@ -1849,10 +1856,7 @@ export class DashboardService {
       );
     }
 
-    const { start, end } = DateFilterUtil.getBoundaries(
-      filters.startDate,
-      filters.endDate,
-    );
+    const { start, end } = this.filterWindow(filters);
     const limit = filters.limit ? Number(filters.limit) : 5;
 
     const qb = this.orderRepo
@@ -1961,10 +1965,7 @@ export class DashboardService {
       );
     }
 
-    const { start, end } = DateFilterUtil.getBoundaries(
-      filters.startDate,
-      filters.endDate,
-    );
+    const { start, end } = this.filterWindow(filters);
     const limit = filters.limit ? Number(filters.limit) : 5;
 
     // Use OrderItems as the base to join products properly, then join back to Order

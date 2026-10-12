@@ -10,10 +10,10 @@ import { TemplateCategory, TemplateStatus } from "entities/whatsapp.entity";
 import { WhatsappService } from "src/whatsapp/whatsapp.service";
 import { WhatsappAccountService } from "src/whatsapp/services/WhatsappAccount.service";
 import { WhatsappTemplateService } from "src/whatsapp/services/WhatsappTemplate.service";
-import { assertDateOrder, listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { listPaging, parseSearchInput, resolveToolDates, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
-import { uuidField, isoDateField } from "../utils/mcp-date.util";
+import { uuidField, isoDateField, TREND_RANGES } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -21,13 +21,14 @@ import { uuidField, isoDateField } from "../utils/mcp-date.util";
 //    sortBy/sortDir at SQL; templates sort createdAt fixed.
 // ═══════════════════════════════════════════════════════════════
 
-const whatsappStatsInput = z.object({
+const whatsappStatsInput = z.strictObject({
   report: z
     .enum(["summary", "accounts", "templates"])
     .optional()
     .describe("Which report to return. summary (default): dashboard stats, optional dates/accountId. accounts: account counts, no dates. templates: template counts, no dates."),
   startDate: isoDateField("Range start, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
   endDate: isoDateField("Range end, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
+  range: z.enum(TREND_RANGES).optional().describe(`Quick range. Only valid with report=summary. One of: ${TREND_RANGES.join(", ")}.`),
   accountId: uuidField(idDescription("WhatsApp account id.", TOOL.whatsapp.accountsSearch, "Only valid with report=summary.")).optional(),
 });
 
@@ -129,14 +130,21 @@ export class McpWhatsappTools {
     @McpUser() user: User,
   ) {
     const report = (input as any)?.report ?? "summary";
-    assertDateOrder(input as Record<string, unknown>);
-    if (report !== "summary" && (isSet((input as any).startDate) || isSet((input as any).endDate) || isSet((input as any).accountId))) {
-      throw new RpcException("report=accounts and report=templates take no dates or accountId. Remove them or set report=summary.");
+    if (report !== "summary" && (isSet((input as any).startDate) || isSet((input as any).endDate) || isSet((input as any).range) || isSet((input as any).accountId))) {
+      throw new RpcException("report=accounts and report=templates take no dates, range, or accountId. Remove them or set report=summary.");
     }
-    if (report === "accounts") return toolJson({ report, ...(await this.accounts.getStats(user)) });
+    if (report === "accounts") return toolJson({ report, ...(await this.accounts.getCounts(user)) });
     if (report === "templates") return toolJson({ report, ...(await this.templates.getStats(user)) });
-    const { report: _r, ...filters } = input as any;
-    return toolJson({ report, ...(await this.whatsapp.getDashboardStats(user, filters)) });
+    const dates = resolveToolDates(input);
+    return toolJson({
+      report,
+      ...(await this.whatsapp.getDashboardStats(user, {
+        accountId: (input as any).accountId,
+        startDate: dates.startDate,
+        endDate: dates.endDate,
+        skipDefaultRange: !dates.startDate && !dates.endDate,
+      })),
+    });
   }
 
   @McpReadTool({
@@ -176,7 +184,17 @@ export class McpWhatsappTools {
       return toolJson(toTemplateDto(await this.templates.findOne(user, req.id)));
     }
     const { library, ...rest } = req.query as typeof req.query & { library?: boolean };
-    const result = await this.templates.list(user, rest, library === true ? true : undefined);
+    if (library === true) {
+      const rows = await this.templates.metaLibrary(user, rest as any);
+      const records = Array.isArray(rows) ? rows : [];
+      return toolPage(
+        "templates",
+        { records, total_records: records.length, current_page: 1, per_page: records.length || 1 },
+        toTemplateSummary,
+        records.length || 1,
+      );
+    }
+    const result = await this.templates.list(user, rest);
     return toolPage("templates", result, toTemplateSummary, (rest as any).limit);
   }
 }

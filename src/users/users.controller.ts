@@ -101,6 +101,7 @@ export class UsersController {
     @Query("adminId") adminId?: string, // filter by owner
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
+    @Query("sortOrder") sortOrder?: string,
   ) {
     return this.users.superAdminList(req.user, {
       page: Number(page ?? 1),
@@ -113,6 +114,7 @@ export class UsersController {
       adminId: adminId ?? "",
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
+      sortOrder: sortOrder ?? "DESC",
     });
   }
 
@@ -129,6 +131,7 @@ export class UsersController {
     @Query("adminId") adminId?: string,
     @Query("startDate") startDate?: string,
     @Query("endDate") endDate?: string,
+    @Query("sortOrder") sortOrder?: string,
   ) {
     const { filename, csv } = await this.users.superAdminExportCsv(req.user, {
       tab: tab ?? "all",
@@ -139,6 +142,7 @@ export class UsersController {
       adminId: adminId ?? "",
       startDate: startDate ? new Date(startDate) : undefined,
       endDate: endDate ? new Date(endDate) : undefined,
+      sortOrder: sortOrder ?? "DESC",
     });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -192,10 +196,12 @@ export class UsersController {
     @Res() res: any,
     @Query("search") search?: string,
     @Query("type") type?: string,
+    @Query("sortOrder") sortOrder?: string,
   ) {
     const { filename, csv } = await this.users.exportCsv(req.user, {
       search: search ?? "",
       type: type ?? "all",
+      sortOrder: sortOrder ?? "DESC",
     });
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");

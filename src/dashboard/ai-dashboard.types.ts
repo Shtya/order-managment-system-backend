@@ -1,7 +1,7 @@
 export type AiDashboardQuery = {
   range?: string;
-  startDate?: string;
-  endDate?: string;
+  startDate?: string | Date;
+  endDate?: string | Date;
   compare?: string | boolean;
   agentId?: string;
   model?: string;

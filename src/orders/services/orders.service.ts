@@ -89,7 +89,7 @@ import { StoresService } from "src/stores/stores.service";
 import { ShippingService } from "src/shipping/shipping.service";
 import { OrderSyncQueueService } from "src/queue/queues/order-sync.queue";
 
-import { CRUD } from "common/crud.service";
+import { CRUD, FilterUtil } from "common/crud.service";
 import { OrderAssignmentService } from "src/order-assignment/order-assignment.service";
 import { randomBytes } from "crypto";
 import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
@@ -944,6 +944,9 @@ export class OrdersService {
     }
 
     if (q?.lateShipping === "true" || q?.lateShipping === true) {
+      qb.andWhere("status.code = :lateShippedCode", {
+        lateShippedCode: OrderStatus.SHIPPED,
+      });
       qb.andWhere('"order"."shippedAt" IS NOT NULL');
       qb.andWhere('"cityTenantConfig"."maxShippingDays" IS NOT NULL');
       qb.andWhere(
@@ -960,9 +963,11 @@ export class OrdersService {
     }
 
     if (sortColumns[sortBy]) {
-      qb.orderBy(sortColumns[sortBy], sortDir);
+      const nulls =
+        sortBy === "shippedAt" || sortBy === "deliveredAt" ? "NULLS LAST" : undefined;
+      qb.orderBy(sortColumns[sortBy], sortDir, nulls);
     } else {
-      qb.orderBy("order.created_at", "DESC"); // fallback
+      qb.orderBy("order.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder)); // fallback
     }
     // Deterministic tie-breaker (required for stable keyset/cursor pagination)
     qb.addOrderBy("order.id", sortDir);
@@ -1095,16 +1100,20 @@ export class OrdersService {
       q.hasActiveAssignment !== "all"
     ) {
       if (q.hasActiveAssignment === "true" || q.hasActiveAssignment === true) {
-        qb.andWhere("assignment.isAssignmentActive = :isActive", {
-          isActive: true,
+        qb.andWhere("assignment.isAssignmentActive = :hasActiveAssignment", {
+          hasActiveAssignment: true,
         });
       } else if (
         q.hasActiveAssignment === "false" ||
         q.hasActiveAssignment === false
       ) {
         qb.andWhere(
-          "assignment.isAssignmentActive IS NULL OR assignment.isAssignmentActive = :isActive",
-          { isActive: false },
+          new Brackets((b) => {
+            b.where("assignment.id IS NULL").orWhere(
+              "assignment.isAssignmentActive = :hasInactiveAssignment",
+              { hasInactiveAssignment: false },
+            );
+          }),
         );
       }
     }
@@ -1200,13 +1209,13 @@ export class OrdersService {
       );
     }
 
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("order.orderNumber ILIKE :s", { s: `%${search}%` })
-            .orWhere("order.customerName ILIKE :s", { s: `%${search}%` })
-            .orWhere("order.phoneNumber ILIKE :s", { s: `%${search}%` });
+          sq.where("order.orderNumber ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("order.customerName ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("order.phoneNumber ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }
@@ -1736,7 +1745,7 @@ export class OrdersService {
       .addGroupBy(`shipment."shippingCompanyId"`)
       .addGroupBy("shippingCompany.name")
       .orderBy(dayExpr, "DESC")
-      .addOrderBy("count", "DESC");
+      .addOrderBy("count", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const ticketQb = this.buildShippedGroupsOpenTicketsQb(adminId, q, pageDays);
     const tagQb = this.buildShippedGroupsTagStatsQb(adminId, q, pageDays);
@@ -2391,14 +2400,14 @@ export class OrdersService {
       );
     }
 
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where(`"order"."orderNumber" ILIKE :s`, { s: `%${search}%` })
-            .orWhere(`"order"."customerName" ILIKE :s`, { s: `%${search}%` })
-            .orWhere(`"order"."phoneNumber" ILIKE :s`, { s: `%${search}%` })
-            .orWhere(`shipment."trackingNumber" ILIKE :s`, { s: `%${search}%` });
+          sq.where(`"order"."orderNumber" ILIKE :s ESCAPE '\\'`, { s: search })
+            .orWhere(`"order"."customerName" ILIKE :s ESCAPE '\\'`, { s: search })
+            .orWhere(`"order"."phoneNumber" ILIKE :s ESCAPE '\\'`, { s: search })
+            .orWhere(`shipment."trackingNumber" ILIKE :s ESCAPE '\\'`, { s: search });
         }),
       );
     }
@@ -2595,7 +2604,7 @@ export class OrdersService {
 
         qb.groupBy("shipping.id")
           .addGroupBy("shipping.name")
-          .orderBy("COUNT(order.id)", "DESC");
+          .orderBy("COUNT(order.id)", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
         return qb.getRawMany();
       })(),
@@ -2698,7 +2707,7 @@ export class OrdersService {
 
         qb.groupBy("shipping.id")
           .addGroupBy("shipping.name")
-          .orderBy("COUNT(order.id)", "DESC");
+          .orderBy("COUNT(order.id)", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
         return qb.getRawMany();
       })(),
@@ -2788,7 +2797,7 @@ export class OrdersService {
     const adminId = tenantId(me);
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
     const type = q?.type;
     const qb = this.manifestRepo
       .createQueryBuilder("manifest")
@@ -2840,24 +2849,28 @@ export class OrdersService {
       } else qb.andWhere("manifest.lastPrintedAt IS NULL");
     }
 
-    // Search: Manifest Number or Driver Name
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("manifest.manifestNumber ILIKE :s", {
-            s: `%${search}%`,
-          }).orWhere("manifest.driverName ILIKE :s", { s: `%${search}%` });
+          sq.where("manifest.manifestNumber ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("manifest.driverName ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("orders.orderNumber ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }
 
     const [records, total] = await qb
-      .orderBy("manifest.createdAt", "DESC")
+      .orderBy("manifest.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder))
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();
 
-    return { total_records: total, records };
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
   }
 
   async markAsPrinted(id: string, me: any) {
@@ -2943,7 +2956,7 @@ export class OrdersService {
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
 
     const sortBy = String(q?.sortBy ?? "createdAt");
     const sortDir: "ASC" | "DESC" =
@@ -2995,9 +3008,9 @@ export class OrdersService {
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("log.operationNumber ILIKE :s", { s: `%${search}%` })
-            .orWhere("order.orderNumber ILIKE :s", { s: `%${search}%` })
-            .orWhere("log.details ILIKE :s", { s: `%${search}%` });
+          sq.where("log.operationNumber ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("order.orderNumber ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("log.details ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }
@@ -3032,7 +3045,7 @@ export class OrdersService {
       );
     }
 
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
 
     // 1. Setup Query Builder (Same relations as listLogs)
     const qb = this.dataSource
@@ -3076,15 +3089,15 @@ export class OrdersService {
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("log.operationNumber ILIKE :s", { s: `%${search}%` })
-            .orWhere("order.orderNumber ILIKE :s", { s: `%${search}%` })
-            .orWhere("log.details ILIKE :s", { s: `%${search}%` });
+          sq.where("log.operationNumber ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("order.orderNumber ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("log.details ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }
 
     // 3. Sort and Execute (No pagination)
-    qb.orderBy("log.createdAt", "DESC");
+    qb.orderBy("log.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
     const logs = await qb.getMany();
 
     const actionTypeKeys: Record<string, any> = {

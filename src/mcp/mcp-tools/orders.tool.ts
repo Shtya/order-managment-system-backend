@@ -10,7 +10,7 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { assertDateOrder, listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
+import { assertDateOrder, listPaging, parseDto, parseSaveInput, parseSearchInput, resolveToolDates, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { CreateOrderDto, CreateOrderInternalNoteDto, CreateReplacementDto, CreateReturnDto, ChangeOrderStatusDto, UpdateOrderDto } from "dto/order.dto";
 import {
   DamageResponsibility,
@@ -25,7 +25,7 @@ import {
 import { ShipmentStatus } from "entities/shipping.entity";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
-import { uuidField, isoDateField } from "../utils/mcp-date.util";
+import { uuidField, isoDateField, TREND_RANGES, businessDayRange } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -127,6 +127,21 @@ const saveOrderInput = z.object({
 });
 
 const orderStatusCodes = Object.values(OrderStatus).join(", ");
+const orderStatusSet = new Set<string>(Object.values(OrderStatus));
+const csvOrderStatus = (description: string) =>
+  z
+    .string()
+    .refine(
+      (v) =>
+        v
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .every((code) => orderStatusSet.has(code)),
+      { message: `Unknown order status. Use one of: ${orderStatusCodes}.` },
+    )
+    .optional()
+    .describe(description);
 
 const searchOrdersInput = searchInput("order", {
   ...listPaging({
@@ -135,19 +150,13 @@ const searchOrdersInput = searchInput("order", {
     defaultSortBy: "createdAt",
     search: "Matches order number, customer name, or phone number",
   }),
-  status: z
-    .string()
-    .optional()
-    .describe(`Order status code. One of: ${orderStatusCodes}. Comma-separate several codes.`),
+  status: csvOrderStatus(`Order status code. One of: ${orderStatusCodes}. Comma-separate several codes.`),
   statusId: uuidField(idDescription(
         "Order status id.",
         TOOL.orderStatuses.list,
         "Omit when `status` is set.",
       )).optional(),
-  excludeStatus: z
-    .string()
-    .optional()
-    .describe(`Status codes to leave out. Same values as status: ${orderStatusCodes}. Comma-separate several codes.`),
+  excludeStatus: csvOrderStatus(`Status codes to leave out. Same values as status: ${orderStatusCodes}. Comma-separate several codes.`),
   paymentStatus: z
     .union([z.enum(PaymentStatus), z.literal(PaymentMethod.CASH_ON_DELIVERY)])
     .optional()
@@ -244,20 +253,35 @@ const ordersActInput = z.object({
   customCauseName: z.string().optional().describe("Custom cause name (min 3). Alternative to cancelCauseId."),
 });
 
-const ordersStatsInput = z.object({
+const ordersStatsInput = z.strictObject({
   report: z
     .enum(["summary", "shipped"])
     .optional()
     .describe("Which report to return. summary (default): counts per status, optional dates. shipped: counts/totals by shipping company, optional lateShipping. Not a dashboard_orders_stats report."),
   startDate: isoDateField("Range start, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
   endDate: isoDateField("Range end, ISO date (YYYY-MM-DD). Only valid with report=summary.").optional(),
+  range: z.enum(TREND_RANGES).optional().describe(`Quick range. Only valid with report=summary. One of: ${TREND_RANGES.join(", ")}.`),
   lateShipping: z.boolean().optional().describe("Only valid with report=shipped."),
 });
 
-const searchNotesInput = z.object({
+const searchNotesInput = z.strictObject({
   orderId: uuidField(idDescription("Order ID.", TOOL.orders.search)),
   limit: z.number().int().min(1).max(50).default(50).describe("Notes per page"),
-  cursor: z.string().optional().describe("Pagination cursor from a previous response. Omit for the first page."),
+  cursor: z
+    .string()
+    .refine(
+      (v) => {
+        try {
+          const parsed = JSON.parse(v);
+          return Boolean(parsed?.value && parsed?.id);
+        } catch {
+          return false;
+        }
+      },
+      { message: "Must be a nextCursor from a previous order_internal_notes_search response. Omit for the first page." },
+    )
+    .optional()
+    .describe("Pagination cursor from a previous response. Omit for the first page."),
   sortDir: z.enum(["ASC", "DESC"]).default("DESC").describe("Sort direction"),
   startDate: isoDateField("Range start, ISO date (YYYY-MM-DD)").optional(),
   endDate: isoDateField("Range end, ISO date (YYYY-MM-DD)").optional(),
@@ -269,13 +293,13 @@ const saveNotesInput = z.object({
   markRead: z.boolean().optional().describe("True to mark notes as read. No body with it."),
 });
 
-const searchReplacementsInput = z.object({
+const searchReplacementsInput = z.strictObject({
   page: z.number().int().min(1).default(1).describe("Page number, starting at 1"),
   limit: z.number().int().min(1).max(50).default(10).describe("The number of replacements to return"),
   search: z.string().optional().describe("Matches order number, customer name, or phone"),
   startDate: isoDateField("Range start, ISO date (YYYY-MM-DD)").optional(),
   endDate: isoDateField("Range end, ISO date (YYYY-MM-DD)").optional(),
-  status: z.string().optional().describe("Status code of the new replacement order"),
+  status: z.enum(OrderStatus).optional().describe("Status code of the new replacement order"),
   sortBy: z.enum(["createdAt", "originalOrderNumber", "replacementOrderNumber"]).default("createdAt").describe("Field to sort by"),
   sortOrder: z.enum(["ASC", "DESC"]).default("DESC").describe("Sort direction"),
 });
@@ -574,11 +598,27 @@ export class McpOrdersTools {
     if (req.mode === "get") {
       return toolJson(toOrderResultDto(await this.orders.get(user, req.id)));
     }
+    const q = req.query as typeof req.query & { groupDate?: string };
+    const dates = q.groupDate
+      ? businessDayRange(q.groupDate, q.groupDate)
+      : (() => {
+          const d = resolveToolDates(q);
+          return { start: d.startDate, end: d.endDate };
+        })();
+    const postponed = businessDayRange(q.postponedStartDate, q.postponedEndDate);
+    const shipped = businessDayRange(q.shippedStartDate, q.shippedEndDate);
     const result = await this.orders.list(user, {
-      ...req.query,
-      sortDir: req.query.sortOrder,
+      ...q,
+      startDate: dates.start,
+      endDate: dates.end,
+      postponedStartDate: postponed.start,
+      postponedEndDate: postponed.end,
+      shippedStartDate: shipped.start,
+      shippedEndDate: shipped.end,
+      groupDate: undefined,
+      sortDir: q.sortOrder,
     });
-    return toolPage("orders", result, toOrderSummary, req.query.limit);
+    return toolPage("orders", result, toOrderSummary, q.limit);
   }
 
   @McpSaveTool({
@@ -650,10 +690,9 @@ export class McpOrdersTools {
     @McpUser() user: User,
   ) {
     const report = (input as any)?.report ?? "summary";
-    assertDateOrder(input as Record<string, unknown>);
     if (report === "shipped") {
-      if (isSet((input as any).startDate) || isSet((input as any).endDate)) {
-        throw new RpcException("report=shipped takes no dates. Remove startDate/endDate or set report=summary.");
+      if (isSet((input as any).startDate) || isSet((input as any).endDate) || isSet((input as any).range)) {
+        throw new RpcException("report=shipped takes no dates. Remove startDate/endDate/range or set report=summary.");
       }
       return toolJson({
         report,
@@ -663,9 +702,14 @@ export class McpOrdersTools {
     if (isSet((input as any).lateShipping)) {
       throw new RpcException("`lateShipping` is only valid with report=shipped. Remove it or set report=shipped.");
     }
+    const dates = resolveToolDates(input);
+    const statuses = await this.orders.getStats(user, {
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+    });
     return toolJson({
       report,
-      ...(await this.orders.getStats(user, { startDate: (input as any).startDate, endDate: (input as any).endDate })),
+      statuses: Array.isArray(statuses) ? statuses : [],
     });
   }
 
@@ -680,8 +724,8 @@ export class McpOrdersTools {
     @McpUser() user: User,
   ) {
     const { orderId, ...q } = input;
-    assertDateOrder(q as Record<string, unknown>);
-    const result = await this.notes.list(user, orderId, q);
+    const dates = resolveToolDates(q);
+    const result = await this.notes.list(user, orderId, { ...q, ...dates });
     const records = Array.isArray((result as any)?.records) ? (result as any).records : [];
     return toolJson({
       notes: records.map(toInternalNoteDto),
@@ -723,9 +767,11 @@ export class McpOrdersTools {
     @Payload() input: z.infer<typeof searchReplacementsInput>,
     @McpUser() user: User,
   ) {
-    assertDateOrder(input as Record<string, unknown>);
+    const dates = resolveToolDates(input);
     const result = await this.replacements.listReplacements(user, {
       ...input,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
       sortDir: (input as any).sortOrder,
     });
     return toolPage("replacements", result, toReplacementSummary, (input as any).limit);

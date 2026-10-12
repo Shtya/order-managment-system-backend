@@ -29,6 +29,7 @@ import {
 import { NotificationType } from "entities/notifications.entity";
 import { NotificationService } from "src/notifications/notification.service";
 import { DateFilterUtil } from "common/date-filter.util";
+import { FilterUtil } from "common/crud.service";
 import { AppGateway } from "common/app.gateway";
 import { CustomerService } from "../customer/customer.service";
 import * as ExcelJS from "exceljs";
@@ -724,12 +725,13 @@ export class IssueService implements OnModuleInit {
       ).setParameter("myUserId", me.id);
     }
 
-    if (q?.search) {
+    const issueSearch = FilterUtil.likeContains(q?.search);
+    if (issueSearch) {
       qb.andWhere(
         new Brackets((b) => {
-          b.where("issue.title ILIKE :search", { search: `%${q.search}%` })
-            .orWhere("issue.customerName ILIKE :search")
-            .orWhere("issue.customerPhone ILIKE :search");
+          b.where("issue.title ILIKE :search ESCAPE '\\'", { search: issueSearch })
+            .orWhere("issue.customerName ILIKE :search ESCAPE '\\'")
+            .orWhere("issue.customerPhone ILIKE :search ESCAPE '\\'");
         }),
       );
     }
@@ -920,14 +922,15 @@ export class IssueService implements OnModuleInit {
      * ---------------------------------------------------------
      */
 
-    if (q?.search) {
+    const issueSearch = FilterUtil.likeContains(q?.search);
+    if (issueSearch) {
       qb.andWhere(
         new Brackets((b) => {
-          b.where("issue.title ILIKE :search", {
-            search: `%${q.search}%`,
+          b.where("issue.title ILIKE :search ESCAPE '\\'", {
+            search: issueSearch,
           })
-            .orWhere("issue.customerName ILIKE :search")
-            .orWhere("issue.customerPhone ILIKE :search");
+            .orWhere("issue.customerName ILIKE :search ESCAPE '\\'")
+            .orWhere("issue.customerPhone ILIKE :search ESCAPE '\\'");
         }),
       );
     }
@@ -1025,8 +1028,8 @@ export class IssueService implements OnModuleInit {
      * If we receive limit + 1, another page exists.
      */
 
-    qb.orderBy("issue.created_at", "DESC")
-      .addOrderBy("issue.id", "DESC")
+    qb.orderBy("issue.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder))
+      .addOrderBy("issue.id", FilterUtil.normalizeSortOrder(q?.sortOrder))
       .take(limit + 1);
 
     const rows = await qb.getMany();
@@ -1832,12 +1835,13 @@ export class IssueService implements OnModuleInit {
       .groupBy("status.id")
       .orderBy("status.sortOrder", "ASC");
 
-    if (q?.search) {
+    const statusSearch = FilterUtil.likeContains(q?.search);
+    if (statusSearch) {
       qb.andWhere(
         new Brackets((b) => {
-          b.where("status.nameEn ILIKE :search", {
-            search: `%${q.search}%`,
-          }).orWhere("status.nameAr ILIKE :search");
+          b.where("status.nameEn ILIKE :search ESCAPE '\\'", {
+            search: statusSearch,
+          }).orWhere("status.nameAr ILIKE :search ESCAPE '\\'");
         }),
       );
     }
@@ -2206,8 +2210,8 @@ export class IssueService implements OnModuleInit {
           adminId,
         })
         .getCount(),
-      buildMostQuery(),
-      buildMostQuery("issue.created_at >= CURRENT_DATE - INTERVAL '7 days'"),
+      buildMostQuery().getRawOne(),
+      buildMostQuery("issue.created_at >= CURRENT_DATE - INTERVAL '7 days'").getRawOne(),
     ]);
 
     const toCard = (r: any) =>
@@ -2237,9 +2241,10 @@ export class IssueService implements OnModuleInit {
   }
 
   private causeSearch(search?: string) {
+    const like = FilterUtil.likeContains(search) ?? `%${String(search ?? "").trim()}%`;
     return new Brackets((b) => {
-      b.where("cause.nameEn ILIKE :search", { search: `%${search}%` }).orWhere(
-        "cause.nameAr ILIKE :search",
+      b.where("cause.nameEn ILIKE :search ESCAPE '\\'", { search: like }).orWhere(
+        "cause.nameAr ILIKE :search ESCAPE '\\'",
       );
     });
   }

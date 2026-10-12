@@ -28,6 +28,7 @@ import {
 } from "common/client-audience-filter.types";
 import { ClientSegmentQueueService } from "src/queue/queues/client-segments.queue";
 import { AppGateway } from "common/app.gateway";
+import { FilterUtil } from "common/crud.service";
 
 const FREEZE_PAGE_SIZE = 1000;
 
@@ -69,7 +70,7 @@ export class ClientSegmentsService {
       qb.andWhere("seg.name ILIKE :search", { search: `%${q.search}%` });
     }
 
-    qb.orderBy("seg.createdAt", "DESC");
+    qb.orderBy("seg.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const page = Math.max(1, parseInt(q?.page) || 1);
     const limit = Math.min(100, parseInt(q?.limit) || 20);

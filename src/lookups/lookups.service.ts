@@ -10,10 +10,12 @@ import { SupplierEntity } from "../../entities/supplier.entity";
 import { CityEntity } from "entities/cities.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 import { tenantId } from "src/category/category.service";
+import { FilterUtil } from "common/crud.service";
 
 type UsersLookupParams = {
   q?: string;
   roleId?: string;
+  sortOrder?: string;
   isActive?: boolean;
   limit: number;
 };
@@ -23,17 +25,20 @@ type SimpleLookupParams = {
   limit: number;
   cursor?: string;
   ids?: string[];
+  sortOrder?: string;
 };
 
 type ActiveLookupParams = {
   q?: string;
   isActive?: boolean;
+  sortOrder?: string;
   limit: number;
 };
 
 type SkusLookupParams = {
   q?: string;
   productId?: string;
+  sortOrder?: string;
   limit: number;
   cursor?: string;
   ids?: string[];
@@ -80,7 +85,7 @@ export class LookupsService {
         "s.address AS address",
         's."dueBalance" AS "dueBalance"',
       ])
-      .orderBy("s.id", "DESC")
+      .orderBy("s.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .limit(params.limit);
 
     this.applyTenantScope(qb, "s", me);
@@ -126,7 +131,7 @@ export class LookupsService {
         "v.price AS price",
         'p.name AS "productName"',
       ])
-      .orderBy("v.id", "DESC")
+      .orderBy("v.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .andWhere("v.isActive = :isActive", { isActive: true });
 
     this.applyTenantScope(qb, "v", me);
@@ -214,7 +219,7 @@ export class LookupsService {
         'p.lowestPrice AS "lowestPrice"',
       ])
       .where("p.isActive = :isActive", { isActive: true })
-      .orderBy("p.id", "DESC");
+      .orderBy("p.id", FilterUtil.normalizeSortOrder(params?.sortOrder));
 
     this.applyTenantScope(qb, "p", me);
 
@@ -296,7 +301,7 @@ export class LookupsService {
         'u.roleId AS "roleId"',
         'r.name AS "roleName"',
       ])
-      .orderBy("u.id", "DESC")
+      .orderBy("u.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .limit(params.limit);
 
     // نفس policy الموجودة في UsersService.list:
@@ -354,7 +359,7 @@ export class LookupsService {
         "r.description AS description",
         "r.adminId AS adminId",
       ])
-      .orderBy("r.id", "DESC")
+      .orderBy("r.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .limit(params.limit);
 
     // نفس list/get
@@ -405,7 +410,7 @@ export class LookupsService {
     const qb = this.permsRepo
       .createQueryBuilder("p")
       .select(["p.id AS id", "p.name AS name"])
-      .orderBy("p.id", "DESC")
+      .orderBy("p.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .limit(params.limit);
 
     if (params.q?.trim()) {
@@ -430,7 +435,7 @@ export class LookupsService {
         "c.slug AS slug",
         "c.image AS image",
       ])
-      .orderBy("c.id", "DESC")
+      .orderBy("c.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .limit(params.limit);
 
     this.applyTenantScope(qb, "c", me);
@@ -462,7 +467,7 @@ export class LookupsService {
         's."syncStatus"',
         's."localSyncStatus"',
       ])
-      .orderBy("s.id", "DESC")
+      .orderBy("s.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .limit(params.limit);
 
     this.applyTenantScope(qb, "s", me);
@@ -502,7 +507,7 @@ export class LookupsService {
         'w.isActive AS "isActive"',
       ])
       .where('w."adminId" = :adminId', { adminId })
-      .orderBy("w.id", "DESC")
+      .orderBy("w.id", FilterUtil.normalizeSortOrder(params?.sortOrder))
       .limit(params.limit);
 
     this.applyTenantScope(qb, "w", me);

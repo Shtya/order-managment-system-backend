@@ -29,6 +29,7 @@ import { formatReferenceMeta } from "common/healpers";
 import { TranslationService } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class SafesService {
@@ -52,7 +53,7 @@ export class SafesService {
     const adminId = tenantId(me);
     const page = Number(q.page || 1);
     const limit = Number(q.limit || 10);
-    const search = q.search?.trim();
+    const search = FilterUtil.likeContains(q.search);
 
     const qb = this.accountRepo
       .createQueryBuilder("a")
@@ -85,14 +86,14 @@ export class SafesService {
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("a.name ILIKE :s", { s: `%${search}%` })
-            .orWhere("a.bankName ILIKE :s", { s: `%${search}%` })
-            .orWhere("a.accountNumber ILIKE :s", { s: `%${search}%` });
+          sq.where("a.name ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("a.bankName ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("a.accountNumber ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }
 
-    qb.orderBy("a.createdAt", "DESC");
+    qb.orderBy("a.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [rawRecords, total] = await Promise.all([
       qb
@@ -254,7 +255,7 @@ export class SafesService {
     }
 
     // qb.orderBy('t.transactionDate', 'DESC').addOrderBy('t.createdAt', 'DESC');
-    qb.orderBy("t.createdAt", "DESC");
+    qb.orderBy("t.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)
@@ -456,7 +457,7 @@ export class SafesService {
       );
     }
 
-    qb.orderBy("tr.createdAt", "DESC");
+    qb.orderBy("tr.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)

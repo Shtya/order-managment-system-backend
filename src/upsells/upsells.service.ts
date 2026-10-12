@@ -14,7 +14,6 @@ import { CreateUpsellDto, UpdateUpsellDto } from "dto/upsells.dto";
 import { WhatsappApiService } from "../whatsapp/services/WhatsappApi.service";
 import * as ExcelJS from "exceljs";
 import { tenantId } from "src/category/category.service";
-import { calculateRange } from "common/healpers";
 import { DateFilterUtil } from "common/date-filter.util";
 import { OrdersService } from "../orders/services/orders.service";
 import { OrderEntity, OrderStatus } from "entities/order.entity";
@@ -28,6 +27,7 @@ import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { TranslationService } from "common/translation.service";
 import { TagAutomationEvaluator } from "src/tags/tag-automation.evaluator";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class UpsellsService {
@@ -252,7 +252,7 @@ export class UpsellsService {
     const adminId = tenantId(me);
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
     const status = q?.status;
     const productId = q?.productId;
 
@@ -287,16 +287,16 @@ export class UpsellsService {
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("tp.name ILIKE :s", { s: `%${search}%` })
-            .orWhere("up.name ILIKE :s", { s: `%${search}%` })
-            .orWhere("us.sku ILIKE :s", { s: `%${search}%` })
-            .orWhere("tpVariant.sku ILIKE :s", { s: `%${search}%` })
-            .orWhere("upVariant.sku ILIKE :s", { s: `%${search}%` });
+          sq.where("tp.name ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("up.name ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("us.sku ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("tpVariant.sku ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("upVariant.sku ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }
 
-    qb.orderBy("u.createdAt", "DESC");
+    qb.orderBy("u.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)
@@ -343,18 +343,24 @@ export class UpsellsService {
 
     if (filters.startDate) {
       qb.andWhere('uh."createdAt" >= :startDate', {
-        startDate: new Date(filters.startDate),
+        startDate: filters.startDate instanceof Date ? filters.startDate : new Date(filters.startDate),
       });
     }
     if (filters.endDate) {
       qb.andWhere('uh."createdAt" <= :endDate', {
-        endDate: new Date(filters.endDate),
+        endDate: filters.endDate instanceof Date ? filters.endDate : new Date(filters.endDate),
       });
     }
-    if (filters.range) {
-      const { start, end } = calculateRange(filters.range);
-      if (start) qb.andWhere('uh."createdAt" >= :start', { start });
-      if (end) qb.andWhere('uh."createdAt" <= :end', { end });
+    if (filters.accountId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM whatsapp_messages wm
+          WHERE wm."messageId" = uh."messageId"
+            AND wm."adminId" = uh."adminId"
+            AND wm."accountId" = :upsellAccountId
+        )`,
+        { upsellAccountId: filters.accountId },
+      );
     }
 
     const stats = await qb
@@ -920,7 +926,7 @@ export class UpsellsService {
       );
     }
 
-    qb.orderBy("uh.createdAt", "DESC");
+    qb.orderBy("uh.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)

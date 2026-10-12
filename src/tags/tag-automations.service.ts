@@ -9,6 +9,7 @@ import { TagAutomationEntity, TagEntity, TagTarget, isClientConditionField, reso
 import { CreateTagAutomationDto, UpdateTagAutomationDto } from "dto/tag.dto";
 import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
+import { FilterUtil } from "common/crud.service";
 import * as ExcelJS from "exceljs";
 
 @Injectable()
@@ -80,7 +81,7 @@ export class TagAutomationsService {
     }
 
     const [records, total] = await qb
-      .orderBy("automation.created_at", "DESC")
+      .orderBy("automation.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder))
       .skip(skip)
       .take(limit)
       .getManyAndCount();

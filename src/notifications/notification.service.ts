@@ -11,6 +11,7 @@ import { Brackets, EntityManager, Repository } from "typeorm";
 import { TranslationService } from "common/translation.service";
 import { ClientSettingsEntity } from "entities/clientSettings.entity";
 import { ClientSettingsService } from "src/client-settings/client-settings.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class NotificationService {
@@ -54,7 +55,7 @@ export class NotificationService {
     }
 
     // Sort: Unread first, then by date
-    qb.addOrderBy("n.createdAt", "DESC");
+    qb.addOrderBy("n.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)

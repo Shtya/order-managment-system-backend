@@ -15,7 +15,7 @@ import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
-//    Service sorts createdAt only: advertise that single column.
+//    Service sorts createdAt only (sortOrder ASC/DESC). Advertise that column.
 //    Exact name replaces check-name (0 rows = free).
 // ═══════════════════════════════════════════════════════════════
 

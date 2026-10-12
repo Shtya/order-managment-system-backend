@@ -21,6 +21,7 @@ import {
   RequestTranslationService,
   TranslationService,
 } from "common/translation.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class ProductSyncStateService {
@@ -76,7 +77,7 @@ export class ProductSyncStateService {
       q?.endDate,
     );
 
-    qb.orderBy("syncState.created_at", "DESC");
+    qb.orderBy("syncState.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const total = await qb.getCount();
     const records = await qb
@@ -187,7 +188,7 @@ export class ProductSyncStateService {
       q?.endDate,
     );
 
-    qb.orderBy("syncState.created_at", "DESC");
+    qb.orderBy("syncState.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const records = await qb.getMany();
 
@@ -318,7 +319,7 @@ export class ProductSyncStateService {
       q?.endDate,
     );
 
-    qb.orderBy("log.created_at", "DESC");
+    qb.orderBy("log.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const total = await qb.getCount();
     const records = await qb
@@ -434,7 +435,7 @@ export class ProductSyncStateService {
       q?.endDate,
     );
 
-    qb.orderBy("log.created_at", "DESC");
+    qb.orderBy("log.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const records = await qb.getMany();
 

@@ -55,6 +55,7 @@ import {
   RequestTranslationService,
   TranslationService,
 } from "common/translation.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class WhatsappTemplateService {
@@ -216,21 +217,22 @@ export class WhatsappTemplateService {
     }
 
     if (language && language !== "all") {
-      qb.andWhere("tpl.language = :language", { language });
+      qb.andWhere("LOWER(tpl.language) = LOWER(:language)", { language });
     }
 
-    if (search) {
+    const like = FilterUtil.likeContains(search);
+    if (like) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("tpl.name ILIKE :s", { s: `%${search}%` }).orWhere(
-            "tpl.metaId ILIKE :s",
-            { s: `%${search}%` },
+          sq.where("tpl.name ILIKE :s ESCAPE '\\'", { s: like }).orWhere(
+            "tpl.metaId ILIKE :s ESCAPE '\\'",
+            { s: like },
           );
         }),
       );
     }
 
-    qb.orderBy("tpl.createdAt", "DESC");
+    qb.orderBy("tpl.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)

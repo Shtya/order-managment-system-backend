@@ -9,7 +9,7 @@ import { PlansService } from "src/plans/plans.service";
 import { toolJson } from "../utils/mcp-result.util";
 import { TOOL } from "../utils/mcp-tool-names";
 
-const plansListInput = z.object({});
+const plansListInput = z.strictObject({});
 
 @McpController()
 @UseGuards(McpScopeGuard)
@@ -22,7 +22,7 @@ export class McpPlansTools {
     parameters: plansListInput,
   })
   async listPlans(@McpUser() user: User) {
-    const rows = await this.plans.list(user as any);
+    const rows = await this.plans.list(user as any, {});
     const records = Array.isArray(rows) ? rows : [];
     return toolJson({
       plans: records.map((p: any) => ({

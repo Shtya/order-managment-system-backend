@@ -62,6 +62,7 @@ import { NotificationService } from "src/notifications/notification.service";
 import { NotificationType } from "entities/notifications.entity";
 import { AppGateway } from "common/app.gateway";
 import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
+import { FilterUtil } from "common/crud.service";
 
 const LIST_PAGE_LIMIT = 20;
 const LIST_PAGE_LIMIT_MAX = 100;
@@ -220,7 +221,8 @@ export class CampaignsService {
       qb.andWhere("campaign.name ILIKE :search", { search: `%${q.search}%` });
     }
 
-    qb.orderBy("campaign.createdAt", "DESC");
+    const sortOrder = String(q?.sortOrder || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+    qb.orderBy("campaign.createdAt", sortOrder);
 
     const page = Math.max(1, parseInt(q?.page) || 1);
     const limit = Math.min(
@@ -504,7 +506,7 @@ export class CampaignsService {
       );
     }
 
-    qb.orderBy("recipient.createdAt", "DESC");
+    qb.orderBy("recipient.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const page = Math.max(1, parseInt(q?.page) || 1);
     const limit = Math.min(

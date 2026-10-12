@@ -18,7 +18,7 @@ import { TOOL } from "../utils/mcp-tool-names";
 //    rules live in the DTO classes (class-validator), not here.
 // ═══════════════════════════════════════════════════════════════
 
-const listStoresInput = z.object({
+const listStoresInput = z.strictObject({
   ...listPaging({
     items: "stores",
     sortBy: [
@@ -35,7 +35,6 @@ const listStoresInput = z.object({
   }),
   provider: z.enum(StoreProvider).optional().describe("Store platform"),
   syncStatus: z.enum(SyncStatus).optional().describe("Sync status to filter by"),
-  isActive: z.enum(["true", "false"]).optional().describe("Only active (true) or inactive (false) stores"),
 });
 
 // ═══════════════════════════════════════════════════════════════

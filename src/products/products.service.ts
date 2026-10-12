@@ -36,7 +36,7 @@ import {
   AdjustVariantStockDto,
 } from "dto/product.dto";
 
-import { CRUD } from "../../common/crud.service";
+import { CRUD, FilterUtil } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import * as ExcelJS from "exceljs";
 import { OrderItemEntity, OrderStatus } from "entities/order.entity";
@@ -674,10 +674,11 @@ export class ProductsService {
       });
     }
 
-    if (filters.search) {
+    const nameLike = FilterUtil.likeContains(filters.search);
+    if (nameLike) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("product.name ILIKE :s", { s: `%${filters.search}%` });
+          sq.where("product.name ILIKE :s ESCAPE '\\'", { s: nameLike });
         }),
       );
     }
@@ -1077,12 +1078,13 @@ export class ProductsService {
       qb.andWhere("product.salePrice <= :lte", { lte: filters.salePrice.lte });
     }
 
-    if (filters.search) {
+    const like = FilterUtil.likeContains(filters.search);
+    if (like) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("product.name ILIKE :s", { s: `%${filters.search}%` })
-            .orWhere("product.slug ILIKE :s", { s: `%${filters.search}%` })
-            .orWhere("variant.sku ILIKE :s", { s: `%${filters.search}%` });
+          sq.where("product.name ILIKE :s ESCAPE '\\'", { s: like })
+            .orWhere("product.slug ILIKE :s ESCAPE '\\'", { s: like })
+            .orWhere("variant.sku ILIKE :s ESCAPE '\\'", { s: like });
         }),
       );
     }
@@ -1165,7 +1167,7 @@ export class ProductsService {
   async get(me: any, id: string, manager?: EntityManager) {
     const repo = manager ? manager.getRepository(ProductEntity) : this.prodRepo;
 
-    const p = await CRUD.findOne(repo, "products", id, [
+    const p = await CRUD.findOne(repo, "product", id, [
       "category",
       "store",
       "warehouse",

@@ -60,6 +60,7 @@ import {
   ClientOrderStatsService,
 } from "src/clients/client-order-stats.service";
 import { TriggerEntityType, TriggerType } from "entities/automation.entity";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class OrderAssignmentService {
@@ -1287,7 +1288,7 @@ export class OrderAssignmentService {
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
     } else {
-      qb.orderBy("order.created_at", "DESC");
+      qb.orderBy("order.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
     }
 
     const total = await qb.getCount();
@@ -1390,7 +1391,7 @@ export class OrderAssignmentService {
     }
 
     // 3. جلب جميع البيانات بدون Pagination للتصدير
-    qb.orderBy("order.created_at", "DESC");
+    qb.orderBy("order.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
     const orders = await qb.getMany();
 
     // 4. تحضير البيانات (Prepare Data)
@@ -1702,7 +1703,7 @@ export class OrderAssignmentService {
       qb.andWhere("order.created_at < :cursor", { cursor: q.cursor });
     }
 
-    qb.orderBy("order.created_at", "DESC").limit(fetchLimit + 1); // fetch one extra to check hasMore
+    qb.orderBy("order.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder)).limit(fetchLimit + 1); // fetch one extra to check hasMore
 
     const orders = await qb.getMany();
 

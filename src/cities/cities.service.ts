@@ -17,6 +17,7 @@ import { UpdateCityTenantConfigDto } from "dto/cities.dto";
 import * as ExcelJS from "exceljs";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
+import { FilterUtil } from "common/crud.service";
 import { TranslationService } from "common/translation.service";
 
 @Injectable()
@@ -92,6 +93,10 @@ export class CitiesService {
   }
 
   async findAreas(cityId: string) {
+    const city = await this.cityRepo.findOne({ where: { id: cityId } });
+    if (!city) {
+      throw new NotFoundException(this.translations.t("domains.cities.not_found"));
+    }
     return this.areaRepo.find({
       where: { cityId },
       order: { nameEn: "ASC" },
@@ -108,7 +113,7 @@ export class CitiesService {
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
 
     const qb = this.cityRepo
       .createQueryBuilder("city")
@@ -122,14 +127,19 @@ export class CitiesService {
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("city.nameEn ILIKE :s", { s: `%${search}%` }).orWhere(
-            "city.nameAr ILIKE :s",
-            { s: `%${search}%` },
+          sq.where("city.nameEn ILIKE :s ESCAPE '\\'", { s: search }).orWhere(
+            "city.nameAr ILIKE :s ESCAPE '\\'",
+            { s: search },
           );
         }),
       );
     }
 
+    if (q?.minDays !== undefined && q?.minDays !== "" && q?.maxDays !== undefined && q?.maxDays !== "") {
+      if (Number(q.minDays) > Number(q.maxDays)) {
+        throw new BadRequestException("`minDays` cannot be greater than `maxDays`.");
+      }
+    }
     if (q?.minDays !== undefined && q?.minDays !== "") {
       qb.andWhere("config.minShippingDays >= :minDays", {
         minDays: Number(q.minDays),
@@ -173,6 +183,7 @@ export class CitiesService {
 
     const [records, total] = await qb
       .orderBy(sortColumn, sortOrder, nulls)
+      .addOrderBy("city.id", sortOrder)
       .skip((page - 1) * limit)
       .take(limit)
       .getManyAndCount();

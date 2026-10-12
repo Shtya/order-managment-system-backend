@@ -21,7 +21,7 @@ import { uuidField } from "../utils/mcp-date.util";
 //    scan/log/assign/print/manifests only.
 // ═══════════════════════════════════════════════════════════════
 
-const warehouseStatsInput = z.object({
+const warehouseStatsInput = z.strictObject({
   report: z
     .enum(["distribution", "print", "preparation", "outgoing", "returns", "logs"])
     .optional()
@@ -95,9 +95,11 @@ function toManifestSummary(row: any) {
   return {
     id: row.id,
     type: row.type ?? null,
+    manifestNumber: row.manifestNumber ?? row.number ?? null,
     shippingCompany: row.shippingCompany?.name ?? null,
     ordersCount: orders.length,
-    isPrinted: row.isPrinted ?? row.printed ?? null,
+    isPrinted: Boolean(row.lastPrintedAt ?? row.isPrinted ?? row.printed),
+    lastPrintedAt: row.lastPrintedAt ?? null,
     createdAt: row.createdAt ?? row.created_at ?? null,
   };
 }
@@ -107,8 +109,10 @@ function toManifestDto(row: any) {
   return {
     id: row.id,
     type: row.type ?? null,
+    manifestNumber: row.manifestNumber ?? row.number ?? null,
     shippingCompany: row.shippingCompany?.name ?? null,
-    isPrinted: row.isPrinted ?? row.printed ?? null,
+    isPrinted: Boolean(row.lastPrintedAt ?? row.isPrinted ?? row.printed),
+    lastPrintedAt: row.lastPrintedAt ?? null,
     orders: orders.map((o: any) => ({ id: o.id ?? null, orderNumber: o.orderNumber ?? null })),
     createdAt: row.createdAt ?? row.created_at ?? null,
   };
@@ -166,7 +170,7 @@ export class McpWarehouseOpsTools {
         total_records: (rows as any)?.total_records ?? records.length,
         logs: records.map((l: any) => ({
           id: l.id ?? null,
-          action: l.action ?? l.type ?? null,
+          action: l.action ?? l.actionType ?? l.type ?? null,
           orderNumber: l.orderNumber ?? l.order?.orderNumber ?? null,
           createdAt: l.createdAt ?? l.created_at ?? null,
         })),

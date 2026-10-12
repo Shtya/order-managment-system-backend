@@ -59,7 +59,7 @@ const saveIssueInput = z.object({
   ...saveIssueFields.shape,
 });
 
-const issuesStatsInput = z.object({
+const issuesStatsInput = z.strictObject({
   report: z
     .enum(["overview", "causes", "board"])
     .optional()
@@ -76,7 +76,7 @@ const issuesActInput = z.object({
   assignedEmployeeIds: z.array(uuidField(idDescription("Employee ids for action=assign (alias).", TOOL.employees.list))).optional(),
 });
 
-const issuesLookupsInput = z.object({
+const issuesLookupsInput = z.strictObject({
   kind: z.enum(["status", "cause"]).describe('Required. "status" for issue statuses, "cause" for issue causes.'),
   search: z.string().optional().describe("Matches status or cause name"),
 });
@@ -197,7 +197,19 @@ export class McpIssuesTools {
   ) {
     const report = (input as any)?.report ?? "overview";
     if (report === "causes") return toolJson({ report, ...(await this.issues.getCausesStats(user)) });
-    if (report === "board") return toolJson({ report, ...(await this.issues.board(user, {})) });
+    if (report === "board") {
+      const statuses = await this.issues.getStatuses(user);
+      const rows = Array.isArray(statuses) ? statuses : [];
+      return toolJson({
+        report,
+        statuses: rows.map((s: any) => ({
+          statusId: s.id ?? null,
+          nameEn: s.nameEn ?? null,
+          nameAr: s.nameAr ?? null,
+          count: Number(s.issueCount ?? 0),
+        })),
+      });
+    }
     return toolJson({ report, ...(await this.issues.getStats(user)) });
   }
 

@@ -1,15 +1,16 @@
 import { UseGuards } from "@nestjs/common";
-import { Payload } from "@nestjs/microservices";
+import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { UsersService } from "src/users/users.service";
 import { DashboardService } from "src/dashboard/dashboard.service";
 import { WalletService } from "src/wallet/wallet.service";
+import { StoresService } from "src/stores/stores.service";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { assertDateOrder, listPaging } from "../utils/mcp-dto.util";
+import { listPaging, omitAll, resolveToolDates } from "../utils/mcp-dto.util";
 import { toolJson } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
 import { uuidField, isoDateField, TREND_RANGES } from "../utils/mcp-date.util";
@@ -20,20 +21,23 @@ import { uuidField, isoDateField, TREND_RANGES } from "../utils/mcp-date.util";
 //    rules live in the DTO classes (class-validator), not here.
 // ═══════════════════════════════════════════════════════════════
 
-const listEmployeesInput = z.object({
+const listEmployeesInput = z.strictObject({
   ...listPaging({
     items: "employees",
     sortBy: ["createdAt", "name", "email", "isActive"],
     search: "Matches employee name, email, or phone",
   }),
-  type: z.string().default("all").describe('Employee type to filter by. Pass "all" to skip this filter.'),
+  type: z
+    .string()
+    .optional()
+    .describe('Employee type to filter by. Omit or pass "all" to skip this filter.'),
   storeId: uuidField(idDescription("Store id for the performance window.", TOOL.stores.list, 'Pass "all" to skip.'), ["all"]).optional(),
   startDate: isoDateField("Performance window start, ISO date (YYYY-MM-DD)").optional(),
   endDate: isoDateField("Performance window end, ISO date (YYYY-MM-DD)").optional(),
-  range: z.enum(TREND_RANGES).optional().describe(`Quick range for the performance window. One of: ${TREND_RANGES.join(", ")}.`),
+  range: z.enum(TREND_RANGES).optional().describe(`Quick range for the performance window. One of: ${TREND_RANGES.join(", ")}. Do not combine with startDate/endDate.`),
 });
 
-const getMeInput = z.object({});
+const getMeInput = z.strictObject({});
 
 // ═══════════════════════════════════════════════════════════════
 // 2) OUTPUT MAPPERS: what the model RECEIVES from the tools
@@ -185,46 +189,57 @@ export class McpEmployeesTools {
     private users: UsersService,
     private dashboard: DashboardService,
     private wallet: WalletService,
+    private stores: StoresService,
   ) {}
 
   @McpReadTool({
     name: TOOL.employees.list,
     description:
-      "List the employees of the signed-in Madar user's workspace. Each row includes performance (assigned, confirmed, shipped, delivered, active and locked assignments) for the optional stats window (storeId, dates, range). Users with no assignments still appear with zeros. Read-only.",
+      "List the employees of the signed-in Madar user's workspace. Each row includes performance (assigned, confirmed, shipped, delivered) for the optional stats window (storeId, range or startDate+endDate — not both). activeAssignments and lockedAssignments are the live snapshot for that store (not the date window). Users with no assignments still appear with zeros. Extra fields are rejected. Read-only.",
     parameters: listEmployeesInput,
   })
   async listEmployees(
     @Payload() query: z.infer<typeof listEmployeesInput>,
     @McpUser() user: User,
   ) {
-    assertDateOrder(query as Record<string, unknown>);
+    const type = (query as any).type ?? "all";
     const result = await this.users.listForTable(user, {
       page: query.page,
       limit: query.limit,
       search: query.search ?? "",
-      type: query.type,
+      type,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
     });
-    // Performance comes from a separate inner-join query: merge by user id
-    // so idle employees are kept (zeros) instead of hidden.
-    let perfById = new Map<string, any>();
-    try {
-      const perf = await this.dashboard.getEmployeePerformance(user, {
-        storeId: (query as any).storeId,
-        startDate: (query as any).startDate,
-        endDate: (query as any).endDate,
-        range: (query as any).range,
-        page: 1,
-        limit: 1000,
-      });
-      const rows = Array.isArray(perf) ? perf : Array.isArray((perf as any)?.records) ? (perf as any).records : [];
-      for (const r of rows) {
-        const id = String(r?.id ?? r?.userId ?? "");
-        if (id && !perfById.has(id)) perfById.set(id, r);
+    if (type && type !== "all") {
+      const known = ((result as any)?.types ?? []).map((t: any) => t.id).filter((id: string) => id && id !== "all");
+      if (!known.includes(type)) {
+        throw new RpcException(
+          `Unknown employee type "${type}". Use one of: ${known.join(", ") || "(none)"}.`,
+        );
       }
-    } catch {
-      perfById = new Map();
+    }
+    const storeId = omitAll((query as any).storeId);
+    if (storeId) {
+      try {
+        await this.stores.get(user, storeId);
+      } catch {
+        throw new RpcException(`Store not found. Use ${TOOL.stores.list} to look up storeId.`);
+      }
+    }
+    const dates = resolveToolDates(query);
+    const perf = await this.dashboard.getEmployeePerformance(user, {
+      storeId,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+      page: 1,
+      limit: 1000,
+    });
+    const perfRows = Array.isArray(perf) ? perf : Array.isArray((perf as any)?.records) ? (perf as any).records : [];
+    const perfById = new Map<string, any>();
+    for (const r of perfRows) {
+      const id = String(r?.id ?? r?.userId ?? "");
+      if (id && !perfById.has(id)) perfById.set(id, r);
     }
     const records = Array.isArray((result as any)?.records) ? (result as any).records : [];
     const merged = records.map((row: any) => ({ ...row, performance: perfById.get(String(row.id)) ?? null }));

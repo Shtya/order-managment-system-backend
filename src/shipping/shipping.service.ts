@@ -73,6 +73,7 @@ import {
 import { getEffectiveDeductedQuantity } from "src/orders/utils/stock-deduction";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class ShippingService {
@@ -1275,7 +1276,7 @@ export class ShippingService {
       q?.endDate,
     );
 
-    qb.orderBy("log.created_at", "DESC");
+    qb.orderBy("log.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)

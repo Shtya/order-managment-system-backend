@@ -69,6 +69,7 @@ import {
   type RankableModel,
 } from "./orchestrator/model-rank";
 import { enrichRemoteModelForSync } from "./catalog/enrich-model-for-sync";
+import { FilterUtil } from "common/crud.service";
 
 const PROTOCOL_AUTH_MAP: Record<string, AiAuthType> = {
   [AiProviderProtocol.OPENAI_COMPATIBLE]: AiAuthType.API_KEY,
@@ -1635,7 +1636,7 @@ export class AiService {
     }
 
     const total = await qb.getCount();
-    qb.orderBy("s.createdAt", "DESC");
+    qb.orderBy("s.createdAt", FilterUtil.normalizeSortOrder(query?.sortOrder));
     qb.skip((page - 1) * limit).take(limit);
 
     const entities = await qb.getMany();
@@ -1693,7 +1694,7 @@ export class AiService {
     if (toolName) qb.andWhere("w.toolName = :toolName", { toolName });
 
     const total = await qb.getCount();
-    qb.orderBy("w.createdAt", "DESC");
+    qb.orderBy("w.createdAt", FilterUtil.normalizeSortOrder(query?.sortOrder));
     qb.skip((page - 1) * limit).take(limit);
 
     const entities = await qb.getMany();

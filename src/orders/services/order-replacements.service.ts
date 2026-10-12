@@ -23,6 +23,7 @@ import {
   TranslationService,
 } from "common/translation.service";
 import { CancelCausesService } from "src/cancel-causes/cancel-causes.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class OrderReplacementService {
@@ -139,7 +140,7 @@ export class OrderReplacementService {
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
     } else {
-      qb.orderBy("replacement.createdAt", "DESC");
+      qb.orderBy("replacement.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
     }
 
     // =============================
@@ -212,7 +213,7 @@ export class OrderReplacementService {
 
     // ... [Keep your existing Search and Date filters here] ...
 
-    qb.orderBy("replacement.createdAt", "DESC");
+    qb.orderBy("replacement.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
     const replacements = await qb.getMany();
 
     // =============================

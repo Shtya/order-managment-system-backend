@@ -15,6 +15,7 @@ import {
   SubscriptionStatus,
 } from "entities/plans.entity";
 import { TranslationService } from "common/translation.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class PlansService {
@@ -37,10 +38,10 @@ export class PlansService {
   }
 
   // ✅ List Plans (filtered by user role)
-  async list(me: User) {
+  async list(me: User, opts: { sortOrder?: string }) {
     const qb = this.plansRepo
       .createQueryBuilder("p")
-      .orderBy("p.createdAt", "DESC");
+      .orderBy("p.createdAt", FilterUtil.normalizeSortOrder(opts?.sortOrder));
 
     // Super admin: sees all plans with adminId null
     // if (this.isSuperAdmin(me)) {

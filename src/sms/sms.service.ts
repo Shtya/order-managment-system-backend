@@ -27,6 +27,7 @@ import { DateFilterUtil } from "common/date-filter.util";
 import * as ExcelJS from "exceljs";
 import { TranslationService } from "common/translation.service";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class SmsService {
@@ -301,7 +302,7 @@ export class SmsService {
       .leftJoinAndSelect("s.integration", "integration")
       .where("s.adminId = :adminId", { adminId })
       .orderBy("s.isDefault", "DESC")
-      .addOrderBy("s.created_at", "DESC");
+      .addOrderBy("s.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     if (q?.search?.trim()) {
       const search = `%${String(q.search).trim().toLowerCase()}%`;
@@ -695,7 +696,7 @@ export class SmsService {
       .leftJoinAndSelect("l.provider", "provider")
       .leftJoinAndSelect("l.sender", "sender")
       .where("l.adminId = :adminId", { adminId })
-      .orderBy("l.created_at", "DESC");
+      .orderBy("l.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     DateFilterUtil.applyToQueryBuilder(
       qb,

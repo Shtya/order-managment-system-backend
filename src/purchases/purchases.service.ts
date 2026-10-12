@@ -16,6 +16,7 @@ import {
 } from "dto/purchase.dto";
 import { ApprovalStatus } from "common/enums";
 import { DateFilterUtil } from "common/date-filter.util";
+import { FilterUtil } from "common/crud.service";
 import { SupplierEntity } from "../../entities/supplier.entity";
 import { SafesService } from "../safes/safes.service";
 import {
@@ -134,13 +135,13 @@ export class PurchasesService {
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
 
     const supplierId =
       q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
     const status = q?.status && q.status !== "all" ? String(q.status) : null;
-    const startDate = q?.startDate ? String(q.startDate) : null; // YYYY-MM-DD
-    const endDate = q?.endDate ? String(q.endDate) : null;
+    const startDate = q?.startDate ?? null;
+    const endDate = q?.endDate ?? null;
     const hasReceipt =
       q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null; // yes/no
     const payed = q?.payed && q.payed !== "all" ? String(q.payed) : null; // yes/no
@@ -201,8 +202,8 @@ export class PurchasesService {
 
     if (search) {
       qb.andWhere(
-        "(inv.receiptNumber ILIKE :s OR supplier.name ILIKE :s OR variant.sku ILIKE :s OR product.name ILIKE :s)",
-        { s: `%${search}%` },
+        "(inv.receiptNumber ILIKE :s ESCAPE '\\' OR supplier.name ILIKE :s ESCAPE '\\' OR variant.sku ILIKE :s ESCAPE '\\' OR product.name ILIKE :s ESCAPE '\\')",
+        { s: search },
       );
     }
 
@@ -259,16 +260,17 @@ export class PurchasesService {
       }, // ✅ better details modal
     });
 
-    const supplier = await this.supplierRepo.findOne({
-      where: { id: inv.supplierId },
-    });
-
     if (!inv) {
       throw new BadRequestException(
         this.translations.t("domains.purchase_invoice.not_found"),
       );
     }
-    return { ...inv, supplier };
+    const supplier = inv.supplierId
+      ? await this.supplierRepo.findOne({
+          where: { id: inv.supplierId },
+        })
+      : null;
+    return { ...inv, supplier: supplier ?? null };
   }
 
   async getAuditLogs(me: any, id: string) {
@@ -1410,12 +1412,12 @@ export class PurchasesService {
       );
     }
 
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
     const supplierId =
       q?.supplierId && q.supplierId !== "all" ? q.supplierId : null;
     const status = q?.status && q.status !== "all" ? String(q.status) : null;
-    const startDate = q?.startDate ? String(q.startDate) : null;
-    const endDate = q?.endDate ? String(q.endDate) : null;
+    const startDate = q?.startDate ?? null;
+    const endDate = q?.endDate ?? null;
     const hasReceipt =
       q?.hasReceipt && q.hasReceipt !== "all" ? String(q.hasReceipt) : null;
 
@@ -1443,8 +1445,8 @@ export class PurchasesService {
     );
 
     if (search) {
-      qb.andWhere("(inv.receiptNumber ILIKE :s OR supplier.name ILIKE :s)", {
-        s: `%${search}%`,
+      qb.andWhere("(inv.receiptNumber ILIKE :s ESCAPE '\\' OR supplier.name ILIKE :s ESCAPE '\\')", {
+        s: search,
       });
     }
 

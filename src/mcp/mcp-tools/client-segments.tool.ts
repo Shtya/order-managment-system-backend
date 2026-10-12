@@ -27,7 +27,7 @@ const searchSegmentsInput = searchInput("client segment", {
   type: z.enum(ClientSegmentType).optional().describe("Keep segments of this type"),
 }, TOOL.clientSegments.search);
 
-const segmentsStatsInput = z.object({});
+const segmentsStatsInput = z.strictObject({});
 
 // ═══════════════════════════════════════════════════════════════
 // 2) OUTPUT MAPPERS
@@ -69,7 +69,7 @@ export class McpClientSegmentsTools {
   @McpReadTool({
     name: TOOL.clientSegments.search,
     description:
-      "Search client segments or fetch one. Without `id`: paged summaries filtered by name, status, or type. With `id`: returns that segment with its audience filter and estimated count. Read-only.",
+      "Search client segments or fetch one. Without `id`: paged summaries filtered by name, status, or type. No date filters; extra fields (e.g. startDate) are rejected. With `id`: returns that segment with its audience filter and estimated count. Read-only.",
     parameters: searchSegmentsInput,
   })
   async searchSegments(
@@ -86,7 +86,8 @@ export class McpClientSegmentsTools {
 
   @McpReadTool({
     name: TOOL.clientSegments.stats,
-    description: "Client segment totals. Read-only.",
+    description:
+      "Client segment totals. No date filters. Extra fields (e.g. startDate) are rejected. Read-only.",
     parameters: segmentsStatsInput,
   })
   async getSegmentsStats(@McpUser() user: User) {

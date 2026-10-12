@@ -13,7 +13,7 @@ import {
   UpdateSupplierDto,
   UpdateSupplierFinancialsDto,
 } from "dto/supplier.dto";
-import { CRUD } from "../../common/crud.service";
+import { CRUD, FilterUtil } from "../../common/crud.service";
 import { tenantId } from "../category/category.service";
 import { SafesService } from "src/safes/safes.service";
 import { TransactionReferenceType } from "entities/safe.entity";
@@ -51,38 +51,38 @@ export class SuppliersService {
 
     // 2. Specific Filters (Exact or Partial)
     if (q?.categoryId && q?.categoryId !== "none") {
-      query.andWhere("category.id = :categoryId", { categoryId: q.categoryId });
+      query.andWhere(
+        `EXISTS (
+          SELECT 1 FROM supplier_category_assignments sca
+          WHERE sca."supplierId" = suppliers.id AND sca."categoryId" = :categoryId
+        )`,
+        { categoryId: q.categoryId },
+      );
     }
 
-    if (q?.name) {
-      query.andWhere("suppliers.name LIKE :name", { name: `%${q.name}%` });
+    const nameLike = FilterUtil.likeContains(q?.name);
+    if (nameLike) {
+      query.andWhere("suppliers.name ILIKE :name ESCAPE '\\'", { name: nameLike });
     }
 
-    if (q?.phone) {
+    const phoneLike = FilterUtil.likeContains(q?.phone);
+    if (phoneLike) {
       query
-        .andWhere("suppliers.phone LIKE :phone", { phone: `%${q.phone}%` })
-        .andWhere("suppliers.secondPhone LIKE :phone", {
-          phone: `%${q.phone}%`,
+        .andWhere("suppliers.phone ILIKE :phone ESCAPE '\\'", { phone: phoneLike })
+        .andWhere("suppliers.secondPhone ILIKE :phone ESCAPE '\\'", {
+          phone: phoneLike,
         });
     }
 
-    // 3. General Search (Across multiple fields)
-    if (q?.search) {
+    const search = FilterUtil.likeContains(q?.search);
+    if (search) {
       query.andWhere(
         new Brackets((qb) => {
-          qb.where("suppliers.name ILIKE :search", { search: `%${q.search}%` })
-            .orWhere("suppliers.phone ILIKE :search", {
-              search: `%${q.search}%`,
-            })
-            .orWhere("suppliers.secondPhone ILIKE :search", {
-              search: `%${q.search}%`,
-            })
-            .orWhere("suppliers.email ILIKE :search", {
-              search: `%${q.search}%`,
-            })
-            .orWhere("suppliers.address ILIKE :search", {
-              search: `%${q.search}%`,
-            });
+          qb.where("suppliers.name ILIKE :search ESCAPE '\\'", { search })
+            .orWhere("suppliers.phone ILIKE :search ESCAPE '\\'", { search })
+            .orWhere("suppliers.secondPhone ILIKE :search ESCAPE '\\'", { search })
+            .orWhere("suppliers.email ILIKE :search ESCAPE '\\'", { search })
+            .orWhere("suppliers.address ILIKE :search ESCAPE '\\'", { search });
         }),
       );
     }
@@ -111,7 +111,7 @@ export class SuppliersService {
 
   async get(me: any, id: string) {
     const adminId = tenantId(me);
-    const entity = await CRUD.findOne(this.supplierRepo, "suppliers", id, [
+    const entity = await CRUD.findOne(this.supplierRepo, "supplier", id, [
       "categories",
     ]);
     return entity;

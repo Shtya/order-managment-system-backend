@@ -19,7 +19,7 @@ import { uuidField } from "../utils/mcp-date.util";
 //    rules live in the DTO classes (class-validator), not here.
 // ═══════════════════════════════════════════════════════════════
 
-const listCitiesInput = z.object({
+const listCitiesInput = z.strictObject({
   ...listPaging({
     items: "cities",
     sortBy: ["nameEn", "nameAr", "minShippingDays", "maxShippingDays"],
@@ -34,7 +34,7 @@ const listCitiesInput = z.object({
   maxDays: z.number().int().min(0).optional().describe("Keep cities whose max shipping days are at most this number"),
 });
 
-const listAreasInput = z.object({
+const listAreasInput = z.strictObject({
   cityId: uuidField(idDescription("City id to list areas for.", TOOL.cities.list)),
 });
 

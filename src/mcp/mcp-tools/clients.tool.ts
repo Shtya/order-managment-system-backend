@@ -12,7 +12,7 @@ import { CreateClientDto, UpdateClientDto } from "dto/client.dto";
 import { parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
-import { uuidField } from "../utils/mcp-date.util";
+import { isUuid, uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -28,15 +28,27 @@ const searchClientsInput = searchInput("client", {
   limit: z.number().int().min(1).max(50).default(10).describe("The number of clients to return"),
   cursor: z
     .string()
+    .refine(
+      (v) => {
+        const [createdAt, id, extra] = v.split("|");
+        return extra === undefined && !!createdAt && isUuid(id) && !Number.isNaN(Date.parse(createdAt));
+      },
+      {
+        message:
+          "Must be a nextCursor from a previous clients_search response (`<ISO timestamp>|<uuid>`). Omit for the first page. This list is cursor-paginated; do not pass page.",
+      },
+    )
     .optional()
-    .describe("Pagination cursor from a previous response (nextCursor). Omit for the first page."),
+    .describe(
+      "Pagination cursor from a previous response (nextCursor). Omit for the first page. Cursor-paginated: page is not accepted.",
+    ),
   hasPhone: z
     .boolean()
     .optional()
     .describe("When true, keep only clients that have a phone number"),
 }, TOOL.clients.search);
 
-const clientsStatsInput = z.object({});
+const clientsStatsInput = z.strictObject({});
 
 const saveClientFields = toolInputFor<UpdateClientDto>()(
   z.object({
@@ -139,7 +151,7 @@ export class McpClientsTools {
   @McpReadTool({
     name: TOOL.clients.search,
     description:
-      "Search clients or fetch one. Without `id`: lists the signed-in Madar user's clients by name, email, or phone. Cursor-paginated: pass nextCursor back as cursor for the next page. With `id`: returns that single client with contacts, addresses, and order stats. Read-only.",
+      "Search clients or fetch one. Without `id`: lists the signed-in Madar user's clients by name, email, or phone. Cursor-paginated: pass nextCursor back as cursor for the next page (omit cursor for the first page). No page or date filters; extra fields (e.g. page, startDate) are rejected. With `id`: returns that single client with contacts, addresses, and order stats. Read-only.",
     parameters: searchClientsInput,
   })
   async searchClients(
@@ -166,7 +178,7 @@ export class McpClientsTools {
   @McpReadTool({
     name: TOOL.clients.stats,
     description:
-      "Client totals: total clients, with orders, with delivered orders, with orders in the last 30 days. Read-only.",
+      "Client totals: total clients, with orders, with delivered orders, with orders in the last 30 days. No date filters. Extra fields (e.g. startDate) are rejected. Read-only.",
     parameters: clientsStatsInput,
   })
   async getClientsStats(@McpUser() user: User) {

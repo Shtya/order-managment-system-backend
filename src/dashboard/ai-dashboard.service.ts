@@ -212,12 +212,12 @@ export class AiDashboardService {
     const usage = this.usageWhere("u", sql, window, extras);
     const rows = await this.dataSource.query(
       `
-      SELECT u."agentId" AS "agentId", COALESCE(ag.name, 'Unknown') AS "agentName",
+      SELECT u."agentId" AS "agentId", COALESCE(ag.name, 'Unassigned') AS "agentName",
              COALESCE(SUM(u."payableAmount"::numeric), 0) AS cost
       FROM ai_usages u
       ${usage.joins}
       LEFT JOIN agents ag ON ag.id = u."agentId"
-      WHERE u."adminId" = ${admin} AND u."agentId" IS NOT NULL ${usage.clause}
+      WHERE u."adminId" = ${admin} ${usage.clause}
       GROUP BY u."agentId", ag.name
       HAVING SUM(u."payableAmount"::numeric) > 0
       ORDER BY SUM(u."payableAmount"::numeric) DESC
@@ -1365,7 +1365,8 @@ export class AiDashboardService {
     return { start, end };
   }
 
-  private parseDate(value: string | undefined, field: string): Date | undefined {
+  private parseDate(value: string | Date | undefined, field: string): Date | undefined {
+    if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
     if (!value) return undefined;
     const d = new Date(value);
     if (Number.isNaN(d.getTime())) {

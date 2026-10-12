@@ -18,6 +18,7 @@ import { UpdateWhatsappAccountAiDto } from "dto/whatsapp-ai.dto";
 import { WhatsappAiService } from "./whatsapp-ai.service";
 import { tenantId } from "src/category/category.service";
 import { DateFilterUtil } from "common/date-filter.util";
+import { FilterUtil } from "common/crud.service";
 import { ConversationEntity } from "entities/whatsapp.entity";
 import { TranslationService } from "common/translation.service";
 
@@ -105,6 +106,22 @@ export class WhatsappAccountService {
     };
   }
 
+  async getCounts(me: any, accountId?: string) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(
+        this.translations.t("common.missing_admin_id"),
+      );
+    }
+    const where: Record<string, unknown> = { adminId };
+    if (accountId) where.id = accountId;
+    const [total, active] = await Promise.all([
+      this.accountRepo.count({ where: where as any }),
+      this.accountRepo.count({ where: { ...where, isActive: true } as any }),
+    ]);
+    return { total, active, inactive: Math.max(0, total - active) };
+  }
+
   async list(me: any, q?: any) {
     const adminId = tenantId(me);
     if (!adminId) {
@@ -115,11 +132,10 @@ export class WhatsappAccountService {
 
     const page = Number(q?.page ?? 1);
     const limit = Number(q?.limit ?? 10);
-    const search = String(q?.search ?? "").trim();
+    const search = FilterUtil.likeContains(q?.search);
     const sortBy = String(q?.sortBy ?? "createdAt");
 
-    const sortDir: "ASC" | "DESC" =
-      String(q?.sortDir ?? "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+    const sortDir = FilterUtil.normalizeSortOrder(q?.sortOrder ?? q?.sortDir);
 
     const qb = this.accountRepo.createQueryBuilder("acc");
 
@@ -150,10 +166,10 @@ export class WhatsappAccountService {
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {
-          sq.where("acc.name ILIKE :s", { s: `%${search}%` })
-            .orWhere("acc.mobileNumber ILIKE :s", { s: `%${search}%` })
-            .orWhere("acc.wabaId ILIKE :s", { s: `%${search}%` })
-            .orWhere("acc.phoneNumberId ILIKE :s", { s: `%${search}%` });
+          sq.where("acc.name ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("acc.mobileNumber ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("acc.wabaId ILIKE :s ESCAPE '\\'", { s: search })
+            .orWhere("acc.phoneNumberId ILIKE :s ESCAPE '\\'", { s: search });
         }),
       );
     }

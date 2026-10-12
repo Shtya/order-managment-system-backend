@@ -143,6 +143,10 @@ export class CreateTransferDto {
 
 export class AccountFilterDto {
     @IsOptional()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    sortOrder?: string;
+
+    @IsOptional()
     @IsEnum(AccountType,{ message: (args) => { return i18nValidationMessage('validation.is_enum')({...args, constraints: [Object.values(AccountType).join(', ')], }); }})
     type?: AccountType;
 
@@ -162,6 +166,10 @@ export class AccountFilterDto {
 }
 
 export class TransactionFilterDto {
+    @IsOptional()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    sortOrder?: string;
+
     @IsOptional()
     @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     accountId?: string;
@@ -196,6 +204,10 @@ export class TransactionFilterDto {
 }
 
 export class TransferFilterDto {
+    @IsOptional()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    sortOrder?: string;
+
     @IsOptional()
     @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})
     fromAccountId?: string;

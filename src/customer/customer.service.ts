@@ -26,6 +26,7 @@ import { tenantId } from "src/category/category.service";
 import { TranslationService } from "common/translation.service";
 import * as ExcelJS from "exceljs";
 import { ClientOrderStatsService } from "src/clients/client-order-stats.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class CustomerService {
@@ -246,7 +247,7 @@ export class CustomerService {
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
     } else {
-      qb.orderBy("customer.createdAt", "DESC");
+      qb.orderBy("customer.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
     }
 
     const total = await qb.getCount();

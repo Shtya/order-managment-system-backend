@@ -11,7 +11,7 @@ import { PurchasesService } from "src/purchases/purchases.service";
 import { PurchaseReturnsService } from "src/purchases-return/purchases-return.service";
 import { CreatePurchaseDto, UpdatePurchaseDto } from "dto/purchase.dto";
 import { CreatePurchaseReturnDto, UpdatePurchaseReturnDto } from "dto/purchase_return.dto";
-import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { listPaging, parseDto, parseSaveInput, parseSearchInput, resolveToolDates, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 import { uuidField, isoDateField } from "../utils/mcp-date.util";
@@ -115,7 +115,7 @@ const savePurchaseReturnInput = z.object({
   ...savePurchaseReturnFields.shape,
 });
 
-const purchasesStatsInput = z.object({
+const purchasesStatsInput = z.strictObject({
   report: z
     .enum(["invoices", "returns"])
     .optional()
@@ -157,7 +157,7 @@ function toPurchaseSummary(row: any) {
   };
 }
 
-function toPurchaseResultDto(row: any, extra?: { preview?: unknown; audit?: unknown[] }) {
+function toPurchaseResultDto(row: any, extra?: { preview?: any; audit?: unknown[] }) {
   const items = Array.isArray(row?.items) ? row.items : [];
   return {
     id: row.id,
@@ -179,7 +179,15 @@ function toPurchaseResultDto(row: any, extra?: { preview?: unknown; audit?: unkn
       purchaseCost: num(i.purchaseCost),
       lineTotal: num(i.lineTotal),
     })),
-    acceptPreview: extra?.preview ?? null,
+    acceptPreview: extra?.preview
+      ? {
+          invoiceId: extra.preview.invoiceId ?? extra.preview.id ?? null,
+          receiptNumber: extra.preview.receiptNumber ?? null,
+          currentStatus: extra.preview.currentStatus ?? extra.preview.status ?? null,
+          canApply: extra.preview.canApply ?? false,
+          rows: extra.preview.rows ?? extra.preview,
+        }
+      : null,
     audit: (extra?.audit ?? []).map((a: any) => ({
       id: a.id ?? null,
       action: a.action ?? null,
@@ -204,7 +212,7 @@ function toReturnSummary(row: any) {
   };
 }
 
-function toReturnResultDto(row: any, extra?: { preview?: unknown; audit?: unknown[] }) {
+function toReturnResultDto(row: any, extra?: { preview?: any; audit?: unknown[] }) {
   const items = Array.isArray(row?.items) ? row.items : [];
   return {
     id: row.id,
@@ -228,7 +236,15 @@ function toReturnResultDto(row: any, extra?: { preview?: unknown; audit?: unknow
       unitCost: num(i.unitCost),
       lineTotal: num(i.lineTotal),
     })),
-    acceptPreview: extra?.preview ?? null,
+    acceptPreview: extra?.preview
+      ? {
+          invoiceId: extra.preview.invoiceId ?? extra.preview.id ?? null,
+          receiptNumber: extra.preview.receiptNumber ?? null,
+          currentStatus: extra.preview.currentStatus ?? extra.preview.status ?? null,
+          canApply: extra.preview.canApply ?? false,
+          rows: extra.preview.rows ?? extra.preview,
+        }
+      : null,
     audit: (extra?.audit ?? []).map((a: any) => ({
       id: a.id ?? null,
       action: a.action ?? null,
@@ -273,7 +289,12 @@ export class McpPurchasesTools {
       const rows = Array.isArray(audit) ? audit.slice(0, 5) : [];
       return toolJson(toPurchaseResultDto(inv, { preview, audit: rows }));
     }
-    const result = await this.purchases.list(user, req.query);
+    const dates = resolveToolDates(req.query);
+    const result = await this.purchases.list(user, {
+      ...req.query,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+    });
     return toolPage("purchases", result, toPurchaseSummary, req.query.limit);
   }
 
@@ -366,7 +387,12 @@ export class McpPurchaseReturnsTools {
       const rows = Array.isArray(audit) ? audit.slice(0, 5) : [];
       return toolJson(toReturnResultDto(inv, { preview, audit: rows }));
     }
-    const result = await this.returns.list(user, req.query);
+    const dates = resolveToolDates(req.query);
+    const result = await this.returns.list(user, {
+      ...req.query,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+    });
     return toolPage("purchase_returns", result, toReturnSummary, req.query.limit);
   }
 

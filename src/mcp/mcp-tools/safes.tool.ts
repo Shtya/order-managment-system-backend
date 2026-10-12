@@ -12,7 +12,7 @@ import { listPaging } from "../utils/mcp-dto.util";
 import { toolPage } from "../utils/mcp-result.util";
 import { TOOL } from "../utils/mcp-tool-names";
 
-const listSafesInput = z.object({
+const listSafesInput = z.strictObject({
   ...listPaging({
     items: "safes",
     sortBy: ["createdAt"],

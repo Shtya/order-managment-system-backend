@@ -7,7 +7,7 @@ import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { CollectionService } from "src/order-collections/collection.service";
-import { assertDateOrder, listPaging } from "../utils/mcp-dto.util";
+import { listPaging, resolveToolDates } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
 import { isoDateField, uuidField } from "../utils/mcp-date.util";
@@ -17,7 +17,7 @@ import { isoDateField, uuidField } from "../utils/mcp-date.util";
 //    Read-only. Service uses sortDir <- sortOrder mapping.
 // ═══════════════════════════════════════════════════════════════
 
-const listCollectionsInput = z.object({
+const listCollectionsInput = z.strictObject({
   ...listPaging({
     items: "collections",
     sortBy: ["deliveredAt"],
@@ -32,7 +32,7 @@ const listCollectionsInput = z.object({
   endDate: isoDateField("Delivered-at range end, ISO date (YYYY-MM-DD)").optional(),
 });
 
-const collectionsStatsInput = z.object({});
+const collectionsStatsInput = z.strictObject({});
 
 // ═══════════════════════════════════════════════════════════════
 // 2) OUTPUT MAPPERS: delivered orders only, no record-a-collection.
@@ -70,9 +70,11 @@ export class McpOrderCollectionsTools {
     @Payload() query: z.infer<typeof listCollectionsInput>,
     @McpUser() user: User,
   ) {
-    assertDateOrder(query as Record<string, unknown>);
+    const dates = resolveToolDates(query);
     const result = await this.collections.listCollections(user, {
       ...query,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
       sortDir: query.sortOrder,
     });
     return toolPage("collections", result, toCollectionSummary, query.limit);

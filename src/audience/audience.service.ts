@@ -18,6 +18,7 @@ import { ConditionLogic, ConditionOperator } from "common/condition.types";
 import { ClientEntity } from "entities/clients.entity";
 import { CustomerEntity } from "entities/customers.entity";
 import { OrderStatus } from "entities/order.entity";
+import { FilterUtil } from "common/crud.service";
 
 type ClientQB = SelectQueryBuilder<ClientEntity>;
 
@@ -90,7 +91,7 @@ export class AudienceService {
   async listRecipientsPage(
     adminId: string,
     filter: ClientAudienceFilter,
-    options?: { cursor?: any; limit?: number },
+    options?: { cursor?: any; limit?: number; sortOrder?: string },
   ): Promise<{
     records: ClientAudienceRecipient[];
     hasMore: boolean;
@@ -106,7 +107,7 @@ export class AudienceService {
       });
     }
 
-    qb.orderBy(`client."createdAt"`, "DESC").addOrderBy("client.id", "DESC");
+    qb.orderBy(`client."createdAt"`, FilterUtil.normalizeSortOrder(options?.sortOrder)).addOrderBy("client.id", FilterUtil.normalizeSortOrder(options?.sortOrder));
 
     const rows = await qb.take(limit + 1).getRawMany();
     const hasMore = rows.length > limit;
@@ -127,12 +128,12 @@ export class AudienceService {
   async getAllRecipients(
     adminId: string,
     filter: ClientAudienceFilter,
-    options?: { max?: number },
+    options?: { max?: number; sortOrder?: string },
   ): Promise<ClientAudienceRecipient[]> {
     const max = Math.min(50000, Number(options?.max ?? 10000));
     const rows = await this.buildRecipientsQuery(adminId, filter)
-      .orderBy(`client."createdAt"`, "DESC")
-      .addOrderBy("client.id", "DESC")
+      .orderBy(`client."createdAt"`, FilterUtil.normalizeSortOrder(options?.sortOrder))
+      .addOrderBy("client.id", FilterUtil.normalizeSortOrder(options?.sortOrder))
       .take(max)
       .getRawMany();
 

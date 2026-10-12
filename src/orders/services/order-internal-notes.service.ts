@@ -36,13 +36,13 @@ export class OrderInternalNotesService {
       try {
         raw = JSON.parse(raw);
       } catch {
-        return undefined;
+        throw new BadRequestException(this.translations.t("common.invalid_cursor"));
       }
     }
     if (raw?.value && raw?.id) {
       return { value: raw.value, id: raw.id };
     }
-    return undefined;
+    throw new BadRequestException(this.translations.t("common.invalid_cursor"));
   }
 
   private async findTenantOrder(me: any, orderId: string) {

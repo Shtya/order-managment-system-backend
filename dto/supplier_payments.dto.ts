@@ -34,6 +34,9 @@ export class CreateSupplierPaymentDto {
 }
 
 export class SupplierPaymentFilterDto {
+    @IsOptional()
+    @IsString({message: i18nValidationMessage('validation.is_string')})
+    sortOrder?: string;
 
     @IsOptional()
     @IsUUID('4', {message: i18nValidationMessage('validation.is_uuid')})

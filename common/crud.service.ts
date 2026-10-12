@@ -322,18 +322,19 @@ export class CRUD {
 			}
 		}
 
-		if (search && searchFields?.length) {
+		const like = FilterUtil.likeContains(search);
+		if (like && searchFields?.length) {
 			qb.andWhere(
 				new Brackets((qb2) => {
 					for (const field of searchFields) {
 						if (field.includes(".")) {
 							const qualified = qualifyField(field);
-							qb2.orWhere(`LOWER(${qualified}) LIKE LOWER(:search)`, { search: `%${search}%` });
+							qb2.orWhere(`LOWER(${qualified}) LIKE LOWER(:search) ESCAPE '\\'`, { search: like });
 							continue;
 						}
 						const dbName = resolveOwnColumnName(field);
 						if (!dbName) continue;
-						qb2.orWhere(`LOWER(${entityName}.${dbName}) LIKE LOWER(:search)`, { search: `%${search}%` });
+						qb2.orWhere(`LOWER(${entityName}.${dbName}) LIKE LOWER(:search) ESCAPE '\\'`, { search: like });
 					}
 				})
 			);
@@ -625,8 +626,19 @@ export class CRUD {
 			}
 		}
 	}
-
-
 }
 
+
+export class FilterUtil {
+	static normalizeSortOrder(sortOrder?: string): "ASC" | "DESC" {
+		return String(sortOrder || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+	}
+
+	/** `%term%` with `%` `_` `\` treated as literals. Use with `ESCAPE '\\'`. */
+	static likeContains(raw?: string): string | null {
+		const s = String(raw ?? "").trim();
+		if (!s) return null;
+		return `%${s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_")}%`;
+	}
+}
 

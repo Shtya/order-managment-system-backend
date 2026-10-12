@@ -24,6 +24,7 @@ import {
   RequestTranslationService,
   TranslationService,
 } from "common/translation.service";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class SupplierPaymentsService {
@@ -297,7 +298,7 @@ export class SupplierPaymentsService {
       );
     }
 
-    qb.orderBy("p.paymentDate", "DESC").addOrderBy("p.createdAt", "DESC");
+    qb.orderBy("p.paymentDate", FilterUtil.normalizeSortOrder(q?.sortOrder)).addOrderBy("p.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const [records, total] = await qb
       .skip((page - 1) * limit)

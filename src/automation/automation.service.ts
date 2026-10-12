@@ -27,6 +27,7 @@ import { OrphanFilesService } from "src/orphan-files/orphan-files.service";
 import { TranslationService } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
+import { FilterUtil } from "common/crud.service";
 
 @Injectable()
 export class AutomationService {
@@ -538,7 +539,7 @@ export class AutomationService {
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
     } else {
-      qb.orderBy("automation.createdAt", "DESC");
+      qb.orderBy("automation.createdAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
     }
 
     const total = await qb.getCount();
@@ -844,7 +845,7 @@ export class AutomationService {
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
     } else {
-      qb.orderBy("run.startedAt", "DESC");
+      qb.orderBy("run.startedAt", FilterUtil.normalizeSortOrder(q?.sortOrder));
     }
 
     const total = await qb.getCount();

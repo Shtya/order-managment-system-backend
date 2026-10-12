@@ -7,7 +7,7 @@ import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { UpsellsService } from "src/upsells/upsells.service";
-import { assertDateOrder, listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { listPaging, parseSearchInput, resolveToolDates, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
 import { isoDateField, TREND_RANGES, uuidField } from "../utils/mcp-date.util";
@@ -30,10 +30,10 @@ const searchUpsellsInput = searchInput("upsell", {
   endDate: isoDateField("Created-at range end, ISO date (YYYY-MM-DD)").optional(),
 }, TOOL.upsells.search);
 
-const upsellsStatsInput = z.object({
+const upsellsStatsInput = z.strictObject({
   startDate: isoDateField("Range start, ISO date (YYYY-MM-DD)").optional(),
   endDate: isoDateField("Range end, ISO date (YYYY-MM-DD)").optional(),
-  range: z.enum(TREND_RANGES).optional().describe(`Quick range. One of: ${TREND_RANGES.join(", ")}.`),
+  range: z.enum(TREND_RANGES).optional().describe(`Quick range. One of: ${TREND_RANGES.join(", ")}. Do not pass together with startDate/endDate.`),
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -85,7 +85,12 @@ export class McpUpsellsTools {
     if (req.mode === "get") {
       return toolJson(toUpsellResultDto(await this.upsells.findOne(user, req.id)));
     }
-    const result = await this.upsells.list(user, req.query);
+    const dates = resolveToolDates(req.query);
+    const result = await this.upsells.list(user, {
+      ...req.query,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+    });
     return toolPage("upsells", result, toUpsellSummary, req.query.limit);
   }
 
@@ -99,7 +104,10 @@ export class McpUpsellsTools {
     @Payload() input: z.infer<typeof upsellsStatsInput>,
     @McpUser() user: User,
   ) {
-    assertDateOrder(input as Record<string, unknown>);
-    return toolJson(await this.upsells.stats(user, input));
+    const dates = resolveToolDates(input);
+    return toolJson(await this.upsells.stats(user, {
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+    }));
   }
 }

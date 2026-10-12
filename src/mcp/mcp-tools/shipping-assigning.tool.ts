@@ -7,7 +7,7 @@ import { McpReadTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { ShippingAssigningService } from "src/shipping-assigning/shipping-assigning.service";
-import { parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { parseSearchInput, resolveToolDates, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { TOOL } from "../utils/mcp-tool-names";
 import { isoDateField } from "../utils/mcp-date.util";
@@ -31,7 +31,7 @@ const searchRulesInput = searchInput("shipping assigning rule", {
   endDate: isoDateField("Created-at range end, ISO date (YYYY-MM-DD)").optional(),
 }, TOOL.shippingAssigning.search);
 
-const rulesStatsInput = z.object({});
+const rulesStatsInput = z.strictObject({});
 
 // ═══════════════════════════════════════════════════════════════
 // 2) OUTPUT MAPPERS: no dry-run resolve/preview.
@@ -89,8 +89,11 @@ export class McpShippingAssigningTools {
       return toolJson(toRuleResultDto(await this.rules.getRuleDetails(user, req.id)));
     }
     const { isActive, ...rest } = req.query as typeof req.query & { isActive?: boolean };
+    const dates = resolveToolDates(rest);
     const result = await this.rules.listRules(user, {
       ...rest,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
       ...(isActive === undefined ? {} : { isActive: isActive ? "true" : "false" }),
     });
     return toolPage("rules", result, toRuleSummary, (rest as any).limit ?? 10);

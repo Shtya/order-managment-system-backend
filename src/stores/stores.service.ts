@@ -8,6 +8,7 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { DataSource, EntityManager, In, Not, Repository } from "typeorm";
+import { FilterUtil } from "common/crud.service";
 import {
   OrderFailStatus,
   StoreEntity,
@@ -2051,7 +2052,7 @@ export class StoresService {
     if (sortColumns[sortBy]) {
       qb.orderBy(sortColumns[sortBy], sortDir);
     } else {
-      qb.orderBy("failure.created_at", "DESC"); // fallback
+      qb.orderBy("failure.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder)); // fallback
     }
 
     const total = await qb.getCount();
@@ -2678,7 +2679,7 @@ export class StoresService {
       q?.endDate,
     );
 
-    qb.orderBy("failure.created_at", "DESC");
+    qb.orderBy("failure.created_at", FilterUtil.normalizeSortOrder(q?.sortOrder));
 
     const failures = await qb.getMany();
 

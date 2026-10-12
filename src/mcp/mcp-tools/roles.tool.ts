@@ -9,7 +9,7 @@ import { RolesService } from "src/roles/roles.service";
 import { toolJson } from "../utils/mcp-result.util";
 import { TOOL } from "../utils/mcp-tool-names";
 
-const rolesListInput = z.object({});
+const rolesListInput = z.strictObject({});
 
 @McpController()
 @UseGuards(McpScopeGuard)
@@ -23,7 +23,7 @@ export class McpRolesTools {
     parameters: rolesListInput,
   })
   async listRoles(@McpUser() user: User) {
-    const rows = await this.roles.list(user as any);
+    const rows = await this.roles.list(user as any, {});
     const records = Array.isArray(rows) ? rows : [];
     return toolJson({
       roles: records.map((r: any) => ({

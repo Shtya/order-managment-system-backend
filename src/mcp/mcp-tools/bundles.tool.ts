@@ -28,15 +28,11 @@ export const searchBundlesInput = searchInput("bundle", {
   sku: z
     .string()
     .optional()
-    .describe("Exact bundle SKU. Omit isActive: 0 rows among ACTIVE bundles. Archived can still own the SKU — pass isActive:false to check those. Do not pass with `id`."),
+    .describe("Exact bundle SKU. Do not pass with `id`."),
   slug: z
     .string()
     .optional()
-    .describe("Exact bundle slug (case-insensitive). Omit isActive: 0 rows among ACTIVE bundles. Archived can still own the slug — pass isActive:false to check those. Do not pass with `id`."),
-  isActive: z
-    .boolean()
-    .optional()
-    .describe("False to include archived bundles. Omit for active only. SKU/slug uniqueness checks must pass false if an archived bundle may already use the value."),
+    .describe("Exact bundle slug (case-insensitive). Do not pass with `id`."),
   categoryId: uuidField(idDescription("Keep only bundles of this category.", TOOL.categories.list)).optional(),
   storeId: uuidField(idDescription("Keep only bundles of this store.", TOOL.stores.list)).optional(),
 }, TOOL.bundles.search);
@@ -140,7 +136,7 @@ export class McpBundlesTools {
   @McpReadTool({
     name: TOOL.bundles.search,
     description:
-      `Search bundles or fetch one. Without \`id\`: lists ACTIVE bundles with paging, filtered by search text, exact sku or slug, category, or store. Pass \`isActive: false\` to include archived (needed to see if a sku/slug is already taken). With \`id\`: returns that single bundle with full details.`,
+      `Search bundles or fetch one. Without \`id\`: lists ACTIVE bundles with paging, filtered by search text, exact sku or slug, category, or store. With \`id\`: returns that single bundle with full details.`,
     parameters: searchBundlesInput,
   })
   async searchBundles(@Payload() input: z.infer<typeof searchBundlesInput>, @McpUser() user: User) {

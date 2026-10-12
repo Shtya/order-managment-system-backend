@@ -10,6 +10,7 @@ import { DataSource, Repository } from "typeorm";
 import { Permission, Role, SystemRole, User } from "entities/user.entity";
 import { CreateRoleDto, UpdateRoleDto } from "dto/role.dto";
 import { tenantId } from "src/category/category.service";
+import { FilterUtil } from "common/crud.service";
 import { TranslationService } from "common/translation.service";
 import { OnboardingAchievementService } from "src/queue/queues/onboarding-achievement.queue";
 import { GettingStartedAchievementType } from "entities/getting-started.entity";
@@ -364,8 +365,8 @@ export class RolesService implements OnModuleInit {
     });
   }
 
-  async list(me: User) {
-    const qb = this.rolesRepo.createQueryBuilder("r").orderBy("r.id", "DESC");
+  async list(me: User, opts: { sortOrder?: string }) {
+    const qb = this.rolesRepo.createQueryBuilder("r").orderBy("r.id", FilterUtil.normalizeSortOrder(opts?.sortOrder));
 
     if (this.isSuperAdmin(me)) {
       qb.where("r.adminId IS NULL");
