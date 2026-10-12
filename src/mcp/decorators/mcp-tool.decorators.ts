@@ -1,6 +1,7 @@
-import { applyDecorators } from "@nestjs/common";
+import { applyDecorators, UseFilters } from "@nestjs/common";
 import { Tool } from "@rekog/mcp-nest";
 import { McpScope } from "entities/oauth.entity";
+import { McpToolExceptionFilter } from "../filters/mcp-tool-exception.filter";
 import { registerToolName } from "../utils/mcp-tool-names";
 import { RequireMcpScope } from "./require-mcp-scope.decorator";
 
@@ -20,6 +21,7 @@ const make = (kind: keyof typeof ANNOTATIONS, scope: McpScope) =>
     if (opts.name) registerToolName(opts.name);
     return applyDecorators(
       RequireMcpScope(scope),
+      UseFilters(McpToolExceptionFilter),
       Tool({ ...opts, annotations: { ...ANNOTATIONS[kind] } }),
     );
   };

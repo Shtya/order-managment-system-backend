@@ -54,5 +54,11 @@ import { Account } from "entities/safe.entity";
     ExpenseCategoriesService,
     MonthlyClosingService,
   ],
+  exports: [
+    AccountingService,
+    ExpensesService,
+    ExpenseCategoriesService,
+    MonthlyClosingService,
+  ],
 })
 export class AccountingModule {}

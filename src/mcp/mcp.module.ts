@@ -14,6 +14,9 @@ import { TagsModule } from "../tags/tags.module"; // must export TagsService
 import { UsersModule } from "../users/users.module"; // must export UsersService (@Global)
 import { CancelCausesModule } from "../cancel-causes/cancel-causes.module"; // must export CancelCausesService
 import { DashboardModule } from "../dashboard/dashboard.module"; // must export DashboardService
+import { AccountingModule } from "../accounting/accounting.module"; // must export AccountingService + Expenses + Categories + MonthlyClosing
+import { PurchasesModule } from "../purchases/purchases.module"; // must export PurchasesService
+import { PurchasesReturnModule } from "../purchases-return/purchases-return.module"; // must export PurchaseReturnsService
 import { McpAuthGuard } from "./mcp-guards/mcp-auth.guard";
 import { McpScopeGuard } from "./mcp-guards/mcp-scope-guard";
 import { McpHttpController } from "./mcp-http.controller";
@@ -38,7 +41,10 @@ import { McpTagsTools } from "./mcp-tools/tags.tool";
 import { McpEmployeesTools } from "./mcp-tools/employees.tool";
 import { McpCancelCausesTools } from "./mcp-tools/cancel-causes.tool";
 import { McpDashboardTools } from "./mcp-tools/dashboard.tool";
+import { McpAccountingTools } from "./mcp-tools/accounting.tool";
+import { McpPurchaseReturnsTools, McpPurchasesTools } from "./mcp-tools/purchases.tool";
 import { McpToolRefsCheck } from "./utils/mcp-tool-names";
+import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
 
 @Module({
   imports: [
@@ -68,6 +74,9 @@ import { McpToolRefsCheck } from "./utils/mcp-tool-names";
     UsersModule,
     CancelCausesModule,
     DashboardModule,
+    AccountingModule,
+    PurchasesModule,
+    PurchasesReturnModule,
   ],
   // v2: MCP tools are @McpController classes and MUST be listed in `controllers`
   // (classes in `providers` are not discovered, so tools/list would be empty).
@@ -87,8 +96,17 @@ import { McpToolRefsCheck } from "./utils/mcp-tool-names";
     McpEmployeesTools,
     McpCancelCausesTools,
     McpDashboardTools,
+    McpAccountingTools,
+    McpPurchasesTools,
+    McpPurchaseReturnsTools,
   ],
-  providers: [OAuthService, McpAuthGuard, McpScopeGuard, McpToolRefsCheck],
+  providers: [
+    OAuthService,
+    McpAuthGuard,
+    McpScopeGuard,
+    McpToolRefsCheck,
+    McpToolExceptionFilter,
+  ],
 })
 export class McpModule {}
 

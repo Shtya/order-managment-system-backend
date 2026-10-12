@@ -608,6 +608,9 @@ export type I18nTranslations = {
             "invalid_shipping_company": string;
             "shipping_company_not_active": string;
             "invalid_store": string;
+            "invalid_city": string;
+            "invalid_area": string;
+            "city_required": string;
             "cannot_update_shipped_delivered": string;
             "variant_id_not_found": string;
             "no_orders_provided": string;

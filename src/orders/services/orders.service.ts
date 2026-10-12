@@ -94,7 +94,7 @@ import { OrderAssignmentService } from "src/order-assignment/order-assignment.se
 import { randomBytes } from "crypto";
 import { generateRandomAlphanumeric, isSuperAdmin } from "common/healpers";
 import { normalizeEgyptianPhoneNumber } from "common/whatsapp";
-import { CityEntity } from "entities/cities.entity";
+import { AreaEntity, CityEntity } from "entities/cities.entity";
 import { IssueEntity, IssueStatus } from "entities/issue.entity";
 import { AutoAssignmentQueueService } from "src/queue/queues/auto-assignment.queue";
 import { TriggerDispatcherService } from "src/automation/engine/triggerDispatcher.service";
@@ -5011,6 +5011,37 @@ export class OrdersService {
       }
     }
 
+    let cityName = dto.city?.trim() || null;
+    if (dto.cityId && !cityName) {
+      const cityRow = await manager.findOne(CityEntity, {
+        where: { id: dto.cityId } as any,
+      });
+      if (!cityRow) {
+        throw new BadRequestException(
+          this.translations.t("domains.orders.invalid_city"),
+        );
+      }
+      cityName = cityRow.nameEn || cityRow.nameAr;
+    }
+    if (!cityName) {
+      throw new BadRequestException(
+        this.translations.t("domains.orders.city_required"),
+      );
+    }
+
+    let areaName = dto.area?.trim() || null;
+    if (dto.areaId && !areaName) {
+      const areaRow = await manager.findOne(AreaEntity, {
+        where: { id: dto.areaId } as any,
+      });
+      if (!areaRow) {
+        throw new BadRequestException(
+          this.translations.t("domains.orders.invalid_area"),
+        );
+      }
+      areaName = areaRow.nameEn || areaRow.nameAr;
+    }
+
     // Create order
     const order = manager.create(OrderEntity, {
       adminId,
@@ -5019,9 +5050,9 @@ export class OrdersService {
       phoneNumber: dto.phoneNumber,
       email: dto.email,
       address: dto.address,
-      city: dto.city,
+      city: cityName,
       cityId: dto.cityId,
-      area: dto.area,
+      area: areaName,
       landmark: dto.landmark,
       deposit: dto.deposit,
       paymentMethod: dto.paymentMethod,

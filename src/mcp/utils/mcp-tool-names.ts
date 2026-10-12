@@ -11,6 +11,8 @@ import { Injectable, OnApplicationBootstrap } from "@nestjs/common";
 export const TOOL = {
   clients: {
     search: "clients_search",
+    stats: "clients_stats",
+    save: "clients_save",
   },
   cities: {
     list: "list_cities",
@@ -56,6 +58,23 @@ export const TOOL = {
   },
   dashboard: {
     stats: "dashboard_orders_stats",
+  },
+  accounting: {
+    stats: "accounting_stats",
+    expensesSearch: "accounting_expenses_search",
+    expenseCategoriesList: "accounting_expense_categories_list",
+    monthlyClosingsSearch: "accounting_monthly_closings_search",
+    supplierClosingsSearch: "accounting_supplier_closings_search",
+  },
+  purchases: {
+    search: "purchases_search",
+    save: "purchases_save",
+    stats: "purchases_stats",
+    act: "purchases_act",
+  },
+  purchaseReturns: {
+    search: "purchase_returns_search",
+    save: "purchase_returns_save",
   },
 } as const;
 

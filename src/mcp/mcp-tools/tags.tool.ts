@@ -26,7 +26,7 @@ const listTagsInput = searchInput("tag", {
     defaultSortBy: "priority",
     search: "Matches tag name or description",
   }),
-  target: z.enum(TagTarget).default(TagTarget.ORDER).describe("Only tags for this target"),
+  target: z.enum(TagTarget).optional().describe("Only tags for this target. Omit for order tags."),
 });
 
 const saveTagFields = toolInputFor<UpdateTagDto>()(
