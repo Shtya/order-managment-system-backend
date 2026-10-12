@@ -23,7 +23,7 @@ import { SystemRole } from "entities/user.entity";
 
 export { MCP_SCOPES, McpScope };
  
-const ACCESS_TTL_SEC = 60 * 60; // 1 hour: short on purpose
+const ACCESS_TTL_SEC = 12 * 60 * 60; // 12 hours
 const REFRESH_TTL_MS = 60 * 24 * 3600 * 1000; // 60 days, extended on every refresh
 const AUTH_REQUEST_TTL_MS = 10 * 60 * 1000; // user has 10 min to log in + approve
 const CODE_TTL_MS = 60 * 1000; // authorization code lives 60 s
