@@ -176,6 +176,12 @@ export class CampaignsController {
   }
 
   @Permissions("campaigns.read")
+  @Get(":id/summary")
+  summary(@Req() req: any, @Param("id") id: string) {
+    return this.service.getSummary(req.user, id);
+  }
+
+  @Permissions("campaigns.read")
   @Get(":id/order-performance")
   orderPerformance(@Req() req: any, @Param("id") id: string) {
     return this.service.orderPerformance(req.user, id);

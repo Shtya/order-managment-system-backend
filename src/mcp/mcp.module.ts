@@ -17,6 +17,10 @@ import { DashboardModule } from "../dashboard/dashboard.module"; // must export 
 import { AccountingModule } from "../accounting/accounting.module"; // must export AccountingService + Expenses + Categories + MonthlyClosing
 import { PurchasesModule } from "../purchases/purchases.module"; // must export PurchasesService
 import { PurchasesReturnModule } from "../purchases-return/purchases-return.module"; // must export PurchaseReturnsService
+import { ClientSegmentsModule } from "../client-segments/client-segments.module";
+import { ClientSettingsModule } from "../client-settings/client-settings.module";
+import { CampaignsModule } from "../campaigns/campaigns.module";
+import { UpsellsModule } from "../upsells/upsells.module";
 import { McpAuthGuard } from "./mcp-guards/mcp-auth.guard";
 import { McpScopeGuard } from "./mcp-guards/mcp-scope-guard";
 import { McpHttpController } from "./mcp-http.controller";
@@ -43,6 +47,10 @@ import { McpCancelCausesTools } from "./mcp-tools/cancel-causes.tool";
 import { McpDashboardTools } from "./mcp-tools/dashboard.tool";
 import { McpAccountingTools } from "./mcp-tools/accounting.tool";
 import { McpPurchaseReturnsTools, McpPurchasesTools } from "./mcp-tools/purchases.tool";
+import { McpClientSegmentsTools } from "./mcp-tools/client-segments.tool";
+import { McpClientSettingsTools } from "./mcp-tools/client-settings.tool";
+import { McpCampaignsTools } from "./mcp-tools/campaigns.tool";
+import { McpUpsellsTools } from "./mcp-tools/upsells.tool";
 import { McpToolRefsCheck } from "./utils/mcp-tool-names";
 import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
 
@@ -77,6 +85,10 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     AccountingModule,
     PurchasesModule,
     PurchasesReturnModule,
+    ClientSegmentsModule,
+    ClientSettingsModule,
+    CampaignsModule,
+    UpsellsModule,
   ],
   // v2: MCP tools are @McpController classes and MUST be listed in `controllers`
   // (classes in `providers` are not discovered, so tools/list would be empty).
@@ -99,6 +111,10 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     McpAccountingTools,
     McpPurchasesTools,
     McpPurchaseReturnsTools,
+    McpClientSegmentsTools,
+    McpClientSettingsTools,
+    McpCampaignsTools,
+    McpUpsellsTools,
   ],
   providers: [
     OAuthService,

@@ -1,16 +1,17 @@
 import { UseGuards } from "@nestjs/common";
-import { Payload } from "@nestjs/microservices";
+import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { ClientService } from "src/clients/clients.service";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
-import { McpReadTool } from "../decorators/mcp-tool.decorators";
+import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { ClientEntity } from "entities/clients.entity";
-import { parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { CreateClientDto, UpdateClientDto } from "dto/client.dto";
+import { parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson } from "../utils/mcp-result.util";
-import { TOOL } from "../utils/mcp-tool-names";
+import { ref, TOOL } from "../utils/mcp-tool-names";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -32,6 +33,44 @@ const searchClientsInput = searchInput("client", {
     .boolean()
     .optional()
     .describe("When true, keep only clients that have a phone number"),
+});
+
+const clientsStatsInput = z.object({});
+
+const saveClientFields = toolInputFor<UpdateClientDto>()(
+  z.object({
+    name: z.string().optional().describe("Client name"),
+    email: z.string().optional().describe("Client email"),
+    notes: z.string().optional().describe("Internal notes"),
+    contacts: z
+      .array(
+        z.object({
+          phoneNumber: z.string().describe("Contact phone number"),
+          isPrimary: z.boolean().optional().describe("True to mark as the primary contact"),
+          customerId: z.string().optional().describe("Existing contact id when editing a phone"),
+        }),
+      )
+      .optional()
+      .describe("Contact phones. Enough for add/edit phones on save."),
+    // profilePicture never offered: avatar upload
+    // addresses stay on get detail; address CRUD later
+  }),
+);
+
+const saveClientInput = z.object({
+  mode: z
+    .enum(["create", "update"])
+    .describe(
+      'Required. "create" to add a new client. "update" to change an existing one. Never infer from id.',
+    ),
+  id: z
+    .string()
+    .min(1)
+    .optional()
+    .describe(
+      `Client ID. Required for mode=update. Forbidden for mode=create. Find it with ${ref(TOOL.clients.search)}.`,
+    ),
+  ...saveClientFields.shape,
 });
 
 // ═══════════════════════════════════════════════════════════════
@@ -127,5 +166,46 @@ export class McpClientsTools {
       nextCursor: result?.nextCursor ?? null,
       hasMore: result?.hasMore ?? false,
     });
+  }
+
+  @McpReadTool({
+    name: TOOL.clients.stats,
+    description:
+      "Client totals: total clients, with orders, with delivered orders, with orders in the last 30 days. Read-only.",
+    parameters: clientsStatsInput,
+  })
+  async getClientsStats(@McpUser() user: User) {
+    return toolJson(await this.clients.getStats(user));
+  }
+
+  @McpSaveTool({
+    name: TOOL.clients.save,
+    description:
+      'Create or update a client. Required: mode ("create" or "update"). Optional on create: name, email, notes, contacts (phoneNumber, isPrimary). For update: `id` plus any of those. Never profilePicture. Contact link/unlink and addresses are separate later slices.',
+    parameters: saveClientInput,
+  })
+  async saveClient(
+    @Payload() input: z.infer<typeof saveClientInput>,
+    @McpUser() user: User,
+  ) {
+    const req = parseSaveInput(input, "client", TOOL.clients.search);
+    if (req.mode === "create") {
+      const parsed = await parseDto(CreateClientDto, req.fields);
+      if (parsed.ok === false) throw new RpcException(parsed.message);
+      const created = await this.clients.create(user, parsed.dto);
+      const [client, stats] = await Promise.all([
+        this.clients.findOne(user, (created as any).id),
+        this.clients.getOrderStats(user, (created as any).id).catch(() => null),
+      ]);
+      return toolJson(toClientResultDto(client, stats));
+    }
+    const parsed = await parseDto(UpdateClientDto, req.fields);
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    await this.clients.update(user, req.id, parsed.dto);
+    const [client, stats] = await Promise.all([
+      this.clients.findOne(user, req.id),
+      this.clients.getOrderStats(user, req.id).catch(() => null),
+    ]);
+    return toolJson(toClientResultDto(client, stats));
   }
 }

@@ -76,6 +76,22 @@ export const TOOL = {
     search: "purchase_returns_search",
     save: "purchase_returns_save",
   },
+  clientSegments: {
+    search: "client_segments_search",
+    stats: "client_segments_stats",
+  },
+  clientSettings: {
+    get: "client_settings_get",
+    save: "client_settings_save",
+  },
+  campaigns: {
+    search: "campaigns_search",
+    stats: "campaigns_stats",
+  },
+  upsells: {
+    search: "upsells_search",
+    stats: "upsells_stats",
+  },
 } as const;
 
 type LeafStrings<T> = T extends string ? T : { [K in keyof T]: LeafStrings<T[K]> }[keyof T];

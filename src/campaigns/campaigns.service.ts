@@ -213,6 +213,9 @@ export class CampaignsService {
     if (q?.channel) qb.andWhere("campaign.channel = :channel", { channel: q.channel });
     if (q?.category)
       qb.andWhere("campaign.category = :category", { category: q.category });
+    if (typeof q?.name === "string" && q.name.trim() !== "") {
+      qb.andWhere("campaign.name = :name", { name: q.name.trim() });
+    }
     if (q?.search) {
       qb.andWhere("campaign.name ILIKE :search", { search: `%${q.search}%` });
     }
@@ -512,6 +515,23 @@ export class CampaignsService {
 
     const [records, total] = await qb.getManyAndCount();
 
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
+
+  async getSummary(me: any, id: string) {
+    const adminId = this.adminIdOf(me);
+    const campaign = await this.campaignRepo.findOne({
+      where: { id, adminId },
+      select: { id: true },
+    });
+    if (!campaign)
+      throw new NotFoundException(this.translations.t("domains.campaigns.not_found"));
+
     const summary = await this.recipientRepo
       .createQueryBuilder("recipient")
       .select("recipient.deliveryStatus", "status")
@@ -524,11 +544,8 @@ export class CampaignsService {
     for (const row of summary) byStatus[row.status] = Number(row.count);
 
     return {
-      total_records: total,
-      current_page: page,
-      per_page: limit,
-      records,
-      summary: { total: Object.values(byStatus).reduce((a, b) => a + b, 0), byStatus },
+      total: Object.values(byStatus).reduce((a, b) => a + b, 0),
+      byStatus,
     };
   }
 
