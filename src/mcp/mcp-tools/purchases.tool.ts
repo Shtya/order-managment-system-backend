@@ -289,13 +289,7 @@ export class McpPurchasesTools {
   ) {
     const req = parseSearchInput(input, "purchase invoice");
     if (req.mode === "get") {
-      const [inv, preview, audit] = await Promise.all([
-        this.purchases.get(user, req.id),
-        this.purchases.acceptPreview(user, req.id).catch(() => null),
-        this.purchases.getAuditLogs(user, req.id).catch(() => []),
-      ]);
-      const rows = Array.isArray(audit) ? audit.slice(0, 5) : [];
-      return toolJson(toPurchaseResultDto(inv, { preview, audit: rows }));
+      return toolJson(await fetchPurchaseResult(this.purchases, user, req.id));
     }
     const dates = resolveToolDates(req.query);
     const result = await this.purchases.list(user, {
@@ -309,7 +303,7 @@ export class McpPurchasesTools {
   @McpSaveTool({
     name: TOOL.purchases.save,
     description:
-      'Create or update a purchase invoice. Required: mode ("create" or "update"). Required for create: receiptNumber, safeId, items (variantId, quantity, purchaseCost). Optional: supplierId, paidAmount, notes, saveAsDraft, receiptAsset (file URL). For update: `id` plus any fields to change (safeId required by the service), including receiptAsset to replace the receipt. Status is never changed through save — use purchases_act.',
+      'Create or update a purchase invoice. Required: mode ("create" or "update"). Required for create: receiptNumber, safeId, items (variantId, quantity, purchaseCost). Optional: supplierId, paidAmount, notes, saveAsDraft, receiptAsset (file URL). For update: `id` plus any fields to change (safeId required by the service), including receiptAsset to replace the receipt. Status is never changed through save - use purchases_act. Status flow (set only via purchases_act): new documents start pending (invoice: draft if saveAsDraft). Statuses draft/pending/accepted/rejected; any status can move to any other (e.g. pending->accepted, accepted->rejected, rejected->pending); setting the current status is a no-op; closed documents (closingId set) are refused. Stock and weighted-average unit cost are applied ONLY when a document enters accepted and rolled back when it leaves accepted (invoice adds stock, return deducts it).',
     parameters: savePurchaseInput,
   })
   async savePurchase(
@@ -320,11 +314,13 @@ export class McpPurchasesTools {
     if (req.mode === "create") {
       const parsed = await parseDto(CreatePurchaseDto, req.fields);
       if (parsed.ok === false) throw new RpcException(parsed.message);
-      return toolJson(toPurchaseResultDto(await this.purchases.create(user, parsed.dto)));
+      const created = await this.purchases.create(user, parsed.dto);
+      return toolJson(await fetchPurchaseResult(this.purchases, user, created.id));
     }
     const parsed = await parseDto(UpdatePurchaseDto, req.fields);
     if (parsed.ok === false) throw new RpcException(parsed.message);
-    return toolJson(toPurchaseResultDto(await this.purchases.update(user, req.id, parsed.dto)));
+    await this.purchases.update(user, req.id, parsed.dto);
+    return toolJson(await fetchPurchaseResult(this.purchases, user, req.id));
   }
 
   @McpReadTool({
@@ -347,7 +343,7 @@ export class McpPurchasesTools {
   @McpSaveTool({
     name: TOOL.purchases.act,
     description:
-      "Change status or paid amount on a purchase invoice or return. Required: kind (invoice or return), id, action. action=set_status needs status. action=set_paid needs paidAmount. Never use save for status. Closed documents are rejected by the service.",
+      "Change status or paid amount on a purchase invoice or return. Required: kind (invoice or return), id, action. action=set_status needs status. action=set_paid needs paidAmount. Never use save for status. Closed documents are rejected by the service. Status flow (set only via purchases_act): new documents start pending (invoice: draft if saveAsDraft). Statuses draft/pending/accepted/rejected; any status can move to any other (e.g. pending->accepted, accepted->rejected, rejected->pending); setting the current status is a no-op; closed documents (closingId set) are refused. Stock and weighted-average unit cost are applied ONLY when a document enters accepted and rolled back when it leaves accepted (invoice adds stock, return deducts it). Returns the re-fetched document.",
     parameters: purchasesActInput,
   })
   async actOnPurchase(
@@ -355,18 +351,23 @@ export class McpPurchasesTools {
     @McpUser() user: User,
   ) {
     const svc = input.kind === "return" ? this.returns : this.purchases;
+    // Re-fetch with the mapper matching the document kind (return vs invoice).
+    const reload = () =>
+      input.kind === "return"
+        ? fetchReturnResult(this.returns, user, input.id)
+        : fetchPurchaseResult(this.purchases, user, input.id);
     if (input.action === "set_status") {
       if (!isSet(input.status)) {
         throw new RpcException("action=set_status requires `status`.");
       }
-      const updated = await (svc as any).updateStatus(user, input.id, input.status);
-      return toolJson(toPurchaseResultDto(updated));
+      await (svc as any).updateStatus(user, input.id, input.status);
+      return toolJson(await reload());
     }
     if (!isSetNum(input.paidAmount)) {
       throw new RpcException("action=set_paid requires `paidAmount`.");
     }
-    const updated = await (svc as any).updatePaidAmount(user, input.id, { paidAmount: Number(input.paidAmount) });
-    return toolJson(toPurchaseResultDto(updated));
+    await (svc as any).updatePaidAmount(user, input.id, { paidAmount: Number(input.paidAmount) });
+    return toolJson(await reload());
   }
 }
 
@@ -387,13 +388,7 @@ export class McpPurchaseReturnsTools {
   ) {
     const req = parseSearchInput(input, "purchase return");
     if (req.mode === "get") {
-      const [inv, preview, audit] = await Promise.all([
-        this.returns.get(user, req.id),
-        this.returns.acceptPreview(user, req.id).catch(() => null),
-        this.returns.getAuditLogs(user, req.id).catch(() => []),
-      ]);
-      const rows = Array.isArray(audit) ? audit.slice(0, 5) : [];
-      return toolJson(toReturnResultDto(inv, { preview, audit: rows }));
+      return toolJson(await fetchReturnResult(this.returns, user, req.id));
     }
     const dates = resolveToolDates(req.query);
     const result = await this.returns.list(user, {
@@ -407,7 +402,7 @@ export class McpPurchaseReturnsTools {
   @McpSaveTool({
     name: TOOL.purchaseReturns.save,
     description:
-      'Create or update a purchase return. Required: mode ("create" or "update"). Required for create: returnNumber, safeId, items (variantId, returnedQuantity, unitCost). Optional: supplierId, invoiceNumber, returnReason, returnType, paidAmount, notes, receiptAsset (file URL). For update: `id` plus fields, including receiptAsset to replace the receipt. Status is never changed through save — use purchases_act.',
+      'Create or update a purchase return. Required: mode ("create" or "update"). Required for create: returnNumber, safeId, items (variantId, returnedQuantity, unitCost). Optional: supplierId, invoiceNumber, returnReason, returnType, paidAmount, notes, receiptAsset (file URL). For update: `id` plus fields, including receiptAsset to replace the receipt. Status is never changed through save - use purchases_act. invoiceNumber is free text (not linked to an invoice by id). Status flow (set only via purchases_act): new documents start pending (invoice: draft if saveAsDraft). Statuses draft/pending/accepted/rejected; any status can move to any other (e.g. pending->accepted, accepted->rejected, rejected->pending); setting the current status is a no-op; closed documents (closingId set) are refused. Stock and weighted-average unit cost are applied ONLY when a document enters accepted and rolled back when it leaves accepted (invoice adds stock, return deducts it).',
     parameters: savePurchaseReturnInput,
   })
   async savePurchaseReturn(
@@ -418,12 +413,35 @@ export class McpPurchaseReturnsTools {
     if (req.mode === "create") {
       const parsed = await parseDto(CreatePurchaseReturnDto, req.fields);
       if (parsed.ok === false) throw new RpcException(parsed.message);
-      return toolJson(toReturnResultDto(await this.returns.create(user, parsed.dto)));
+      const created = await this.returns.create(user, parsed.dto);
+      return toolJson(await fetchReturnResult(this.returns, user, created.id));
     }
     const parsed = await parseDto(UpdatePurchaseReturnDto, req.fields);
     if (parsed.ok === false) throw new RpcException(parsed.message);
-    return toolJson(toReturnResultDto(await this.returns.update(user, req.id, parsed.dto)));
+    await this.returns.update(user, req.id, parsed.dto);
+    return toolJson(await fetchReturnResult(this.returns, user, req.id));
   }
+}
+
+// Re-fetch after a write so save/act responses match the search get-by-id shape.
+async function fetchPurchaseResult(svc: PurchasesService, user: User, id: string) {
+  const [inv, preview, audit] = await Promise.all([
+    svc.get(user, id),
+    svc.acceptPreview(user, id).catch(() => null),
+    svc.getAuditLogs(user, id).catch(() => []),
+  ]);
+  const rows = Array.isArray(audit) ? audit.slice(0, 5) : [];
+  return toPurchaseResultDto(inv, { preview, audit: rows });
+}
+
+async function fetchReturnResult(svc: PurchaseReturnsService, user: User, id: string) {
+  const [inv, preview, audit] = await Promise.all([
+    svc.get(user, id),
+    svc.acceptPreview(user, id).catch(() => null),
+    svc.getAuditLogs(user, id).catch(() => []),
+  ]);
+  const rows = Array.isArray(audit) ? audit.slice(0, 5) : [];
+  return toReturnResultDto(inv, { preview, audit: rows });
 }
 
 function isSet(v: unknown): boolean {
