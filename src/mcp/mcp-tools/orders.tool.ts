@@ -49,13 +49,30 @@ const saveOrderFields = toolInputFor<UpdateOrderDto>()(
     address: z.string().optional().describe("Delivery address"),
     landmark: z.string().optional().describe("Nearby landmark"),
     cityId: uuidField(idDescription("City id.", TOOL.cities.list)).optional(),
-    areaId: uuidField(idDescription("Area id.", TOOL.cities.areas)).optional(),
-    latitude: z.number().optional().describe("Delivery latitude"),
-    longitude: z.number().optional().describe("Delivery longitude"),
+    area: z
+      .string()
+      .optional()
+      .describe(
+        "Area/district name as stored on the order (e.g. حى المناخ). Prefer areaId from list_areas when you have cityId.",
+      ),
+    areaId: uuidField(idDescription("Area id.", TOOL.cities.areas, "Resolved to the area name on save.")).optional(),
+    latitude: z
+      .number()
+      .optional()
+      .describe("Delivery latitude (top-level number, not nested under address)"),
+    longitude: z
+      .number()
+      .optional()
+      .describe("Delivery longitude (top-level number, not nested under address)"),
 
     // ── Payment ────────────────────────────────────────────────
     paymentMethod: z.enum(PaymentMethod).optional().describe("How the customer pays"),
-    paymentStatus: z.enum(PaymentStatus).optional().describe("Current payment status"),
+    paymentStatus: z
+      .enum(PaymentStatus)
+      .optional()
+      .describe(
+        `Payment status. One of: ${Object.values(PaymentStatus).join(", ")}. Use "partial" not a display label.`,
+      ),
     deposit: z.number().optional().describe("Deposit already paid"),
     discount: z.number().optional().describe("Discount amount (whole number)"),
     additionalFees: z.number().optional().describe("Additional fees"),

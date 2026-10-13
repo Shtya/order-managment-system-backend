@@ -9,8 +9,10 @@ import { McpAuthGuard } from "./mcp-guards/mcp-auth.guard";
  * Nest controller, so the guard runs at the HTTP layer on every request
  * (initialize, tools/list, tools/call...). McpAuthGuard sets `req.user`.
  *
- * SkipThrottle: ChatGPT/Claude call from shared server IPs, so a per-IP limit
- * would throttle many different users together.
+ * SkipThrottle `default`: ChatGPT/Claude share outbound IPs, so the web
+ * 300/min IP-or-user bucket must not apply here. Authenticated MCP traffic
+ * uses the separate named `mcp` throttler (300/min per user `sub`).
+ * Unauthenticated probes (no `sub`) skip that throttler and get 401.
  */
 @SkipThrottle({ default: true })
 @Controller("mcp")

@@ -2201,6 +2201,39 @@ export class ProductsService {
       }
       delete (dto as any).imagesOrphanIds;
 
+      const incomingImages = dto.images as { url?: string }[] | undefined;
+      if (incomingImages !== undefined) {
+        if (!Array.isArray(incomingImages)) {
+          throw new BadRequestException(
+            this.translations.t(
+              "domains.products.images_orphan_ids_must_be_array",
+            ),
+          );
+        }
+        const toAppend = incomingImages
+          .filter((img) => typeof img?.url === "string" && img.url.trim() !== "")
+          .map((img) => ({ url: img.url.trim() }));
+        const current = Array.isArray((p as any).images)
+          ? (p as any).images
+          : [];
+        if (current.length + toAppend.length > 20) {
+          throw new BadRequestException(
+            this.translations.t(
+              "domains.products.total_images_cannot_exceed_20",
+            ),
+          );
+        }
+        (p as any).images = [...current, ...toAppend];
+      }
+      delete (dto as any).images;
+
+      if (dto.mainImage !== undefined && dto.mainImage !== null) {
+        const mainUrl = String(dto.mainImage).trim();
+        if (mainUrl) {
+          (p as any).mainImage = mainUrl;
+        }
+      }
+
       if (dto.aiKeywords !== undefined) {
         dto.aiKeywords = normalizeAiKeywords(dto.aiKeywords);
       }

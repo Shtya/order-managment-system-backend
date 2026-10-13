@@ -70,7 +70,7 @@ import { CitiesModule } from "./cities/cities.module";
 import { OrderAssignmentModule } from "./order-assignment/order-assignment.module";
 import { ShippingAssigningModule } from "./shipping-assigning/shipping-assigning.module";
 import { QueueModule } from "./queue/queue.module";
-import { UserThrottlerGuard } from "common/userThrottlerGuard";
+import { bearerSub, UserThrottlerGuard } from "common/userThrottlerGuard";
 import { createHash } from "crypto";
 import { TranslationModule } from "common/translation.service";
 import { ClientSettingsModule } from "./client-settings/client-settings.module";
@@ -119,6 +119,16 @@ import { McpModule } from './mcp/mcp.module';
           skipIf: (context: ExecutionContext) =>
             context.getClass().name !== "AuthController" ||
             context.getHandler().name !== "login",
+        },
+        {
+          name: "mcp",
+          ttl: minutes(1),
+          limit: 300,
+          skipIf: (context: ExecutionContext) => {
+            if (context.getClass().name !== "McpHttpController") return true;
+            const req = context.switchToHttp().getRequest();
+            return !bearerSub(req);
+          },
         },
       ],
       errorMessage: "Too many attempts. Please wait before trying again.",

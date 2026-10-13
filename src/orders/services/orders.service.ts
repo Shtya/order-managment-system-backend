@@ -5066,8 +5066,10 @@ export class OrdersService {
       city: cityName,
       cityId: dto.cityId,
       area: areaName,
+      latitude: dto.latitude ?? null,
+      longitude: dto.longitude ?? null,
       landmark: dto.landmark,
-      deposit: dto.deposit,
+      deposit: dto.deposit ?? 0,
       paymentMethod: dto.paymentMethod,
       secondPhoneNumber: dto.secondPhoneNumber ?? null,
       allowOpenPackage: dto.allowOpenPackage ?? false,
@@ -5213,6 +5215,11 @@ export class OrdersService {
         .andWhere("order.adminId = :adminId", { adminId })
         .getOne();
 
+        if (!order) {
+          throw new BadRequestException(
+            this.translations.t("domains.orders.order_not_found"),
+          );
+        }
 
       if (dto.clientId) {
         const client = await manager.findOne(ClientEntity, {
@@ -5225,7 +5232,6 @@ export class OrdersService {
         }
 
         order.clientId = client.id;
-        return manager.save(OrderEntity, order);
       }
 
       await this.throwIfDelivered(
@@ -5299,7 +5305,7 @@ export class OrdersService {
         // 1-a. Keep bundle-aware: an item is "actually removed" only if there
         // is no item in dto.items with the same (variantId, bundleId) pair.
         const dtoItemKeys = new Set(
-          dto.items.map((i) => key(i.variantId, i.bundleId)),
+          (dto.items ?? []).map((i) => key(i.variantId, i.bundleId)),
         );
         const itemsToRemove = dto.removedItems.filter(
           (i) => !dtoItemKeys.has(key(i.variantId, i.bundleId)),
@@ -5509,6 +5515,19 @@ export class OrdersService {
       order.items = currentOrderItems;
       order.itemsSignature = this.generateItemsSignature(order.items);
 
+      let nextArea = dto.area !== undefined ? (dto.area?.trim() || null) : undefined;
+      if (dto.areaId) {
+        const areaRow = await manager.findOne(AreaEntity, {
+          where: { id: dto.areaId } as any,
+        });
+        if (!areaRow) {
+          throw new BadRequestException(
+            this.translations.t("domains.orders.invalid_area"),
+          );
+        }
+        nextArea = areaRow.nameEn || areaRow.nameAr;
+      }
+
       // Update basic fields
       Object.assign(order, {
         customerName:
@@ -5529,7 +5548,15 @@ export class OrdersService {
         address: dto.address !== undefined ? dto.address : order.address,
         city: dto.city !== undefined ? dto.city : order.city,
         cityId: !!dto.cityId ? dto.cityId : order.cityId,
-        area: dto.area !== undefined ? dto.area : order.area,
+        area: nextArea !== undefined ? nextArea : order.area,
+        latitude:
+          dto.latitude !== undefined ? dto.latitude : order.latitude,
+        longitude:
+          dto.longitude !== undefined ? dto.longitude : order.longitude,
+        paymentStatus:
+          dto.paymentStatus !== undefined
+            ? dto.paymentStatus
+            : order.paymentStatus,
         paymentMethod:
           dto.paymentMethod !== undefined
             ? dto.paymentMethod

@@ -169,7 +169,7 @@ export class CreateOrderDto {
 
   @IsNumber({}, { message: i18nValidationMessage('validation.is_number') })
   @IsOptional()
-  deposit?: number = 0;
+  deposit?: number;
 
   @IsString({ message: i18nValidationMessage('validation.is_string') })
   @IsOptional()

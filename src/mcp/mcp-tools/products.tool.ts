@@ -94,7 +94,14 @@ const saveProductFields = toolInputFor<UpdateProductDto>()(
       .optional()
       .describe("Variant combinations for variable products"),
     isActive: z.boolean().optional().describe("False to deactivate. Update only"),
-    // mainImage / images / orphan ids / removeImgs / purchase / receipt upload never offered
+    mainImage: z
+      .string()
+      .optional()
+      .describe("Main product image URL. Recommended on create; on update replaces the current main image."),
+    removeImgs: z
+      .array(z.string())
+      .optional()
+      .describe("Update only. Gallery image URLs to remove. Get them from products_search with id."),
   }),
 );
 
@@ -110,6 +117,32 @@ const saveProductInput = z.object({
     .optional()
     .describe("Product SKU. Required for create. Do not send on update."),
   ...saveProductFields.shape,
+  images: z
+    .array(z.string())
+    .optional()
+    .describe(
+      "Gallery image URLs (http/https or stored path). Create: sets the gallery. Update: appends (max 20 total). Not orphan ids.",
+    ),
+  purchaseReceiptAssetUrl: z
+    .string()
+    .optional()
+    .describe(
+      "Create only. Receipt file URL for the nested product purchase. Maps to purchase.receiptAsset. Send with purchase.receiptNumber, purchase.safeId, and quantity.",
+    ),
+  purchase: z
+    .object({
+      receiptNumber: z.string().optional().describe("Purchase receipt number"),
+      safeId: uuidField(idDescription("Safe id for the purchase payment.", TOOL.safes.list)).optional(),
+      supplierId: uuidField(idDescription("Supplier id.", TOOL.suppliers.search)).optional(),
+      quantity: z.number().optional().describe("Purchased quantity for a single product"),
+      wholesalePrice: z.number().optional().describe("Purchase cost per unit"),
+      paidAmount: z.number().optional().describe("Amount already paid"),
+      notes: z.string().optional().describe("Purchase notes"),
+      saveAsDraft: z.boolean().optional().describe("True to save the nested purchase as draft"),
+      receiptAsset: z.string().optional().describe("Receipt file URL. Prefer purchaseReceiptAssetUrl at the top level."),
+    })
+    .optional()
+    .describe("Optional nested purchase on create. Needs receiptNumber, safeId, and quantity (or variant stock) to actually create an invoice."),
 });
 
 const productsStatsInput = z.strictObject({
@@ -135,6 +168,7 @@ function toProductSummary(row: any) {
     salePrice: row.salePrice ?? null,
     type: row.type ?? null,
     isActive: row.isActive ?? null,
+    mainImage: row.mainImage ?? null,
     categoryName: row.category?.name ?? null,
     storeName: row.store?.name ?? null,
     variants: skus.map((s: any) => ({
@@ -158,6 +192,10 @@ function toProductResultDto(row: any) {
     salePrice: row.salePrice ?? null,
     lowestPrice: row.lowestPrice ?? null,
     type: row.type ?? null,
+    mainImage: row.mainImage ?? null,
+    images: (Array.isArray(row.images) ? row.images : [])
+      .map((img: any) => (typeof img === "string" ? img : img?.url))
+      .filter(Boolean),
     description: row.description ?? null,
     category: row.category
       ? { id: row.category.id ?? row.categoryId ?? null, name: row.category.name ?? null }
@@ -184,6 +222,41 @@ function toProductResultDto(row: any) {
       attributes: s.attributes ?? null,
     })),
   };
+}
+
+function toProductSavePayload(
+  fields: Record<string, unknown>,
+  mode: "create" | "update",
+) {
+  const { images, purchaseReceiptAssetUrl, purchase, ...rest } = fields as {
+    images?: string[];
+    purchaseReceiptAssetUrl?: string;
+    purchase?: Record<string, unknown>;
+    [k: string]: unknown;
+  };
+  const payload: Record<string, unknown> = { ...rest };
+  if (images !== undefined) {
+    payload.images = images
+      .map((url) => ({ url: String(url).trim() }))
+      .filter((img) => img.url);
+  }
+  if (mode === "update") {
+    if (isSet(purchaseReceiptAssetUrl) || purchase !== undefined) {
+      throw new RpcException(
+        "purchase and purchaseReceiptAssetUrl are create-only. Do not send them on update.",
+      );
+    }
+    return payload;
+  }
+  if (isSet(purchaseReceiptAssetUrl)) {
+    payload.purchase = {
+      ...(purchase ?? {}),
+      receiptAsset: purchaseReceiptAssetUrl,
+    };
+  } else if (purchase !== undefined) {
+    payload.purchase = purchase;
+  }
+  return payload;
 }
 
 function toProductStockStats(summary: any, report: string) {
@@ -289,20 +362,22 @@ export class McpProductsTools {
   @McpSaveTool({
     name: TOOL.products.save,
     description:
-      'Create or update a product. Required: mode ("create" or "update"). Required for create: name, slug, sku. Optional: type, prices, categoryId, storeId, warehouseId, storageLocationId, descriptions, AI fields, upselling, combinations. For update: `id` plus any fields to change. Do not send `sku` or `type` on update. No picture fields.',
+      'Create or update a product. Required: mode ("create" or "update"). Required for create: name, slug, sku. Optional: mainImage (URL), images (gallery URL list), type, prices, category, store, warehouse, descriptions, AI, upselling, combinations, nested purchase. Create receipt: purchaseReceiptAssetUrl (needs purchase.receiptNumber, purchase.safeId, quantity). For update: `id` plus fields to change, including mainImage URL, images URLs to append, and removeImgs. Do not send sku, type, or purchaseReceiptAssetUrl on update.',
     parameters: saveProductInput,
   })
   async saveProduct(
     @Payload() input: z.infer<typeof saveProductInput>,
     @McpUser() user: User,
   ) {
-    const req = parseSaveInput(input, "product", TOOL.products.search);
+    const req = parseSaveInput(input, "product", TOOL.products.search, {
+      updateOnlyKeys: ["removeImgs"],
+    });
+    const payload = toProductSavePayload(req.fields, req.mode);
     if (req.mode === "create") {
       const parsed = await parseDto(CreateProductDto, {
-        ...req.fields,
+        ...payload,
         sku: (input as any).sku,
-        // Service requires an image unless skipped: MCP never uploads images.
-        skipRemoteCheck: true,
+        skipRemoteCheck: !isSet(payload.mainImage),
       });
       if (parsed.ok === false) throw new RpcException(parsed.message);
       return toolJson(toProductResultDto(await this.products.create(user, parsed.dto)));
@@ -315,7 +390,7 @@ export class McpProductsTools {
         );
       }
     }
-    const parsed = await parseDto(UpdateProductDto, req.fields);
+    const parsed = await parseDto(UpdateProductDto, payload);
     if (parsed.ok === false) throw new RpcException(parsed.message);
     return toolJson(toProductResultDto(await this.products.update(user, req.id, parsed.dto)));
   }

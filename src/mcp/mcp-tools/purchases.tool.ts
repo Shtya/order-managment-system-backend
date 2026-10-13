@@ -57,7 +57,10 @@ const savePurchaseFields = z.object({
       )
       .optional()
       .describe("Invoice lines. Required for create."),
-    // receiptAsset never offered: file upload
+    receiptAsset: z
+      .string()
+      .optional()
+      .describe("Receipt file URL (http/https or stored path). Create: attach. Update: replace the current receipt."),
   });
 
 const savePurchaseInput = z.object({
@@ -102,7 +105,10 @@ const savePurchaseReturnFields = z.object({
       )
       .optional()
       .describe("Return lines. Required for create."),
-    // receiptAsset never offered: file upload
+    receiptAsset: z
+      .string()
+      .optional()
+      .describe("Receipt file URL (http/https or stored path). Create: attach. Update: replace the current receipt."),
   });
 
 const savePurchaseReturnInput = z.object({
@@ -169,6 +175,7 @@ function toPurchaseResultDto(row: any, extra?: { preview?: any; audit?: unknown[
     paidAmount: num(row.paidAmount),
     remainingAmount: num(row.remainingAmount),
     notes: row.notes ?? null,
+    receiptAsset: row.receiptAsset ?? null,
     closingId: row.closingId ?? null,
     items: items.map((i: any) => ({
       id: i.id ?? null,
@@ -226,6 +233,7 @@ function toReturnResultDto(row: any, extra?: { preview?: any; audit?: unknown[] 
     paidAmount: num(row.paidAmount),
     returnReason: row.returnReason ?? null,
     notes: row.notes ?? null,
+    receiptAsset: row.receiptAsset ?? null,
     closingId: row.closingId ?? null,
     items: items.map((i: any) => ({
       id: i.id ?? null,
@@ -301,7 +309,7 @@ export class McpPurchasesTools {
   @McpSaveTool({
     name: TOOL.purchases.save,
     description:
-      'Create or update a purchase invoice. Required: mode ("create" or "update"). Required for create: receiptNumber, safeId, items (variantId, quantity, purchaseCost). Optional: supplierId, paidAmount, notes, saveAsDraft. For update: `id` plus any fields to change (safeId required by the service). Status is never changed through save — use purchases_act. No receipt files.',
+      'Create or update a purchase invoice. Required: mode ("create" or "update"). Required for create: receiptNumber, safeId, items (variantId, quantity, purchaseCost). Optional: supplierId, paidAmount, notes, saveAsDraft, receiptAsset (file URL). For update: `id` plus any fields to change (safeId required by the service), including receiptAsset to replace the receipt. Status is never changed through save — use purchases_act.',
     parameters: savePurchaseInput,
   })
   async savePurchase(
@@ -399,7 +407,7 @@ export class McpPurchaseReturnsTools {
   @McpSaveTool({
     name: TOOL.purchaseReturns.save,
     description:
-      'Create or update a purchase return. Required: mode ("create" or "update"). Required for create: returnNumber, safeId, items (variantId, returnedQuantity, unitCost). Optional: supplierId, invoiceNumber, returnReason, returnType, paidAmount, notes. For update: `id` plus fields. Status is never changed through save — use purchases_act. No receipt files.',
+      'Create or update a purchase return. Required: mode ("create" or "update"). Required for create: returnNumber, safeId, items (variantId, returnedQuantity, unitCost). Optional: supplierId, invoiceNumber, returnReason, returnType, paidAmount, notes, receiptAsset (file URL). For update: `id` plus fields, including receiptAsset to replace the receipt. Status is never changed through save — use purchases_act.',
     parameters: savePurchaseReturnInput,
   })
   async savePurchaseReturn(

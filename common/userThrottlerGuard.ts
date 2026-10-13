@@ -1,37 +1,26 @@
-import { ExecutionContext, HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { JwtService } from '@nestjs/jwt';
-import { ThrottlerGuard, ThrottlerLimitDetail
- } from '@nestjs/throttler';
-import { TranslationService } from './translation.service';
+import { ExecutionContext, HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { ThrottlerGuard, ThrottlerLimitDetail } from '@nestjs/throttler';
+
+/** Decode `sub` from a Bearer JWT without verifying. Empty if missing/malformed. */
+export function bearerSub(req: any): string | null {
+    const auth = req?.headers?.authorization;
+    if (!auth?.startsWith('Bearer ')) return null;
+    try {
+        const payloadBase64 = auth.substring(7).split('.')[1];
+        if (!payloadBase64) return null;
+        const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString('utf8'));
+        return payload?.sub ? String(payload.sub) : null;
+    } catch {
+        return null;
+    }
+}
 
 @Injectable()
 export class UserThrottlerGuard extends ThrottlerGuard {
 
     protected async getTracker(req: any): Promise<string> {
-        const auth = req.headers.authorization;
-
-       if (auth?.startsWith('Bearer ')) {
-            try {
-                const token = auth.substring(7);
-                
-                // JWTs are formatted as: header.payload.signature
-                const payloadBase64 = token.split('.')[1]; 
-                
-                if (payloadBase64) {
-                    // Decode the Base64 payload using Node's native Buffer
-                    const decodedPayload = Buffer.from(payloadBase64, 'base64').toString('utf8');
-                    const payload = JSON.parse(decodedPayload);
-                    
-                    if (payload.sub) {
-                        return `user:${payload.sub}`;
-                    }
-                }
-            } catch { 
-                // If the token is malformed, it silently falls back to IP tracking
-            }
-        }
-
+        const sub = bearerSub(req);
+        if (sub) return `user:${sub}`;
         return Promise.resolve(req.ip);
     }
 
