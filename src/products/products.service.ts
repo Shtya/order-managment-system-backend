@@ -1089,6 +1089,10 @@ export class ProductsService {
       );
     }
 
+    if (q?.variantId) {
+      qb.andWhere("variant.id = :variantId", { variantId: String(q.variantId) });
+    }
+
     if (q?.mode === "upsell" && q?.triggerId) {
       // Find the trigger product and its variants to get the upsellingProducts list
       const triggerProduct = await this.prodRepo.findOne({

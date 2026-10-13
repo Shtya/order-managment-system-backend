@@ -9,10 +9,10 @@ import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { ClientEntity } from "entities/clients.entity";
 import { CreateClientDto, UpdateClientDto } from "dto/client.dto";
-import { parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
-import { toolJson } from "../utils/mcp-result.util";
+import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
+import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
-import { isUuid, uuidField } from "../utils/mcp-date.util";
+import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -21,27 +21,12 @@ import { isUuid, uuidField } from "../utils/mcp-date.util";
 // ═══════════════════════════════════════════════════════════════
 
 const searchClientsInput = searchInput("client", {
-  search: z
-    .string()
-    .optional()
-    .describe("Matches client name, email, contact name, or phone number"),
-  limit: z.number().int().min(1).max(50).default(10).describe("The number of clients to return"),
-  cursor: z
-    .string()
-    .refine(
-      (v) => {
-        const [createdAt, id, extra] = v.split("|");
-        return extra === undefined && !!createdAt && isUuid(id) && !Number.isNaN(Date.parse(createdAt));
-      },
-      {
-        message:
-          "Must be a nextCursor from a previous clients_search response (`<ISO timestamp>|<uuid>`). Omit for the first page. This list is cursor-paginated; do not pass page.",
-      },
-    )
-    .optional()
-    .describe(
-      "Pagination cursor from a previous response (nextCursor). Omit for the first page. Cursor-paginated: page is not accepted.",
-    ),
+  ...listPaging({
+    items: "clients",
+    sortBy: ["createdAt", "name", "ordersCount", "email", "updatedAt"],
+    defaultSortBy: "createdAt",
+    search: "Matches client name, email, contact name, or phone number",
+  }),
   hasPhone: z
     .boolean()
     .optional()
@@ -92,6 +77,7 @@ function toClientSummary(row: Partial<ClientEntity>) {
     name: row.name ?? null,
     email: (row as any).email ?? null,
     phoneNumber: row.primaryContact?.phoneNumber ?? null,
+    ordersCount: Number((row as any).ordersCount ?? 0),
     createdAt: (row as any).createdAt ?? null,
   };
 }
@@ -151,7 +137,7 @@ export class McpClientsTools {
   @McpReadTool({
     name: TOOL.clients.search,
     description:
-      "Search clients or fetch one. Without `id`: lists the signed-in Madar user's clients by name, email, or phone. Cursor-paginated: pass nextCursor back as cursor for the next page (omit cursor for the first page). No page or date filters; extra fields (e.g. page, startDate) are rejected. With `id`: returns that single client with contacts, addresses, and order stats. Read-only.",
+      "Search clients or fetch one. Without `id`: lists active clients with page/limit, search (name, email, phone), optional hasPhone, and sortBy (createdAt, name, ordersCount, email, updatedAt). With `id`: returns that single client with contacts, addresses, and order stats. Read-only.",
     parameters: searchClientsInput,
   })
   async searchClients(
@@ -166,13 +152,8 @@ export class McpClientsTools {
       ]);
       return toolJson(toClientResultDto(client, stats));
     }
-    const result = await this.clients.list(user, req.query);
-    const rows = Array.isArray(result?.data) ? result.data : [];
-    return toolJson({
-      clients: rows.map(toClientSummary),
-      nextCursor: result?.nextCursor ?? null,
-      hasMore: result?.hasMore ?? false,
-    });
+    const result = await this.clients.listPaginated(user, req.query);
+    return toolPage("clients", result, toClientSummary, req.query.limit);
   }
 
   @McpReadTool({

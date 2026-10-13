@@ -398,10 +398,9 @@ function toReplacement(rep?: OrderReplacementEntity | null) {
       quantityToReplace: item.quantityToReplace,
       returnQuantity: item.returnQuantity,
       newVariantId: item.newVariantId ?? null,
-      originalProductName: item.originalOrderItem?.variant?.product?.name ?? null,
       originalSku: item.originalOrderItem?.variant?.sku ?? null,
-      newProductName: item.newVariant?.product?.name ?? null,
       newSku: item.newVariant?.sku ?? null,
+      ...replacementItemProducts(item),
     })),
   };
 }
@@ -547,6 +546,19 @@ function toInternalNoteDto(row: any) {
   };
 }
 
+function replacementItemProducts(item: any) {
+  const originalProduct = item?.originalOrderItem?.variant?.product;
+  const newProduct = item?.newVariant?.product;
+  return {
+    originalProductId: originalProduct?.id ?? item?.originalOrderItem?.variant?.productId ?? null,
+    originalProductName: originalProduct?.name ?? null,
+    originalImage: originalProduct?.mainImage ?? null,
+    newProductId: newProduct?.id ?? item?.newVariant?.productId ?? null,
+    newProductName: newProduct?.name ?? null,
+    newImage: newProduct?.mainImage ?? null,
+  };
+}
+
 function toReplacementSummary(row: any) {
   const items = Array.isArray(row?.items) ? row.items : [];
   return {
@@ -563,6 +575,7 @@ function toReplacementSummary(row: any) {
       newVariantId: i.newVariantId ?? null,
       newSku: i.newVariant?.sku ?? null,
       quantityToReplace: i.quantityToReplace ?? null,
+      ...replacementItemProducts(i),
     })),
     createdAt: row.createdAt ?? row.created_at ?? null,
   };

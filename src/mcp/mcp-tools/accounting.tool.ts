@@ -10,6 +10,7 @@ import { AccountingService } from "src/accounting/services/accounting.service";
 import { ExpensesService } from "src/accounting/services/expenses.service";
 import { ExpenseCategoriesService } from "src/accounting/services/expense-categories.service";
 import { MonthlyClosingService } from "src/accounting/services/monthly-closing.service";
+import { SupplierPaymentsService } from "src/supplier-payments/supplier-payments.service";
 import { listPaging, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
@@ -130,6 +131,25 @@ const searchSupplierClosingsInput = searchInput("supplier closing", {
   startDate: isoDateField("Keep closings whose period END date is on or after this day (YYYY-MM-DD, inclusive). Not the period start.").optional(),
   endDate: isoDateField("Keep closings whose period END date is on or before this day (YYYY-MM-DD, inclusive).").optional(),
 }, TOOL.accounting.supplierClosingsSearch);
+
+const searchSupplierPaymentsInput = searchInput("supplier payment", {
+  id: uuidField(
+    idDescription(
+      "supplier payment ID. Pass it to get ONE payment with allocations. Omit it to search and list.",
+      TOOL.accounting.supplierPaymentsSearch,
+    ),
+  ).optional(),
+  ...listPaging({
+    items: "supplier payments",
+    sortBy: ["paymentDate"],
+    defaultSortBy: "paymentDate",
+    search: "Matches supplier name or allocated invoice receipt number",
+  }),
+  supplierId: uuidField(idDescription("Supplier id.", TOOL.suppliers.search)).optional(),
+  invoiceId: uuidField(idDescription("Keep payments allocated to this purchase invoice.", TOOL.purchases.search)).optional(),
+  startDate: isoDateField(`Payment-date range start, YYYY-MM-DD. ${DAY_RULE}, inclusive.`).optional(),
+  endDate: isoDateField(`Payment-date range end, YYYY-MM-DD. ${DAY_RULE}, inclusive (the whole day counts).`).optional(),
+}, TOOL.accounting.supplierPaymentsSearch);
 
 const isSet = (v: unknown): boolean =>
   v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0);
@@ -415,6 +435,56 @@ function toSupplierClosingDto(row: any) {
   };
 }
 
+function toPaymentAllocations(row: any) {
+  const allocations = Array.isArray(row?.allocations) ? row.allocations : [];
+  return allocations.map((a: any) => ({
+    id: a.id ?? null,
+    invoiceId: a.invoiceId ?? a.invoice?.id ?? null,
+    receiptNumber: a.invoice?.receiptNumber ?? null,
+    amount: num(a.amount),
+    invoiceRemainingAfterPay: a.invoiceRemainingAfterPay == null ? null : num(a.invoiceRemainingAfterPay),
+    unallocated: !(a.invoiceId ?? a.invoice?.id),
+  }));
+}
+
+function toSupplierPaymentSummary(row: any) {
+  const allocations = toPaymentAllocations(row);
+  return {
+    id: row.id,
+    paymentDate: row.paymentDate ?? null,
+    amount: num(row.amount),
+    currency: row.currency ?? null,
+    notes: row.notes ?? null,
+    supplierBalanceAfterPay: num(row.supplierBalanceAfterPay),
+    supplier: row.supplier
+      ? { id: row.supplier.id ?? row.supplierId ?? null, name: row.supplier.name ?? null }
+      : { id: row.supplierId ?? null, name: null },
+    safe: row.safe
+      ? { id: row.safe.id ?? row.safeId ?? null, name: row.safe.name ?? null }
+      : { id: row.safeId ?? null, name: null },
+    createdBy: row.createdByUser
+      ? { id: row.createdByUser.id ?? row.createdByUserId ?? null, name: row.createdByUser.name ?? null }
+      : null,
+    allocationsCount: allocations.length,
+    allocations: allocations.map((a: any) => ({
+      invoiceId: a.invoiceId,
+      receiptNumber: a.receiptNumber,
+      amount: a.amount,
+      unallocated: a.unallocated,
+    })),
+    createdAt: row.createdAt ?? null,
+  };
+}
+
+function toSupplierPaymentDto(row: any) {
+  return {
+    ...toSupplierPaymentSummary(row),
+    allocations: toPaymentAllocations(row),
+    createdAt: row.createdAt ?? null,
+    updatedAt: row.updatedAt ?? null,
+  };
+}
+
 function toSupplierPeriod(r: any, startDate: string | null, endDate: string | null) {
   return {
     totalPurchases: num(r?.totalPurchases),
@@ -445,6 +515,7 @@ export class McpAccountingTools {
     private expenses: ExpensesService,
     private expenseCategories: ExpenseCategoriesService,
     private monthlyClosings: MonthlyClosingService,
+    private supplierPayments: SupplierPaymentsService,
   ) {}
 
   @McpReadTool({
@@ -628,5 +699,29 @@ export class McpAccountingTools {
     assertDateOrder(req.query);
     const result = await this.accounting.listSupplierClosings(user, req.query);
     return toolPage("supplier_closings", result, toSupplierClosingSummary, req.query.limit);
+  }
+
+  @McpReadTool({
+    name: TOOL.accounting.supplierPaymentsSearch,
+    description:
+      `Search supplier payments (Accounts → Supplier payments) or fetch one. Without \`id\`: paged rows filtered by supplier, allocated invoice, payment dates, or search (supplier name / invoice receipt number). startDate/endDate are YYYY-MM-DD ${BUSINESS_TZ} calendar days of paymentDate, both inclusive. Sort is paymentDate (then createdAt). With \`id\`: that payment with safe, creator, supplierBalanceAfterPay, and allocations (invoice id, receipt number, amount, remaining). Create/export are not offered. Read-only.`,
+    parameters: searchSupplierPaymentsInput,
+  })
+  async searchSupplierPayments(
+    @Payload() input: z.infer<typeof searchSupplierPaymentsInput>,
+    @McpUser() user: User,
+  ) {
+    const req = parseSearchInput(input, "supplier payment");
+    if (req.mode === "get") {
+      return toolJson(toSupplierPaymentDto(await this.supplierPayments.findOne(user, req.id)));
+    }
+    assertDateOrder(req.query);
+    const q = req.query as typeof req.query & { invoiceId?: string };
+    const result = await this.supplierPayments.findAll(user, {
+      ...q,
+      ...dayBoundsIso(q.startDate, q.endDate),
+      sortOrder: (q as any).sortOrder,
+    } as any);
+    return toolPage("supplier_payments", result, toSupplierPaymentSummary, (q as any).limit);
   }
 }

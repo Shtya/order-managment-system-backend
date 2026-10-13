@@ -22,5 +22,6 @@ import { Account } from "entities/safe.entity";
   ],
   controllers: [SupplierPaymentsController],
   providers: [SupplierPaymentsService],
+  exports: [SupplierPaymentsService],
 })
 export class SupplierPaymentsModule {}

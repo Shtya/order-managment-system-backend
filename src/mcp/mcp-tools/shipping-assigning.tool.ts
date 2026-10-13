@@ -37,20 +37,42 @@ const rulesStatsInput = z.strictObject({});
 // 2) OUTPUT MAPPERS: no dry-run resolve/preview.
 // ═══════════════════════════════════════════════════════════════
 
-function toRuleSummary(row: any) {
-  const companies = Array.isArray(row?.targetCompanies) ? row.targetCompanies : [];
+function toTargetCompany(c: any) {
+  // ShippingCompanyEntity.id === list_shipping_companies.providerId, not integrationId
   return {
-    id: row.id,
-    name: row.name ?? null,
-    ruleType: row.ruleType ?? null,
-    isActive: row.isActive ?? null,
-    priority: row.priority ?? null,
-    targetCompanies: companies.map((c: any) => c.name ?? c.id ?? null).filter(Boolean),
+    id: c?.id ?? c?.providerId ?? null,
+    name: c?.name ?? null,
+    code: c?.code ?? null,
+    isActive: c?.isActive ?? null,
   };
 }
 
-function toRuleResultDto(row: any) {
+function toRuleStore(s: any) {
+  return {
+    id: s?.id ?? null,
+    name: s?.name ?? null,
+    storeUrl: s?.storeUrl ?? null,
+    provider: s?.provider ?? null,
+    isActive: s?.isActive ?? null,
+  };
+}
+
+function toRuleCondition(condition: any, stores: any[]) {
+  const storeIdsFromJoin = stores.map((s) => s?.id).filter(Boolean);
+  return {
+    paymentMethod: condition?.paymentMethod ?? null,
+    storeIds: Array.isArray(condition?.storeIds) && condition.storeIds.length
+      ? condition.storeIds
+      : storeIdsFromJoin,
+    cityIds: Array.isArray(condition?.cityIds) ? condition.cityIds : [],
+    minAmount: condition?.minAmount ?? null,
+    maxAmount: condition?.maxAmount ?? null,
+  };
+}
+
+function toRuleSummary(row: any) {
   const companies = Array.isArray(row?.targetCompanies) ? row.targetCompanies : [];
+  const stores = Array.isArray(row?.stores) ? row.stores : [];
   return {
     id: row.id,
     name: row.name ?? null,
@@ -58,10 +80,31 @@ function toRuleResultDto(row: any) {
     ruleType: row.ruleType ?? null,
     isActive: row.isActive ?? null,
     priority: row.priority ?? null,
-    condition: row.condition ?? null,
-    // ShippingCompanyEntity.id === list_shipping_companies.providerId, not integrationId
-    targetCompanyIds: companies.map((c: any) => c.id ?? c.providerId ?? null).filter(Boolean),
-    targetCompanyNames: companies.map((c: any) => c.name ?? null).filter(Boolean),
+    lastAssignedCompanyId: row.lastAssignedCompanyId ?? null,
+    condition: toRuleCondition(row?.condition, stores),
+    targetCompanies: companies.map(toTargetCompany),
+    stores: stores.map(toRuleStore),
+    createdAt: row.createdAt ?? row.created_at ?? null,
+  };
+}
+
+function toRuleResultDto(row: any) {
+  const companies = Array.isArray(row?.targetCompanies) ? row.targetCompanies : [];
+  const stores = Array.isArray(row?.stores) ? row.stores : [];
+  return {
+    id: row.id,
+    adminId: row.adminId ?? null,
+    name: row.name ?? null,
+    description: row.description ?? null,
+    ruleType: row.ruleType ?? null,
+    isActive: row.isActive ?? null,
+    priority: row.priority ?? null,
+    lastAssignedCompanyId: row.lastAssignedCompanyId ?? null,
+    condition: toRuleCondition(row?.condition, stores),
+    targetCompanies: companies.map(toTargetCompany),
+    stores: stores.map(toRuleStore),
+    createdAt: row.createdAt ?? row.created_at ?? null,
+    updatedAt: row.updatedAt ?? row.updated_at ?? null,
   };
 }
 

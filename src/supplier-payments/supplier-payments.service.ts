@@ -275,26 +275,36 @@ export class SupplierPaymentsService {
     if (q.supplierId) {
       qb.andWhere("p.supplierId = :supplierId", { supplierId: q.supplierId });
     }
+    if (q.invoiceId) {
+      qb.andWhere(
+        `EXISTS (
+          SELECT 1 FROM supplier_payment_allocations spa
+          WHERE spa."paymentId" = p.id AND spa."invoiceId" = :invoiceId
+        )`,
+        { invoiceId: q.invoiceId },
+      );
+    }
     if (q.startDate) {
       qb.andWhere("p.paymentDate >= :start", { start: q.startDate });
     }
     if (q.endDate) qb.andWhere("p.paymentDate <= :end", { end: q.endDate });
 
-    if (q.search) {
+    const like = FilterUtil.likeContains(q.search);
+    if (like) {
       qb.andWhere(
         `
         (
-            s.name ILIKE :search
+            s.name ILIKE :search ESCAPE '\\'
             OR EXISTS (
                 SELECT 1
                 FROM supplier_payment_allocations spa
                 LEFT JOIN purchase_invoices i ON i.id = spa."invoiceId"
                 WHERE spa."paymentId" = p.id
-                AND i."receiptNumber" ILIKE :search
+                AND i."receiptNumber" ILIKE :search ESCAPE '\\'
             )
         )
     `,
-        { search: `%${q.search}%` },
+        { search: like },
       );
     }
 

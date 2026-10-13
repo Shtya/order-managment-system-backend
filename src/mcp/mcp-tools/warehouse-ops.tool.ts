@@ -6,14 +6,14 @@ import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
-import { ScanLogType, ScanReason, ShipmentManifestType } from "entities/order.entity";
+import { OrderActionResult, OrderActionType, ScanLogType, ScanReason, ShipmentManifestType } from "entities/order.entity";
 import { OrdersService } from "src/orders/services/orders.service";
 import { ShippingService } from "src/shipping/shipping.service";
 import { BulkUpdateShippingFieldsDto, CreateManifestDto } from "dto/order.dto";
-import { listPaging, parseDto, parseSearchInput, searchInput } from "../utils/mcp-dto.util";
+import { listPaging, parseDto, parseSearchInput, resolveToolDates, searchInput } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, ref, shippingCompanyIdDescription, TOOL } from "../utils/mcp-tool-names";
-import { uuidField } from "../utils/mcp-date.util";
+import { isoDateField, uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS
@@ -28,7 +28,14 @@ const warehouseStatsInput = z.strictObject({
     .describe("Which tab KPIs to return. distribution (default): lifecycle + company workload. print, preparation, outgoing, returns: tab summaries. logs: operational stats plus paged log rows."),
   page: z.number().int().min(1).optional().describe("Log page. Only valid with report=logs."),
   limit: z.number().int().min(1).max(50).optional().describe("Log rows per page. Only valid with report=logs."),
-  search: z.string().optional().describe("Log search text. Only valid with report=logs."),
+  search: z.string().optional().describe("Log search (operation number, order number, or details). Only valid with report=logs."),
+  actionType: z.enum(OrderActionType).optional().describe("Log operation type. Only valid with report=logs."),
+  result: z.enum(OrderActionResult).optional().describe("Log result: SUCCESS or FAILED. Only valid with report=logs."),
+  shippingCompanyId: uuidField(shippingCompanyIdDescription("Log carrier filter.", "Only valid with report=logs.")).optional(),
+  startDate: isoDateField("Log created-at range start, ISO date (YYYY-MM-DD). Only valid with report=logs.").optional(),
+  endDate: isoDateField("Log created-at range end, ISO date (YYYY-MM-DD). Only valid with report=logs.").optional(),
+  sortBy: z.enum(["createdAt", "operationNumber", "orderNumber"]).optional().describe("Log sort field. Only valid with report=logs."),
+  sortOrder: z.enum(["ASC", "DESC"]).optional().describe("Log sort direction. Only valid with report=logs."),
 });
 
 const warehouseActInput = z.object({
@@ -90,14 +97,48 @@ const isSet = (v: unknown): boolean =>
 // 2) OUTPUT MAPPERS: files, not rows. No PDF atoms, no Excel.
 // ═══════════════════════════════════════════════════════════════
 
+function toWarehouseLogDto(row: any) {
+  return {
+    id: row?.id ?? null,
+    operationNumber: row?.operationNumber ?? null,
+    actionType: row?.actionType ?? row?.action ?? row?.type ?? null,
+    result: row?.result ?? null,
+    details: row?.details ?? null,
+    orderId: row?.orderId ?? row?.order?.id ?? null,
+    orderNumber: row?.orderNumber ?? row?.order?.orderNumber ?? null,
+    orderStatus: row?.order?.status?.code ?? row?.order?.status?.name ?? null,
+    shippingCompanyId: row?.shippingCompanyId ?? row?.shippingCompany?.id ?? null,
+    shippingCompany: row?.shippingCompany?.name ?? null,
+    employeeId: row?.userId ?? row?.user?.id ?? null,
+    employeeName: row?.user?.name ?? null,
+    createdAt: row?.createdAt ?? row?.created_at ?? null,
+  };
+}
+
 function toManifestSummary(row: any) {
   const orders = Array.isArray(row?.orders) ? row.orders : [];
+  let totalItems = 0;
+  if (row.type === ShipmentManifestType.RETURN) {
+    totalItems =
+      orders?.reduce(
+        (sum, order) =>
+          sum + (order?.lastReturn?.items?.reduce((itemSum, p) => itemSum + (Number(p.quantity) || 0), 0) || 0),
+        0
+      ) || 0;
+  } else {
+    totalItems =
+      orders?.reduce(
+        (sum, order) => sum + (order.items?.reduce((itemSum, p) => itemSum + (Number(p.quantity) || 0), 0) || 0),
+        0
+      ) || 0;
+  }
   return {
     id: row.id,
     type: row.type ?? null,
     manifestNumber: row.manifestNumber ?? row.number ?? null,
     shippingCompany: row.shippingCompany?.name ?? null,
     ordersCount: orders.length,
+    itemsCount: totalItems,
     isPrinted: Boolean(row.lastPrintedAt ?? row.isPrinted ?? row.printed),
     lastPrintedAt: row.lastPrintedAt ?? null,
     createdAt: row.createdAt ?? row.created_at ?? null,
@@ -133,7 +174,7 @@ export class McpWarehouseOpsTools {
   @McpReadTool({
     name: TOOL.warehouseOps.stats,
     description:
-      "Warehouse tab KPIs. Pass `report`: distribution (default), print, preparation, outgoing, returns, logs (adds paged rows). Order queues stay on orders_search; rejects on orders_act. Read-only.",
+      "Warehouse tab KPIs. Pass `report`: distribution (default), print, preparation, outgoing, returns, logs (KPIs plus paged rows like the Logs tab: operation number, type, order, carrier, employee, result, details). Log filters (page/limit/search/actionType/result/shippingCompanyId/dates) only with report=logs. Order queues stay on orders_search; rejects on orders_act. Read-only.",
     parameters: warehouseStatsInput,
   })
   async getStats(
@@ -141,8 +182,22 @@ export class McpWarehouseOpsTools {
     @McpUser() user: User,
   ) {
     const report = (input as any)?.report ?? "distribution";
-    if (report !== "logs" && (isSet((input as any).page) || isSet((input as any).limit) || isSet((input as any).search))) {
-      throw new RpcException("`page`/`limit`/`search` are only valid with report=logs. Remove them.");
+    if (
+      report !== "logs" &&
+      (isSet((input as any).page) ||
+        isSet((input as any).limit) ||
+        isSet((input as any).search) ||
+        isSet((input as any).actionType) ||
+        isSet((input as any).result) ||
+        isSet((input as any).shippingCompanyId) ||
+        isSet((input as any).startDate) ||
+        isSet((input as any).endDate) ||
+        isSet((input as any).sortBy) ||
+        isSet((input as any).sortOrder))
+    ) {
+      throw new RpcException(
+        "`page`/`limit`/`search`/`actionType`/`result`/`shippingCompanyId`/`startDate`/`endDate`/`sortBy`/`sortOrder` are only valid with report=logs. Remove them.",
+      );
     }
     if (report === "print") return toolJson({ report, ...(await this.orders.getPrintLifecycleStats(user)) });
     if (report === "preparation") return toolJson({ report, ...(await this.orders.getPreparationStats(user)) });
@@ -155,12 +210,20 @@ export class McpWarehouseOpsTools {
       return toolJson({ report, summary: summary ?? null, returnPreparing: preparing ?? null });
     }
     if (report === "logs") {
+      const dates = resolveToolDates(input as any);
       const [stats, rows] = await Promise.all([
         this.orders.getLogOperationalStats(user).catch(() => null),
         this.orders.listLogs(user, {
           page: (input as any).page ?? 1,
           limit: (input as any).limit ?? 10,
           search: (input as any).search,
+          actionType: (input as any).actionType,
+          result: (input as any).result,
+          shippingCompanyId: (input as any).shippingCompanyId,
+          startDate: dates.startDate,
+          endDate: dates.endDate,
+          sortBy: (input as any).sortBy,
+          sortDir: (input as any).sortOrder,
         }).catch(() => null),
       ]);
       const records = Array.isArray((rows as any)?.records) ? (rows as any).records : Array.isArray(rows) ? rows : [];
@@ -168,12 +231,9 @@ export class McpWarehouseOpsTools {
         report,
         stats: stats ?? null,
         total_records: (rows as any)?.total_records ?? records.length,
-        logs: records.map((l: any) => ({
-          id: l.id ?? null,
-          action: l.action ?? l.actionType ?? l.type ?? null,
-          orderNumber: l.orderNumber ?? l.order?.orderNumber ?? null,
-          createdAt: l.createdAt ?? l.created_at ?? null,
-        })),
+        current_page: (rows as any)?.current_page ?? 1,
+        per_page: (rows as any)?.per_page ?? (input as any).limit ?? 10,
+        logs: records.map(toWarehouseLogDto),
       });
     }
     const [lifecycle, workload] = await Promise.all([

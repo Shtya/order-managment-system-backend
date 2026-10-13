@@ -23,10 +23,13 @@ export const TOOL = {
   },
   stores: {
     list: "list_stores",
+    failedOrdersSearch: "store_failed_orders_search",
+    failedOrdersStats: "store_failed_orders_stats",
   },
   products: {
     search: "products_search",
     save: "products_save",
+    stats: "products_stats",
   },
   bundles: {
     search: "bundles_search",
@@ -76,6 +79,7 @@ export const TOOL = {
     expenseCategoriesList: "accounting_expense_categories_list",
     monthlyClosingsSearch: "accounting_monthly_closings_search",
     supplierClosingsSearch: "accounting_supplier_closings_search",
+    supplierPaymentsSearch: "accounting_supplier_payments_search",
   },
   purchases: {
     search: "purchases_search",
@@ -127,9 +131,6 @@ export const TOOL = {
   safes: {
     list: "safes_list",
   },
-  plans: {
-    list: "plans_list",
-  },
   supplierCategories: {
     search: "supplier_categories_search",
     save: "supplier_categories_save",
@@ -146,7 +147,10 @@ export const TOOL = {
   },
   automation: {
     stats: "automation_stats",
+    search: "automations_search",
+    runsSearch: "automation_runs_search",
     runsRetry: "automation_runs_retry",
+    stepsList: "automation_steps_list",
   },
   whatsapp: {
     stats: "whatsapp_stats",

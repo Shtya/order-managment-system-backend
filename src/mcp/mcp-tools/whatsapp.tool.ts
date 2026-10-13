@@ -85,6 +85,15 @@ function toAccountDto(row: any) {
   };
 }
 
+function toTemplateAccount(row: any) {
+  const account = row?.account;
+  return {
+    id: account?.id ?? row?.accountId ?? null,
+    name: account?.name ?? null,
+    mobileNumber: account?.mobileNumber ?? account?.phone ?? row?.mobileNumber ?? null,
+  };
+}
+
 function toTemplateSummary(row: any) {
   return {
     id: row.id,
@@ -92,6 +101,7 @@ function toTemplateSummary(row: any) {
     language: row.language ?? null,
     category: row.category ?? null,
     status: row.status ?? null,
+    account: toTemplateAccount(row),
   };
 }
 
@@ -103,6 +113,7 @@ function toTemplateDto(row: any) {
     category: row.category ?? null,
     status: row.status ?? null,
     templateConfig: row.templateConfig ?? row.config ?? null,
+    account: toTemplateAccount(row),
   };
 }
 

@@ -8,7 +8,7 @@ import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { CreateBundleDto, UpdateBundleDto } from "dto/bundle.dto";
-import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
+import { isSet, listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
 import { idDescription, TOOL } from "../utils/mcp-tool-names";
 import { uuidField } from "../utils/mcp-date.util";
@@ -35,6 +35,12 @@ export const searchBundlesInput = searchInput("bundle", {
     .describe("Exact bundle slug (case-insensitive). Do not pass with `id`."),
   categoryId: uuidField(idDescription("Keep only bundles of this category.", TOOL.categories.list)).optional(),
   storeId: uuidField(idDescription("Keep only bundles of this store.", TOOL.stores.list)).optional(),
+  isActive: z
+    .boolean()
+    .optional()
+    .describe("True (default): active bundles. False: deactivated / deleted_bundles tab."),
+  priceMin: z.number().optional().describe("Minimum bundle price."),
+  priceMax: z.number().optional().describe("Maximum bundle price."),
 }, TOOL.bundles.search);
 
 const saveBundleFields = toolInputFor<UpdateBundleDto>()(
@@ -91,6 +97,7 @@ function toBundleSummary(row: any) {
     name: row.name ?? null,
     sku: row.sku ?? null,
     price: row.price ?? null,
+    isActive: row.isActive ?? null,
     items: items.map((i: any) => ({
       variantId: i.variantId ?? i.variant?.id ?? null,
       quantity: i.quantity ?? i.qty ?? null,
@@ -136,7 +143,7 @@ export class McpBundlesTools {
   @McpReadTool({
     name: TOOL.bundles.search,
     description:
-      `Search bundles or fetch one. Without \`id\`: lists ACTIVE bundles with paging, filtered by search text, exact sku or slug, category, or store. With \`id\`: returns that single bundle with full details.`,
+      `Search bundles or fetch one. Without \`id\`: lists bundles like the Bundles tab (active or deactivated). Filters: search, exact sku or slug, category, store, isActive, priceMin/priceMax. With \`id\`: that bundle's details.`,
     parameters: searchBundlesInput,
   })
   async searchBundles(@Payload() input: z.infer<typeof searchBundlesInput>, @McpUser() user: User) {
@@ -145,16 +152,23 @@ export class McpBundlesTools {
     if (req.mode === "get") {
       return toolJson(toBundleResultDto(await this.bundles.get(user, req.id)));
     }
-    const { sku, slug, isActive, ...rest } = req.query as typeof req.query & {
+    const { sku, slug, isActive, priceMin, priceMax, ...rest } = req.query as typeof req.query & {
       sku?: string;
       slug?: string;
       isActive?: boolean;
+      priceMin?: number;
+      priceMax?: number;
     };
+    if (isSet(priceMin) && isSet(priceMax) && Number(priceMin) > Number(priceMax)) {
+      throw new RpcException("`priceMin` is greater than `priceMax`. Swap them.");
+    }
     const result = await this.bundles.list(user, {
       ...rest,
       ...(sku ? { sku } : {}),
       ...(slug ? { slug } : {}),
       ...(isActive === false ? { isActive: "false" } : {}),
+      ...(isSet(priceMin) ? { "wholesalePrice.gte": priceMin } : {}),
+      ...(isSet(priceMax) ? { "wholesalePrice.lte": priceMax } : {}),
     });
     return toolPage("bundles", result, toBundleSummary, (rest as any).limit);
   }

@@ -567,6 +567,100 @@ export class ClientService {
     };
   }
 
+  async listPaginated(me: any, q?: any) {
+    const adminId = tenantId(me);
+    if (!adminId) {
+      throw new BadRequestException(this.translations.t("common.missing_admin_id"));
+    }
+
+    const page = Math.max(1, Number(q?.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(q?.limit) || 10));
+    const search = String(q?.search ?? "").trim();
+    const sortBy =
+      q?.sortBy === "name" ||
+      q?.sortBy === "ordersCount" ||
+      q?.sortBy === "createdAt" ||
+      q?.sortBy === "email" ||
+      q?.sortBy === "updatedAt"
+        ? q.sortBy
+        : "createdAt";
+    const sortOrder = FilterUtil.normalizeSortOrder(q?.sortOrder ?? q?.sortDir);
+
+    const qb = this.clientRepo
+      .createQueryBuilder("client")
+      .leftJoinAndSelect("client.primaryContact", "primaryContact")
+      .select([
+        "client.id",
+        "client.name",
+        "client.email",
+        "client.profilePicture",
+        "client.createdAt",
+        "client.updatedAt",
+        "client.legacyTotalOrders",
+        "client.primaryContactId",
+        "primaryContact.id",
+        "primaryContact.phoneNumber",
+      ])
+      .where("client.adminId = :adminId", { adminId })
+      .andWhere("client.status = :status", { status: ClientStatus.ACTIVE });
+
+    if (this.queryFlag(q?.hasPhone)) {
+      this.applyHasPhoneFilter(qb);
+    }
+
+    const like = FilterUtil.likeContains(search);
+    if (like) {
+      qb.andWhere(
+        new Brackets((sq) => {
+          sq.where("client.name ILIKE :s ESCAPE '\\'", { s: like })
+            .orWhere("client.email ILIKE :s ESCAPE '\\'", { s: like })
+            .orWhere("primaryContact.phoneNumber ILIKE :s ESCAPE '\\'", { s: like })
+            .orWhere(
+              `EXISTS (
+                SELECT 1 FROM customers contact
+                WHERE contact."clientId" = client.id
+                  AND (
+                    contact."phoneNumber" ILIKE :s ESCAPE '\\'
+                    OR contact.name ILIKE :s ESCAPE '\\'
+                  )
+              )`,
+            );
+        }),
+      );
+      qb.setParameter("s", like);
+    }
+
+    const total = await qb.getCount();
+
+    const ordersCountExpr =
+      `(SELECT COUNT(ord.id) FROM orders ord WHERE ord."clientId" = client.id AND ord.deleted_at IS NULL) + COALESCE(client."legacyTotalOrders", 0)`;
+    const sortColumns: Record<string, string> = {
+      createdAt: "client.createdAt",
+      updatedAt: "client.updatedAt",
+      name: "client.name",
+      email: "client.email",
+      ordersCount: "client_ordersSort",
+    };
+    if (sortBy === "ordersCount") {
+      qb.addSelect(ordersCountExpr, "client_ordersSort");
+    }
+
+    const { entities: records, raw } = await this.addClientCountSelects(qb)
+      .orderBy(sortColumns[sortBy], sortOrder)
+      .addOrderBy("client.id", sortOrder)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getRawAndEntities();
+    this.attachClientCounts(records, raw);
+
+    return {
+      total_records: total,
+      current_page: page,
+      per_page: limit,
+      records,
+    };
+  }
+
   async exportClients(me: any, q?: any) {
     const { records } = await this.findAllPaginated(me, {
       ...q,

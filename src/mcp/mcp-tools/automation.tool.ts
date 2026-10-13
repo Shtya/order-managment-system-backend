@@ -1,5 +1,5 @@
 import { UseGuards } from "@nestjs/common";
-import { Payload } from "@nestjs/microservices";
+import { Payload, RpcException } from "@nestjs/microservices";
 import { McpController } from "@rekog/mcp-nest";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
@@ -7,9 +7,49 @@ import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
 import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { AutomationService } from "src/automation/automation.service";
-import { toolJson } from "../utils/mcp-result.util";
-import { TOOL } from "../utils/mcp-tool-names";
-import { uuidField } from "../utils/mcp-date.util";
+import { ClientSettingsService } from "src/client-settings/client-settings.service";
+import { Language } from "entities/clientSettings.entity";
+import {
+  AUTOMATION_STEP_ID_SET,
+  AUTOMATION_STEP_IDS,
+  buildAutomationStepsCatalog,
+  resolveCatalogLang,
+} from "../catalogs/automation-steps.catalog";
+import {
+  ActionType,
+  AutomationStatus,
+  ConditionType,
+  RunStatus,
+  TriggerEntityType,
+  TriggerType,
+} from "entities/automation.entity";
+import { listPaging, parseSearchInput, resolveToolDates, searchInput } from "../utils/mcp-dto.util";
+import { toolJson, toolPage } from "../utils/mcp-result.util";
+import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
+import { isoDateField, uuidField } from "../utils/mcp-date.util";
+
+// ═══════════════════════════════════════════════════════════════
+// 1) INPUT SCHEMAS
+//    Preview / Excel never offered. Get returns nodes with config plus
+//    edges so the model can follow the flow. No canvas position/measured.
+// ═══════════════════════════════════════════════════════════════
+
+const runStatusCodes = Object.values(RunStatus).join(", ");
+const runStatusSet = new Set<string>(Object.values(RunStatus));
+const csvRunStatus = (description: string) =>
+  z
+    .string()
+    .refine(
+      (v) =>
+        v
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .every((code) => runStatusSet.has(code)),
+      { message: `Unknown run status. Use one of: ${runStatusCodes}.` },
+    )
+    .optional()
+    .describe(description);
 
 const automationStatsInput = z.strictObject({
   report: z
@@ -18,25 +58,195 @@ const automationStatsInput = z.strictObject({
     .describe("Which stats to return. flows (default): flow list header { total, published, draft, paused, archived }. runs: logs header { total, pending, running, completed, failed, paused }. No dates."),
 });
 
-const runsRetryInput = z.object({
-  id: uuidField(
-    "Failed run UUID. There is no run-list tool; the user must supply it (automation logs URL or a pasted id). Never guess.",
+const searchAutomationsInput = searchInput("automation", {
+  ...listPaging({
+    items: "automations",
+    sortBy: ["createdAt", "name", "status"],
+    defaultSortBy: "createdAt",
+    search: "Matches automation name",
+  }),
+  status: z.enum(AutomationStatus).optional().describe("Keep flows with this status"),
+  triggerType: z.enum(TriggerType).optional().describe("Keep flows with this trigger"),
+}, TOOL.automation.search);
+
+const searchRunsInput = searchInput("automation run", {
+  ...listPaging({
+    items: "automation runs",
+    sortBy: ["startedAt", "status", "completedAt"],
+    defaultSortBy: "startedAt",
+    search: "Matches trigger entity id (order id)",
+  }),
+  status: csvRunStatus(
+    `Run status. One of: ${runStatusCodes}. Comma-separate several. The running page uses running,pending,failed,paused.`,
   ),
+  triggerType: z.enum(TriggerType).optional().describe("Keep runs whose flow has this trigger"),
+  automationFlowId: uuidField(idDescription("Automation flow id.", TOOL.automation.search)).optional(),
+  triggerEntityType: z.enum(TriggerEntityType).optional().describe("Trigger entity type, usually order"),
+  entityId: z.string().optional().describe("Trigger entity id (order id). Same as search when looking up one order."),
+  startDate: isoDateField("Started-at range start, ISO date (YYYY-MM-DD)").optional(),
+  endDate: isoDateField("Started-at range end, ISO date (YYYY-MM-DD)").optional(),
+}, TOOL.automation.runsSearch);
+
+const stepsListInput = z.strictObject({
+  lang: z
+    .enum(Language)
+    .optional()
+    .describe("Locale for titles and field labels. Same copy as the builder UI. Omit to use the tenant default language."),
+  kind: z
+    .enum(["trigger", "action", "condition"])
+    .optional()
+    .describe("Keep only this kind of step. Omit for the full catalog."),
+  type: z
+    .string()
+    .optional()
+    .describe(`One step id (${AUTOMATION_STEP_IDS.join(", ")}). Returns that step plus order-check fields when type is order_check.`),
+});
+
+const runsRetryInput = z.object({
+  id: uuidField(idDescription("Failed run UUID.", TOOL.automation.runsSearch, "Only FAILED runs are retriable.")),
   useLatestVersion: z
     .boolean()
     .optional()
     .describe("Retry on the flow's latest version and reset node progress. Omit to retry the same version."),
 });
 
+// ═══════════════════════════════════════════════════════════════
+// 2) OUTPUT MAPPERS: flow nodes+edges+config. No canvas layout, no run payload blobs.
+// ═══════════════════════════════════════════════════════════════
+
+function slimFlow(flow: any) {
+  const nodes = Array.isArray(flow?.nodes) ? flow.nodes : [];
+  const edges = Array.isArray(flow?.edges) ? flow.edges : [];
+  const whatsapp = flow?.whatsapp;
+  return {
+    nodesCount: nodes.length,
+    edgesCount: edges.length,
+    whatsapp: whatsapp
+      ? {
+          mode: whatsapp.mode ?? null,
+          accountId: whatsapp.accountId ?? null,
+        }
+      : null,
+    nodes: nodes.map((n: any) => ({
+      id: n?.id ?? null,
+      type: n?.type ?? null,
+      dataType: n?.data?.type ?? n?.data?.dataType ?? null,
+      label: n?.data?.label ?? null,
+      config: n?.data?.config ?? {},
+    })),
+    edges: edges.map((e: any) => ({
+      id: e?.id ?? null,
+      source: e?.source ?? null,
+      target: e?.target ?? null,
+      sourceHandle: e?.sourceHandle ?? null,
+      targetHandle: e?.targetHandle ?? null,
+    })),
+  };
+}
+
+function toVersionSummary(version: any) {
+  if (!version) return null;
+  return {
+    id: version.id ?? null,
+    versionString: version.versionString ?? null,
+    ...slimFlow(version.flow),
+  };
+}
+
+function toAutomationSummary(row: any) {
+  return {
+    id: row.id,
+    name: row.name ?? null,
+    triggerType: row.triggerType ?? null,
+    status: row.status ?? null,
+    latestVersionId: row.latestVersionId ?? row.latestVersion?.id ?? null,
+    latestVersion: row.latestVersion
+      ? { id: row.latestVersion.id ?? null, versionString: row.latestVersion.versionString ?? null }
+      : null,
+    createdAt: row.createdAt ?? null,
+  };
+}
+
+function toAutomationDto(row: any) {
+  const version = Array.isArray(row?.versions) && row.versions.length ? row.versions[0] : row?.latestVersion;
+  return {
+    id: row.id,
+    name: row.name ?? null,
+    triggerType: row.triggerType ?? null,
+    status: row.status ?? null,
+    latestVersionId: row.latestVersionId ?? version?.id ?? null,
+    version: toVersionSummary(version),
+    createdAt: row.createdAt ?? null,
+    updatedAt: row.updatedAt ?? null,
+  };
+}
+
+function currentNodeLabel(row: any) {
+  const nodes = Array.isArray(row?.version?.flow?.nodes) ? row.version.flow.nodes : [];
+  const current = nodes.find((n: any) => n?.id === row?.currentNodeId);
+  return current?.data?.label ?? row?.currentNodeId ?? null;
+}
+
+function toRunSummary(row: any) {
+  const completed = Array.isArray(row?.completedNodeIds) ? row.completedNodeIds : [];
+  return {
+    id: row.id,
+    status: row.status ?? null,
+    automationFlowId: row.automationFlowId ?? row.automationFlow?.id ?? null,
+    automationName: row.automationFlow?.name ?? null,
+    triggerType: row.automationFlow?.triggerType ?? null,
+    versionId: row.versionId ?? row.version?.id ?? null,
+    versionString: row.version?.versionString ?? null,
+    triggerEntityType: row.triggerEntityType ?? null,
+    triggerEntityId: row.triggerEntityId ?? null,
+    currentNodeId: row.currentNodeId ?? null,
+    currentNodeLabel: currentNodeLabel(row),
+    completedSteps: completed.length,
+    errorMessage: row.errorMessage ?? null,
+    startedAt: row.startedAt ?? null,
+    completedAt: row.completedAt ?? null,
+  };
+}
+
+function toRunDto(row: any) {
+  const steps = Array.isArray(row?.steps) ? row.steps : [];
+  const completed = Array.isArray(row?.completedNodeIds) ? row.completedNodeIds : [];
+  return {
+    ...toRunSummary(row),
+    whatsappAccountId: row.whatsappAccountId ?? null,
+    whatsappAccountName: row.whatsappAccountName ?? null,
+    whatsappAccountPhone: row.whatsappAccountPhone ?? null,
+    completedNodeIds: completed,
+    version: toVersionSummary(row.version),
+    steps: steps.map((s: any) => ({
+      id: s.id ?? null,
+      nodeId: s.nodeId ?? null,
+      nodeType: s.nodeType ?? null,
+      dataType: s.dataType ?? null,
+      status: s.status ?? null,
+      errorMessage: s.errorMessage ?? null,
+      executedAt: s.executedAt ?? null,
+      executionTimeMs: s.executionTimeMs ?? null,
+    })),
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// 3) TOOLS
+// ═══════════════════════════════════════════════════════════════
+
 @McpController()
 @UseGuards(McpScopeGuard)
 export class McpAutomationTools {
-  constructor(private automation: AutomationService) {}
+  constructor(
+    private automation: AutomationService,
+    private settings: ClientSettingsService,
+  ) {}
 
   @McpReadTool({
     name: TOOL.automation.stats,
     description:
-      "Automation headers. Pass `report`: flows (default) or runs. No date filters, no flow/run lists. Extra fields (e.g. startDate) are rejected. Read-only.",
+      `Automation headers. Pass \`report\`: flows (default) or runs. No date filters. Flow/run rows are on ${ref(TOOL.automation.search)} / ${ref(TOOL.automation.runsSearch)}. Extra fields (e.g. startDate) are rejected. Read-only.`,
     parameters: automationStatsInput,
   })
   async getStats(
@@ -50,10 +260,81 @@ export class McpAutomationTools {
     return toolJson({ report, ...(await this.automation.getFlowsStats(user)) });
   }
 
+  @McpReadTool({
+    name: TOOL.automation.stepsList,
+    description:
+      `Builder catalog for automation steps (same labels as the frontend builder). One call: step kinds, each step id, localized title/description, config keys (types, lookups, enums), and branch sourceHandles. Optional lang (en|ar), kind, or type. Existing flow graphs are on ${ref(TOOL.automation.search)}. Config ids: ${ref(TOOL.stores.list)}, ${ref(TOOL.orderStatuses.list)}, ${ref(TOOL.shippingCompanies.list)} (use providerId), ${ref(TOOL.whatsapp.templatesSearch)}, ${ref(TOOL.whatsapp.accountsSearch)}, ${ref(TOOL.employees.list)}, ${ref(TOOL.cancelCauses.list)}, ${ref(TOOL.issues.lookupsList)}, ${ref(TOOL.roles.list)}, ${ref(TOOL.cities.list)}. Read-only. No create or edit of flows.`,
+    parameters: stepsListInput,
+  })
+  async listSteps(
+    @Payload() input: z.infer<typeof stepsListInput>,
+    @McpUser() user: User,
+  ) {
+    const type = (input as any)?.type as string | undefined;
+    if (type && !AUTOMATION_STEP_ID_SET.has(type as TriggerType | ConditionType | ActionType)) {
+      throw new RpcException(`Unknown step type "${type}". Use one of: ${AUTOMATION_STEP_IDS.join(", ")}.`);
+    }
+    let settingsLang: string | undefined;
+    try {
+      settingsLang = (await this.settings.getSettings(user))?.defaultLang;
+    } catch {
+      settingsLang = undefined;
+    }
+    const lang = resolveCatalogLang((input as any)?.lang, settingsLang);
+    return toolJson(buildAutomationStepsCatalog(lang, { kind: (input as any)?.kind, type }));
+  }
+
+  @McpReadTool({
+    name: TOOL.automation.search,
+    description:
+      `Search automation flows or fetch one. Without \`id\`: paged list filtered by name, status, or triggerType (same as the Automations page). With \`id\`: that flow's latest version with nodes (type, dataType, label, config) and edges (source/target/handles) so the step graph can be followed. Step types and config fields: ${ref(TOOL.automation.stepsList)}. No canvas layout. Read-only. No create, publish, or delete.`,
+    parameters: searchAutomationsInput,
+  })
+  async searchAutomations(
+    @Payload() input: z.infer<typeof searchAutomationsInput>,
+    @McpUser() user: User,
+  ) {
+    const req = parseSearchInput(input, "automation");
+    if (req.mode === "get") {
+      return toolJson(toAutomationDto(await this.automation.findOne(user, req.id)));
+    }
+    const q = req.query;
+    const result = await this.automation.findAll(user, {
+      ...q,
+      sortDir: (q as any).sortOrder,
+    });
+    return toolPage("automations", result, toAutomationSummary, (q as any).limit);
+  }
+
+  @McpReadTool({
+    name: TOOL.automation.runsSearch,
+    description:
+      `Search automation runs (logs + running queue) or fetch one. Without \`id\`: paged rows filtered by status (CSV), triggerType, flow id, entity id, or dates. Running tab: status running,pending,failed,paused. With \`id\`: that run with steps plus the version graph (node configs and edges). No execution payload blobs. Retry a failed run with ${ref(TOOL.automation.runsRetry)}. Read-only.`,
+    parameters: searchRunsInput,
+  })
+  async searchRuns(
+    @Payload() input: z.infer<typeof searchRunsInput>,
+    @McpUser() user: User,
+  ) {
+    const req = parseSearchInput(input, "automation run");
+    if (req.mode === "get") {
+      return toolJson(toRunDto(await this.automation.findOneRun(user, req.id)));
+    }
+    const dates = resolveToolDates(req.query as any);
+    const q = req.query as typeof req.query & { entityId?: string };
+    const result = await this.automation.findAllRuns(user, {
+      ...q,
+      startDate: dates.startDate,
+      endDate: dates.endDate,
+      sortDir: (q as any).sortOrder,
+    });
+    return toolPage("runs", result, toRunSummary, (q as any).limit);
+  }
+
   @McpSaveTool({
     name: TOOL.automation.runsRetry,
     description:
-      "Retry a failed automation run (dedicated action, not save). Required: id of a FAILED run. Optional useLatestVersion. Only failed runs are retriable; the service errors otherwise. Returns the run id, status, flow and version ids with the queue message. No execution state dump.",
+      `Retry a failed automation run (dedicated action, not save). Required: id of a FAILED run from ${ref(TOOL.automation.runsSearch)}. Optional useLatestVersion. Only failed runs are retriable; the service errors otherwise. Returns the run id, status, flow and version ids with the queue message. No execution state dump.`,
     parameters: runsRetryInput,
   })
   async retryRun(

@@ -9,10 +9,10 @@ import { McpUser } from "../mcp-guards/mcp-user.decorator";
 import { User } from "entities/user.entity";
 import { ProductType } from "entities/sku.entity";
 import { CreateProductDto, UpdateProductDto } from "dto/product.dto";
-import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
+import { isSet, listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, TOOL } from "../utils/mcp-tool-names";
-import { uuidField } from "../utils/mcp-date.util";
+import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
+import { businessDayRange, isoDateField, uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
 // 1) INPUT SCHEMAS (Zod): what the model SENDS to the tools
@@ -26,8 +26,31 @@ const searchProductsInput = searchInput("product", {
     sortBy: ["created_at", "name", "sku", "salePrice", "isActive"],
     search: "Matches product name, slug, or variant SKU",
   }),
+  type: z
+    .enum(["PRODUCT", "PRODUCT_IDLE"])
+    .optional()
+    .describe("Catalog tab. PRODUCT (default): active (or inactive) products. PRODUCT_IDLE: products created on or before idleBefore with no orders after that date. Requires idleBefore."),
+  idleBefore: isoDateField("Idle cutoff, ISO date (YYYY-MM-DD). Required with type=PRODUCT_IDLE. Same as the Idle tab created_at.lte.").optional(),
+  isActive: z
+    .boolean()
+    .optional()
+    .describe("True (default): active products. False: deactivated / deleted_products tab."),
   categoryId: uuidField(idDescription("Keep only products of this category.", TOOL.categories.list)).optional(),
   storeId: uuidField(idDescription("Keep only products of this store.", TOOL.stores.list)).optional(),
+  warehouseId: uuidField(idDescription("Keep only products of this warehouse.", TOOL.warehouses.search)).optional(),
+  storageLocationId: uuidField(idDescription("Keep only products of this storage location.", TOOL.warehouses.locationsSearch)).optional(),
+  productType: z.enum(ProductType).optional().describe("single or variable. Omit for both."),
+  variantId: uuidField(
+    idDescription(
+      "Keep only the product that owns this variant.",
+      TOOL.products.search,
+      `Use a variantId from a previous ${ref(TOOL.products.search)} row, or from an order line on ${ref(TOOL.orders.search)}.`,
+    ),
+  ).optional(),
+  salePriceMin: z.number().optional().describe("Minimum sale price (salePrice.gte)."),
+  salePriceMax: z.number().optional().describe("Maximum sale price (salePrice.lte)."),
+  wholesalePriceMin: z.number().optional().describe("Minimum purchase/wholesale price filter. Not returned on rows."),
+  wholesalePriceMax: z.number().optional().describe("Maximum purchase/wholesale price filter. Not returned on rows."),
 }, TOOL.products.search);
 
 const saveProductFields = toolInputFor<UpdateProductDto>()(
@@ -89,6 +112,13 @@ const saveProductInput = z.object({
   ...saveProductFields.shape,
 });
 
+const productsStatsInput = z.strictObject({
+  report: z
+    .enum(["stock"])
+    .optional()
+    .describe("Which report to return. stock (default): workspace inventory totals, not a product list."),
+});
+
 // ═══════════════════════════════════════════════════════════════
 // 2) OUTPUT MAPPERS: what the model RECEIVES from the tools
 //    Entity -> small plain object. Never return raw entities, and
@@ -103,6 +133,8 @@ function toProductSummary(row: any) {
     name: row.name ?? null,
     sku: row.sku ?? null,
     salePrice: row.salePrice ?? null,
+    type: row.type ?? null,
+    isActive: row.isActive ?? null,
     categoryName: row.category?.name ?? null,
     storeName: row.store?.name ?? null,
     variants: skus.map((s: any) => ({
@@ -154,6 +186,32 @@ function toProductResultDto(row: any) {
   };
 }
 
+function toProductStockStats(summary: any, report: string) {
+  return {
+    report,
+    productCount: Number(summary?.productCount ?? 0),
+    inventory: {
+      reserved: Number(summary?.inventory?.reserved ?? 0),
+      available: Number(summary?.inventory?.available ?? 0),
+      totalOnHand: Number(summary?.inventory?.totalOnHand ?? 0),
+    },
+    damaged: {
+      customer: Number(summary?.damaged?.customer ?? 0),
+      company: Number(summary?.damaged?.company ?? 0),
+    },
+    orders: {
+      soldQuantity: Number(summary?.orders?.soldQuantity ?? 0),
+      inTransitQuantity: Number(summary?.orders?.inTransitQuantity ?? 0),
+    },
+    purchases: {
+      acceptedQuantity: Number(summary?.purchases?.acceptedQuantity ?? 0),
+    },
+    purchaseReturns: {
+      acceptedReturnedQuantity: Number(summary?.purchaseReturns?.acceptedReturnedQuantity ?? 0),
+    },
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════
 // 3) TOOLS: the @McpController class
 //    Guards, tool decorators, service calls and the toolJson /
@@ -168,7 +226,7 @@ export class McpProductsTools {
   @McpReadTool({
     name: TOOL.products.search,
     description:
-      "Search products or fetch one. Without `id`: lists products with variants and sale prices, filtered by search text, category, or store. Use the returned variantId and price when creating an order. With `id`: returns that single product with full details. Read-only.",
+      "Search products or fetch one. Without `id`: lists products like the catalog tabs (active, deactivated, or idle). Filters: search, category, store, warehouse, storage location, productType (single/variable), variantId, sale/wholesale price range, isActive, type PRODUCT or PRODUCT_IDLE (needs idleBefore). Use the returned variantId and price when creating an order. With `id`: that product's details (product id, not variant id). Read-only.",
     parameters: searchProductsInput,
   })
   async searchProducts(
@@ -179,8 +237,53 @@ export class McpProductsTools {
     if (req.mode === "get") {
       return toolJson(toProductResultDto(await this.products.get(user, req.id)));
     }
-    const result = await this.products.list(user, req.query);
-    return toolPage("products", result, toProductSummary, req.query.limit);
+    const q = req.query as typeof req.query & {
+      type?: "PRODUCT" | "PRODUCT_IDLE";
+      idleBefore?: string;
+      isActive?: boolean;
+      warehouseId?: string;
+      storageLocationId?: string;
+      productType?: ProductType;
+      salePriceMin?: number;
+      salePriceMax?: number;
+      wholesalePriceMin?: number;
+      wholesalePriceMax?: number;
+    };
+    const listType = q.type ?? "PRODUCT";
+    if (listType === "PRODUCT_IDLE" && !isSet(q.idleBefore)) {
+      throw new RpcException("type=PRODUCT_IDLE requires `idleBefore` (YYYY-MM-DD), the Idle tab cutoff date.");
+    }
+    if (isSet(q.idleBefore) && listType !== "PRODUCT_IDLE") {
+      throw new RpcException("`idleBefore` is only valid with type=PRODUCT_IDLE. Set type to PRODUCT_IDLE or remove idleBefore.");
+    }
+    if (isSet(q.salePriceMin) && isSet(q.salePriceMax) && Number(q.salePriceMin) > Number(q.salePriceMax)) {
+      throw new RpcException("`salePriceMin` is greater than `salePriceMax`. Swap them.");
+    }
+    if (isSet(q.wholesalePriceMin) && isSet(q.wholesalePriceMax) && Number(q.wholesalePriceMin) > Number(q.wholesalePriceMax)) {
+      throw new RpcException("`wholesalePriceMin` is greater than `wholesalePriceMax`. Swap them.");
+    }
+    const idleEnd = listType === "PRODUCT_IDLE" ? businessDayRange(q.idleBefore, q.idleBefore).end : undefined;
+    const result = await this.products.list(user, {
+      page: q.page,
+      limit: q.limit,
+      sortBy: q.sortBy,
+      sortOrder: q.sortOrder,
+      search: q.search,
+      categoryId: q.categoryId,
+      storeId: q.storeId,
+      warehouseId: q.warehouseId,
+      storageLocationId: q.storageLocationId,
+      productType: q.productType,
+      variantId: q.variantId,
+      type: listType,
+      ...(q.isActive === false ? { isActive: "false" } : {}),
+      ...(isSet(q.salePriceMin) ? { "salePrice.gte": q.salePriceMin } : {}),
+      ...(isSet(q.salePriceMax) ? { "salePrice.lte": q.salePriceMax } : {}),
+      ...(isSet(q.wholesalePriceMin) ? { "wholesalePrice.gte": q.wholesalePriceMin } : {}),
+      ...(isSet(q.wholesalePriceMax) ? { "wholesalePrice.lte": q.wholesalePriceMax } : {}),
+      ...(idleEnd ? { "created_at.lte": idleEnd } : {}),
+    });
+    return toolPage("products", result, toProductSummary, q.limit);
   }
 
   @McpSaveTool({
@@ -215,5 +318,19 @@ export class McpProductsTools {
     const parsed = await parseDto(UpdateProductDto, req.fields);
     if (parsed.ok === false) throw new RpcException(parsed.message);
     return toolJson(toProductResultDto(await this.products.update(user, req.id, parsed.dto)));
+  }
+
+  @McpReadTool({
+    name: TOOL.products.stats,
+    description:
+      `Workspace stock totals. Pass \`report\`: stock (default) — product count, on-hand / reserved / available, damaged, sold and in-transit quantities, accepted purchase and purchase-return quantities. Not a product list; use ${ref(TOOL.products.search)} for individual SKUs. Read-only.`,
+    parameters: productsStatsInput,
+  })
+  async getProductsStats(
+    @Payload() input: z.infer<typeof productsStatsInput>,
+    @McpUser() user: User,
+  ) {
+    const report = (input as any)?.report ?? "stock";
+    return toolJson(toProductStockStats(await this.products.getAdminSummary(user), report));
   }
 }

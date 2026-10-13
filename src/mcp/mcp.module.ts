@@ -30,6 +30,7 @@ import { SafesModule } from "../safes/safes.module";
 import { PlansModule } from "../plans/plans.module";
 import { SupplierCategoriesModule } from "../supplier/categories/categories.module";
 import { SuppliersModule } from "../supplier/supplier.module";
+import { SupplierPaymentsModule } from "../supplier-payments/supplier-payments.module";
 import { WarehousesModule } from "../warehouse/warehouse.module";
 import { WalletModule } from "../wallet/wallet.module";
 import { AutomationModule } from "../automation/automation.module";
@@ -73,7 +74,6 @@ import { McpWhatsappTools } from "./mcp-tools/whatsapp.tool";
 import { McpWarehouseOpsTools } from "./mcp-tools/warehouse-ops.tool";
 import { McpRolesTools } from "./mcp-tools/roles.tool";
 import { McpSafesTools } from "./mcp-tools/safes.tool";
-import { McpPlansTools } from "./mcp-tools/plans.tool";
 import { McpSupplierCategoriesTools } from "./mcp-tools/supplier-categories.tool";
 import { McpSuppliersTools } from "./mcp-tools/suppliers.tool";
 import { McpWarehouseLocationsTools, McpWarehousesTools } from "./mcp-tools/warehouses.tool";
@@ -124,6 +124,7 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     PlansModule,
     SupplierCategoriesModule,
     SuppliersModule,
+    SupplierPaymentsModule,
     WarehousesModule,
     WalletModule,
     AutomationModule,
@@ -160,7 +161,6 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     McpShippingAssigningTools,
     McpRolesTools,
     McpSafesTools,
-    McpPlansTools,
     McpSupplierCategoriesTools,
     McpSuppliersTools,
     McpWarehousesTools,
