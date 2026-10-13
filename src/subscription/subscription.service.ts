@@ -825,9 +825,12 @@ export class SubscriptionsService {
       ? manager.getRepository(Subscription)
       : this.subscriptionsRepo;
 
+    // Admins use their own subscription; employees use their admin's.
+    const subscriptionUserId = tenantId(me) ?? me.id;
+
     const subscription = await repo.findOne({
       where: {
-        userId: me.id,
+        userId: subscriptionUserId,
         status: SubscriptionStatus.ACTIVE,
       },
       relations: {

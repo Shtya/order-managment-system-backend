@@ -6,7 +6,13 @@ vi.mock("src/accounting/services/accounting.service", () => ({ AccountingService
 vi.mock("src/accounting/services/expenses.service", () => ({ ExpensesService: class {} }));
 vi.mock("src/accounting/services/expense-categories.service", () => ({ ExpenseCategoriesService: class {} }));
 vi.mock("src/accounting/services/monthly-closing.service", () => ({ MonthlyClosingService: class {} }));
-vi.mock("entities/user.entity", () => ({ User: class {} }));
+vi.mock("src/supplier-payments/supplier-payments.service", () => ({ SupplierPaymentsService: class {} }));
+vi.mock("entities/user.entity", () => ({
+  User: class {},
+  Role: class {},
+  Permission: class {},
+  SystemRole: { SUPER_ADMIN: "super_admin", ADMIN: "admin", USER: "user" },
+}));
 
 import { buildTrendBuckets, parseAccountingStatsInput } from "./accounting.tool";
 
@@ -70,7 +76,7 @@ describe("accounting tool follow-up", () => {
   it("last_expenses passes business-day bounds and echoes the period", async () => {
     const { McpAccountingTools } = await import("./accounting.tool");
     const getLastExpenses = vi.fn().mockResolvedValue({ lastPurchases: [], lastManualExpenses: [] });
-    const tools = new McpAccountingTools({ getLastExpenses } as any, {} as any, {} as any, {} as any);
+    const tools = new McpAccountingTools({ getLastExpenses } as any, {} as any, {} as any, {} as any, {} as any);
     const res: any = await tools.getAccountingStats({ report: "last_expenses", startDate: "2026-05-03", endDate: "2026-05-03" } as any, {} as any);
     const [, filters, exact] = getLastExpenses.mock.calls[0];
     expect(exact).toBe(true);
