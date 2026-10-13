@@ -267,7 +267,7 @@ export class WalletService {
         const activeSubscription =
           await this.subscriptionsService.getMyActiveSubscription(me, m);
 
-        const wallet = await this.getOrCreateWallet(me.id, m);
+        const wallet = await this.getOrCreateWallet(adminId, m);
 
         if (!activeSubscription) {
           throw new BadRequestException(
