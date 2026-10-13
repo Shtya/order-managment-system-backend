@@ -178,7 +178,7 @@ export class OrderEntity {
   @Column({ type: "text", nullable: true })
   rejectReason: string; // ✅ The new column for rejection/cancellation reasons
 
-  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  @Column({ type: "timestamptz", nullable: true })
   rejectedAt?: Date;
 
   @Column({ type: "timestamptz", nullable: true })
@@ -196,7 +196,7 @@ export class OrderEntity {
   @Column({ type: "boolean", default: false })
   oneDayBeforeNotificationSent: boolean;
 
-  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  @Column({ type: "timestamptz", nullable: true })
   returnedAt?: Date;
 
   @ManyToOne(() => User, { nullable: true })
@@ -315,7 +315,7 @@ export class OrderEntity {
   @Column({ type: "varchar", length: 20, nullable: true })
   confirmationSource?: OrderConfirmationSource | null;
 
-  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  @Column({ type: "timestamptz", nullable: true })
   confirmedAt?: Date;
 
   @Column({ type: 'uuid', nullable: true })
@@ -356,7 +356,7 @@ export class OrderEntity {
   @Column({ type: "varchar", length: 100, nullable: true })
   trackingNumber?: string;
 
-  @UpdateDateColumn({ type: "timestamptz", nullable: true })
+  @Column({ type: "timestamptz", nullable: true })
   distributed_at?: Date;
 
   @Column({ type: "timestamptz", nullable: true })
