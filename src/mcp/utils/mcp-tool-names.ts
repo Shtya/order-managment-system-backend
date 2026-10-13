@@ -65,6 +65,7 @@ export const TOOL = {
     stats: "orders_stats",
     internalNotesSearch: "order_internal_notes_search",
     internalNotesSave: "order_internal_notes_save",
+    tagsSave: "order_tags_save",
     replacementsSearch: "order_replacements_search",
     replacementsSave: "order_replacements_save",
     returnsSave: "order_returns_save",

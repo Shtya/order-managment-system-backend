@@ -427,7 +427,6 @@ export class CreateOrderInternalNoteDto {
 
 export class ReplacementItemDto {
   @IsString({ message: i18nValidationMessage('validation.is_string') })
-  @Type(() => Number)
   originalOrderItemId: string;
 
   @IsInt({ message: i18nValidationMessage('validation.is_int') })
@@ -444,7 +443,7 @@ export class ReplacementItemDto {
   @IsString({ message: i18nValidationMessage('validation.is_string') })
   newVariantId: string;
 
-  @IsInt({ message: i18nValidationMessage('validation.is_int') })
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: i18nValidationMessage('validation.is_number') })
   @Type(() => Number)
   @Min(0, { message: i18nValidationMessage('validation.min') })
   newUnitPrice: number;

@@ -5,6 +5,7 @@ import { OrdersService } from "src/orders/services/orders.service";
 import { OrderInternalNotesService } from "src/orders/services/order-internal-notes.service";
 import { OrderReplacementService } from "src/orders/services/order-replacements.service";
 import { OrderReturnService } from "src/orders/services/order-return.service";
+import { TagsAssignmentService } from "src/tags/tags-assignment.service";
 import { z } from "zod";
 import { McpScopeGuard } from "../mcp-guards/mcp-scope-guard";
 import { McpReadTool, McpSaveTool } from "../decorators/mcp-tool.decorators";
@@ -604,6 +605,12 @@ function toReplacementSummary(row: any) {
 //    toolPage return helpers. No mapping or schema code here.
 // ═══════════════════════════════════════════════════════════════
 
+const saveOrderTagsInput = z.object({
+  orderId: uuidField(idDescription("Order id.", TOOL.orders.search)),
+  addTagIds: z.array(uuidField(idDescription("Tag id to add.", TOOL.tags.list))).optional().describe("Tag ids to add to the order"),
+  removeTagIds: z.array(uuidField(idDescription("Tag id to remove.", TOOL.tags.list))).optional().describe("Tag ids to remove from the order"),
+});
+
 @McpController()
 @UseGuards(McpScopeGuard)
 export class McpOrdersTools {
@@ -612,6 +619,7 @@ export class McpOrdersTools {
     private notes: OrderInternalNotesService,
     private replacements: OrderReplacementService,
     private returns: OrderReturnService,
+    private tagsAssignment: TagsAssignmentService,
   ) { }
 
   @McpReadTool({
@@ -785,6 +793,29 @@ export class McpOrdersTools {
     if (parsed.ok === false) throw new RpcException(parsed.message);
     const saved = await this.notes.add(user, (input as any).orderId, parsed.dto);
     return toolJson(toInternalNoteDto((saved as any)?.data ?? saved));
+  }
+
+  @McpSaveTool({
+    name: TOOL.orders.tagsSave,
+    description:
+      "Add and/or remove tags on one order (same as PATCH /orders/:orderId/tags). Required orderId and at least one of addTagIds / removeTagIds. Returns the order's tags after the change.",
+    parameters: saveOrderTagsInput,
+  })
+  async saveOrderTags(
+    @Payload() input: z.infer<typeof saveOrderTagsInput>,
+    @McpUser() user: User,
+  ) {
+    const addTagIds = input.addTagIds ?? [];
+    const removeTagIds = input.removeTagIds ?? [];
+    if (!addTagIds.length && !removeTagIds.length) {
+      throw new RpcException("Pass at least one of `addTagIds` or `removeTagIds`.");
+    }
+    await this.tagsAssignment.syncOrderManual(user, input.orderId, addTagIds, removeTagIds);
+    const rows = await this.tagsAssignment.listOrderTags(user, input.orderId);
+    return toolJson({
+      orderId: input.orderId,
+      tags: (rows ?? []).map((r: any) => ({ id: r.tag?.id ?? r.tagId, name: r.tag?.name ?? null, color: r.tag?.color ?? null })),
+    });
   }
 
   @McpReadTool({
