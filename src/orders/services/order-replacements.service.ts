@@ -426,6 +426,7 @@ export class OrderReplacementService {
       // 2️⃣ Create new order based on items in dto
       const createOrderDto: CreateOrderDto = {
         customerName: originalOrder.customerName,
+        clientId: originalOrder.clientId ?? undefined,
         phoneNumber: originalOrder.phoneNumber,
         email: originalOrder.email,
         address: originalOrder.address,

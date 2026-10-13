@@ -500,7 +500,9 @@ function toOrderResultDto(row: ListedOrder) {
     })),
     items: (row.items ?? []).map(toOrderItem),
     replacementRequest: toReplacement(row.replacementRequest),
-    replacementResult: toReplacement(row.replacementResult),
+    replacementResult: row.replacementResult
+      ? { ...toReplacement(row.replacementResult), replacementOrderNumber: row.replacementResult.replacementOrder?.orderNumber ?? row.orderNumber ?? null }
+      : null,
     returnRequests: ((row as any).returnRequests ?? []).map((r: any) => ({
       id: r.id ?? null,
       status: r.status ?? null,
@@ -675,7 +677,8 @@ export class McpOrdersTools {
     if (req.mode === "create") {
       const parsed = await parseDto(CreateOrderDto, req.fields);
       if (parsed.ok === false) throw new RpcException(parsed.message);
-      return toolJson(toOrderResultDto(await this.orders.create(user, parsed.dto)));
+      const created: any = await this.orders.create(user, parsed.dto);
+      return toolJson(toOrderResultDto(await this.orders.get(user, created.id)));
     }
     const parsed = await parseDto(UpdateOrderDto, req.fields);
     if (parsed.ok === false) throw new RpcException(parsed.message);
@@ -850,7 +853,14 @@ export class McpOrdersTools {
   ) {
     const parsed = await parseDto(CreateReplacementDto, input);
     if (parsed.ok === false) throw new RpcException(parsed.message);
-    return toolJson(toReplacementSummary(await this.replacements.replaceOrder(user, parsed.dto)));
+    const created: any = await this.replacements.replaceOrder(user, parsed.dto);
+    const newOrder: any = await this.orders.get(user, created.newOrder.id);
+    const rep: any = newOrder?.replacementResult ?? created.replacement;
+    return toolJson(toReplacementSummary({
+      ...rep,
+      replacementOrder: newOrder ?? created.newOrder,
+      shippingCompany: rep?.shippingCompany ?? newOrder?.shippingCompany ?? null,
+    }));
   }
 
   @McpSaveTool({

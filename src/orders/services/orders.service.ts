@@ -4714,6 +4714,8 @@ export class OrdersService {
       .leftJoinAndSelect("bridgeVar.product", "bridgeNewProd")
       .leftJoinAndSelect("bridgeItems.newVariant", "newBridgeVar")
       .leftJoinAndSelect("newBridgeVar.product", "newBridgeProd")
+      .leftJoinAndSelect("order.replacementRequest", "replacementRequest")
+      .leftJoinAndSelect("replacementRequest.replacementOrder", "replacementOrder")
       // Filter assignments to only include the active one
       .leftJoinAndSelect(
         "order.assignments",
