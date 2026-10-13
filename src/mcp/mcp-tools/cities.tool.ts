@@ -10,7 +10,7 @@ import { User } from "entities/user.entity";
 import { AreaEntity, CityEntity } from "entities/cities.entity";
 import { listPaging } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
@@ -32,6 +32,12 @@ const listCitiesInput = z.strictObject({
     .describe("Only cities with (true) or without (false) tenant shipping-day config"),
   minDays: z.number().int().min(0).optional().describe("Keep cities whose min shipping days are at least this number"),
   maxDays: z.number().int().min(0).optional().describe("Keep cities whose max shipping days are at most this number"),
+  provider: z
+    .string()
+    .optional()
+    .describe(
+      `Carrier code from ${ref(TOOL.shippingCompanies.list)} row.provider (bosta, turbo). Keep only cities with drop-off for that carrier. Each row then includes providerCityId for ${ref(TOOL.shippingCompanies.geo)}. Omit or "none" for all cities.`,
+    ),
 });
 
 const listAreasInput = z.strictObject({
@@ -55,6 +61,9 @@ function toAreaSummary(row: Partial<AreaEntity>) {
 
 function toCitySummary(row: Partial<CityEntity>) {
   const config = (row as any).tenantConfigs?.[0] ?? null;
+  const locations = Array.isArray((row as any).providerLocations)
+    ? (row as any).providerLocations
+    : [];
   return {
     id: row.id,
     nameEn: (row as any).nameEn ?? null,
@@ -62,6 +71,12 @@ function toCitySummary(row: Partial<CityEntity>) {
     isConfigured: Boolean(config),
     minShippingDays: config?.minShippingDays ?? null,
     maxShippingDays: config?.maxShippingDays ?? null,
+    providerLocations: locations.map((pl: any) => ({
+      provider: pl.provider ?? null,
+      providerCityId: pl.providerCityId ?? null,
+      dropOff: pl.dropOff ?? null,
+      pickup: pl.pickup ?? null,
+    })),
   };
 }
 
@@ -79,7 +94,7 @@ export class McpCitiesTools {
   @McpReadTool({
     name: TOOL.cities.list,
     description:
-      "List the delivery cities with the tenant shipping-day config. Read-only.",
+      `List Madar delivery cities (unified city id). Optional provider (bosta/turbo) keeps only drop-off cities for that carrier and includes providerLocations.providerCityId — use that id with ${ref(TOOL.shippingCompanies.geo)} for zones/districts, never as shippingCompanyId. list_areas is Madar neighborhoods, not Bosta/Turbo districts. Read-only.`,
     parameters: listCitiesInput,
   })
   async listCities(

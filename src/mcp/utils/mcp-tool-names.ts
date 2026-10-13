@@ -20,6 +20,7 @@ export const TOOL = {
   },
   shippingCompanies: {
     list: "list_shipping_companies",
+    geo: "shipping_geo",
   },
   stores: {
     list: "list_stores",

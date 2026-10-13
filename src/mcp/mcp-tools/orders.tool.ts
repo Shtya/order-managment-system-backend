@@ -866,7 +866,7 @@ export class McpOrdersTools {
   @McpSaveTool({
     name: TOOL.orders.returnsSave,
     description:
-      "Request an order return (create only). Required: orderId (must be shipped, delivered, or failed delivery) plus items (originalItemId, quantity). No return search tool; rows come back on orders_search get. Returns the return request.",
+      "Step 1 of the RETURN flow: request a return (create only). Required: orderId (status must be Shipped, Delivered, or Failed Delivery) plus items[] (originalItemId = order line id from orders_search, quantity = units coming back for that line). Partial return: send only some lines or a quantity lower than the line quantity; full return: every line with its full quantity. Per item, restockQuantity (default = quantity) is how many units go back to sellable stock; quantity - restockQuantity counts as damaged, and then damageResponsibility (company = carrier pays, internal = we pay) applies. On success the order moves to Return Preparing and lastReturnId points at this request. Next: warehouse_ops_act action=create_return_manifest with the orderId (+ shippingCompanyId, driverName), which receives the parcel and sets the order to Returned (everything returned) or Partially Returned (some returned); then mark_printed with the return manifest id. No return search tool; rows come back on orders_search get. Re-fetch the order after each step. Returns the return request.",
     parameters: saveReturnInput,
   })
   async saveReturn(

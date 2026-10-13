@@ -124,6 +124,16 @@ export class CitiesService {
         { adminId },
       );
 
+    const provider = String(q?.provider ?? "").trim();
+    if (provider && provider.toLowerCase() !== "none") {
+      qb.innerJoinAndSelect(
+        "city.providerLocations",
+        "pl",
+        "LOWER(pl.provider) = LOWER(:provider) AND pl.dropOff = true",
+        { provider },
+      );
+    } 
+
     if (search) {
       qb.andWhere(
         new Brackets((sq) => {

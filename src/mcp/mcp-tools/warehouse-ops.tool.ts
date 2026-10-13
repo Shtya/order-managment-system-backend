@@ -40,13 +40,13 @@ const warehouseStatsInput = z.strictObject({
 
 const warehouseActInput = z.object({
   action: z
-    .enum(["assign", "bulk_print", "scan", "log_failed_scan", "create_manifest", "create_return_manifest", "mark_printed"])
-    .describe("Required. assign: provider + orderIds (+ optional shippingItems). bulk_print: orderNumbers. scan: id + sku (+itemId). log_failed_scan: id + sku + reasonCode. create_manifest / create_return_manifest: orderIds (+ shippingCompanyId, driverName). mark_printed: manifest id."),
+    .enum(["update_shipping", "assign", "bulk_print", "scan", "log_failed_scan", "create_manifest", "create_return_manifest", "mark_printed"])
+    .describe("Required. update_shipping: provider + shippingItems (PATCH address/geo before assign). assign: provider + orderIds. bulk_print: orderNumbers. scan: id + sku. log_failed_scan: id + sku + reasonCode. create_manifest / create_return_manifest: orderIds. mark_printed: manifest id."),
   provider: z
     .string()
     .optional()
     .describe(
-      `Shipping provider code from ${ref(TOOL.shippingCompanies.list)} row.provider (not providerId, not integrationId). Required for action=assign.`,
+      `Shipping provider code from ${ref(TOOL.shippingCompanies.list)} row.provider (bosta, turbo, or none). Not providerId, not integrationId. Required for update_shipping and assign.`,
     ),
   orderIds: z.array(uuidField(idDescription("Order ids. Required for assign, create_manifest, create_return_manifest.", TOOL.orders.search))).optional(),
   orderNumbers: z.array(z.string()).optional().describe("Order numbers. Required for bulk_print."),
@@ -63,21 +63,21 @@ const warehouseActInput = z.object({
   shippingItems: z
     .array(
       z.object({
-        id: uuidField(idDescription("Order id. Must be one of `orderIds`.", TOOL.orders.search)),
-        customerName: z.string().optional().describe("Recipient name."),
-        phoneNumber: z.string().optional().describe("Egyptian mobile (01[0125]XXXXXXXX)."),
-        address: z.string().optional().describe("Street / first line."),
-        landmark: z.string().optional().describe("Landmark."),
-        cityId: uuidField(idDescription("City id.", TOOL.cities.list)).optional(),
-        area: z.string().optional().describe("Area name."),
-        areaId: uuidField(idDescription("Area id.", TOOL.cities.areas)).optional(),
-        zoneId: z.string().optional().describe("Carrier zone id from the shipping company, not from list_shipping_companies. Omit if unknown."),
-        districtId: z.string().optional().describe("Carrier district id from the shipping company, not from list_shipping_companies. Omit if unknown."),
-        orderSize: z.string().optional().describe("Carrier parcel size."),
+        id: uuidField(idDescription("Order id.", TOOL.orders.search)),
+        customerName: z.string().optional().describe("Recipient name. Required for bosta and turbo."),
+        phoneNumber: z.string().optional().describe("Egyptian mobile 01[0125]XXXXXXXX. Required for bosta and turbo."),
+        address: z.string().optional().describe("Street / first line (min 5 chars). Required for bosta."),
+        landmark: z.string().optional().describe("Landmark / second line."),
+        cityId: uuidField(idDescription("Madar city UUID (not providerCityId).", TOOL.cities.list)).optional(),
+        area: z.string().optional().describe("Madar area name. Not a Bosta/Turbo district."),
+        areaId: uuidField(idDescription("Madar area id.", TOOL.cities.areas)).optional(),
+        zoneId: z.string().optional().describe(`Turbo: zone id from ${ref(TOOL.shippingCompanies.geo)} kind=zones. Bosta: optional.`),
+        districtId: z.string().optional().describe(`Bosta: district id from ${ref(TOOL.shippingCompanies.geo)} kind=districts. Not used for turbo.`),
+        orderSize: z.string().optional().describe("Parcel size (e.g. MEDIUM). Optional."),
       }),
     )
     .optional()
-    .describe("Only for action=assign. Per-order shipping fields to PATCH before assign. Omit if addresses are already valid."),
+    .describe("Per-order PATCH for update_shipping (required) or assign (optional). cityId is Madar UUID; zoneId/districtId are carrier ids from shipping_geo."),
 });
 
 const searchManifestsInput = searchInput("manifest", {
@@ -246,17 +246,30 @@ export class McpWarehouseOpsTools {
   @McpSaveTool({
     name: TOOL.warehouseOps.act,
     description:
-      "Warehouse actions. Required: action. assign needs provider + orderIds; optional shippingItems[] PATCHes addresses before assign. bulk_print needs orderNumbers. scan needs id + sku. log_failed_scan needs id + sku + reasonCode. create_manifest / create_return_manifest need orderIds. mark_printed needs a manifest id. No reject or return_request here.",
+      `Warehouse operations. Required: action. Re-fetch with ${ref(TOOL.orders.search)} after each write. OUTBOUND: 1) Confirm via orders_act (Confirmed, or Failed Delivery to re-ship). 2) Carrier geo + assign — do this in order: (a) ${ref(TOOL.shippingCompanies.list)} for provider code. (b) none: no cities/zones/districts; assign with provider=none + orderIds. (c) bosta: ${ref(TOOL.cities.list)} provider=bosta for Madar cityId + providerCityId; ${ref(TOOL.shippingCompanies.geo)} kind=districts with that providerCityId for districtId; PATCH update_shipping with customerName, phoneNumber, address (min 5), cityId (Madar UUID), districtId; then assign. Bosta does not require zoneId. (d) turbo: list_cities provider=turbo; shipping_geo kind=zones with providerCityId for zoneId; PATCH customerName, phoneNumber, cityId, zoneId; then assign. Turbo does not use districts. Do not send list_areas ids as Bosta/Turbo districts. Prefer update_shipping then assign; shippingItems on assign is the same PATCH if you combine them. Only Confirmed / Failed Delivery. Order becomes Distributed (or Shipped on shipping-only orderFlowPath, skip 3-5). 3) bulk_print: orderNumbers → Printed. 4) scan: id + sku (+itemId) once per unit; first scan Printed→Preparing; all units scanned → Ready. Wrong scan: log_failed_scan. 5) create_manifest: Ready orders + shippingCompanyId. 6) mark_printed: manifest id. RETURN: 1) Create the return request with order_returns_save (order must be Shipped/Delivered/Failed Delivery; pick lines + quantities, restockQuantity vs damaged); the order moves to Return Preparing. 2) create_return_manifest: orderIds (all must be Return Preparing) + shippingCompanyId (providerId) + optional driverName; receives the returned parcels and sets each order to Returned (full) or Partially Returned (partial). 3) mark_printed with the return manifest id from warehouse_manifests_search (type RETURN). No reject or return_request here.`,
     parameters: warehouseActInput,
   })
   async act(
     @Payload() input: z.infer<typeof warehouseActInput>,
     @McpUser() user: User,
   ) {
-    if (input.action !== "assign" && Array.isArray(input.shippingItems) && input.shippingItems.length > 0) {
-      throw new RpcException("`shippingItems` is only valid with action=assign. Remove it, or set action to assign.");
+    if (
+      input.action !== "assign" &&
+      input.action !== "update_shipping" &&
+      Array.isArray(input.shippingItems) &&
+      input.shippingItems.length > 0
+    ) {
+      throw new RpcException("`shippingItems` is only valid with action=update_shipping or action=assign. Remove it.");
     }
     switch (input.action) {
+      case "update_shipping": {
+        if (!isSet(input.provider)) throw new RpcException("action=update_shipping requires `provider`.");
+        const shippingRows = Array.isArray(input.shippingItems) ? input.shippingItems : [];
+        if (shippingRows.length === 0) {
+          throw new RpcException("action=update_shipping requires `shippingItems[]`.");
+        }
+        return toolJson(await this.patchShipping(user, input.provider as string, shippingRows));
+      }
       case "assign": {
         if (!isSet(input.provider)) throw new RpcException("action=assign requires `provider`.");
         const ids = Array.isArray(input.orderIds) ? input.orderIds.filter(Boolean) : [];
@@ -271,28 +284,7 @@ export class McpWarehouseOpsTools {
               `shippingItems id ${unknownId.id} is not in orderIds. Every shipping item must be one of the assigned orders.`,
             );
           }
-          const parsed = await parseDto(BulkUpdateShippingFieldsDto, {
-            code: input.provider,
-            items: shippingRows.map((row) => {
-              const metadata: Record<string, string> = {};
-              if (isSet(row.zoneId)) metadata.zoneId = row.zoneId as string;
-              if (isSet(row.districtId)) metadata.districtId = row.districtId as string;
-              if (isSet(row.orderSize)) metadata.orderSize = row.orderSize as string;
-              return {
-                id: row.id,
-                ...(isSet(row.customerName) ? { customerName: row.customerName } : {}),
-                ...(isSet(row.phoneNumber) ? { phoneNumber: row.phoneNumber } : {}),
-                ...(isSet(row.address) ? { address: row.address } : {}),
-                ...(isSet(row.landmark) ? { landmark: row.landmark } : {}),
-                ...(isSet(row.cityId) ? { cityId: row.cityId } : {}),
-                ...(isSet(row.area) ? { area: row.area } : {}),
-                ...(isSet(row.areaId) ? { areaId: row.areaId } : {}),
-                ...(Object.keys(metadata).length > 0 ? { shippingMetadata: metadata } : {}),
-              };
-            }),
-          });
-          if (parsed.ok === false) throw new RpcException(parsed.message);
-          shipping = await this.orders.bulkUpdateShippingFields(user, parsed.dto);
+          shipping = await this.patchShipping(user, input.provider as string, shippingRows);
         }
         const assign =
           ids.length === 1
@@ -355,5 +347,46 @@ export class McpWarehouseOpsTools {
     }
     const result = await this.orders.listManifests(user, req.query);
     return toolPage("manifests", result, toManifestSummary, req.query.limit);
+  }
+
+  private async patchShipping(
+    user: User,
+    provider: string,
+    shippingRows: Array<{
+      id: string;
+      customerName?: string;
+      phoneNumber?: string;
+      address?: string;
+      landmark?: string;
+      cityId?: string;
+      area?: string;
+      areaId?: string;
+      zoneId?: string;
+      districtId?: string;
+      orderSize?: string;
+    }>,
+  ) {
+    const parsed = await parseDto(BulkUpdateShippingFieldsDto, {
+      code: provider,
+      items: shippingRows.map((row) => {
+        const metadata: Record<string, string> = {};
+        if (isSet(row.zoneId)) metadata.zoneId = row.zoneId as string;
+        if (isSet(row.districtId)) metadata.districtId = row.districtId as string;
+        if (isSet(row.orderSize)) metadata.orderSize = row.orderSize as string;
+        return {
+          id: row.id,
+          ...(isSet(row.customerName) ? { customerName: row.customerName } : {}),
+          ...(isSet(row.phoneNumber) ? { phoneNumber: row.phoneNumber } : {}),
+          ...(isSet(row.address) ? { address: row.address } : {}),
+          ...(isSet(row.landmark) ? { landmark: row.landmark } : {}),
+          ...(isSet(row.cityId) ? { cityId: row.cityId } : {}),
+          ...(isSet(row.area) ? { area: row.area } : {}),
+          ...(isSet(row.areaId) ? { areaId: row.areaId } : {}),
+          ...(Object.keys(metadata).length > 0 ? { shippingMetadata: metadata } : {}),
+        };
+      }),
+    });
+    if (parsed.ok === false) throw new RpcException(parsed.message);
+    return this.orders.bulkUpdateShippingFields(user, parsed.dto);
   }
 }
