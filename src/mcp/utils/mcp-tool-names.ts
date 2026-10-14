@@ -112,6 +112,8 @@ export const TOOL = {
   campaigns: {
     search: "campaigns_search",
     stats: "campaigns_stats",
+    save: "campaigns_save",
+    act: "campaigns_act",
   },
   upsells: {
     search: "upsells_search",

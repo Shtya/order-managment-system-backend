@@ -1107,6 +1107,7 @@ export class CampaignsService {
       { status: CampaignStatus.PAUSED, pausedAt: new Date() },
     );
     if (!flipped) {
+      await this.assertCampaignExists(adminId, id);
       throw new BadRequestException(
         this.translations.t("domains.campaigns.not_pausable"),
       );
@@ -1123,6 +1124,7 @@ export class CampaignsService {
       { status: CampaignStatus.RUNNING, pausedAt: null },
     );
     if (!flipped) {
+      await this.assertCampaignExists(adminId, id);
       throw new BadRequestException(
         this.translations.t("domains.campaigns.not_resumable"),
       );
@@ -1145,6 +1147,7 @@ export class CampaignsService {
       { status: CampaignStatus.CANCELLED, cancelledAt: new Date() },
     );
     if (!flipped) {
+      await this.assertCampaignExists(adminId, id);
       throw new BadRequestException(
         this.translations.t("domains.campaigns.not_cancellable"),
       );
@@ -1203,6 +1206,24 @@ export class CampaignsService {
 
     await this.emitCampaignLive(adminId, id, "recipient");
     return { retried };
+  }
+
+  async listExclusions(me: any, id: string) {
+    const adminId = this.adminIdOf(me);
+    await this.assertCampaignExists(adminId, id);
+    return this.excludedRepo.find({
+      where: { campaignId: id, adminId },
+      order: { createdAt: "ASC" },
+    });
+  }
+
+  private async assertCampaignExists(adminId: string, id: string) {
+    const exists = await this.campaignRepo.exists({ where: { id, adminId } });
+    if (!exists) {
+      throw new NotFoundException(
+        this.translations.t("domains.campaigns.not_found"),
+      );
+    }
   }
 
   private isFutureSchedule(campaign: CampaignEntity): boolean {
