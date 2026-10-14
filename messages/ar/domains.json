@@ -1557,6 +1557,7 @@
     "parent_location_not_found": "لم يتم العثور على مكان التخزين الأب",
     "invalid_location_type_for_parent": "نوع مكان التخزين غير صالح بالنسبة للموقع الأب",
     "location_name_already_exists": "يوجد مكان التخزين بنفس الاسم في نفس المستودع والموقع الأب",
+    "warehouse_inactive": "هذا المستودع غير نشط. قم بتفعيله قبل إضافة أماكن تخزين",
     "location_has_children": "مكان التخزين يحتوي على عناصر تابعة",
     "location_deleted": "تم حذف مكان التخزين بنجاح",
     "storage_location_types": {

@@ -11,7 +11,7 @@ import { TagEntity, TagTarget } from "entities/tag.entity";
 import { CreateTagDto, UpdateTagDto } from "dto/tag.dto";
 import { listPaging, parseDto, parseSaveInput, parseSearchInput, searchInput, toolInputFor } from "../utils/mcp-dto.util";
 import { toolJson, toolPage } from "../utils/mcp-result.util";
-import { idDescription, TOOL } from "../utils/mcp-tool-names";
+import { idDescription, ref, TOOL } from "../utils/mcp-tool-names";
 import { uuidField } from "../utils/mcp-date.util";
 
 // ═══════════════════════════════════════════════════════════════
@@ -40,7 +40,7 @@ const saveTagFields = toolInputFor<UpdateTagDto>()(
     allowManualAssignment: z.boolean().optional().describe("False hides it from employees. Replaces toggle-employee-use"),
     employeeIds: z.array(uuidField(idDescription("Employees allowed to use it when allowManualAssignment is true.", TOOL.employees.list))).optional(),
     priority: z.number().int().min(0).optional().describe("Higher shows first"),
-    // conditions / automations are separate admin tools, not offered here
+    // conditions / automations live on tag_automations_save
   }),
 );
 
@@ -116,7 +116,7 @@ export class McpTagsTools {
   @McpSaveTool({
     name: TOOL.tags.save,
     description:
-      'Create or update a tag. Required: mode ("create" or "update"). Required for create: name. Optional: color, target, description, isActive, allowManualAssignment, employeeIds, priority. For update: `id` plus any fields to change. `isActive` covers toggle-active.',
+      `Create or update a tag. Required: mode ("create" or "update"). Required for create: name. Optional: color, target, description, isActive, allowManualAssignment, employeeIds, priority. For update: \`id\` plus any fields to change. \`isActive\` covers toggle-active. Auto-assign rules are ${ref(TOOL.tagAutomations.save)}, not this tool.`,
     parameters: saveTagInput,
   })
   async saveTag(

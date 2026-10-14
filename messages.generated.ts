@@ -1698,6 +1698,7 @@ export type I18nTranslations = {
             "parent_location_not_found": string;
             "invalid_location_type_for_parent": string;
             "location_name_already_exists": string;
+            "warehouse_inactive": string;
             "location_has_children": string;
             "location_deleted": string;
             "storage_location_types": {

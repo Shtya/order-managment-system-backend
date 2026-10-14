@@ -206,6 +206,24 @@ export class TagsService {
     return qb.orderBy("tag.priority", "DESC").addOrderBy("tag.name", "ASC").getMany();
   }
 
+  async findActiveByNames(me: any, names: string[], target: TagTarget) {
+    const adminId = this.adminIdOf(me);
+    const unique = [
+      ...new Set(
+        names.map((n) => String(n ?? "").trim()).filter(Boolean),
+      ),
+    ];
+    if (unique.length === 0) return [];
+    const lower = unique.map((n) => n.toLowerCase());
+    return this.tagRepo
+      .createQueryBuilder("tag")
+      .where("tag.adminId = :adminId", { adminId })
+      .andWhere("tag.target = :target", { target })
+      .andWhere("tag.isActive = true")
+      .andWhere("LOWER(tag.name) IN (:...names)", { names: lower })
+      .getMany();
+  }
+
   async get(me: any, id: string) {
     const adminId = this.adminIdOf(me);
     const tag = await this.tagRepo.findOne({

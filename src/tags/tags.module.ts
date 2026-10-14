@@ -46,6 +46,6 @@ import {
     TagsAssignmentService,
     TagAutomationEvaluator,
   ],
-  exports: [TagsAssignmentService, TagAutomationEvaluator, TagsService],
+  exports: [TagsAssignmentService, TagAutomationEvaluator, TagsService, TagAutomationsService],
 })
 export class TagsModule {}

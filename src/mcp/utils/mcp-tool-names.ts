@@ -13,6 +13,7 @@ export const TOOL = {
     search: "clients_search",
     stats: "clients_stats",
     save: "clients_save",
+    addressSave: "clients_address_save",
   },
   cities: {
     list: "list_cities",
@@ -46,6 +47,10 @@ export const TOOL = {
   tags: {
     list: "list_tags",
     save: "tags_save",
+  },
+  tagAutomations: {
+    search: "tag_automations_search",
+    save: "tag_automations_save",
   },
   employees: {
     list: "list_employees",
@@ -96,6 +101,9 @@ export const TOOL = {
   clientSegments: {
     search: "client_segments_search",
     stats: "client_segments_stats",
+    save: "client_segments_save",
+    preview: "client_segments_preview",
+    act: "client_segments_act",
   },
   clientSettings: {
     get: "client_settings_get",
@@ -108,6 +116,7 @@ export const TOOL = {
   upsells: {
     search: "upsells_search",
     stats: "upsells_stats",
+    update: "upsells_update",
   },
   issues: {
     search: "issues_search",

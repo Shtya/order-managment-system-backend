@@ -4,7 +4,7 @@ import {
   Injectable,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository } from "typeorm";
+import { IsNull, Repository } from "typeorm";
 import {
   STORAGE_LOCATION_CHILDREN,
   StorageLocationEntity,
@@ -246,6 +246,12 @@ export class WarehousesService {
     return location;
   }
 
+  async findLocationById(me: any, locationId: string) {
+    return this.locationsRepo.findOne({
+      where: { id: locationId, adminId: tenantId(me) } as any,
+    });
+  }
+
   private async assertValidParent(
     me: any,
     warehouseId: string,
@@ -307,8 +313,9 @@ export class WarehousesService {
       qb.andWhere("l.parentId = :parentId", { parentId: q.parentId });
     }
 
-    if (q?.isActive) {
-      qb.andWhere("l.isActive = :isActive", { isActive: q.isActive });
+    if (q?.isActive !== undefined && q?.isActive !== null && q?.isActive !== "") {
+      const isActive = q.isActive === true || q.isActive === "true";
+      qb.andWhere("l.isActive = :isActive", { isActive });
     }
 
     if (q?.warehouseId && q.warehouseId !== "none") {
@@ -412,7 +419,12 @@ export class WarehousesService {
     warehouseId: string,
     dto: CreateStorageLocationDto,
   ) {
-    await this.get(me, warehouseId);
+    const warehouse = await this.get(me, warehouseId);
+    if (!(warehouse as any).isActive) {
+      throw new BadRequestException(
+        this.translations.t("domains.warehouses.warehouse_inactive"),
+      );
+    }
     const adminId = tenantId(me);
 
     const existing = await this.locationsRepo.findOne({
@@ -420,7 +432,7 @@ export class WarehousesService {
         adminId,
         warehouseId,
         name: dto.name,
-        parentId: dto.parentId ?? null,
+        parentId: dto.parentId ?? IsNull(),
       } as any,
     });
     if (existing) {
@@ -437,25 +449,6 @@ export class WarehousesService {
         dto.parentId,
         dto.type,
       );
-    }
-
-    if (dto.name !== undefined) {
-      const adminId = tenantId(me);
-      const existing = await this.locationsRepo.findOne({
-        where: {
-          adminId,
-          warehouseId,
-          name: dto.name,
-          parentId: dto.parentId ?? null,
-        } as any,
-      });
-      if (existing) {
-        throw new BadRequestException(
-          this.translations.t(
-            "domains.warehouses.location_name_already_exists",
-          ),
-        );
-      }
     }
 
     const row = this.locationsRepo.create({
@@ -486,7 +479,7 @@ export class WarehousesService {
           adminId,
           warehouseId,
           name: dto.name,
-          parentId: (row as any).parentId ?? null,
+          parentId: (row as any).parentId ?? IsNull(),
         } as any,
       });
       if (existing) {

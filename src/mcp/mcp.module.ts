@@ -56,6 +56,7 @@ import { McpBundlesTools } from "./mcp-tools/bundles.tool";
 import { McpCategoriesTools } from "./mcp-tools/categories.tool";
 import { McpOrderStatusesTools } from "./mcp-tools/order-statuses.tool";
 import { McpTagsTools } from "./mcp-tools/tags.tool";
+import { McpTagAutomationsTools } from "./mcp-tools/tag-automations.tool";
 import { McpEmployeesTools } from "./mcp-tools/employees.tool";
 import { McpCancelCausesTools } from "./mcp-tools/cancel-causes.tool";
 import { McpDashboardTools } from "./mcp-tools/dashboard.tool";
@@ -145,6 +146,7 @@ import { McpToolExceptionFilter } from "./filters/mcp-tool-exception.filter";
     McpCategoriesTools,
     McpOrderStatusesTools,
     McpTagsTools,
+    McpTagAutomationsTools,
     McpEmployeesTools,
     McpCancelCausesTools,
     McpDashboardTools,

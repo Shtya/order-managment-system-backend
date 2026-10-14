@@ -95,6 +95,7 @@ function toLocationSummary(row: any) {
     id: row.id,
     name: row.name ?? null,
     type: row.type ?? null,
+    description: row.description ?? null,
     parentId: row.parentId ?? row.parent?.id ?? null,
     warehouseId: row.warehouseId ?? row.warehouse?.id ?? null,
     isActive: row.isActive ?? null,
@@ -172,7 +173,7 @@ export class McpWarehouseLocationsTools {
   @McpSaveTool({
     name: TOOL.warehouses.locationsSave,
     description:
-      'Create or update a storage location. Required: mode ("create" or "update") plus warehouseId. Required for create: name, type. Optional: parentId, description. For update: `id` plus name/description; optional isActive toggles status at runtime. Type/parent never change on update. No delete tool.',
+      'Create or update a storage location. Required: mode ("create" or "update") plus warehouseId. Required for create: name, type. Optional: parentId, description. The warehouse must be active to add locations. For update: `id` plus name/description; optional isActive toggles status at runtime; warehouseId must be the location\'s own warehouse. Type, parent and warehouse never change on update (moving between warehouses is not supported). No delete tool.',
     parameters: saveLocationInput,
   })
   async save(
@@ -194,13 +195,20 @@ export class McpWarehouseLocationsTools {
     if (isSet(type) || isSet(parentId)) {
       throw new RpcException("type/parent are create-only and never change on update. Remove them.");
     }
+    const existing = await this.warehouses.findLocationById(user, id);
+    if (!existing) {
+      throw new RpcException(`Location not found. Use ${TOOL.warehouses.locationsSearch} to find it.`);
+    }
+    if ((existing as any).warehouseId !== warehouseId) {
+      throw new RpcException(
+        `This location belongs to another warehouse (warehouseId ${(existing as any).warehouseId}). Moving locations between warehouses is not supported. To edit it, pass its own warehouseId.`,
+      );
+    }
     const parsed = await parseDto(UpdateStorageLocationDto, rest);
     if (parsed.ok === false) throw new RpcException(parsed.message);
-    const updated = await this.warehouses.updateLocation(user, warehouseId, id, parsed.dto);
-    if (isActive !== undefined) {
-      const current = (updated as any)?.isActive;
-      if (current !== isActive) await this.warehouses.toggleLocationStatus(user, warehouseId, id);
-      return toolJson(toLocationSummary(await this.warehouses.listLocations(user, { warehouseId }).then((r: any) => (r.records ?? []).find((x: any) => x.id === id) ?? updated)));
+    let updated: any = await this.warehouses.updateLocation(user, warehouseId, id, parsed.dto);
+    if (isActive !== undefined && updated?.isActive !== isActive) {
+      updated = await this.warehouses.toggleLocationStatus(user, warehouseId, id);
     }
     return toolJson(toLocationSummary(updated));
   }

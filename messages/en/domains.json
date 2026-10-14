@@ -1549,6 +1549,7 @@
     "parent_location_not_found": "Parent storage location not found",
     "invalid_location_type_for_parent": "Invalid storage location type for parent",
     "location_name_already_exists": "A location with this name already exists in the same warehouse and parent",
+    "warehouse_inactive": "This warehouse is inactive. Activate it before adding storage locations",
     "location_has_children": "Storage location has children",
     "location_deleted": "Storage location deleted successfully",
     "storage_location_types": {
