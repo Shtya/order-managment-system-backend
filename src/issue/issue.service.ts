@@ -379,6 +379,36 @@ export class IssueService implements OnModuleInit {
     }
   }
 
+  /** Employee ids that replaceIssueUsers would silently drop for this role. */
+  async findEmployeesOutsideRole(
+    me: any,
+    employeeIds: string[],
+    roleId: string | null | undefined,
+    issueId?: string,
+  ): Promise<string[]> {
+    const effectiveRoleId =
+      roleId !== undefined || !issueId
+        ? roleId
+        : (await this.findTenantIssue(me, issueId)).assignedRoleId;
+    const uniqueIds = [...new Set(employeeIds)];
+    if (!effectiveRoleId || uniqueIds.length === 0) return [];
+
+    const inRole = await this.userRepo.find({
+      where: { id: In(uniqueIds), roleId: effectiveRoleId } as any,
+      select: { id: true },
+    });
+    const inRoleIds = new Set(inRole.map((u) => u.id));
+    return uniqueIds.filter((id) => !inRoleIds.has(id));
+  }
+
+  private async issueAssigneeIds(issueId: string): Promise<string[]> {
+    const rows = await this.issueUserRepo.find({
+      where: { issueId } as any,
+      select: { userId: true },
+    });
+    return rows.map((r) => r.userId).sort();
+  }
+
   private async syncAssigneesToRole(issue: IssueEntity, roleId: string | null) {
     const assigned = await this.issueUserRepo.find({
       where: { issueId: issue.id } as any,
@@ -1308,6 +1338,8 @@ export class IssueService implements OnModuleInit {
 
     const oldEstimate = issue.estimatedMinutes;
     const oldDueAt = issue.due_at;
+    const oldRoleId = issue.assignedRoleId ?? null;
+    const oldAssigneeIds = await this.issueAssigneeIds(issue.id);
     const activities: Promise<any>[] = [];
 
     if (dto.title !== undefined) issue.title = dto.title;
@@ -1371,12 +1403,42 @@ export class IssueService implements OnModuleInit {
       );
     }
 
+    const newAssigneeIds = await this.issueAssigneeIds(issue.id);
+    const assignmentChanged =
+      oldRoleId !== (saved.assignedRoleId ?? null) ||
+      oldAssigneeIds.length !== newAssigneeIds.length ||
+      oldAssigneeIds.some((id, i) => id !== newAssigneeIds[i]);
+    if (assignmentChanged) {
+      activities.push(
+        this.logActivity(
+          issue.id,
+          issue.adminId,
+          me.id,
+          IssueActivityType.ASSIGNED,
+          {
+            assignedRoleId: saved.assignedRoleId,
+            employeeIds: newAssigneeIds,
+          },
+        ),
+      );
+    }
+
     await Promise.all(activities);
 
-    this.appGateway.emitIssueUpdated(
-      await this.issueRecipientIds(saved),
-      saved,
-    );
+    const recipients = await this.issueRecipientIds(saved);
+    if (assignmentChanged) {
+      await this.notifyUsers(
+        saved.id,
+        recipients,
+        me.id,
+        NotificationType.ISSUE_ASSIGNED,
+        "domains.issues.issue_assigned_title",
+        "domains.issues.issue_assigned_message",
+        { issueTitle: saved.title },
+      );
+    }
+
+    this.appGateway.emitIssueUpdated(recipients, saved);
 
     return {
       success: true,

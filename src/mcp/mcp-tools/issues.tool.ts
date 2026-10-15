@@ -35,8 +35,8 @@ const searchIssuesInput = searchInput("issue", {
   assignedEmployeeId: uuidField(idDescription("Employee id assigned to the issue.", TOOL.employees.list)).optional(),
 }, TOOL.issues.search);
 
-// Update DTO keeps assignedRoleId required: flat save stays plain
-// z.object; Create/Update DTOs enforce at runtime.
+// Update DTO keeps assignedRoleId required: save fills it from the
+// current ticket when omitted. Create/Update DTOs enforce at runtime.
 const saveIssueFields = z.object({
   title: z.string().optional().describe("Ticket title. Required for create"),
   description: z.string().optional().describe("What the ticket is about"),
@@ -44,7 +44,7 @@ const saveIssueFields = z.object({
   causeId: uuidField(idDescription("Issue cause id.", TOOL.issues.lookupsList)).optional(),
   priority: z.enum(IssuePriority).optional().describe("Priority. Allowed on create; changes after create go through issues_act."),
   statusId: uuidField(idDescription("Status id. Create only; changes after create go through issues_act.", TOOL.issues.lookupsList)).optional(),
-  assignedRoleId: uuidField(idDescription("Role id. Required for create.", TOOL.roles.list)).optional(),
+  assignedRoleId: uuidField(idDescription("Role id. Required for create. On update, omit to keep the current role.", TOOL.roles.list)).optional(),
   employeeIds: z.array(uuidField(idDescription("Employee ids to assign.", TOOL.employees.list))).optional(),
   estimatedMinutes: z.number().int().min(1).optional().describe("Time estimate in minutes"),
 });
@@ -111,6 +111,8 @@ function toIssueResultDto(row: any, extra?: { messages?: unknown[]; activity?: u
     title: row.title ?? null,
     description: row.description ?? null,
     priority: row.priority ?? null,
+    estimatedMinutes: row.estimatedMinutes ?? null,
+    dueAt: row.due_at ?? row.dueAt ?? null,
     status: row.status ? { id: row.status.id ?? null, name: row.status.nameEn ?? row.status.name ?? null } : null,
     cause: row.cause ? { id: row.cause.id ?? null, name: row.cause.nameEn ?? null } : null,
     order: row.order ? { id: row.order.id ?? row.orderId ?? null, orderNumber: row.order.orderNumber ?? null } : null,
@@ -134,6 +136,29 @@ function toIssueResultDto(row: any, extra?: { messages?: unknown[]; activity?: u
 @UseGuards(McpScopeGuard)
 export class McpIssuesTools {
   constructor(private issues: IssueService) {}
+
+  /** Service mutations return `{ success, message, data }` without relations; re-read the full ticket. */
+  private async loadIssueResult(user: User, result: any) {
+    const id = result?.data?.id ?? result?.id;
+    if (!id) throw new RpcException("Ticket was saved but its id could not be resolved. Fetch it with issues_search.");
+    return toolJson(toIssueResultDto(await this.issues.get(user, id)));
+  }
+
+  /** The service silently drops assignees outside the ticket role; refuse instead. */
+  private async requireEmployeesInRole(
+    user: User,
+    employeeIds: string[] | undefined,
+    roleId: string | null | undefined,
+    issueId?: string,
+  ) {
+    if (!isSet(employeeIds)) return;
+    const outside = await this.issues.findEmployeesOutsideRole(user, employeeIds!, roleId, issueId);
+    if (outside.length > 0) {
+      throw new RpcException(
+        `Employee(s) ${outside.join(", ")} do not belong to the assigned role, so they cannot be assigned. Pass employees from that role (${TOOL.employees.list}) or change assignedRoleId.`,
+      );
+    }
+  }
 
   @McpReadTool({
     name: TOOL.issues.search,
@@ -163,7 +188,7 @@ export class McpIssuesTools {
   @McpSaveTool({
     name: TOOL.issues.save,
     description:
-      'Create or edit a ticket. Required: mode ("create" or "update"). Required for create: title, assignedRoleId. Optional: description, orderId, causeId, priority, statusId, employeeIds, estimatedMinutes. For update: `id` plus title/description/cause/assignees/estimate. Status/priority changes after create go through issues_act, not save. No replies, no delete.',
+      'Create or edit a ticket. Required: mode ("create" or "update"). Required for create: title, assignedRoleId. Optional: description, orderId, causeId, priority, statusId, employeeIds, estimatedMinutes. For update: `id` plus title/description/cause/assignedRoleId/employeeIds/estimate (omit assignedRoleId to keep the current role). employeeIds replaces the assignee list and every id must belong to the ticket role. Status/priority changes after create go through issues_act, not save. Returns the full saved ticket. No replies, no delete.',
     parameters: saveIssueInput,
   })
   async saveIssue(
@@ -174,15 +199,21 @@ export class McpIssuesTools {
     if (req.mode === "create") {
       const parsed = await parseDto(CreateIssueDto, req.fields);
       if (parsed.ok === false) throw new RpcException(parsed.message);
-      const created = await this.issues.create(user, parsed.dto);
-      return toolJson(toIssueResultDto(created));
+      await this.requireEmployeesInRole(user, parsed.dto.employeeIds, parsed.dto.assignedRoleId);
+      return this.loadIssueResult(user, await this.issues.create(user, parsed.dto));
     }
     if (isSet((req.fields as any).priority) || isSet((req.fields as any).statusId)) {
       throw new RpcException("Status/priority changes go through issues_act, not save. Remove priority/statusId or call issues_act.");
     }
-    const parsed = await parseDto(UpdateIssueDto, req.fields);
+    const updateFields: Record<string, unknown> = { ...req.fields };
+    if (!isSet(updateFields.assignedRoleId)) {
+      const current: any = await this.issues.get(user, req.id);
+      updateFields.assignedRoleId = current?.assignedRoleId ?? current?.assignedRole?.id ?? undefined;
+    }
+    const parsed = await parseDto(UpdateIssueDto, updateFields);
     if (parsed.ok === false) throw new RpcException(parsed.message);
-    return toolJson(toIssueResultDto(await this.issues.update(user, req.id, parsed.dto)));
+    await this.requireEmployeesInRole(user, parsed.dto.employeeIds, parsed.dto.assignedRoleId, req.id);
+    return this.loadIssueResult(user, await this.issues.update(user, req.id, parsed.dto));
   }
 
   @McpReadTool({
@@ -225,11 +256,11 @@ export class McpIssuesTools {
   ) {
     if (input.action === "set_status") {
       if (!isSet(input.statusId)) throw new RpcException("action=set_status requires `statusId`. Use issues_lookups_list to find it.");
-      return toolJson(toIssueResultDto(await this.issues.changeStatus(user, input.id, { statusId: input.statusId })));
+      return this.loadIssueResult(user, await this.issues.changeStatus(user, input.id, { statusId: input.statusId }));
     }
     if (input.action === "set_priority") {
       if (!isSet(input.priority)) throw new RpcException("action=set_priority requires `priority`.");
-      return toolJson(toIssueResultDto(await this.issues.changePriority(user, input.id, { priority: input.priority })));
+      return this.loadIssueResult(user, await this.issues.changePriority(user, input.id, { priority: input.priority }));
     }
     const dto = {
       ...(isSet(input.assignedRoleId) ? { assignedRoleId: input.assignedRoleId } : {}),
@@ -239,7 +270,13 @@ export class McpIssuesTools {
     if (Object.keys(dto).length === 0) {
       throw new RpcException("action=assign requires assignedRoleId and/or employee ids.");
     }
-    return toolJson(toIssueResultDto(await this.issues.assign(user, input.id, dto)));
+    await this.requireEmployeesInRole(
+      user,
+      isSet(input.employeeIds) ? input.employeeIds : input.assignedEmployeeIds,
+      (dto as any).assignedRoleId,
+      input.id,
+    );
+    return this.loadIssueResult(user, await this.issues.assign(user, input.id, dto));
   }
 
   @McpReadTool({
