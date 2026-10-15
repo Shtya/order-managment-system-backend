@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import { dollarNumericToMicros, microsToDollarNumeric } from "common/money/micros";
 import { BillingWalletPool } from "entities/billing.entity";
@@ -13,6 +13,8 @@ import { WalletService } from "./wallet.service";
 
 @Injectable()
 export class WalletHoldService {
+  private readonly logger = new Logger(WalletHoldService.name);
+
   constructor(private readonly walletService: WalletService) {}
 
   private async getOrCreate(userId: string, manager: EntityManager): Promise<Wallet> {
@@ -122,6 +124,9 @@ export class WalletHoldService {
       throw new Error("Wallet capture cannot exceed reserved amount");
     }
     if (reservedMicros === 0n) {
+      this.logger.log(
+        `[wallet] capture SKIPPED user=${userId} pool=${pool}: nothing reserved (free usage), no transaction`,
+      );
       return { walletTransactionId: null };
     }
 
@@ -147,6 +152,9 @@ export class WalletHoldService {
     }
 
     if (capturedMicros === 0n) {
+      this.logger.log(
+        `[wallet] capture ZERO user=${userId} pool=${pool}: hold of ${reserved} returned, nothing charged, no transaction`,
+      );
       return { walletTransactionId: null };
     }
 
@@ -159,6 +167,9 @@ export class WalletHoldService {
       notes,
       category: TransactionCategory.AI,
     });
+    this.logger.log(
+      `[wallet] capture OK user=${userId} pool=${pool} charged=${captured} returned=${remainder} tx=${saved.id} number=${saved.number}`,
+    );
     return { walletTransactionId: saved.id };
   }
 

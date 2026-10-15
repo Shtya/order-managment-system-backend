@@ -217,17 +217,25 @@ export class BillingService {
       pool,
     );
     if (hold.reserved) {
+      this.logger.log(
+        `[billing] hold OK tenant=${adminId} pool=${pool} amount=${amountToReserve} availableAfter=${hold.available}`,
+      );
       return { reserved: true, pool };
     }
-    if (
-      pool === BillingWalletPool.AI &&
-      (await this.aiWalletFallbackEnabled(adminId))
-    ) {
+    const fallbackEnabled =
+      pool === BillingWalletPool.AI && (await this.aiWalletFallbackEnabled(adminId));
+    this.logger.warn(
+      `[billing] hold FAILED tenant=${adminId} pool=${pool} amount=${amountToReserve} available=${hold.available} fallbackToCurrent=${fallbackEnabled}`,
+    );
+    if (fallbackEnabled) {
       const fallback = await this.walletHoldService.reserve(
         adminId,
         amountToReserve,
         em,
         BillingWalletPool.CURRENT,
+      );
+      this.logger.log(
+        `[billing] hold fallback tenant=${adminId} pool=current amount=${amountToReserve} reserved=${fallback.reserved} available=${fallback.available}`,
       );
       if (fallback.reserved) {
         return { reserved: true, pool: BillingWalletPool.CURRENT };
@@ -264,6 +272,9 @@ export class BillingService {
         },
       });
       if (existing) {
+        this.logger.log(
+          `[billing] authorize REPLAY tenant=${input.adminId} service=${input.service} key=${input.idempotencyKey} existingAuth=${existing.id} status=${existing.status}`,
+        );
         return this.resultForExistingAuth(
           existing,
           requestHash,
@@ -319,6 +330,12 @@ export class BillingService {
                 (100n + BigInt(policy.reservationSafetyMarginPercent)),
               100n,
             );
+      this.logger.log(
+        `[billing] authorize tenant=${input.adminId} service=${input.service}/${input.operation} auth=${authorizationId} pricingVersion=${settingsSnapshot.version} ` +
+          `freeCap=${policy.capUnits === null ? "UNLIMITED(allowance=null)" : policy.capUnits} freeDays=${policy.durationDays ?? "-"} anchor=${accountCreatedAt?.toISOString?.() ?? "-"} ` +
+          `maxUnits=${maxUnits} freeGranted=${grant.remainingUnits} payableEstimate=${payable} toReserve=${amountToReserve} requestedPool=${this.requestedWalletPool(input.walletPool)} ` +
+          `paidFrom=${amountToReserve === 0n ? "FREE_ONLY" : grant.remainingUnits > 0n ? "FREE+WALLET" : "WALLET"}`,
+      );
 
       const hold = await this.reserveFromPool(
         input.adminId,
@@ -327,6 +344,9 @@ export class BillingService {
         this.requestedWalletPool(input.walletPool),
       );
       if (hold.reserved === false) {
+        this.logger.warn(
+          `[billing] authorize DENIED tenant=${input.adminId} auth=${authorizationId} reason=INSUFFICIENT_BALANCE required=${hold.required} available=${hold.available}`,
+        );
         if (policy.capUnits !== null && grant.remainingUnits > 0n) {
           await this.allowanceService.releaseUnits({
             adminId: input.adminId,
@@ -409,6 +429,9 @@ export class BillingService {
         );
       }
 
+      this.logger.log(
+        `[billing] authorize OK tenant=${input.adminId} auth=${authorizationId} reserved=${amountToReserve} pool=${hold.pool ?? "none(free)"} freeReserved=${grant.remainingUnits}`,
+      );
       return {
         authorized: true as const,
         authorizationId,
@@ -449,9 +472,15 @@ export class BillingService {
       }
 
       if (auth.status === AuthorizationStatus.RELEASED) {
+        this.logger.warn(
+          `[billing] finalize REJECTED auth=${auth.id} status=RELEASED (already released, nothing charged)`,
+        );
         throw new AuthorizationReleasedError();
       }
       if (auth.status === AuthorizationStatus.EXPIRED) {
+        this.logger.warn(
+          `[billing] finalize LATE auth=${auth.id} status=EXPIRED (hold was swept, charging late)`,
+        );
         return this.lateFinalize(auth, input, em, authRepo, chargeRepo);
       }
       if (auth.status !== AuthorizationStatus.AUTHORIZED) {
@@ -479,6 +508,11 @@ export class BillingService {
           `Billing overage authorizationId=${auth.id} overage=${overageAmount} payable=${charge.payableAmount} reserved=${auth.reservedAmount}`,
         );
       }
+      this.logger.log(
+        `[billing] finalize tenant=${auth.adminId} service=${auth.service} auth=${auth.id} usage=${JSON.stringify(canonicalize(input.usage))} ` +
+          `freeReserved=${auth.allowanceReservedUnits} freeConsumed=${charge.allowanceUnitsConsumed} gross=${charge.grossAmount} payable=${charge.payableAmount} ` +
+          `reserved=${auth.reservedAmount} capture=${capturedAmount} pool=${this.walletPoolOf(auth)}`,
+      );
 
       const { walletTransactionId } = await this.walletHoldService.capture(
         auth.adminId,
@@ -546,6 +580,9 @@ export class BillingService {
         );
       }
 
+      this.logger.log(
+        `[billing] finalize OK tenant=${auth.adminId} auth=${auth.id} charge=${chargeRow.id} walletTx=${walletTransactionId ?? "none(nothing captured)"}`,
+      );
       return chargeRow;
     });
   }
@@ -571,6 +608,9 @@ export class BillingService {
         const auth = await authRepo.findOne({
           where: { id: input.authorizationId },
         });
+        this.logger.log(
+          `[billing] release tenant=${auth?.adminId} auth=${input.authorizationId} reason=${input.reason ?? "RELEASED"} returnedToWallet=${auth?.reservedAmount ?? 0n} returnedFree=${auth?.allowanceReservedUnits ?? 0n}`,
+        );
         if (auth && auth.reservedAmount > 0n) {
           await this.walletHoldService.releaseHold(
             auth.adminId,
@@ -912,6 +952,9 @@ export class BillingService {
       })
       .execute();
 
+    this.logger.log(
+      `[billing] late finalize OK tenant=${auth.adminId} auth=${auth.id} freeConsumed=${charge.allowanceUnitsConsumed} gross=${charge.grossAmount} payable=${charge.payableAmount} captured=${capturedAmount} collection=${collectionStatus} walletTx=${walletTransactionId ?? "none"}`,
+    );
     return chargeRow;
   }
 }

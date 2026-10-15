@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
 import {
   AllowanceGrant,
   BillingAuthorizationEntity,
@@ -56,15 +56,25 @@ export type AllowanceReserveInput = {
 
 @Injectable()
 export class AllowanceService {
+  private readonly logger = new Logger(AllowanceService.name);
+
   async reserve(input: AllowanceReserveInput): Promise<AllowanceGrant> {
     const maxUnits = input.maxUnits < 0n ? 0n : input.maxUnits;
+    const tag = `[allowance] tenant=${input.adminId} service=${input.service}/${input.operation} auth=${input.authorizationId}`;
     if (input.capUnits === null) {
+      this.logger.log(
+        `${tag} UNLIMITED free (pricing allowance=null): all ${maxUnits} ${input.unit} free, nothing booked, wallet not charged`,
+      );
       return { unit: input.unit, remainingUnits: maxUnits };
     }
     if (this.isExpired(input.durationDays, input.accountCreatedAt)) {
+      this.logger.log(
+        `${tag} free period EXPIRED (days=${input.durationDays} anchor=${input.accountCreatedAt?.toISOString() ?? "-"}): 0 free`,
+      );
       return { unit: input.unit, remainingUnits: 0n };
     }
     if (input.capUnits <= 0n || maxUnits <= 0n) {
+      this.logger.log(`${tag} no free units (cap=${input.capUnits} max=${maxUnits})`);
       return { unit: input.unit, remainingUnits: 0n };
     }
 
@@ -108,10 +118,17 @@ export class AllowanceService {
       ],
     );
     const row = booked?.[0] ?? booked?.rows?.[0];
-    return {
-      unit: input.unit,
-      remainingUnits: BigInt(row?.n ?? 0),
-    };
+    const remainingUnits = BigInt(row?.n ?? 0);
+    const usage = await input.manager.query(
+      `SELECT "usedUnits", "reservedUnits" FROM billing_allowance_usage
+       WHERE "adminId" = $1 AND service = $2 AND operation = $3`,
+      [input.adminId, input.service, input.operation],
+    );
+    const u = usage?.[0] ?? usage?.rows?.[0];
+    this.logger.log(
+      `${tag} booked free=${remainingUnits}/${maxUnits} ${input.unit} cap=${input.capUnits} used=${u?.usedUnits ?? "?"} reservedNow=${u?.reservedUnits ?? "?"}`,
+    );
+    return { unit: input.unit, remainingUnits };
   }
 
   async commit(
@@ -130,14 +147,15 @@ export class AllowanceService {
     if (used < 0n) used = 0n;
     if (used > booked) used = booked;
 
-    await manager.query(
+    const committed = await manager.query(
       `UPDATE billing_allowance_usage
        SET "reservedUnits" = "reservedUnits" - $1,
            "usedUnits" = "usedUnits" + $2
        WHERE "adminId" = $3
          AND service = $4
          AND operation = $5
-         AND "reservedUnits" >= $1`,
+         AND "reservedUnits" >= $1
+       RETURNING "usedUnits", "reservedUnits"`,
       [
         booked.toString(),
         used.toString(),
@@ -146,6 +164,17 @@ export class AllowanceService {
         auth.operation,
       ],
     );
+    const rows = Array.isArray(committed?.[0]) ? committed[0] : committed;
+    const row = rows?.[0] ?? committed?.rows?.[0];
+    if (row) {
+      this.logger.log(
+        `[allowance] commit tenant=${auth.adminId} auth=${authorizationId} usedFree=${used}/${booked} totalUsed=${row.usedUnits} reservedNow=${row.reservedUnits}`,
+      );
+    } else {
+      this.logger.warn(
+        `[allowance] commit NO-OP tenant=${auth.adminId} auth=${authorizationId} usedFree=${used}/${booked}: no usage row with reservedUnits >= ${booked} (free usage NOT moved)`,
+      );
+    }
   }
 
   async commitUsedOnly(

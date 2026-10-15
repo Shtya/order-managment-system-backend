@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { IsNull, Repository } from "typeorm";
 import { AgentAiSource, AgentEntity } from "entities/agent.entity";
@@ -48,6 +48,8 @@ export type HostedRuntimeSku = {
 
 @Injectable()
 export class AgentHostedTurnService {
+  private readonly logger = new Logger(AgentHostedTurnService.name);
+
   constructor(
     @InjectRepository(AiHostedModelEntity)
     private readonly hostedRepo: Repository<AiHostedModelEntity>,
@@ -80,9 +82,15 @@ export class AgentHostedTurnService {
     input: AiAgentTurnInput & { turnId?: string },
   ): Promise<AiAgentTurnResult> {
     if (!this.isHosted(agent)) {
+      this.logger.log(
+        `[hosted-billing] turn agent=${agent.id} tenant=${input.tenantId} source=TENANT (own key, no billing) aiSource=${agent.aiSource ?? "null"}`,
+      );
       return this.orchestrator.runAgentTurn(input);
     }
     const candidates = await this.resolveCandidates(agent);
+    this.logger.log(
+      `[hosted-billing] turn agent=${agent.id} tenant=${input.tenantId} source=HOSTED (system models, billed) pinned=${agent.hostedModelId ?? "none"} candidates=[${candidates.map((c) => `${c.name}:${c.modelCode}`).join(", ")}]`,
+    );
     if (!candidates.length) {
       throw new BadRequestException(
         this.translations.t("domains.agents.hosted_no_model_available"),
@@ -101,6 +109,9 @@ export class AgentHostedTurnService {
         return await this.runOne(agent, input, sku, estimatedInput, estimatedOutput);
       } catch (err) {
         lastError = err;
+        this.logger.warn(
+          `[hosted-billing] turn failed agent=${agent.id} sku=${sku.name} error=${(err as Error)?.message}`,
+        );
         if (err instanceof HostedInsufficientBalanceError) throw err;
         if (agent.hostedModelId) throw err;
       }
@@ -204,8 +215,14 @@ export class AgentHostedTurnService {
     },
   ): Promise<AiOrchestrationResult> {
     if (!this.isHosted(agent)) {
+      this.logger.log(
+        `[hosted-billing] completion agent=${agent.id} tenant=${input.tenantId} source=TENANT (own key, no billing)`,
+      );
       return this.orchestrator.runCompletion(input);
     }
+    this.logger.log(
+      `[hosted-billing] completion agent=${agent.id} tenant=${input.tenantId} source=HOSTED (system models, billed)`,
+    );
     const [sku] = await this.resolveCandidates(agent);
     if (!sku) {
       throw new BadRequestException(
@@ -390,10 +407,16 @@ export class AgentHostedTurnService {
       },
     });
     if (auth.authorized === false) {
+      this.logger.warn(
+        `[hosted-billing] authorize DENIED tenant=${adminId} sku=${sku.name} reason=${auth.reason} required=${auth.required} available=${auth.available} key=${idempotencyKey}`,
+      );
       throw new HostedInsufficientBalanceError(
         this.translations.t("domains.agents.hosted_insufficient_balance"),
       );
     }
+    this.logger.log(
+      `[hosted-billing] authorize OK tenant=${adminId} sku=${sku.name} auth=${auth.authorizationId} estIn=${estimatedInput} estOut=${estimatedOutput} feature=${feature || "-"}`,
+    );
     return auth;
   }
 
@@ -402,16 +425,29 @@ export class AgentHostedTurnService {
     usage: { inputTokens: number; outputTokens: number },
   ) {
     try {
-      return await this.billing.finalize({ authorizationId, usage });
-    } catch {
+      const charge = await this.billing.finalize({ authorizationId, usage });
+      this.logger.log(
+        `[hosted-billing] finalize OK auth=${authorizationId} in=${usage.inputTokens} out=${usage.outputTokens} gross=${charge.grossAmount} payable=${charge.payableAmount} captured=${charge.capturedAmount} freeUnits=${charge.allowanceUnitsConsumed} walletTx=${charge.walletTransactionId ?? "none"}`,
+      );
+      return charge;
+    } catch (err) {
+      this.logger.error(
+        `[hosted-billing] finalize FAILED auth=${authorizationId} in=${usage.inputTokens} out=${usage.outputTokens} error=${(err as Error)?.message}`,
+        (err as Error)?.stack,
+      );
       return null;
     }
   }
 
   private async releaseAuth(authorizationId: string) {
+    this.logger.log(`[hosted-billing] release auth=${authorizationId} reason=PROVIDER_ERROR`);
     await this.billing
       .release({ authorizationId, reason: "PROVIDER_ERROR" })
-      .catch(() => undefined);
+      .catch((err) =>
+        this.logger.error(
+          `[hosted-billing] release FAILED auth=${authorizationId} error=${(err as Error)?.message}`,
+        ),
+      );
   }
 
   async resolveCandidates(agent: AgentEntity): Promise<HostedRuntimeSku[]> {
