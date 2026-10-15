@@ -72,6 +72,7 @@ export class AiDecisionEvaluateOperation extends BillingOperationStrategy<
 
   //get the pricing snapshot from the admin settings
   async getSettingsSnapshot(): Promise<PricingSnapshot> {
+    const settings = await this.adminSettings.getSettings();
     const revision = this.adminSettings.getCacheRevision();
     const marginPercent = this.reservationSafetyMarginPercent();
     if (
@@ -82,7 +83,6 @@ export class AiDecisionEvaluateOperation extends BillingOperationStrategy<
       return this.cachedSnapshot;
     }
 
-    const settings = await this.adminSettings.getSettings();
     const raw = settings?.billing?.aiDecision;
     if (!raw) {
       throw new BillingConfigurationError(
@@ -107,7 +107,7 @@ export class AiDecisionEvaluateOperation extends BillingOperationStrategy<
       capturedAt: new Date().toISOString(),
       rawSettings: snapshot,
     };
-    this.cachedRevision = this.adminSettings.getCacheRevision();
+    this.cachedRevision = revision;
     this.cachedMarginPercent = marginPercent;
     return this.cachedSnapshot;
   }

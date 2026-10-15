@@ -336,6 +336,11 @@ export class BillingService {
           `maxUnits=${maxUnits} freeGranted=${grant.remainingUnits} payableEstimate=${payable} toReserve=${amountToReserve} requestedPool=${this.requestedWalletPool(input.walletPool)} ` +
           `paidFrom=${amountToReserve === 0n ? "FREE_ONLY" : grant.remainingUnits > 0n ? "FREE+WALLET" : "WALLET"}`,
       );
+      if (payable === 0n && grant.remainingUnits === 0n && maxUnits > 0n) {
+        this.logger.warn(
+          `[billing] ZERO PRICE tenant=${input.adminId} service=${input.service}: no free units and price is 0, usage is not charged. Check admin settings billing prices (and the Redis cache).`,
+        );
+      }
 
       const hold = await this.reserveFromPool(
         input.adminId,

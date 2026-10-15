@@ -62,6 +62,7 @@ export class AiMediaProcessOperation extends BillingOperationStrategy<
   }
 
   async getSettingsSnapshot(): Promise<PricingSnapshot> {
+    const settings = await this.adminSettings.getSettings();
     const revision = this.adminSettings.getCacheRevision();
     const marginPercent = this.reservationSafetyMarginPercent();
     if (
@@ -72,7 +73,6 @@ export class AiMediaProcessOperation extends BillingOperationStrategy<
       return this.cachedSnapshot;
     }
 
-    const settings = await this.adminSettings.getSettings();
     const raw = settings?.billing?.aiMedia ?? {
       tokenPrice: 0.5,
       audioMinutePrice: 0.006,

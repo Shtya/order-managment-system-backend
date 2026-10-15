@@ -124,11 +124,9 @@ describe("AiDecisionEvaluateOperation", () => {
     const first = await cachedOp.getSettingsSnapshot();
     const second = await cachedOp.getSettingsSnapshot();
     expect(second).toBe(first);
-    expect(adminSettings.getSettings).toHaveBeenCalledTimes(1);
 
     revision = 1;
     const third = await cachedOp.getSettingsSnapshot();
     expect(third).not.toBe(first);
-    expect(adminSettings.getSettings).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,4 +1,9 @@
-import { ForbiddenException, Injectable } from "@nestjs/common";
+import {
+  ForbiddenException,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { RedisService } from "common/redis/RedisService";
 import { TranslationService } from "common/translation.service";
@@ -11,11 +16,16 @@ import { SystemRole, User } from "entities/user.entity";
 import { Repository } from "typeorm";
 
 @Injectable()
-export class AdminSettingsService {
+export class AdminSettingsService implements OnModuleInit {
   private static readonly CACHE_KEY = "global_admin_settings";
   //7 days
   private static readonly CACHE_TTL_SECONDS = 3600 * 24 * 7;
+  // Each process keeps its own copy; it must re-read Redis so an update made by
+  // another process (PM2 cluster) reaches it.
+  private static readonly MEMORY_TTL_MS = 30_000;
+  private readonly logger = new Logger(AdminSettingsService.name);
   private memoryCache: AdminSettingsEntity | null = null;
+  private memoryCachedAt = 0;
   private cacheRevision = 0;
 
   constructor(
@@ -73,9 +83,44 @@ export class AdminSettingsService {
     return this.cacheRevision;
   }
 
+  private remember(settings: AdminSettingsEntity) {
+    const prev = JSON.stringify(this.memoryCache?.billing ?? null);
+    if (JSON.stringify(settings.billing ?? null) !== prev) {
+      this.cacheRevision += 1;
+    }
+    this.memoryCache = settings;
+    this.memoryCachedAt = Date.now();
+  }
+
+  /** The database is the source of truth: rebuild both caches from it. */
+  async refreshFromDatabase(): Promise<AdminSettingsEntity> {
+    const settings = await this.loadOrCreateSettings();
+    settings.billing = sanitizeBilling(settings.billing);
+    this.remember(settings);
+    await this.cacheSettings(settings);
+    return settings;
+  }
+
+  async onModuleInit() {
+    try {
+      const settings = await this.refreshFromDatabase();
+      const hosted = settings.billing?.aiHosted;
+      this.logger.log(
+        `Admin settings cache rebuilt from database (aiHosted in=${hosted?.inputTokenPrice ?? "-"} out=${hosted?.outputTokenPrice ?? "-"})`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Admin settings cache rebuild failed: ${(err as Error)?.message}`,
+      );
+    }
+  }
+
   // Retrieves the global settings or creates a blank one if it's the first run
   async getSettings(): Promise<AdminSettingsEntity> {
-    if (this.memoryCache) {
+    if (
+      this.memoryCache &&
+      Date.now() - this.memoryCachedAt < AdminSettingsService.MEMORY_TTL_MS
+    ) {
       return this.memoryCache;
     }
 
@@ -84,15 +129,11 @@ export class AdminSettingsService {
     );
     if (cached && typeof cached !== "string") {
       cached.billing = sanitizeBilling(cached.billing);
-      this.memoryCache = cached;
+      this.remember(cached);
       return cached;
     }
 
-    const settings = await this.loadOrCreateSettings();
-    settings.billing = sanitizeBilling(settings.billing);
-    this.memoryCache = settings;
-    await this.cacheSettings(settings);
-    return settings;
+    return this.refreshFromDatabase();
   }
 
   // Updates the global settings
@@ -154,8 +195,7 @@ export class AdminSettingsService {
     });
 
     const saved = await this.settingsRepo.save(settings);
-    this.memoryCache = saved;
-    this.cacheRevision += 1;
+    this.remember(saved);
     await this.cacheSettings(saved);
     return saved;
   }
